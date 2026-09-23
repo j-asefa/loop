@@ -1,0 +1,15 @@
+# Architecture decision · 2026-09-23
+
+Baseline: j-asefa/loop main 7eac66767f8ad66575a521020d2e031a5627ca75; only README, no repository AGENTS or CI. GitHub connector supplies repository access; local git HTTPS has no credential. Preserve original signed root commit and publish Git objects through the connector.
+
+React + TypeScript + Vite, Express API, Better Auth, independent Node worker. SQLite WAL on one persistent host/volume; SQLite is the deployment database, not ephemeral function storage. FTS5 and separately stored provider embeddings support hybrid retrieval. Transactional queue/events, owner-scoped records, AES-GCM credentials bound to their owner. Text artifacts and versions are persisted in the database; file objects use owner-authorized access. A single durable host is a deliberate V0 limit; multi-host scaling needs a database migration.
+
+Runs have ordered event IDs, idempotency keys, per-agent ordering, heartbeat and explicit interruption. A dead worker never silently replays a possibly completed external action. Clients poll events by cursor and reconcile from persistent records. Separate provider adapters, workflow compiler/runtime, MCP broker and artifact renderers own those boundaries.
+
+Deployment: Node 24 container + persistent disk + HTTPS reverse proxy; API and worker share disk. No hosting account/domain or runtime provider credentials are present yet. Local product work remains independent. Codex requires a separately isolated runtime for each owner; no shared login directory or shell access to the application's credentials is permitted.
+
+Auth uses its own persistent `auth.db` on the same volume. Better Auth opens asynchronous transactions; a browser test exposed `SQLITE_BUSY_SNAPSHOT` when worker heartbeats wrote the same WAL during sign-up. Separating the databases removes that writer race without weakening transactions. Startup copies legacy maintained-auth tables from an earlier `loop.db` if needed; identity IDs are preserved. All workspace queries remain explicitly owner-scoped. Application mutations and migrations use immediate transactions so separate API/worker writes cannot invalidate a deferred read snapshot before its write. This also keeps state transitions reliable during request-rate counter updates; transactions contain synchronous database work only. Backups include both databases and separately secured encryption keys.
+
+## Subscription runtime extension
+
+The default provider path is now a subscription connection. A private authenticated broker owns Docker control and launches hardened per-connection containers using pinned, unmodified official CLIs. The app/worker never receive provider OAuth tokens; native credentials remain in their runtime volumes. Each turn checks subscription authentication, receives bounded Loop history, and returns a validated answer or a typed Loop tool request. Loop's durable approval broker still owns external execution; native model tools are disabled for these requests. API credentials are not inherited and there is no automatic API fallback. See SUBSCRIPTIONS.md for exact boundaries, buffering behavior and remaining live verification.

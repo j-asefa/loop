@@ -1,0 +1,146 @@
+import { Problem } from "./domain.js";
+import { db, emit, id, now } from "./db.js";
+export type Run = {
+  id: string;
+  owner_id: string;
+  agent_id: string | null;
+  conversation_id: string | null;
+  kind: string;
+  input: string;
+  state: string;
+  payload: string;
+  result: string | null;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+};
+export function enqueue(
+  owner: string,
+  input: string,
+  key: string,
+  options: {
+    agent?: string;
+    conversation?: string;
+    kind?: string;
+    payload?: unknown;
+  } = {},
+) {
+  return db
+    .transaction(() => {
+      const prior = db
+        .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
+        .get(owner, key) as Run | undefined;
+      if (prior) {
+        if (
+          prior.input !== input ||
+          prior.kind !== (options.kind || "agent") ||
+          prior.agent_id !== (options.agent || null) ||
+          prior.conversation_id !== (options.conversation || null) ||
+          prior.payload !== JSON.stringify(options.payload || {})
+        )
+          throw new Error(
+            "Idempotency key was already used for another request",
+          );
+        return prior;
+      }
+      const pending = db
+        .prepare(
+          "SELECT count(*) n FROM runs WHERE owner_id=? AND state IN ('queued','running','pausing','paused','awaiting_approval')",
+        )
+        .get(owner) as { n: number };
+      if (pending.n >= 100)
+        throw new Problem(
+          429,
+          "This workspace has 100 pending runs. Finish or cancel some before adding more.",
+        );
+      const runId = id();
+      db.prepare(
+        "INSERT INTO runs(id,owner_id,agent_id,conversation_id,kind,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,'queued',?,?,?,?)",
+      ).run(
+        runId,
+        owner,
+        options.agent || null,
+        options.conversation || null,
+        options.kind || "agent",
+        input,
+        key,
+        JSON.stringify(options.payload || {}),
+        now(),
+        now(),
+      );
+      emit(owner, runId, "queued", {});
+      return db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as Run;
+    })
+    .immediate();
+}
+export function claim(worker: string): Run | undefined {
+  return db
+    .transaction(() => {
+      const run = db
+        .prepare(
+          `SELECT r.* FROM runs r WHERE
+ (r.state='queued' OR (r.kind='workflow' AND r.state IN ('running','pausing') AND r.worker_id IS NULL))
+ AND NOT EXISTS(SELECT 1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.rowid)))
+ AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
+ ORDER BY r.created_at,r.rowid LIMIT 1`,
+        )
+        .get() as Run | undefined;
+      if (!run) return;
+      const state = run.state === "pausing" ? "pausing" : "running";
+      db.prepare(
+        "UPDATE runs SET state=?,worker_id=?,heartbeat=?,updated_at=?,active_since=COALESCE(active_since,?) WHERE id=?",
+      ).run(state, worker, now(), now(), now(), run.id);
+      emit(run.owner_id, run.id, "running", {
+        resumed: run.state !== "queued",
+      });
+      return { ...run, state };
+    })
+    .immediate();
+}
+export function transition(run: Run, state: string, payload: unknown = {}) {
+  return db
+    .transaction(() => {
+      const current = db
+        .prepare("SELECT state FROM runs WHERE id=?")
+        .get(run.id) as { state: string };
+      const legal: Record<string, string[]> = {
+        queued: ["cancelled", "paused"],
+        running: [
+          "completed",
+          "failed",
+          "pausing",
+          "cancelled",
+          "interrupted",
+          "awaiting_approval",
+        ],
+        pausing: ["paused", "failed", "cancelled", "interrupted"],
+        paused: ["queued", "completed", "cancelled"],
+        awaiting_approval: ["queued", "cancelled", "failed"],
+        interrupted: ["queued", "cancelled"],
+      };
+      if (!legal[current.state]?.includes(state)) return false;
+      const time = now();
+      db.prepare(
+        `UPDATE runs SET state=?,updated_at=?,
+      active_ms=active_ms+CASE WHEN active_since IS NOT NULL AND ? NOT IN ('running','pausing')
+        THEN max(0,(CASE WHEN ?='interrupted' THEN min(?,COALESCE(heartbeat,?)) ELSE ? END)-active_since) ELSE 0 END,
+      active_since=CASE WHEN ? IN ('running','pausing') THEN active_since ELSE NULL END
+      WHERE id=?`,
+      ).run(state, time, state, state, time, time, time, state, run.id);
+      emit(run.owner_id, run.id, state, payload);
+      return true;
+    })
+    .immediate();
+}
+export function recoverStale() {
+  const stale = db
+    .prepare(
+      "SELECT * FROM runs WHERE state IN ('running','pausing') AND worker_id IS NOT NULL AND heartbeat<?",
+    )
+    .all(now() - 60000) as Run[];
+  for (const run of stale)
+    transition(run, "interrupted", {
+      message:
+        "Worker stopped. Review partial output before retrying; external calls are not replayed automatically.",
+    });
+}

@@ -1,0 +1,14 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> loop@0.1.0 test
+> vitest run
+
+
+ RUN  v5.0.1 /workspace/scratch/1ff889b7003e/loop
+
+
+ Test Files  7 passed (7)
+      Tests  24 passed (24)
+   Start at  05:54:45
+   Duration  1.68s (import 50%, tests 25%, transform 24%, worker 1%)
+

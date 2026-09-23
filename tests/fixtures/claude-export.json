@@ -1,0 +1,26 @@
+[
+  {
+    "uuid": "claude-001",
+    "name": "A quiet workspace",
+    "created_at": "2024-01-02T10:00:00Z",
+    "chat_messages": [
+      {
+        "uuid": "c-user",
+        "sender": "human",
+        "text": "Summarise this document.",
+        "created_at": "2024-01-02T10:00:01Z",
+        "attachments": [
+          {
+            "file_name": "notes.pdf"
+          }
+        ]
+      },
+      {
+        "uuid": "c-answer",
+        "sender": "assistant",
+        "text": "The document is about durable work.",
+        "created_at": "2024-01-02T10:00:02Z"
+      }
+    ]
+  }
+]
