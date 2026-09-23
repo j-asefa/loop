@@ -1,0 +1,72 @@
+{
+  "name": "loop",
+  "version": "0.1.0",
+  "description": "A durable, phone-first agent workspace",
+  "main": "index.js",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "node --env-file=.env --import tsx src/server/index.ts",
+    "worker": "node --env-file=.env --import tsx src/server/worker.ts",
+    "ui": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node --import tsx src/server/index.ts",
+    "serve": "node scripts/serve.mjs",
+    "smoke:browser": "node scripts/browser-smoke.mjs",
+    "backup": "node --env-file=.env scripts/backup.mjs",
+    "smoke:journey": "node scripts/browser-journey.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/j-asefa/loop.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/j-asefa/loop/issues"
+  },
+  "homepage": "https://github.com/j-asefa/loop#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@modelcontextprotocol/ext-apps": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ajv": "^8.20.0",
+    "better-auth": "^1.7.5",
+    "better-sqlite3": "^13.0.3",
+    "dompurify": "^3.4.15",
+    "express": "^5.2.1",
+    "ipaddr.js": "^2.5.0",
+    "lucide-react": "^1.47.0",
+    "mermaid": "^12.0.0",
+    "multer": "^2.4.0",
+    "openai": "^7.22.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "undici": "^8.11.0",
+    "yauzl": "^3.4.0",
+    "zod": "^4.6.5",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@sparticuz/chromium": "^153.0.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/yauzl": "^3.4.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "prettier": "^3.9.8",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "private": true
+}

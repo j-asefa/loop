@@ -1,0 +1,53 @@
+[
+  {
+    "id": "chatgpt-001",
+    "title": "Market research",
+    "create_time": 1700000000,
+    "current_node": "answer",
+    "mapping": {
+      "root": {
+        "parent": null,
+        "message": null
+      },
+      "prompt": {
+        "parent": "root",
+        "message": {
+          "id": "m-user",
+          "author": {
+            "role": "user"
+          },
+          "content": {
+            "parts": ["How do bids work?"]
+          },
+          "create_time": 1700000001
+        }
+      },
+      "alternate": {
+        "parent": "prompt",
+        "message": {
+          "id": "m-alt",
+          "author": {
+            "role": "assistant"
+          },
+          "content": {
+            "parts": ["Alternate answer"]
+          },
+          "create_time": 1700000002
+        }
+      },
+      "answer": {
+        "parent": "prompt",
+        "message": {
+          "id": "m-answer",
+          "author": {
+            "role": "assistant"
+          },
+          "content": {
+            "parts": ["Bids are buy orders."]
+          },
+          "create_time": 1700000003
+        }
+      }
+    }
+  }
+]
