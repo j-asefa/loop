@@ -1,3 +1,4 @@
+import { Problem } from "../../src/server/domain";
 // Explicit test entrypoints only. No HTTP route enables these adapters.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -21,6 +22,47 @@ for (const provider of ["openai", "anthropic"] as const)
       ];
     },
     async *stream(_key, input) {
+      if (input.messages.at(-1)?.content === "failure-visibility-fixture")
+        throw new Problem(422, "Tool input schema is unsupported");
+      if (
+        input.messages.some((m) =>
+          m.content.startsWith("approval-navigation-fixture"),
+        ) &&
+        !input.messages.some((m) => m.role === "tool")
+      ) {
+        yield {
+          toolCall: {
+            id: "navigation-fixture",
+            name: input.tools!.find((t) =>
+              t.description.includes("Browser navigation fixture"),
+            )!.name,
+            arguments: {
+              url: "https://example.com/search?q=Codex+shared+context+and+skills&source=approval-review-fixture-with-a-long-readable-target",
+            },
+          },
+        };
+        return;
+      }
+      if (
+        input.instructions?.startsWith("fixture-team:") &&
+        !input.messages.some((m) => m.role === "tool")
+      ) {
+        yield {
+          toolCall: {
+            id: "fixture-delegation",
+            name: "loop_delegate",
+            arguments: {
+              tasks: [
+                {
+                  agentId: input.instructions.slice(13),
+                  input: "Collect evidence for the team",
+                },
+              ],
+            },
+          },
+        };
+        return;
+      }
       if (
         input.tools?.length &&
         input.messages.some((m) => /latency/i.test(m.content)) &&
@@ -83,6 +125,16 @@ withTestMcp(async (c) => {
         ],
         source: { fixture: true },
       },
+    }),
+  );
+  server.registerTool(
+    "browser_navigate",
+    {
+      description: "Browser navigation fixture",
+      inputSchema: { url: z.string() },
+    },
+    async () => ({
+      content: [{ type: "text", text: "Fixture navigation complete" }],
     }),
   );
   server.registerResource(

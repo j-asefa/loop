@@ -9,6 +9,13 @@ export async function api<T = any>(
     body: body ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
   });
+  if (
+    r.redirected &&
+    !r.headers.get("content-type")?.includes("application/json")
+  ) {
+    window.dispatchEvent(new Event("loop-auth-expired"));
+    throw new Error("Sign in to continue.");
+  }
   const data = await r
     .json()
     .catch(() => ({ error: "Connection unavailable. Try again." }));

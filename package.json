@@ -31,6 +31,7 @@
   "homepage": "https://github.com/j-asefa/loop#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
+    "@huggingface/transformers": "4.3.0",
     "@modelcontextprotocol/ext-apps": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "ajv": "^8.20.0",
@@ -47,10 +48,10 @@
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "tsx": "^4.23.15",
     "undici": "^8.11.0",
     "yauzl": "^3.4.0",
-    "zod": "^4.6.5",
-    "tsx": "^4.23.15"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

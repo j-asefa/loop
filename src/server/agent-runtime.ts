@@ -1,10 +1,13 @@
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
+import { nativeBindings, invokeNative } from "./native-tools.js";
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
 import { enqueue, type Run, transition } from "./queue.js";
 import { owned, Problem } from "./domain.js";
-import { streamConnection } from "./subscriptions.js";
+import { streamConnection, isSubscription } from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
+import { recordTrace } from "./traces.js";
+import { toolErrorMessage } from "./mcp/results.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 export type Snapshot = {
   agentId: string;
@@ -17,6 +20,7 @@ export type Snapshot = {
   maxTokens?: number;
   maxSeconds?: number;
   source?: { url: string; title: string; excerpt: string };
+  teamId?: string;
 };
 export function submit(
   owner: string,
@@ -25,8 +29,9 @@ export function submit(
     conversationId?: string;
     input: string;
     idempotencyKey: string;
-    folderId?: string;
+    folderId?: string | null;
     source?: { url: string; title: string; excerpt: string };
+    teamId?: string;
   },
 ) {
   return db
@@ -51,25 +56,60 @@ export function submit(
           prior.agent_id !== agent.id ||
           (data.conversationId &&
             prior.conversation_id !== data.conversationId) ||
-          JSON.parse(prior.payload).folderId !== (data.folderId || null)
+          (data.folderId !== undefined &&
+            JSON.parse(prior.payload).folderId !== data.folderId)
         )
           throw new Problem(409, "This request key belongs to different work");
         return prior;
       }
-      let conversation = data.conversationId;
+      let conversation = data.conversationId,
+        teamId = data.teamId;
+      let folderId =
+        data.folderId === undefined ? agent.folder_id || null : data.folderId;
       if (conversation) {
-        const c = owned<{ agent_id: string }>(
+        const c = owned<{ agent_id: string; team_id: string | null }>(
           "conversations",
           conversation,
           owner,
         );
         if (c.agent_id !== agent.id)
           throw new Problem(400, "This conversation belongs to another agent");
+        if (teamId && c.team_id !== teamId)
+          throw new Problem(400, "Conversation belongs to another team");
+        teamId = c.team_id || undefined;
+        if (data.folderId === undefined) {
+          const previous = db
+            .prepare(
+              "SELECT payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+            )
+            .get(owner, conversation) as { payload: string } | undefined;
+          if (previous)
+            folderId = JSON.parse(previous.payload).folderId ?? null;
+        }
       } else {
+        if (teamId) {
+          const team = owned<any>("teams", teamId, owner);
+          if (
+            team.manager_id !== agent.id &&
+            !db
+              .prepare(
+                "SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?",
+              )
+              .get(teamId, agent.id)
+          )
+            throw new Problem(403, "Agent is not a member of this team");
+        }
         conversation = id();
         db.prepare(
-          "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-        ).run(conversation, owner, agent.id, data.input.slice(0, 100), now());
+          "INSERT INTO conversations(id,owner_id,agent_id,title,created_at,team_id) VALUES(?,?,?,?,?,?)",
+        ).run(
+          conversation,
+          owner,
+          agent.id,
+          data.input.slice(0, 100),
+          now(),
+          teamId || null,
+        );
       }
       const snapshot: Snapshot = {
         agentId: agent.id,
@@ -78,8 +118,9 @@ export function submit(
         connectionId: connection.id,
         model: agent.model,
         instructions: agent.instructions,
-        folderId: data.folderId || null,
+        folderId,
         source: data.source,
+        teamId,
       };
       const run = enqueue(owner, data.input, data.idempotencyKey, {
         agent: agent.id,
@@ -155,6 +196,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   let history = JSON.parse(cp.history) as ChatMessage[],
     output = cp.output as string,
     round = cp.round as number;
+  if (cp.stage === "done") return true;
   const persist = db.transaction((partial: boolean) => {
     const metadata = JSON.stringify({
       ...snapshot,
@@ -182,7 +224,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
-    Math.min(snapshot.maxSeconds || 180, 1800) * 1000,
+    Math.min(
+      snapshot.maxSeconds || (isSubscription(connection) ? 1800 : 180),
+      1800,
+    ) * 1000,
   );
   const monitor = setInterval(() => {
     const state = (
@@ -199,7 +244,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
       controller.abort();
   }, 300);
   try {
-    while (round < 7) {
+    for (;;) {
+      controller.signal.throwIfAborted();
       const boundary = (
         db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
           state: string;
@@ -222,17 +268,69 @@ export async function executeAgent(run: Run): Promise<boolean> {
       if (cp.stage === "tools") {
         for (const invocation of pending) {
           if (invocation.done) continue;
-          const outcome = await invokeTool(
+          const traceKey = "tool:" + invocation.call.id;
+          const trace = {
+            kind: "tool" as const,
+            title: invocation.binding.tool,
+          };
+          recordTrace(run, traceKey, {
+            ...trace,
+            metadata: { state: "running" },
+          });
+          const outcome = await (
+            invocation.binding.connectionId === "__loop__"
+              ? invokeNative
+              : invokeTool
+          )(
             run,
             invocation.binding,
             invocation.call.id,
             invocation.call.arguments,
           );
           if ("pending" in outcome) {
+            recordTrace(run, traceKey, {
+              ...trace,
+              metadata: { state: "waiting" },
+            });
             persist(true);
+            // Release the lease only after the checkpoint is saved. A fast
+            // worker must not resume this manager while it still persists.
+            if (
+              invocation.binding.tool === "loop_delegate" &&
+              invocation.binding.connectionId === "__loop__"
+            ) {
+              db.transaction(() => {
+                const state = owned<Run>("runs", run.id, run.owner_id).state;
+                if (state === "running" || state === "pausing") {
+                  db.prepare(
+                    "UPDATE runs SET worker_id=NULL,heartbeat=NULL,active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,?-active_since) ELSE 0 END,active_since=NULL WHERE id=?",
+                  ).run(now(), run.id);
+                  if (state === "pausing") transition(run, "paused");
+                  else emit(run.owner_id, run.id, "waiting_children", {});
+                }
+              }).immediate();
+            }
             return false;
           }
+          recordTrace(run, traceKey, {
+            ...trace,
+            content:
+              outcome.result.isError === true
+                ? toolErrorMessage(outcome.result)
+                : outcome.artifactId
+                  ? ""
+                  : JSON.stringify(outcome.result.content || []).slice(
+                      0,
+                      30000,
+                    ),
+            artifactId: outcome.artifactId,
+            metadata: {
+              state: outcome.result.isError === true ? "failed" : "completed",
+              isError: outcome.result.isError === true,
+            },
+          });
           const modelContent = JSON.stringify({
+            isError: outcome.result.isError === true,
             structuredContent: outcome.result.structuredContent,
             content: outcome.result.content?.filter(
               (x: any) => x.type === "text",
@@ -242,6 +340,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
             role: "tool",
             toolCallId: invocation.call.id,
             content: modelContent,
+            isError: outcome.result.isError === true,
           });
           invocation.done = true;
           db.prepare(
@@ -279,9 +378,24 @@ export async function executeAgent(run: Run): Promise<boolean> {
         throw new Problem(409, "Provider was disconnected.");
       const bindings = snapshot.workflowRun
         ? []
-        : toolBindings(run.owner_id, run.agent_id!);
+        : [
+            ...toolBindings(run.owner_id, run.agent_id!),
+            ...nativeBindings(run),
+          ];
       const calls: ToolCall[] = [];
       let turnText = "";
+      // Each provider round is a trace. Only the round with no tool calls
+      // becomes the saved answer; earlier commentary must not accumulate in it.
+      output = "";
+      const traceKey = "turn:" + round;
+      const saveTurn = (final = false) =>
+        recordTrace(run, traceKey, {
+          kind: "message",
+          title: final ? "Final answer" : "Agent update",
+          content: turnText,
+          metadata: { final, round },
+        });
+      saveTurn();
       emit(run.owner_id, run.id, "message.started", {
         messageId: cp.message_id,
         round,
@@ -295,9 +409,20 @@ export async function executeAgent(run: Run): Promise<boolean> {
         maxTokens: snapshot.maxTokens,
         tools: bindings.length ? bindings : undefined,
       })) {
+        if (chunk.trace) {
+          const trace = chunk.trace;
+          recordTrace(run, `runtime:${round}:${trace.id}`, {
+            kind: trace.kind,
+            title: trace.title,
+            content: trace.content,
+            metadata: { native: true, state: trace.state },
+          });
+          emit(run.owner_id, run.id, "trace.updated", { round });
+        }
         if (chunk.text) {
           turnText += chunk.text;
           output += chunk.text;
+          saveTurn();
           persist(true);
           emit(run.owner_id, run.id, "message.delta", {
             messageId: cp.message_id,
@@ -318,6 +443,16 @@ export async function executeAgent(run: Run): Promise<boolean> {
             externalId: chunk.externalId,
           });
       }
+      controller.signal.throwIfAborted();
+      if (owned<Run>("runs", run.id, run.owner_id).state === "cancelled") {
+        persist(true);
+        return false;
+      }
+      if (!calls.length && !turnText.trim())
+        throw new Problem(
+          422,
+          "The provider finished without an answer. Retry this task to request a response.",
+        );
       round++;
       history.push({
         role: "assistant",
@@ -325,6 +460,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         toolCalls: calls.length ? calls : undefined,
       });
       if (!calls.length) {
+        saveTurn(true);
         persist(false);
         db.prepare("UPDATE runs SET result=? WHERE id=?").run(output, run.id);
         db.prepare(
@@ -352,7 +488,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         if (!binding)
           throw new Problem(
             403,
-            "Model requested a tool outside its granted list",
+            "Model requested a tool outside its available catalog",
           );
         if (
           !call.arguments ||
@@ -368,12 +504,16 @@ export async function executeAgent(run: Run): Promise<boolean> {
         "UPDATE agent_checkpoints SET round=?,history=?,pending=?,stage='tools' WHERE run_id=?",
       ).run(round, JSON.stringify(history), cp.pending, run.id);
     }
-    throw new Problem(
-      422,
-      "Agent reached its seven-turn budget. Start a new task to continue.",
-    );
   } catch (error) {
     persist(true);
+    if (controller.signal.aborted) {
+      const current = owned<Run>("runs", run.id, run.owner_id);
+      if (current.state === "cancelled") return false;
+      throw new Problem(
+        408,
+        "The run stopped before an answer was completed. Check the provider connection and review partial work before retrying.",
+      );
+    }
     throw error;
   } finally {
     clearInterval(monitor);

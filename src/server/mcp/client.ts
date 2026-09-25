@@ -10,6 +10,8 @@ import { owned, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { safeFetch, safeUrl } from "./network.js";
 import { config } from "../config.js";
+import { RuntimeTransport } from "./runtime-transport.js";
+import { workspaceToolBindings, ToolBudgetError } from "./tool-budget.js";
 export type MCPConnection = {
   id: string;
   owner_id: string;
@@ -21,16 +23,31 @@ export type MCPConnection = {
   metadata: string;
 };
 export type AuthSecret = {
-  type: "none" | "bearer" | "headers" | "oauth";
+  type: "none" | "bearer" | "headers" | "oauth" | "query";
+  query?: Record<string, string | string[]>;
   token?: string;
   headers?: Record<string, string>;
   tokens?: any;
   client?: any;
+  registeredClient?: boolean;
   verifier?: string;
   discovery?: any;
+  stdio?: { command: string; args: string[]; env: Record<string, string> };
 };
 export function readSecret(c: MCPConnection): AuthSecret {
   return c.secret ? JSON.parse(unseal(c.secret, c.owner_id)) : { type: "none" };
+}
+export function connectionUrl(c: MCPConnection) {
+  const url = safeUrl(c.url);
+  // Some publishers require keys in the query string. Keep them encrypted and
+  // add them only at the outbound transport boundary, never to public records.
+  const secret = readSecret(c);
+  for (const [key, value] of Object.entries(secret.query || {})) {
+    url.searchParams.delete(key);
+    for (const item of Array.isArray(value) ? value : [value])
+      url.searchParams.append(key, item);
+  }
+  return url;
 }
 function updateSecret(c: MCPConnection, patch: Partial<AuthSecret>) {
   const fresh = owned<MCPConnection>("mcp_connections", c.id, c.owner_id),
@@ -54,7 +71,9 @@ export function oauthProvider(c: MCPConnection) {
         redirect_uris: [String(this.redirectUrl)],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
-        token_endpoint_auth_method: "none",
+        token_endpoint_auth_method: current().client?.client_secret
+          ? "client_secret_post"
+          : "none",
       };
     },
     state() {
@@ -103,12 +122,13 @@ export function oauthProvider(c: MCPConnection) {
       if (scope === "all")
         updateSecret(c, {
           tokens: undefined,
-          client: undefined,
+          client: current().registeredClient ? current().client : undefined,
           verifier: undefined,
           discovery: undefined,
         });
       else if (scope === "tokens") updateSecret(c, { tokens: undefined });
-      else if (scope === "client") updateSecret(c, { client: undefined });
+      else if (scope === "client" && !current().registeredClient)
+        updateSecret(c, { client: undefined });
       else if (scope === "verifier") updateSecret(c, { verifier: undefined });
       else updateSecret(c, { discovery: undefined });
     },
@@ -118,7 +138,7 @@ export function oauthProvider(c: MCPConnection) {
 export async function authorize(c: MCPConnection, code?: string) {
   const p = oauthProvider(c);
   const result = await auth(p.provider, {
-    serverUrl: new URL(c.url),
+    serverUrl: connectionUrl(c),
     authorizationCode: code,
     fetchFn: safeFetch,
   });
@@ -134,7 +154,8 @@ export function withTestMcp(factory: (c: MCPConnection) => Promise<Client>) {
 }
 export async function connect(c: MCPConnection): Promise<Client> {
   if (testFactory) return testFactory(c);
-  safeUrl(c.url);
+  const metadata = JSON.parse(c.metadata);
+  if (metadata.transport !== "stdio") safeUrl(c.url);
   const secret = readSecret(c),
     client = new Client(
       { name: "loop", version: "0.1.0" },
@@ -155,13 +176,25 @@ export async function connect(c: MCPConnection): Promise<Client> {
         ? secret.headers
         : undefined;
   const oauth = secret.type === "oauth" ? oauthProvider(c) : undefined;
-  const transport = new StreamableHTTPClientTransport(new URL(c.url), {
-    requestInit: { headers },
-    fetch: safeFetch,
-    authProvider: oauth?.provider,
-  });
+  const transport =
+    metadata.transport === "stdio"
+      ? new RuntimeTransport(
+          c.owner_id,
+          secret.stdio ||
+            (() => {
+              throw new Problem(400, "Reconnect this MCP configuration");
+            })(),
+          metadata.runtimeHostId,
+        )
+      : new StreamableHTTPClientTransport(connectionUrl(c), {
+          requestInit: { headers },
+          fetch: safeFetch,
+          authProvider: oauth?.provider,
+        });
   try {
-    await client.connect(transport, { timeout: 20000 });
+    await client.connect(transport, {
+      timeout: metadata.transport === "stdio" ? 90000 : 20000,
+    });
     return client;
   } catch (error) {
     await client.close().catch(() => {});
@@ -218,10 +251,20 @@ export async function discover(c: MCPConnection) {
     };
     if (JSON.stringify({ tools, metadata }).length > 500000)
       throw new Problem(422, "Server descriptors exceed size limits");
-    db.prepare(
-      "UPDATE mcp_connections SET tools=?,metadata=?,status='connected' WHERE id=?",
-    ).run(JSON.stringify(tools), JSON.stringify(metadata), c.id);
+    db.transaction(() => {
+      // Concurrent discoveries must check and enable against the same snapshot.
+      workspaceToolBindings(c.owner_id, { ...c, tools: JSON.stringify(tools) });
+      db.prepare(
+        "UPDATE mcp_connections SET tools=?,metadata=?,status='connected' WHERE id=?",
+      ).run(JSON.stringify(tools), JSON.stringify(metadata), c.id);
+    }).immediate();
     return { tools, metadata };
+  } catch (error) {
+    if (error instanceof ToolBudgetError)
+      db.prepare("UPDATE mcp_connections SET status='disabled' WHERE id=?").run(
+        c.id,
+      );
+    throw error;
   } finally {
     await client.close();
   }

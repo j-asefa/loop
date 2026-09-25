@@ -76,11 +76,17 @@ export function enqueue(
 export function claim(worker: string): Run | undefined {
   return db
     .transaction(() => {
+      // Delegated work can pass queued tasks and released managers to unblock
+      // their dependency chains. Pauses and approvals still block the queue.
+      // Since this can run out of enqueue order, check every active lease too.
       const run = db
         .prepare(
           `SELECT r.* FROM runs r WHERE
- (r.state='queued' OR (r.kind='workflow' AND r.state IN ('running','pausing') AND r.worker_id IS NULL))
- AND NOT EXISTS(SELECT 1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.rowid)))
+ (r.state='queued' OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id))))
+ AND NOT EXISTS(SELECT 1 FROM runs busy WHERE busy.agent_id=r.agent_id AND busy.id<>r.id AND busy.state IN ('running','pausing') AND busy.worker_id IS NOT NULL)
+ AND NOT EXISTS(SELECT 1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.rowid))
+   AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id)))))
+ AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
  ORDER BY r.created_at,r.rowid LIMIT 1`,
         )

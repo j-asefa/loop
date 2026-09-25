@@ -136,6 +136,21 @@ export function ArtifactViewer({
       )}
       {error && <p className="error">{error}</p>}
       <div className="actions">
+        {item.feed_hidden === 1 && (
+          <button
+            onClick={async () => {
+              try {
+                await api("/feed/" + item.id, { hidden: false }, "PATCH");
+                onChanged();
+                onClose();
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            Restore to feed
+          </button>
+        )}
         {meta.connectionId && (
           <button
             onClick={async () => {

@@ -105,17 +105,13 @@ it("moves and undoes atomically without duplicate objects and rejects stale undo
   moveArtifact("alice", a, p);
   expect(() => undoMove("alice", first.operation)).toThrow(/changed/);
 });
+// Allow fixture insertion on busy developer machines; the measured retrieval
+// still has its own two-second performance assertion below.
 it("performs tenant-scoped FTS retrieval across 10,000 messages", () => {
   const c = id();
-  db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?,?,?)").run(
-    c,
-    "scale-user",
-    null,
-    "Scale fixture",
-    "fixture",
-    null,
-    now(),
-  );
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
+  ).run(c, "scale-user", null, "Scale fixture", "fixture", null, now());
   const insert = db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)");
   const begin = performance.now();
   db.transaction(() => {
@@ -145,7 +141,7 @@ it("performs tenant-scoped FTS retrieval across 10,000 messages", () => {
       paraphraseLive: "BLOCKED: no embedding credential",
     }),
   );
-});
+}, 20000);
 it("labels abandoned runs interrupted rather than replaying an external request", () => {
   const run = enqueue("alice", "stale", "stale-test-key", {
     kind: "diagnostic",

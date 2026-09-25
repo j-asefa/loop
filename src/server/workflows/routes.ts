@@ -1,3 +1,4 @@
+import { teamFilter } from "../teams.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "../db.js";
@@ -119,15 +120,23 @@ workflows.get("/runs/:id/steps", (req, res) => {
       .all(req.params.id),
   );
 });
-workflows.get("/approvals", (_req, res) =>
+workflows.get("/approvals", (req, res) => {
+  const teams = teamFilter(req.query.teams, res.locals.owner);
+  const filter = teams.length
+    ? " AND json_extract(r.payload,'$.teamId') IN (" +
+      teams.map(() => "?").join(",") +
+      ")"
+    : "";
   res.json(
     db
       .prepare(
-        "SELECT a.* FROM approvals a JOIN runs r ON r.id=a.run_id WHERE a.owner_id=? AND a.state='pending' AND r.state='awaiting_approval' ORDER BY a.created_at",
+        "SELECT a.*,r.conversation_id,r.input,agent.name,agent.provider FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents agent ON agent.id=r.agent_id AND agent.owner_id=a.owner_id WHERE a.owner_id=? AND a.state='pending' AND r.state='awaiting_approval'" +
+          filter +
+          " ORDER BY a.created_at",
       )
-      .all(res.locals.owner),
-  ),
-);
+      .all(res.locals.owner, ...teams),
+  );
+});
 workflows.post("/approvals/:id", (req, res) => {
   const d = z
     .object({ decision: z.enum(["approve", "reject"]) })

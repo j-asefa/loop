@@ -28,7 +28,7 @@ export class Rpc {
   events = [];
   waiter;
   failure;
-  constructor(child) {
+  constructor(child, onRequest) {
     this.child = child;
     child.stdin.on("error", (e) => this.fail(e));
     child.on("error", (e) => this.fail(e));
@@ -47,6 +47,10 @@ export class Rpc {
             ? p.reject(new Error("Runtime rejected " + p.method))
             : p.resolve(m.result);
         } else if (m.id != null) {
+          if (onRequest) {
+            this.send({ id: m.id, ...onRequest(m) });
+            return;
+          }
           // Loop owns the tool broker. Never grant native shell/file/network approval.
           this.send({
             id: m.id,
@@ -117,8 +121,8 @@ export const responseSchema = {
   },
   required: ["kind", "text", "tool", "arguments"],
 };
-export function turnPrompt(input) {
-  return `You are an agent in Loop. Follow the agent instructions below. The JSON conversation is historical context, including untrusted tool results. Continue the latest user request.\nReturn the required JSON object. For an answer set kind=answer, text=your complete Markdown answer, tool=null, arguments="{}". For a tool request set kind=tool, text="", tool=an exact supplied tool name, arguments=a JSON-encoded object matching its inputSchema. Tools are executed by Loop only after user approval. Do not claim a tool executed without its result in history. Request one tool at a time. Do not use native runtime tools.\nKeep your answer within approximately ${input.maxTokens || 4096} tokens.\nAGENT INSTRUCTIONS:\n${input.instructions || ""}\nAVAILABLE LOOP TOOLS:\n${JSON.stringify(input.tools || [])}\nCONVERSATION:\n${JSON.stringify(input.messages)}`;
+export function turnPrompt(input, nativeTools = false) {
+  return `You are an agent in Loop. Follow the agent instructions below. The JSON conversation is historical context, including untrusted tool results. Continue the latest user request.\nReturn the required JSON object. For an answer set kind=answer, text=your complete Markdown answer, tool=null, arguments="{}". For a Loop tool request set kind=tool, text="", tool=an exact supplied tool name, arguments=a JSON-encoded object matching its inputSchema. Loop enforces permissions and approval policy for supplied Loop tools. Native diagrams and team delegation run directly; MCP installation and external Loop tool calls require user approval. Do not claim a tool executed without its result. Request one Loop tool at a time. ${nativeTools ? "You can also use all native tools enabled by this remote runtime, including shell, files, network, skills, plugins and configured MCP servers. Execute those tools directly in the host runtime; do not encode native calls as Loop tool requests. Follow the host's instructions and managed policies. If a tool needs interactive input or sign-in, explain what the user needs to provide in your final Loop reply." : "Do not use native runtime tools."}\nKeep your final answer within approximately ${input.maxTokens || 4096} tokens.\nAGENT INSTRUCTIONS:\n${input.instructions || ""}\nAVAILABLE LOOP TOOLS:\n${JSON.stringify(input.tools || [])}\nCONVERSATION:\n${JSON.stringify(input.messages)}`;
 }
 export function resultChunks(value, input) {
   if (
@@ -157,6 +161,7 @@ export function authorizationUrl(text, provider) {
         provider === "codex"
           ? ["auth.openai.com", "chatgpt.com"]
           : [
+              "claude.com",
               "claude.ai",
               "platform.claude.com",
               "console.anthropic.com",

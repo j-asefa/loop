@@ -1,4 +1,5 @@
 import { executeMcp } from "./mcp/routes.js";
+import { closeFinishedSessions } from "./mcp/sessions.js";
 import { executeWorkflow } from "./workflows/runtime.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
@@ -6,6 +7,7 @@ import { executeImport } from "./imports.js";
 import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
 import { claim, recoverStale, transition, type Run } from "./queue.js";
+import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -15,6 +17,7 @@ export async function tick(
     });
   },
 ) {
+  await closeFinishedSessions();
   recoverStale();
   const run = claim(workerId);
   if (!run) return false;
@@ -29,7 +32,9 @@ export async function tick(
     const complete = await execute(run);
     if (complete !== false) transition(run, "completed");
   } catch (error) {
-    db.prepare("UPDATE runs SET error=? WHERE id=?").run(
+    db.prepare(
+      "UPDATE runs SET error=? WHERE id=? AND state IN ('running','pausing','awaiting_approval')",
+    ).run(
       error instanceof Problem
         ? error.message
         : "Execution failed. Check connection and retry explicitly.",
@@ -42,6 +47,7 @@ export async function tick(
     transition(run, "failed");
   } finally {
     clearInterval(heartbeat);
+    await closeFinishedSessions();
   }
   return true;
 }
@@ -58,6 +64,7 @@ export async function execute(run: Run) {
   else return executeAgent(run);
 }
 if (process.argv[1]?.endsWith("/worker.ts")) {
+  migrateMcpUrlCredentials();
   let active = 0;
   const heartbeat = () =>
     db

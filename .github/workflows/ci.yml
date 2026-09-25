@@ -15,9 +15,11 @@ jobs:
       - run: npm run setup
       - run: npm run build
       - run: npm test
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run smoke:browser
+      - run: LOOP_BROWSER=webkit npm run smoke:browser
       - run: npm run smoke:journey
+      - run: LOOP_BROWSER=webkit npm run smoke:journey
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -35,6 +37,7 @@ jobs:
       - run: docker compose config --quiet
       - run: docker compose up --build -d
       - run: node scripts/compose-smoke.mjs
+      - run: docker run --rm --network none --entrypoint node -i loop-runtime:0.2 --input-type=module < scripts/native-harness-smoke.mjs
       - if: failure()
         run: docker compose logs --tail=100 loop runtime-broker runtime-image
       - if: always()

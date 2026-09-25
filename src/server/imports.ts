@@ -280,36 +280,41 @@ export async function stageImport(owner: string, bytes: Buffer, name: string) {
   if (prior)
     return { ...prior, summary: JSON.parse(prior.summary), duplicate: true };
   const parsed = await readArchive(bytes, name);
-  return db.transaction(() => {
-    const objectId = id(),
-      job = id();
-    db.prepare("INSERT INTO objects VALUES(?,?,?,?,?,?)").run(
-      objectId,
-      owner,
-      name.slice(0, 180),
-      "application/octet-stream",
-      bytes,
-      now(),
-    );
-    const summary = {
-      objectId,
-      conversations: parsed.conversations.length,
-      messages: parsed.conversations.reduce((n, c) => n + c.messages.length, 0),
-      attachments: parsed.attachments.length,
-      warnings: parsed.warnings.slice(0, 100),
-      titles: parsed.conversations.slice(0, 5).map((c) => c.title),
-      completed: 0,
-    };
-    db.prepare("INSERT INTO imports VALUES(?,?,?,?,'preview',?,?)").run(
-      job,
-      owner,
-      parsed.provider,
-      checksum,
-      JSON.stringify(summary),
-      now(),
-    );
-    return { id: job, provider: parsed.provider, status: "preview", summary };
-  }).immediate();
+  return db
+    .transaction(() => {
+      const objectId = id(),
+        job = id();
+      db.prepare("INSERT INTO objects VALUES(?,?,?,?,?,?)").run(
+        objectId,
+        owner,
+        name.slice(0, 180),
+        "application/octet-stream",
+        bytes,
+        now(),
+      );
+      const summary = {
+        objectId,
+        conversations: parsed.conversations.length,
+        messages: parsed.conversations.reduce(
+          (n, c) => n + c.messages.length,
+          0,
+        ),
+        attachments: parsed.attachments.length,
+        warnings: parsed.warnings.slice(0, 100),
+        titles: parsed.conversations.slice(0, 5).map((c) => c.title),
+        completed: 0,
+      };
+      db.prepare("INSERT INTO imports VALUES(?,?,?,?,'preview',?,?)").run(
+        job,
+        owner,
+        parsed.provider,
+        checksum,
+        JSON.stringify(summary),
+        now(),
+      );
+      return { id: job, provider: parsed.provider, status: "preview", summary };
+    })
+    .immediate();
 }
 export async function executeImport(run: Run) {
   const { importId } = JSON.parse(run.payload);
@@ -364,7 +369,9 @@ export async function executeImport(run: Run) {
         { id: string } | undefined;
       if (!conversation) {
         conversation = { id: id() };
-        db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?,?,?)").run(
+        db.prepare(
+          "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
+        ).run(
           conversation.id,
           run.owner_id,
           agentId,

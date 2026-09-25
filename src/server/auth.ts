@@ -72,3 +72,10 @@ export async function migrateAuth() {
   const { runMigrations } = await getMigrations(auth.options);
   await runMigrations();
 }
+export function workspaceAccounts() {
+  return db.prepare("SELECT id,name,email FROM user ORDER BY id").all() as {
+    id: string;
+    name: string;
+    email: string;
+  }[];
+}

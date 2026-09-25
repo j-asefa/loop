@@ -1,17 +1,36 @@
+import { createServer as reservePort } from "node:net";
+async function freePort() {
+  const server = reservePort();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+const port = await freePort(),
+  base = "http://localhost:" + port;
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "loop-browser-"));
 import { spawn } from "node:child_process";
-import { chromium } from "@playwright/test";
+import { chromium, webkit, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 const server = spawn(
   process.execPath,
   ["--env-file=.env", "--import", "tsx", "src/server/index.ts"],
   {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, LOOP_DATA_DIR: dir },
+    env: {
+      ...process.env,
+      LOOP_DATA_DIR: dir,
+      PORT: String(port),
+      LOOP_URL: base,
+      LOOP_AUTH_MODE: "single-user",
+    },
   },
 );
 const worker = spawn(
@@ -19,7 +38,12 @@ const worker = spawn(
   ["--env-file=.env", "--import", "tsx", "src/server/worker.ts"],
   {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, LOOP_DATA_DIR: dir },
+    env: {
+      ...process.env,
+      LOOP_DATA_DIR: dir,
+      PORT: String(port),
+      LOOP_URL: base,
+    },
   },
 );
 let browser, page;
@@ -28,35 +52,33 @@ server.stderr.on("data", (b) => (logs += b));
 try {
   for (let i = 0; i < 60; i++) {
     try {
-      if ((await fetch("http://localhost:3000/api/health")).ok) break;
+      if ((await fetch(base + "/api/health")).ok) break;
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
-  browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || undefined,
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-    headless: true,
-  });
+  browser =
+    process.env.LOOP_BROWSER === "webkit"
+      ? await webkit.launch({ headless: true })
+      : await chromium.launch({
+          executablePath: process.env.CHROMIUM_PATH || undefined,
+          args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+          headless: true,
+        });
   page = await browser.newPage({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 1,
   });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("http://localhost:3000");
-  await page.getByText("New here? Create an account").click();
-  await page.getByLabel("Your name").fill("Workspace tester");
-  await page
-    .getByLabel("Email", { exact: true })
-    .fill(`browser-${crypto.randomUUID()}@example.com`);
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill(crypto.randomUUID() + "Ab1!");
-  await page
-    .getByRole("button", { name: "Create account", exact: true })
-    .click();
+  await page.goto(base);
   await page.getByRole("heading", { name: "Your loop." }).waitFor();
-  await page.screenshot({ path: "docs/loop-v0/evidence/mobile-empty.png" });
+  await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
+  assert.equal(
+    (await page.context().cookies()).length,
+    0,
+    "Personal workspace needs no login cookie",
+  );
+  await page.screenshot({ path: join(dir, "mobile-empty.png") });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Import conversations/ }).click();
   await page
@@ -73,7 +95,7 @@ try {
   await page
     .getByRole("heading", { name: "Market research", exact: true })
     .waitFor();
-  await page.screenshot({ path: "docs/loop-v0/evidence/mobile-feed.png" });
+  await page.screenshot({ path: join(dir, "mobile-feed.png") });
   await page
     .getByRole("navigation")
     .last()
@@ -106,7 +128,7 @@ try {
   await page.getByRole("button", { name: "dark", exact: true }).click();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
-  await page.screenshot({ path: "docs/loop-v0/evidence/mobile-dark.png" });
+  await page.screenshot({ path: join(dir, "mobile-dark.png") });
   await page.reload();
   await page.getByRole("heading", { name: "Your loop." }).waitFor();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
@@ -146,7 +168,8 @@ try {
     return (await r.json()).length;
   });
   await page.goto(
-    "http://localhost:3000/share?url=" +
+    base +
+      "/share?url=" +
       encodeURIComponent("https://github.com/example/fixture") +
       "&question=" +
       encodeURIComponent("What could this become?"),
@@ -189,7 +212,7 @@ try {
     return (await r.json()).length;
   });
   assert.equal(after, before, "deep link and route preview must not send work");
-  await page.screenshot({ path: "docs/loop-v0/evidence/mobile-share.png" });
+  await page.screenshot({ path: join(dir, "mobile-share.png") });
   await page.goBack();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -209,12 +232,16 @@ try {
   );
   await page.context().setOffline(true);
   await page.getByRole("status").filter({ hasText: "offline" }).waitFor();
-  await page.reload();
-  await page
-    .getByRole("heading", { name: "Your work is still in Loop." })
-    .waitFor();
+  // Playwright WebKit aborts an offline reload before navigation. Chromium
+  // exercises the cached fallback; both browsers check the notice and reconnect.
+  if (process.env.LOOP_BROWSER !== "webkit") {
+    await page.reload();
+    await page
+      .getByRole("heading", { name: "Your work is still in Loop." })
+      .waitFor();
+  }
   await page.context().setOffline(false);
-  await page.goto("http://localhost:3000");
+  await page.goto(base);
   await page.getByRole("heading", { name: "Your loop." }).waitFor();
   await page.setViewportSize({ width: 844, height: 390 });
   assert.equal(
@@ -233,22 +260,22 @@ try {
     () => document.documentElement.dataset.theme === "dark",
   );
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
-  await page
-    .getByRole("heading", { name: "Pick up where you left off." })
-    .waitFor();
-  assert.equal(
-    await page.evaluate(() =>
-      Object.values(sessionStorage).some((v) =>
-        v.includes("What could this become?"),
-      ),
-    ),
-    false,
+  await expect(
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.context().clearCookies();
+  await page.reload();
+  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  const reopened = await page.evaluate(async () =>
+    (await fetch("/api/auth/get-session")).json(),
   );
+  assert.equal(reopened.mode, "single-user");
+  assert.equal(reopened.user.id, identity.user.id);
   assert.deepEqual(errors, []);
 
   console.log(
-    "PASS: signup, worker import, feed, folders, exact search, 320/390/430/1024 layouts, dark/system themes, share routing + agent creation + unknown handle, no auto-send, back, offline fallback, public-only caches, logout, no page errors",
+    "PASS: personal workspace without registration or cookies, preserved identity after reload, no redundant sign-out, worker import, feed, folders, exact search, responsive layouts, themes, share routing, no auto-send, back, offline notice/reconnect (cached fallback in Chromium), public-only caches, no page errors",
   );
 } catch (e) {
   console.log("PAGE", await page?.locator("body").innerText());

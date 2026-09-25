@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { HarnessError } from "../../runtime/harness.mjs";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -6,6 +7,12 @@ import { owned, Problem } from "./domain.js";
 import { adapter, type ChatInput, type Chunk } from "./providers.js";
 import { unseal } from "./secrets.js";
 import type { Connection } from "../shared/types.js";
+import { runtimeEndpoint } from "./runtime-hosts.js";
+import {
+  codexStatus,
+  codexStream,
+  codexCapabilities,
+} from "./codex-app-server.js";
 
 export const isSubscription = (c: Connection) =>
   JSON.parse(c.metadata).authMode === "subscription";
@@ -22,34 +29,48 @@ async function request(
   extra: object = {},
   signal?: AbortSignal,
 ) {
-  if (!runtimeConfigured())
-    throw new Problem(
-      503,
-      "Start the subscription runtime service with Docker Compose, then try again.",
-    );
-  const r = await fetch(
-    process.env.LOOP_RUNTIME_URL!.replace(/\/$/, "") + "/runtime",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: "Bearer " + process.env.LOOP_RUNTIME_TOKEN,
-      },
-      body: JSON.stringify({
-        key: runtimeKey(c),
-        provider: c.provider === "codex" ? "codex" : "claude",
-        action,
-        ...extra,
-      }),
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(1800000)])
-        : AbortSignal.timeout(45000),
-    },
+  const endpoint = runtimeEndpoint(
+    c.owner_id,
+    JSON.parse(c.metadata).runtimeHostId,
+    c.provider === "codex" ? "codex" : "claude",
   );
+  if (endpoint.kind === "codex-app-server") {
+    if (action === "capabilities")
+      return Response.json(await codexCapabilities(endpoint));
+    // Pair/unpair only Loop's connection. The account on this shared server
+    // belongs to the host user and must never be signed out by Loop.
+    if (["logout", "cancel"].includes(action))
+      return Response.json({ ok: true });
+    if (["login", "status"].includes(action))
+      return Response.json(await codexStatus(endpoint));
+    throw new Problem(
+      400,
+      "Sign in to Codex on the remote machine, then check the connection again.",
+    );
+  }
+  const r = await endpoint.fetch(endpoint.url + "/runtime", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: "Bearer " + endpoint.token,
+    },
+    body: JSON.stringify({
+      key: runtimeKey(c),
+      provider: c.provider === "codex" ? "codex" : "claude",
+      action,
+      ...extra,
+    }),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(1800000)])
+      : AbortSignal.timeout(45000),
+    redirect: "error",
+  });
   if (!r.ok)
     throw new Problem(
       422,
-      "Subscription runtime unavailable or busy. Check the runtime service and try again. No API fallback is used.",
+      action === "capabilities"
+        ? "Cannot load commands while the runtime is unavailable or busy. Try refreshing when its current work finishes."
+        : "Subscription runtime unavailable or busy. Check the runtime service and try again. No API fallback is used.",
     );
   return r;
 }
@@ -64,7 +85,7 @@ export async function runtimeAction(
     if (e instanceof Problem) throw e;
     throw new Problem(
       503,
-      "Cannot reach the subscription runtime service. Check Docker Compose.",
+      "Cannot reach the subscription runtime. Check the selected machine and its runtime service.",
     );
   }
 }
@@ -72,6 +93,15 @@ export async function* subscriptionStream(
   c: Connection,
   input: ChatInput,
 ): AsyncGenerator<Chunk> {
+  const endpoint = runtimeEndpoint(
+    c.owner_id,
+    JSON.parse(c.metadata).runtimeHostId,
+    c.provider === "codex" ? "codex" : "claude",
+  );
+  if (endpoint.kind === "codex-app-server") {
+    yield* codexStream(endpoint, input);
+    return;
+  }
   const r = await request(
     c,
     "turn",
@@ -82,16 +112,14 @@ export async function* subscriptionStream(
   const reader = r.body.getReader(),
     decoder = new TextDecoder();
   let buffer = "",
-    done = false,
-    total = 0;
+    done = false;
   try {
     while (true) {
       const next = await reader.read();
       if (next.done) break;
-      total += next.value.length;
-      if (total > 2_000_000)
-        throw new Problem(422, "Runtime response exceeded its limit");
       buffer += decoder.decode(next.value, { stream: true });
+      if (buffer.length > 2_000_000)
+        throw new Problem(422, "Runtime event exceeded its limit");
       let end;
       while ((end = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, end);
@@ -101,7 +129,9 @@ export async function* subscriptionStream(
         if (event.error)
           throw new Problem(
             422,
-            "Subscription run stopped. Check sign-in, model access and your allowance. API billing was not used.",
+            event.code === "harness_command"
+              ? String(event.error).slice(0, 1000)
+              : "Subscription run stopped. Check sign-in, model access and your allowance. API billing was not used.",
           );
         if (event.chunk) yield event.chunk as Chunk;
         if (event.done) done = true;
@@ -124,27 +154,29 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
       : adapter(c.provider).stream(unseal(c.secret, c.owner_id), input);
   } catch (error) {
     // Only failures from the provider stream can invalidate its credentials.
-    // MCP grants and approvals are checked outside this boundary.
+    // MCP ownership and approvals are checked outside this boundary.
     if ([401, 403].includes((error as any)?.status))
       db.prepare(
         "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
       ).run(c.id, c.owner_id);
+    if (error instanceof HarnessError) throw new Problem(422, error.message);
     throw error;
   }
 }
 export const subscriptions = Router();
 subscriptions.post("/subscriptions", (req, res) => {
-  if (!runtimeConfigured())
-    throw new Problem(
-      503,
-      "Subscription runtimes are not configured. Start the supplied Docker Compose services.",
-    );
   const d = z
     .object({
       provider: z.enum(["codex", "claude"]),
       label: z.string().trim().min(1).max(80),
+      runtimeHostId: z.string().optional(),
     })
     .parse(req.body);
+  const endpoint = runtimeEndpoint(
+    res.locals.owner,
+    d.runtimeHostId,
+    d.provider === "codex" ? "codex" : "claude",
+  );
   const owner = res.locals.owner;
   const record = db
     .transaction(() => {
@@ -169,6 +201,8 @@ subscriptions.post("/subscriptions", (req, res) => {
         JSON.stringify({
           authMode: "subscription",
           runtime: d.provider,
+          runtimeHostId: d.runtimeHostId,
+          runtimeKind: endpoint.kind,
           billing: "Subscription allowance",
           scope:
             "Official runtime sign-in; no API fallback. Past chats are imported separately.",
@@ -210,7 +244,16 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
     db.prepare("UPDATE connections SET status='signing_in' WHERE id=?").run(
       c.id,
     );
-  const result = await runtimeAction(c, action);
+  let result;
+  try {
+    result = await runtimeAction(c, action);
+  } catch (error) {
+    if (action === "login")
+      db.prepare(
+        "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
+      ).run(c.id);
+    throw error;
+  }
   if (
     owned<Connection>("connections", c.id, c.owner_id).status === "disconnected"
   ) {

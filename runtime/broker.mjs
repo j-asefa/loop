@@ -1,10 +1,24 @@
 import { containerArgs } from "./container.mjs";
+import { mcpHandler } from "./mcp.mjs";
 // Private control plane. Only this service has the Docker socket, never model containers.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { lines } from "./protocol.mjs";
-const token = process.env.LOOP_RUNTIME_TOKEN;
+import {
+  loginDeadline,
+  LoginTimeoutError,
+  LOGIN_START_MS,
+} from "./login-deadline.mjs";
+const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
+const workdir = hostMode
+  ? realpathSync(process.env.LOOP_RUNTIME_WORKDIR || process.cwd())
+  : undefined;
+const token = process.env.LOOP_RUNTIME_TOKEN_FILE
+  ? readFileSync(process.env.LOOP_RUNTIME_TOKEN_FILE, "utf8").trim()
+  : process.env.LOOP_RUNTIME_TOKEN;
 if (!token || token.length < 32)
   throw new Error("Set LOOP_RUNTIME_TOKEN with scripts/setup.mjs");
 const prefix =
@@ -37,18 +51,37 @@ async function execute(key, request, onEvent, signal) {
   if (active.size >= MAX_ACTIVE)
     throw new Error("Runtime capacity reached. Retry later.");
   const name = `${prefix}-${randomUUID()}`;
-  const p = docker(containerArgs(prefix, key, image, name));
+  const p = hostMode
+    ? spawn(
+        process.execPath,
+        [fileURLToPath(new URL("./entry.mjs", import.meta.url))],
+        {
+          cwd: workdir,
+          env: { ...process.env, LOOP_RUNTIME_WORKDIR: workdir },
+          detached: process.platform !== "win32",
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      )
+    : docker(containerArgs(prefix, key, image, name));
   let result,
     error,
     closed = false;
   const cancel = () => {
-    p.kill("SIGTERM");
-    void remove(name);
+    if (hostMode && process.platform !== "win32" && p.pid) {
+      try {
+        process.kill(-p.pid, "SIGTERM");
+      } catch {}
+    } else p.kill("SIGTERM");
+    if (!hostMode) void remove(name);
   };
-  const timer = setTimeout(
-    cancel,
-    request.action === "login" ? 10 * 60 * 1000 : 30 * 60 * 1000,
-  );
+  const deadline =
+    request.action === "login"
+      ? loginDeadline((failure) => {
+          error = failure;
+          cancel();
+        })
+      : null;
+  const timer = deadline ? null : setTimeout(cancel, 30 * 60 * 1000);
   const handle = { process: p, cancel };
   active.set(key, handle);
   signal?.addEventListener("abort", cancel, { once: true });
@@ -60,6 +93,10 @@ async function execute(key, request, onEvent, signal) {
     (m) => {
       if (m.result) result = m.result;
       if (m.error) error = new Error(m.error);
+      if (m.login && deadline) {
+        deadline.ready();
+        m.expiresAt = deadline.expiresAt;
+      }
       onEvent(m);
     },
     (e) => {
@@ -77,7 +114,12 @@ async function execute(key, request, onEvent, signal) {
         resolve(c);
       });
     });
-    if (error || code !== 0 || signal?.aborted)
+    if (
+      error ||
+      code !== 0 ||
+      signal?.aborted ||
+      (request.action !== "turn" && !result)
+    )
       throw (
         error ||
         new Error(
@@ -87,10 +129,11 @@ async function execute(key, request, onEvent, signal) {
     return result;
   } finally {
     clearTimeout(timer);
+    deadline?.clear();
     signal?.removeEventListener("abort", cancel);
     if (active.get(key) === handle) active.delete(key);
     if (!closed) p.kill("SIGTERM");
-    await remove(name);
+    if (!hostMode) await remove(name);
   }
 }
 function serial(key, fn) {
@@ -125,24 +168,78 @@ const json = (res, data, code = 200) => {
   });
   res.end(JSON.stringify(data));
 };
+const handleMcp = mcpHandler(
+  prefix,
+  process.env.LOOP_MCP_IMAGE || "loop-mcp:0.1",
+  body,
+  json,
+  remove,
+);
 const server = createServer(async (req, res) => {
   if (!authorized(req.headers.authorization)) {
     json(res, { error: "Unauthorized" }, 401);
     return;
   }
   if (req.url === "/health" && req.method === "GET") {
-    json(res, { ok: true });
+    json(res, {
+      ok: true,
+      kind: hostMode ? "native-host" : "broker",
+      nativeTools: hostMode,
+    });
     return;
   }
-  if (req.url !== "/runtime" || req.method !== "POST") {
+  if (
+    !req.url?.startsWith("/mcp") &&
+    (req.url !== "/runtime" || req.method !== "POST")
+  ) {
     json(res, { error: "Not found" }, 404);
     return;
   }
   try {
+    if (hostMode && req.url?.startsWith("/mcp")) {
+      json(
+        res,
+        { error: "Manage native MCPs in Codex or Claude Code on this host." },
+        400,
+      );
+      return;
+    }
+    if (!hostMode && (await handleMcp(req, res))) return;
     const data = await body(req),
       { key, provider, action } = data;
     if (!/^[a-f0-9]{64}$/.test(key) || !["codex", "claude"].includes(provider))
       throw new Error("Invalid runtime");
+    // Pair the host user's existing login; never start login or sign out the
+    // shared Codex/Claude installation on behalf of a Loop connection.
+    if (hostMode && ["login", "status"].includes(action)) {
+      if (pending.has(key)) {
+        json(res, { state: "busy" });
+        return;
+      }
+      json(
+        res,
+        await serial(key, () =>
+          execute(key, { provider, action: "status" }, () => {}),
+        ),
+      );
+      return;
+    }
+    if (hostMode && action === "code") {
+      json(
+        res,
+        {
+          error: "Sign in using the official CLI on the host, then reconnect.",
+        },
+        400,
+      );
+      return;
+    }
+    if (hostMode && action === "logout") {
+      generations.set(key, (generations.get(key) || 0) + 1);
+      active.get(key)?.cancel();
+      json(res, { ok: true });
+      return;
+    }
     if (action === "login") {
       if (pending.has(key)) {
         json(
@@ -154,23 +251,34 @@ const server = createServer(async (req, res) => {
         );
         return;
       }
-      const login = { state: "starting", expiresAt: Date.now() + 600000 };
+      const login = {
+        state: "starting",
+        expiresAt: Date.now() + LOGIN_START_MS,
+      };
       logins.set(key, login);
       void serial(key, () =>
         execute(key, { provider, action }, (m) => {
-          if (m.login) {
+          if (m.login && login.state === "starting") {
             login.state = "waiting";
             login.login = m.login;
+            login.expiresAt = m.expiresAt;
           }
         }),
       ).then(
         (result) => {
+          if (login.state === "cancelled") return;
           login.state = "completed";
           login.result = result;
+          delete login.login;
         },
-        () => {
+        (error) => {
+          if (login.state === "cancelled") return;
           login.state = "failed";
-          login.error = "Sign-in expired or failed. Start a new sign-in.";
+          login.error =
+            error instanceof LoginTimeoutError
+              ? error.message
+              : "Sign-in failed. Try sign-in again.";
+          delete login.login;
         },
       );
       json(res, login);
@@ -241,6 +349,24 @@ const server = createServer(async (req, res) => {
       json(res, { ok: true });
       return;
     }
+    if (action === "capabilities") {
+      if (pending.has(key)) {
+        json(
+          res,
+          {
+            error:
+              "This runtime is busy. Refresh commands when its current run finishes.",
+          },
+          409,
+        );
+        return;
+      }
+      json(
+        res,
+        await serial(key, () => execute(key, { provider, action }, () => {})),
+      );
+      return;
+    }
     if (
       action !== "turn" ||
       !data.input ||
@@ -287,27 +413,32 @@ const server = createServer(async (req, res) => {
   }
 });
 // Remove only this deployment's orphaned operation containers after a broker restart.
-const orphan = docker([
-  "ps",
-  "-aq",
-  "--filter",
-  "label=loop.runtime=" + prefix,
-]);
-let ids = "";
-orphan.stdout.on("data", (b) => {
-  ids += b;
-});
-orphan.stderr.resume();
-await new Promise((resolve) => {
-  orphan.once("error", resolve);
-  orphan.once("close", resolve);
-});
-for (const id of ids
-  .trim()
-  .split(/\s+/)
-  .filter((id) => /^[a-f0-9]{12,64}$/.test(id)))
-  await remove(id);
-server.listen(Number(process.env.PORT || 3100), "0.0.0.0");
+if (!hostMode) {
+  const orphan = docker([
+    "ps",
+    "-aq",
+    "--filter",
+    "label=loop.runtime=" + prefix,
+  ]);
+  let ids = "";
+  orphan.stdout.on("data", (b) => {
+    ids += b;
+  });
+  orphan.stderr.resume();
+  await new Promise((resolve) => {
+    orphan.once("error", resolve);
+    orphan.once("close", resolve);
+  });
+  for (const id of ids
+    .trim()
+    .split(/\s+/)
+    .filter((id) => /^[a-f0-9]{12,64}$/.test(id)))
+    await remove(id);
+}
+server.listen(
+  Number(process.env.PORT || (hostMode ? 3101 : 3100)),
+  process.env.LOOP_RUNTIME_BIND || (hostMode ? "127.0.0.1" : "0.0.0.0"),
+);
 process.on("SIGTERM", () => {
   for (const a of active.values()) a.cancel();
   server.close();

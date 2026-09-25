@@ -25,16 +25,19 @@ export function PwaStatus() {
         .catch(() => {});
     const viewport = () => {
       const v = window.visualViewport;
+      const inset = Math.max(
+        0,
+        innerHeight - (v?.height || innerHeight) - (v?.offsetTop || 0),
+      );
+      document.documentElement.dataset.keyboard =
+        inset > 100 && (v?.scale || 1) === 1 ? "open" : "closed";
       document.documentElement.style.setProperty(
         "--visual-viewport-height",
         (v?.height || innerHeight) + "px",
       );
       document.documentElement.style.setProperty(
         "--keyboard-inset",
-        Math.max(
-          0,
-          innerHeight - (v?.height || innerHeight) - (v?.offsetTop || 0),
-        ) + "px",
+        inset + "px",
       );
     };
     viewport();

@@ -1,80 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, parse } from "./api";
 import { Sheet } from "./components";
-import type { Agent } from "../shared/types";
-export type ToolSelection = { connectionId: string; tools: string[] };
-export function ToolPicker({
-  value,
-  onChange,
-}: {
-  value: ToolSelection[];
-  onChange: (v: ToolSelection[]) => void;
-}) {
+import { McpCatalog } from "./McpCatalog";
+export function Tools({ onClose }: { onClose: () => void }) {
   const [connections, setConnections] = useState<any[]>([]),
-    [error, setError] = useState("");
-  useEffect(() => {
-    api<any[]>("/mcp")
-      .then((c) => setConnections(c.filter((v) => v.status === "connected")))
-      .catch((e) => setError(e.message));
-  }, []);
-  return (
-    <fieldset>
-      <legend>Available tools</legend>
-      <p className="field-hint">
-        Choose the tools this agent may request. Every call still needs your
-        approval.
-      </p>
-      {error && <p className="error">{error}</p>}
-      {!connections.length && (
-        <p className="muted">
-          Connect a server in Settings → Tools & integrations.
-        </p>
-      )}
-      {connections.map((c) => (
-        <details key={c.id}>
-          <summary>{c.name}</summary>
-          {parse<any[]>(c.tools, []).map((t) => (
-            <label className="check-row" key={t.name}>
-              <input
-                type="checkbox"
-                checked={
-                  !!value
-                    .find((v) => v.connectionId === c.id)
-                    ?.tools.includes(t.name)
-                }
-                onChange={(e) => {
-                  const selected =
-                    value.find((v) => v.connectionId === c.id)?.tools || [];
-                  onChange([
-                    ...value.filter((v) => v.connectionId !== c.id),
-                    {
-                      connectionId: c.id,
-                      tools: e.target.checked
-                        ? [...selected, t.name]
-                        : selected.filter((n) => n !== t.name),
-                    },
-                  ]);
-                }}
-              />
-              <span>
-                {t.name}
-                <small>{String(t.description || "").slice(0, 130)}</small>
-              </span>
-            </label>
-          ))}
-        </details>
-      ))}
-    </fieldset>
-  );
-}
-export function Tools({
-  agents,
-  onClose,
-}: {
-  agents: Agent[];
-  onClose: () => void;
-}) {
-  const [connections, setConnections] = useState<any[]>([]),
+    [view, setView] = useState("catalog"),
     [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState("datadog"),
     [editing, setEditing] = useState<string | null>(null),
@@ -83,32 +13,31 @@ export function Tools({
     [authType, setAuthType] = useState("oauth"),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false),
-    [agent, setAgent] = useState(agents[0]?.id || ""),
-    [grants, setGrants] = useState<ToolSelection[]>([]);
+    [busy, setBusy] = useState(false);
+  const [approvalMode, setApprovalMode] = useState<"ask" | "allow" | null>(
+    null,
+  );
+  const [configJson, setConfigJson] = useState(""),
+    [hosts, setHosts] = useState<any[]>([]),
+    [host, setHost] = useState("");
+  useEffect(() => {
+    void api<any[]>("/runtime-hosts")
+      .then((hosts) =>
+        setHosts(hosts.filter((h) => !h.kind || h.kind === "broker")),
+      )
+      .catch((e) => setError(e.message));
+  }, []);
   async function load() {
-    setConnections(await api("/mcp"));
+    const [connections, preferences] = await Promise.all([
+      api<any[]>("/mcp"),
+      api<{ approvalMode: "ask" | "allow" }>("/mcp/preferences"),
+    ]);
+    setConnections(connections);
+    setApprovalMode(preferences.approvalMode);
   }
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, []);
-  useEffect(() => {
-    if (agent)
-      api<any[]>("/agents/" + agent + "/tools")
-        .then((rows) => {
-          const grouped: ToolSelection[] = [];
-          for (const row of rows) {
-            let g = grouped.find((v) => v.connectionId === row.connection_id);
-            if (!g) {
-              g = { connectionId: row.connection_id, tools: [] };
-              grouped.push(g);
-            }
-            g.tools.push(row.tool);
-          }
-          setGrants(grouped);
-        })
-        .catch((e) => setError(e.message));
-  }, [agent]);
   async function action(fn: () => Promise<void>) {
     setError("");
     setNotice("");
@@ -125,14 +54,48 @@ export function Tools({
   async function test(id: string) {
     const result = await api("/mcp/" + id + "/test", {});
     if (result.authorizationUrl) location.assign(result.authorizationUrl);
-    else setNotice("Connected. Select the tools and agents below.");
+    else setNotice("Connected. Available to all agents in your workspace.");
   }
   return (
     <Sheet wide title="Tools & integrations" onClose={onClose}>
       <p className="muted">
-        Give an agent access to the services you use. Account permissions and
-        Loop approvals both apply.
+        Install once for your whole workspace. Connected MCPs are available to
+        all your current and future agents.
       </p>
+      <section className="tool-approval-preferences">
+        <label>
+          Tool approvals
+          <select
+            aria-label="Tool approvals"
+            value={approvalMode || "ask"}
+            disabled={busy || !approvalMode}
+            onChange={(e) => {
+              const mode = e.target.value as "ask" | "allow";
+              void action(async () => {
+                const result = await api(
+                  "/mcp/preferences",
+                  { approvalMode: mode },
+                  "PUT",
+                );
+                setApprovalMode(result.approvalMode);
+                setNotice(
+                  mode === "allow"
+                    ? `Connected tools can run automatically.${result.resumed ? ` ${result.resumed} waiting ${result.resumed === 1 ? "task has" : "tasks have"} resumed.` : ""}`
+                    : "New tool calls will ask for your approval.",
+                );
+              });
+            }}
+          >
+            <option value="ask">Ask every time</option>
+            <option value="allow">Allow connected tools</option>
+          </select>
+        </label>
+        <p className="field-hint">
+          {approvalMode === "allow"
+            ? "All your agents can use connected MCP tools without stopping for approval. Calls stay in the conversation history."
+            : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
+        </p>
+      </section>
       {error && (
         <p className="error" role="alert">
           {error}
@@ -143,260 +106,360 @@ export function Tools({
           {notice}
         </p>
       )}
-      <label>
-        Find connections
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Datadog or server name"
-        />
-      </label>
-      {connections
-        .filter((c) =>
-          (c.name + " " + c.url).toLowerCase().includes(query.toLowerCase()),
-        )
-        .map((c) => (
-          <section className="connection-card" key={c.id}>
-            <h3>
-              {c.name} <small>{c.status.replaceAll("_", " ")}</small>
-            </h3>
-            <p className="field-hint">{c.url}</p>
-            <div className="actions">
-              <button disabled={busy} onClick={() => action(() => test(c.id))}>
-                Test / reconnect
-              </button>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  action(async () => {
-                    await api(
-                      "/mcp/" + c.id,
-                      {
-                        action: c.status === "disabled" ? "enable" : "disable",
-                      },
-                      "PATCH",
-                    );
-                  })
-                }
-              >
-                {c.status === "disabled" ? "Enable" : "Disable"}
-              </button>
-              <button
-                onClick={() => {
-                  setEditing(c.id);
-                  setName(c.name);
-                  setUrl(c.url);
-                  setAuthType(c.authType);
-                }}
-              >
-                Replace credentials
-              </button>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  action(async () => {
-                    await api(
-                      "/mcp/" + c.id,
-                      { action: "disconnect" },
-                      "PATCH",
-                    );
-                  })
-                }
-              >
-                Disconnect
-              </button>
-            </div>
-            <details>
-              <summary>
-                {parse<any[]>(c.tools, []).length} tools · resources & prompts
-              </summary>
-              <pre className="code-artifact">
-                {JSON.stringify(
-                  {
-                    tools: parse(c.tools, []),
-                    resources: parse<any>(c.metadata, {}).resources,
-                    prompts: parse<any>(c.metadata, {}).prompts,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </details>
-          </section>
-        ))}
-      <h3>{editing ? "Reconnect account" : "Add tools"}</h3>
-      <div className="actions">
+      {view !== "catalog" && (
+        <section className="note">
+          <strong>Included with Loop</strong>
+          <p>
+            Native flowcharts and Mermaid diagrams are ready for every agent.
+            Agents can also request MCP installation here, with your approval.
+          </p>
+        </section>
+      )}
+      <div className="actions tools-views" role="group" aria-label="Tools view">
         <button
-          onClick={() => {
-            setEditing(null);
-            setCatalog("datadog");
-            setName("Datadog");
-            setUrl("https://mcp.datadoghq.com/v1/mcp");
-            setAuthType("oauth");
-          }}
+          aria-pressed={view === "catalog"}
+          onClick={() => setView("catalog")}
         >
-          Datadog
+          Browse catalog
         </button>
         <button
-          onClick={() => {
-            setEditing(null);
-            setCatalog("custom");
-            setName("");
-            setUrl("");
-            setAuthType("none");
-          }}
+          aria-pressed={view === "installed"}
+          onClick={() => setView("installed")}
         >
-          Add server URL
+          Installed (
+          {connections.filter((c) => c.status !== "disconnected").length})
+        </button>
+        <button
+          aria-pressed={view === "custom"}
+          onClick={() => setView("custom")}
+        >
+          Custom server
         </button>
       </div>
-      <p className="field-hint">
-        {catalog === "datadog"
-          ? "Published by Datadog. Query metrics, logs and services accessible to your account. A Datadog account is required. The default address is US1; use the endpoint for your region."
-          : "Connect a public HTTPS server using Streamable HTTP. Only add publishers you trust. Local stdio servers need an isolated bridge."}
-      </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          void action(async () => {
-            const auth =
-              authType === "bearer"
-                ? { type: "bearer", token: f.get("token") }
-                : authType === "datadog"
-                  ? {
-                      type: "headers",
-                      headers: {
-                        DD_API_KEY: f.get("apiKey"),
-                        DD_APPLICATION_KEY: f.get("appKey"),
-                      },
-                    }
-                  : authType === "headers"
-                    ? {
-                        type: "headers",
-                        headers: JSON.parse(String(f.get("headers"))),
-                      }
-                    : { type: authType };
-            let c;
-            if (editing) {
-              c = await api(
-                "/mcp/" + editing,
-                { action: "credentials", auth },
-                "PATCH",
-              );
-            } else c = await api("/mcp", { name, url, auth });
-            setEditing(null);
-            await test(c.id);
-          });
-        }}
-      >
-        <label>
-          Name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            disabled={!!editing}
-          />
-        </label>
-        <label>
-          Server address
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            required
-            disabled={!!editing}
-          />
-        </label>
-        <label>
-          Authentication
-          <select
-            value={authType}
-            onChange={(e) => setAuthType(e.target.value)}
+      {view === "catalog" && (
+        <McpCatalog
+          connections={connections}
+          hosts={hosts}
+          onInstalled={load}
+        />
+      )}
+      {view === "custom" && (
+        <details className="mcp-import">
+          <summary>Paste MCP JSON configuration</summary>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void action(async () => {
+                const result = await api<any[]>("/mcp/install", {
+                  config: configJson,
+                  runtimeHostId: host || undefined,
+                });
+                setNotice(
+                  result
+                    .map(
+                      (r) =>
+                        r.name +
+                        ": " +
+                        (r.error || "connected · " + r.tools + " tools"),
+                    )
+                    .join("\n"),
+                );
+                if (result.every((r) => r.status === "connected"))
+                  setConfigJson("");
+              });
+            }}
           >
-            <option value="oauth">Sign in with OAuth</option>
-            <option value="bearer">Bearer token / PAT</option>
-            <option value="datadog">Datadog API + application keys</option>
-            <option value="headers">Custom authentication headers</option>
-            <option value="none">No authentication</option>
-          </select>
-        </label>
-        {authType === "bearer" && (
-          <label>
-            Token
-            <input type="password" name="token" required autoComplete="off" />
-          </label>
-        )}
-        {authType === "datadog" && (
-          <>
             <label>
-              API key
-              <input
-                type="password"
-                name="apiKey"
+              MCP configuration
+              <textarea
+                aria-label="MCP configuration"
+                rows={10}
+                value={configJson}
+                onChange={(e) => setConfigJson(e.target.value)}
+                placeholder={
+                  '{ "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } }'
+                }
                 required
-                autoComplete="off"
+                spellCheck={false}
               />
             </label>
             <label>
-              Application key
-              <input
-                type="password"
-                name="appKey"
-                required
-                autoComplete="off"
-              />
+              Run command servers on
+              <select value={host} onChange={(e) => setHost(e.target.value)}>
+                <option value="">Loop server</option>
+                {hosts.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
             </label>
-          </>
-        )}
-        {authType === "headers" && (
-          <label>
-            Headers JSON
-            <textarea
-              name="headers"
-              required
-              placeholder={'{"X-API-Key":"…"}'}
-            />
-          </label>
-        )}
-        <button className="primary" disabled={busy}>
-          {busy ? "Connecting…" : "Connect & test"}
-        </button>
-      </form>
-      <h3>Agent availability</h3>
-      {agents.length ? (
+            <p className="field-hint">
+              Supports command, args and env, or HTTPS url and headers. Command
+              servers run in isolated containers. Connected tools are
+              immediately available to all your agents.
+            </p>
+            <button className="primary" disabled={busy || !configJson.trim()}>
+              {busy ? "Installing…" : "Install configuration"}
+            </button>
+          </form>
+        </details>
+      )}
+      {view === "installed" && (
         <>
           <label>
-            Agent
-            <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  @{a.name}
-                </option>
-              ))}
-            </select>
+            Find connections
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Datadog or server name"
+            />
           </label>
-          <ToolPicker
-            key={connections.map((c) => c.id + c.status + c.tools).join("")}
-            value={grants}
-            onChange={setGrants}
-          />
-          <button
-            disabled={busy}
-            onClick={() =>
-              action(async () => {
-                await api("/agents/" + agent + "/tools", grants, "PUT");
-                setNotice("Permissions saved for this agent.");
-              })
-            }
-          >
-            Save permissions
-          </button>
+          {connections
+            .filter((c) =>
+              (c.name + " " + c.url)
+                .toLowerCase()
+                .includes(query.toLowerCase()),
+            )
+            .map((c) => (
+              <section className="connection-card" key={c.id}>
+                <h3>
+                  {c.name} <small>{c.status.replaceAll("_", " ")}</small>
+                </h3>
+                <p className="field-hint">{c.url}</p>
+                <p className="field-hint">
+                  {c.status === "connected"
+                    ? `Available to all agents · ${approvalMode === "allow" ? "Allowed automatically" : "Ask every time"}`
+                    : "Unavailable to all agents until connected"}
+                </p>
+                <div className="actions">
+                  <button
+                    disabled={busy}
+                    onClick={() => action(() => test(c.id))}
+                  >
+                    Test / reconnect
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      action(async () => {
+                        await api(
+                          "/mcp/" + c.id,
+                          {
+                            action:
+                              c.status === "disabled" ? "enable" : "disable",
+                          },
+                          "PATCH",
+                        );
+                      })
+                    }
+                  >
+                    {c.status === "disabled" ? "Enable" : "Disable"}
+                  </button>
+                  <button
+                    disabled={
+                      parse<any>(c.metadata, {}).transport === "stdio" ||
+                      c.authType === "query"
+                    }
+                    title={
+                      c.authType === "query"
+                        ? "Use Edit setup in Browse catalog to update this key"
+                        : undefined
+                    }
+                    onClick={() => {
+                      setView("custom");
+                      setEditing(c.id);
+                      setName(c.name);
+                      setUrl(c.url);
+                      setAuthType(c.authType);
+                    }}
+                  >
+                    Replace credentials
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      action(async () => {
+                        await api(
+                          "/mcp/" + c.id,
+                          { action: "disconnect" },
+                          "PATCH",
+                        );
+                      })
+                    }
+                  >
+                    Disconnect
+                  </button>
+                </div>
+                <details>
+                  <summary>
+                    {parse<any[]>(c.tools, []).length} tools · resources &
+                    prompts
+                  </summary>
+                  <pre className="code-artifact">
+                    {JSON.stringify(
+                      {
+                        tools: parse(c.tools, []),
+                        resources: parse<any>(c.metadata, {}).resources,
+                        prompts: parse<any>(c.metadata, {}).prompts,
+                      },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </details>
+              </section>
+            ))}
         </>
-      ) : (
-        <p>
-          Create an agent, then choose its tools here or in the creation sheet.
-        </p>
+      )}
+      {view === "custom" && (
+        <>
+          <h3>{editing ? "Reconnect account" : "Add tools"}</h3>
+          <div className="actions">
+            <button
+              onClick={() => {
+                setEditing(null);
+                setCatalog("datadog");
+                setName("Datadog");
+                setUrl("https://mcp.datadoghq.com/v1/mcp");
+                setAuthType("oauth");
+              }}
+            >
+              Datadog
+            </button>
+            <button
+              onClick={() => {
+                setEditing(null);
+                setCatalog("custom");
+                setName("");
+                setUrl("");
+                setAuthType("none");
+              }}
+            >
+              Add server URL
+            </button>
+          </div>
+          <p className="field-hint">
+            {catalog === "datadog"
+              ? "Published by Datadog. Query metrics, logs and services accessible to your account. A Datadog account is required. The default address is US1; use the endpoint for your region."
+              : "Connect a public HTTPS server using Streamable HTTP. Only add publishers you trust. For command-based servers, paste MCP JSON above."}
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              void action(async () => {
+                const auth =
+                  authType === "bearer"
+                    ? { type: "bearer", token: f.get("token") }
+                    : authType === "datadog"
+                      ? {
+                          type: "headers",
+                          headers: {
+                            DD_API_KEY: f.get("apiKey"),
+                            DD_APPLICATION_KEY: f.get("appKey"),
+                          },
+                        }
+                      : authType === "headers"
+                        ? {
+                            type: "headers",
+                            headers: JSON.parse(String(f.get("headers"))),
+                          }
+                        : { type: authType };
+                let c;
+                if (editing) {
+                  c = await api(
+                    "/mcp/" + editing,
+                    { action: "credentials", auth },
+                    "PATCH",
+                  );
+                } else c = await api("/mcp", { name, url, auth });
+                setEditing(null);
+                await test(c.id);
+                setView("installed");
+              });
+            }}
+          >
+            <label>
+              Name
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                disabled={!!editing}
+              />
+            </label>
+            <label>
+              Server address
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                required
+                disabled={!!editing}
+              />
+            </label>
+            <label>
+              Authentication
+              <select
+                value={authType}
+                onChange={(e) => setAuthType(e.target.value)}
+              >
+                <option value="oauth">Sign in with OAuth</option>
+                <option value="bearer">Bearer token / PAT</option>
+                <option value="datadog">Datadog API + application keys</option>
+                <option value="headers">Custom authentication headers</option>
+                <option value="none">No authentication</option>
+              </select>
+            </label>
+            {authType === "bearer" && (
+              <label>
+                Token
+                <input
+                  type="password"
+                  name="token"
+                  required
+                  autoComplete="off"
+                />
+              </label>
+            )}
+            {authType === "datadog" && (
+              <>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    name="apiKey"
+                    required
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Application key
+                  <input
+                    type="password"
+                    name="appKey"
+                    required
+                    autoComplete="off"
+                  />
+                </label>
+              </>
+            )}
+            {authType === "headers" && (
+              <label>
+                Headers JSON
+                <textarea
+                  name="headers"
+                  required
+                  placeholder={'{"X-API-Key":"…"}'}
+                />
+              </label>
+            )}
+            <button className="primary" disabled={busy}>
+              {busy ? "Connecting…" : "Connect & test"}
+            </button>
+          </form>
+        </>
       )}
     </Sheet>
   );

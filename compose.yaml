@@ -5,6 +5,9 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      LOOP_LISTEN_HOST: "0.0.0.0"
+      LOOP_LOOPBACK_PROXY: "${LOOP_LOOPBACK_PROXY:-1}"
+      LOOP_BIND_ADDRESS: "${LOOP_BIND_ADDRESS:-127.0.0.1}"
       LOOP_BEHIND_PROXY: "${LOOP_BEHIND_PROXY:-0}"
       LOOP_URL: "${LOOP_URL:-http://localhost:3000}"
       LOOP_RUNTIME_URL: http://runtime-broker:3100
@@ -33,11 +36,21 @@ services:
     environment:
       LOOP_RUNTIME_TOKEN: "${LOOP_RUNTIME_TOKEN:?Run node scripts/setup.mjs}"
       LOOP_RUNTIME_IMAGE: "${LOOP_RUNTIME_IMAGE:-loop-runtime:0.2}"
+      LOOP_MCP_IMAGE: "${LOOP_MCP_IMAGE:-loop-mcp:0.1}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       runtime-image:
         condition: service_completed_successfully
+      mcp-image:
+        condition: service_completed_successfully
+  mcp-image:
+    image: "${LOOP_MCP_IMAGE:-loop-mcp:0.1}"
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    network_mode: none
+    command: ["node", "--version"]
   https:
     profiles: [https]
     image: caddy:2-alpine

@@ -2,9 +2,13 @@
 
 A phone-first, private agent workspace. Choose a connected account and model, give an agent a durable @name, and keep its conversations, work and sources in one searchable place.
 
-Implemented: subscription connections through official Codex/Claude Code runtimes; optional OpenAI Responses and Anthropic Messages streaming adapters; importable ChatGPT/Claude history; durable ordered runs and approvals; Feed/Running/Search/Saved; project folders and reversible filing; bounded versioned multi-agent workflows; remote MCP connections and per-agent grants; native chart snapshots and isolated MCP Apps; reviewed link sharing and an installable PWA shell.
+Implemented: subscription connections through official Codex/Claude Code runtimes; optional OpenAI Responses and Anthropic Messages streaming adapters; importable ChatGPT/Claude history; durable ordered runs and approvals; Feed/Running/Search/Saved; project folders and reversible filing; bounded versioned multi-agent workflows; workspace-wide MCP connections; native chart snapshots and isolated MCP Apps; reviewed link sharing and an installable PWA shell.
 
-**Release status: draft.** Local tests and labeled fixture journeys pass. Live provider/semantic/Datadog verification and an HTTPS deployment with actual iPhone installation remain blocked by external access. Subscription runtimes and sign-in flows are implemented; authenticated allowance usage still needs user sign-in verification. No public preview URL is claimed. See the [acceptance evidence](docs/loop-v0/EVIDENCE.md).
+September feedback adds local semantic search, generated avatars, compact composition, response links, feed-only archiving, native Mermaid diagrams, manager/worker teams with filtered feeds, a searchable 50-tool MCP catalog, JSON MCP installation and remote runtime machines. See the [report and verification](docs/feedback/REPORT.md) and [runtime/MCP setup](docs/feedback/RUNTIMES.md). The Pi.dev integration design is documented; its provider adapter is not yet shipped.
+
+Existing remote Codex installations can also connect directly through **Settings → Runtime machines → Codex app-server**. This reuses the machine's ChatGPT login and enables its native tools. Claude Code can use the new native host runner with the laptop's existing sign-in, files and tool configuration. See [direct app-server setup and Claude equivalents](docs/feedback/RUNTIMES.md#connect-directly-to-codex-app-server) for tunneling, authentication and current limits.
+
+**Release status: draft.** Local tests and labeled fixture journeys pass. Live provider/OpenAI embedding/Datadog verification and an HTTPS deployment with actual iPhone installation remain blocked by external access. Subscription runtimes and sign-in flows are implemented; authenticated allowance usage still needs user sign-in verification. No public preview URL is claimed. See the [acceptance evidence](docs/loop-v0/EVIDENCE.md).
 
 ## Run with your subscriptions
 
@@ -15,13 +19,15 @@ node scripts/setup.mjs
 docker compose up --build -d
 ```
 
-No domain is required. Open http://localhost:3000, create your Loop account, then go to **Settings → Provider connections → Use my subscription**. Choose ChatGPT (Codex) or Claude (Claude Code) and complete the official sign-in flow. Then create an agent with that account and model. No provider API key is required. Plan limits and any extra-usage settings apply; Loop never falls back from a subscription connection to API billing.
+No domain or Loop account is required. Open http://localhost:3000 directly into your personal workspace, then go to **Settings → Provider connections**. Choose **Add a provider** if you already have an account connected, then choose ChatGPT (Codex) or Claude (Claude Code). Keep **Subscription** selected and continue to the official provider sign-in flow. Then create an agent with that account and model. No provider API key is required. Plan limits and any extra-usage settings apply; Loop never falls back from a subscription connection to API billing.
+
+Single-user mode is the default. An existing installation with one Loop account keeps that account's workspace, conversations and encrypted connections. Remote single-user access uses one authenticated gateway, with a private `LOOP_GATEWAY_TOKEN` shared between the proxy and Loop. For separate user accounts, set `LOOP_AUTH_MODE=multi-user`. See [access configuration](docs/loop-v0/DEPLOYMENT.md#workspace-access).
 
 Without host Node, generate the configuration using `docker run --rm -v "$PWD:/setup" -w /setup node:24-bookworm-slim node scripts/setup.mjs` first. Setup preserves existing secrets and adds the private runtime token when missing.
 
 The API and independent worker share persistent `loop-data`. Subscription credentials live in separate per-connection runtime volumes. Preserve `.env`, the database volume and runtime credential volumes across restarts. The runtime broker is private and alone has Docker control access. See [subscription setup and boundaries](docs/loop-v0/SUBSCRIPTIONS.md).
 
-For API-only development without Docker: `npm ci`, `npm run setup`, `npm run build`, then `node --env-file=.env scripts/serve.mjs`. Subscription sign-in additionally needs the supplied broker/runtime infrastructure; it cannot run on a static website host. Keyword search and imports need no provider account; embedding search is an optional, separately billed API feature.
+For API-only development without Docker: `npm ci`, `npm run setup`, `npm run build`, then `node --env-file=.env scripts/serve.mjs`. Subscriptions additionally need the supplied broker/runtime infrastructure or a paired native host / Codex app-server; Loop cannot run on a static website host. Keyword search, local semantic search and imports need no provider account. OpenAI embeddings remain an optional, separately billed alternative.
 
 ## Checks
 
@@ -44,5 +50,5 @@ After a working HTTPS deployment exists, open it in Safari → Share → Add to 
 - [Architecture](docs/loop-v0/ARCHITECTURE.md)
 - [Provider capabilities and sign-in limits](docs/loop-v0/CAPABILITIES.md)
 - [Workflow DSL, limits and OpenProse decision](docs/loop-v0/WORKFLOWS.md)
-- [MCP grants, native results and Apps sandbox](docs/loop-v0/MCP.md)
+- [Workspace MCPs, native results and Apps sandbox](docs/loop-v0/MCP.md)
 - [Acceptance status and detailed evidence](docs/loop-v0/EVIDENCE.md)

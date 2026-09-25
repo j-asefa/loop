@@ -1,8 +1,11 @@
+import { listRuns } from "./run-attention.js";
+import { teams, teamFilter } from "./teams.js";
+import { runtimeHosts } from "./runtime-hosts.js";
 import { subscriptions } from "./subscriptions.js";
 import { sharing } from "./sharing.js";
 import { mcp } from "./mcp/routes.js";
 import express from "express";
-import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
+import { toNodeHandler } from "better-auth/node";
 import { auth, migrateAuth } from "./auth.js";
 import { config } from "./config.js";
 import { db } from "./db.js";
@@ -12,7 +15,11 @@ import { workspace } from "./workspace-routes.js";
 import { core } from "./core-routes.js";
 import { Problem } from "./domain.js";
 import { ZodError } from "zod";
+import { allowedOrigin, initializeAccess, workspaceSession } from "./access.js";
+import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
+migrateMcpUrlCredentials();
 await migrateAuth();
+initializeAccess();
 export const app = express();
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -41,7 +48,19 @@ app.use((req, _res, next) => {
       : req.socket.remoteAddress;
   next();
 });
-app.all("/api/auth/*splat", toNodeHandler(auth));
+app.get("/api/auth/get-session", async (req, res, next) => {
+  if (config.authMode === "multi-user") return next();
+  res.json(await workspaceSession(req));
+});
+app.all("/api/auth/*splat", (req, res) => {
+  if (config.authMode === "single-user") {
+    res.status(404).json({
+      error: "This is a personal workspace. No Loop account is needed.",
+    });
+    return;
+  }
+  return toNodeHandler(auth)(req, res);
+});
 app.use(express.json({ limit: "12mb" }));
 app.get("/api/health", (_req, res) => {
   const worker = db
@@ -55,19 +74,17 @@ app.get("/api/health", (_req, res) => {
   });
 });
 app.get("/api/auth-options", (_req, res) =>
-  res.json({ github: !!process.env.GITHUB_CLIENT_ID }),
+  res.json({
+    mode: config.authMode,
+    github: config.authMode === "multi-user" && !!process.env.GITHUB_CLIENT_ID,
+  }),
 );
 app.use("/api", async (req, res, next) => {
-  if (
-    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-    req.headers.origin !== new URL(config.url).origin
-  ) {
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !allowedOrigin(req)) {
     res.status(403).json({ error: "Origin not allowed" });
     return;
   }
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
+  const session = await workspaceSession(req);
   if (!session) {
     res.status(401).json({ error: "Sign in to Loop" });
     return;
@@ -107,15 +124,12 @@ app.get("/api/events", (req, res) =>
       .all(res.locals.owner, Number(req.query.after) || 0),
   ),
 );
-app.get("/api/runs", (_req, res) =>
-  res.json(
-    db
-      .prepare(
-        `SELECT r.*,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview,(SELECT step_id FROM workflow_steps s WHERE s.run_id=r.id ORDER BY position DESC LIMIT 1) stage FROM runs r WHERE r.owner_id=? ORDER BY r.created_at DESC,r.rowid DESC LIMIT 200`,
-      )
-      .all(res.locals.owner),
-  ),
-);
+app.get("/api/runs", (req, res) => {
+  const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
+  res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1"));
+});
+app.use("/api", teams);
+app.use("/api", runtimeHosts);
 app.use("/api", subscriptions);
 app.use("/api", core);
 app.use("/api", workspace);
@@ -146,6 +160,6 @@ app.use(
     });
   },
 );
-app.listen(config.port, "0.0.0.0", () =>
+app.listen(config.port, config.listenHost, () =>
   console.log(`Loop listening on ${config.port}`),
 );

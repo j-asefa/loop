@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, useRef, type FormEvent } from "react";
 import {
   Folder,
   FileText,
@@ -30,7 +30,7 @@ export function FolderForm({
 }: {
   folders: FolderType[];
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (folder: FolderType) => void;
   parent?: string;
   existing?: FolderType;
 }) {
@@ -45,7 +45,7 @@ export function FolderForm({
           e.preventDefault();
           const f = new FormData(e.currentTarget);
           try {
-            await api(
+            const created = await api<FolderType>(
               existing ? "/folders/" + existing.id : "/folders",
               {
                 name: f.get("name"),
@@ -54,7 +54,7 @@ export function FolderForm({
               },
               existing ? "PATCH" : "POST",
             );
-            onCreated();
+            onCreated(existing || created);
             onClose();
           } catch (e) {
             setError((e as Error).message);
@@ -377,14 +377,54 @@ export function Saved({
     </>
   );
 }
+function SearchIndexStatus() {
+  const [status, setStatus] = useState<any>(null);
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      void api("/search/status")
+        .then((value) => {
+          if (active) setStatus(value);
+        })
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 2000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+  if (!status?.enabled) return null;
+  return (
+    <div className={"search-index-status " + status.state} role="status">
+      <strong>
+        {status.state === "ready"
+          ? "Semantic search ready"
+          : status.state === "error" || status.state === "needs_connection"
+            ? "Semantic search needs attention"
+            : "Preparing semantic search"}
+      </strong>
+      <span>{status.detail}</span>
+      {status.pending > 0 && (
+        <span>
+          {status.indexed} of {status.total} items indexed
+        </span>
+      )}
+    </div>
+  );
+}
 export function SearchWorkspace({
   agents,
   folders,
   onOpen,
   onConversation,
   initialAgent = "",
+  onSearchSettings,
+  onProfile,
 }: {
   initialAgent?: string;
+  onSearchSettings: () => void;
+  onProfile: (a: Agent) => void;
   agents: Agent[];
   folders: FolderType[];
   onOpen: (a: Artifact) => void;
@@ -400,24 +440,46 @@ export function SearchWorkspace({
     [result, setResult] = useState<any>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const searchRequest = useRef(0);
   async function run(append = false) {
     if (!query.trim()) return;
+    const request = ++searchRequest.current;
     setBusy(true);
+    setError("");
     try {
       const p = new URLSearchParams({ q: query, scope, kind, agent, folder });
       if (from) p.set("from", String(Date.parse(from)));
       if (to) p.set("to", String(Date.parse(to) + 86400000 - 1));
       if (append && result?.next) p.set("before", String(result.next));
       const r = await api("/search?" + p);
-      setResult(append ? { ...r, items: [...result.items, ...r.items] } : r);
+      if (request !== searchRequest.current) return;
+      setResult((previous: any) =>
+        append
+          ? {
+              ...r,
+              items: [
+                ...new Map(
+                  [...previous.items, ...r.items].map((item: any) => [
+                    item.id,
+                    item,
+                  ]),
+                ).values(),
+              ],
+            }
+          : r,
+      );
     } catch (e) {
-      setError((e as Error).message);
+      if (request === searchRequest.current) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (request === searchRequest.current) setBusy(false);
     }
   }
   return (
     <>
+      <button className="text-button" onClick={onSearchSettings}>
+        Enable or configure semantic search
+      </button>
+      <SearchIndexStatus />
       <form
         className="search-box"
         onSubmit={(e) => {
@@ -512,13 +574,27 @@ export function SearchWorkspace({
           </p>
           {result.items.length ? (
             result.items.map((r: any) => (
-              <button
+              <div
                 className="search-result"
                 key={r.id}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (
+                    e.target === e.currentTarget &&
+                    ["Enter", " "].includes(e.key)
+                  ) {
+                    e.preventDefault();
+                    e.currentTarget.click();
+                  }
+                }}
                 onClick={async () => {
                   try {
-                    if (r.id.startsWith("message:"))
-                      onConversation(r.conversation_id, r.id.slice(8));
+                    if (r.message_id || r.id.startsWith("message:"))
+                      onConversation(
+                        r.conversation_id,
+                        r.message_id || r.id.slice(8),
+                      );
                     else onOpen(await api("/artifacts/" + r.id.slice(9)));
                   } catch (e) {
                     setError((e as Error).message);
@@ -527,7 +603,17 @@ export function SearchWorkspace({
               >
                 <div className="subline">
                   <Badge provider={r.provider} />
-                  <strong>@{r.name || "workspace"}</strong>
+                  <button
+                    className="text-button"
+                    disabled={!r.agent_id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const agent = agents.find((a) => a.id === r.agent_id);
+                      if (agent) onProfile(agent);
+                    }}
+                  >
+                    <strong>@{r.name || "workspace"}</strong>
+                  </button>
                   <span>{new Date(r.created_at).toLocaleDateString()}</span>
                 </div>
                 <h3>{r.title}</h3>
@@ -539,7 +625,7 @@ export function SearchWorkspace({
                     : "Workspace inbox"}
                   <ArrowUpRight size={13} />
                 </small>
-              </button>
+              </div>
             ))
           ) : (
             <Empty title="Nothing found yet.">
@@ -716,19 +802,23 @@ export function SearchSettings({
     [connection, setConnection] = useState(""),
     [error, setError] = useState("");
   useEffect(() => {
-    void api("/preferences").then((p) => {
-      setEnabled(!!p.embedding_enabled);
-      setConnection(p.embedding_connection || "");
-    });
+    void api("/preferences")
+      .then((p) => {
+        setEnabled(!!p.embedding_enabled);
+        setConnection(p.embedding_connection || "");
+      })
+      .catch((e) => setError(e.message));
   }, []);
   return (
     <Sheet title="Search preferences" onClose={onClose}>
       <p>Keyword search always runs privately on this server.</p>
+      <SearchIndexStatus />
       <p className="note">
-        Semantic search sends text from your messages, imported history,
-        artifacts, and search queries to your selected OpenAI API account for
-        embeddings. API charges may apply. Indexing runs in the background.
-        Turning it off deletes the stored vectors.
+        Local semantic search finds related ideas by meaning. It downloads a
+        small model once, then keeps your text on this server. Indexing runs in
+        the background. You can also choose an OpenAI API account; that sends
+        text to OpenAI and may incur charges. Turning search off deletes stored
+        vectors.
       </p>
       <label className="checkbox-row">
         <input
@@ -744,7 +834,7 @@ export function SearchSettings({
           value={connection}
           onChange={(e) => setConnection(e.target.value)}
         >
-          <option value="">Choose an OpenAI connection</option>
+          <option value="">Local model · private, no API key</option>
           {connections
             .filter((c) => c.provider === "openai" && c.status === "connected")
             .map((c) => (
@@ -757,7 +847,6 @@ export function SearchSettings({
       {error && <p className="error">{error}</p>}
       <button
         className="primary"
-        disabled={enabled && !connection}
         onClick={async () => {
           try {
             await api("/preferences", {

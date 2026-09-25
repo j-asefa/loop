@@ -11,9 +11,73 @@ import {
   type MCPConnection,
   type AuthSecret,
 } from "./client.js";
-import { authorizeTool, invokeTool } from "./broker.js";
-import { safeUrl } from "./network.js";
+import { authorizeTool, invokeTool, toolBindings } from "./broker.js";
+import { privateMcpUrl } from "./credentials.js";
+import { ToolBudgetError } from "./tool-budget.js";
+import { installConfig } from "./install.js";
+import { config } from "../config.js";
+import { publicCatalog, reviewedAt } from "./catalog-data.js";
+import { installCatalog } from "./catalog.js";
+import { mcpApprovalMode, setMcpApprovalMode } from "./approval-policy.js";
+import { toolErrorMessage } from "./results.js";
 export const mcp = Router();
+mcp.get("/mcp/preferences", (_req, res) =>
+  res.json({ approvalMode: mcpApprovalMode(res.locals.owner) }),
+);
+mcp.put("/mcp/preferences", (req, res) => {
+  const data = z
+    .object({ approvalMode: z.enum(["ask", "allow"]) })
+    .strict()
+    .parse(req.body);
+  res.json(setMcpApprovalMode(res.locals.owner, data.approvalMode));
+});
+mcp.get("/mcp/catalog", (_req, res) => {
+  res.json({
+    entries: publicCatalog(),
+    reviewedAt,
+    oauthRedirectUrl: config.url + "/api/mcp/oauth/callback",
+  });
+});
+mcp.post("/mcp/catalog/:id/install", async (req, res) => {
+  const data = z
+    .object({
+      values: z.record(z.string().max(100), z.string().max(10000)).default({}),
+      runtimeHostId: z.string().max(200).optional(),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    await installCatalog(
+      res.locals.owner,
+      String(req.params.id),
+      data.values,
+      data.runtimeHostId,
+    ),
+  );
+});
+mcp.post("/mcp/install", async (req, res) => {
+  const d = z
+    .object({
+      config: z.union([
+        z.string().max(50000),
+        z.record(z.string(), z.unknown()),
+      ]),
+      agentId: z.string().optional(),
+      runtimeHostId: z.string().optional(),
+    })
+    .parse(req.body);
+  res
+    .status(201)
+    .json(
+      await installConfig(
+        res.locals.owner,
+        d.config,
+        d.agentId,
+        "",
+        d.runtimeHostId,
+      ),
+    );
+});
 const secretSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none") }),
   z.object({ type: z.literal("oauth") }),
@@ -59,7 +123,7 @@ mcp.post("/mcp", async (req, res) => {
         auth: secretSchema,
       })
       .parse(req.body),
-    url = safeUrl(data.url).toString(),
+    stored = privateMcpUrl(data.url, data.auth),
     connection = id();
   db.prepare(
     "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,created_at) VALUES(?,?,?,?,?,'needs_auth',?)",
@@ -67,8 +131,8 @@ mcp.post("/mcp", async (req, res) => {
     connection,
     res.locals.owner,
     data.name,
-    url,
-    seal(JSON.stringify(data.auth), res.locals.owner),
+    stored.url,
+    seal(JSON.stringify(stored.auth), res.locals.owner),
     now(),
   );
   res
@@ -94,7 +158,8 @@ mcp.post("/mcp/:id/test", async (req, res) => {
     await discover(c);
     res.json(publicConnection(owned("mcp_connections", c.id, c.owner_id)));
   } catch (e) {
-    db.prepare("UPDATE mcp_connections SET status='needs_auth' WHERE id=?").run(
+    db.prepare("UPDATE mcp_connections SET status=? WHERE id=?").run(
+      e instanceof ToolBudgetError ? "disabled" : "needs_auth",
       c.id,
     );
     throw e;
@@ -124,7 +189,13 @@ mcp.patch("/mcp/:id", async (req, res) => {
     if (!data.auth) throw new Problem(400, "Provide new credentials");
     db.prepare(
       "UPDATE mcp_connections SET secret=?,status='needs_auth' WHERE id=?",
-    ).run(seal(JSON.stringify(data.auth), c.owner_id), c.id);
+    ).run(
+      seal(
+        JSON.stringify({ ...data.auth, query: readSecret(c).query }),
+        c.owner_id,
+      ),
+      c.id,
+    );
   } else if (data.action === "enable") {
     if (c.status !== "disabled")
       throw new Problem(409, "Reconnect this account first");
@@ -138,20 +209,22 @@ mcp.patch("/mcp/:id", async (req, res) => {
 mcp.get("/mcp/oauth/callback", async (req, res) => {
   const state = String(req.query.state || ""),
     code = String(req.query.code || "");
-  const saved = db.transaction(() => {
-    const row = db
-      .prepare(
-        "SELECT * FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
-      )
-      .get(state, res.locals.owner, now()) as any;
-    if (!row)
-      throw new Problem(
-        403,
-        "OAuth state expired or belongs to another session",
-      );
-    db.prepare("DELETE FROM oauth_states WHERE state=?").run(state);
-    return row;
-  }).immediate();
+  const saved = db
+    .transaction(() => {
+      const row = db
+        .prepare(
+          "SELECT * FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
+        )
+        .get(state, res.locals.owner, now()) as any;
+      if (!row)
+        throw new Problem(
+          403,
+          "OAuth state expired or belongs to another session",
+        );
+      db.prepare("DELETE FROM oauth_states WHERE state=?").run(state);
+      return row;
+    })
+    .immediate();
   if (!code || code.length > 4000)
     throw new Problem(400, "MCP sign-in was not completed");
   const c = owned<MCPConnection>(
@@ -164,64 +237,20 @@ mcp.get("/mcp/oauth/callback", async (req, res) => {
   res.redirect("/?tools=connected");
 });
 mcp.get("/agents/:id/tools", (req, res) => {
-  owned("agents", String(req.params.id), res.locals.owner);
   res.json(
-    db
-      .prepare(
-        "SELECT connection_id,tool FROM grants WHERE owner_id=? AND agent_id=?",
-      )
-      .all(res.locals.owner, req.params.id),
+    toolBindings(res.locals.owner, String(req.params.id)).map((binding) => ({
+      connection_id: binding.connectionId,
+      tool: binding.tool,
+    })),
   );
 });
-export function setGrants(
-  owner: string,
-  agent: string,
-  grants: { connectionId: string; tools: string[] }[],
-) {
-  owned("agents", agent, owner);
-  return db.transaction(() => {
-    for (const g of grants) {
-      const c = owned<MCPConnection>("mcp_connections", g.connectionId, owner);
-      if (c.status !== "connected")
-        throw new Problem(409, "Connect and test tools first");
-      const tools = JSON.parse(c.tools);
-      for (const t of g.tools)
-        if (!tools.some((v: any) => v.name === t))
-          throw new Problem(400, "Tool is not in the discovered catalog");
-    }
-    db.prepare("DELETE FROM grants WHERE owner_id=? AND agent_id=?").run(
-      owner,
-      agent,
-    );
-    for (const g of grants)
-      for (const t of new Set(g.tools))
-        db.prepare("INSERT INTO grants VALUES(?,?,?,?,?,'ask')").run(
-          id(),
-          owner,
-          agent,
-          g.connectionId,
-          t,
-        );
-    return { ok: true };
-  }).immediate();
-}
-mcp.put("/agents/:id/tools", (req, res) =>
-  res.json(
-    setGrants(
-      res.locals.owner,
-      String(req.params.id),
-      z
-        .array(
-          z.object({
-            connectionId: z.string(),
-            tools: z.array(z.string()).max(40),
-          }),
-        )
-        .max(20)
-        .parse(req.body),
-    ),
-  ),
-);
+mcp.put("/agents/:id/tools", (req, res) => {
+  owned("agents", String(req.params.id), res.locals.owner);
+  throw new Problem(
+    410,
+    "MCP tools are now available to all agents. Manage connections in Settings → Tools & integrations.",
+  );
+});
 export function queueTool(
   owner: string,
   data: {
@@ -299,6 +328,8 @@ export async function executeMcp(run: Run) {
     JSON.stringify({ artifactId: out.artifactId }),
     run.id,
   );
+  if (out.result.isError === true)
+    throw new Problem(422, "Tool error: " + toolErrorMessage(out.result));
   const state = owned<Run>("runs", run.id, run.owner_id).state;
   if (state === "pausing") {
     transition(run, "paused");

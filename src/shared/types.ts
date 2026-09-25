@@ -7,8 +7,12 @@ export type Agent = {
   connection_id: string | null;
   model: string;
   instructions: string;
+  folder_id?: string | null;
   origin: string;
   created_at: number;
+};
+export type CreatedAgent = Agent & {
+  initialRun?: { id: string; conversation_id: string | null };
 };
 export type Connection = {
   id: string;
@@ -26,6 +30,8 @@ export type Message = {
   owner_id: string;
   conversation_id: string;
   run_id: string | null;
+  run_state?: string | null;
+  run_error?: string | null;
   role: "user" | "assistant" | "system";
   content: string;
   metadata: string;
@@ -37,6 +43,8 @@ export type Artifact = {
   agent_id: string | null;
   conversation_id: string | null;
   run_id: string | null;
+  run_state?: string | null;
+  run_error?: string | null;
   title: string;
   kind: string;
   content: string;
@@ -44,6 +52,7 @@ export type Artifact = {
   folder_id: string | null;
   pinned: number;
   archived: number;
+  feed_hidden?: number;
   version: number;
   created_at: number;
   updated_at: number;
@@ -67,4 +76,12 @@ export type Run = {
   error: string | null;
   created_at: number;
   updated_at: number;
+  preview_artifact?: Artifact | null;
+};
+export type Team = {
+  id: string;
+  name: string;
+  manager_id: string;
+  conversation_id: string;
+  members: string[];
 };

@@ -1,5 +1,6 @@
 import { Chart } from "./Chart";
-import { useEffect, useRef, type ReactNode } from "react";
+import { Diagram } from "./Diagram";
+import { useEffect, useRef, type ReactNode, type Ref } from "react";
 import {
   X,
   Orbit,
@@ -8,11 +9,21 @@ import {
   Bookmark,
   FolderInput,
   MoreHorizontal,
+  Archive,
 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Artifact, Provider } from "../shared/types";
 import { parse } from "./api";
+import { RunStatus } from "./RunStatus";
+import { useSheetDrag } from "./useSheetDrag";
+import {
+  browserPreview,
+  compactMarkdown,
+  safePreviewLink,
+  structuredPreview,
+  webPreview,
+} from "./preview";
 export const providerName = (p?: Provider) =>
   p === "anthropic"
     ? "Anthropic"
@@ -36,9 +47,44 @@ export function Avatar({
   name?: string;
   provider?: Provider;
 }) {
+  // Local, deterministic avatars remain recognizable without network requests.
+  let seed = 2166136261;
+  for (const c of name.toLowerCase())
+    seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
+  const hue = seed % 360;
   return (
-    <span className={"avatar " + (provider || "loop")}>
-      {name.slice(0, 1).toUpperCase()}
+    <span className="avatar generated" role="img" aria-label={name + " avatar"}>
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <rect
+          width="40"
+          height="40"
+          rx="12"
+          fill={"hsl(" + hue + " 55% 85%)"}
+        />
+        <path
+          d={
+            seed % 2 ? "M5 40V22Q5 6 20 6T35 22V40" : "M4 40V20Q20 -6 36 20V40"
+          }
+          fill={"hsl(" + hue + " 45% 40%)"}
+        />
+        <rect
+          x="9"
+          y="15"
+          width="22"
+          height="15"
+          rx={(seed % 6) + 3}
+          fill={"hsl(" + hue + " 70% 95%)"}
+        />
+        <circle cx="15" cy="21" r="2" fill="#243331" />
+        <circle cx="25" cy="21" r="2" fill="#243331" />
+        <path
+          d={seed % 3 ? "M17 26Q20 29 23 26" : "M17 27H23"}
+          fill="none"
+          stroke="#243331"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
     </span>
   );
 }
@@ -67,15 +113,22 @@ export function Sheet({
   children,
   onClose,
   wide = false,
+  titleRef,
+  swipeToClose = false,
+  className = "",
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  titleRef?: Ref<HTMLHeadingElement>;
+  swipeToClose?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  useSheetDrag(ref, swipeToClose, closeRef);
   useEffect(() => {
     const d = ref.current!;
     d.showModal();
@@ -94,15 +147,33 @@ export function Sheet({
   return (
     <dialog
       ref={ref}
-      className={"sheet " + (wide ? "wide" : "")}
+      aria-label={title}
+      className={
+        "sheet " +
+        (wide ? "wide " : "") +
+        (swipeToClose ? "swipe-sheet " : "") +
+        className
+      }
       onCancel={onClose}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
+      {swipeToClose && (
+        <button
+          className="sheet-grip"
+          aria-label="Close conversation"
+          title="Drag down to close"
+          onClick={onClose}
+        >
+          <span />
+        </button>
+      )}
       <div className="sheet-inner">
         <div className="sheet-head">
-          <h2>{title}</h2>
+          <h2 ref={titleRef} tabIndex={titleRef ? -1 : undefined}>
+            {title}
+          </h2>
           <button aria-label="Close" className="icon-button" onClick={onClose}>
             <X size={20} />
           </button>
@@ -112,12 +183,38 @@ export function Sheet({
     </dialog>
   );
 }
-export function RichText({ content }: { content: string }) {
+export function RichText({
+  content,
+  diagrams = true,
+  compact = false,
+}: {
+  content: string;
+  diagrams?: boolean;
+  compact?: boolean;
+}) {
   return (
     <div className="markdown">
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={compact ? [remarkGfm, compactMarkdown] : [remarkGfm]}
         components={{
+          pre: ({ children, node }) => {
+            const code = node?.children[0] as any;
+            if (
+              diagrams &&
+              code?.tagName === "code" &&
+              code.properties?.className?.includes("language-mermaid")
+            )
+              return (
+                <Diagram
+                  compact={compact}
+                  source={code.children
+                    .map((c: any) => c.value || "")
+                    .join("")
+                    .trim()}
+                />
+              );
+            return <pre>{children}</pre>;
+          },
           a: ({ children, href }) => (
             <a href={href} target="_blank" rel="noopener noreferrer">
               {children}
@@ -136,13 +233,187 @@ export function RichText({ content }: { content: string }) {
     </div>
   );
 }
+const previewValue = (v: unknown) =>
+  typeof v === "object" && v !== null ? JSON.stringify(v) : String(v ?? "—");
+function DataPreview({ value }: { value: any }) {
+  if (value && Array.isArray(value.columns) && Array.isArray(value.rows))
+    return (
+      <div className="table-scroll">
+        <table className="preview-table">
+          <thead>
+            <tr>
+              {value.columns.slice(0, 6).map((c: unknown, i: number) => (
+                <th key={i}>{previewValue(c)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {value.rows
+              .slice(0, 4)
+              .filter(Array.isArray)
+              .map((row: any[], i: number) => (
+                <tr key={i}>
+                  {row.slice(0, 6).map((v, j) => (
+                    <td key={j}>{previewValue(v)}</td>
+                  ))}
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  if (Array.isArray(value))
+    return value.length ? (
+      <ul className="structured-preview">
+        {value.slice(0, 5).map((row, i) => {
+          if (!row || typeof row !== "object")
+            return <li key={i}>{previewValue(row)}</li>;
+          const href = safePreviewLink(row.url || row.link);
+          const title =
+            row.title || row.name || (href && new URL(href).hostname);
+          return (
+            <li key={i}>
+              {title ? (
+                <>
+                  <strong>
+                    {href ? (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {previewValue(title)}
+                      </a>
+                    ) : (
+                      previewValue(title)
+                    )}
+                  </strong>
+                  {(row.description || row.details || row.snippet) && (
+                    <span>
+                      {previewValue(
+                        row.description || row.details || row.snippet,
+                      )}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <DataPreview value={row} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    ) : (
+      <p className="muted">No items returned.</p>
+    );
+  if (value && typeof value === "object")
+    return (
+      <dl className="preview-properties">
+        {Object.entries(value)
+          .slice(0, 5)
+          .map(([key, v]) => (
+            <div key={key}>
+              <dt>{key.replaceAll("_", " ")}</dt>
+              <dd>{previewValue(v)}</dd>
+            </div>
+          ))}
+      </dl>
+    );
+  return <p>{previewValue(value)}</p>;
+}
+function ArtifactPreview({
+  item,
+  tool,
+  web,
+}: {
+  item: Artifact;
+  tool?: string;
+  web?: ReturnType<typeof webPreview>;
+}) {
+  if (web)
+    return (
+      <div className="web-preview">
+        {web.pages.map((page) => (
+          <div key={page.url}>
+            {web.search && (
+              <a
+                className="web-result-title"
+                href={page.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {page.title}
+              </a>
+            )}
+            <a
+              className="web-result-source"
+              href={page.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {new URL(page.url).hostname.replace(/^www\./, "")}{" "}
+              <ArrowUpRight size={12} />
+            </a>
+            {page.excerpt && <p>{page.excerpt}</p>}
+          </div>
+        ))}
+      </div>
+    );
+  if (item.kind === "diagram") return <Diagram source={item.content} compact />;
+  if (item.kind === "chart") return <Chart content={item.content} compact />;
+  if (item.kind === "code")
+    return (
+      <pre className="code-preview">
+        <code>
+          {item.content.split("\n").slice(0, 8).join("\n").slice(0, 4000)}
+        </code>
+      </pre>
+    );
+  if (item.kind === "image") {
+    const bitmap = parse<any>(item.content, null);
+    return bitmap &&
+      ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+        bitmap.mimeType,
+      ) &&
+      typeof bitmap.data === "string" &&
+      /^[a-zA-Z0-9+/=]+$/.test(bitmap.data) ? (
+      <img
+        className="preview-image"
+        src={`data:${bitmap.mimeType};base64,${bitmap.data}`}
+        alt={item.title}
+      />
+    ) : (
+      <p>Open this image to view it.</p>
+    );
+  }
+  const value = structuredPreview(item.content);
+  if (value !== undefined) return <DataPreview value={value} />;
+  const browser = tool?.startsWith("browser_") && browserPreview(item.content);
+  if (browser)
+    return (
+      <div className="browser-preview">
+        <strong>{browser.title}</strong>
+        <a href={browser.url} target="_blank" rel="noopener noreferrer">
+          {new URL(browser.url).hostname}
+        </a>
+        <span>Browser activity saved. Open the output for details.</span>
+      </div>
+    );
+  // Very large tool logs get a plain-text excerpt, never broken Markdown.
+  if (item.content.length > 30000)
+    return <p className="plain-preview">{item.content.slice(0, 1200)}…</p>;
+  return <RichText content={item.content} compact />;
+}
 export function ArtifactCard({
   item,
   onOpen,
   onProfile,
   onFile,
   onPin,
+  onArchive,
+  onArtifact,
   project,
+  className,
+  label,
+  headerActions,
+  footer,
+  detail,
 }: {
   item: Artifact;
   project?: string;
@@ -150,10 +421,71 @@ export function ArtifactCard({
   onProfile: () => void;
   onFile?: () => void;
   onPin?: () => void;
+  onArchive?: () => void;
+  onArtifact?: () => void;
+  className?: string;
+  label?: string;
+  headerActions?: ReactNode;
+  footer?: ReactNode;
+  detail?: ReactNode;
 }) {
   const meta = parse<any>(item.metadata, {});
+  const web = webPreview(
+    item.content,
+    meta.tool ||
+      (item.title.endsWith(" result") ? item.title.slice(0, -7) : undefined),
+  );
+  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const origin = useRef({ x: 0, y: 0 });
+  const held = useRef(false);
+  const clearHold = () => {
+    if (hold.current) clearTimeout(hold.current);
+    hold.current = null;
+  };
+  useEffect(() => clearHold, []);
   return (
-    <article className="feed-card">
+    <article
+      className={["feed-card", className].filter(Boolean).join(" ")}
+      onPointerDown={(e) => {
+        clearHold();
+        held.current = false;
+        if (
+          !onArchive ||
+          e.button !== 0 ||
+          (e.target as HTMLElement).closest(
+            ".card-actions,.card-byline,a,button,summary,input",
+          )
+        )
+          return;
+        origin.current = { x: e.clientX, y: e.clientY };
+        hold.current = setTimeout(() => {
+          held.current = true;
+          onArchive();
+        }, 600);
+      }}
+      onPointerMove={(e) => {
+        if (
+          Math.hypot(
+            e.clientX - origin.current.x,
+            e.clientY - origin.current.y,
+          ) > 10
+        )
+          clearHold();
+      }}
+      onPointerUp={clearHold}
+      onPointerCancel={clearHold}
+      onPointerLeave={clearHold}
+      onClickCapture={(e) => {
+        if (held.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          held.current = false;
+        }
+      }}
+      onContextMenu={(e) => {
+        if (onArchive) e.preventDefault();
+      }}
+    >
       <div className="card-byline">
         <button className="identity" onClick={onProfile}>
           <Avatar
@@ -177,56 +509,106 @@ export function ArtifactCard({
             </span>
           </span>
         </button>
+        {headerActions}
         <button
           className="icon-button"
           aria-label="Open output"
-          onClick={onOpen}
+          onClick={onArtifact || onOpen}
         >
           <ArrowUpRight size={20} />
         </button>
       </div>
-      <button className="card-content" onClick={onOpen}>
+      <div
+        className="card-content"
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest("a,button,summary,input"))
+            onOpen();
+        }}
+        onKeyDown={(e) => {
+          if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+      >
         <span className="eyebrow">
-          {meta.partial
-            ? "Partial output"
-            : meta.origin === "import"
-              ? "Imported history"
-              : item.kind === "workflow"
-                ? "Workflow"
-                : "Saved automatically"}
+          {label ||
+            (meta.partial
+              ? "Partial output"
+              : meta.origin === "import"
+                ? "Imported history"
+                : web
+                  ? web.search
+                    ? "Web search"
+                    : "Webpage"
+                  : meta.tool
+                    ? "Tool result"
+                    : item.kind === "workflow"
+                      ? "Workflow"
+                      : "Saved automatically")}
         </span>
         {project && <span className="field-hint">{project}</span>}
-        <h2>{item.title}</h2>
+        <h2>
+          {web
+            ? web.title
+            : meta.tool && item.title === `${meta.tool} result`
+              ? meta.tool.startsWith("browser_")
+                ? "Browser result"
+                : meta.tool.replaceAll("_", " ") + " result"
+              : item.title}
+        </h2>
+        <RunStatus
+          state={item.run_state}
+          error={item.run_error}
+          empty={!item.content}
+        />
+        {detail}
         <div className="preview">
-          {item.kind === "chart" ? (
-            <Chart content={item.content} compact />
-          ) : (
-            <RichText content={item.content.slice(0, 650)} />
-          )}
+          <ArtifactPreview item={item} tool={meta.tool} web={web} />
         </div>
-      </button>
-      <div className="card-actions">
-        <button onClick={onOpen}>
-          <MessageSquare size={16} />
-          Continue
-        </button>
-        {onFile && (
-          <button onClick={onFile}>
-            <FolderInput size={16} />
-            File
-          </button>
-        )}
-        {onPin && (
+        {!!item.content && (
           <button
-            aria-label={item.pinned ? "Unpin" : "Pin"}
-            className={item.pinned ? "active" : ""}
-            onClick={onPin}
+            className="text-button preview-open"
+            onClick={onArtifact || onOpen}
           >
-            <Bookmark size={16} fill={item.pinned ? "currentColor" : "none"} />
+            View full output <ArrowUpRight size={14} />
           </button>
         )}
-        <span className="saved-label">{meta.model || "Private to you"}</span>
       </div>
+      {footer || (
+        <div className="card-actions">
+          <button onClick={onOpen}>
+            <MessageSquare size={16} />
+            Continue
+          </button>
+          {onFile && (
+            <button onClick={onFile}>
+              <FolderInput size={16} />
+              File
+            </button>
+          )}
+          {onPin && (
+            <button
+              aria-label={item.pinned ? "Unpin" : "Pin"}
+              className={item.pinned ? "active" : ""}
+              onClick={onPin}
+            >
+              <Bookmark
+                size={16}
+                fill={item.pinned ? "currentColor" : "none"}
+              />
+            </button>
+          )}
+          {onArchive && (
+            <button aria-label="Archive from feed" onClick={onArchive}>
+              <Archive size={16} />
+            </button>
+          )}
+          <span className="saved-label">{meta.model || "Private to you"}</span>
+        </div>
+      )}
     </article>
   );
 }

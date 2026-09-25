@@ -23,6 +23,8 @@ export function owned<T>(table: string, recordId: string, owner: string): T {
     "mcp_connections",
     "approvals",
     "operations",
+    "teams",
+    "runtime_hosts",
   ];
   if (!tables.includes(table)) throw new Error("Invalid resource");
   const record = db
@@ -52,15 +54,16 @@ export const handle = z
     "Use 3–32 lowercase letters, numbers or hyphens, starting with a letter",
   )
   .refine((x) => !reserved.has(x), "This name is reserved");
+export const agentInput = z.object({
+  name: handle,
+  connectionId: z.string(),
+  model: z.string().min(1).max(150),
+  instructions: z.string().max(12000).default(""),
+  folderId: z.string().optional(),
+});
 export function createAgent(owner: string, value: unknown) {
-  const data = z
-    .object({
-      name: handle,
-      connectionId: z.string(),
-      model: z.string().min(1).max(150),
-      instructions: z.string().max(12000).default(""),
-    })
-    .parse(value);
+  const data = agentInput.parse(value);
+  if (data.folderId) owned("folders", data.folderId, owner);
   const connection = owned<Connection>("connections", data.connectionId, owner);
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
@@ -76,7 +79,7 @@ export function createAgent(owner: string, value: unknown) {
         );
       const agentId = id();
       db.prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
       ).run(
         agentId,
         owner,
@@ -87,6 +90,7 @@ export function createAgent(owner: string, value: unknown) {
         data.model,
         data.instructions,
         now(),
+        data.folderId || null,
       );
       db.prepare("INSERT INTO handles VALUES(?,?,?)").run(
         data.name,

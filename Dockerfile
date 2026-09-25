@@ -8,7 +8,7 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000 LOOP_DATA_DIR=/data
+ENV NODE_ENV=production PORT=3000 LOOP_DATA_DIR=/data LOOP_LISTEN_HOST=0.0.0.0
 COPY --from=build --chown=node:node /app /app
 RUN mkdir /data && chown node:node /data
 USER node

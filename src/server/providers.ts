@@ -13,6 +13,7 @@ export type ChatMessage = {
   content: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  isError?: boolean;
 };
 export type ChatInput = {
   model: string;
@@ -27,6 +28,13 @@ export type Chunk = {
   usage?: unknown;
   externalId?: string;
   toolCall?: ToolCall;
+  trace?: {
+    id: string;
+    kind: "message" | "tool";
+    title: string;
+    content: string;
+    state?: string;
+  };
 };
 export interface ProviderAdapter {
   models(secret: string): Promise<ModelInfo[]>;
@@ -173,6 +181,7 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
                     type: "tool_result",
                     tool_use_id: m.toolCallId,
                     content: m.content,
+                    is_error: m.isError || undefined,
                   },
                 ],
               }

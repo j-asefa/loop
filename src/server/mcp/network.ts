@@ -33,7 +33,7 @@ export function safeUrl(value: string | URL) {
     );
   return url;
 }
-const dispatcher = new Agent({
+export const publicNetworkDispatcher = new Agent({
   connect: {
     lookup: (hostname: string, options: any, callback: any) => {
       lookup(hostname, { all: true, verbatim: true }, (error, addresses) => {
@@ -58,61 +58,67 @@ const dispatcher = new Agent({
   bodyTimeout: 30000,
   maxRedirections: 0,
 } as any);
-export const safeFetch: typeof fetch = async (input, init) => {
-  const original =
-      typeof input === "string" || input instanceof URL ? input : input.url,
-    url = safeUrl(original);
-  const signal = AbortSignal.any([
-    AbortSignal.timeout(45000),
-    ...(init?.signal ? [init.signal] : []),
-  ]);
-  const base =
-    input instanceof Request
-      ? {
-          method: input.method,
-          headers: input.headers,
-          body: input.body,
-          duplex: "half",
-        }
-      : {};
-  const response = await undiciFetch(url, {
-    ...base,
-    ...init,
-    dispatcher,
-    redirect: "error",
-    signal,
-  } as any);
-  const type = response.headers.get("content-type") || "";
-  let total = 0;
-  const reader = response.body?.getReader();
-  const body = reader
-    ? new ReadableStream({
-        async pull(controller) {
-          try {
-            const chunk = await reader.read();
-            if (chunk.done) {
-              controller.close();
-              return;
-            }
-            total += chunk.value.byteLength;
-            if (total > 4 * 1024 * 1024) {
-              await reader.cancel();
-              controller.error(new Error("MCP response exceeds 4 MB"));
-              return;
-            }
-            controller.enqueue(chunk.value);
-          } catch (e) {
-            controller.error(e);
+const guardedFetch =
+  (timeout: number): typeof fetch =>
+  async (input, init) => {
+    const original =
+        typeof input === "string" || input instanceof URL ? input : input.url,
+      url = safeUrl(original);
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(timeout),
+      ...(init?.signal ? [init.signal] : []),
+    ]);
+    const base =
+      input instanceof Request
+        ? {
+            method: input.method,
+            headers: input.headers,
+            body: input.body,
+            duplex: "half",
           }
-        },
-        async cancel() {
-          await reader.cancel();
-        },
-      })
-    : null;
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers as any,
-  });
-};
+        : {};
+    const response = await undiciFetch(url, {
+      ...base,
+      ...init,
+      dispatcher: publicNetworkDispatcher,
+      headersTimeout: timeout,
+      bodyTimeout: timeout,
+      redirect: "error",
+      signal,
+    } as any);
+    const type = response.headers.get("content-type") || "";
+    let total = 0;
+    const reader = response.body?.getReader();
+    const body = reader
+      ? new ReadableStream({
+          async pull(controller) {
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) {
+                controller.close();
+                return;
+              }
+              total += chunk.value.byteLength;
+              if (total > 4 * 1024 * 1024) {
+                await reader.cancel();
+                controller.error(new Error("MCP response exceeds 4 MB"));
+                return;
+              }
+              controller.enqueue(chunk.value);
+            } catch (e) {
+              controller.error(e);
+            }
+          },
+          async cancel() {
+            await reader.cancel();
+          },
+        })
+      : null;
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers as any,
+    });
+  };
+export const safeFetch = guardedFetch(45000);
+export const safeRuntimeFetch = guardedFetch(1800000);

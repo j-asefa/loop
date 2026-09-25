@@ -5,7 +5,8 @@ import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
-import { search } from "./search.js";
+import { search, searchStatus } from "./search.js";
+import { localModel } from "./local-embeddings.js";
 import { stageImport } from "./imports.js";
 import { enqueue, type Run, transition } from "./queue.js";
 import type { Artifact, Agent, Message, Connection } from "../shared/types.js";
@@ -218,6 +219,9 @@ workspace.get("/search", async (req, res) => {
     }),
   );
 });
+workspace.get("/search/status", (_req, res) =>
+  res.json(searchStatus(res.locals.owner)),
+);
 workspace.get("/preferences", (_req, res) =>
   res.json(
     db
@@ -232,7 +236,7 @@ workspace.post("/preferences", (req, res) => {
       connectionId: z.string().nullable(),
     })
     .parse(req.body);
-  if (d.embeddingEnabled) {
+  if (d.embeddingEnabled && d.connectionId) {
     const c = owned<Connection>(
       "connections",
       d.connectionId || "",
@@ -246,11 +250,16 @@ workspace.post("/preferences", (req, res) => {
   ).run(
     res.locals.owner,
     d.connectionId,
-    process.env.LOOP_EMBEDDING_MODEL || "text-embedding-3-small",
+    d.connectionId
+      ? process.env.LOOP_EMBEDDING_MODEL || "text-embedding-3-small"
+      : localModel,
     Number(d.embeddingEnabled),
   );
   if (!d.embeddingEnabled)
     db.prepare("DELETE FROM embeddings WHERE owner_id=?").run(res.locals.owner);
+  db.prepare("DELETE FROM search_index_status WHERE owner_id=?").run(
+    res.locals.owner,
+  );
   res.json({ ok: true });
 });
 const upload = multer({
@@ -326,7 +335,9 @@ workspace.post("/conversations/:id/continue", (req, res) => {
   messages.sort((a, b) => a.created_at - b.created_at);
   const newId = id();
   db.transaction(() => {
-    db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?,?,?)").run(
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
+    ).run(
       newId,
       res.locals.owner,
       a.id,

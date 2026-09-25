@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
-export function requestApproval(run: Run, request: unknown) {
+export function requestApproval(
+  run: Run,
+  request: unknown,
+  autoApproved = false,
+) {
   const encoded = JSON.stringify(request),
     digest = createHash("sha256").update(encoded).digest("hex");
   const prior = db
@@ -12,16 +16,22 @@ export function requestApproval(run: Run, request: unknown) {
     .get(run.owner_id, run.id, digest) as any;
   if (prior) return prior;
   const approvalId = id();
-  db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,'pending',NULL,?,?)").run(
+  db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,?,NULL,?,?)").run(
     approvalId,
     run.owner_id,
     run.id,
     digest,
     encoded,
+    autoApproved ? "approved" : "pending",
     now(),
     now() + 24 * 60 * 60 * 1000,
   );
-  emit(run.owner_id, run.id, "approval.requested", { approvalId, request });
+  emit(
+    run.owner_id,
+    run.id,
+    autoApproved ? "approval.auto_approved" : "approval.requested",
+    { approvalId, request },
+  );
   return owned<any>("approvals", approvalId, run.owner_id);
 }
 export function decide(
@@ -29,29 +39,31 @@ export function decide(
   approvalId: string,
   decision: "approve" | "reject",
 ) {
-  return db.transaction(() => {
-    const approval = owned<any>("approvals", approvalId, owner);
-    const run = owned<Run>("runs", approval.run_id, owner);
-    if (approval.state !== "pending" || run.state !== "awaiting_approval")
-      throw new Problem(409, "This approval is no longer pending");
-    if (approval.expires_at < now())
-      throw new Problem(
-        409,
-        "This approval expired. Start a new run after review.",
+  return db
+    .transaction(() => {
+      const approval = owned<any>("approvals", approvalId, owner);
+      const run = owned<Run>("runs", approval.run_id, owner);
+      if (approval.state !== "pending" || run.state !== "awaiting_approval")
+        throw new Problem(409, "This approval is no longer pending");
+      if (approval.expires_at < now())
+        throw new Problem(
+          409,
+          "This approval expired. Start a new run after review.",
+        );
+      db.prepare("UPDATE approvals SET state=? WHERE id=? AND state=?").run(
+        decision === "approve" ? "approved" : "rejected",
+        approvalId,
+        "pending",
       );
-    db.prepare("UPDATE approvals SET state=? WHERE id=? AND state=?").run(
-      decision === "approve" ? "approved" : "rejected",
-      approvalId,
-      "pending",
-    );
-    if (decision === "approve") transition(run, "queued", { approvalId });
-    else {
-      db.prepare("UPDATE runs SET error=? WHERE id=?").run(
-        "Approval was rejected.",
-        run.id,
-      );
-      transition(run, "failed", { approvalId, reason: "Approval rejected" });
-    }
-    return { ok: true };
-  }).immediate();
+      if (decision === "approve") transition(run, "queued", { approvalId });
+      else {
+        db.prepare("UPDATE runs SET error=? WHERE id=?").run(
+          "Approval was rejected.",
+          run.id,
+        );
+        transition(run, "failed", { approvalId, reason: "Approval rejected" });
+      }
+      return { ok: true };
+    })
+    .immediate();
 }

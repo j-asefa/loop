@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import DOMPurify from "dompurify";
-export function Diagram({ source }: { source: string }) {
+export function Diagram({
+  source,
+  compact = false,
+}: {
+  source: string;
+  compact?: boolean;
+}) {
   const [zoom, setZoom] = useState(1);
   const [svg, setSvg] = useState(""),
     [error, setError] = useState("");
   useEffect(() => {
     let active = true;
+    setError("");
+    setSvg("");
     async function render() {
       try {
         if (source.length > 30000 || /%%\{|\bclick\s|<\/?[a-z]/i.test(source))
@@ -15,7 +23,7 @@ export function Diagram({ source }: { source: string }) {
           startOnLoad: false,
           securityLevel: "strict",
           maxTextSize: 30000,
-          flowchart: { htmlLabels: false },
+          htmlLabels: false,
           theme:
             document.documentElement.dataset.theme === "dark"
               ? "dark"
@@ -52,9 +60,11 @@ export function Diagram({ source }: { source: string }) {
     </>
   ) : (
     <div>
-      <button onClick={() => setZoom(zoom === 1 ? 1.8 : 1)}>
-        {zoom === 1 ? "Enlarge diagram" : "Reset diagram"}
-      </button>
+      {!compact && (
+        <button onClick={() => setZoom(zoom === 1 ? 1.8 : 1)}>
+          {zoom === 1 ? "Enlarge diagram" : "Reset diagram"}
+        </button>
+      )}
       <div className="diagram-viewport">
         <div
           className="diagram"

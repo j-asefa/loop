@@ -37,6 +37,21 @@ export const chartSchema = z
     "Samples must be inside the declared range",
   );
 export type ChartData = z.infer<typeof chartSchema>;
+// Callers pass a credential-redacted result. The complete response remains in
+// its saved artifact; traces and run failures use this bounded explanation.
+export function toolErrorMessage(result: any) {
+  const text = (Array.isArray(result.content) ? result.content : [])
+    .filter(
+      (item: any) => item.type === "text" && typeof item.text === "string",
+    )
+    .map((item: any) => item.text)
+    .join("\n");
+  return (
+    text ||
+    (result.structuredContent && JSON.stringify(result.structuredContent)) ||
+    "The tool returned an error without details."
+  ).slice(0, 2000);
+}
 export function normalizeResult(
   result: any,
   provenance: {
@@ -57,6 +72,16 @@ export function normalizeResult(
     } catch {}
   }
   const source = { ...provenance, fixture: !!provenance.fixture };
+  if (result.isError === true)
+    return {
+      kind: "markdown",
+      title: provenance.tool + " error",
+      content:
+        text ||
+        (data
+          ? "```json\n" + JSON.stringify(data, null, 2) + "\n```"
+          : toolErrorMessage(result)),
+    };
   const bitmap = result.content?.find(
     (c: any) =>
       c.type === "image" &&

@@ -1,22 +1,31 @@
-import { feedRevision, feedUpdates } from "./feed.js";
+import {
+  feedRevision,
+  feedUpdates,
+  feedOutputSql,
+  finishedArtifactSql,
+} from "./feed.js";
+import { agentTraces } from "./traces.js";
+import { dismissRun } from "./run-attention.js";
 import {
   isSubscription,
   runtimeAction,
   runtimeConfigured,
 } from "./subscriptions.js";
-import { setGrants } from "./mcp/routes.js";
 import { Router } from "express";
 import { z } from "zod";
-import { db, id, now } from "./db.js";
-import { owned, createAgent, renameAgent, Problem } from "./domain.js";
+import { db, emit, id, now } from "./db.js";
+import { owned, renameAgent, Problem } from "./domain.js";
+import { createWithPrompt } from "./agent-creation.js";
 import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
 import { submit } from "./agent-runtime.js";
 import { transition, type Run } from "./queue.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
+import { listTeams, teamFilter } from "./teams.js";
 export const core = Router();
 core.get("/bootstrap", (_req, res) =>
   res.json({
+    teams: listTeams(res.locals.owner),
     agents: db
       .prepare("SELECT * FROM agents WHERE owner_id=? ORDER BY created_at DESC")
       .all(res.locals.owner),
@@ -123,52 +132,89 @@ core.delete("/connections/:id", async (req, res) => {
   res.json({ ok: true });
 });
 core.post("/agents", (req, res) =>
-  res.status(201).json(
-    db.transaction(() => {
-      const a = createAgent(res.locals.owner, req.body);
-      if (req.body.tools)
-        setGrants(
-          res.locals.owner,
-          a.id,
-          z
-            .array(
-              z.object({
-                connectionId: z.string(),
-                tools: z.array(z.string()).max(40),
-              }),
-            )
-            .max(20)
-            .parse(req.body.tools),
-        );
-      return a;
-    })(),
-  ),
+  res.status(201).json(createWithPrompt(res.locals.owner, req.body)),
 );
 core.patch("/agents/:id", (req, res) => {
-  const owner = res.locals.owner,
-    agent = owned<Agent>("agents", req.params.id, owner);
-  if (req.body.name !== undefined) renameAgent(owner, agent.id, req.body.name);
-  if (req.body.instructions !== undefined)
-    db.prepare("UPDATE agents SET instructions=? WHERE id=?").run(
-      z.string().max(12000).parse(req.body.instructions),
-      agent.id,
-    );
-  if (req.body.model !== undefined) {
-    const c = owned<Connection>(
-      "connections",
-      agent.connection_id || "",
-      owner,
-    );
-    if (
-      !JSON.parse(c.models).some((m: { id: string }) => m.id === req.body.model)
-    )
-      throw new Problem(400, "Model unavailable on this connection");
-    db.prepare("UPDATE agents SET model=? WHERE id=?").run(
-      req.body.model,
-      agent.id,
-    );
+  const result = db
+    .transaction(() => {
+      const owner = res.locals.owner,
+        agent = owned<Agent>("agents", req.params.id, owner);
+      if (req.body.folderId !== undefined) {
+        const folderId = z.string().min(1).nullable().parse(req.body.folderId);
+        if (folderId) owned("folders", folderId, owner);
+        db.prepare(
+          "UPDATE agents SET folder_id=? WHERE id=? AND owner_id=?",
+        ).run(folderId, agent.id, owner);
+      }
+      if (req.body.name !== undefined)
+        renameAgent(owner, agent.id, req.body.name);
+      if (req.body.instructions !== undefined)
+        db.prepare("UPDATE agents SET instructions=? WHERE id=?").run(
+          z.string().max(12000).parse(req.body.instructions),
+          agent.id,
+        );
+      if (req.body.model !== undefined) {
+        const c = owned<Connection>(
+          "connections",
+          agent.connection_id || "",
+          owner,
+        );
+        if (
+          !JSON.parse(c.models).some(
+            (m: { id: string }) => m.id === req.body.model,
+          )
+        )
+          throw new Problem(400, "Model unavailable on this connection");
+        db.prepare("UPDATE agents SET model=? WHERE id=?").run(
+          req.body.model,
+          agent.id,
+        );
+      }
+      return owned("agents", agent.id, owner);
+    })
+    .immediate();
+  res.json(result);
+});
+core.get("/agents/:id/harness", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  if (!agent.connection_id)
+    throw new Problem(409, "Connect a provider to this agent first.");
+  const connection = owned<Connection>(
+    "connections",
+    agent.connection_id,
+    res.locals.owner,
+  );
+  if (!isSubscription(connection)) {
+    res.json({
+      available: false,
+      commands: [],
+      message:
+        "Commands and skills come from a Codex or Claude Code runtime. This agent uses an API connection.",
+    });
+    return;
   }
-  res.json(owned("agents", agent.id, owner));
+  if (connection.status !== "connected")
+    throw new Problem(
+      409,
+      "Reconnect this agent’s provider to load commands and skills.",
+    );
+  const catalog = await runtimeAction(connection, "capabilities");
+  if (!Array.isArray(catalog.commands))
+    throw new Problem(
+      422,
+      "This runtime does not support command discovery. Update the runtime on that machine and try again.",
+    );
+  res.json(catalog);
+});
+core.get("/agents/:id/traces", (req, res) => {
+  const before = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional()
+    .parse(req.query.before);
+  res.json(agentTraces(res.locals.owner, req.params.id, before));
 });
 core.get("/agents/:id", (req, res) => {
   const a = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -193,7 +239,7 @@ core.post("/runs", (req, res) => {
       conversationId: z.string().optional(),
       input: z.string().trim().min(1).max(30000),
       idempotencyKey: z.string().min(8).max(150),
-      folderId: z.string().optional(),
+      folderId: z.string().min(1).nullable().optional(),
     })
     .parse(req.body);
   res.status(202).json(submit(res.locals.owner, d));
@@ -201,6 +247,10 @@ core.post("/runs", (req, res) => {
 core.post("/runs/:id/:action", (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
   const action = req.params.action;
+  if (action === "dismiss") {
+    res.json(dismissRun(res.locals.owner, run.id));
+    return;
+  }
   if (action === "resume" && run.state !== "paused")
     throw new Problem(
       409,
@@ -244,6 +294,20 @@ core.post("/runs/:id/:action", (req, res) => {
           : null;
   if (!next || !transition(run, next))
     throw new Problem(409, "That action is not available in the current state");
+  if (action === "cancel") {
+    const children = db
+      .prepare(
+        "SELECT r.* FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
+      )
+      .all(run.id) as Run[];
+    children.forEach((child) => transition(child, "cancelled"));
+  }
+  if (
+    action === "pause" &&
+    (run as any).worker_id === null &&
+    run.state === "running"
+  )
+    transition(run, "paused");
   if (action === "cancel" && run.kind === "workflow") {
     const children = db
       .prepare(
@@ -265,26 +329,39 @@ core.get("/feed/updates", (req, res) => {
     })
     .parse(req.query);
   if (options.agent) owned("agents", options.agent, res.locals.owner);
-  res.json(feedUpdates(res.locals.owner, options));
+  const teams = teamFilter(req.query.teams, res.locals.owner);
+  res.json(feedUpdates(res.locals.owner, { ...options, teams }));
 });
 core.get("/feed", (req, res) => {
   const revision = feedRevision(res.locals.owner);
+  const teams = teamFilter(req.query.teams, res.locals.owner);
   const cursor = z.coerce.number().min(0).catch(0).parse(req.query.before),
     limit = 40;
   const params: unknown[] = [res.locals.owner];
-  let where = "a.owner_id=? AND a.archived=0";
+  let where = "a.owner_id=? AND a.archived=0 AND a.feed_hidden=0";
+  if (teams.length) {
+    where +=
+      " AND a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=? AND team_id IN (" +
+      teams.map(() => "?").join(",") +
+      "))";
+    params.push(res.locals.owner, ...teams);
+  }
   if (req.query.agent) {
     owned("agents", String(req.query.agent), res.locals.owner);
     where += " AND a.agent_id=?";
     params.push(req.query.agent);
   }
   if (cursor) {
-    where += " AND a.rowid<?";
+    where += " AND p.sequence<?";
     params.push(cursor);
   }
   if (req.query.view === "prompts") {
     const values: any[] = [res.locals.owner];
     let filter = "m.owner_id=? AND m.role='user'";
+    if (teams.length) {
+      filter += " AND c.team_id IN (" + teams.map(() => "?").join(",") + ")";
+      values.push(...teams);
+    }
     if (req.query.agent) {
       filter += " AND c.agent_id=?";
       values.push(req.query.agent);
@@ -295,7 +372,7 @@ core.get("/feed", (req, res) => {
     }
     const rows = db
       .prepare(
-        `SELECT m.*,m.rowid cursor,a.name,a.provider FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents a ON a.id=c.agent_id WHERE ${filter} ORDER BY m.rowid DESC LIMIT 40`,
+        `SELECT m.*,r.state run_state,r.error run_error,m.rowid cursor,c.agent_id,c.team_id,a.name,a.provider FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents a ON a.id=c.agent_id WHERE ${filter} ORDER BY m.rowid DESC LIMIT 40`,
       )
       .all(...values) as any[];
     res.json({
@@ -306,11 +383,11 @@ core.get("/feed", (req, res) => {
     return;
   }
   if (req.query.view === "files")
-    where +=
-      " AND a.kind IN ('file','image','code','table','diagram','chart','workflow')";
+    where += ` AND ${finishedArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
+  else where += ` AND ${feedOutputSql}`;
   const items = db
     .prepare(
-      `SELECT a.*,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,a.rowid AS cursor,g.name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY a.rowid DESC LIMIT ?`,
+      `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
     )
     .all(...params, limit) as { cursor: number }[];
   res.json({
@@ -318,6 +395,19 @@ core.get("/feed", (req, res) => {
     items,
     next: items.length === limit ? items.at(-1)!.cursor : null,
   });
+});
+core.patch("/feed/:id", (req, res) => {
+  const item = owned<any>("artifacts", req.params.id, res.locals.owner);
+  const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
+  db.prepare(
+    "UPDATE artifacts SET feed_hidden=? WHERE id=? AND owner_id=?",
+  ).run(Number(hidden), item.id, res.locals.owner);
+  if (item.run_id)
+    emit(res.locals.owner, item.run_id, "feed.changed", {
+      artifactId: item.id,
+      hidden,
+    });
+  res.json({ ok: true });
 });
 core.get("/conversations/:id", (req, res) => {
   const c = owned("conversations", req.params.id, res.locals.owner);
@@ -337,7 +427,7 @@ core.get("/conversations/:id", (req, res) => {
   }
   const items = db
     .prepare(
-      "SELECT *,rowid AS cursor FROM messages WHERE owner_id=? AND conversation_id=? AND rowid<? ORDER BY rowid DESC LIMIT 50",
+      "SELECT m.*,m.rowid AS cursor,r.state run_state,r.error run_error FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id WHERE m.owner_id=? AND m.conversation_id=? AND m.rowid<? ORDER BY m.rowid DESC LIMIT 50",
     )
     .all(res.locals.owner, req.params.id, before) as { cursor: number }[];
   res.json({
