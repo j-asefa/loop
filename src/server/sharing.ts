@@ -61,6 +61,7 @@ sharing.post("/share/preview", (req, res) => {
           name: agent.name,
           provider: agent.provider,
           model: agent.model,
+          effort: agent.effort,
         }
       : null,
     source: d.source,

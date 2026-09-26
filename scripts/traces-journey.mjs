@@ -206,9 +206,12 @@ export async function tracesJourney(page, api, base, dir) {
       .locator(".agent-strip button")
       .filter({ hasText: "@trace-browser-agent" })
       .click();
+    await page.getByRole("button", { name: "Messages", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Agent messages" }))
+      .toContainText("public sources");
     await page.getByRole("button", { name: "Traces", exact: true }).click();
     const traces = page.getByRole("region", { name: "Agent traces" });
-    await expect(traces).toContainText("public sources");
+    await expect(traces).not.toContainText("public sources");
     const errorTrace = traces
       .locator(".trace-card")
       .filter({ hasText: "pull request review write" });
@@ -238,10 +241,11 @@ export async function tracesJourney(page, api, base, dir) {
       exact: true,
     });
     await expect(earlier).toHaveCount(0);
+    const initialTraceCount = await traces.locator(".trace-card").count();
     for (let burst = 0; burst < 2; burst++) {
       db.transaction(() => {
         const insert = db.prepare(
-          "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES(?,?,?,'message','Agent update',?,'{}',?)",
+          "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES(?,?,?,'tool','Tool update',?,'{}',?)",
         );
         for (let i = 0; i < 90; i++)
           insert.run(
@@ -256,15 +260,15 @@ export async function tracesJourney(page, api, base, dir) {
         ).run(owner, run, Date.now());
       })();
       await expect(traces.locator(".trace-card")).toHaveCount(
-        3 + burst * 90 + 40,
+        initialTraceCount + burst * 90 + 40,
       );
       await earlier.click();
       await expect(traces.locator(".trace-card")).toHaveCount(
-        3 + burst * 90 + 80,
+        initialTraceCount + burst * 90 + 80,
       );
       await earlier.click();
       await expect(traces.locator(".trace-card")).toHaveCount(
-        3 + (burst + 1) * 90,
+        initialTraceCount + (burst + 1) * 90,
       );
       // The final partial page may include already-loaded older entries.
       while (await earlier.count()) {

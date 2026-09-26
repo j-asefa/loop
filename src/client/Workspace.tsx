@@ -15,7 +15,7 @@ import {
   Check,
 } from "lucide-react";
 import { api, parse, authorizedFetch } from "./api";
-import { Sheet, Empty, Badge } from "./components";
+import { Sheet, Empty, Badge, RichText } from "./components";
 import type {
   Artifact,
   Folder as FolderType,
@@ -636,7 +636,7 @@ export function SearchWorkspace({
                   <span>{new Date(r.created_at).toLocaleDateString()}</span>
                 </div>
                 <h3>{r.title}</h3>
-                <p>{r.snippet}</p>
+                <RichText content={r.snippet} compact />
                 <small>
                   {r.kind} ·{" "}
                   {r.folder_id

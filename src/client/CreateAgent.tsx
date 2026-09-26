@@ -53,6 +53,7 @@ export function CreateAgent({
         .toLowerCase(),
       connectionId: selected?.id,
       model: chosen,
+      effort: String(f.get("effort") || "") || null,
       instructions: String(f.get("instructions") || ""),
       initialPrompt: initialPrompt.trim(),
       folderId: String(f.get("folder") || "") || undefined,
@@ -176,22 +177,36 @@ export function CreateAgent({
             />
           </div>
         </label>
-        <label>
-          Agent instructions
-          <textarea
-            name="instructions"
-            aria-label="Agent instructions"
-            rows={3}
-            maxLength={12000}
-            disabled={busy}
-            aria-describedby={instructionsHint}
-            placeholder="Research carefully, cite sources, and keep answers concise."
-          />
-        </label>
-        <p className="field-hint" id={instructionsHint}>
-          Optional. Guidance for every task, such as the agent’s role, focus, or
-          writing style. You can edit it later.
-        </p>
+        {(provider === "openai" || provider === "codex") && (
+          <label>
+            Reasoning effort
+            <select name="effort" defaultValue="">
+              <option value="">Provider default</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+        )}
+        <details className="advanced-agent-options">
+          <summary>Advanced options</summary>
+          <label>
+            Agent instructions
+            <textarea
+              name="instructions"
+              aria-label="Agent instructions"
+              rows={3}
+              maxLength={12000}
+              disabled={busy}
+              aria-describedby={instructionsHint}
+              placeholder="Research carefully, cite sources, and keep answers concise."
+            />
+          </label>
+          <p className="field-hint" id={instructionsHint}>
+            Optional. Guidance for every task, such as the agent’s role, focus,
+            or writing style. You can edit it later.
+          </p>
+        </details>
         <label>
           Initial prompt
           <textarea

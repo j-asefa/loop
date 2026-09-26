@@ -226,8 +226,8 @@ export function InstallHelp({ onClose }: { onClose: () => void }) {
       </ol>
       <h3>Share a link from iPhone</h3>
       <p>
-        Copy the link, open Loop, and tap “Bring a link.” Native Web Share
-        Target is not assumed on Safari.
+        Use the Shortcut below to open a shared link as a Loop draft. Native Web
+        Share Target is not assumed on Safari.
       </p>
       <p>
         For a Shortcut: accept URLs or Text from the Share Sheet, URL Encode the

@@ -5,6 +5,7 @@ import { HarnessPicker } from "./HarnessPicker";
 import { RunStatus } from "./RunStatus";
 import { Projects } from "./Projects";
 import { Traces } from "./Traces";
+import { AgentMessages } from "./AgentMessages";
 import { FeedPager } from "./feed";
 import { TeamFilter, CreateTeam } from "./Teams";
 import { RuntimeHosts } from "./RuntimeHosts";
@@ -207,6 +208,7 @@ export default function App() {
     }
   }
   const [searchAgent, setSearchAgent] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
   const [workflowId, setWorkflowId] = useState<string | undefined>(undefined);
   const [workflowSource, setWorkflowSource] = useState<string | undefined>(
     undefined,
@@ -220,16 +222,23 @@ export default function App() {
   const personalWorkspace = useRef(false);
   personalWorkspace.current = session?.mode === "single-user";
   const feed = useRef(new FeedPager<any>());
+  const lastFeedTap = useRef(0);
   const feedContext = useRef("");
-  feedContext.current = [session?.user?.id, profile?.id, view, teamKey].join(
-    ":",
-  );
+  feedContext.current = [
+    session?.user?.id,
+    profile?.id,
+    view,
+    teamKey,
+    projectFilter,
+  ].join(":");
   const activeAgent =
     selected === "__route__"
       ? data.agents.find((a) => a.id === routePreview?.agent?.id)
       : data.agents.find((a) => a.id === selected) ||
         data.agents.find((a) => a.connection_id);
-  const working = runs.filter((r) => ["running", "pausing"].includes(r.state));
+  const working = runs.filter((r) =>
+    ["running", "pausing", "waiting_children"].includes(r.state),
+  );
   const attention = runs.filter((r) =>
     [
       "failed",
@@ -310,7 +319,7 @@ export default function App() {
   }
   async function loadFeed(append = false, notify = true) {
     const owner = ownerRef.current,
-      key = [owner, profile?.id, view, teamKey].join(":");
+      key = [owner, profile?.id, view, teamKey, projectFilter].join(":");
     if (!owner || key !== feedContext.current) return;
     if (feed.current.key !== key) {
       setItems([]);
@@ -318,10 +327,11 @@ export default function App() {
     }
     const query = () => {
       const q = new URLSearchParams({
-        view: view === "traces" ? "all" : view,
+        view: ["traces", "messages"].includes(view) ? "all" : view,
         teams: teamKey,
       });
       if (profile) q.set("agent", profile.id);
+      if (projectFilter && !profile) q.set("folder", projectFilter);
       return q;
     };
     const result = await feed.current.load(
@@ -385,7 +395,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (session?.user) void refresh().catch((e) => setError(e.message));
-  }, [session?.user?.id, profile?.id, view, teamKey]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
   useEffect(() => {
     if (!session?.user) return;
     if (!capabilities.pairedDevices) {
@@ -499,8 +509,14 @@ export default function App() {
         recipient = data.agents.find((a) => a.id === route.agent?.id)!;
         if (!recipient) throw new Error("Choose an accessible @agent.");
       }
-      const conversationId =
-        contextArtifact?.agent_id === recipient.id
+      const managerTeam = data.teams?.find(
+        (t) =>
+          t.manager_id === recipient.id &&
+          (!teamSelection.length || teamSelection.includes(t.id)),
+      );
+      const conversationId = managerTeam
+        ? managerTeam.conversation_id
+        : contextArtifact?.agent_id === recipient.id
           ? contextArtifact.conversation_id || undefined
           : teamSelection.length === 1 &&
               data.teams?.find((t) => t.id === teamSelection[0])?.manager_id ===
@@ -573,6 +589,9 @@ export default function App() {
         .then(setActiveArtifact)
         .catch((e) => setError(e.message));
   }, [session?.user?.id]);
+  useEffect(() => {
+    if (profile) setView("messages");
+  }, [profile?.id]);
   async function runAction(r: Run, action: string) {
     try {
       await api(`/runs/${r.id}/${action}`, {});
@@ -589,6 +608,12 @@ export default function App() {
           aria-label={t.label}
           className={tab === t.id ? "current" : ""}
           onClick={() => {
+            if (t.id === "feed") {
+              const now = Date.now();
+              if (tab === "feed" && now - lastFeedTap.current < 350)
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              lastFeedTap.current = now;
+            }
             setTab(t.id);
             setProfile(null);
             setView("all");
@@ -596,9 +621,9 @@ export default function App() {
         >
           <t.icon size={21} />
           <span>{t.label}</span>
-          {t.id === "running" &&
-            working.length > 0 &&
-            attention.length === 0 && <small>{working.length}</small>}
+          {t.id === "running" && working.length > 0 && (
+            <small>{working.length}</small>
+          )}
           {t.id === "running" && attention.length > 0 && (
             <small
               className="attention-count"
@@ -700,20 +725,6 @@ export default function App() {
               : tabs.find((t) => t.id === tab)?.label}
           </span>
           <div className="topbar-actions">
-            <button
-              className="text-button"
-              onClick={() => {
-                setSharedDraft((d) => ({
-                  ...d,
-                  question: d.question || draft,
-                  folderId: d.folderId || folder,
-                }));
-                setSheet("share");
-              }}
-            >
-              <LinkIcon size={18} />
-              <span>Bring a link</span>
-            </button>
             <span className="private-indicator">
               <span />
               Private workspace
@@ -784,13 +795,51 @@ export default function App() {
                   Search this agent
                 </button>
                 <p className="field-hint">
-                  {working.filter((r) => r.agent_id === profile.id).length}{" "}
+                  {
+                    runs.filter(
+                      (r) => r.agent_id === profile.id && r.state === "queued",
+                    ).length
+                  }{" "}
                   pending tasks in this agent’s queue
                 </p>
+                {runs.filter(
+                  (r) => r.agent_id === profile.id && r.state === "queued",
+                ).length > 0 && (
+                  <details className="agent-queue">
+                    <summary>View pending tasks</summary>
+                    <ol>
+                      {runs
+                        .filter(
+                          (r) =>
+                            r.agent_id === profile.id && r.state === "queued",
+                        )
+                        .sort(
+                          (a, b) =>
+                            ((a as any).queue_position || 0) -
+                            ((b as any).queue_position || 0),
+                        )
+                        .map((r) => (
+                          <li key={r.id}>
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                r.conversation_id &&
+                                setConversation(r.conversation_id)
+                              }
+                            >
+                              {r.input}
+                            </button>
+                            <small>Position {(r as any).queue_position}</small>
+                          </li>
+                        ))}
+                    </ol>
+                  </details>
+                )}
               </section>
               <div className="segmented">
                 {[
                   ["all", "Outputs"],
+                  ["messages", "Messages"],
                   ["prompts", "Your prompts"],
                   ["files", "Files"],
                   ["traces", "Traces"],
@@ -861,6 +910,25 @@ export default function App() {
               }}
             />
           )}
+          {["feed", "running"].includes(tab) && !profile && (
+            <label className="project-feed-filter">
+              Project
+              <select
+                aria-label="Filter by project"
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+              >
+                <option value="">All projects</option>
+                {data.folders
+                  .filter((f) => f.kind === "project")
+                  .map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
           {tab === "feed" && !profile && (
             <>
               {attention.length > 0 && (
@@ -886,6 +954,9 @@ export default function App() {
               <div className="agent-strip">
                 {data.agents.slice(0, 7).map((a) => (
                   <button key={a.id} onClick={() => setProfile(a)}>
+                    <small className="agent-strip-model" title={a.model}>
+                      {a.model}
+                    </small>
                     <Avatar name={a.name} provider={a.provider} />
                     <span>@{a.name}</span>
                   </button>
@@ -933,7 +1004,11 @@ export default function App() {
               onArtifact={setActiveArtifact}
             />
           )}
-          {(tab === "feed" || profile) && !(profile && view === "traces") && (
+          {profile && view === "messages" && (
+            <AgentMessages agentId={profile.id} revision={revision}
+              onConversation={setConversation} />
+          )}
+          {(tab === "feed" || profile) && !(profile && ["traces", "messages"].includes(view)) && (
             <div className="feed">
               {items.length ? (
                 items.map((item) =>
@@ -970,6 +1045,14 @@ export default function App() {
                           @{item.name}
                         </button>
                       </span>
+                      <time className="field-hint">
+                        {new Date(item.created_at).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </time>
                       <p>{item.content}</p>
                       <RunStatus
                         state={item.run_state}
@@ -1089,7 +1172,9 @@ export default function App() {
                 ))}
               </div>
               {runs.filter((r) =>
-                runFilter === "all"
+                (!projectFilter ||
+                  parse<any>(r.payload, {}).folderId === projectFilter) &&
+                (runFilter === "all"
                   ? ["running", "pausing"].includes(r.state)
                   : runFilter === "queued"
                     ? r.state === "queued"
@@ -1099,11 +1184,13 @@ export default function App() {
                         "interrupted",
                         "failed",
                         "waiting_children",
-                      ].includes(r.state),
+                      ].includes(r.state)),
               ).length ? (
                 runs
                   .filter((r) =>
-                    runFilter === "all"
+                    (!projectFilter ||
+                      parse<any>(r.payload, {}).folderId === projectFilter) &&
+                    (runFilter === "all"
                       ? ["running", "pausing"].includes(r.state)
                       : runFilter === "queued"
                         ? r.state === "queued"
@@ -1113,7 +1200,7 @@ export default function App() {
                             "interrupted",
                             "failed",
                             "waiting_children",
-                          ].includes(r.state),
+                          ].includes(r.state)),
                   )
                   .map((r) => {
                     const a = data.agents.find((a) => a.id === r.agent_id),
@@ -1793,6 +1880,7 @@ export default function App() {
                     name: f.get("name"),
                     instructions: f.get("instructions"),
                     model: f.get("model"),
+                    effort: f.get("effort") || null,
                     folderId: f.get("folder") || null,
                   },
                   "PATCH",
@@ -1833,6 +1921,18 @@ export default function App() {
                 ))}
               </select>
             </label>
+            {(profile.provider === "openai" ||
+              profile.provider === "codex") && (
+              <label>
+                Reasoning effort
+                <select name="effort" defaultValue={profile.effort || ""}>
+                  <option value="">Provider default</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
+            )}
             <p className="note">
               Past outputs and running tasks retain their original provider and
               model.
@@ -1871,11 +1971,14 @@ export default function App() {
           key={conversation}
           id={conversation}
           messageId={messageId}
+          onAgentChanged={() => void bootstrap()}
           onProfile={(a) => {
             setConversation(null);
             setProfile(a);
           }}
           agents={data.agents}
+          connections={data.connections}
+          teams={data.teams || []}
           onClose={() => {
             setConversation(null);
             history.replaceState({}, "", location.pathname);

@@ -80,13 +80,8 @@ export function startWorker() {
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
   const scheduling = setInterval(
     () => {
-      if (
-        stopping ||
-        (companionMode
-          ? active >= 32 || active - nativeSessions.waiting >= 8
-          : active >= 3)
-      )
-        return;
+      if (stopping || active >= (companionMode ? 32 : 10)) return;
+      if (companionMode && active - nativeSessions.waiting >= 10) return;
       active++;
       const promise = tick(execute)
         .catch(() => {})

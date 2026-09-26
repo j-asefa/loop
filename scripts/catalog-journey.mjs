@@ -8,10 +8,11 @@ export async function catalogJourney(page, api, base) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   const catalog = page.getByRole("region", { name: "MCP catalog" });
+  const catalogSize = (await api("/mcp/catalog")).entries.length;
   await expect(
-    catalog.getByText("Showing 50 of 50 tools", { exact: true }),
+    catalog.getByText(`Showing ${catalogSize} of ${catalogSize} tools`, { exact: true }),
   ).toBeVisible();
-  await expect(catalog.getByRole("article")).toHaveCount(50);
+  await expect(catalog.getByRole("article")).toHaveCount(catalogSize);
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 844 });
     assert.ok(
@@ -30,12 +31,12 @@ export async function catalogJourney(page, api, base) {
     catalog.getByRole("article", { name: "GitHub", exact: true }),
   ).toHaveCount(0);
   await catalog.getByRole("button", { name: "All", exact: true }).click();
-  await catalog.getByLabel("No account needed", { exact: true }).check();
+  await catalog.getByLabel("No credentials listed", { exact: true }).check();
   assert.ok((await catalog.getByRole("article").count()) >= 5);
   await expect(
     catalog.getByRole("article", { name: "GitHub", exact: true }),
   ).toHaveCount(0);
-  await catalog.getByLabel("No account needed", { exact: true }).uncheck();
+  await catalog.getByLabel("No credentials listed", { exact: true }).uncheck();
   await catalog.getByLabel("Search tools").fill("no such integration");
   await expect(
     catalog.getByText("No matching tools. Try another search or category."),
@@ -106,6 +107,6 @@ export async function catalogJourney(page, api, base) {
   ).toBeDisabled();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   console.log(
-    "PASS: 50-tool catalog, category/search filters, 320/390/768px layouts, one-click install, secret form, re-enable without duplication and installed state after reload (fixture MCP).",
+    `PASS: ${catalogSize}-tool catalog, category/search filters, 320/390/768px layouts, one-click install, secret form, re-enable without duplication and installed state after reload (fixture MCP).`,
   );
 }

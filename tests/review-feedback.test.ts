@@ -255,13 +255,18 @@ it("finishes reciprocal teams despite intervening queued tasks without overlappi
         idempotencyKey: id(),
       }),
     );
-    const ordinary = [a, b].map((agent) =>
-      submit(owner, {
+    const ordinary = [a, b].map((agent) => {
+      const conversation = id();
+      db.prepare(
+        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
+      ).run(conversation, owner, agent.id, "Queued work", now());
+      return submit(owner, {
         agentId: agent.id,
+        conversationId: conversation,
         input: "Queued before delegation",
         idempotencyKey: id(),
-      }),
-    );
+      });
+    });
     for (const parent of parents) {
       const run = claim("manager")!;
       expect(run?.id).toBe(parent.id);

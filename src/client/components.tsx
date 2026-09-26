@@ -508,6 +508,11 @@ export function ArtifactCard({
                 {new Date(item.created_at).toLocaleDateString(undefined, {
                   month: "short",
                   day: "numeric",
+                })}{" "}
+                ·{" "}
+                {new Date(item.created_at).toLocaleTimeString(undefined, {
+                  hour: "numeric",
+                  minute: "2-digit",
                 })}
               </time>
             </span>
@@ -554,15 +559,21 @@ export function ArtifactCard({
                       : "Saved automatically")}
         </span>
         {project && <span className="field-hint">{project}</span>}
-        <h2>
-          {web
-            ? web.title
-            : meta.tool && item.title === `${meta.tool} result`
-              ? meta.tool.startsWith("browser_")
-                ? "Browser result"
-                : meta.tool.replaceAll("_", " ") + " result"
-              : item.title}
-        </h2>
+        {className?.includes("run-card") ? (
+          <div className="run-prompt">
+            <RichText content={item.title} compact />
+          </div>
+        ) : (
+          <h2>
+            {web
+              ? web.title
+              : meta.tool && item.title === `${meta.tool} result`
+                ? meta.tool.startsWith("browser_")
+                  ? "Browser result"
+                  : meta.tool.replaceAll("_", " ") + " result"
+                : item.title}
+          </h2>
+        )}
         <RunStatus
           state={item.run_state}
           error={item.run_error}

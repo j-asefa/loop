@@ -3,7 +3,6 @@ import { db } from "./db.js";
 // The same rule must govern initial pages and update tombstones. A running or
 // failed placeholder is not an output, and tool artifacts belong to Traces.
 export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
-  OR json_extract(a.metadata,'$.native')=1
   OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
 export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
 export const feedOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)
@@ -25,6 +24,7 @@ export function feedUpdates(
     after: number;
     through: number;
     agent?: string;
+    folder?: string;
     view?: string;
     teams?: string[];
   },
@@ -37,7 +37,7 @@ export function feedUpdates(
     .prepare(
       prompts
         ? `
-    SELECT f.revision,f.object_id AS changed_id,f.cursor,m.*,r.state run_state,r.error run_error,c.agent_id AS feed_agent_id,c.team_id,g.name,g.provider
+    SELECT f.revision,f.object_id AS changed_id,f.cursor,m.*,r.state run_state,r.error run_error,c.agent_id AS feed_agent_id,c.team_id,json_extract((SELECT payload FROM runs fr WHERE fr.id=m.run_id),'$.folderId') AS folder_id,g.name,g.provider
     FROM feed_revisions f LEFT JOIN messages m ON m.id=f.object_id AND m.owner_id=f.owner_id
     LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
     LEFT JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents g ON g.id=c.agent_id
@@ -80,6 +80,7 @@ export function feedUpdates(
         ? item.role === "user"
         : !item.archived && !item.feed_hidden && output_visible) &&
       (!options.teams?.length || options.teams.includes(item.team_id)) &&
+      (!options.folder || item.folder_id === options.folder) &&
       (!options.agent ||
         (prompts ? feed_agent_id : item.agent_id) === options.agent) &&
       (options.view !== "files" || fileKinds.has(item.kind));

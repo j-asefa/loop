@@ -135,3 +135,35 @@ it("reconciles file filters and agent labels and includes prompt changes", () =>
     feedUpdates(owner, { after, through: 0, view: "prompts" }).removed,
   ).toEqual([message]);
 });
+
+it("keeps project feed updates scoped when outputs are filed or moved", () => {
+  const owner = "project-feed",
+    project = id(),
+    other = id();
+  for (const folder of [project, other])
+    db.prepare(
+      "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project',?,?)",
+    ).run(folder, owner, folder, now());
+  const filed = saveArtifact(owner, {
+    title: "Filed",
+    content: "A",
+    folder: project,
+  });
+  const elsewhere = saveArtifact(owner, {
+    title: "Elsewhere",
+    content: "B",
+    folder: other,
+  });
+  const first = feedUpdates(owner, { after: 0, through: 0, folder: project });
+  expect(first.items.map((item) => item.id)).toEqual([filed]);
+  expect(first.removed).toContain(elsewhere);
+  db.prepare("UPDATE artifacts SET folder_id=?,updated_at=? WHERE id=?").run(
+    other,
+    now(),
+    filed,
+  );
+  expect(
+    feedUpdates(owner, { after: first.revision, through: 0, folder: project })
+      .removed,
+  ).toContain(filed);
+});

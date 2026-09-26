@@ -91,11 +91,11 @@ const install = (name: string, body = {}, owner = "alice") =>
   api(`/mcp/catalog/${name}/install`, body, owner);
 const row = (connection: string) =>
   owned<any>("mcp_connections", connection, "alice");
-it("publishes 50 unique sourced entries whose pinned configurations pass the normal MCP parser", async () => {
+it("publishes 150 unique sourced entries whose pinned configurations pass the normal MCP parser", async () => {
   const response = await api("/mcp/catalog");
   expect(response.status).toBe(200);
-  expect(response.data.entries).toHaveLength(50);
-  expect(new Set(catalog.map((c) => c.id)).size).toBe(50);
+  expect(response.data.entries).toHaveLength(150);
+  expect(new Set(catalog.map((c) => c.id)).size).toBe(150);
   for (const entry of catalog) {
     expect(entry.source).toMatch(/^https:\/\//);
     const values = Object.fromEntries(

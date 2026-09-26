@@ -1,31 +1,37 @@
 import { NativeDecisions } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Copy, Play } from "lucide-react";
 import { api, parse } from "./api";
 import { Sheet, RichText, Badge } from "./components";
-import type { Agent, Message } from "../shared/types";
+import type { Agent, Connection, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
 export function Conversation({
   id,
   messageId,
   agents,
+  connections,
+  teams,
   onClose,
   onContinue,
   onSent,
   onSubmitted,
   onError,
   onProfile,
+  onAgentChanged,
 }: {
   id: string;
   messageId?: string | null;
   agents: Agent[];
+  connections: Connection[];
+  teams: Team[];
   onClose: () => void;
   onContinue: (id: string) => void;
   onSent: () => void;
   onSubmitted: () => void;
   onError: (s: string) => void;
   onProfile: (agent: Agent) => void;
+  onAgentChanged?: () => void;
 }) {
   const [data, setData] = useState<{
       conversation: any;
@@ -38,7 +44,8 @@ export function Conversation({
     [busy, setBusy] = useState(false),
     [transfer, setTransfer] = useState(false),
     [destination, setDestination] = useState(""),
-    [included, setIncluded] = useState<string[]>([]);
+    [included, setIncluded] = useState<string[]>([]),
+    [editingModel, setEditingModel] = useState(false);
   const request = useRef(
       parse<{ signature: string; key: string }>(
         sessionStorage.getItem("loop-receipt-" + id) || "",
@@ -48,6 +55,8 @@ export function Conversation({
     anchor = messageId;
   const generation = useRef(0);
   const scrolled = useRef("");
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const initialScroll = useRef<string | null>(null);
   const retryKeys = useRef(new Map<string, string>());
   const [retrying, setRetrying] = useState<string | null>(null);
   const retryBusy = useRef(false);
@@ -106,6 +115,14 @@ export function Conversation({
   useEffect(() => {
     sessionStorage.setItem("loop-conversation-" + id, draft);
   }, [draft, id]);
+  useLayoutEffect(() => {
+    if (data?.conversation.id !== id || anchor || initialScroll.current === id)
+      return;
+    const messages = messagesRef.current;
+    if (!messages) return;
+    messages.scrollTop = messages.scrollHeight;
+    initialScroll.current = id;
+  }, [data, id, anchor]);
   useEffect(() => {
     if (!anchor || !data || scrolled.current === anchor) return;
     const frame = requestAnimationFrame(() => {
@@ -122,7 +139,8 @@ export function Conversation({
     if (busy || !draft.trim() || !agent) return;
     setBusy(true);
     try {
-      const signature = JSON.stringify([id, agent.id, draft]);
+      const targetConversation = id;
+      const signature = JSON.stringify([targetConversation, agent.id, draft]);
       if (request.current.signature !== signature)
         request.current = { signature, key: crypto.randomUUID() };
       sessionStorage.setItem(
@@ -131,7 +149,7 @@ export function Conversation({
       );
       await api("/runs", {
         agentId: agent.id,
-        conversationId: id,
+        conversationId: targetConversation,
         input: draft,
         idempotencyKey: request.current.key,
       });
@@ -165,8 +183,60 @@ export function Conversation({
         >
           @{agent?.name} · {agent?.model}
         </button>
+        {agent && (
+          <button
+            className="text-button"
+            onClick={() => setEditingModel(!editingModel)}
+          >
+            Change model
+          </button>
+        )}
       </div>
-      <div className="messages">
+      {editingModel && agent && (
+        <form
+          className="conversation-model-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              const model = String(new FormData(e.currentTarget).get("model"));
+              const effort =
+                new FormData(e.currentTarget).get("effort") || null;
+              await api(`/agents/${agent.id}`, { model, effort }, "PATCH");
+              onAgentChanged?.();
+              setEditingModel(false);
+            } catch (e) {
+              onError((e as Error).message);
+            }
+          }}
+        >
+          <label>
+            Model for next message
+            <select name="model" defaultValue={agent.model}>
+              {parse<{ id: string; name: string }[]>(
+                connections.find((c) => c.id === agent.connection_id)?.models,
+                [],
+              ).map((m) => (
+                <option value={m.id} key={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(agent.provider === "openai" || agent.provider === "codex") && (
+            <label>
+              Reasoning effort
+              <select name="effort" defaultValue={agent.effort || ""}>
+                <option value="">Provider default</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          )}
+          <button className="primary">Save model</button>
+        </form>
+      )}
+      <div className="messages" ref={messagesRef}>
         {data?.next && (
           <button
             className="text-button"

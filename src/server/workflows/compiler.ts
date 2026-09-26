@@ -132,6 +132,7 @@ export function bind(owner: string, spec: Workflow) {
       name: agent.name,
       provider: agent.provider,
       model: agent.model,
+      effort: agent.effort,
       instructions: agent.instructions,
       connectionId: connection.id,
       folderId: spec.folderId,

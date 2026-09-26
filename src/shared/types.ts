@@ -6,6 +6,7 @@ export type Agent = {
   provider: Provider;
   connection_id: string | null;
   model: string;
+  effort?: string | null;
   instructions: string;
   folder_id?: string | null;
   origin: string;

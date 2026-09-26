@@ -12,6 +12,7 @@ export type Options = {
   resume?: string;
   version: string;
   model?: string;
+  effort?: string;
   instructions?: string;
   probeOnly?: boolean;
   workspaceTools?: { url: string; token: string };

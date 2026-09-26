@@ -176,20 +176,12 @@ export async function invokeNative(
         throw new Problem(403, "Delegate only to this team's workers");
     const children = db
       .transaction(() => {
-        const existing = db
-          .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
-          .get(run.id) as { n: number };
         const prior = db
           .prepare(
             "SELECT d.*,r.state,r.result,r.error,r.agent_id,r.id FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? AND substr(d.call_id,1,?)=?",
           )
           .all(run.id, callId.length + 1, callId + ":") as any[];
         if (prior.length) return prior;
-        if (existing.n + tasks.length > 16)
-          throw new Problem(
-            400,
-            "This manager run reached its 16-task delegation budget",
-          );
         if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Manager is no longer running");
         return tasks.map((task, i) => {

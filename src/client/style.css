@@ -3117,3 +3117,140 @@ pre {
   border: 0;
   margin: 12px 0;
 }
+
+/* Feed filters and conversation focus */
+.agent-strip .agent-strip-model {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--muted);
+}
+.project-feed-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.project-feed-filter select {
+  min-height: 38px;
+  max-width: 220px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+}
+.advanced-agent-options {
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.advanced-agent-options summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.conversation-sheet .sheet-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.conversation-sheet .messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 4px 0 8px;
+}
+.conversation-sheet .conversation-meta {
+  flex: 0 0 auto;
+}
+.conversation-sheet .message {
+  padding: 12px 0;
+}
+.conversation-sheet .message.user {
+  padding: 12px 15px;
+  margin: 8px 0;
+}
+.conversation-sheet .message-actions {
+  margin-top: 4px;
+  opacity: 0.7;
+}
+.conversation-sheet .conversation-composer {
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  z-index: 2;
+}
+.conversation-model-form {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 0;
+}
+.conversation-model-form label {
+  flex: 1;
+}
+@media (max-width: 700px) {
+  .composer-dock {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  :root[data-keyboard="open"] .composer-dock {
+    position: fixed;
+    bottom: var(--keyboard-inset, 0px);
+    max-height: var(--visual-viewport-height, 100dvh);
+  }
+}
+
+.run-prompt {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.run-prompt .markdown > :first-child {
+  margin-top: 0;
+}
+.run-prompt .markdown > :last-child {
+  margin-bottom: 0;
+}
+.agent-queue {
+  width: 100%;
+  margin-top: 6px;
+}
+.agent-queue summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.agent-queue ol {
+  padding-left: 22px;
+  max-height: 240px;
+  overflow: auto;
+}
+.agent-queue li {
+  padding: 5px 0;
+}
+.agent-queue li .text-button {
+  max-width: 80%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.agent-queue li small {
+  margin-left: 10px;
+  color: var(--muted);
+}
+.search-result .markdown {
+  font-size: 12px;
+  color: var(--muted);
+  max-height: 180px;
+  overflow: hidden;
+}
+.search-result .markdown pre {
+  max-width: 100%;
+  overflow: auto;
+}

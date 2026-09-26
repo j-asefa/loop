@@ -10,6 +10,7 @@ import {
   finishedArtifactSql,
 } from "./feed.js";
 import { agentTraces } from "./traces.js";
+import { agentMessages, conversationUpdates } from "./agent-messages.js";
 import { dismissRun } from "./run-attention.js";
 import {
   isSubscription,
@@ -172,6 +173,17 @@ core.patch("/agents/:id", (req, res) => {
           z.string().max(12000).parse(req.body.instructions),
           agent.id,
         );
+      if (req.body.effort !== undefined) {
+        const effort = z
+          .enum(["low", "medium", "high"])
+          .nullable()
+          .parse(req.body.effort);
+        db.prepare("UPDATE agents SET effort=? WHERE id=? AND owner_id=?").run(
+          effort,
+          agent.id,
+          owner,
+        );
+      }
       if (req.body.model !== undefined) {
         const c = owned<Connection>(
           "connections",
@@ -241,6 +253,9 @@ core.get("/agents/:id/traces", (req, res) => {
     .optional()
     .parse(req.query.before);
   res.json(agentTraces(res.locals.owner, req.params.id, before));
+});
+core.get("/agents/:id/messages", (req, res) => {
+  res.json({ items: agentMessages(res.locals.owner, req.params.id) });
 });
 core.get("/agents/:id", (req, res) => {
   const a = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -365,10 +380,12 @@ core.get("/feed/updates", (req, res) => {
       after: number,
       through: number,
       agent: z.string().optional(),
+      folder: z.string().optional(),
       view: z.enum(["all", "prompts", "files"]).default("all"),
     })
     .parse(req.query);
   if (options.agent) owned("agents", options.agent, res.locals.owner);
+  if (options.folder) owned("folders", options.folder, res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
   res.json(feedUpdates(res.locals.owner, { ...options, teams }));
 });
@@ -386,6 +403,11 @@ core.get("/feed", (req, res) => {
       "))";
     params.push(res.locals.owner, ...teams);
   }
+  if (req.query.folder) {
+    owned("folders", String(req.query.folder), res.locals.owner);
+    where += " AND a.folder_id=?";
+    params.push(req.query.folder);
+  }
   if (req.query.agent) {
     owned("agents", String(req.query.agent), res.locals.owner);
     where += " AND a.agent_id=?";
@@ -401,6 +423,11 @@ core.get("/feed", (req, res) => {
     if (teams.length) {
       filter += " AND c.team_id IN (" + teams.map(() => "?").join(",") + ")";
       values.push(...teams);
+    }
+    if (req.query.folder) {
+      filter +=
+        " AND EXISTS (SELECT 1 FROM runs fr WHERE fr.id=m.run_id AND json_extract(fr.payload,'$.folderId')=?)";
+      values.push(req.query.folder);
     }
     if (req.query.agent) {
       filter += " AND c.agent_id=?";
@@ -469,10 +496,17 @@ core.get("/conversations/:id", (req, res) => {
     .prepare(
       "SELECT m.*,m.rowid AS cursor,r.state run_state,r.error run_error FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id WHERE m.owner_id=? AND m.conversation_id=? AND m.rowid<? ORDER BY m.rowid DESC LIMIT 50",
     )
-    .all(res.locals.owner, req.params.id, before) as { cursor: number }[];
+    .all(res.locals.owner, req.params.id, before) as (Message & { cursor: number })[];
   res.json({
     conversation: c,
-    messages: items.reverse(),
+    messages: items.reverse().flatMap((m) => {
+      if (m.role !== "assistant" || !m.run_id) return [m];
+      const updates = conversationUpdates(res.locals.owner, req.params.id, m.run_id);
+      return [...updates.map((item, index) => ({
+        ...item,
+        cursor: m.cursor - 1 + (index + 1) / (updates.length + 1),
+      })), m];
+    }),
     next: items.length === 50 ? items[0].cursor : null,
   });
 });

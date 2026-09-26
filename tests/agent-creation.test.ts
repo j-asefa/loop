@@ -101,6 +101,7 @@ it("creates a first message, queues work, and keeps standing instructions for fu
     name: "initial-researcher",
     connectionId: connection(),
     model: "fixture",
+    effort: "high",
     instructions: "Cite sources and keep answers concise.",
     initialPrompt: "  Compare three research ideas.  ",
     folderId: project,
@@ -109,12 +110,14 @@ it("creates a first message, queues work, and keeps standing instructions for fu
   const result = await create(input);
   expect(result.status).toBe(201);
   expect(result.data.instructions).toBe(input.instructions);
+  expect(result.data.effort).toBe("high");
   expect(result.data.initialRun.conversation_id).toEqual(expect.any(String));
   const run = claim("initial-worker")!;
   expect(run.id).toBe(result.data.initialRun.id);
   expect(run.input).toBe("Compare three research ideas.");
   expect(JSON.parse(run.payload)).toMatchObject({
     instructions: input.instructions,
+    effort: "high",
     folderId: project,
   });
   expect(
@@ -123,6 +126,7 @@ it("creates a first message, queues work, and keeps standing instructions for fu
   await executeAgent(run);
   transition(run, "completed");
   expect(calls.at(-1).instructions).toBe(input.instructions);
+  expect(calls.at(-1).effort).toBe("high");
   expect(calls.at(-1).messages).toEqual([
     { role: "user", content: "Compare three research ideas." },
   ]);

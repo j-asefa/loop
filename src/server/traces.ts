@@ -49,7 +49,9 @@ export function agentTraces(
     .prepare(
       `SELECT t.*,r.input,r.state run_state,r.conversation_id
     FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-    WHERE t.owner_id=? AND r.agent_id=? AND t.id<? AND ${publicTraceFilter} ORDER BY t.id DESC LIMIT 40`,
+    WHERE t.owner_id=? AND r.agent_id=? AND t.id<? AND t.kind!='message'
+      AND t.trace_key NOT LIKE 'turn:%' AND ${publicTraceFilter}
+    ORDER BY t.id DESC LIMIT 40`,
     )
     .all(owner, agent, before) as { id: number }[];
   return { items, next: items.length === 40 ? items.at(-1)!.id : null };

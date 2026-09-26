@@ -43,6 +43,7 @@ type Binding = {
   native_id: string | null;
   project: string;
   model: string | null;
+  effort?: string | null;
   instructions: string;
   generation: string;
   state: string;
@@ -149,7 +150,7 @@ export class NativeSessions {
       concurrentConversations: true,
       inheritedConfiguration: true,
       nativePause: false,
-      settingsApplyTo: "new conversations",
+      settingsApplyTo: "next message",
       nativeTokenBudget: false,
       boundedWorkflowTime: true,
       history:
@@ -289,11 +290,6 @@ export class NativeSessions {
       throw new Problem(400, "Native work requires a conversation.");
     const conversation = run.conversation_id;
     const current = this.live.get(conversation);
-    if (current && !current.closed) {
-      clearTimeout(current.idle);
-      await current.ready;
-      return current;
-    }
     const snapshot = JSON.parse(run.payload) as Snapshot;
     const connection = owned<any>(
       "connections",
@@ -317,7 +313,7 @@ export class NativeSessions {
           JSON.stringify(transfer).slice(0, 100000)
         : "";
       db.prepare(
-        "INSERT INTO native_sessions(conversation_id,harness,project,model,instructions,updated_at) VALUES(?,?,?,?,?,?)",
+        "INSERT INTO native_sessions(conversation_id,harness,project,model,instructions,updated_at,effort) VALUES(?,?,?,?,?,?,?)",
       ).run(
         conversation,
         harness,
@@ -325,6 +321,7 @@ export class NativeSessions {
         snapshot.model === "native-default" ? null : snapshot.model,
         snapshot.instructions + context,
         now(),
+        snapshot.effort || null,
       );
       binding = db
         .prepare("SELECT * FROM native_sessions WHERE conversation_id=?")
@@ -335,6 +332,25 @@ export class NativeSessions {
         409,
         "A native conversation cannot change harness. Create a new conversation.",
       );
+    const model = snapshot.model === "native-default" ? null : snapshot.model;
+    const effort = snapshot.effort || null;
+    if (binding.model !== model || (binding.effort || null) !== effort) {
+      if (current && !current.closed) {
+        await current.ready;
+        if (current.run)
+          throw new Problem(409, "This native conversation is already running.");
+        await this.dispose(current);
+      }
+      db.prepare(
+        "UPDATE native_sessions SET model=?,effort=?,updated_at=? WHERE conversation_id=?",
+      ).run(model, effort, now(), conversation);
+      binding.model = model;
+      binding.effort = effort;
+    } else if (current && !current.closed) {
+      clearTimeout(current.idle);
+      await current.ready;
+      return current;
+    }
     if (this.stopped) throw new Problem(409, "Workspace is stopping.");
     for (const old of this.live.values()) {
       if (this.live.size < 16) break;
@@ -345,7 +361,8 @@ export class NativeSessions {
       ...registration,
       project: this.directory(binding.project),
       resume: binding.native_id || undefined,
-      model: binding.native_id ? undefined : binding.model || undefined,
+      model: binding.model || undefined,
+      effort: binding.effort || undefined,
       instructions: binding.instructions,
       workspaceTools: this.tools?.(conversation, generation),
     };

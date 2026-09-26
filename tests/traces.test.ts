@@ -147,12 +147,15 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     ).toHaveLength(1);
     const traces = await get(`/agents/${a.id}/traces`);
     expect(traces.items.filter((t: any) => t.kind === "tool")).toHaveLength(12);
-    expect(
-      traces.items.filter((t: any) => t.title === "Agent update"),
-    ).toHaveLength(12);
-    expect(
-      traces.items.find((t: any) => t.title === "Final answer").content,
-    ).toBe("Final heliotrope answer.");
+    expect(traces.items.some((t: any) => t.title === "Agent update")).toBe(false);
+    const messages = await get(`/agents/${a.id}/messages`);
+    expect(messages.items.filter((m: any) => !m.final)).toHaveLength(12);
+    expect(messages.items.find((m: any) => m.final).content).toBe(
+      "Final heliotrope answer.",
+    );
+    const conversation = await get(`/conversations/${run.conversation_id}`);
+    expect(conversation.messages.filter((m: any) => m.id.startsWith("trace:")))
+      .toHaveLength(12);
     expect((await get(`/agents/${a.id}/traces`, "bob")).error).toBe(
       "Item not found",
     );
@@ -212,7 +215,7 @@ it("paginates durable traces and updates a trace without duplicating it", async 
     });
   for (let i = 0; i < 90; i++)
     recordTrace(run, "step:" + i, {
-      kind: "message",
+      kind: "tool",
       title: "Update",
       content: String(i),
     });
@@ -225,7 +228,7 @@ it("paginates durable traces and updates a trace without duplicating it", async 
       .size,
   ).toBe(90);
   recordTrace(run, "step:89", {
-    kind: "message",
+    kind: "tool",
     title: "Updated",
     content: "Same event",
   });

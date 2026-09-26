@@ -20,6 +20,7 @@ export async function agentCreationJourney(page, api) {
   };
   await open();
   await page.getByLabel("Unique name").fill("creation-idle");
+  await page.getByText("Advanced options", { exact: true }).click();
   await page
     .getByLabel("Agent instructions", { exact: true })
     .fill("Keep answers concise.");
@@ -37,6 +38,7 @@ export async function agentCreationJourney(page, api) {
   const suggested = await page.getByLabel("Unique name").inputValue();
   const instructions = "Research carefully and cite sources.";
   const prompt = "Find three ideas for my next project.";
+  await page.getByText("Advanced options", { exact: true }).click();
   await page
     .getByLabel("Agent instructions", { exact: true })
     .fill(instructions);
@@ -99,6 +101,7 @@ export async function agentCreationJourney(page, api) {
   await page
     .getByRole("dialog")
     .getByText("Fixture response:", { exact: false })
+    .first()
     .waitFor();
   // Streaming text is visible before completion, while Feed publishes only
   // the final answer. Wait for that boundary before inspecting the output.

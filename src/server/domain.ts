@@ -58,6 +58,7 @@ export const agentInput = z.object({
   name: handle,
   connectionId: z.string(),
   model: z.string().min(1).max(150),
+  effort: z.enum(["low", "medium", "high"]).nullable().optional(),
   instructions: z.string().max(12000).default(""),
   folderId: z.string().optional(),
 });
@@ -79,7 +80,7 @@ export function createAgent(owner: string, value: unknown) {
         );
       const agentId = id();
       db.prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id,effort) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
       ).run(
         agentId,
         owner,
@@ -91,6 +92,7 @@ export function createAgent(owner: string, value: unknown) {
         data.instructions,
         now(),
         data.folderId || null,
+        data.effort || null,
       );
       db.prepare("INSERT INTO handles VALUES(?,?,?)").run(
         data.name,

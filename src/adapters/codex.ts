@@ -18,6 +18,7 @@ export class Codex implements Adapter {
   private thread = "";
   private turn = "";
   private requests = new Map<string, any>();
+  private defaultModel: string | undefined;
   constructor(
     private options: Options,
     private emit: Emit,
@@ -66,6 +67,10 @@ export class Codex implements Adapter {
     const modelList = await this.native
       .request("model/list", { limit: 100 })
       .catch(() => ({ data: [] }));
+    this.defaultModel = config.config.model ||
+      modelList.data?.find((model: any) => model.isDefault)?.model ||
+      modelList.data?.find((model: any) => model.isDefault)?.id ||
+      modelList.data?.[0]?.model || modelList.data?.[0]?.id;
     this.models = (modelList.data || []).map((m: any) => ({
       id: m.model || m.id,
       name: m.displayName || m.model || m.id,
@@ -179,6 +184,9 @@ export class Codex implements Adapter {
     }
     const r = await this.native.request("turn/start", {
       threadId: this.thread,
+      ...((this.options.model || this.defaultModel)
+        ? { model: this.options.model || this.defaultModel } : {}),
+      ...(this.options.effort ? {reasoningEffort: this.options.effort} : {}),
       input: [
         { type: "text", text, text_elements: [] },
         ...this.skills

@@ -17,6 +17,7 @@ export type ChatMessage = {
 };
 export type ChatInput = {
   model: string;
+  effort?: string;
   instructions: string;
   messages: ChatMessage[];
   signal: AbortSignal;
@@ -89,6 +90,13 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
       const stream = await client.responses.create(
         {
           model: input.model,
+          ...(input.effort
+            ? {
+                reasoning: {
+                  effort: input.effort as "low" | "medium" | "high",
+                },
+              }
+            : {}),
           instructions: input.instructions || undefined,
           input: messages,
           tools: input.tools?.map((t) => ({

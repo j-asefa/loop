@@ -22,6 +22,7 @@ export type Snapshot = {
   provider: Agent["provider"];
   connectionId: string;
   model: string;
+  effort?: string | null;
   instructions: string;
   folderId: string | null;
   maxTokens?: number;
@@ -71,6 +72,18 @@ export function submit(
       }
       let conversation = data.conversationId,
         teamId = data.teamId;
+      if (!conversation && !teamId) {
+        const managerTeam = db
+          .prepare(
+            "SELECT conversation_id,id FROM teams WHERE owner_id=? AND manager_id=? ORDER BY created_at DESC LIMIT 1",
+          )
+          .get(owner, agent.id) as
+          { conversation_id: string; id: string } | undefined;
+        if (managerTeam) {
+          conversation = managerTeam.conversation_id;
+          teamId = managerTeam.id;
+        }
+      }
       let folderId =
         data.folderId === undefined ? agent.folder_id || null : data.folderId;
       if (conversation) {
@@ -124,6 +137,7 @@ export function submit(
         provider: agent.provider,
         connectionId: connection.id,
         model: agent.model,
+        effort: agent.effort,
         instructions: agent.instructions,
         folderId,
         source: data.source,
@@ -434,6 +448,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       for await (const chunk of streamConnection(currentConnection, {
         workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
         model: snapshot.model,
+        effort: snapshot.effort || undefined,
         instructions: snapshot.instructions,
         messages: structuredClone(history),
         signal: controller.signal,

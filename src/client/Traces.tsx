@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, ListTree } from "lucide-react";
+import { ArrowUpRight, Download, ListTree } from "lucide-react";
 import { api, parse } from "./api";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
@@ -87,6 +87,17 @@ export function Traces({
       setMoreBusy(false);
     }
   };
+  const download = (trace: Trace) => {
+    const blob = new Blob([JSON.stringify(trace, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `loop-trace-${trace.run_id}-${trace.id}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   return (
     <section className="trace-list" aria-label="Agent traces">
       <p className="field-hint">
@@ -138,6 +149,9 @@ export function Traces({
               </details>
             )}
             <div className="actions">
+              <button onClick={() => download(item)}>
+                <Download size={15} /> Download trace
+              </button>
               {item.artifact_id && (
                 <button
                   onClick={async () => {

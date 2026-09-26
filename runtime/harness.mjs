@@ -92,6 +92,7 @@ export async function codexTurn(rpc, threadId, input, nativeTools, cwd) {
   });
   return rpc.call("turn/start", {
     threadId,
+    ...(input.effort ? { reasoningEffort: input.effort } : {}),
     input: [{ type: "text", text: turnPrompt(input, nativeTools) }, ...items],
     outputSchema: responseSchema,
   });

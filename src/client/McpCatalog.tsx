@@ -7,7 +7,7 @@ import type {
 } from "../shared/mcp-catalog";
 
 const setupLabels = {
-  none: "No account needed",
+  none: "No credentials listed",
   oauth: "Sign in",
   bearer: "API key",
   query: "API key",
@@ -125,8 +125,9 @@ export function McpCatalog({
     <section aria-label="MCP catalog">
       <h3>Find your next tool</h3>
       <p className="muted">
-        {catalog.entries.length} integrations, ready to connect. Choose Install,
-        then sign in or add your key if needed.
+        {catalog.entries.length} integrations. Community npm packages are free
+        to install; connected services may require an account. Choose Install to
+        verify the connection.
       </p>
       <label>
         Search tools
@@ -158,7 +159,7 @@ export function McpCatalog({
           checked={noAccount}
           onChange={(e) => setNoAccount(e.target.checked)}
         />
-        No account needed
+        No credentials listed
       </label>
       {hosts.length > 0 && (
         <details className="mcp-import">

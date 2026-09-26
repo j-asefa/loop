@@ -115,6 +115,7 @@ try {
       .first()
       .click();
     await page.getByLabel("Unique name").fill("browser-" + i);
+    await page.getByText("Advanced options", { exact: true }).click();
     await page
       .getByLabel("Agent instructions", { exact: true })
       .fill("Keep this native instruction " + i);

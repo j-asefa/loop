@@ -175,6 +175,7 @@ export function Projects({
                   <Avatar name={a.name} provider={a.provider} />
                   <span>
                     <strong>@{a.name}</strong>
+                    <small>{a.model}</small>
                     <small>
                       {folders.find((f) => f.id === a.folder_id)?.name ||
                         "Workspace"}
