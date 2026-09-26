@@ -20,6 +20,7 @@ export type ChatInput = {
   instructions: string;
   messages: ChatMessage[];
   signal: AbortSignal;
+  workspaceKey?: string;
   maxTokens?: number;
   tools?: { name: string; description: string; inputSchema: any }[];
 };

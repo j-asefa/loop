@@ -59,15 +59,17 @@ export const publicNetworkDispatcher = new Agent({
   maxRedirections: 0,
 } as any);
 const guardedFetch =
-  (timeout: number): typeof fetch =>
+  (timeout: number, streaming = false): typeof fetch =>
   async (input, init) => {
     const original =
         typeof input === "string" || input instanceof URL ? input : input.url,
       url = safeUrl(original);
-    const signal = AbortSignal.any([
-      AbortSignal.timeout(timeout),
-      ...(init?.signal ? [init.signal] : []),
-    ]);
+    const signal = streaming
+      ? init?.signal
+      : AbortSignal.any([
+          AbortSignal.timeout(timeout),
+          ...(init?.signal ? [init.signal] : []),
+        ]);
     const base =
       input instanceof Request
         ? {
@@ -81,12 +83,11 @@ const guardedFetch =
       ...base,
       ...init,
       dispatcher: publicNetworkDispatcher,
-      headersTimeout: timeout,
+      headersTimeout: streaming ? 45000 : timeout,
       bodyTimeout: timeout,
       redirect: "error",
       signal,
     } as any);
-    const type = response.headers.get("content-type") || "";
     let total = 0;
     const reader = response.body?.getReader();
     const body = reader
@@ -99,7 +100,7 @@ const guardedFetch =
                 return;
               }
               total += chunk.value.byteLength;
-              if (total > 4 * 1024 * 1024) {
+              if (!streaming && total > 4 * 1024 * 1024) {
                 await reader.cancel();
                 controller.error(new Error("MCP response exceeds 4 MB"));
                 return;
@@ -121,4 +122,7 @@ const guardedFetch =
     });
   };
 export const safeFetch = guardedFetch(45000);
-export const safeRuntimeFetch = guardedFetch(1800000);
+// A runtime response is a potentially long sequence of bounded NDJSON events,
+// not one MCP result. Its caller owns cancellation and validates each event.
+// Retain an idle-connection timeout without limiting total run duration/bytes.
+export const safeRuntimeFetch = guardedFetch(1800000, true);

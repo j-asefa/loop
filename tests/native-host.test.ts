@@ -59,31 +59,40 @@ if(args[0]==='auth') {
 );
 let service: ChildProcess, origin: string;
 let diagnostics = "";
-beforeAll(async () => {
+async function startHost(fastClock = false) {
   const reservation = createServer();
   reservation.listen(0, "127.0.0.1");
   await new Promise<void>((r) => reservation.once("listening", r));
   const port = (reservation.address() as any).port;
   await new Promise<void>((r) => reservation.close(() => r()));
-  origin = `http://127.0.0.1:${port}`;
-  service = spawn(process.execPath, [resolve("runtime/host.mjs")], {
-    cwd: workdir,
-    env: {
-      PATH: bin + ":" + process.env.PATH,
-      HOME: home,
-      PORT: String(port),
-      LOOP_RUNTIME_TOKEN_FILE: tokenFile,
-      FIXTURE_MCP_TOKEN: "host-token",
-      ANTHROPIC_API_KEY: "must-not-use-api-billing",
+  const hostOrigin = `http://127.0.0.1:${port}`;
+  const host = spawn(
+    process.execPath,
+    [
+      ...(fastClock
+        ? ["--import", resolve("tests/helpers/fast-runtime-clock.mjs")]
+        : []),
+      resolve("runtime/host.mjs"),
+    ],
+    {
+      cwd: workdir,
+      env: {
+        PATH: bin + ":" + process.env.PATH,
+        HOME: home,
+        PORT: String(port),
+        LOOP_RUNTIME_TOKEN_FILE: tokenFile,
+        FIXTURE_MCP_TOKEN: "host-token",
+        ANTHROPIC_API_KEY: "must-not-use-api-billing",
+      },
+      stdio: ["ignore", "ignore", "pipe"],
     },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  service.stderr!.on("data", (b) => (diagnostics += b));
+  );
+  host.stderr!.on("data", (b) => (diagnostics += b));
   await vi.waitFor(
     async () => {
       expect(
         (
-          await fetch(origin + "/health", {
+          await fetch(hostOrigin + "/health", {
             headers: { authorization: "Bearer " + token },
           })
         ).ok,
@@ -92,6 +101,10 @@ beforeAll(async () => {
     },
     { timeout: 10000 },
   );
+  return { service: host, origin: hostOrigin };
+}
+beforeAll(async () => {
+  ({ service, origin } = await startHost());
 });
 afterAll(async () => {
   service?.kill();
@@ -172,4 +185,58 @@ it("cancels the native process tree when the caller disconnects", async () => {
     })
     .toBe(false);
   expect(readFileSync(join(home, "signed-in"), "utf8")).toBe("subscription");
+});
+
+it("keeps a quiet native turn alive beyond the old broker deadline and sends transport keepalives", async () => {
+  rmSync(join(workdir, "running.pid"), { force: true });
+  const longHost = await startHost(true);
+  const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let pid: number | undefined;
+  try {
+    const response = await fetch(longHost.origin + "/runtime", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + token,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        key: "a".repeat(64),
+        provider: "claude",
+        action: "turn",
+        input: input("wait"),
+      }),
+      signal: controller.signal,
+    });
+    reader = response.body!.getReader();
+    for (let i = 0; i < 4; i++) {
+      const next = await reader.read();
+      expect(next.done).toBe(false);
+      expect(new TextDecoder().decode(next.value)).toMatch(/^\n+$/);
+    }
+    await expect
+      .poll(() => existsSync(join(workdir, "running.pid")))
+      .toBe(true);
+    pid = Number(readFileSync(join(workdir, "running.pid"), "utf8"));
+    expect(() => process.kill(pid!, 0)).not.toThrow();
+  } finally {
+    controller.abort();
+    await reader?.cancel().catch(() => {});
+    if (pid)
+      await expect
+        .poll(() => {
+          try {
+            process.kill(pid!, 0);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+        .toBe(false);
+    longHost.service.kill();
+    if (longHost.service.exitCode === null)
+      await new Promise<void>((resolve) =>
+        longHost.service.once("exit", () => resolve()),
+      );
+  }
 });

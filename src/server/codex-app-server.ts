@@ -1,3 +1,4 @@
+import { idleDeadline } from "../../runtime/idle-deadline.mjs";
 import { WebSocket, type Dispatcher } from "undici";
 import { Problem } from "./domain.js";
 import type { ChatInput, Chunk } from "./providers.js";
@@ -219,8 +220,12 @@ export async function* codexStream(
   endpoint: CodexEndpoint,
   input: ChatInput,
 ): AsyncGenerator<Chunk> {
-  const signal = AbortSignal.any([input.signal, AbortSignal.timeout(1800000)]);
+  const controller = new AbortController();
+  const signal = AbortSignal.any([input.signal, controller.signal]);
   const rpc = await CodexRpc.connect(endpoint, signal);
+  const idle = idleDeadline((error) =>
+    controller.abort(new Problem(408, error.message)),
+  );
   let threadId: string | undefined,
     turnId: string | undefined,
     completed = false;
@@ -253,6 +258,7 @@ export async function* codexStream(
     const { turn, review } = await codexTurn(rpc, threadId, input, true);
     turnId = turn.id;
     if (typeof turnId !== "string" || !turnId) throw unavailable();
+    idle.progress();
     let answer = "";
     for (;;) {
       const message = await rpc.event(signal),
@@ -264,7 +270,10 @@ export async function* codexStream(
       if (params?.threadId !== threadId) continue;
       if (params.turnId && params.turnId !== turnId) continue;
       const trace = codexTrace(message);
-      if (trace) yield { trace };
+      if (trace) {
+        idle.progress();
+        yield { trace };
+      }
       if (message.method === "item/agentMessage/delta") answer += params.delta;
       if (
         message.method === "item/completed" &&
@@ -294,6 +303,7 @@ export async function* codexStream(
       }
     }
   } finally {
+    idle.clear();
     if (threadId && turnId && !completed)
       await rpc
         .call("turn/interrupt", { threadId, turnId }, 5000)

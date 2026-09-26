@@ -1,3 +1,4 @@
+import { IDLE_TIMEOUT_MESSAGE } from "../../runtime/idle-deadline.mjs";
 import { isNativeConnection } from "./native-connections.js";
 import { nativeSessions } from "./native-sessions.js";
 import { companionMode } from "./profile.js";
@@ -11,6 +12,8 @@ import { adapter, type ChatInput, type Chunk } from "./providers.js";
 import { unseal } from "./secrets.js";
 import type { Connection } from "../shared/types.js";
 import { runtimeEndpoint } from "./runtime-hosts.js";
+import { runtimeGithubCredential } from "./runtime-github.js";
+import { redactCredentials } from "./mcp/redaction.js";
 import {
   codexStatus,
   codexStream,
@@ -25,6 +28,10 @@ export const runtimeConfigured = () =>
 export const runtimeKey = (c: Connection) =>
   createHash("sha256")
     .update(c.owner_id + "\0" + c.id)
+    .digest("hex");
+export const runtimeWorkspaceKey = (owner: string, agent: string) =>
+  createHash("sha256")
+    .update("agent\0" + owner + "\0" + agent)
     .digest("hex");
 async function request(
   c: Connection,
@@ -63,9 +70,7 @@ async function request(
       action,
       ...extra,
     }),
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(1800000)])
-      : AbortSignal.timeout(45000),
+    signal: signal ?? AbortSignal.timeout(45000),
     redirect: "error",
   });
   if (!r.ok)
@@ -118,10 +123,19 @@ export async function* subscriptionStream(
     yield* codexStream(endpoint, input);
     return;
   }
+  // Native hosts retain their own credentials. Managed containers receive only
+  // this owner's allowed GitHub token, per invocation, outside model context.
+  const github =
+    endpoint.kind === "broker"
+      ? runtimeGithubCredential(c.owner_id)
+      : undefined;
   const r = await request(
     c,
     "turn",
-    { input: { ...input, signal: undefined } },
+    {
+      input: { ...input, signal: undefined },
+      ...(github ? { githubToken: github.token } : {}),
+    },
     input.signal,
   );
   if (!r.body) throw new Problem(422, "Runtime returned no response");
@@ -141,7 +155,12 @@ export async function* subscriptionStream(
         const line = buffer.slice(0, end);
         buffer = buffer.slice(end + 1);
         if (!line.trim()) continue;
-        const event = JSON.parse(line);
+        const event = redactCredentials(
+          JSON.parse(line),
+          github ? [github] : [],
+        );
+        if (event.error && event.code === "idle_timeout")
+          throw new Problem(408, IDLE_TIMEOUT_MESSAGE);
         if (event.error)
           throw new Problem(
             422,

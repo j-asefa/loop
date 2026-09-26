@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { nativeReply } from "./native-tools.mjs";
+import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
+import { redactValues } from "./redaction.mjs";
 import { codexTrace, claudeTraces } from "./traces.mjs";
 import {
   codexCatalog,
@@ -21,10 +23,11 @@ import {
   resultChunks,
   authorizationUrl,
 } from "./protocol.mjs";
-const nativeTools = process.env.LOOP_RUNTIME_MODE === "host";
-const workdir =
-  process.env.LOOP_RUNTIME_WORKDIR || (nativeTools ? process.cwd() : "/work");
-const emit = (data) => process.stdout.write(JSON.stringify(data) + "\n");
+const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
+let workdir = process.env.LOOP_RUNTIME_WORKDIR || process.cwd();
+let githubToken;
+const clean = (data) => redactValues(data, githubToken ? [githubToken] : []);
+const emit = (data) => process.stdout.write(JSON.stringify(clean(data)) + "\n");
 const input = createInterface({ input: process.stdin });
 const iterator = input[Symbol.asyncIterator]();
 const first = await iterator.next();
@@ -35,9 +38,9 @@ const stop = () => {
 };
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
-const timeout = setTimeout(stop, 30 * 60 * 1000);
+let timeout;
 // Never inherit an API key, alternate endpoint, cloud billing or parent credentials.
-const env = nativeTools
+const env = hostMode
   ? { ...process.env }
   : {
       PATH: process.env.PATH,
@@ -67,7 +70,7 @@ for (const key of [
   delete env[key];
 // Leave native defaults unset: a runtime may use the presence of a config-dir
 // override to select a different keychain profile, even for the default path.
-if (!nativeTools) {
+if (!hostMode) {
   mkdirSync(env.CODEX_HOME, { recursive: true, mode: 0o700 });
   mkdirSync(env.CLAUDE_CONFIG_DIR, { recursive: true, mode: 0o700 });
 }
@@ -105,29 +108,21 @@ async function codex(request) {
     "--stdio",
     "-c",
     'forced_login_method="chatgpt"',
-    ...(nativeTools ? [] : ["-c", 'cli_auth_credentials_store="file"']),
-    ...(nativeTools
+    ...(hostMode
       ? []
       : [
-          ...[
-            "shell_tool",
-            "unified_exec",
-            "apps",
-            "browser_use",
-            "computer_use",
-            "multi_agent",
-            "code_mode",
-            "code_mode_host",
-          ].flatMap((f) => ["-c", `features.${f}=false`]),
           "-c",
-          'web_search="disabled"',
+          'cli_auth_credentials_store="file"',
+          // The managed environment is already allowlisted. Preserve the explicit
+          // per-turn GitHub credential for native shell tools.
+          "-c",
+          'shell_environment_policy.inherit="all"',
+          "-c",
+          "shell_environment_policy.ignore_default_excludes=true",
         ]),
   ]);
   let threadId;
-  const rpc = new Rpc(
-    p,
-    nativeTools ? (m) => nativeReply(m, threadId) : undefined,
-  );
+  const rpc = new Rpc(p, (m) => nativeReply(m, threadId));
   try {
     await rpc.call("initialize", {
       clientInfo: { name: "loop", version: "0.2.0" },
@@ -206,7 +201,7 @@ async function codex(request) {
       model: request.input.model,
       modelProvider: "openai",
       cwd: workdir,
-      sandbox: nativeTools ? "danger-full-access" : "read-only",
+      sandbox: "danger-full-access",
       approvalPolicy: "never",
       ephemeral: true,
     });
@@ -215,7 +210,7 @@ async function codex(request) {
       rpc,
       thread.id,
       request.input,
-      nativeTools,
+      true,
       workdir,
     );
     let answer = "";
@@ -223,7 +218,8 @@ async function codex(request) {
       const m = await rpc.event();
       if (m.params?.threadId && m.params.threadId !== thread.id) continue;
       if (m.params?.turnId && m.params.turnId !== started.turn?.id) continue;
-      const trace = codexTrace(m);
+      // Redact before trace truncation so clipping cannot expose a token prefix.
+      const trace = codexTrace(clean(m));
       if (trace) emit({ chunk: { trace } });
       if (
         m.method === "turn/completed" &&
@@ -326,7 +322,7 @@ async function claude(request) {
   }
   if (!status.authenticated)
     throw new Error("Claude subscription sign-in required");
-  const command = nativeTools && slashCommand(request.input);
+  const command = slashCommand(request.input);
   if (command) {
     const catalog = await claudeCatalog(launch);
     const selected = catalog.commands.find((c) => c.name === command);
@@ -343,17 +339,8 @@ async function claude(request) {
     "--verbose",
     "--model",
     request.input.model,
-    ...(nativeTools
-      ? ["--permission-mode", "bypassPermissions"]
-      : [
-          "--tools",
-          "",
-          "--strict-mcp-config",
-          "--mcp-config",
-          '{"mcpServers":{}}',
-          "--permission-mode",
-          "dontAsk",
-        ]),
+    "--permission-mode",
+    "bypassPermissions",
     "--no-session-persistence",
     ...(command ? ["--input-format", "stream-json"] : []),
     "--json-schema",
@@ -376,7 +363,7 @@ async function claude(request) {
   lines(
     p.stdout,
     (m) => {
-      for (const trace of claudeTraces(m, internalToolIds))
+      for (const trace of claudeTraces(clean(m), internalToolIds))
         emit({ chunk: { trace } });
       if (
         command &&
@@ -418,12 +405,12 @@ async function claude(request) {
           subtype: "initialize",
           appendSystemPrompt: turnPrompt(
             { ...request.input, messages: request.input.messages.slice(0, -1) },
-            nativeTools,
+            true,
           ),
         },
       }) + "\n",
     );
-  } else p.stdin.end(turnPrompt(request.input, nativeTools));
+  } else p.stdin.end(turnPrompt(request.input, true));
   const code = await new Promise((resolve, reject) => {
     p.once("error", reject);
     p.once("close", resolve);
@@ -448,22 +435,32 @@ async function claude(request) {
 }
 try {
   const request = JSON.parse(first.value);
+  if (request.action !== "turn") timeout = setTimeout(stop, 30 * 60 * 1000);
+  if (!hostMode) {
+    if (["turn", "capabilities"].includes(request.action))
+      workdir = managedWorkspace(
+        env.HOME,
+        request.input?.workspaceKey ?? request.workspaceKey,
+      );
+    if (request.action === "turn" && request.githubToken !== undefined) {
+      Object.assign(env, githubEnvironment(request.githubToken));
+      githubToken = request.githubToken;
+    }
+    if (request.action === "turn")
+      request.input.instructions =
+        (request.input.instructions || "") +
+        `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${workdir}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +
+        (env.GH_TOKEN
+          ? " Git and gh are authenticated with the workspace's connected GitHub account. Use them for the user's authorized repository work; never print or store authentication tokens."
+          : "");
+  }
   if (
     !["login", "status", "logout", "turn", "capabilities"].includes(
       request.action,
     )
   )
     throw new Error("Unknown action");
-  if (request.action === "capabilities" && !nativeTools) {
-    emit({
-      result: {
-        available: false,
-        commands: [],
-        message:
-          "Connect a native runtime machine to use its commands and skills.",
-      },
-    });
-  } else if (request.provider === "codex") await codex(request);
+  if (request.provider === "codex") await codex(request);
   else if (request.provider === "claude") await claude(request);
   else throw new Error("Unknown runtime");
 } catch (error) {

@@ -1,3 +1,4 @@
+import { idleDeadline, IdleTimeoutError } from "./idle-deadline.mjs";
 import { containerArgs } from "./container.mjs";
 import { mcpHandler } from "./mcp.mjs";
 // Private control plane. Only this service has the Docker socket, never model containers.
@@ -66,12 +67,13 @@ async function execute(key, request, onEvent, signal) {
   let result,
     error,
     closed = false;
-  const cancel = () => {
+  const cancel = (force = false) => {
+    const killSignal = force === true ? "SIGKILL" : "SIGTERM";
     if (hostMode && process.platform !== "win32" && p.pid) {
       try {
-        process.kill(-p.pid, "SIGTERM");
+        process.kill(-p.pid, killSignal);
       } catch {}
-    } else p.kill("SIGTERM");
+    } else p.kill(killSignal);
     if (!hostMode) void remove(name);
   };
   const deadline =
@@ -81,7 +83,17 @@ async function execute(key, request, onEvent, signal) {
           cancel();
         })
       : null;
-  const timer = deadline ? null : setTimeout(cancel, 30 * 60 * 1000);
+  const timer =
+    deadline || request.action === "turn"
+      ? null
+      : setTimeout(cancel, 30 * 60 * 1000);
+  const idle =
+    request.action === "turn"
+      ? idleDeadline((failure) => {
+          error = failure;
+          cancel(true);
+        })
+      : null;
   const handle = { process: p, cancel };
   active.set(key, handle);
   signal?.addEventListener("abort", cancel, { once: true });
@@ -91,6 +103,7 @@ async function execute(key, request, onEvent, signal) {
   lines(
     p.stdout,
     (m) => {
+      if (m.chunk || m.done || m.result) idle?.progress();
       if (m.result) result = m.result;
       if (m.error) error = new Error(m.error);
       if (m.login && deadline) {
@@ -129,6 +142,7 @@ async function execute(key, request, onEvent, signal) {
     return result;
   } finally {
     clearTimeout(timer);
+    idle?.clear();
     deadline?.clear();
     signal?.removeEventListener("abort", cancel);
     if (active.get(key) === handle) active.delete(key);
@@ -184,7 +198,7 @@ const server = createServer(async (req, res) => {
     json(res, {
       ok: true,
       kind: hostMode ? "native-host" : "broker",
-      nativeTools: hostMode,
+      nativeTools: true,
     });
     return;
   }
@@ -363,7 +377,13 @@ const server = createServer(async (req, res) => {
       }
       json(
         res,
-        await serial(key, () => execute(key, { provider, action }, () => {})),
+        await serial(key, () =>
+          execute(
+            key,
+            { provider, action, workspaceKey: data.workspaceKey },
+            () => {},
+          ),
+        ),
       );
       return;
     }
@@ -383,22 +403,41 @@ const server = createServer(async (req, res) => {
       "content-type": "application/x-ndjson",
       "cache-control": "no-store",
     });
-    await serial(key, () => {
-      if (controller.signal.aborted) throw new Error("Cancelled");
-      return execute(
-        key,
-        { provider, action, input: data.input },
-        (m) => res.write(JSON.stringify(m) + "\n"),
-        controller.signal,
-      );
-    });
-    res.end();
-  } catch {
+    res.flushHeaders();
+    // Keep the transport alive while queued or inside a quiet native tool.
+    // Empty NDJSON lines never become agent output or traces.
+    const heartbeat = setInterval(() => res.write("\n"), 15000);
+    res.once("close", () => clearInterval(heartbeat));
+    try {
+      await serial(key, () => {
+        if (controller.signal.aborted) throw new Error("Cancelled");
+        return execute(
+          key,
+          {
+            provider,
+            action,
+            input: data.input,
+            githubToken: data.githubToken,
+          },
+          (m) => res.write(JSON.stringify(m) + "\n"),
+          controller.signal,
+        );
+      });
+      res.end();
+    } finally {
+      clearInterval(heartbeat);
+    }
+  } catch (error) {
     if (res.headersSent) {
       res.end(
         JSON.stringify({
+          ...(error instanceof IdleTimeoutError
+            ? { code: "idle_timeout" }
+            : {}),
           error:
-            "Subscription runtime stopped. Check sign-in, model access and allowance. No API fallback occurred.",
+            error instanceof IdleTimeoutError
+              ? error.message
+              : "Subscription runtime stopped. Check sign-in, model access and allowance. No API fallback occurred.",
         }) + "\n",
       );
     } else

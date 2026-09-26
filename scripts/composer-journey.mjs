@@ -14,7 +14,33 @@ export async function composerJourney(page, api) {
     ...Array.from({ length: 14 }, (_, i) => `Research team ${i + 1}`),
   ])
     await api("/teams", { name, managerId: manager.id, members: [worker.id] });
+  // Reproduce going offline after render but before the effect subscribes.
+  await page.evaluate(() =>
+    sessionStorage.setItem("loop-test-offline-on-subscribe", "1"),
+  );
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem("loop-test-offline-on-subscribe") !== "1")
+      return;
+    const add = window.addEventListener;
+    window.addEventListener = function (type, listener, options) {
+      if (type === "offline") {
+        sessionStorage.removeItem("loop-test-offline-on-subscribe");
+        Object.defineProperty(navigator, "onLine", {
+          configurable: true,
+          value: false,
+        });
+        window.dispatchEvent(new Event("offline"));
+        window.addEventListener = add;
+      }
+      return add.call(this, type, listener, options);
+    };
+  });
   await page.reload();
+  await expect(page.locator(".pwa-status")).toContainText("offline");
+  await page.evaluate(() => {
+    delete navigator.onLine;
+    window.dispatchEvent(new Event("online"));
+  });
   const picker = page.getByRole("button", { name: /^Filter by team:/ });
   const openComposer = page.getByRole("button", { name: "Compose a message" });
   for (const width of [320, 390]) {

@@ -92,8 +92,21 @@ export function Tools({ onClose }: { onClose: () => void }) {
         </label>
         <p className="field-hint">
           {approvalMode === "allow"
-            ? "All your agents can use connected MCP tools without stopping for approval. Calls stay in the conversation history."
+            ? "All your agents can use connected MCP tools without stopping for approval. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
             : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
+        </p>
+        <p className="field-hint">
+          Allow connected tools also gives managed coding agents your connected
+          GitHub token in their shell environment, with its full permissions.
+          Shell commands can read and transmit that token; output redaction does
+          not prevent this. Enable it only for agents and content you trust.
+          Agents using the same subscription account share a filesystem and can
+          read or modify each other’s workspaces.
+        </p>
+        <p className="field-hint">
+          Managed coding runs stop after 60 minutes without provider output,
+          including during silent builds or CI waits. Saved partial work remains
+          available to inspect before retrying.
         </p>
       </section>
       {error && (

@@ -18,13 +18,22 @@ const fake = `#!/usr/bin/env node
 const fs=require('node:fs'),path=require('node:path'),rl=require('node:readline');
 const provider=path.basename(process.argv[1]), home=process.env.HOME, args=process.argv.slice(2);
 const auth=path.join(home,'fixture-auth'), log=path.join(home,'calls');
-fs.appendFileSync(log,JSON.stringify({provider,args,native:process.env.LOOP_RUNTIME_MODE==='host',cwd:process.cwd(),toolToken:process.env.FIXTURE_MCP_TOKEN||null,apiKey:process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY||process.env.CLAUDE_CODE_OAUTH_TOKEN||null})+'\\n');
+fs.appendFileSync(log,JSON.stringify({provider,args,native:process.env.LOOP_RUNTIME_MODE==='host',cwd:process.cwd(),toolToken:process.env.FIXTURE_MCP_TOKEN||null,githubToken:process.env.GH_TOKEN||null,apiKey:process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY||process.env.CLAUDE_CODE_OAUTH_TOKEN||null})+'\\n');
 const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');
 const state=()=>fs.existsSync(auth)?fs.readFileSync(auth,'utf8'):'none';
-const answer=(model)=>({kind:model==='tool'?'tool':'answer',text:model==='tool'?'':'Subscription fixture answer',tool:model==='tool'?'lookup':null,arguments:model==='tool'?'{"query":"fixture"}':'{}'});
+const answer=(model)=>{
+ let text='Subscription fixture answer';
+ if(model==='credential')text=process.env.GH_TOKEN;
+ if(model==='workspace') {const file=path.join(process.cwd(),'checkout.txt');const n=fs.existsSync(file)?Number(fs.readFileSync(file,'utf8'))+1:1;fs.writeFileSync(file,String(n));text='Workspace edit '+n;}
+ return {kind:model==='tool'?'tool':'answer',text:model==='tool'?'':text,tool:model==='tool'?'lookup':null,arguments:model==='tool'?'{"query":"fixture"}':'{}'};
+};
 const formatted=(model)=>{
  send({type:'assistant',message:{id:'format-message',content:[{type:'tool_use',id:'format',name:'StructuredOutput',input:answer(model)}]}});
  send({type:'user',message:{content:[{type:'tool_result',tool_use_id:'format',content:'Structured output provided successfully'}]}});
+};
+const credentialTrace=()=>{
+ if(provider==='codex')send({method:'item/completed',params:{item:{id:'credential-trace',type:'commandExecution',aggregatedOutput:'x'.repeat(11990)+process.env.GH_TOKEN}}});
+ else send({type:'user',message:{content:[{type:'tool_result',tool_use_id:'credential-trace',content:'x'.repeat(11990)+process.env.GH_TOKEN}]}});
 };
 if(provider==='codex') {
  rl.createInterface({input:process.stdin}).on('line',line=>{
@@ -39,7 +48,8 @@ if(provider==='codex') {
   if(m.method==='review/start'){result={turn:{id:'review-fixture'}};setTimeout(()=>{send({method:'item/completed',params:{threadId:'thread-fixture',turnId:'review-fixture',item:{type:'exitedReviewMode',review:'Native review result'}}});send({method:'turn/completed',params:{threadId:'thread-fixture',turn:{id:'review-fixture',status:'completed'}}});},20);}
   if(m.method==='turn/start'){
    if(!m.params.outputSchema)throw Error('Missing structured output');
-   setTimeout(()=>{send({method:'item/agentMessage/delta',params:{delta:JSON.stringify(answer(global.model))}});send({method:'turn/completed',params:{turn:{status:global.model==='quota'?'failed':'completed'}}});},20);
+   if(global.model==='credential')credentialTrace();
+   setTimeout(()=>{send({method:'item/agentMessage/delta',params:{delta:JSON.stringify(answer(global.model))}});send({method:'turn/completed',params:{turn:{status:global.model==='quota'?'failed':'completed'}}});},global.model==='slow'?100:20);
   }
   send({id:m.id,result});
  });
@@ -55,8 +65,8 @@ if(provider==='codex') {
  rl.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify({control:m})+'\\n');if(m.type==='user'){const model=args[args.indexOf('--model')+1];fs.appendFileSync(log,JSON.stringify({prompt:m.message.content})+'\\n');send({type:'result',subtype:'success',structured_output:answer(model),session_id:'claude-fixture'});return}send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:{commands:[{name:'fixture-command',description:'Fixture command',argumentHint:'task'},{name:'compact',description:'Compact history'}]}}});});
 } else {
  const model=args[args.indexOf('--model')+1];let prompt='';
- if(process.env.LOOP_RUNTIME_MODE!=='host'&&(args[args.indexOf('--tools')+1]!==''||!args.includes('--strict-mcp-config')))throw Error('Unsafe tools');
- process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{fs.appendFileSync(log,JSON.stringify({prompt})+'\\n');if(!prompt.includes('CONVERSATION')&&!args.includes('--append-system-prompt'))throw Error('Missing history');formatted(model);send({type:'result',subtype:model==='quota'?'error_max_turns':'success',is_error:model==='quota',structured_output:answer(model),session_id:'claude-fixture'});});
+ if(args.includes('--tools')||args.includes('--strict-mcp-config')||!args.includes('bypassPermissions'))throw Error('Native tools are restricted');
+ process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{fs.appendFileSync(log,JSON.stringify({prompt})+'\\n');if(!prompt.includes('CONVERSATION')&&!args.includes('--append-system-prompt'))throw Error('Missing history');if(model==='credential')credentialTrace();setTimeout(()=>{if(model!=='workspace')formatted(model);send({type:'result',subtype:model==='quota'?'error_max_turns':'success',is_error:model==='quota',structured_output:answer(model),session_id:'claude-fixture'});},model==='slow'?100:0);});
 }
 `;
 for (const name of ["codex", "claude"])
@@ -69,23 +79,39 @@ function invoke(
   native = false,
   prompt = "Use my subscription",
   history: { role: string; content: string }[] = [],
+  workspace: {
+    home?: string;
+    key?: string;
+    githubToken?: string;
+    fastClock?: boolean;
+  } = {},
 ) {
-  const home = mkdtempSync(join(root, "account-"));
+  const home = workspace.home || mkdtempSync(join(root, "account-"));
   writeFileSync(join(home, "fixture-auth"), auth);
-  const p = spawn(process.execPath, ["runtime/entry.mjs"], {
-    cwd: process.cwd(),
-    env: {
-      PATH: bin + ":" + process.env.PATH,
-      HOME: home,
-      LOOP_RUNTIME_MODE: native ? "host" : "container",
-      FIXTURE_MCP_TOKEN: "host-tool-credential",
-      LOOP_RUNTIME_WORKDIR: home,
-      OPENAI_API_KEY: "must-not-inherit",
-      ANTHROPIC_API_KEY: "must-not-inherit",
-      CLAUDE_CODE_OAUTH_TOKEN: "must-not-inherit",
+  writeFileSync(join(home, "calls"), "");
+  const p = spawn(
+    process.execPath,
+    [
+      ...(workspace.fastClock
+        ? ["--import", resolve("tests/helpers/fast-runtime-clock.mjs")]
+        : []),
+      "runtime/entry.mjs",
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        PATH: bin + ":" + process.env.PATH,
+        HOME: home,
+        LOOP_RUNTIME_MODE: native ? "host" : "container",
+        FIXTURE_MCP_TOKEN: "host-tool-credential",
+        LOOP_RUNTIME_WORKDIR: home,
+        OPENAI_API_KEY: "must-not-inherit",
+        ANTHROPIC_API_KEY: "must-not-inherit",
+        CLAUDE_CODE_OAUTH_TOKEN: "must-not-inherit",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
     },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  );
   const events: any[] = [];
   let buffer = "";
   p.stderr.resume();
@@ -105,7 +131,9 @@ function invoke(
     JSON.stringify({
       provider,
       action,
+      githubToken: workspace.githubToken,
       input: {
+        workspaceKey: workspace.key,
         model,
         instructions: "Be clear",
         messages: [...history, { role: "user", content: prompt }],
@@ -140,6 +168,7 @@ function invoke(
         calls: readFileSync(join(home, "calls"), "utf8")
           .trim()
           .split("\n")
+          .filter(Boolean)
           .map(JSON.parse as any),
       });
     });
@@ -147,6 +176,23 @@ function invoke(
 }
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 for (const provider of ["codex", "claude"]) {
+  it(`${provider}: survives the former runtime kill deadline`, async () => {
+    const result = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "slow",
+      false,
+      "Wait for long-running work",
+      [],
+      { fastClock: true },
+    );
+    expect(result.code).toBe(0);
+    expect(result.events).toContainEqual({ done: true });
+    expect(result.events).toContainEqual({
+      chunk: { text: "Subscription fixture answer" },
+    });
+  });
   it(`${provider}: native login handshake, subscription identity and model discovery`, async () => {
     const r = await invoke(provider, "login", "none");
     expect(r.code).toBe(0);
@@ -193,8 +239,127 @@ for (const provider of ["codex", "claude"]) {
   });
 }
 for (const provider of ["codex", "claude"]) {
+  it(`${provider}: redacts native credentials before clipping traces and returning answers`, async () => {
+    const secret = "smokesecret-native-github";
+    const run = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "credential",
+      false,
+      "Check repository",
+      [],
+      { githubToken: secret },
+    );
+    expect(run.code).toBe(0);
+    expect(run.events).toContainEqual({ chunk: { text: "[redacted]" } });
+    expect(run.events.some((e) => e.chunk?.trace)).toBe(true);
+    expect(JSON.stringify(run.events)).not.toContain(secret.slice(0, 6));
+  });
+  it(`${provider}: managed native tools edit a persistent per-agent workspace`, async () => {
+    const key = "a".repeat(64);
+    const first = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "workspace",
+      false,
+      "Edit a file",
+      [],
+      { key, githubToken: "fixture-github-token" },
+    );
+    expect(first.code).toBe(0);
+    expect(first.events).toContainEqual({
+      chunk: { text: "Workspace edit 1" },
+    });
+    const cwd = realpathSync(join(first.home, "workspaces", key));
+    expect(
+      first.calls
+        .filter((c) => c.args)
+        .every(
+          (c) =>
+            c.cwd === cwd &&
+            c.apiKey === null &&
+            c.toolToken === null &&
+            c.githubToken === "fixture-github-token",
+        ),
+    ).toBe(true);
+    const args = first.calls.filter((c) => c.args).at(-1).args;
+    expect(args.join(" ")).not.toMatch(
+      /features\..*=false|web_search="disabled"|--tools|--strict-mcp-config|--max-turns/,
+    );
+    if (provider === "codex") {
+      expect(
+        first.calls.find((c) => c.rpc?.method === "thread/start").rpc.params,
+      ).toMatchObject({
+        cwd: join(first.home, "workspaces", key),
+        sandbox: "danger-full-access",
+        approvalPolicy: "never",
+      });
+      expect(args).toContain(
+        "shell_environment_policy.ignore_default_excludes=true",
+      );
+    } else expect(args).toContain("bypassPermissions");
+    expect(
+      JSON.stringify(
+        first.calls.filter((c) => c.prompt || c.rpc?.method === "turn/start"),
+      ),
+    ).not.toContain("fixture-github-token");
+    const again = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "workspace",
+      false,
+      "Edit again",
+      [],
+      { home: first.home, key },
+    );
+    expect(again.code).toBe(0);
+    expect(again.events).toContainEqual({
+      chunk: { text: "Workspace edit 2" },
+    });
+    expect(
+      again.calls.filter((c) => c.args).every((c) => c.githubToken === null),
+    ).toBe(true);
+    const other = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "workspace",
+      false,
+      "Another agent",
+      [],
+      { home: first.home, key: "b".repeat(64) },
+    );
+    expect(other.events).toContainEqual({
+      chunk: { text: "Workspace edit 1" },
+    });
+    expect(readFileSync(join(cwd, "checkout.txt"), "utf8")).toBe("2");
+    const invalid = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "fixture",
+      false,
+      "Bad workspace",
+      [],
+      { key: "../../escape" },
+    );
+    expect(invalid.code).not.toBe(0);
+    expect(invalid.calls).toEqual([]);
+  });
   it(`${provider}: native host preserves tools, cwd and MCP environment without API fallback`, async () => {
-    const r = await invoke(provider, "turn", "subscription", "fixture", true);
+    const r = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "fixture",
+      true,
+      "Use the host",
+      [],
+      { key: "a".repeat(64), githubToken: "must-not-replace-host-credentials" },
+    );
     expect(r.code).toBe(0);
     expect(r.events.at(-1)).toEqual({ done: true });
     const launches = r.calls.filter((c) => c.args);
@@ -203,6 +368,7 @@ for (const provider of ["codex", "claude"]) {
         (c) =>
           c.cwd === realpathSync(r.home) &&
           c.toolToken === "host-tool-credential" &&
+          c.githubToken === null &&
           c.apiKey === null,
       ),
     ).toBe(true);
@@ -270,6 +436,10 @@ it("creates isolated containers without host credentials, sockets or privileged 
   expect(args).toContain("--read-only");
   expect(args).toContain("--cap-drop=ALL");
   expect(args).toContain("--user=1000:1000");
+  expect(args.join(" ")).not.toContain("--tmpfs=/work");
+  expect(args).toContain(
+    `type=volume,source=loop-test-${"a".repeat(64)},target=/home/node`,
+  );
   expect(args.join(" ")).not.toMatch(
     /docker.sock|--privileged|type=bind|API_KEY/,
   );
@@ -279,26 +449,28 @@ it("creates isolated containers without host credentials, sockets or privileged 
 });
 
 it("discovers native commands without a model turn and dispatches Claude slash prompts unwrapped", async () => {
-  for (const provider of ["codex", "claude"]) {
-    const catalog = await invoke(
-      provider,
-      "capabilities",
-      "subscription",
-      "fixture",
-      true,
-    );
-    expect(catalog.code).toBe(0);
-    expect(catalog.events[0].result).toMatchObject({
-      available: true,
-      commands: expect.arrayContaining([
-        expect.objectContaining({
-          token: provider === "codex" ? "$fixture-skill" : "/fixture-command",
-        }),
-      ]),
-    });
-    expect(
-      catalog.calls.some((c) => c.rpc?.method === "turn/start" || c.prompt),
-    ).toBe(false);
+  for (const native of [false, true]) {
+    for (const provider of ["codex", "claude"]) {
+      const catalog = await invoke(
+        provider,
+        "capabilities",
+        "subscription",
+        "fixture",
+        native,
+      );
+      expect(catalog.code).toBe(0);
+      expect(catalog.events[0].result).toMatchObject({
+        available: true,
+        commands: expect.arrayContaining([
+          expect.objectContaining({
+            token: provider === "codex" ? "$fixture-skill" : "/fixture-command",
+          }),
+        ]),
+      });
+      expect(
+        catalog.calls.some((c) => c.rpc?.method === "turn/start" || c.prompt),
+      ).toBe(false);
+    }
   }
   const run = await invoke(
     "claude",

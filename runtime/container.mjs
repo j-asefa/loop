@@ -18,7 +18,6 @@ export function containerArgs(prefix, key, image, name) {
     "--user=1000:1000",
     "--network=bridge",
     "--tmpfs=/tmp:rw,nosuid,nodev,size=256m",
-    "--tmpfs=/work:rw,nosuid,nodev,size=64m,mode=1777",
     "--mount",
     `type=volume,source=${prefix}-${key},target=/home/node`,
     image,

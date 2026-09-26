@@ -15,6 +15,7 @@ import {
   isSubscription,
   runtimeAction,
   runtimeConfigured,
+  runtimeWorkspaceKey,
 } from "./subscriptions.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -221,7 +222,14 @@ core.get("/agents/:id/harness", async (req, res) => {
         agent,
         z.string().uuid().optional().parse(req.query.conversation),
       )
-    : await runtimeAction(connection, "capabilities");
+    : await runtimeAction(connection, "capabilities", {
+        workspaceKey: runtimeWorkspaceKey(res.locals.owner, agent.id),
+      });
+  if (!Array.isArray(catalog.commands))
+    throw new Problem(
+      422,
+      "This runtime does not support command discovery. Update the runtime on that machine and try again.",
+    );
   res.json(catalog);
 });
 core.get("/agents/:id/traces", (req, res) => {

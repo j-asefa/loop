@@ -634,8 +634,8 @@ function ServerConnections({
               <p className="connection-explainer muted">
                 {setup.method === "subscription"
                   ? direct
-                    ? `Use the ${choice.name} account already signed in on your remote machine, with its native tools and files. Your plan’s limits and extra-usage settings apply.`
-                    : `Sign in with ${choice.name} through ${choice.runtime}. Your plan’s limits and extra-usage settings apply.`
+                    ? `Use the ${choice.name} account already signed in on your remote machine, with its native tools and files. Agents using the same subscription account share a filesystem and can read or modify each other’s files. Your plan’s limits and extra-usage settings apply.`
+                    : `Sign in with ${choice.name} through ${choice.runtime}. Each agent gets native coding tools and a workspace that keeps its files between runs. Agents using the same subscription account share a filesystem and can read or modify each other’s files. Your plan’s limits and extra-usage settings apply.`
                   : `${choice.company} API usage is billed separately from ${choice.name} subscriptions.`}
               </p>
               {setup.method === "subscription" && (

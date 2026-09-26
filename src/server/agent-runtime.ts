@@ -7,7 +7,11 @@ import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
 import { enqueue, type Run, transition } from "./queue.js";
 import { owned, Problem } from "./domain.js";
-import { streamConnection, isSubscription } from "./subscriptions.js";
+import {
+  streamConnection,
+  isSubscription,
+  runtimeWorkspaceKey,
+} from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordTrace } from "./traces.js";
 import { toolErrorMessage } from "./mcp/results.js";
@@ -233,13 +237,25 @@ export async function executeAgent(run: Run): Promise<boolean> {
     );
   }).immediate;
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    Math.min(
-      snapshot.maxSeconds || (isSubscription(connection) ? 1800 : 180),
-      1800,
-    ) * 1000,
-  );
+  // Native harnesses own their turns. Only an explicit workflow budget should
+  // impose a wall-clock deadline on a subscription run.
+  const maxSeconds =
+    (snapshot.maxSeconds && snapshot.maxSeconds > 0
+      ? snapshot.maxSeconds
+      : undefined) ?? (isSubscription(connection) ? undefined : 180);
+  const timeout =
+    maxSeconds === undefined
+      ? undefined
+      : setTimeout(
+          () =>
+            controller.abort(
+              new Problem(
+                408,
+                `This run reached its configured ${maxSeconds}-second execution limit. Partial work is saved; review it before retrying.`,
+              ),
+            ),
+          maxSeconds * 1000,
+        );
   const monitor = setInterval(() => {
     const state = (
       db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
@@ -416,6 +432,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         snapshot,
       });
       for await (const chunk of streamConnection(currentConnection, {
+        workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
         model: snapshot.model,
         instructions: snapshot.instructions,
         messages: structuredClone(history),
@@ -523,6 +540,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
     if (controller.signal.aborted) {
       const current = owned<Run>("runs", run.id, run.owner_id);
       if (current.state === "cancelled") return false;
+      if (controller.signal.reason instanceof Problem)
+        throw controller.signal.reason;
       throw new Problem(
         408,
         "The run stopped before an answer was completed. Check the provider connection and review partial work before retrying.",

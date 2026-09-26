@@ -41,6 +41,7 @@ jobs:
       - run: docker compose up --build -d
       - run: node scripts/compose-smoke.mjs
       - run: docker run --rm --network none --entrypoint node -i loop-runtime:0.2 --input-type=module < scripts/native-harness-smoke.mjs
+      - run: node scripts/managed-workspace-smoke.mjs
       - if: failure()
         run: docker compose logs --tail=100 loop runtime-broker runtime-image
       - if: always()

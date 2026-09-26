@@ -6,6 +6,8 @@ export function PwaStatus() {
     const changed = () => setOnline(navigator.onLine);
     window.addEventListener("online", changed);
     window.addEventListener("offline", changed);
+    // Catch a network transition between the initial render and subscription.
+    changed();
     if ("serviceWorker" in navigator)
       void navigator.serviceWorker
         .register("/sw.js")

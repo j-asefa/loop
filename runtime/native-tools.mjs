@@ -1,4 +1,4 @@
-// Remote host users authorize native tools when pairing their machine. Only
+// Loop enables native tools in managed containers and paired hosts. Only
 // answer approvals for the thread created by this Loop operation.
 export function nativeReply(message, threadId) {
   if (!threadId || message.params?.threadId !== threadId)

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -12,13 +12,102 @@ const { runtimeHosts, runtimeEndpoint } =
   await import("../src/server/runtime-hosts");
 const { subscriptions, runtimeAction, subscriptionStream } =
   await import("../src/server/subscriptions");
-const { codexFixture } = await import(
+const { codexFixture, fixtureToken } = await import(
   resolve("tests/helpers/codex-server.mjs")
 );
 const codex = await codexFixture();
+const { codexStream } = await import("../src/server/codex-app-server");
 const { core } = await import("../src/server/core-routes");
 const { installConfig } = await import("../src/server/mcp/install");
 const { Problem } = await import("../src/server/domain");
+it("keeps remote Codex work alive beyond the old deadline until the caller cancels", async () => {
+  const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
+  const clock = vi
+    .spyOn(AbortSignal, "timeout")
+    .mockImplementation((ms) => originalTimeout(ms >= 1800000 ? 25 : ms));
+  const controller = new AbortController();
+  const count = codex.calls.filter(
+    (c: any) => c.method === "turn/start",
+  ).length;
+  let settled = false;
+  const running = (async () => {
+    for await (const _chunk of codexStream(
+      { url: codex.url, token: fixtureToken },
+      {
+        model: "wait",
+        instructions: "Wait for CI",
+        messages: [{ role: "user", content: "Long coding task" }],
+        signal: controller.signal,
+      },
+    )) {
+      /* drain */
+    }
+  })().then(
+    () => {
+      settled = true;
+      return null;
+    },
+    (error) => {
+      settled = true;
+      return error;
+    },
+  );
+  try {
+    await expect
+      .poll(
+        () => codex.calls.filter((c: any) => c.method === "turn/start").length,
+      )
+      .toBe(count + 1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(settled).toBe(false);
+  } finally {
+    controller.abort();
+    expect(await running).toBeInstanceOf(Error);
+    clock.mockRestore();
+    // The other protocol scenarios use their own call sequence assertions.
+    codex.calls.length = 0;
+  }
+});
+it("interrupts an unresponsive remote turn and releases its socket", async () => {
+  const schedule = globalThis.setTimeout;
+  const clock = vi
+    .spyOn(globalThis, "setTimeout")
+    .mockImplementation(((callback: any, ms: number, ...args: any[]) =>
+      schedule(
+        callback,
+        ms === 60 * 60_000 ? 100 : ms,
+        ...args,
+      )) as typeof setTimeout);
+  try {
+    await expect(
+      (async () => {
+        for await (const _chunk of codexStream(
+          { url: codex.url, token: fixtureToken },
+          {
+            model: "wait",
+            instructions: "Wait",
+            messages: [{ role: "user", content: "Wait" }],
+            signal: new AbortController().signal,
+          },
+        )) {
+          /* drain */
+        }
+      })(),
+    ).rejects.toMatchObject({
+      status: 408,
+      message: expect.stringContaining("no progress for 60 minutes"),
+    });
+    expect(codex.calls.some((c: any) => c.method === "turn/interrupt")).toBe(
+      true,
+    );
+    expect(
+      codex.calls.some((c: any) => c.method === "thread/unsubscribe"),
+    ).toBe(true);
+  } finally {
+    clock.mockRestore();
+    codex.calls.length = 0;
+  }
+});
 const requests: any[] = [];
 let nextStatus: object | undefined;
 let brokerKind = "broker";
