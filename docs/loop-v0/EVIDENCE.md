@@ -77,8 +77,13 @@ The evidence-only repeat run 35816769302 passed installation/build/unit checks a
 
 ## Subscription runtime rebuild
 
-Implemented isolated official Codex 0.156.1 and Claude Code 2.1.280 runtimes, subscription-first sign-in, per-connection credential volumes, explicit optional API connections and no automatic API fallback. Compose now starts on localhost without a domain; HTTPS is an optional profile. See [SUBSCRIPTIONS.md](SUBSCRIPTIONS.md).
+Implemented isolated official Codex and Claude Code 2.1.280 runtimes, subscription-first sign-in, per-connection credential volumes, explicit optional API connections and no automatic API fallback. Compose now starts on localhost without a domain; HTTPS is an optional profile. See [SUBSCRIPTIONS.md](SUBSCRIPTIONS.md).
 
 Local verification: production build and all 33 tests in eight files pass. Eight native-protocol contract tests invoke the actual runtime wrapper with controlled CLI fixtures, covering authentication, environment scrubbing, model access, structured answers/tool calls, quota failure and container isolation arguments. The complete browser/worker journey passes both sign-in flows, saved subscription answers, cross-user denial, disconnect and a subscription-backed MCP call through the existing approval boundary. These authenticated flows use explicit test fixtures, not real accounts. Both installed, unmodified native CLIs were also exercised unsigned and correctly reported no authenticated subscription.
 
 The CI container job builds the production images, starts the default no-domain stack, creates a real Loop session and checks unsigned status through the private broker and both real native CLIs. Its exact published result is recorded in PR #1. Live subscription sign-in/inference and actual allowance consumption still require the user's own account. No live success or token-by-token subscription streaming is claimed: native structured output is validated before emitting the answer.
+
+
+## Codex 0.157.0 pin update — 2026-09-26
+
+The native Codex compatibility pin, runtime image, and protocol test fixture now target 0.157.0. The official npm package reports `codex-cli 0.157.0`; its generated experimental App Server schema includes the initialize, account/model, and thread methods used by Loop. No authenticated account, model request, or subscription usage was exercised for this version. Hosted CI remains the integration gate.

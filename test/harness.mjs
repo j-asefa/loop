@@ -13,7 +13,7 @@ let count = 0,
 if (process.argv.includes("--version")) {
   console.log(
     {
-      codex: "codex-cli 0.156.1",
+      codex: "codex-cli 0.157.0",
       pi: "0.87.1",
       claude: "2.1.282 (Claude Code)",
       opencode: "1.18.32",

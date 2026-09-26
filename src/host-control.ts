@@ -7,7 +7,7 @@ import { request } from "node:http";
 import type { Harness } from "./protocol.js";
 const exec = promisify(execFile);
 const releases = {
-  codex: "0.156.1",
+  codex: "0.157.0",
   claude: "2.1.282",
   pi: "0.87.1",
   opencode: "1.18.32",

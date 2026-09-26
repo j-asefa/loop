@@ -1,6 +1,6 @@
 # Subscription connections
 
-Choose a provider first; its setup defaults to **Subscription**. ChatGPT connects through the official Codex app server (0.156.1); Claude connects through the unmodified Claude Code binary (2.1.280). Both are installed from their official npm packages in the runtime image. API-key connections remain an explicit, separately billed option within each provider's setup. A subscription connection never falls back to either API adapter.
+Choose a provider first; its setup defaults to **Subscription**. ChatGPT connects through the official Codex app server (0.157.0); Claude connects through the unmodified Claude Code binary (2.1.280). Both are installed from their official npm packages in the runtime image. API-key connections remain an explicit, separately billed option within each provider's setup. A subscription connection never falls back to either API adapter.
 
 ## Connect
 
