@@ -1,6 +1,10 @@
 import { useRef, useState } from "react";
 import { Orbit, ShieldCheck } from "lucide-react";
 import { authorize, clearAuthorization } from "./api";
+// Present when this page runs inside the Loop app's web view.
+const shell = (
+  window as { ReactNativeWebView?: { postMessage: (data: string) => void } }
+).ReactNativeWebView;
 export function Pairing({ onDone }: { onDone: () => void }) {
   const secret = useRef(
     new URLSearchParams(location.hash.slice(1)).get("pair") || "",
@@ -69,6 +73,21 @@ export function Pairing({ onDone }: { onDone: () => void }) {
           >
             {busy ? "Pairing…" : "Pair and open Loop"}
           </button>
+        ) : shell ? (
+          <>
+            <p className="note">
+              Run <code>loop pair</code> on your desktop, then scan the code it
+              shows.
+            </p>
+            <button
+              className="primary"
+              onClick={() =>
+                shell.postMessage(JSON.stringify({ type: "loop:scan" }))
+              }
+            >
+              Scan pairing code
+            </button>
+          </>
         ) : (
           <p className="note">
             Run <code>loop pair</code> on your desktop and scan the new QR code.

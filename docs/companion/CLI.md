@@ -22,9 +22,9 @@ loop codex
 
 Install the supported native harness and sign in through its normal desktop command first. Loop neither installs nor upgrades your harness. `loop doctor` shows the required versions.
 
-Scan the QR with your phone, select **Pair and open Loop**, then create named agents. Select the same project for several agents or bind another existing desktop directory in Projects. Each new conversation gets its own native session and can work concurrently. Switch conversations, answer native decisions in their owning conversation or Running, and cancel a task without stopping its siblings.
+Scan the QR from the [Loop app](../../mobile/README.md) (recommended: install it once and it survives tunnel address changes), or with your phone's camera and select **Pair and open Loop** in the browser. Then create named agents. Select the same project for several agents or bind another existing desktop directory in Projects. Each new conversation gets its own native session and can work concurrently. Switch conversations, answer native decisions in their owning conversation or Running, and cancel a task without stopping its siblings.
 
-Keep the owning terminal and computer awake. Phone disconnection does not stop work. The host uses eight execution slots, allows waiting native decisions/delegations to release capacity, and caps active worker tasks at 32. Idle native processes are evicted after 60 seconds and resume through native session IDs.
+After the pairing code is shown, `loop codex` returns your shell prompt and the workspace keeps running in the background; you can close the terminal. Keep the computer awake. Phone disconnection does not stop work; `loop stop` does. Background output goes to `$LOOP_HOME/workspace/daemon.log` (`loop logs`, or `loop logs --follow`); past 5 MB it rolls over to `daemon.log.1`. Pairing codes are shown only on a terminal and never written to the log; run `loop pair` for a new one. If the workspace stops responding, `loop stop` terminates it and the native harness processes it started. It only signals processes whose identity (boot and start time) matches Loop's records. If it can't confirm the workspace process, it stops nothing and tells you; native processes it can't confirm are left running, kept on record and reported, and running `loop stop` again retries them. `loop status` reports `crashed`, `unresponsive` or `unknown` in those cases. Use `--foreground` to keep the workspace attached to the terminal instead, for example under launchd or systemd. The host uses eight execution slots, allows waiting native decisions/delegations to release capacity, and caps active worker tasks at 32. Idle native processes are evicted after 60 seconds and resume through native session IDs.
 
 A second invocation joins the running workspace:
 
@@ -33,12 +33,15 @@ loop pi
 loop claude --billing existing
 loop opencode --billing existing
 loop codex                 # reuses the host and paired phone
-loop pair                  # pair another device
+loop pair                  # pair another device, or reconnect the Loop app
 loop status --json
+loop logs --follow
 loop devices
 loop devices revoke DEVICE_ID
-loop stop
+loop stop                  # waits until the background workspace exits
 ```
+
+Plain `loop` (alias `loop server`) starts the full multi-user Loop server in the foreground, not the companion workspace; see [deployment profiles](../UNIFIED-LOOP.md).
 
 `loop claude-code` is an alias for `loop claude`. Claude requires an explicitly configured API/provider account. `--billing existing` retains the selected native provider and can incur charges; it never means verified subscription usage.
 
@@ -69,9 +72,16 @@ See [native adapter architecture](NATIVE-ADAPTERS.md) and [deployment profiles](
 
 Loop downloads a pinned, hash-verified cloudflared helper and starts an account-free Quick Tunnel. HTTPS serves the UI and authenticated WSS carries workspace updates. OpenCode's SSE remains local; the public connection does not rely on SSE. Cloudflare terminates TLS, so this is not application-level end-to-end encryption.
 
-Quick Tunnel URLs rotate after restart/reconnection. Pair again at the new origin; browser drafts and installed PWA data are origin-scoped. For a tunnel you manage, use `--public-url https://your-host.example` and point it at the loopback port printed by Loop. `--local-only` supports desktop testing. Never expose the private administration or native tool endpoints.
+Quick Tunnel URLs rotate after a restart, and the background workspace reconnects the tunnel with a new URL if it drops. Every paired device is signed out when the address changes. To reconnect, run `loop pair` and scan the code:
 
-Pairing links expire after two minutes and can be redeemed once. A paired device can control agents and access the desktop through their granted native tools. Revoke lost devices with the CLI or Settings → This computer. Host restarts require pairing again in this preview.
+- **Loop app:** open the app. It shows **Can't reach your computer**; tap **Scan new code**. The app pairs with the new address and reloads itself. Keep the same install and icon.
+- **Browser or home-screen web app:** open the new link. Browser drafts and home-screen web app data are tied to the old address, so a home-screen icon added from the old address stops working.
+
+For a tunnel you manage, use `--public-url https://your-host.example` and point it at the loopback port printed by Loop; the address then never changes. `--local-only` supports desktop testing. Never expose the private administration or native tool endpoints.
+
+Pairing links expire after two minutes and can be redeemed once. A paired device can control agents and access the desktop through their granted native tools. Revoke lost devices with the CLI or Settings → This computer. Pairing lasts seven days. Host restarts require pairing again in this preview.
+
+The Loop app pairs with a bearer credential kept in the phone's secure storage instead of a browser cookie: `POST /pair` with `"credential": "bearer"` returns the device token in the response (no cookie), and the app hands it to its web view once through `GET /session/open`, which sets the usual HttpOnly cookie. Bearer requests skip the `Origin` check, since nothing attaches them automatically, but writes still require the CSRF token. Browser pairing is unchanged and never exposes the token to page scripts.
 
 Workspace state lives in `$LOOP_HOME/workspace`, defaulting to `~/.local/state/loop/workspace`. Stop Loop and back up the entire directory, including `loop.db` and `encryption-key`. Native history remains in the harness's own location. Unknown prompt/decision/tool outcomes are recorded and never silently retried; review partial work before an explicit follow-up.
 

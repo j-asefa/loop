@@ -31,6 +31,8 @@ if (process.argv.includes("auth")) {
   );
   process.exit();
 }
+// Models a harness that keeps running after Loop's pipes close.
+if (process.env.LOOP_TEST_OUTLIVE_STDIN) setInterval(() => {}, 1 << 30);
 const audit = () => {
   if (process.env.LOOP_TEST_AUDIT)
     appendFileSync(process.env.LOOP_TEST_AUDIT, "prompt\n");

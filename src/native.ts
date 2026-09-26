@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
-import { killOwned } from "./processes.js";
+import { killOwned, own } from "./processes.js";
 
 /** A broken/timeout write may have executed; callers must never retry mutations. */
 export class Native extends EventEmitter {
@@ -30,6 +30,7 @@ export class Native extends EventEmitter {
       shell: false,
       detached: true,
     }) as ChildProcessWithoutNullStreams;
+    own(this.child);
     let metadata = "";
     (this.child.stdio[3] as NodeJS.ReadableStream).on("data", (chunk) => {
       metadata += chunk.toString();

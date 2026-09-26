@@ -45,6 +45,8 @@ const Pair = z
   .object({
     secret: z.string().min(40).max(60),
     name: z.string().trim().max(80).default("Phone"),
+    // "bearer" returns the device token to a native client instead of setting a cookie.
+    credential: z.enum(["cookie", "bearer"]).default("cookie"),
   })
   .strict();
 
@@ -122,7 +124,7 @@ export class Host {
     this.publicServer.on("upgrade", (req, socket, head) => {
       const device = this.authenticate(req);
       if (
-        !this.validOrigin(req) ||
+        !(this.bearer(req) ? this.validHost(req) : this.validOrigin(req)) ||
         !device ||
         new URL(req.url!, this.origin).pathname !== "/ws" ||
         this.clients.size >= 12
@@ -211,7 +213,8 @@ export class Host {
       throw new Error("Public origin must be a bare HTTPS origin.");
     this.origin = url.origin;
     this.workspace?.originChanged(this.origin);
-    // Old cookies and socket credentials are origin-scoped. Require a fresh QR after rotation.
+    // Cookies are origin-scoped, and bearer devices are deliberately revoked too:
+    // reconnecting after a rotation is an in-person re-pair via a fresh `loop pair` QR.
     this.pairs.clear();
     for (const d of [...this.devices.keys()]) this.revoke(d);
   }
@@ -258,15 +261,31 @@ export class Host {
   private validOrigin(req: IncomingMessage) {
     return this.validHost(req) && req.headers.origin === this.origin;
   }
+  // Origin checks defend against a browser attaching the cookie ambiently.
+  // An explicit Authorization header is never attached that way.
+  private bearer(req: IncomingMessage) {
+    return req.headers.authorization !== undefined;
+  }
+  private get cookieName() {
+    return this.origin.startsWith("https:") ? "__Host-loop" : "loop_local";
+  }
+  private cookie(token: string, expires: number) {
+    const secure = this.origin.startsWith("https:");
+    const age = Math.max(0, Math.floor((expires - Date.now()) / 1000));
+    return `${this.cookieName}=${token}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=${age}`;
+  }
   private authenticate(req: IncomingMessage) {
-    const cookieName = this.origin.startsWith("https:")
-      ? "__Host-loop"
-      : "loop_local";
-    const token = req.headers.cookie
-      ?.split(";")
-      .map((x) => x.trim())
-      .find((x) => x.startsWith(cookieName + "="))
-      ?.slice(cookieName.length + 1);
+    const header = req.headers.authorization;
+    const token =
+      header === undefined
+        ? req.headers.cookie
+            ?.split(";")
+            .map((x) => x.trim())
+            .find((x) => x.startsWith(this.cookieName + "="))
+            ?.slice(this.cookieName.length + 1)
+        : header.startsWith("Bearer ")
+          ? header.slice(7)
+          : undefined;
     if (!token || token.length > 100) return;
     return [...this.devices.values()].find(
       (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
@@ -292,8 +311,6 @@ export class Host {
     try {
       const path = new URL(req.url!, this.origin).pathname;
       if (path === "/pair" && req.method === "POST") {
-        if (!this.validOrigin(req))
-          return this.json(res, 403, { error: "Origin rejected." });
         this.attempts = this.attempts.filter((t) => Date.now() - t < 60000);
         if (this.attempts.length >= 20)
           return this.json(res, 429, {
@@ -301,6 +318,9 @@ export class Host {
           });
         this.attempts.push(Date.now());
         const input = Pair.parse(await body(req));
+        // A bearer credential is only returned in the body, never ambiently attached.
+        if (input.credential === "cookie" && !this.validOrigin(req))
+          return this.json(res, 403, { error: "Origin rejected." });
         const digest = hash(input.secret);
         const expiry = this.pairs.get(digest);
         if (!expiry || expiry <= Date.now())
@@ -323,12 +343,30 @@ export class Host {
         };
         this.devices.set(device.id, device);
         this.saveDevices();
-        const secure = this.origin.startsWith("https:");
-        res.setHeader(
-          "Set-Cookie",
-          `${secure ? "__Host-loop" : "loop_local"}=${token}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=604800`,
-        );
+        if (input.credential === "bearer")
+          return this.json(res, 200, {
+            paired: true,
+            token,
+            device: cleanDevice(device),
+          });
+        res.setHeader("Set-Cookie", this.cookie(token, device.expires));
         return this.json(res, 200, { paired: true });
+      }
+      // A native shell opens its web view here once with its bearer token; the
+      // token becomes the HttpOnly cookie the unmodified web client relies on.
+      if (path === "/session/open" && req.method === "GET") {
+        const device = this.bearer(req) ? this.authenticate(req) : undefined;
+        if (device)
+          res.setHeader(
+            "Set-Cookie",
+            this.cookie(
+              req.headers.authorization!.slice("Bearer ".length),
+              device.expires,
+            ),
+          );
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end('<!doctype html><meta http-equiv="refresh" content="0;url=/">');
+        return;
       }
       if (path === "/session" && req.method === "GET") {
         const device = this.authenticate(req);
@@ -361,7 +399,7 @@ export class Host {
           );
         if (
           !["GET", "HEAD"].includes(req.method || "") &&
-          (!this.validOrigin(req) ||
+          ((!this.bearer(req) && !this.validOrigin(req)) ||
             !equal(String(req.headers["x-loop-csrf"] || ""), device.csrf))
         )
           return this.json(res, 403, {

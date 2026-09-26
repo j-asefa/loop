@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { WebSocket } from "ws";
 const exec = promisify(execFile),
   base = await mkdtemp(join(tmpdir(), "loop-package-"));
-let child, ws, tarball;
+let child, ws, tarball, bin, env;
 try {
   await exec("npm", ["run", "build"], { maxBuffer: 4_000_000 });
   const { stdout } = await exec("npm", ["pack", "--ignore-scripts", "--json"], {
@@ -40,12 +40,12 @@ try {
     ],
     { maxBuffer: 1000000, timeout: 240000 },
   );
-  const bin = join(target, "node_modules", ".bin", "loop"),
-    env = {
-      ...process.env,
-      LOOP_HOME: join(base, "loop-state"),
-      LOOP_TEST_HARNESS: "codex",
-    };
+  bin = join(target, "node_modules", ".bin", "loop");
+  env = {
+    ...process.env,
+    LOOP_HOME: join(base, "loop-state"),
+    LOOP_TEST_HARNESS: "codex",
+  };
   const fixture = join(base, "fixture-harness");
   await copyFile("test/harness.mjs", fixture);
   await chmod(fixture, 0o755);
@@ -53,8 +53,10 @@ try {
     (await exec(bin, ["--version"], { env })).stdout.trim(),
     JSON.parse(await readFile("package.json", "utf8")).version,
   );
+  // `loop codex` shows the pairing code, then returns while the workspace keeps
+  // running in the background.
   const launch = async () => {
-    child = spawn(
+    const { stdout } = await exec(
       bin,
       [
         "codex",
@@ -66,20 +68,11 @@ try {
         "existing",
         "--local-only",
       ],
-      { env, stdio: "pipe" },
+      { env, timeout: 30000 },
     );
-    let output = "",
-      errors = "";
-    child.stdout.on("data", (b) => (output += b));
-    child.stderr.on("data", (b) => (errors += b));
-    const end = Date.now() + 20000,
-      pattern = /http:\/\/127\.0\.0\.1:\d+\/#pair=[A-Za-z0-9_-]+/;
-    while (!output.match(pattern)) {
-      if (Date.now() > end || child.exitCode !== null)
-        throw new Error("Packed CLI did not start: " + errors);
-      await new Promise((r) => setTimeout(r, 30));
-    }
-    return new URL(output.match(pattern)[0]);
+    const match = stdout.match(/http:\/\/127\.0\.0\.1:\d+\/#pair=[A-Za-z0-9_-]+/);
+    if (!match) throw new Error("Packed CLI did not show pairing: " + stdout);
+    return new URL(match[0]);
   };
   let url = await launch();
   const html = await fetch(url.origin).then(r => r.text());
@@ -182,12 +175,8 @@ try {
   );
   assert.match(repeated.stdout, /existing workspace/);
   assert(!repeated.stdout.includes("#pair="));
-  const stop = async () => {
-    await exec(bin, ["stop"], { env });
-    await new Promise((r) =>
-      child.exitCode !== null ? r() : child.once("exit", r),
-    );
-  };
+  // Waits for the background workspace process to exit.
+  const stop = () => exec(bin, ["stop"], { env });
   ws.close();
   await stop();
   url = await launch();
@@ -197,13 +186,13 @@ try {
   const history = await api("/conversations/" + run.conversation_id);
   assert(history.messages.some((m) => m.content === "Fixture done"));
   await stop();
-  // The very same installed distribution runs the retained server too.
+  // The very same installed distribution runs the full server with plain `loop`.
   const reservation = createServer();
   await new Promise(resolve => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
   const serverOrigin = "http://127.0.0.1:" + port;
-  child = spawn(bin, ["server"], {
+  child = spawn(bin, [], {
     cwd: target,
     env: { ...env, PORT: String(port), LOOP_URL: serverOrigin, LOOP_DATA_DIR: join(base, "server-state"),
       LOOP_AUTH_MODE: "single-user", BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
@@ -235,6 +224,7 @@ try {
 } finally {
   ws?.terminate();
   child?.kill("SIGKILL");
+  if (bin) await exec(bin, ["stop"], { env }).catch(() => {});
   await rm(base, { recursive: true, force: true });
   if (tarball) await rm(tarball, { force: true });
 }

@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { atomic } from "./state.js";
 
-function identity(pid: number): string | undefined {
+/** Boot and start time of a live process; undefined when it can't be read. */
+export function identity(pid: number): string | undefined {
   if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
   try {
     if (process.platform === "linux") {

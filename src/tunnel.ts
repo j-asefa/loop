@@ -102,6 +102,71 @@ export function tunnelUrl(text: string) {
     /https:\/\/[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com(?=[\s|]|$)/,
   )?.[0];
 }
+export const RECONNECT_MAX_DELAY_MS = 60000;
+type Connection = { start(): Promise<string>; stop(): Promise<void> };
+/**
+ * Keeps a Quick Tunnel up for as long as the workspace runs: after a drop or a
+ * failed reconnect it retries with exponential backoff, reset on success.
+ */
+export class TunnelSupervisor {
+  private current?: Connection;
+  private stopped = false;
+  private delay: number;
+  private log: (message: string) => void;
+  private initialDelay: number;
+  private maxDelay: number;
+  private schedule: (ms: number, run: () => void) => void;
+  constructor(
+    private open: (exited: () => void) => Connection,
+    private changed: (origin: string, reconnected: boolean) => void,
+    options: {
+      log?: (message: string) => void;
+      initialDelay?: number;
+      maxDelay?: number;
+      schedule?: (ms: number, run: () => void) => void;
+    } = {},
+  ) {
+    this.log = options.log ?? console.error;
+    this.initialDelay = options.initialDelay ?? 1000;
+    this.maxDelay = options.maxDelay ?? RECONNECT_MAX_DELAY_MS;
+    this.schedule =
+      options.schedule ?? ((ms, run) => setTimeout(run, ms).unref());
+    this.delay = this.initialDelay;
+  }
+  /** Connects once; a failure here is the caller's to report. */
+  start() {
+    return this.connect(false);
+  }
+  async stop() {
+    this.stopped = true;
+    await this.current?.stop();
+  }
+  private async connect(reconnected: boolean) {
+    const tunnel = this.open(() => {
+      if (this.stopped) return;
+      this.log(
+        `Quick Tunnel disconnected; reconnecting in ${this.delay / 1000}s. Desktop work continues.`,
+      );
+      this.retry();
+    });
+    this.current = tunnel;
+    const origin = await tunnel.start();
+    this.delay = this.initialDelay;
+    if (!this.stopped) this.changed(origin, reconnected);
+    return origin;
+  }
+  private retry() {
+    const wait = this.delay;
+    this.delay = Math.min(this.delay * 2, this.maxDelay);
+    this.schedule(wait, () => {
+      if (this.stopped) return;
+      this.connect(true).catch((e: Error) => {
+        this.log(e.message);
+        if (!this.stopped) this.retry();
+      });
+    });
+  }
+}
 export class Tunnel {
   private child?: ChildProcessWithoutNullStreams;
   private stopped = false;

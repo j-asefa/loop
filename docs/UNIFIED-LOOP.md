@@ -6,14 +6,14 @@ The `loop` repository owns both deployment profiles. There is one React applicat
 
 | Profile | Source checkout | Built/installed distribution |
 | --- | --- | --- |
-| Server, separate API and worker | `npm run setup && node --env-file=.env scripts/serve.mjs` | `node --env-file=.env dist/cli.js server`, or `loop server` with environment configured |
-| Companion, foreground local host | `npm run build && node dist/cli.js codex --local-only` | `loop codex --local-only` |
+| Server, separate API and worker | `npm run setup && node --env-file=.env scripts/serve.mjs` | `node --env-file=.env dist/cli.js`, or `loop` with environment configured |
+| Companion, background local host | `npm run build && node dist/cli.js codex --local-only` | `loop codex --local-only` |
 
-Replace `codex` with `claude`, `pi` or `opencode`. Sign in using the provider's native CLI first. `--billing existing` explicitly keeps existing provider configuration; subscription mode validates subscription authentication and refuses API fallback. Run `loop --help` for pairing, device revocation, status, project directories, session handoff and tunnel options.
+Replace `codex` with `claude`, `pi` or `opencode`. Sign in using the provider's native CLI first. `--billing existing` explicitly keeps existing provider configuration; subscription mode validates subscription authentication and refuses API fallback. The companion shows its pairing code, then keeps running in the background (`loop logs`, `loop stop`); add `--foreground` to keep it attached to the terminal, for example under a service manager. Run `loop --help` for pairing, device revocation, status, project directories, session handoff and tunnel options.
 
-Server configuration continues to use `.env`/environment, `LOOP_DATA_DIR`, the existing authentication settings, encryption key, and configured runtime hosts. `loop server` starts the application and its worker together; Docker Compose retains supervised separate API and worker processes. `npm start` starts only the API, and `npm run worker` starts only the worker.
+Server configuration continues to use `.env`/environment, `LOOP_DATA_DIR`, the existing authentication settings, encryption key, and configured runtime hosts. Plain `loop` (alias `loop server`) starts the application and its worker together in the foreground; Docker Compose retains supervised separate API and worker processes. `npm start` starts only the API, and `npm run worker` starts only the worker.
 
-Companion startup selects `LOOP_PROFILE=companion` before loading services. It uses `LOOP_HOME/workspace` (default `~/.local/state/loop/workspace`) and generates a private encryption key there. The host holds an exclusive workspace lock, owns the worker and native subprocesses, and authorizes every workspace request using device cookies, exact host/origin checks and CSRF tokens. A bare server entrypoint rejects the companion profile. A standalone companion worker is also rejected.
+Companion startup selects `LOOP_PROFILE=companion` before loading services. It uses `LOOP_HOME/workspace` (default `~/.local/state/loop/workspace`) and generates a private encryption key there. The host holds an exclusive workspace lock, owns the worker and native subprocesses, and authorizes every workspace request using device cookies (or bearer tokens held by the Loop app), exact host checks, origin checks for cookie requests, and CSRF tokens. A bare server entrypoint rejects the companion profile. A standalone companion worker is also rejected.
 
 A data directory records its profile and refuses startup under another profile. Use separate directories for separate deployments. This release targets fresh databases; no backwards-compatibility guarantee is made. The imported explicit CLI session import utility is not a general database upgrade promise.
 

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { secret } from "../state.js";
-import { killOwned } from "../processes.js";
+import { killOwned, own } from "../processes.js";
 import {
   capabilities,
   type Adapter,
@@ -82,6 +82,7 @@ export class OpenCode implements Adapter {
         detached: true,
       },
     );
+    own(this.child);
     this.child.stderr.resume();
     this.origin = await new Promise<string>((resolve, reject) => {
       let buffer = "";

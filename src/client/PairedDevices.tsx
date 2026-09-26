@@ -19,16 +19,18 @@ export function PairedDevices({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title="This computer & paired devices" onClose={onClose}>
       <p>
-        All projects and native harnesses run on this computer. Keep its Loop
-        terminal open; your phone can disconnect while work continues.
+        All projects and native harnesses run on this computer. Loop keeps
+        running in the background until <code>loop stop</code>; your phone can
+        disconnect while work continues.
       </p>
       <p className="muted">
         {workspace?.nativeProcesses || 0} native processes · up to{" "}
         {workspace?.concurrency || 8} active tasks
       </p>
       <p>
-        Run <code>loop pair</code> to authorize another device. A restarted
-        Quick Tunnel may require a new link. Cloudflare terminates TLS.
+        Run <code>loop pair</code> to authorize another device. When the Quick
+        Tunnel address changes, run it again and scan the code from the Loop app
+        to reconnect. Cloudflare terminates TLS.
       </p>
       {devices.map((d) => (
         <div className="connection-card" key={d.id}>

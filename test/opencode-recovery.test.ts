@@ -1,7 +1,13 @@
 process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { OpenCode } from "../src/adapters/opencode.js";
+import { recordOwnedProcesses } from "../src/processes.js";
+import { identity } from "../src/lifecycle.js";
 
 function fixture() {
   const events: any[] = [];
@@ -212,3 +218,30 @@ async function waitForSettlement(adapter: any) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(adapter.activeTurn, false, "turn must eventually settle");
 }
+
+test("OpenCode's detached server is recorded for a forced loop stop", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-opencode-"));
+  const registry = join(dir, "children.json");
+  recordOwnedProcesses(registry);
+  // Node can't load a script named "serve", so this server exits at startup.
+  const adapter: any = new OpenCode(
+    {
+      harness: "opencode",
+      executable: process.execPath,
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+    },
+    () => {},
+  );
+  try {
+    const started = adapter.start();
+    const [recorded] = JSON.parse(readFileSync(registry, "utf8"));
+    assert.equal(recorded.pid, adapter.child.pid);
+    assert.equal(recorded.identity, identity(adapter.child.pid));
+    await assert.rejects(started, /exited during startup/);
+    assert.deepEqual(JSON.parse(readFileSync(registry, "utf8")), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

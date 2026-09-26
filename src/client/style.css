@@ -9,6 +9,7 @@
   color: #1a1a1c;
   background: #f4f4f2;
   font-synthesis: none;
+  /* mobile/src/ui.tsx mirrors the light tokens below; keep them in step. */
   --bg: #f4f4f2;
   --surface: #fff;
   --secondary: #e8e8e5;

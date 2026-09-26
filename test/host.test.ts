@@ -218,6 +218,206 @@ test("authenticated WS journey: atomic pairing, CSRF, native dedupe, replay, app
   }
 });
 
+test("bearer credentials: native pairing, session, cookie hand-off, CSRF, origin rules and rotation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-bearer-"));
+  const host = new Host(dir, initial);
+  host.workspace = {
+    http: (_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("{}");
+    },
+    status: () => ({}),
+    admin: async () => ({}),
+    connect: () => () => {},
+    originChanged: () => {},
+  };
+  const sockets: WebSocket[] = [];
+  try {
+    await host.listen();
+    const fresh = () =>
+      new URLSearchParams(new URL(host.pair().url).hash.slice(1)).get("pair")!;
+    const redeem = (body: object, headers: Record<string, string> = {}) =>
+      fetch(host.origin + "/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+    assert.equal(
+      (await redeem({ secret: fresh() })).status,
+      403,
+      "cookie pairing still requires the exact Origin",
+    );
+    const paired = await redeem({
+      secret: fresh(),
+      name: "Loop app",
+      credential: "bearer",
+    });
+    assert.equal(paired.status, 200, "native pairing sends no Origin");
+    assert.equal(paired.headers.get("set-cookie"), null);
+    const { token, device } = (await paired.json()) as {
+      token: string;
+      device: { id: string; name: string };
+    };
+    assert(token.length >= 40);
+    assert(
+      !(await readFile(join(dir, "devices.json"), "utf8")).includes(token),
+    );
+    const auth = { Authorization: "Bearer " + token };
+    const session = await fetch(host.origin + "/session", { headers: auth });
+    assert.equal(session.status, 200);
+    const { csrf } = (await session.json()) as { csrf: string };
+    for (const header of ["Bearer " + "x".repeat(43), "Basic " + token])
+      assert.equal(
+        (
+          await fetch(host.origin + "/session", {
+            headers: { Authorization: header },
+          })
+        ).status,
+        401,
+      );
+
+    const browser = await redeem({ secret: fresh() }, { Origin: host.origin });
+    const cookie = browser.headers.get("set-cookie")!.split(";")[0];
+    assert(
+      !JSON.stringify(await browser.json()).includes(cookie.split("=")[1]),
+    );
+    const cookieCsrf = (
+      (await fetch(host.origin + "/session", { headers: { cookie } }).then(
+        (r) => r.json(),
+      )) as { csrf: string }
+    ).csrf;
+    assert.equal(
+      (
+        await fetch(host.origin + "/session", {
+          headers: { cookie, Authorization: "Bearer " + "x".repeat(43) },
+        })
+      ).status,
+      401,
+      "an Authorization header is authoritative over the cookie",
+    );
+
+    const write = (headers: Record<string, string>) =>
+      fetch(host.origin + "/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: "{}",
+      });
+    assert.equal((await write({ ...auth, "x-loop-csrf": csrf })).status, 200);
+    assert.equal(
+      (await write(auth)).status,
+      403,
+      "bearer writes still need CSRF",
+    );
+    assert.equal(
+      (await write({ cookie, "x-loop-csrf": cookieCsrf })).status,
+      403,
+      "cookie writes still need Origin",
+    );
+    assert.equal(
+      (await write({ cookie, "x-loop-csrf": cookieCsrf, Origin: host.origin }))
+        .status,
+      200,
+    );
+
+    const wsUrl = host.origin.replace("http", "ws") + "/ws";
+    const bearerSocket = new WebSocket(wsUrl, { headers: auth });
+    sockets.push(bearerSocket);
+    await new Promise<void>((r, j) => {
+      bearerSocket.on("open", () => r());
+      bearerSocket.on("unexpected-response", (_q, s) =>
+        j(new Error("bearer upgrade rejected: " + s.statusCode)),
+      );
+    });
+    const cookieSocket = new WebSocket(wsUrl, { headers: { cookie } });
+    sockets.push(cookieSocket);
+    await new Promise<void>((r) => {
+      cookieSocket.on("unexpected-response", (_q, s) => {
+        assert.equal(s.statusCode, 403, "cookie upgrade still needs Origin");
+        s.resume();
+        r();
+      });
+      cookieSocket.on("error", () => {});
+    });
+
+    const opened = await fetch(host.origin + "/session/open", {
+      headers: auth,
+    });
+    assert.equal(opened.status, 200);
+    const handed = opened.headers.get("set-cookie")!;
+    assert(
+      handed.startsWith(`loop_local=${token};`) && handed.includes("HttpOnly"),
+    );
+    assert.match(
+      await opened.text(),
+      /http-equiv="refresh" content="0;url=\/"/,
+    );
+    // The handed-off cookie lives exactly as long as the device pairing.
+    const maxAge = (cookie: string) =>
+      Number(/Max-Age=(\d+)/.exec(cookie)?.[1]);
+    assert(Math.abs(maxAge(handed) - 7 * 86400) <= 2, handed);
+    const now = Date.now;
+    Date.now = () => now() + 86400000;
+    try {
+      const later = await fetch(host.origin + "/session/open", {
+        headers: auth,
+      });
+      assert(
+        Math.abs(maxAge(later.headers.get("set-cookie")!) - 6 * 86400) <= 2,
+      );
+    } finally {
+      Date.now = now;
+    }
+    for (const headers of [
+      {},
+      { Authorization: "Bearer " + "x".repeat(43) },
+    ] as Record<string, string>[])
+      assert.equal(
+        (await fetch(host.origin + "/session/open", { headers })).headers.get(
+          "set-cookie",
+        ),
+        null,
+      );
+
+    const listed = (await control(dir, "devices")) as {
+      id: string;
+      name: string;
+    }[];
+    assert(listed.some((d) => d.id === device.id && d.name === "Loop app"));
+    host.setOrigin("https://rotated.example");
+    assert.deepEqual(
+      await control(dir, "devices"),
+      [],
+      "rotation revokes bearer and cookie devices alike",
+    );
+  } finally {
+    for (const s of sockets) s.terminate();
+    await host.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("malformed pairing requests count toward the pairing rate limit", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-pair-limit-"));
+  const host = new Host(dir, initial);
+  try {
+    await host.listen();
+    const post = (body: string) =>
+      fetch(host.origin + "/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: host.origin },
+        body,
+      });
+    for (let i = 0; i < 20; i++) assert.equal((await post("{")).status, 400);
+    const secret = new URLSearchParams(
+      new URL(host.pair().url).hash.slice(1),
+    ).get("pair")!;
+    assert.equal((await post(JSON.stringify({ secret }))).status, 429);
+  } finally {
+    await host.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("state retention and durable unknown command outcomes never imply a retry", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-state-"));
   try {
