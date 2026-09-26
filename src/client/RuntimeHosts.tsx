@@ -1,7 +1,9 @@
+import { capabilities } from "./capabilities";
+import { PairedDevices } from "./PairedDevices";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
-export function RuntimeHosts({ onClose }: { onClose: () => void }) {
+function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
   const [hosts, setHosts] = useState<any[]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -192,4 +194,12 @@ export function RuntimeHosts({ onClose }: { onClose: () => void }) {
       </p>
     </Sheet>
   );
+}
+
+export function RuntimeHosts(props: Parameters<typeof ServerRuntimeHosts>[0]) {
+  return capabilities.runtimeHosts ? (
+    <ServerRuntimeHosts {...props} />
+  ) : capabilities.pairedDevices ? (
+    <PairedDevices {...props} />
+  ) : null;
 }

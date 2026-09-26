@@ -55,8 +55,15 @@ export function decide(
         approvalId,
         "pending",
       );
-      if (decision === "approve") transition(run, "queued", { approvalId });
-      else {
+      const native = db
+        .prepare(
+          "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('accepted','unknown')",
+        )
+        .get(run.id);
+      if (native) transition(run, "running", { approvalId });
+      else if (decision === "approve") {
+        transition(run, "queued", { approvalId });
+      } else {
         db.prepare("UPDATE runs SET error=? WHERE id=?").run(
           "Approval was rejected.",
           run.id,

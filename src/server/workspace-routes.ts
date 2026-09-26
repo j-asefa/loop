@@ -1,3 +1,5 @@
+import { companionMode } from "./profile.js";
+import { nativeSessions } from "./native-sessions.js";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -27,6 +29,7 @@ workspace.post("/folders", (req, res) => {
         .min(1)
         .max(80)
         .refine((x) => !x.includes("/"), "Use a name without slashes"),
+      path: z.string().max(4096).optional(),
       parentId: z.string().nullable().default(null),
       kind: z.enum(["project", "folder"]).default("folder"),
     })
@@ -40,15 +43,24 @@ workspace.post("/folders", (req, res) => {
       .get(res.locals.owner, d.parentId, d.name)
   )
     throw new Problem(409, "A folder with that name already exists here");
+  if (d.path && !companionMode)
+    throw new Problem(409, "Local project directories require companion mode.");
+  const path = d.path ? nativeSessions.directory(d.path) : undefined;
+  if (path && db.prepare("SELECT 1 FROM project_paths WHERE path=?").get(path))
+    throw new Problem(409, "That directory already belongs to a project.");
   const folderId = id();
-  db.prepare("INSERT INTO folders VALUES(?,?,?,?,?,?)").run(
-    folderId,
-    res.locals.owner,
-    d.parentId,
-    d.kind,
-    d.name,
-    now(),
-  );
+  db.transaction(() => {
+    db.prepare("INSERT INTO folders VALUES(?,?,?,?,?,?)").run(
+      folderId,
+      res.locals.owner,
+      d.parentId,
+      d.kind,
+      d.name,
+      now(),
+    );
+    if (path)
+      db.prepare("INSERT INTO project_paths VALUES(?,?)").run(folderId, path);
+  }).immediate();
   res.status(201).json(owned("folders", folderId, res.locals.owner));
 });
 workspace.patch("/folders/:id", (req, res) => {
@@ -62,6 +74,7 @@ workspace.patch("/folders/:id", (req, res) => {
         .max(80)
         .refine((x) => !x.includes("/"))
         .optional(),
+      path: z.string().max(4096).optional(),
       parentId: z.string().nullable().optional(),
     })
     .parse(req.body);
@@ -82,11 +95,27 @@ workspace.patch("/folders/:id", (req, res) => {
       .get(res.locals.owner, parent, d.name || f.name, f.id)
   )
     throw new Problem(409, "That name already exists here");
-  db.prepare("UPDATE folders SET name=?,parent_id=? WHERE id=?").run(
-    d.name || f.name,
-    parent,
-    f.id,
-  );
+  if (d.path && !companionMode)
+    throw new Problem(409, "Local project directories require companion mode.");
+  const path = d.path ? nativeSessions.directory(d.path) : undefined;
+  if (
+    path &&
+    db
+      .prepare("SELECT 1 FROM project_paths WHERE path=? AND folder_id<>?")
+      .get(path, f.id)
+  )
+    throw new Problem(409, "That directory already belongs to a project.");
+  db.transaction(() => {
+    db.prepare("UPDATE folders SET name=?,parent_id=? WHERE id=?").run(
+      d.name || f.name,
+      parent,
+      f.id,
+    );
+    if (path)
+      db.prepare(
+        "INSERT INTO project_paths VALUES(?,?) ON CONFLICT(folder_id) DO UPDATE SET path=excluded.path",
+      ).run(f.id, path);
+  }).immediate();
   res.json({ ok: true });
 });
 workspace.get("/artifacts", (req, res) => {

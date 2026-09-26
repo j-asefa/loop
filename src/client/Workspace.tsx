@@ -1,3 +1,4 @@
+import { capabilities } from "./capabilities";
 import { useEffect, useState, useRef, type FormEvent } from "react";
 import {
   Folder,
@@ -13,7 +14,7 @@ import {
   Upload,
   Check,
 } from "lucide-react";
-import { api, parse } from "./api";
+import { api, parse, authorizedFetch } from "./api";
 import { Sheet, Empty, Badge } from "./components";
 import type {
   Artifact,
@@ -48,6 +49,7 @@ export function FolderForm({
             const created = await api<FolderType>(
               existing ? "/folders/" + existing.id : "/folders",
               {
+                path: f.get("path") || undefined,
                 name: f.get("name"),
                 kind: f.get("kind"),
                 parentId: f.get("parent") || null,
@@ -93,6 +95,23 @@ export function FolderForm({
             ))}
           </select>
         </label>
+        {capabilities.localProjects && (
+          <>
+            <label>
+              Desktop directory
+              <input
+                name="path"
+                defaultValue={existing?.path}
+                placeholder="/Users/you/projects/my-project"
+                maxLength={4096}
+              />
+            </label>
+            <p className="note">
+              Native agents inherit the nearest project directory. Existing
+              conversations keep their original directory and native settings.
+            </p>
+          </>
+        )}
         {error && <p className="error">{error}</p>}
         <button className="primary">
           <Plus size={16} />
@@ -672,7 +691,7 @@ export function ImportSheet({
     setBusy(true);
     setError("");
     try {
-      const r = await fetch("/api/imports/preview", {
+      const r = await authorizedFetch("/api/imports/preview", {
         method: "POST",
         body: new FormData(e.currentTarget),
       });

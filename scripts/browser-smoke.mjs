@@ -21,7 +21,7 @@ import { chromium, webkit, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 const server = spawn(
   process.execPath,
-  ["--env-file=.env", "--import", "tsx", "src/server/index.ts"],
+  ["--env-file=.env", "--import", "tsx", "src/server/serve.ts"],
   {
     stdio: ["ignore", "pipe", "pipe"],
     env: {

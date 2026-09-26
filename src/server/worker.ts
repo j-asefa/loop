@@ -1,3 +1,4 @@
+import { companionMode } from "./profile.js";
 import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";
 import { executeWorkflow } from "./workflows/runtime.js";
@@ -8,6 +9,7 @@ import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
 import { claim, recoverStale, transition, type Run } from "./queue.js";
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
+import { nativeSessions } from "./native-sessions.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -63,20 +65,63 @@ export async function execute(run: Run) {
   if (run.kind === "import") return executeImport(run);
   else return executeAgent(run);
 }
-if (process.argv[1]?.endsWith("/worker.ts")) {
+export function startWorker() {
   migrateMcpUrlCredentials();
+  if (companionMode) nativeSessions.recover();
   let active = 0;
+  let stopping = false;
+  const inflight = new Set<Promise<unknown>>();
   const heartbeat = () =>
     db
       .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
       .run(workerId, now());
   heartbeat();
-  setInterval(heartbeat, 5000);
-  setInterval(() => void indexPending(), 5000);
-  setInterval(() => {
-    if (active >= 3) return;
-    active++;
-    void tick(execute).finally(() => active--);
-  }, 500);
+  const health = setInterval(heartbeat, 5000);
+  const index = setInterval(() => void indexPending().catch(() => {}), 5000);
+  const scheduling = setInterval(
+    () => {
+      if (
+        stopping ||
+        (companionMode
+          ? active >= 32 || active - nativeSessions.waiting >= 8
+          : active >= 3)
+      )
+        return;
+      active++;
+      const promise = tick(execute)
+        .catch(() => {})
+        .finally(() => {
+          active--;
+          inflight.delete(promise);
+        });
+      inflight.add(promise);
+    },
+    companionMode ? 100 : 500,
+  );
+  return async () => {
+    stopping = true;
+    clearInterval(health);
+    clearInterval(index);
+    clearInterval(scheduling);
+    await nativeSessions.close();
+    // Stop explicit API/tool work too, so shutdown cannot wait on provider IO.
+    for (const run of db
+      .prepare(
+        "SELECT * FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')",
+      )
+      .all(workerId) as Run[])
+      transition(run, "interrupted");
+    await Promise.allSettled(inflight);
+    await closeFinishedSessions();
+    db.prepare("DELETE FROM worker_health WHERE id=?").run(workerId);
+  };
+}
+
+if (process.argv[1]?.match(/\/worker\.(ts|js)$/)) {
+  if (companionMode)
+    throw new Error("The companion host owns its in-process worker.");
+  const stop = startWorker();
+  for (const signal of ["SIGINT", "SIGTERM"] as const)
+    process.once(signal, () => void stop());
   console.log("Loop worker ready");
 }

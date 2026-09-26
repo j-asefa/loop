@@ -1,3 +1,4 @@
+import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
 export type Run = {
@@ -81,14 +82,20 @@ export function claim(worker: string): Run | undefined {
       // Since this can run out of enqueue order, check every active lease too.
       const run = db
         .prepare(
-          `SELECT r.* FROM runs r WHERE
- (r.state='queued' OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id))))
- AND NOT EXISTS(SELECT 1 FROM runs busy WHERE busy.agent_id=r.agent_id AND busy.id<>r.id AND busy.state IN ('running','pausing') AND busy.worker_id IS NOT NULL)
- AND NOT EXISTS(SELECT 1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.rowid))
+          `WITH candidates AS (
+ SELECT runs.rowid AS queue_order, runs.*,
+   EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(runs.payload,'$.connectionId')
+     AND ${NATIVE_CONNECTION_SQL}) AS native_connection
+ FROM runs
+)
+SELECT r.* FROM candidates r WHERE
+ ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id))))
+ AND NOT EXISTS(SELECT 1 FROM runs busy WHERE busy.agent_id=r.agent_id AND (busy.conversation_id=r.conversation_id OR NOT r.native_connection) AND busy.id<>r.id AND busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL)
+ AND NOT EXISTS(SELECT 1 FROM runs older WHERE older.agent_id=r.agent_id AND (older.conversation_id=r.conversation_id OR NOT r.native_connection) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.queue_order))
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id)))))
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
- ORDER BY r.created_at,r.rowid LIMIT 1`,
+ ORDER BY r.created_at,r.queue_order LIMIT 1`,
         )
         .get() as Run | undefined;
       if (!run) return;
@@ -121,7 +128,14 @@ export function transition(run: Run, state: string, payload: unknown = {}) {
         ],
         pausing: ["paused", "failed", "cancelled", "interrupted"],
         paused: ["queued", "completed", "cancelled"],
-        awaiting_approval: ["queued", "cancelled", "failed"],
+        awaiting_approval: [
+          "queued",
+          "running",
+          "cancelled",
+          "failed",
+          "interrupted",
+          "completed",
+        ],
         interrupted: ["queued", "cancelled"],
       };
       if (!legal[current.state]?.includes(state)) return false;
@@ -133,6 +147,10 @@ export function transition(run: Run, state: string, payload: unknown = {}) {
       active_since=CASE WHEN ? IN ('running','pausing') THEN active_since ELSE NULL END
       WHERE id=?`,
       ).run(state, time, state, state, time, time, time, state, run.id);
+      if (state === "queued")
+        db.prepare(
+          "UPDATE runs SET worker_id=NULL,heartbeat=NULL WHERE id=?",
+        ).run(run.id);
       emit(run.owner_id, run.id, state, payload);
       return true;
     })

@@ -184,7 +184,7 @@ export async function installCatalog(
     throw new Problem(400, "Unexpected setup field");
   if (entry.transport === "http" && runtimeHostId)
     throw new Problem(400, "Hosted tools do not use a runtime machine");
-  if (runtimeHostId) owned("runtime_hosts", runtimeHostId, owner);
+  if (runtimeHostId) runtimeEndpoint(owner, runtimeHostId);
   const key = JSON.stringify([owner, entry.id]);
   const fingerprint = createHash("sha256")
     .update(JSON.stringify([Object.entries(values).sort(), runtimeHostId]))

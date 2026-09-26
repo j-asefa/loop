@@ -139,3 +139,64 @@ describe("durable agent contract", () => {
     expect(() => unseal(seal("key", "alice"), "bob")).toThrow();
   });
 });
+
+it("serializes native turns per conversation while allowing the same agent's other conversations", async () => {
+  const connectionId = connection("native-owner");
+  const agent = createAgent("native-owner", {
+    name: "native-queue",
+    connectionId,
+    model: "fixture-model",
+  });
+  const { enqueue } = await import("../src/server/queue");
+  const conversation = () => {
+    const cid = id();
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'test',?)",
+    ).run(cid, "native-owner", agent.id, now());
+    return cid;
+  };
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+    JSON.stringify({ loopHarness: "codex" }),
+    connectionId,
+  );
+  const firstConversation = conversation();
+  const make = (cid: string) =>
+    enqueue("native-owner", "test", id(), {
+      agent: agent.id,
+      conversation: cid,
+      payload: { connectionId },
+    });
+  const first = make(firstConversation);
+  const follow = make(firstConversation);
+  const other = make(conversation());
+  const active = claim("native-first")!;
+  expect(active.id).toBe(first.id);
+  expect(claim("native-other")?.id).toBe(other.id);
+  expect(claim("native-blocked")).toBeUndefined();
+  transition(active, "completed");
+  expect(claim("native-follow")?.id).toBe(follow.id);
+  transition(follow, "completed");
+  transition(other, "completed");
+});
+it("server execution rejects a native harness connection before dispatch", async () => {
+  const connectionId = connection("server-native");
+  const agent = createAgent("server-native", {
+    name: "server-native-reject",
+    connectionId,
+    model: "fixture-model",
+  });
+  const run = submit("server-native", {
+    agentId: agent.id,
+    input: "hello",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+    JSON.stringify({ loopHarness: "codex" }),
+    connectionId,
+  );
+  await expect(executeAgent(run)).rejects.toThrow("companion deployment");
+  expect(
+    db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
+  ).toBeUndefined();
+  transition(run, "cancelled");
+});

@@ -1,4 +1,9 @@
 import {
+  isNativeConnection,
+  NATIVE_CONNECTION_SQL,
+} from "./native-connections.js";
+import { nativeSessions } from "./native-sessions.js";
+import {
   feedRevision,
   feedUpdates,
   feedOutputSql,
@@ -35,7 +40,9 @@ core.get("/bootstrap", (_req, res) =>
       )
       .all(res.locals.owner),
     folders: db
-      .prepare("SELECT * FROM folders WHERE owner_id=? ORDER BY name")
+      .prepare(
+        "SELECT f.*,p.path FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.owner_id=? ORDER BY f.name",
+      )
       .all(res.locals.owner),
     identityProviders: process.env.GITHUB_CLIENT_ID ? ["github"] : [],
     capabilities: {
@@ -82,6 +89,12 @@ core.post("/connections", async (req, res) => {
 });
 core.post("/connections/:id/refresh", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner);
+  if (isNativeConnection(c)) {
+    const harness = JSON.parse(c.metadata).loopHarness;
+    return res.json(
+      await nativeSessions.enable(nativeSessions.registration(harness)),
+    );
+  }
   if (isSubscription(c))
     throw new Problem(
       400,
@@ -112,6 +125,11 @@ core.post("/connections/:id/reconnect", async (req, res) => {
     throw new Problem(
       400,
       "Use subscription sign-in to reconnect this account.",
+    );
+  if (isSubscription(c))
+    throw new Problem(
+      400,
+      "Refresh this subscription through its sign-in status.",
     );
   try {
     const models = await adapter(c.provider).models(secret);
@@ -198,12 +216,12 @@ core.get("/agents/:id/harness", async (req, res) => {
       409,
       "Reconnect this agent’s provider to load commands and skills.",
     );
-  const catalog = await runtimeAction(connection, "capabilities");
-  if (!Array.isArray(catalog.commands))
-    throw new Problem(
-      422,
-      "This runtime does not support command discovery. Update the runtime on that machine and try again.",
-    );
+  const catalog = isNativeConnection(connection)
+    ? await nativeSessions.catalog(
+        agent,
+        z.string().uuid().optional().parse(req.query.conversation),
+      )
+    : await runtimeAction(connection, "capabilities");
   res.json(catalog);
 });
 core.get("/agents/:id/traces", (req, res) => {
@@ -247,6 +265,20 @@ core.post("/runs", (req, res) => {
 core.post("/runs/:id/:action", (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
   const action = req.params.action;
+  if (
+    action === "pause" &&
+    ["running", "awaiting_approval"].includes(run.state) &&
+    (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) ||
+      db
+        .prepare(
+          `SELECT 1 FROM connections c WHERE c.id=json_extract(?,'$.connectionId') AND ${NATIVE_CONNECTION_SQL}`,
+        )
+        .get(run.payload))
+  )
+    throw new Problem(
+      409,
+      "This harness cannot suspend an active native turn. Interrupt this run, then send a follow-up; other agents keep running.",
+    );
   if (action === "dismiss") {
     res.json(dismissRun(res.locals.owner, run.id));
     return;

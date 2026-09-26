@@ -1,3 +1,8 @@
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { companionMode, capabilities } from "./profile.js";
+import { companion } from "./companion-routes.js";
+import { OWNER } from "./native-sessions.js";
 import { listRuns } from "./run-attention.js";
 import { teams, teamFilter } from "./teams.js";
 import { runtimeHosts } from "./runtime-hosts.js";
@@ -6,7 +11,7 @@ import { sharing } from "./sharing.js";
 import { mcp } from "./mcp/routes.js";
 import express from "express";
 import { toNodeHandler } from "better-auth/node";
-import { auth, migrateAuth } from "./auth.js";
+
 import { config } from "./config.js";
 import { db } from "./db.js";
 import { enqueue } from "./queue.js";
@@ -15,11 +20,13 @@ import { workspace } from "./workspace-routes.js";
 import { core } from "./core-routes.js";
 import { Problem } from "./domain.js";
 import { ZodError } from "zod";
-import { allowedOrigin, initializeAccess, workspaceSession } from "./access.js";
+
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
-await migrateAuth();
-initializeAccess();
+const access = companionMode ? undefined : await import("./access.js");
+const authentication = companionMode ? undefined : await import("./auth.js");
+if (authentication) await authentication.migrateAuth();
+access?.initializeAccess();
 export const app = express();
 app.disable("x-powered-by");
 app.use((req, res, next) => {
@@ -48,19 +55,41 @@ app.use((req, _res, next) => {
       : req.socket.remoteAddress;
   next();
 });
-app.get("/api/auth/get-session", async (req, res, next) => {
-  if (config.authMode === "multi-user") return next();
-  res.json(await workspaceSession(req));
-});
-app.all("/api/auth/*splat", (req, res) => {
-  if (config.authMode === "single-user") {
-    res.status(404).json({
-      error: "This is a personal workspace. No Loop account is needed.",
-    });
-    return;
-  }
-  return toNodeHandler(auth)(req, res);
-});
+app.get("/api/capabilities", (_req, res) => res.json(capabilities));
+if (companionMode) {
+  // Host authorizes devices, origins and CSRF before forwarding to this app.
+  app.use((_req, res, next) => {
+    res.locals.owner = OWNER;
+    next();
+  });
+  app.get("/api/auth/get-session", (_req, res) =>
+    res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
+  );
+  app.get("/api/auth-options", (_req, res) =>
+    res.json({ mode: "paired", github: false }),
+  );
+} else {
+  app.get("/api/auth/get-session", async (req, res, next) => {
+    if (config.authMode === "multi-user") return next();
+    res.json(await access!.workspaceSession(req));
+  });
+  app.all("/api/auth/*splat", (req, res) => {
+    if (config.authMode === "single-user") {
+      res.status(404).json({
+        error: "This is a personal workspace. No Loop account is needed.",
+      });
+      return;
+    }
+    return toNodeHandler(authentication!.auth)(req, res);
+  });
+  app.get("/api/auth-options", (_req, res) =>
+    res.json({
+      mode: config.authMode,
+      github:
+        config.authMode === "multi-user" && !!process.env.GITHUB_CLIENT_ID,
+    }),
+  );
+}
 app.use(express.json({ limit: "12mb" }));
 app.get("/api/health", (_req, res) => {
   const worker = db
@@ -73,18 +102,16 @@ app.get("/api/health", (_req, res) => {
     worker: ready ? "ready" : "unavailable",
   });
 });
-app.get("/api/auth-options", (_req, res) =>
-  res.json({
-    mode: config.authMode,
-    github: config.authMode === "multi-user" && !!process.env.GITHUB_CLIENT_ID,
-  }),
-);
 app.use("/api", async (req, res, next) => {
-  if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !allowedOrigin(req)) {
+  if (companionMode) return next();
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+    !access!.allowedOrigin(req)
+  ) {
     res.status(403).json({ error: "Origin not allowed" });
     return;
   }
-  const session = await workspaceSession(req);
+  const session = await access!.workspaceSession(req);
   if (!session) {
     res.status(401).json({ error: "Sign in to Loop" });
     return;
@@ -128,8 +155,9 @@ app.get("/api/runs", (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
   res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1"));
 });
+if (companionMode) app.use("/api", companion);
 app.use("/api", teams);
-app.use("/api", runtimeHosts);
+if (capabilities.runtimeHosts) app.use("/api", runtimeHosts);
 app.use("/api", subscriptions);
 app.use("/api", core);
 app.use("/api", workspace);
@@ -139,9 +167,13 @@ app.use("/api", sharing);
 app.use("/api", (_req, res) =>
   res.status(404).json({ error: "Endpoint not found" }),
 );
-app.use(express.static("dist/client"));
+const compiledClient = fileURLToPath(new URL("../client/", import.meta.url));
+const clientRoot = existsSync(compiledClient + "index.html")
+  ? compiledClient
+  : fileURLToPath(new URL("../../dist/client/", import.meta.url));
+app.use(express.static(clientRoot));
 app.get("/{*splat}", (_req, res) =>
-  res.sendFile("index.html", { root: "dist/client" }),
+  res.sendFile("index.html", { root: clientRoot }),
 );
 app.use(
   (
@@ -159,7 +191,4 @@ app.use(
             : "Request could not be completed. Please try again.",
     });
   },
-);
-app.listen(config.port, config.listenHost, () =>
-  console.log(`Loop listening on ${config.port}`),
 );

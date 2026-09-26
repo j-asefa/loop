@@ -1,4 +1,7 @@
+import { isNativeConnection } from "./native-connections.js";
+import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
+import { nativeSessions } from "./native-sessions.js";
 import { nativeBindings, invokeNative } from "./native-tools.js";
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
@@ -145,6 +148,14 @@ export async function executeAgent(run: Run): Promise<boolean> {
   );
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect this provider before continuing.");
+  if (isNativeConnection(connection)) {
+    if (!companionMode)
+      throw new Problem(
+        409,
+        "This conversation belongs to a companion deployment.",
+      );
+    return nativeSessions.execute(run);
+  }
   let cp = db
     .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
     .get(run.id) as any;
@@ -240,7 +251,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
       snapshot.connectionId,
       run.owner_id,
     );
-    if (state === "cancelled" || current.status !== "connected")
+    if (
+      ["cancelled", "interrupted"].includes(state) ||
+      current.status !== "connected"
+    )
       controller.abort();
   }, 300);
   try {

@@ -1,3 +1,6 @@
+import { capabilities } from "./capabilities";
+import { NativeHistory } from "./NativeHistory";
+import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
 import { RunStatus } from "./RunStatus";
 import { Projects } from "./Projects";
@@ -385,27 +388,45 @@ export default function App() {
   }, [session?.user?.id, profile?.id, view, teamKey]);
   useEffect(() => {
     if (!session?.user) return;
-    let cursor = 0;
-    let cancelled = false;
-    const timer = setInterval(async () => {
-      try {
-        const events = await api<any[]>("/events?after=" + cursor);
-        if (cancelled) return;
-        if (events.length) {
-          cursor = events.at(-1).id;
-          setRevision((v) => v + 1);
-        }
-        // One bounded changes request also catches edits made in another tab
-        // and drains change batches even after streaming events stop.
-        await Promise.all([
-          loadFeed(false, events.length === 0),
-          ...(events.length ? [loadRuns()] : []),
-        ]);
-      } catch {}
-    }, 1800);
+    if (!capabilities.pairedDevices) {
+      let cursor = 0;
+      let cancelled = false;
+      const timer = setInterval(async () => {
+        try {
+          const events = await api<any[]>("/events?after=" + cursor);
+          if (cancelled) return;
+          if (events.length) {
+            cursor = events.at(-1).id;
+            setRevision((v) => v + 1);
+          }
+          // One bounded changes request also catches edits made in another tab
+          // and drains change batches even after streaming events stop.
+          await Promise.all([
+            loadFeed(false, events.length === 0),
+            ...(events.length ? [loadRuns()] : []),
+          ]);
+        } catch {}
+      }, 1800);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        setRevision((v) => v + 1);
+        void refresh().catch(() => {});
+      }, 200);
+    };
+    window.addEventListener("loop-workspace-change", update);
+    const fallback = setInterval(update, 15000);
     return () => {
-      cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
+      clearInterval(fallback);
+      window.removeEventListener("loop-workspace-change", update);
     };
   }, [session?.user?.id, profile?.id, view, teamKey]);
   useEffect(() => {
@@ -707,6 +728,15 @@ export default function App() {
           </div>
         </header>
         <main className="workspace-content">
+          {capabilities.pairedDevices && <WorkspaceConnection />}
+          {capabilities.nativeHarnesses && (
+            <button
+              className="text-button"
+              onClick={() => setSheet("native-history")}
+            >
+              Native conversations
+            </button>
+          )}
           {profile ? (
             <>
               <button
@@ -1034,6 +1064,9 @@ export default function App() {
           )}
           {tab === "running" && !profile && (
             <div className="run-list">
+              {capabilities.nativeHarnesses && (
+                <NativeDecisions onConversation={setConversation} />
+              )}
               <Approvals
                 teams={teamKey}
                 revision={revision}
@@ -1149,7 +1182,14 @@ export default function App() {
                         }
                         footer={
                           <div className="actions">
-                            {["running", "queued"].includes(r.state) && (
+                            {(r.state === "queued" ||
+                              (r.state === "running" &&
+                                !parse<any>(
+                                  data.connections.find(
+                                    (c) => c.id === snapshot.connectionId,
+                                  )?.metadata,
+                                  {},
+                                ).loopHarness)) && (
                               <button onClick={() => runAction(r, "pause")}>
                                 <Pause size={16} />
                                 Pause
@@ -1815,6 +1855,16 @@ export default function App() {
             <button className="primary">Save changes</button>
           </form>
         </Sheet>
+      )}
+      {sheet === "native-history" && (
+        <NativeHistory
+          onClose={() => setSheet("")}
+          onOpen={(id) => {
+            setSheet("");
+            setConversation(id);
+            void bootstrap();
+          }}
+        />
       )}
       {conversation && (
         <Conversation

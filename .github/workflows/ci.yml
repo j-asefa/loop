@@ -14,8 +14,11 @@ jobs:
       - run: npm ci
       - run: npm run setup
       - run: npm run build
-      - run: npm test
+      - run: npm run test:all
       - run: npx playwright install --with-deps chromium webkit
+      - run: npm run smoke:companion
+      - run: LOOP_BROWSER=webkit npm run smoke:companion
+      - run: npm run smoke:package
       - run: npm run smoke:browser
       - run: LOOP_BROWSER=webkit npm run smoke:browser
       - run: npm run smoke:journey

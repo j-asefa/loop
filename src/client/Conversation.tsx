@@ -1,3 +1,4 @@
+import { NativeDecisions } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Copy, Play } from "lucide-react";
@@ -38,7 +39,12 @@ export function Conversation({
     [transfer, setTransfer] = useState(false),
     [destination, setDestination] = useState(""),
     [included, setIncluded] = useState<string[]>([]);
-  const request = useRef({ signature: "", key: "" }),
+  const request = useRef(
+      parse<{ signature: string; key: string }>(
+        sessionStorage.getItem("loop-receipt-" + id) || "",
+        { signature: "", key: "" },
+      ),
+    ),
     anchor = messageId;
   const generation = useRef(0);
   const scrolled = useRef("");
@@ -88,10 +94,13 @@ export function Conversation({
     setDraft(sessionStorage.getItem("loop-conversation-" + id) || "");
     setTransfer(false);
     void load(true);
-    const timer = setInterval(() => void load(), 1800);
+    const update = () => void load();
+    const timer = setInterval(update, 5000);
+    window.addEventListener("loop-workspace-change", update);
     return () => {
       generation.current++;
       clearInterval(timer);
+      window.removeEventListener("loop-workspace-change", update);
     };
   }, [id, anchor]);
   useEffect(() => {
@@ -116,6 +125,10 @@ export function Conversation({
       const signature = JSON.stringify([id, agent.id, draft]);
       if (request.current.signature !== signature)
         request.current = { signature, key: crypto.randomUUID() };
+      sessionStorage.setItem(
+        "loop-receipt-" + id,
+        JSON.stringify(request.current),
+      );
       await api("/runs", {
         agentId: agent.id,
         conversationId: id,
@@ -126,6 +139,7 @@ export function Conversation({
       sessionStorage.removeItem("loop-conversation-" + id);
       setDraft("");
       request.current = { signature: "", key: "" };
+      sessionStorage.removeItem("loop-receipt-" + id);
       document.getElementById("conversation-reply")?.blur();
       onSent();
     } catch (e) {
@@ -330,10 +344,12 @@ export function Conversation({
           </button>
         </div>
       )}
+      <NativeDecisions conversation={id} />
       {!imported && (
         <div className="conversation-composer">
           <HarnessPicker
             agentId={agent?.id}
+            conversationId={id}
             value={draft}
             onChange={setDraft}
             focusInput={() =>

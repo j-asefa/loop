@@ -1,3 +1,4 @@
+import { companionMode } from "../profile.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   JSONRPCMessageSchema,
@@ -5,7 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { runtimeEndpoint } from "../runtime-hosts.js";
 import { Problem } from "../domain.js";
-export class RuntimeTransport implements Transport {
+class RemoteRuntimeTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: (message: JSONRPCMessage) => void;
@@ -105,3 +106,26 @@ export class RuntimeTransport implements Transport {
     ).catch(() => {});
   }
 }
+
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+/** The SDK owns this child. No shell, container or public runtime listener. */
+class LocalRuntimeTransport extends StdioClientTransport {
+  constructor(
+    owner: string,
+    config: { command: string; args: string[]; env: Record<string, string> },
+    hostId?: string,
+  ) {
+    runtimeEndpoint(owner, hostId);
+    super({ ...config, stderr: "pipe" });
+  }
+  override async start() {
+    await super.start();
+    // Drain sensitive diagnostic output without persisting it.
+    this.stderr?.on("data", () => {});
+  }
+}
+
+export const RuntimeTransport = companionMode
+  ? LocalRuntimeTransport
+  : RemoteRuntimeTransport;

@@ -1,3 +1,6 @@
+import { isNativeConnection } from "./native-connections.js";
+import { nativeSessions } from "./native-sessions.js";
+import { companionMode } from "./profile.js";
 import { createHash } from "node:crypto";
 import { HarnessError } from "../../runtime/harness.mjs";
 import { Router } from "express";
@@ -15,7 +18,7 @@ import {
 } from "./codex-app-server.js";
 
 export const isSubscription = (c: Connection) =>
-  JSON.parse(c.metadata).authMode === "subscription";
+  JSON.parse(c.metadata).authMode === "subscription" || isNativeConnection(c);
 export const runtimeConfigured = () =>
   !!process.env.LOOP_RUNTIME_URL &&
   (process.env.LOOP_RUNTIME_TOKEN?.length || 0) >= 32;
@@ -79,6 +82,19 @@ export async function runtimeAction(
   action: string,
   extra: object = {},
 ) {
+  const harness = JSON.parse(c.metadata).loopHarness;
+  if (harness) {
+    if (!companionMode)
+      throw new Problem(409, "Native harnesses require the companion profile.");
+    if (action === "logout" || action === "cancel") return { ok: true };
+    if (action === "status")
+      return nativeSessions.enable(nativeSessions.registration(harness));
+    throw new Problem(
+      409,
+      "Sign in with the native harness on this computer, then run loop " +
+        harness,
+    );
+  }
   try {
     return await (await request(c, action, extra)).json();
   } catch (e) {
@@ -148,6 +164,11 @@ export async function* subscriptionStream(
   }
 }
 export async function* streamConnection(c: Connection, input: ChatInput) {
+  if (isNativeConnection(c))
+    throw new Problem(
+      409,
+      "Native conversations execute through their durable session.",
+    );
   try {
     yield* isSubscription(c)
       ? subscriptionStream(c, input)

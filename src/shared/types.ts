@@ -1,4 +1,4 @@
-export type Provider = "openai" | "anthropic" | "codex";
+export type Provider = "openai" | "anthropic" | "codex" | "pi" | "opencode";
 export type Agent = {
   id: string;
   owner_id: string;
@@ -60,6 +60,7 @@ export type Artifact = {
   provider?: Provider;
 };
 export type Folder = {
+  path?: string;
   id: string;
   name: string;
   parent_id: string | null;

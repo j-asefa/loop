@@ -1,3 +1,4 @@
+import { companionMode } from "./profile.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -11,7 +12,7 @@ import {
 import { codexStatus } from "./codex-app-server.js";
 import type { Dispatcher } from "undici";
 export type RuntimeEndpoint = {
-  kind: "broker" | "codex-app-server" | "native-host";
+  kind: "broker" | "codex-app-server" | "native-host" | "local";
   url: string;
   token: string;
   fetch: typeof fetch;
@@ -49,6 +50,14 @@ export function runtimeEndpoint(
   hostId?: string,
   service: "broker" | "codex" | "claude" = "broker",
 ): RuntimeEndpoint {
+  if (companionMode) {
+    if (hostId && hostId !== "local")
+      throw new Problem(
+        422,
+        "Companion runtime processes run on this computer.",
+      );
+    return { kind: "local", url: "", token: "", fetch };
+  }
   if (!hostId) {
     if (
       !process.env.LOOP_RUNTIME_URL ||
@@ -88,6 +97,17 @@ export function runtimeEndpoint(
   };
 }
 export const runtimeHosts = Router();
+runtimeHosts.use("/runtime-hosts", (req, res, next) => {
+  if (!companionMode) return next();
+  if (req.method === "GET")
+    return res.json([
+      { id: "local", name: "This computer", kind: "local", url: "" },
+    ]);
+  throw new Problem(
+    409,
+    "Remote runtime management requires the server profile.",
+  );
+});
 runtimeHosts.get("/runtime-hosts", (_req, res) =>
   res.json(
     db

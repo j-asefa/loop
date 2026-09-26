@@ -1,5 +1,16 @@
 # Loop
 
+Loop has one shared UI, database schema and workspace API, with two deployment profiles:
+
+- **Server:** the existing Loop agent runtime, personal or multi-user authentication, API connections, subscription runtimes and remote runtime hosts.
+- **Companion:** the same workspace over local Codex, Claude Code, Pi and OpenCode harnesses, with phone pairing, durable native sessions and an optional tunnel. Explicit API connections can also run Loop's managed agent runtime.
+
+Build once with `npm ci && npm run build`. Run the existing server deployment with `npm run setup && node --env-file=.env scripts/serve.mjs`, or start the compiled all-in-one server with `node --env-file=.env dist/cli.js server`. Start a companion with `node dist/cli.js codex --local-only` (substitute `claude`, `pi` or `opencode`; omit `--local-only` to open a Quick Tunnel). For a standalone installation, run `npm pack` and install the generated tarball; it provides the `loop` command. No sibling checkout is required.
+
+See [deployment profiles and architecture](docs/UNIFIED-LOOP.md) and [companion commands](docs/companion/CLI.md). This consolidation targets fresh data directories; it does not promise compatibility with prior Loop or loop-cli databases. Each database is bound to its deployment profile.
+
+
+
 A phone-first, private agent workspace. Choose a connected account and model, give an agent a durable @name, and keep its conversations, work and sources in one searchable place.
 
 Implemented: subscription connections through official Codex/Claude Code runtimes; optional OpenAI Responses and Anthropic Messages streaming adapters; importable ChatGPT/Claude history; durable ordered runs and approvals; Feed/Running/Search/Saved; project folders and reversible filing; bounded versioned multi-agent workflows; workspace-wide MCP connections; native chart snapshots and isolated MCP Apps; reviewed link sharing and an installable PWA shell.
@@ -52,3 +63,7 @@ After a working HTTPS deployment exists, open it in Safari → Share → Add to 
 - [Workflow DSL, limits and OpenProse decision](docs/loop-v0/WORKFLOWS.md)
 - [Workspace MCPs, native results and Apps sandbox](docs/loop-v0/MCP.md)
 - [Acceptance status and detailed evidence](docs/loop-v0/EVIDENCE.md)
+
+### Test suites
+
+Run `npm test` for server/domain and shared client logic (Vitest, `tests/`). Add queue, authorization-profile, API and persistence regressions there. Run `npm run test:native` for native adapter subprocess contracts and the companion host integration journey (Node test runner, `test/`). Use `test/helpers.ts` for bounded asynchronous waits. New native protocol/transport fixtures belong in `test/`; both suites run with `npm run test:all`.

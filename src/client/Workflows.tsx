@@ -297,9 +297,12 @@ export function WorkflowEditor({
             </select>
           </label>
           <p className="note">
-            Usage budget: at most {spec.limits?.maxCalls} model calls;{" "}
-            {spec.limits?.maxOutputTokens} output tokens per call. Provider API
-            charges apply.
+            Usage budget: at most {spec.limits?.maxCalls} agent steps. API
+            connections use at most {spec.limits?.maxOutputTokens} output tokens
+            per call. Native harnesses enforce the workflow time budget; their
+            internal model-call and token counts are controlled by the harness
+            and cannot be capped here. Each connection keeps its selected
+            billing mode.
           </p>
         </>
       ) : (

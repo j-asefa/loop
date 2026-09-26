@@ -1,0 +1,58 @@
+import { useEffect, useState } from "react";
+import { api } from "./api";
+import { Sheet } from "./components";
+export function PairedDevices({ onClose }: { onClose: () => void }) {
+  const [workspace, setWorkspace] = useState<any>(),
+    [devices, setDevices] = useState<any[]>([]),
+    [error, setError] = useState("");
+  async function load() {
+    const [w, d] = await Promise.all([
+      api("/workspace"),
+      api("/workspace/devices"),
+    ]);
+    setWorkspace(w);
+    setDevices(d);
+  }
+  useEffect(() => {
+    void load().catch((e) => setError(e.message));
+  }, []);
+  return (
+    <Sheet title="This computer & paired devices" onClose={onClose}>
+      <p>
+        All projects and native harnesses run on this computer. Keep its Loop
+        terminal open; your phone can disconnect while work continues.
+      </p>
+      <p className="muted">
+        {workspace?.nativeProcesses || 0} native processes · up to{" "}
+        {workspace?.concurrency || 8} active tasks
+      </p>
+      <p>
+        Run <code>loop pair</code> to authorize another device. A restarted
+        Quick Tunnel may require a new link. Cloudflare terminates TLS.
+      </p>
+      {devices.map((d) => (
+        <div className="connection-card" key={d.id}>
+          <strong>{d.name}</strong>
+          <p>Expires {new Date(d.expires).toLocaleString()}</p>
+          <button
+            onClick={async () => {
+              try {
+                await api("/workspace/revoke", { id: d.id });
+                await load();
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            Revoke device
+          </button>
+        </div>
+      ))}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </Sheet>
+  );
+}

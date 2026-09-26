@@ -42,7 +42,7 @@ async function launch(
   const origin = "http://127.0.0.1:" + port;
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", "src/server/index.ts"],
+    ["--import", "tsx", "src/server/serve.ts"],
     {
       env: {
         ...process.env,
@@ -443,3 +443,84 @@ it("allows only state-validated OAuth navigations and retains host and gateway c
     await stop(server.child);
   }
 }, 30000);
+
+it("server capabilities retain managed runtimes and do not expose companion routes", async () => {
+  const server = await launch(directory());
+  const caps = await fetch(server.origin + "/api/capabilities").then((r) =>
+    r.json(),
+  );
+  expect(caps).toMatchObject({
+    profile: "server",
+    nativeHarnesses: false,
+    pairedDevices: false,
+    runtimeHosts: true,
+  });
+  expect((await server.request("/native/decisions")).status).toBe(404);
+  expect((await server.request("/workspace")).status).toBe(404);
+  await stop(server.child);
+});
+it("bare server entrypoint refuses companion mode before opening a listener", async () => {
+  const server = await launch(directory(), { LOOP_PROFILE: "companion" }, true);
+  expect(server.errors).toContain("device authorization");
+});
+it("data directories cannot cross authorization profiles", async () => {
+  const dir = directory();
+  const server = await launch(dir);
+  await stop(server.child);
+  const database = new Database(join(dir, "loop.db"));
+  database.prepare("UPDATE deployment_profile SET profile='companion'").run();
+  database.close();
+  const rejected = await launch(dir, {}, true);
+  expect(rejected.errors).toContain("belongs to the companion profile");
+});
+
+it("companion database startup rejects data bound to the server profile", async () => {
+  const dir = directory();
+  const server = await launch(dir);
+  await stop(server.child);
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      "await import('./src/server/db.ts')",
+    ],
+    {
+      env: { ...process.env, LOOP_DATA_DIR: dir, LOOP_PROFILE: "companion" },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
+  processes.push(child);
+  let errors = "";
+  child.stderr.on("data", (chunk) => {
+    errors += chunk;
+  });
+  const [code] = await once(child, "exit");
+  expect(code).not.toBe(0);
+  expect(errors).toContain("belongs to the server profile");
+});
+
+it("rejects pre-unification databases before migrating them", async () => {
+  const dir = directory();
+  const database = new Database(join(dir, "loop.db"));
+  database.exec(
+    "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_version VALUES(1,0)",
+  );
+  database.close();
+  const rejected = await launch(dir, {}, true);
+  expect(rejected.errors).toContain(
+    "Pre-unification databases are unsupported",
+  );
+  const unchanged = new Database(join(dir, "loop.db"));
+  expect(unchanged.prepare("SELECT * FROM schema_version").all()).toEqual([
+    { version: 1, applied_at: 0 },
+  ]);
+  expect(
+    unchanged
+      .prepare("SELECT 1 FROM sqlite_master WHERE name='deployment_profile'")
+      .get(),
+  ).toBeUndefined();
+  unchanged.close();
+});

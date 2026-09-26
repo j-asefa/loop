@@ -5,17 +5,22 @@
   "main": "index.js",
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "dev": "node --env-file=.env --import tsx src/server/index.ts",
+    "dev": "node --env-file=.env --import tsx src/server/serve.ts",
     "worker": "node --env-file=.env --import tsx src/server/worker.ts",
     "ui": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs && node scripts/build-cli.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "start": "node --import tsx src/server/index.ts",
+    "test": "vitest run tests --maxWorkers 1",
+    "start": "node --import tsx src/server/serve.ts",
     "serve": "node scripts/serve.mjs",
     "smoke:browser": "node scripts/browser-smoke.mjs",
     "backup": "node --env-file=.env scripts/backup.mjs",
-    "smoke:journey": "node scripts/browser-journey.mjs"
+    "smoke:journey": "node scripts/browser-journey.mjs",
+    "test:native": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "test:all": "npm test && npm run test:native",
+    "prepack": "npm run build",
+    "smoke:companion": "node scripts/companion-browser-smoke.mjs",
+    "smoke:package": "node scripts/package-smoke.mjs"
   },
   "repository": {
     "type": "git",
@@ -51,7 +56,9 @@
     "tsx": "^4.23.15",
     "undici": "^8.11.0",
     "yauzl": "^3.4.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "qrcode-terminal": "0.12.0",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -67,7 +74,24 @@
     "prettier": "^3.9.8",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "@types/qrcode-terminal": "0.12.2",
+    "@types/ws": "8.18.1",
+    "esbuild": "0.28.2"
   },
-  "private": true
+  "private": true,
+  "bin": {
+    "loop": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "files": [
+    "dist",
+    "migrations",
+    "runtime",
+    "docs",
+    "README.md",
+    "npm-shrinkwrap.json"
+  ]
 }

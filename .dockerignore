@@ -7,3 +7,8 @@ dist
 data
 *.db*
 docs/loop-v0/evidence
+
+.tmp
+*.tgz
+npm-shrinkwrap.json
+test-results

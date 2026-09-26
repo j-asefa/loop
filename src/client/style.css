@@ -3099,3 +3099,20 @@ pre {
 .run-card .card-byline {
   flex-wrap: nowrap;
 }
+
+.workspace-connection {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0 12px;
+}
+.native-decision {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.native-decision fieldset {
+  border: 0;
+  margin: 12px 0;
+}

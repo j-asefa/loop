@@ -25,13 +25,17 @@ import {
   webPreview,
 } from "./preview";
 export const providerName = (p?: Provider) =>
-  p === "anthropic"
-    ? "Anthropic"
-    : p === "codex"
-      ? "Codex"
-      : p === "openai"
-        ? "OpenAI"
-        : "Loop";
+  p === "pi"
+    ? "Pi"
+    : p === "opencode"
+      ? "OpenCode"
+      : p === "anthropic"
+        ? "Anthropic"
+        : p === "codex"
+          ? "Codex"
+          : p === "openai"
+            ? "OpenAI"
+            : "Loop";
 export function Badge({ provider }: { provider?: Provider }) {
   return (
     <span className={"provider " + (provider || "loop")}>

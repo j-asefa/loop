@@ -1,3 +1,5 @@
+import { capabilities } from "./capabilities";
+import { NativeConnections } from "./NativeConnections";
 import { useId, useState, useEffect, useRef, type FormEvent } from "react";
 import {
   ArrowLeft,
@@ -96,7 +98,7 @@ function ProviderMark({ brand }: { brand: Brand }) {
   );
 }
 
-export function Connections({
+function ServerConnections({
   connections,
   onChange,
   onClose,
@@ -934,5 +936,13 @@ export function Connections({
           )}
       </div>
     </Sheet>
+  );
+}
+
+export function Connections(props: Parameters<typeof ServerConnections>[0]) {
+  return capabilities.nativeHarnesses ? (
+    <NativeConnections {...props} />
+  ) : (
+    <ServerConnections {...props} />
   );
 }

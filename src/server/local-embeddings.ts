@@ -6,10 +6,14 @@ let extractor: Promise<any> | undefined;
 export async function localEmbeddings(texts: string[]): Promise<number[][]> {
   if (!extractor)
     extractor = (async () => {
-      const { env, pipeline } = await import("@huggingface/transformers");
+      const optionalPackage = "@huggingface/transformers";
+      const { env, pipeline } = await import(optionalPackage);
       env.cacheDir = join(config.data, "models");
       // A stalled first download must not hold the index worker indefinitely.
-      env.fetch = (input, init = {}) =>
+      env.fetch = (
+        input: Parameters<typeof fetch>[0],
+        init: RequestInit = {},
+      ) =>
         fetch(input, {
           ...init,
           signal: AbortSignal.any([

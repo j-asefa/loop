@@ -7,3 +7,7 @@ data/
 playwright-report/
 test-results/
 *.db*
+
+.tmp/
+*.tgz
+npm-shrinkwrap.json

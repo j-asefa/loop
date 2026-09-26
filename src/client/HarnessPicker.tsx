@@ -18,11 +18,13 @@ type Catalog = {
 };
 export function HarnessPicker({
   agentId,
+  conversationId,
   value,
   onChange,
   focusInput,
 }: {
   agentId?: string;
+  conversationId?: string;
   value: string;
   onChange: (value: string) => void;
   focusInput: () => void;
@@ -49,7 +51,10 @@ export function HarnessPicker({
     if (!open || !agentId) return;
     setCatalog(null);
     setError("");
-    void api<Catalog>(`/agents/${agentId}/harness`)
+    void api<Catalog>(
+      `/agents/${agentId}/harness` +
+        (conversationId ? "?conversation=" + conversationId : ""),
+    )
       .then((result) => {
         if (current === generation.current) setCatalog(result);
       })

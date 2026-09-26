@@ -1,3 +1,4 @@
+import { capabilities } from "./capabilities";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { api, parse } from "./api";
@@ -83,21 +84,26 @@ export function CreateAgent({
       </p>
       <form onSubmit={create}>
         <div className="provider-picker">
-          {(["codex", "anthropic", "openai"] as const).map((p) => (
-            <button
-              type="button"
-              key={p}
-              disabled={busy}
-              className={provider === p ? "selected" : ""}
-              onClick={() => {
-                setProvider(p);
-                setConnection("");
-                setModel("");
-              }}
-            >
-              <Badge provider={p} />
-            </button>
-          ))}
+          {(["codex", "anthropic", "pi", "opencode", "openai"] as const)
+            .filter(
+              (p) =>
+                capabilities.nativeHarnesses || !["pi", "opencode"].includes(p),
+            )
+            .map((p) => (
+              <button
+                type="button"
+                key={p}
+                disabled={busy}
+                className={provider === p ? "selected" : ""}
+                onClick={() => {
+                  setProvider(p);
+                  setConnection("");
+                  setModel("");
+                }}
+              >
+                <Badge provider={p} />
+              </button>
+            ))}
         </div>
         {selected ? (
           <>
@@ -132,9 +138,12 @@ export function CreateAgent({
                 ))}
               </select>
               <span className="field-hint">
-                {parse<any>(selected.metadata, {}).authMode === "subscription"
-                  ? "Uses your subscription allowance. Provider model limits apply."
-                  : "Available to this connection. API-billed."}
+                {parse<any>(selected.metadata, {}).loopHarness
+                  ? parse<any>(selected.metadata, {}).billing?.description
+                  : parse<any>(selected.metadata, {}).authMode ===
+                      "subscription"
+                    ? "Uses your subscription allowance. Provider model limits apply."
+                    : "Available to this connection. API-billed."}
               </span>
             </label>
           </>

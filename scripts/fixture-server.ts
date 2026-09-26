@@ -1,2 +1,3 @@
 await import("../tests/helpers/install");
-await import("../src/server/index");
+const { startServer } = await import("../src/server/serve");
+startServer();

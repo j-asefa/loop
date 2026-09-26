@@ -1,6 +1,6 @@
 // Supervise both processes as one deployable unit. Persistent data is outside the image.
 import { spawn } from "node:child_process";
-const children = ["index", "worker"].map((name) =>
+const children = ["serve", "worker"].map((name) =>
   spawn(process.execPath, ["--import", "tsx", `src/server/${name}.ts`], {
     stdio: "inherit",
     env: process.env,

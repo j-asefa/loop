@@ -1,7 +1,9 @@
+import { capabilities } from "./capabilities";
+import { Pairing } from "./Pairing";
 import { useState, useEffect, type FormEvent } from "react";
 import { Orbit, ArrowRight, ShieldCheck } from "lucide-react";
 import { api } from "./api";
-export function Auth({ onDone }: { onDone: () => void }) {
+function ServerAuth({ onDone }: { onDone: () => void }) {
   const [github, setGithub] = useState(false);
   useEffect(() => {
     api("/auth-options")
@@ -131,5 +133,13 @@ export function Auth({ onDone }: { onDone: () => void }) {
         </button>
       </section>
     </div>
+  );
+}
+
+export function Auth(props: Parameters<typeof ServerAuth>[0]) {
+  return capabilities.pairedDevices ? (
+    <Pairing {...props} />
+  ) : (
+    <ServerAuth {...props} />
   );
 }
