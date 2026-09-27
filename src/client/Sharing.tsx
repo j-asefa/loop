@@ -211,7 +211,13 @@ export function ShareSheet({
     </Sheet>
   );
 }
-export function InstallHelp({ onClose }: { onClose: () => void }) {
+export function InstallHelp({
+  onClose,
+  personal = false,
+}: {
+  onClose: () => void;
+  personal?: boolean;
+}) {
   return (
     <Sheet title="Loop on your Home Screen" onClose={onClose}>
       <h3>iPhone & iPad</h3>
@@ -220,8 +226,9 @@ export function InstallHelp({ onClose }: { onClose: () => void }) {
         <li>Tap Share → Add to Home Screen.</li>
         <li>Enable Open as Web App when offered, then tap Add.</li>
         <li>
-          Launch Loop from the new icon and sign in. Some Safari versions keep
-          app and browser sign-ins separate.
+          {personal
+            ? "Launch Loop from the new icon. This personal workspace opens directly; no Loop account is needed."
+            : "Launch Loop from the new icon and sign in. Some Safari versions keep app and browser sign-ins separate."}
         </li>
       </ol>
       <h3>Share a link from iPhone</h3>

@@ -51,6 +51,19 @@ export async function codexFixture() {
         return;
       }
       let result = {};
+      if (
+        message.method === "thread/start" &&
+        message.params.model === "rejected"
+      ) {
+        send({
+          id: message.id,
+          error: {
+            code: -32001,
+            message: `Model access denied; ${fixtureToken}`,
+          },
+        });
+        return;
+      }
       if (message.method === "initialize") initialized = true;
       if (message.method === "account/read")
         result = {
@@ -205,6 +218,14 @@ export async function codexFixture() {
           turn: {
             id: turnId,
             status: model === "quota" ? "failed" : "completed",
+            ...(model === "quota"
+              ? {
+                  error: {
+                    message: `Usage limit reached; ${fixtureToken}`,
+                    codexErrorInfo: "usage_limit",
+                  },
+                }
+              : {}),
           },
         },
       });

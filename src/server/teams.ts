@@ -7,7 +7,9 @@ import type { Agent } from "../shared/types.js";
 export function listTeams(owner: string) {
   return (
     db
-      .prepare("SELECT * FROM teams WHERE owner_id=? ORDER BY created_at DESC")
+      .prepare(
+        "SELECT * FROM teams WHERE owner_id=? AND deleted_at IS NULL ORDER BY created_at DESC",
+      )
       .all(owner) as any[]
   ).map((t) => ({
     ...t,
@@ -22,7 +24,10 @@ export function teamFilter(value: unknown, owner: string) {
   if (value === undefined || value === "") return [];
   const ids = [...new Set(z.string().max(2000).parse(value).split(","))];
   if (ids.length > 30) throw new Problem(400, "Choose up to 30 teams");
-  ids.forEach((id) => owned("teams", id, owner));
+  ids.forEach((id) => {
+    if (owned<any>("teams", id, owner).deleted_at != null)
+      throw new Problem(404, "Team no longer exists");
+  });
   return ids;
 }
 export function createTeam(owner: string, input: unknown) {
@@ -69,7 +74,22 @@ export function createTeam(owner: string, input: unknown) {
     .immediate();
 }
 export const teams = Router();
+export function deleteTeam(owner: string, teamId: string) {
+  db.transaction(() => {
+    owned("teams", teamId, owner);
+    db.prepare(
+      "UPDATE teams SET deleted_at=COALESCE(deleted_at,?) WHERE id=? AND owner_id=?",
+    ).run(now(), teamId, owner);
+    db.prepare(
+      "UPDATE conversations SET team_id=NULL WHERE team_id=? AND owner_id=?",
+    ).run(teamId, owner);
+  }).immediate();
+}
 teams.get("/teams", (_req, res) => res.json(listTeams(res.locals.owner)));
 teams.post("/teams", (req, res) =>
   res.status(201).json(createTeam(res.locals.owner, req.body)),
 );
+teams.delete("/teams/:id", (req, res) => {
+  deleteTeam(res.locals.owner, req.params.id);
+  res.json({ ok: true });
+});

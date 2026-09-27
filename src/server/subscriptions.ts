@@ -1,5 +1,12 @@
+import {
+  diagnosticText,
+  errorSummary,
+  errorFacts,
+  runtimeFailureFacts,
+} from "../../runtime/diagnostics.mjs";
 import { IDLE_TIMEOUT_MESSAGE } from "../../runtime/idle-deadline.mjs";
 import { isNativeConnection } from "./native-connections.js";
+import { inlineAttachments } from "./uploads.js";
 import { nativeSessions } from "./native-sessions.js";
 import { companionMode } from "./profile.js";
 import { createHash } from "node:crypto";
@@ -78,7 +85,7 @@ async function request(
       422,
       action === "capabilities"
         ? "Cannot load commands while the runtime is unavailable or busy. Try refreshing when its current work finishes."
-        : "Subscription runtime unavailable or busy. Check the runtime service and try again. No API fallback is used.",
+        : `Subscription runtime unavailable or busy (HTTP ${r.status}). Check the runtime service and try again. No API fallback is used.`,
     );
   return r;
 }
@@ -129,11 +136,12 @@ export async function* subscriptionStream(
     endpoint.kind === "broker"
       ? runtimeGithubCredential(c.owner_id)
       : undefined;
+  const controlId = id();
   const r = await request(
     c,
     "turn",
     {
-      input: { ...input, signal: undefined },
+      input: { ...input, signal: undefined, steering: undefined, controlId },
       ...(github ? { githubToken: github.token } : {}),
     },
     input.signal,
@@ -143,6 +151,7 @@ export async function* subscriptionStream(
     decoder = new TextDecoder();
   let buffer = "",
     done = false;
+  let stopSteering: (() => Promise<void>) | undefined;
   try {
     while (true) {
       const next = await reader.read();
@@ -159,8 +168,24 @@ export async function* subscriptionStream(
           JSON.parse(line),
           github ? [github] : [],
         );
+        if (event.steeringReady && !stopSteering)
+          stopSteering = input.steering?.listen(async (message, inputId) => {
+            const response = await request(c, "steer", {
+              controlId,
+              id: inputId,
+              text: message.content,
+            });
+            if ((await response.json()).accepted !== true)
+              throw new Error("Runtime did not confirm delivery");
+          });
         if (event.error && event.code === "idle_timeout")
           throw new Problem(408, IDLE_TIMEOUT_MESSAGE);
+        if (event.error && event.code === "runtime_failure")
+          throw new Problem(
+            422,
+            `${c.provider === "codex" ? "Codex" : "Claude"} runtime: ${diagnosticText(event.error, [endpoint.token])}`,
+            runtimeFailureFacts(event.diagnostic),
+          );
         if (event.error)
           throw new Problem(
             422,
@@ -177,7 +202,15 @@ export async function* subscriptionStream(
         422,
         "Subscription runtime disconnected before completion. Review partial work before retrying.",
       );
+  } catch (error) {
+    if (error instanceof Problem || input.signal.aborted) throw error;
+    throw new Problem(
+      502,
+      `${c.provider === "codex" ? "Codex" : "Claude"} runtime connection failed while reading its response (${errorSummary(error, [], false)}). Check Traces for any saved progress.`,
+      errorFacts(error),
+    );
   } finally {
+    await stopSteering?.();
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
@@ -188,6 +221,13 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
       409,
       "Native conversations execute through their durable session.",
     );
+  // Resolve attachment bytes only at the provider boundary. Checkpoints store
+  // references, so large documents are not copied into every history snapshot.
+  if (!isSubscription(c))
+    input = {
+      ...input,
+      messages: inlineAttachments(c.owner_id, input.messages),
+    };
   try {
     yield* isSubscription(c)
       ? subscriptionStream(c, input)
@@ -200,7 +240,11 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
         "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
       ).run(c.id, c.owner_id);
     if (error instanceof HarnessError) throw new Problem(422, error.message);
-    throw error;
+    if (error instanceof Problem || input.signal.aborted) throw error;
+    const message = isSubscription(c)
+      ? `The ${c.provider === "codex" ? "Codex" : "Claude"} runtime connection failed (${errorSummary(error, [], false)}). Check Traces for any saved progress.`
+      : `${c.provider === "anthropic" ? "Claude" : "OpenAI"} provider: ${errorSummary(error, [unseal(c.secret, c.owner_id)])}`;
+    throw new Problem(502, message, errorFacts(error));
   }
 }
 export const subscriptions = Router();
@@ -307,7 +351,18 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
         z.object({
           id: z.string().max(200),
           name: z.string().max(200),
+          resolvedModel: z.string().min(1).max(200).optional(),
           capabilities: z.string().max(500),
+          effortLevels: z
+            .array(
+              z.object({
+                value: z.string().max(32),
+                description: z.string().max(1000).optional(),
+              }),
+            )
+            .max(20)
+            .optional(),
+          defaultEffort: z.string().max(32).optional(),
         }),
       )
       .max(300)

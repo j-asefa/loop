@@ -1,4 +1,5 @@
 import { capabilities } from "./capabilities";
+import { RuntimeHosts } from "./RuntimeHosts";
 import { NativeConnections } from "./NativeConnections";
 import { useId, useState, useEffect, useRef, type FormEvent } from "react";
 import {
@@ -87,7 +88,7 @@ function screenTitle(screen: Screen) {
     return `${screen.account ? "Reconnect" : "Connect"} ${providers[screen.brand].name}`;
   const name = providers[screen.account.brand].name;
   if (screen.page === "signin" && hostAccount(screen.account.runtimeKind))
-    return `Connect remote ${screen.account.brand === "claude" ? "Claude" : "Codex"}`;
+    return `Connect remote ${providers[screen.account.brand].name}`;
   return screen.page === "signin" ? `Sign in to ${name}` : `${name} connected`;
 }
 function ProviderMark({ brand }: { brand: Brand }) {
@@ -123,6 +124,7 @@ function ServerConnections({
       [],
     ),
     [hostsError, setHostsError] = useState(""),
+    [addingHost, setAddingHost] = useState(false),
     [runtimeHostId, setRuntimeHostId] = useState("");
   const secretId = useId(),
     heading = useRef<HTMLHeadingElement>(null),
@@ -151,7 +153,10 @@ function ServerConnections({
     };
   }, []);
   useEffect(() => {
-    heading.current?.closest("dialog")?.scrollTo({ top: 0 });
+    heading.current
+      ?.closest("dialog")
+      ?.querySelector(".sheet-body")
+      ?.scrollTo({ top: 0 });
     heading.current?.focus({ preventScroll: true });
   }, [title, screen.page]);
 
@@ -241,7 +246,9 @@ function ServerConnections({
       );
       receive(value, account, ticket);
     } finally {
-      await refresh(ticket);
+      // A workspace refresh must not keep a failed sign-in spinning or delay
+      // its retry action after the provider request has already settled.
+      void refresh(ticket);
     }
   }
   async function retrySignIn(account: Account, ticket: number) {
@@ -663,9 +670,14 @@ function ServerConnections({
                         </option>
                       ))}
                   </select>
-                  <small className="muted">
-                    Add a remote machine in Settings → Runtime machines.
-                  </small>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() => setAddingHost(true)}
+                  >
+                    <Plus size={16} /> Add a remote machine
+                  </button>
                   {hostsError && (
                     <small role="alert">
                       Remote machines could not be loaded. Reopen this screen to
@@ -756,7 +768,7 @@ function ServerConnections({
                   ? "Connecting…"
                   : setup.method === "subscription"
                     ? direct
-                      ? `Connect remote ${setup.brand === "claude" ? "Claude" : "Codex"}`
+                      ? `Connect remote ${providers[setup.brand].name}`
                       : `Continue with ${choice.name}`
                     : setup.account
                       ? "Save API key"
@@ -839,7 +851,7 @@ function ServerConnections({
                 <p className="connection-waiting" role="status">
                   <LoaderCircle size={17} className="spin" />
                   {hostAccount(signing.runtimeKind)
-                    ? `Checking remote ${signing.brand === "claude" ? "Claude" : "Codex"}…`
+                    ? `Checking remote ${providers[signing.brand].name}…`
                     : `Opening ${providers[signing.brand].name} sign-in…`}
                 </p>
               ))}
@@ -935,6 +947,20 @@ function ServerConnections({
             </p>
           )}
       </div>
+      {addingHost && (
+        <RuntimeHosts
+          initialKind={
+            setup?.brand === "claude" ? "native-host" : "codex-app-server"
+          }
+          onClose={() => setAddingHost(false)}
+          onAdded={(host) => {
+            setHosts((previous) => [...previous, host]);
+            setRuntimeHostId(host.id);
+            setHostsError("");
+            setAddingHost(false);
+          }}
+        />
+      )}
     </Sheet>
   );
 }

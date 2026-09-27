@@ -1,3 +1,9 @@
+import {
+  diagnosticText,
+  errorSummary,
+  errorFacts,
+} from "../../../runtime/diagnostics.mjs";
+import { redactCredentials } from "./redaction.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
@@ -8,7 +14,7 @@ import { randomBytes } from "node:crypto";
 import { db, now } from "../db.js";
 import { owned, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
-import { safeFetch, safeUrl } from "./network.js";
+import { safeFetch, safeToolFetch, safeUrl } from "./network.js";
 import { config } from "../config.js";
 import { RuntimeTransport } from "./runtime-transport.js";
 import { workspaceToolBindings, ToolBudgetError } from "./tool-budget.js";
@@ -188,7 +194,7 @@ export async function connect(c: MCPConnection): Promise<Client> {
         )
       : new StreamableHTTPClientTransport(connectionUrl(c), {
           requestInit: { headers },
-          fetch: safeFetch,
+          fetch: safeToolFetch,
           authProvider: oauth?.provider,
         });
   try {
@@ -205,7 +211,8 @@ export async function connect(c: MCPConnection): Promise<Client> {
       );
     throw new Problem(
       422,
-      "Could not reach this MCP server. Check the URL, credentials and access.",
+      `Could not reach this MCP server (${errorSummary(error, [], false)}): ${diagnosticText(redactCredentials((error as Error)?.message || "Check the URL, credentials and access.", [secret]))}`,
+      errorFacts(error),
     );
   }
 }

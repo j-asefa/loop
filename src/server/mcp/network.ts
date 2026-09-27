@@ -1,3 +1,4 @@
+import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
 import { lookup } from "node:dns";
 import { Agent, fetch as undiciFetch } from "undici";
 import ipaddr from "ipaddr.js";
@@ -122,6 +123,7 @@ const guardedFetch =
     });
   };
 export const safeFetch = guardedFetch(45000);
+export const safeToolFetch = guardedFetch(MCP_TOOL_TIMEOUT_MS);
 // A runtime response is a potentially long sequence of bounded NDJSON events,
 // not one MCP result. Its caller owns cancellation and validates each event.
 // Retain an idle-connection timeout without limiting total run duration/bytes.

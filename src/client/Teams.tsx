@@ -1,23 +1,143 @@
 import { useRef, useState } from "react";
 import { api } from "./api";
-import { Sheet } from "./components";
-import { Check, ChevronDown, Search, Users } from "lucide-react";
+import { Avatar, Sheet } from "./components";
+import {
+  Check,
+  ChevronDown,
+  Search,
+  Users,
+  Trash2,
+  MessageSquare,
+  ArrowUpRight,
+} from "lucide-react";
 import type { Agent, Team } from "../shared/types";
+
+export function TeamManagerShortcut({
+  teams,
+  agents,
+  selected,
+  onOpen,
+}: {
+  teams: Team[];
+  agents: Agent[];
+  selected: string[];
+  onOpen: (team: Team) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const choices = selected.length
+    ? teams.filter((team) => selected.includes(team.id))
+    : teams;
+  if (!choices.length) return null;
+  const manager =
+    choices.length === 1
+      ? agents.find((agent) => agent.id === choices[0].manager_id)
+      : undefined;
+  return (
+    <div className="team-manager-shortcut">
+      <button
+        className="text-button"
+        onClick={() => {
+          if (choices.length === 1) onOpen(choices[0]);
+          else setOpen(true);
+        }}
+        aria-label="Message manager"
+      >
+        <MessageSquare size={17} aria-hidden="true" />
+        Message manager
+        {manager && <span className="muted">@{manager.name}</span>}
+      </button>
+      {open && (
+        <Sheet title="Message a team manager" onClose={() => setOpen(false)}>
+          <div className="team-manager-options">
+            {choices.map((team) => {
+              const manager = agents.find(
+                (agent) => agent.id === team.manager_id,
+              );
+              return (
+                <button
+                  className="team-manager-option"
+                  key={team.id}
+                  aria-label={`Message manager of ${team.name}`}
+                  onClick={() => {
+                    setOpen(false);
+                    onOpen(team);
+                  }}
+                >
+                  <Avatar name={manager?.name} provider={manager?.provider} />
+                  <span>
+                    <strong>{team.name}</strong>
+                    <small>
+                      {manager ? `@${manager.name}` : "Team manager"}
+                    </small>
+                  </span>
+                  <ArrowUpRight size={18} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+export function ProfileTeams({
+  agent,
+  teams,
+  onMessage,
+}: {
+  agent: Agent;
+  teams: Team[];
+  onMessage: (team: Team) => void;
+}) {
+  const memberships = teams.filter(
+    (team) => team.manager_id === agent.id || team.members.includes(agent.id),
+  );
+  if (!memberships.length) return null;
+  return (
+    <div className="profile-teams" role="group" aria-label="Agent teams">
+      <span className="eyebrow">
+        {memberships.length === 1 ? "Team" : "Teams"}
+      </span>
+      {memberships.map((team) => (
+        <div className="profile-team" key={team.id}>
+          <span>
+            <strong>{team.name}</strong>
+            <small>{team.manager_id === agent.id ? "Manager" : "Member"}</small>
+          </span>
+          <button
+            className="text-button"
+            aria-label={`Message manager of ${team.name}`}
+            onClick={() => onMessage(team)}
+          >
+            <MessageSquare size={16} aria-hidden="true" /> Message manager
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function TeamFilter({
   teams,
   selected,
   onChange,
   onCreate,
   onOpen,
+  onDeleted,
 }: {
   teams: Team[];
   selected: string[];
   onChange: (ids: string[]) => void;
   onCreate: () => void;
   onOpen: (team: Team) => void;
+  onDeleted: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState("");
+  const [deleting, setDeleting] = useState<Team | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   function close() {
     setOpen(false);
@@ -115,6 +235,38 @@ export function TeamFilter({
                 </p>
               )}
           </div>
+          {chosen.length === 1 && (
+            <div className="actions">
+              <button
+                className="text-button"
+                onClick={() => {
+                  close();
+                  onOpen(chosen[0]);
+                }}
+              >
+                Message manager
+              </button>
+              <button
+                className="text-button"
+                onClick={() => {
+                  setError("");
+                  setDeleting(chosen[0]);
+                }}
+              >
+                <Trash2 size={17} /> Delete team
+              </button>
+            </div>
+          )}
+          <button
+            className="text-button"
+            onClick={() => {
+              close();
+              onCreate();
+            }}
+          >
+            New team
+          </button>
+
           <div className="team-picker-actions">
             <span className="muted">
               {chosen.length
@@ -127,17 +279,54 @@ export function TeamFilter({
           </div>
         </Sheet>
       )}
-      {selected.length === 1 && (
-        <button
-          className="text-button"
-          onClick={() => onOpen(teams.find((t) => t.id === selected[0])!)}
+      {deleting && (
+        <Sheet
+          title={`Delete ${deleting.name}?`}
+          onClose={() => {
+            if (!busy) setDeleting(null);
+          }}
         >
-          Message manager
-        </button>
+          <p>
+            This removes the team from your workspace. Its agents, files, and
+            conversations stay available. Work already in progress can finish.
+          </p>
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          <div className="actions">
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
+              Keep team
+            </button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={async () => {
+                if (busy) return;
+                setBusy(true);
+                setError("");
+                try {
+                  await api(`/teams/${deleting.id}`, undefined, "DELETE");
+                  onDeleted(deleting.id);
+                  setDeleting(null);
+                  close();
+                } catch (error) {
+                  setError((error as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Deleting…" : "Delete team"}
+            </button>
+          </div>
+        </Sheet>
       )}
-      <button className="text-button" onClick={onCreate}>
-        New team
-      </button>
     </div>
   );
 }

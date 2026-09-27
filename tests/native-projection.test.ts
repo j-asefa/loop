@@ -85,7 +85,14 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     await vi.advanceTimersByTimeAsync(999);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
-    expect(db.prepare("SELECT * FROM aggregate_writes").all()).toHaveLength(1);
+    expect(db.prepare("SELECT * FROM aggregate_writes").all()).toHaveLength(0);
+    expect(
+      db
+        .prepare(
+          "SELECT content FROM run_traces WHERE trace_key='native-message:two'",
+        )
+        .get(),
+    ).toEqual({ content: "updated" });
     vi.useRealTimers();
     event({ id: "one", kind: "assistant", text: "first" });
     sessions.projectOutput(live, false);
@@ -94,7 +101,14 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     ]);
     expect(
       db.prepare("SELECT content FROM messages WHERE id='message'").get(),
-    ).toEqual({ content: "first\n\nupdated" });
+    ).toEqual({ content: "updated" });
+    expect(
+      db
+        .prepare(
+          "SELECT content FROM run_traces WHERE kind='message' AND json_extract(metadata,'$.final') IS NOT 1 ORDER BY id",
+        )
+        .all(),
+    ).toEqual([{ content: "first" }]);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
     for (let i = 0; i < 80; i++)
       event({ id: "large-" + i, kind: "assistant", text: "é".repeat(32000) });

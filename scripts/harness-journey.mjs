@@ -50,7 +50,7 @@ export async function harnessJourney(page, api, agent, token, expected) {
   const url = new URL(page.url());
   url.search = "?conversation=" + run.conversation_id;
   await page.goto(url.href);
-  const conversation = page.getByRole("dialog").first();
+  const conversation = page.locator("dialog[open]").last().first();
   await expect(conversation.locator(".message.assistant")).toContainText(
     expected,
   );
@@ -96,10 +96,26 @@ export async function failureJourney(page, api) {
   await expect(
     page.locator(".run-card").filter({ hasText: "failure-visibility-fixture" }),
   ).toContainText("failed");
+  await page
+    .locator(".run-card")
+    .filter({ hasText: "failure-visibility-fixture" })
+    .getByRole("button", { name: "View failure details", exact: true })
+    .click();
+  const failureDetails = page.getByRole("dialog", {
+    name: "Run failure details",
+    exact: true,
+  });
+  await expect(
+    failureDetails.locator(".trace-card").filter({ hasText: "Run failure" }),
+  ).toContainText("Tool input schema is unsupported");
+  await expect(failureDetails.locator(".trace-run")).toHaveCount(1);
+  await failureDetails
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   const url = new URL(page.url());
   url.search = "?conversation=" + run.conversation_id;
   await page.goto(url.href);
-  const dialog = page.getByRole("dialog").first();
+  const dialog = page.locator("dialog[open]").last().first();
   await expect(dialog.locator(".message.assistant")).toContainText(
     "Run failed",
   );

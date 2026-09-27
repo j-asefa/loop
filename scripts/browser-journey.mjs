@@ -1,3 +1,4 @@
+import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
 import { tracesJourney } from "./traces-journey.mjs";
 import { failureJourney } from "./harness-journey.mjs";
 import { projectsAttentionJourney } from "./projects-attention-journey.mjs";
@@ -49,7 +50,7 @@ execFileSync(
   { stdio: "ignore" },
 );
 const env = {
-    ...process.env,
+    ...(await isolatedBrowserEnv()),
     NODE_ENV: "test",
     LOOP_AUTH_MODE: "multi-user",
     LOOP_RUNTIME_URL: "http://127.0.0.1:" + brokerPort,
@@ -62,11 +63,10 @@ const env = {
     LOOP_FIXTURE_APP: join(dir, "app.js"),
   },
   children = ["server", "worker"].map((name) =>
-    spawn(
-      process.execPath,
-      ["--env-file=.env", "--import", "tsx", `scripts/fixture-${name}.ts`],
-      { env, stdio: ["ignore", "pipe", "pipe"] },
-    ),
+    spawn(process.execPath, ["--import", "tsx", `scripts/fixture-${name}.ts`], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
   );
 children.push(
   spawn(process.execPath, ["tests/helpers/subscription-broker.mjs"], {
@@ -111,7 +111,7 @@ try {
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();
-  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  await page.getByRole("heading", { name: "Feed" }).waitFor();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Provider connections/ }).click();
   await page.getByRole("heading", { name: "Choose a provider" }).waitFor();
@@ -129,23 +129,23 @@ try {
     .click();
   await page.getByRole("heading", { name: "ChatGPT connected" }).waitFor();
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByRole("button", { name: "Compose a message" }).click();
+  await closeSheets(page);
   await page
-    .getByRole("button", { name: "Create an agent", exact: true })
+    .getByRole("button", { name: "Create your first agent", exact: true })
     .click();
   await page.getByLabel("Unique name").fill("journey-agent");
   await page
     .getByRole("combobox", { name: /^Model/ })
     .selectOption("openai-fixture");
   await page.getByRole("button", { name: "Create agent", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Compose a message" }).click();
   await page.getByLabel("Message your agent").fill("Explain bids precisely");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("dialog[open]").last()).toHaveCount(0);
   await page
     .locator(".feed-card")
     .filter({
@@ -154,13 +154,13 @@ try {
         exact: true,
       }),
     })
-    .getByRole("button", { name: "Continue", exact: true })
+    .getByRole("button", { name: "Reply", exact: true })
     .click();
   await page
     .getByRole("dialog")
     .getByText("Fixture response:", { exact: false })
     .waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page
     .getByRole("heading", { name: "Explain bids precisely", exact: true })
     .waitFor();
@@ -202,24 +202,23 @@ try {
   await page.getByRole("button", { name: "File it", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).waitFor();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   const feed = await api("/feed"),
     artifact = feed.items.find((x) => x.title === "Explain bids precisely");
   await api("/artifacts/" + artifact.id + "/move", { folderId: child.id });
   const search = await api("/search?q=resting&folder=" + child.id);
   assert.ok(search.items.some((x) => x.id === "artifact:" + artifact.id));
   await page.goto(base + "/?artifact=" + artifact.id);
+  await page.getByLabel("Result options", { exact: true }).click();
   await page.getByRole("button", { name: "Source conversation" }).click();
   await page
     .getByRole("dialog")
     .getByText("Fixture response:", { exact: false })
     .waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
-  await page
-    .getByRole("button", { name: "Custom server", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
   await page.getByRole("button", { name: "Add server URL" }).click();
   await page
     .getByLabel("Name", { exact: true })
@@ -239,14 +238,14 @@ try {
     path: join(tmpdir(), "loop-workspace-mcp.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page.getByRole("button", { name: "Compose a message" }).click();
   await page.getByLabel("Message your agent").fill("Show latency");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("dialog[open]").last()).toHaveCount(0);
   await page
     .getByRole("navigation")
     .last()
@@ -314,7 +313,7 @@ try {
     .getByText("Request queued for explicit approval", { exact: false })
     .waitFor();
   await page.screenshot({ path: join(dir, "mcp-app-fixture.png") });
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page
     .getByRole("navigation")
     .last()
@@ -384,7 +383,7 @@ try {
     ids,
     [...new Set(ids)].sort((a, b) => a - b),
   );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   // Subscription-first UI, native auth handoff shapes and actual durable worker/tool broker.
   const subs = [];
   for (const runtime of ["codex", "claude"]) {
@@ -432,6 +431,7 @@ try {
       .getByRole("heading", { name: providerName + " connected", exact: true })
       .waitFor({ timeout: 15000 });
     await page.getByRole("button", { name: "Done", exact: true }).click();
+    await closeSheets(page);
     const bootstrap = await api("/bootstrap");
     const conn = bootstrap.connections.find(
       (c) => c.label === runtime + " subscription fixture",
@@ -541,7 +541,7 @@ try {
     });
     providerPage.on("pageerror", (e) => errors.push(e.message));
     await providerPage.goto(base);
-    await providerPage.getByRole("heading", { name: "Your loop." }).waitFor();
+    await providerPage.getByRole("heading", { name: "Feed" }).waitFor();
     const providerApi = async (path, body, method) =>
       providerPage.evaluate(
         async ({ path, body, method }) => {

@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -95,18 +96,20 @@ export async function composerJourney(page, api) {
 
     await openComposer.click();
     await page.getByLabel("Agent recipient").selectOption(manager.id);
-    await page
-      .locator(".composer")
-      .getByLabel("Project", { exact: true })
-      .selectOption(folders[0].id);
+    await expect(
+      page.locator(".composer").getByLabel("Project", { exact: true }),
+    ).toHaveCount(0);
     await page
       .getByLabel("Message your agent")
       .fill("Keep this draft while I choose a team.");
     for (const control of [
       page.getByLabel("Agent recipient"),
-      page.locator(".composer").getByLabel("Project", { exact: true }),
+      page.getByRole("button", {
+        name: "Select model and effort",
+        exact: true,
+      }),
       page.getByRole("button", { name: "Send message", exact: true }),
-      page.getByRole("button", { name: "Create an agent", exact: true }),
+      page.getByRole("button", { name: "Add attachments", exact: true }),
     ])
       assert.ok(
         (await control.boundingBox()).height >= 44,
@@ -148,14 +151,72 @@ export async function composerJourney(page, api) {
       path: join(tmpdir(), `loop-composer-keyboard-${width}.png`),
       clip: { x: 0, y: 0, width, height: 494 },
     });
+    // iOS can leave visualViewport at its old keyboard height after blur.
+    // Closing the composer must restore the dock and navigation without resize.
+    await page.getByRole("button", { name: "Collapse composer" }).click();
+    await expect(page.locator(".mobile-nav")).toBeVisible();
+    const dock = await page.locator(".composer-dock").boundingBox();
+    const nav = await page.locator(".mobile-nav").boundingBox();
+    assert.ok(
+      Math.abs(dock.y + dock.height - nav.y) < 2,
+      "The collapsed composer returns directly above navigation after blur",
+    );
+    await page.screenshot({
+      path: join(tmpdir(), `loop-composer-dismissed-keyboard-${width}.png`),
+    });
+
+    // Opening a picker while typing must clear the same stale keyboard inset.
+    for (const [trigger, title] of [
+      ["Select model and effort", "Select model"],
+      ["Add attachments", "Add to message"],
+    ]) {
+      await openComposer.click();
+      await page.getByLabel("Message your agent").focus();
+      await expect(page.locator(".mobile-nav")).toBeHidden();
+      await page.getByRole("button", { name: trigger, exact: true }).click();
+      const sheet = page.locator("dialog[open]").last();
+      await expect(
+        sheet.getByRole("heading", { name: title, exact: true }),
+      ).toBeInViewport({ ratio: 1 });
+      await expect(page.locator(".mobile-nav")).toBeVisible();
+      assert.ok(
+        Math.abs(
+          (await sheet.boundingBox()).y +
+            (await sheet.boundingBox()).height -
+            844,
+        ) < 2,
+        "The picker is anchored to the screen, not the dismissed keyboard",
+      );
+      await sheet.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Collapse composer" }).click();
+      await expect(page.locator(".mobile-nav")).toBeVisible();
+    }
+    // Zooming shrinks the visual viewport too, but must not raise the composer.
+    await openComposer.click();
+    await page.getByLabel("Message your agent").focus();
+    await page.evaluate(() => {
+      Object.defineProperty(window.visualViewport, "scale", {
+        configurable: true,
+        get: () => 2,
+      });
+      window.visualViewport.dispatchEvent(new Event("resize"));
+    });
+    await expect(page.locator(".mobile-nav")).toBeVisible();
+    assert.equal(
+      await page.evaluate(() =>
+        document.documentElement.style.getPropertyValue("--keyboard-inset"),
+      ),
+      "0px",
+    );
     await page.evaluate(() => {
       delete window.visualViewport.height;
       delete window.visualViewport.offsetTop;
+      delete window.visualViewport.scale;
       window.visualViewport.dispatchEvent(new Event("resize"));
     });
     await page.getByRole("button", { name: "Collapse composer" }).click();
     await picker.click();
-    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await closeSheets(page);
     await expect(picker).toBeFocused();
     await openComposer.click();
     await expect(page.getByLabel("Message your agent")).toHaveValue(
@@ -231,7 +292,7 @@ export async function sendCollapseJourney(page, api) {
       await page.route("**/api/bootstrap", refresh);
       await send.click();
       await expect.poll(() => refreshing).toBe(true);
-      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(page.locator("dialog[open]").last()).toHaveCount(0);
       await expect(
         page.getByRole("button", { name: "Compose a message" }),
       ).toBeVisible();
@@ -266,7 +327,7 @@ export async function sendCollapseJourney(page, api) {
   }
   await page.goto(base + "/?conversation=" + conversationId);
   await expect(page.getByLabel("Reply to agent")).toHaveValue("");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page.getByRole("button", { name: "Compose a message" }).click();
   await expect(page.getByLabel("Message your agent")).toHaveValue("");
   await page.getByRole("button", { name: "Collapse composer" }).click();

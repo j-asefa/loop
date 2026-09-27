@@ -32,6 +32,7 @@ export interface Adapter {
   commands?: NativeCommand[];
   start(): Promise<Billing>;
   prompt(text: string): Promise<void>;
+  steer?(text: string): Promise<void>;
   cancel(): Promise<void>;
   answer(id: string, answer: Record<string, unknown>): Promise<void>;
   dispose(): Promise<void>;

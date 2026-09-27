@@ -22,7 +22,9 @@ export async function approvalJourney(page, api) {
   ).toBeVisible();
   assert.equal(await dialog.locator("details").getAttribute("open"), null);
   await dialog.getByRole("button", { name: "Open conversation" }).click();
-  await expect(page.getByRole("dialog")).toContainText("Show latency");
+  await expect(page.locator("dialog[open]").last()).toContainText(
+    "Show latency",
+  );
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Close", exact: true })
@@ -69,12 +71,24 @@ export async function approvalJourney(page, api) {
   const agent = (await api("/bootstrap")).agents.find(
     (a) => a.name === "journey-agent",
   );
+  // The following approval cases are independent tasks. Sending them while the
+  // just-approved task is still running would correctly steer that task instead.
+  await expect
+    .poll(
+      async () =>
+        (await api("/runs")).find(
+          (run) => run.agent_id === agent.id && run.input === "Show latency",
+        )?.state,
+      { timeout: 10000 },
+    )
+    .toBe("completed");
   async function request() {
     const run = await api("/runs", {
       agentId: agent.id,
       input: "approval-navigation-fixture",
       idempotencyKey: crypto.randomUUID(),
     });
+    assert.equal(run.steeringId, undefined, "Approval fixture needs a new run");
     await expect
       .poll(async () =>
         (await api("/approvals")).some((a) => a.run_id === run.id),
@@ -99,7 +113,7 @@ export async function approvalJourney(page, api) {
       await expect(
         dialog.getByRole("heading", { name: "Open a webpage" }),
       ).toBeVisible();
-      await expect(dialog.locator(".approval-arguments")).toContainText(
+      await expect(dialog.locator(".approval-target")).toContainText(
         "https://example.com/search?q=Codex",
       );
       assert.equal(
@@ -112,7 +126,7 @@ export async function approvalJourney(page, api) {
       });
       await approve.scrollIntoViewIfNeeded();
       assert.ok((await approve.boundingBox()).height >= 44);
-      await dialog.evaluate((el) => (el.scrollTop = 0));
+      await dialog.locator(".sheet-body").evaluate((el) => (el.scrollTop = 0));
       await page.screenshot({
         path: join(tmpdir(), `loop-approval-${width}-${theme}.png`),
       });
@@ -147,6 +161,19 @@ export async function chatDismissJourney(page, api) {
   );
   const url = new URL(page.url());
   url.search = "?conversation=" + run.conversation_id;
+  // A spacious conversation now fits the short fixture answer without scrolling.
+  // Supply a long answer so the gesture test still exercises scrolled history.
+  const conversationRoute = `**/api/conversations/${run.conversation_id}`;
+  await page.route(conversationRoute, async (route) => {
+    const response = await route.fetch();
+    const conversation = await response.json();
+    conversation.messages = conversation.messages.map((message) =>
+      message.role === "assistant"
+        ? { ...message, content: (message.content + "\n\n").repeat(25) }
+        : message,
+    );
+    await route.fulfill({ response, json: conversation });
+  });
   const open = () => page.goto(url.href);
   await page.setViewportSize({ width: 390, height: 650 });
   await open();
@@ -181,16 +208,18 @@ export async function chatDismissJourney(page, api) {
     );
   }
   // A pull in scrolled history or a text input must remain a scroll/edit gesture.
-  await dialog.evaluate((el) => (el.scrollTop = 80));
-  assert.ok(await dialog.evaluate((el) => el.scrollTop > 0));
+  await dialog.locator(".messages").evaluate((el) => (el.scrollTop = 80));
+  assert.ok(
+    await dialog.locator(".messages").evaluate((el) => el.scrollTop > 0),
+  );
   assert.equal(await touch(dialog.locator(".message").first(), 0, 160), false);
   await expect(dialog).toBeVisible();
-  await dialog.evaluate((el) => (el.scrollTop = 0));
+  await dialog.locator(".messages").evaluate((el) => (el.scrollTop = 0));
   assert.equal(await touch(dialog.getByLabel("Reply to agent"), 0, 160), false);
   assert.equal(await touch(dialog.locator(".sheet-head h2"), 140, 20), false);
   assert.equal(await touch(dialog.locator(".sheet-head h2"), 0, -140), false);
   assert.equal(
-    await touch(dialog.locator(".sheet-head h2"), 0, 90, "touchcancel"),
+    await touch(dialog.locator(".sheet-grip"), 0, 90, "touchcancel"),
     true,
   );
   await expect(dialog).toBeVisible();
@@ -219,7 +248,7 @@ export async function chatDismissJourney(page, api) {
   await page.screenshot({ path: join(tmpdir(), "loop-chat-drag-handle.png") });
   if (process.env.LOOP_BROWSER !== "webkit") {
     const cdp = await page.context().newCDPSession(page);
-    const heading = await dialog.locator(".sheet-head h2").boundingBox();
+    const heading = await grip.boundingBox();
     const x = heading.x + 30,
       y = heading.y + 10;
     await cdp.send("Input.dispatchTouchEvent", {
@@ -236,14 +265,14 @@ export async function chatDismissJourney(page, api) {
       touchPoints: [],
     });
     await cdp.detach();
-  } else await touch(dialog.locator(".sheet-head h2"), 0, 160);
+  } else await touch(grip, 0, 160);
   await expect(dialog).toBeHidden();
   await open();
   await expect(dialog.getByLabel("Reply to agent")).toHaveValue(
     "Keep my draft when I pull down.",
   );
   // The sticky handle also closes a chat from the middle of the history.
-  await dialog.evaluate((el) => (el.scrollTop = 80));
+  await dialog.locator(".messages").evaluate((el) => (el.scrollTop = 80));
   const handle = await grip.boundingBox();
   await page.mouse.move(
     handle.x + handle.width / 2,
@@ -258,6 +287,7 @@ export async function chatDismissJourney(page, api) {
   await page.mouse.up();
   await expect(dialog).toBeHidden();
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.unroute(conversationRoute);
   console.log(
     "PASS: chat pull-down dismissal, visible sticky handle, cancelled/short/sideways/upward gestures, scroll and input isolation, and draft preservation.",
   );
@@ -282,6 +312,9 @@ export async function semanticStatusJourney(page) {
   const nav = page.getByRole("navigation").last();
   try {
     await nav.getByRole("button", { name: "Search", exact: true }).click();
+    await page
+      .getByText("Search options & index status", { exact: true })
+      .click();
     const banner = page.locator(".search-index-status");
     await expect(banner).toContainText("0 of 20 items indexed");
     status = {
@@ -300,10 +333,10 @@ export async function semanticStatusJourney(page) {
     };
     await expect(banner).toContainText("Semantic search needs attention");
     await page
-      .getByRole("button", { name: "Enable or configure semantic search" })
+      .getByRole("button", { name: "Configure semantic search" })
       .click();
     await expect(
-      page.getByRole("dialog").locator(".search-index-status"),
+      page.locator("dialog[open]").last().locator(".search-index-status"),
     ).toContainText("keyword search is available");
     await page
       .getByRole("dialog")

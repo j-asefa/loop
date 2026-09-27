@@ -1,3 +1,8 @@
+import {
+  RuntimeFailure,
+  diagnosticText,
+  runtimeFailureFacts,
+} from "./diagnostics.mjs";
 import { idleDeadline, IdleTimeoutError } from "./idle-deadline.mjs";
 import { containerArgs } from "./container.mjs";
 import { mcpHandler } from "./mcp.mjs";
@@ -8,6 +13,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { lines } from "./protocol.mjs";
+import { SteeringControls } from "./steering.mjs";
 import {
   loginDeadline,
   LoginTimeoutError,
@@ -66,6 +72,7 @@ async function execute(key, request, onEvent, signal) {
     : docker(containerArgs(prefix, key, image, name));
   let result,
     error,
+    exitSignal,
     closed = false;
   const cancel = (force = false) => {
     const killSignal = force === true ? "SIGKILL" : "SIGTERM";
@@ -94,7 +101,19 @@ async function execute(key, request, onEvent, signal) {
           cancel(true);
         })
       : null;
-  const handle = { process: p, cancel };
+  const controls = new SteeringControls((message) => {
+    if (p.stdin.destroyed || p.stdin.writableEnded)
+      throw new Error("Runtime closed");
+    p.stdin.write(JSON.stringify(message) + "\n");
+  });
+  const handle = {
+    process: p,
+    cancel,
+    controls,
+    provider: request.provider,
+    controlId: request.input?.controlId,
+    ready: false,
+  };
   active.set(key, handle);
   signal?.addEventListener("abort", cancel, { once: true });
   if (signal?.aborted) cancel();
@@ -103,9 +122,22 @@ async function execute(key, request, onEvent, signal) {
   lines(
     p.stdout,
     (m) => {
+      if (m.steeringReady) handle.ready = true;
+      if (m.done || m.error) handle.ready = false;
+      if (m.steeringResult) {
+        controls.receive(m.steeringResult);
+        return;
+      }
       if (m.chunk || m.done || m.result) idle?.progress();
       if (m.result) result = m.result;
-      if (m.error) error = new Error(m.error);
+      if (m.error)
+        error =
+          m.code === "runtime_failure"
+            ? new RuntimeFailure(
+                diagnosticText(m.error),
+                runtimeFailureFacts(m.diagnostic),
+              )
+            : new Error(m.error);
       if (m.login && deadline) {
         deadline.ready();
         m.expiresAt = deadline.expiresAt;
@@ -118,11 +150,12 @@ async function execute(key, request, onEvent, signal) {
     },
   );
   p.stdin.write(JSON.stringify(request) + "\n");
-  if (request.action !== "login") p.stdin.end();
+  if (request.action !== "login" && !handle.controlId) p.stdin.end();
   try {
     const code = await new Promise((resolve, reject) => {
       p.once("error", reject);
-      p.once("close", (c) => {
+      p.once("close", (c, signal) => {
+        exitSignal = signal;
         closed = true;
         resolve(c);
       });
@@ -135,12 +168,14 @@ async function execute(key, request, onEvent, signal) {
     )
       throw (
         error ||
-        new Error(
-          "Subscription runtime stopped. Reconnect or check your allowance; no API fallback occurred.",
+        new RuntimeFailure(
+          `The runtime ${hostMode ? "process" : "container"} stopped (${exitSignal ? `signal ${exitSignal}` : `exit code ${code}`}) before returning a complete response.${code === 137 || exitSignal === "SIGKILL" ? " It was killed; check the runtime host's memory and container logs." : ""}`,
+          { phase: "process", exitCode: code, signal: exitSignal },
         )
       );
     return result;
   } finally {
+    controls.close();
     clearTimeout(timer);
     idle?.clear();
     deadline?.clear();
@@ -223,6 +258,29 @@ const server = createServer(async (req, res) => {
       { key, provider, action } = data;
     if (!/^[a-f0-9]{64}$/.test(key) || !["codex", "claude"].includes(provider))
       throw new Error("Invalid runtime");
+    if (action === "steer") {
+      const target = active.get(key);
+      if (
+        !target?.ready ||
+        target.provider !== provider ||
+        typeof data.controlId !== "string" ||
+        target.controlId !== data.controlId
+      ) {
+        json(res, { error: "The selected turn is no longer active." }, 409);
+        return;
+      }
+      if (
+        typeof data.id !== "string" ||
+        !data.id ||
+        data.id.length > 150 ||
+        typeof data.text !== "string" ||
+        !data.text.trim() ||
+        data.text.length > 500000
+      )
+        throw new Error("Invalid steering input");
+      json(res, await target.controls.send(data.id, data.text));
+      return;
+    }
     // Pair the host user's existing login; never start login or sign out the
     // shared Codex/Claude installation on behalf of a Loop connection.
     if (hostMode && ["login", "status"].includes(action)) {
@@ -433,9 +491,14 @@ const server = createServer(async (req, res) => {
         JSON.stringify({
           ...(error instanceof IdleTimeoutError
             ? { code: "idle_timeout" }
-            : {}),
+            : error instanceof RuntimeFailure
+              ? {
+                  code: "runtime_failure",
+                  diagnostic: runtimeFailureFacts(error.details),
+                }
+              : {}),
           error:
-            error instanceof IdleTimeoutError
+            error instanceof IdleTimeoutError || error instanceof RuntimeFailure
               ? error.message
               : "Subscription runtime stopped. Check sign-in, model access and allowance. No API fallback occurred.",
         }) + "\n",

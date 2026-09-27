@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, parse } from "./api";
+import { catalogResults } from "./catalogSearch";
 import type {
   CatalogEntry,
   CatalogInstallResult,
@@ -113,22 +114,9 @@ export function McpCatalog({
     "All",
     ...new Set(catalog.entries.map((e) => e.category)),
   ];
-  const entries = catalog.entries.filter(
-    (entry) =>
-      (category === "All" || entry.category === category) &&
-      (!noAccount || entry.auth === "none") &&
-      `${entry.name} ${entry.publisher} ${entry.description} ${entry.category}`
-        .toLowerCase()
-        .includes(query.trim().toLowerCase()),
-  );
+  const entries = catalogResults(catalog.entries, query, category, noAccount);
   return (
     <section aria-label="MCP catalog">
-      <h3>Find your next tool</h3>
-      <p className="muted">
-        {catalog.entries.length} integrations. Community npm packages are free
-        to install; connected services may require an account. Choose Install to
-        verify the connection.
-      </p>
       <label>
         Search tools
         <input
@@ -138,29 +126,27 @@ export function McpCatalog({
           onChange={(e) => setQuery(e.target.value)}
         />
       </label>
-      <div
-        className="catalog-filters"
-        role="group"
-        aria-label="Tool categories"
-      >
-        {categories.map((value) => (
-          <button
-            key={value}
-            aria-pressed={category === value}
-            onClick={() => setCategory(value)}
+      <div className="catalog-options">
+        <label>
+          Category
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
           >
-            {value}
-          </button>
-        ))}
+            {categories.map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label className="catalog-checkbox">
+          <input
+            type="checkbox"
+            checked={noAccount}
+            onChange={(e) => setNoAccount(e.target.checked)}
+          />
+          No credentials listed
+        </label>
       </div>
-      <label className="catalog-checkbox">
-        <input
-          type="checkbox"
-          checked={noAccount}
-          onChange={(e) => setNoAccount(e.target.checked)}
-        />
-        No credentials listed
-      </label>
       {hosts.length > 0 && (
         <details className="mcp-import">
           <summary>Where to run command tools</summary>
@@ -182,7 +168,7 @@ export function McpCatalog({
         </details>
       )}
       <p className="field-hint" role="status">
-        Showing {entries.length} of {catalog.entries.length} tools
+        {entries.length} tools {query.trim() ? "found" : "available"}
       </p>
       {!entries.length && (
         <p>No matching tools. Try another search or category.</p>

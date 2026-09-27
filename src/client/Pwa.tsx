@@ -27,31 +27,66 @@ export function PwaStatus() {
         .catch(() => {});
     const viewport = () => {
       const v = window.visualViewport;
-      const inset = Math.max(
-        0,
-        innerHeight - (v?.height || innerHeight) - (v?.offsetTop || 0),
-      );
-      document.documentElement.dataset.keyboard =
-        inset > 100 && (v?.scale || 1) === 1 ? "open" : "closed";
+      const obscuredHeight = innerHeight - (v?.height || innerHeight);
+      const inset = Math.max(0, obscuredHeight - (v?.offsetTop || 0));
+      const active = document.activeElement;
+      const textEntryFocused =
+        ((active instanceof HTMLTextAreaElement ||
+          (active instanceof HTMLInputElement &&
+            [
+              "text",
+              "search",
+              "email",
+              "url",
+              "tel",
+              "password",
+              "number",
+            ].includes(active.type))) &&
+          !active.readOnly &&
+          !active.disabled) ||
+        (active instanceof HTMLElement && active.isContentEditable);
+      // Safari can retain the keyboard's viewport size after blur without a
+      // resize event. Don't leave the dock raised when no text field is focused.
+      // Panning to the focused field changes offsetTop, not the keyboard's
+      // height. Using the bottom inset here expands the sheet off-screen as
+      // Safari pans, hiding the original message and agent header.
+      const keyboardOpen =
+        textEntryFocused && obscuredHeight > 100 && (v?.scale || 1) === 1;
+      document.documentElement.dataset.keyboard = keyboardOpen
+        ? "open"
+        : "closed";
       document.documentElement.style.setProperty(
         "--visual-viewport-height",
-        (v?.height || innerHeight) + "px",
+        (keyboardOpen ? v!.height : innerHeight) + "px",
       );
       document.documentElement.style.setProperty(
         "--keyboard-inset",
-        inset + "px",
+        (keyboardOpen ? inset : 0) + "px",
       );
     };
+    let viewportFrame = 0;
+    const scheduleViewport = () => {
+      cancelAnimationFrame(viewportFrame);
+      // Let focus settle first, including showModal() and dialog restoration.
+      viewportFrame = requestAnimationFrame(viewport);
+    };
     viewport();
-    window.visualViewport?.addEventListener("resize", viewport);
-    window.visualViewport?.addEventListener("scroll", viewport);
-    window.addEventListener("resize", viewport);
+    window.visualViewport?.addEventListener("resize", scheduleViewport);
+    window.visualViewport?.addEventListener("scroll", scheduleViewport);
+    window.addEventListener("resize", scheduleViewport);
+    window.addEventListener("pageshow", scheduleViewport);
+    document.addEventListener("focusin", scheduleViewport);
+    document.addEventListener("focusout", scheduleViewport);
     return () => {
       window.removeEventListener("online", changed);
       window.removeEventListener("offline", changed);
-      window.visualViewport?.removeEventListener("resize", viewport);
-      window.visualViewport?.removeEventListener("scroll", viewport);
-      window.removeEventListener("resize", viewport);
+      cancelAnimationFrame(viewportFrame);
+      window.visualViewport?.removeEventListener("resize", scheduleViewport);
+      window.visualViewport?.removeEventListener("scroll", scheduleViewport);
+      window.removeEventListener("resize", scheduleViewport);
+      window.removeEventListener("pageshow", scheduleViewport);
+      document.removeEventListener("focusin", scheduleViewport);
+      document.removeEventListener("focusout", scheduleViewport);
     };
   }, []);
   if (online && !update) return null;

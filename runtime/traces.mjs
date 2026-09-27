@@ -2,17 +2,22 @@
 // provider control messages are deliberately not part of the user trace.
 const text = (value) =>
   typeof value === "string" ? value.slice(0, 12000) : "";
-export function codexTrace(message) {
+export function codexTrace(message, messages = new Map()) {
+  if (message.method === "item/agentMessage/delta") {
+    const id = message.params?.itemId;
+    if (!id || typeof message.params?.delta !== "string") return;
+    const item = messages.get(id) || { id, type: "agentMessage", text: "" };
+    item.text = (item.text + message.params.delta).slice(0, 200000);
+    messages.set(id, item);
+    return publicMessage(item);
+  }
   if (!["item/started", "item/completed"].includes(message.method)) return;
   const item = message.params?.item;
   if (!item?.id) return;
-  if (item.type === "agentMessage" && item.phase === "commentary")
-    return {
-      id: item.id,
-      kind: "message",
-      title: "Agent update",
-      content: text(item.text),
-    };
+  if (item.type === "agentMessage") {
+    messages.set(item.id, { ...item, text: item.text || "" });
+    return publicMessage(item);
+  }
   const titles = {
     commandExecution: "Run command",
     fileChange: "Change files",
@@ -30,6 +35,24 @@ export function codexTrace(message) {
       message.method === "item/started"
         ? "running"
         : item.status || "completed",
+  };
+}
+function publicMessage(item) {
+  // Some older hosts omit phase. Loop's JSON answer envelope is never a
+  // progress message; only the public text between native actions belongs here.
+  if (
+    item.phase === "final_answer" ||
+    (!item.phase &&
+      String(item.text || "")
+        .trimStart()
+        .startsWith("{"))
+  )
+    return;
+  return {
+    id: item.id,
+    kind: "message",
+    title: "Agent update",
+    content: String(item.text || "").slice(0, 200000),
   };
 }
 export function claudeTraces(message, internalToolIds = new Set()) {
@@ -51,7 +74,8 @@ export function claudeTraces(message, internalToolIds = new Set()) {
           id: `${message.message.id || message.uuid}:text:${index}`,
           kind: "message",
           title: "Agent update",
-          content: text(block.text),
+          content:
+            typeof block.text === "string" ? block.text.slice(0, 200000) : "",
         },
       ];
     if (block.type === "tool_use")

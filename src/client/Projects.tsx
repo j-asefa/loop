@@ -1,5 +1,12 @@
-import { useState } from "react";
-import { ArrowLeft, ArrowUpRight, Folder, Plus, UserPlus } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Folder,
+  Plus,
+  UserPlus,
+  Pencil,
+} from "lucide-react";
 import { Avatar, Badge, Empty, Sheet } from "./components";
 import { belongsToProject } from "../shared/projects";
 import type { Agent, Folder as Project } from "../shared/types";
@@ -13,7 +20,8 @@ export function Projects({
   onCreateAgent,
   onAgent,
   onAssign,
-  onFiles,
+  renderFiles,
+  renderActivity,
   onEdit,
 }: {
   folders: Project[];
@@ -24,10 +32,14 @@ export function Projects({
   onCreateAgent: (id: string) => void;
   onAgent: (agent: Agent) => void;
   onAssign: (agent: Agent, id: string) => Promise<void>;
-  onFiles: (id: string) => void;
+  renderFiles: (id: string) => ReactNode;
+  renderActivity: (id: string) => ReactNode;
   onEdit: () => void;
 }) {
   const [adding, setAdding] = useState(false),
+    [page, setPage] = useState(
+      () => sessionStorage.getItem("loop-project-tab") || "agents",
+    ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const current = folders.find((f) => f.id === selected);
@@ -53,6 +65,13 @@ export function Projects({
                 project
               </p>
             </div>
+            <button
+              className="icon-button"
+              aria-label="Edit project"
+              onClick={onEdit}
+            >
+              <Pencil size={18} />
+            </button>
           </div>
           <div className="project-actions">
             <button
@@ -70,39 +89,53 @@ export function Projects({
             >
               <UserPlus size={18} /> Add existing agent
             </button>
-            <button className="text-button" onClick={() => onFiles(current.id)}>
-              View project files <ArrowUpRight size={16} />
-            </button>
-            <button className="text-button" onClick={onEdit}>
-              Edit project
-            </button>
           </div>
-          <h3>Agents</h3>
-          {projectAgents.length ? (
-            <div className="project-agents">
-              {projectAgents.map((a) => (
-                <button
-                  className="project-agent"
-                  key={a.id}
-                  onClick={() => onAgent(a)}
-                >
-                  <Avatar name={a.name} provider={a.provider} />
-                  <span>
-                    <strong>@{a.name}</strong>
-                    <Badge provider={a.provider} />
-                    <small>
-                      {a.instructions || "Ready for your next task"}
-                    </small>
-                  </span>
-                  <ArrowUpRight size={18} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="project-empty">
-              No agents yet. Create one or add an existing agent to keep this
-              project’s work together.
-            </p>
+          <div className="segmented project-tabs" aria-label="Project view">
+            {["agents", "activity", "files"].map((value) => (
+              <button
+                key={value}
+                className={page === value ? "selected" : ""}
+                aria-pressed={page === value}
+                onClick={() => {
+                  setPage(value);
+                  sessionStorage.setItem("loop-project-tab", value);
+                }}
+              >
+                {value[0].toUpperCase() + value.slice(1)}
+              </button>
+            ))}
+          </div>
+          {page === "activity" && renderActivity(current.id)}
+          {page === "files" && renderFiles(current.id)}
+          {page === "agents" && (
+            <>
+              {projectAgents.length ? (
+                <div className="project-agents">
+                  {projectAgents.map((a) => (
+                    <button
+                      className="project-agent"
+                      key={a.id}
+                      onClick={() => onAgent(a)}
+                    >
+                      <Avatar name={a.name} provider={a.provider} />
+                      <span>
+                        <strong>@{a.name}</strong>
+                        <Badge provider={a.provider} />
+                        <small>
+                          {a.instructions || "Ready for your next task"}
+                        </small>
+                      </span>
+                      <ArrowUpRight size={18} />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="project-empty">
+                  No agents yet. Create one or add an existing agent to keep
+                  this project’s work together.
+                </p>
+              )}
+            </>
           )}
         </>
       ) : (

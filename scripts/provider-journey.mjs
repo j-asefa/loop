@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -15,9 +16,10 @@ export async function providerJourney(page, api) {
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: /Provider connections/ }).click();
   };
-  const button = (name) => page.getByRole("button", { name, exact: true });
+  const button = (name) =>
+    page.getByRole("button", { name, exact: true }).last();
   const heading = (name) => page.getByRole("heading", { name, exact: true });
-  const dialog = page.getByRole("dialog");
+  const dialog = page.locator("dialog[open]").last();
   const snapshot = async (name) =>
     page.screenshot({ path: join(tmpdir(), `loop-provider-${name}.png`) });
   const noOverflow = async () => {
@@ -210,6 +212,16 @@ export async function providerJourney(page, api) {
   assert.equal(record.provider, "anthropic");
   // Retry reuses the created record. Simulate a lost response after login starts;
   // the next retry must resume the running sign-in instead of opening a duplicate.
+  const releaseRetryRefresh = deferred();
+  await page.route(
+    "**/api/bootstrap",
+    async (route) => {
+      const response = await route.fetch();
+      await releaseRetryRefresh.promise;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
   await page.route(
     "**/api/subscriptions/*/login",
     async (route) => {
@@ -223,10 +235,15 @@ export async function providerJourney(page, api) {
     { times: 1 },
   );
   await button("Try sign-in again").click();
-  await page
-    .getByRole("alert")
-    .getByText("Fixture: sign-in response lost")
-    .waitFor();
+  try {
+    await page
+      .getByRole("alert")
+      .getByText("Fixture: sign-in response lost")
+      .waitFor();
+    await expect(button("Try sign-in again")).toBeEnabled();
+  } finally {
+    releaseRetryRefresh.resolve();
+  }
   await button("Try sign-in again").click();
   await page
     .getByRole("link", { name: "Open Claude sign-in", exact: true })
@@ -280,7 +297,7 @@ export async function providerJourney(page, api) {
   );
   await heading("Sign in to Claude").waitFor();
   // Closing and reopening exposes an explicit resume action on the saved account.
-  await button("Close").click();
+  await closeSheets(page);
   await open();
   const account = page.getByRole("region", {
     name: "Claude: Claude UX regression",
@@ -351,10 +368,10 @@ export async function providerJourney(page, api) {
   await expect(heading("Provider connections")).toBeInViewport();
   await expect(button("Close")).toBeInViewport();
   await snapshot("accounts-dark");
-  await button("Close").click();
+  await closeSheets(page);
   await open();
   await account.getByText("Connected", { exact: true }).waitFor();
-  await button("Close").click();
+  await closeSheets(page);
   page.off("request", loginListener);
   await page.evaluate((value) => {
     if (value === null) delete document.documentElement.dataset.theme;

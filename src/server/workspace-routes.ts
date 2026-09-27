@@ -7,12 +7,39 @@ import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
+import { uploadFile } from "./uploads.js";
+import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
 import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
 import { stageImport } from "./imports.js";
 import { enqueue, type Run, transition } from "./queue.js";
 import type { Artifact, Agent, Message, Connection } from "../shared/types.js";
 export const workspace = Router();
+const fileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 2, fieldSize: 200 },
+});
+workspace.post(
+  "/uploads",
+  (req, res, next) =>
+    fileUpload.single("file")(req, res, (error) => {
+      next(
+        error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE"
+          ? new Problem(413, "Files can be up to 25 MB each")
+          : error,
+      );
+    }),
+  (req, res) => {
+    if (!req.file) throw new Problem(400, "Choose a file to upload");
+    const options = z
+      .object({
+        folderId: z.string().uuid().optional(),
+        agentId: z.string().uuid().optional(),
+      })
+      .parse(req.body);
+    res.status(201).json(uploadFile(res.locals.owner, req.file, options));
+  },
+);
 workspace.get("/folders", (_req, res) =>
   res.json(
     db
@@ -387,6 +414,7 @@ workspace.post("/conversations/:id/continue", (req, res) => {
           sourceConversation: c.id,
           sourceMessage: m.id,
           selectedByUser: true,
+          attachments: JSON.parse(m.metadata).attachments || [],
           original: JSON.parse(m.metadata),
         }),
         m.created_at,

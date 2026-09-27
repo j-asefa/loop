@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import { harnessJourney } from "./harness-journey.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
@@ -5,7 +6,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 export async function remoteCodexJourney(page, api, fixture) {
-  const button = (name) => page.getByRole("button", { name, exact: true });
+  const button = (name) =>
+    page.getByRole("button", { name, exact: true }).last();
   await button("Settings").click();
   await page.getByRole("button", { name: /Runtime machines/ }).click();
   await page.getByLabel("Connection type").selectOption("codex-app-server");
@@ -27,7 +29,7 @@ export async function remoteCodexJourney(page, api, fixture) {
     (h) => h.name === "Existing remote Codex",
   );
   assert.equal(host.kind, "codex-app-server");
-  await button("Close").click();
+  await closeSheets(page);
   await button("Settings").click();
   await page.getByRole("button", { name: /Provider connections/ }).click();
   await button("Add a provider").click();
@@ -52,14 +54,15 @@ export async function remoteCodexJourney(page, api, fixture) {
     .fill("Existing Codex account");
   assert.equal(
     await page
-      .getByRole("dialog")
+      .locator("dialog[open]")
+      .last()
       .evaluate((el) => el.scrollWidth > el.clientWidth),
     false,
   );
   await page.screenshot({
     path: join(tmpdir(), "loop-remote-codex-provider.png"),
   });
-  await button("Connect remote Codex").click();
+  await button("Connect remote ChatGPT").click();
   await page
     .getByRole("heading", { name: "ChatGPT connected", exact: true })
     .waitFor();
@@ -99,10 +102,10 @@ export async function remoteCodexJourney(page, api, fixture) {
   );
   await button("Settings").click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
-  await button("Custom server").click();
+  await button("Custom").click();
   // App-server speaks the Codex protocol, never the broker's MCP endpoints.
   assert.equal(await page.locator(`option[value="${host.id}"]`).count(), 0);
-  await button("Close").click();
+  await closeSheets(page);
   await api("/connections/" + connection.id, {}, "DELETE");
   await api("/runtime-hosts/" + host.id, {}, "DELETE");
   assert.equal(

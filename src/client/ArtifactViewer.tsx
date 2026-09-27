@@ -11,12 +11,13 @@ import {
   Copy,
   Play,
   Code,
+  MoreHorizontal,
 } from "lucide-react";
-import { Sheet, RichText, Badge } from "./components";
+import { Sheet, RichText, Badge, Avatar } from "./components";
+import { ResultReply } from "./ResultReply";
 import { Diagram } from "./Diagram";
 import { api, parse } from "./api";
-import type { Artifact, Folder } from "../shared/types";
-import { folderPath } from "./Workspace";
+import type { Agent, Artifact } from "../shared/types";
 export function ArtifactContent({ item }: { item: Artifact }) {
   if (item.kind === "image") {
     const value = parse<any>(item.content, null);
@@ -78,169 +79,220 @@ export function ArtifactContent({ item }: { item: Artifact }) {
 }
 export function ArtifactViewer({
   item,
-  folders,
+  agent,
   onClose,
   onFile,
   onConversation,
   onChanged,
   onRun,
   onWorkflow,
+  onSent,
 }: {
   item: Artifact;
-  folders: Folder[];
+  agent?: Agent;
   onClose: () => void;
   onFile: () => void;
   onConversation: () => void;
   onChanged: () => void;
   onRun: (text: string) => void;
   onWorkflow: (source: string) => void;
+  onSent: () => void;
 }) {
   const meta = parse<any>(item.metadata, {}),
     [editing, setEditing] = useState(false),
     [text, setText] = useState(item.content),
     [error, setError] = useState("");
+  async function save() {
+    try {
+      await api(
+        "/artifacts/" + item.id,
+        { content: text, version: item.version },
+        "PATCH",
+      );
+      onChanged();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  const author = agent?.name || item.name;
   return (
-    <Sheet wide title={item.title} onClose={onClose}>
-      {meta.source && <SourceCard source={meta.source} />}
-      <div className="artifact-meta">
-        <Badge provider={meta.provider || item.provider} />
-        <span>
-          {meta.origin === "import" ? "Imported history" : "Created in Loop"}
-        </span>
-        <span>
-          {item.folder_id
-            ? folderPath(item.folder_id, folders)
-            : "Workspace inbox"}
-        </span>
-      </div>
-      {meta.appResource && (
-        <Suspense fallback={<p>Loading isolated app…</p>}>
-          <McpApp artifactId={item.id} metadata={meta} />
-        </Suspense>
-      )}
-      <div className="artifact-body">
-        {editing ? (
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={16}
+    <Sheet
+      wide
+      swipeToClose
+      className="result-sheet"
+      title={item.title}
+      onClose={onClose}
+      heading={
+        <div className="result-header">
+          <Avatar
+            name={author || "Loop"}
+            provider={meta.provider || item.provider || agent?.provider}
           />
-        ) : (
-          <ArtifactContent item={item} />
+          <div className="result-author">
+            <h2>{author ? "@" + author : "Saved result"}</h2>
+            <Badge
+              provider={meta.provider || item.provider || agent?.provider}
+            />
+            <time dateTime={new Date(item.created_at).toISOString()}>
+              {new Date(item.created_at).toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+              })}
+            </time>
+          </div>
+          <details className="conversation-options result-options">
+            <summary aria-label="Result options">
+              <MoreHorizontal size={20} />
+            </summary>
+            <div
+              className="conversation-options-menu result-options-menu"
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("button, a"))
+                  event.currentTarget
+                    .closest("details")
+                    ?.removeAttribute("open");
+              }}
+            >
+              {item.feed_hidden === 1 && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await api("/feed/" + item.id, { hidden: false }, "PATCH");
+                      onChanged();
+                      onClose();
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  }}
+                >
+                  Restore to feed
+                </button>
+              )}
+              {meta.connectionId && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await api("/artifacts/" + item.id + "/refresh", {
+                        idempotencyKey: crypto.randomUUID(),
+                      });
+                      setError(
+                        "Refresh queued. Approve the request in Running; this snapshot stays saved.",
+                      );
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  }}
+                >
+                  Refresh from source
+                </button>
+              )}
+              <button onClick={onFile}>
+                <FolderInput size={16} />
+                File
+              </button>
+              {item.conversation_id && (
+                <button onClick={onConversation}>
+                  <MessageSquare size={16} />
+                  Source conversation
+                </button>
+              )}
+              {(meta.objectId || meta.rawObjectId) && (
+                <a
+                  className="text-button"
+                  href={"/api/objects/" + (meta.objectId || meta.rawObjectId)}
+                >
+                  <Download size={16} />
+                  Download original
+                </a>
+              )}
+              <button
+                onClick={() => {
+                  const blob = new Blob([item.content], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download =
+                    item.title.replace(/[^a-zA-Z0-9._-]/g, "-") + ".md";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <Download size={16} />
+                Download
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(item.content)}
+              >
+                <Copy size={16} />
+                Copy
+              </button>
+              <button onClick={() => setEditing(!editing)}>
+                <Code size={16} />
+                {editing ? "Preview" : "Edit"}
+              </button>
+              <button
+                onClick={() =>
+                  onWorkflow(text.replace(/^```(?:json)?\s*|\s*```$/g, ""))
+                }
+              >
+                Open as workflow source
+              </button>
+              <button onClick={() => onRun(text)}>
+                <Play size={16} />
+                Use as prompt
+              </button>
+            </div>
+          </details>
+        </div>
+      }
+    >
+      <div className="result-content">
+        <h3 className="result-title">{item.title}</h3>
+        {meta.source && <SourceCard source={meta.source} />}
+        {meta.appResource && (
+          <Suspense fallback={<p>Loading isolated app…</p>}>
+            <McpApp artifactId={item.id} metadata={meta} />
+          </Suspense>
+        )}
+        <div className="artifact-body">
+          {editing ? (
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={16}
+            />
+          ) : (
+            <ArtifactContent item={item} />
+          )}
+        </div>
+        {meta.partial && (
+          <p className="note">
+            Partial output. This run did not finish normally.
+          </p>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
         )}
       </div>
-      {meta.partial && (
-        <p className="note">
-          Partial output. This run did not finish normally.
-        </p>
-      )}
-      {error && <p className="error">{error}</p>}
-      <div className="actions">
-        {item.feed_hidden === 1 && (
-          <button
-            onClick={async () => {
-              try {
-                await api("/feed/" + item.id, { hidden: false }, "PATCH");
-                onChanged();
-                onClose();
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-          >
-            Restore to feed
+      {!editing &&
+        agent &&
+        item.conversation_id &&
+        meta.origin !== "import" && (
+          <ResultReply item={item} agent={agent} onSent={onSent} />
+        )}
+      {editing && (
+        <div className="result-edit-actions">
+          <button className="secondary" onClick={() => setEditing(false)}>
+            Cancel editing
           </button>
-        )}
-        {meta.connectionId && (
-          <button
-            onClick={async () => {
-              try {
-                await api("/artifacts/" + item.id + "/refresh", {
-                  idempotencyKey: crypto.randomUUID(),
-                });
-                setError(
-                  "Refresh queued. Approve the request in Running; this snapshot stays saved.",
-                );
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-          >
-            Refresh from source
-          </button>
-        )}
-        <button onClick={onFile}>
-          <FolderInput size={16} />
-          File
-        </button>
-        {item.conversation_id && (
-          <button onClick={onConversation}>
-            <MessageSquare size={16} />
-            Source conversation
-          </button>
-        )}
-        {(meta.objectId || meta.rawObjectId) && (
-          <a
-            className="text-button"
-            href={"/api/objects/" + (meta.objectId || meta.rawObjectId)}
-          >
-            <Download size={16} />
-            Download original
-          </a>
-        )}
-        <button
-          onClick={() => {
-            const blob = new Blob([item.content], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = item.title.replace(/[^a-zA-Z0-9._-]/g, "-") + ".md";
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-        >
-          <Download size={16} />
-          Download
-        </button>
-        <button onClick={() => navigator.clipboard.writeText(item.content)}>
-          <Copy size={16} />
-          Copy
-        </button>
-        <button onClick={() => setEditing(!editing)}>
-          <Code size={16} />
-          {editing ? "Preview" : "Edit"}
-        </button>
-        {editing && (
-          <button
-            onClick={async () => {
-              try {
-                await api(
-                  "/artifacts/" + item.id,
-                  { content: text, version: item.version },
-                  "PATCH",
-                );
-                onChanged();
-                onClose();
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}
-          >
+          <button className="primary" onClick={save}>
             Save version
           </button>
-        )}
-        <button
-          onClick={() =>
-            onWorkflow(text.replace(/^```(?:json)?\s*|\s*```$/g, ""))
-          }
-        >
-          Open as workflow source
-        </button>
-        <button onClick={() => onRun(text)}>
-          <Play size={16} />
-          Use as prompt
-        </button>
-      </div>
+        </div>
+      )}
     </Sheet>
   );
 }

@@ -1,3 +1,4 @@
+import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
 import { createServer as reservePort } from "node:net";
 async function freePort() {
   const server = reservePort();
@@ -19,13 +20,14 @@ const dir = mkdtempSync(join(tmpdir(), "loop-browser-"));
 import { spawn } from "node:child_process";
 import { chromium, webkit, expect } from "@playwright/test";
 import assert from "node:assert/strict";
+const fixtureEnv = await isolatedBrowserEnv();
 const server = spawn(
   process.execPath,
-  ["--env-file=.env", "--import", "tsx", "src/server/serve.ts"],
+  ["--import", "tsx", "src/server/serve.ts"],
   {
     stdio: ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      ...fixtureEnv,
       LOOP_DATA_DIR: dir,
       PORT: String(port),
       LOOP_URL: base,
@@ -35,11 +37,11 @@ const server = spawn(
 );
 const worker = spawn(
   process.execPath,
-  ["--env-file=.env", "--import", "tsx", "src/server/worker.ts"],
+  ["--import", "tsx", "src/server/worker.ts"],
   {
     stdio: ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      ...fixtureEnv,
       LOOP_DATA_DIR: dir,
       PORT: String(port),
       LOOP_URL: base,
@@ -71,7 +73,7 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base);
-  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  await page.getByRole("heading", { name: "Feed" }).waitFor();
   await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
   assert.equal(
     (await page.context().cookies()).length,
@@ -91,7 +93,7 @@ try {
   await page
     .getByText("1 / 1 conversations · completed")
     .waitFor({ timeout: 15000 });
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page
     .getByRole("heading", { name: "Market research", exact: true })
     .waitFor();
@@ -103,8 +105,12 @@ try {
     .click();
   await page.getByRole("button", { name: "Create folder" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Research Radar");
-  await page.getByRole("button", { name: "Create", exact: true }).click();
-  await page.getByRole("button", { name: "Research Radar project" }).waitFor();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create folder", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Folders", exact: true }).click();
+  await page.getByRole("button", { name: "Research Radar folder" }).waitFor();
   await page
     .getByRole("navigation")
     .last()
@@ -122,15 +128,15 @@ try {
     .catch(() => {});
   assert.ok((await page.locator(".search-result").count()) >= 1);
   await page.locator(".search-result").first().click();
-  await page.getByRole("dialog").waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.locator("dialog[open]").last().waitFor();
+  await closeSheets(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "dark", exact: true }).click();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.screenshot({ path: join(dir, "mobile-dark.png") });
   await page.reload();
-  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  await page.getByRole("heading", { name: "Search everything." }).waitFor();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
 
   for (const width of [320, 390, 430, 1024]) {
@@ -214,11 +220,11 @@ try {
   assert.equal(after, before, "deep link and route preview must not send work");
   await page.screenshot({ path: join(dir, "mobile-share.png") });
   await page.goBack();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.getByRole("heading", { name: "Bring it into Loop" }).waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   const cached = await page.evaluate(async () => {
     const all = [];
     for (const key of await caches.keys())
@@ -242,7 +248,7 @@ try {
   }
   await page.context().setOffline(false);
   await page.goto(base);
-  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  await page.getByRole("heading", { name: "Feed" }).waitFor();
   await page.setViewportSize({ width: 844, height: 390 });
   assert.equal(
     await page.evaluate(
@@ -263,10 +269,10 @@ try {
   await expect(
     page.getByRole("button", { name: "Sign out", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page.context().clearCookies();
   await page.reload();
-  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  await page.getByRole("heading", { name: "Feed" }).waitFor();
   const reopened = await page.evaluate(async () =>
     (await fetch("/api/auth/get-session")).json(),
   );

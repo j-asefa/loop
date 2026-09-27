@@ -13,19 +13,21 @@ export async function agentCreationJourney(page, api) {
   const open = async () => {
     await button("New agent").click();
     await page.getByRole("heading", { name: "Meet your next agent" }).waitFor();
-    await button("OpenAI").click();
+    await button("OpenAI API").click();
     await page
       .getByRole("combobox", { name: /^Model/ })
       .selectOption("openai-fixture");
   };
   await open();
   await page.getByLabel("Unique name").fill("creation-idle");
-  await page.getByText("Advanced options", { exact: true }).click();
+  await page
+    .getByText("Instructions & advanced options", { exact: true })
+    .click();
   await page
     .getByLabel("Agent instructions", { exact: true })
     .fill("Keep answers concise.");
   await button("Create agent").click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   const idle = (await api("/bootstrap")).agents.find(
     (a) => a.name === "creation-idle",
   );
@@ -35,10 +37,13 @@ export async function agentCreationJourney(page, api) {
   assert.equal(idleDetails.conversations.length, 0);
 
   await open();
+  await expect(page.getByLabel("Unique name")).toHaveValue(/^[a-z]{3,32}$/);
   const suggested = await page.getByLabel("Unique name").inputValue();
   const instructions = "Research carefully and cite sources.";
   const prompt = "Find three ideas for my next project.";
-  await page.getByText("Advanced options", { exact: true }).click();
+  await page
+    .getByText("Instructions & advanced options", { exact: true })
+    .click();
   await page
     .getByLabel("Agent instructions", { exact: true })
     .fill(instructions);
@@ -54,7 +59,7 @@ export async function agentCreationJourney(page, api) {
     await page
       .getByLabel("Initial prompt", { exact: true })
       .scrollIntoViewIfNeeded();
-    const dialog = page.getByRole("dialog");
+    const dialog = page.locator("dialog[open]").last();
     assert.equal(
       await dialog.evaluate((el) => el.scrollWidth > el.clientWidth),
       false,

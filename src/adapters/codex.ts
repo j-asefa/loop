@@ -1,3 +1,4 @@
+import { modelOptions } from "../../runtime/model-options.mjs";
 import { Native } from "../native.js";
 import type { Billing } from "../protocol.js";
 import {
@@ -67,13 +68,16 @@ export class Codex implements Adapter {
     const modelList = await this.native
       .request("model/list", { limit: 100 })
       .catch(() => ({ data: [] }));
-    this.defaultModel = config.config.model ||
+    this.defaultModel =
+      config.config.model ||
       modelList.data?.find((model: any) => model.isDefault)?.model ||
       modelList.data?.find((model: any) => model.isDefault)?.id ||
-      modelList.data?.[0]?.model || modelList.data?.[0]?.id;
+      modelList.data?.[0]?.model ||
+      modelList.data?.[0]?.id;
     this.models = (modelList.data || []).map((m: any) => ({
       id: m.model || m.id,
       name: m.displayName || m.model || m.id,
+      ...modelOptions(m),
     }));
     const skillList = await this.native
       .request("skills/list", {
@@ -184,9 +188,10 @@ export class Codex implements Adapter {
     }
     const r = await this.native.request("turn/start", {
       threadId: this.thread,
-      ...((this.options.model || this.defaultModel)
-        ? { model: this.options.model || this.defaultModel } : {}),
-      ...(this.options.effort ? {reasoningEffort: this.options.effort} : {}),
+      ...(this.options.model || this.defaultModel
+        ? { model: this.options.model || this.defaultModel }
+        : {}),
+      ...(this.options.effort ? { reasoningEffort: this.options.effort } : {}),
       input: [
         { type: "text", text, text_elements: [] },
         ...this.skills
@@ -200,6 +205,14 @@ export class Codex implements Adapter {
     });
     // turn/started may arrive before its response; never overwrite a finished turn's state.
     if (!this.turn && r.turn.status === "inProgress") this.turn = r.turn.id;
+  }
+  async steer(text: string) {
+    if (!this.turn) throw new Error("No active Codex turn.");
+    await this.native.request("turn/steer", {
+      threadId: this.thread,
+      expectedTurnId: this.turn,
+      input: [{ type: "text", text, text_elements: [] }],
+    });
   }
   async cancel() {
     if (!this.turn) throw new Error("No active Codex turn.");
@@ -235,7 +248,12 @@ export class Codex implements Adapter {
     if (item.type === "agentMessage")
       this.emit({
         type: "item",
-        item: { id: item.id, kind: "assistant", text: item.text ?? "" },
+        item: {
+          id: item.id,
+          kind: "assistant",
+          text: item.text ?? "",
+          phase: item.phase,
+        },
       });
     else if (item.type === "userMessage") {
       if (history)

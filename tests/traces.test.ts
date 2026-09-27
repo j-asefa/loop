@@ -98,6 +98,17 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
             arguments: { title: `Source ${round}`, source: "graph TD; A-->B" },
           },
         };
+        recordTrace(run, "newer-tool:" + round, {
+          kind: "tool",
+          title: "Command",
+          content: "/bin/bash -lc 'gh pr list'",
+        });
+        expect(
+          listRuns("alice", [], true).find((r) => r.id === run.id)
+            ?.preview_artifact,
+        ).toMatchObject({
+          content: expect.stringContaining(`source ${round + 1}`),
+        });
         if (round === 7 && !paused) {
           paused = true;
           transition(run, "pausing");
@@ -146,16 +157,24 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
       feedUpdates("alice", { after, through: 0, agent: a.id }).items,
     ).toHaveLength(1);
     const traces = await get(`/agents/${a.id}/traces`);
-    expect(traces.items.filter((t: any) => t.kind === "tool")).toHaveLength(12);
-    expect(traces.items.some((t: any) => t.title === "Agent update")).toBe(false);
+    expect(traces.items.filter((t: any) => t.kind === "tool")).toHaveLength(24);
+    expect(
+      traces.items.filter((t: any) => t.title === "Agent update"),
+    ).toHaveLength(12);
     const messages = await get(`/agents/${a.id}/messages`);
+    expect(messages.items[0].final).toBe(1);
     expect(messages.items.filter((m: any) => !m.final)).toHaveLength(12);
     expect(messages.items.find((m: any) => m.final).content).toBe(
       "Final heliotrope answer.",
     );
     const conversation = await get(`/conversations/${run.conversation_id}`);
-    expect(conversation.messages.filter((m: any) => m.id.startsWith("trace:")))
-      .toHaveLength(12);
+    expect(
+      conversation.messages.filter((m: any) => m.id.startsWith("trace:")),
+    ).toHaveLength(12);
+    expect(conversation.messages[0].role).toBe("user");
+    expect(conversation.messages.at(-1).content).toBe(
+      "Final heliotrope answer.",
+    );
     expect((await get(`/agents/${a.id}/traces`, "bob")).error).toBe(
       "Item not found",
     );
@@ -168,6 +187,127 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
   } finally {
     restore();
   }
+});
+
+it("pages all public agent messages and keeps a final response's identity and completion order", async () => {
+  const a = agent();
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "User prompt stays separate",
+    idempotencyKey: id(),
+  });
+  const messageId = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','Streaming answer','{\"partial\":true}',1000)",
+  ).run(messageId, run.conversation_id, run.id);
+  for (let i = 0; i < 220; i++)
+    recordTrace(run, "message:" + i, {
+      kind: "message",
+      title: "Agent update",
+      content: "Public update " + i,
+    });
+  recordTrace(run, "tool", {
+    kind: "tool",
+    title: "Command",
+    content: "Raw command log",
+  });
+  recordTrace(run, "empty", {
+    kind: "message",
+    title: "Empty update",
+    content: "  ",
+  });
+  db.prepare("UPDATE run_traces SET created_at=2000 WHERE run_id=?").run(
+    run.id,
+  );
+  recordTrace(run, "answer", {
+    kind: "message",
+    title: "Agent update",
+    content: "Streaming answer",
+  });
+  db.prepare(
+    "UPDATE run_traces SET created_at=3000 WHERE run_id=? AND trace_key='answer'",
+  ).run(run.id);
+  const streaming = await get(`/agents/${a.id}/messages`);
+  expect(streaming.items[0]).toMatchObject({
+    content: "Streaming answer",
+    final: 0,
+  });
+  recordTrace(run, "answer", {
+    kind: "message",
+    title: "Final answer",
+    content: "Complete final answer",
+    metadata: { final: true },
+  });
+  db.prepare(
+    "UPDATE messages SET content='Complete final answer',metadata='{}' WHERE id=?",
+  ).run(messageId);
+  // An imported answer has no run trace, but is still part of Messages.
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'alice',?,'assistant','Imported answer',2500)",
+  ).run(id(), run.conversation_id);
+  const items: any[] = [];
+  let next: string | null = null;
+  do {
+    const page = await get(
+      `/agents/${a.id}/messages` +
+        (next ? "?before=" + encodeURIComponent(next) : ""),
+    );
+    expect(page.items.length).toBeLessThanOrEqual(50);
+    items.push(...page.items);
+    next = page.next;
+  } while (next);
+  expect(items).toHaveLength(222);
+  expect(new Set(items.map((item) => item.id)).size).toBe(222);
+  expect(items[0]).toMatchObject({
+    id: streaming.items[0].id,
+    content: "Complete final answer",
+    final: 1,
+    created_at: 3000,
+  });
+  expect(items[1]).toMatchObject({ content: "Imported answer", final: 1 });
+  expect(items.filter((item) => !item.final)).toHaveLength(220);
+  let history: any[] = [];
+  do {
+    const page = await get(
+      `/conversations/${run.conversation_id}` +
+        (next ? "?before=" + encodeURIComponent(next) : ""),
+    );
+    expect(page.messages.length).toBeLessThanOrEqual(50);
+    history = [...page.messages, ...history];
+    next = page.next;
+  } while (next);
+  expect(history).toHaveLength(223);
+  expect(new Set(history.map((item) => item.id)).size).toBe(223);
+  expect(history[0].content).toBe("User prompt stays separate");
+  expect(history.at(-2).content).toBe("Complete final answer");
+  expect(history.at(-1).content).toBe("Imported answer");
+  expect(
+    history.filter((item) => JSON.parse(item.metadata).progress),
+  ).toHaveLength(220);
+  const anchored = await get(
+    `/conversations/${run.conversation_id}?message=${history[100].id}`,
+  );
+  expect(
+    anchored.messages.some((item: any) => item.id === history[100].id),
+  ).toBe(true);
+  expect(
+    (await fetch(`${base}/conversations/${run.conversation_id}?before=invalid`))
+      .status,
+  ).toBe(400);
+  expect(
+    items.some((item) => /User prompt|Raw command/.test(item.content)),
+  ).toBe(false);
+  expect(
+    (await fetch(`${base}/agents/${a.id}/messages?before=garbage`)).status,
+  ).toBe(400);
+  expect(
+    (
+      await fetch(`${base}/agents/${a.id}/messages`, {
+        headers: { "x-owner": "bob" },
+      })
+    ).status,
+  ).toBe(404);
+  transition(run, "cancelled");
 });
 
 it("keeps cancellation effective after the old round limit", async () => {
@@ -331,6 +471,22 @@ it("hides already-saved Claude formatting receipts from traces and Running previ
       listRuns("alice", [], true).find((r) => r.id === run.id)
         ?.preview_artifact,
     ).toMatchObject({ content: "Checking the existing review" });
+    recordTrace(run, "newer-command", {
+      kind: "tool",
+      title: "Bash",
+      content: "/bin/bash -lc 'gh pr list'",
+    });
+    expect(
+      listRuns("alice", [], true).find((r) => r.id === run.id)
+        ?.preview_artifact,
+    ).toMatchObject({ content: "Checking the existing review" });
+    db.prepare("DELETE FROM run_traces WHERE run_id=? AND kind='message'").run(
+      run.id,
+    );
+    expect(
+      listRuns("alice", [], true).find((r) => r.id === run.id)
+        ?.preview_artifact,
+    ).toMatchObject({ content: "" });
     expect(
       db
         .prepare(
@@ -518,4 +674,142 @@ it("excludes Claude's formatting tool and receipt while retaining native tool er
       state: "failed",
     },
   ]);
+});
+
+it("preserves public progress deltas without leaking final envelopes or private reasoning", () => {
+  const items = new Map();
+  codexTrace(
+    {
+      method: "item/started",
+      params: {
+        item: {
+          id: "progress",
+          type: "agentMessage",
+          phase: "commentary",
+          text: "",
+        },
+      },
+    },
+    items,
+  );
+  expect(
+    codexTrace(
+      {
+        method: "item/agentMessage/delta",
+        params: { itemId: "progress", delta: "I checked the code. " },
+      },
+      items,
+    )?.content,
+  ).toBe("I checked the code. ");
+  expect(
+    codexTrace(
+      {
+        method: "item/agentMessage/delta",
+        params: { itemId: "progress", delta: "Now running tests." },
+      },
+      items,
+    )?.content,
+  ).toBe("I checked the code. Now running tests.");
+  expect(
+    codexTrace(
+      {
+        method: "item/completed",
+        params: {
+          item: {
+            id: "progress",
+            type: "agentMessage",
+            phase: "commentary",
+            text: "I checked the code. Now running tests.",
+          },
+        },
+      },
+      items,
+    )?.id,
+  ).toBe("progress");
+  expect(
+    codexTrace(
+      {
+        method: "item/completed",
+        params: {
+          item: {
+            id: "final",
+            type: "agentMessage",
+            phase: "final_answer",
+            text: "Done",
+          },
+        },
+      },
+      items,
+    ),
+  ).toBeUndefined();
+  expect(
+    codexTrace(
+      {
+        method: "item/agentMessage/delta",
+        params: { itemId: "envelope", delta: '{"kind":"answer"' },
+      },
+      items,
+    ),
+  ).toBeUndefined();
+  expect(
+    codexTrace(
+      {
+        method: "item/completed",
+        params: { item: { id: "hidden", type: "reasoning", text: "Private" } },
+      },
+      items,
+    ),
+  ).toBeUndefined();
+  expect(
+    claudeTraces({
+      type: "assistant",
+      message: {
+        id: "claude-progress",
+        content: [
+          { type: "thinking", thinking: "Private" },
+          { type: "text", text: "Public update" },
+        ],
+      },
+    }),
+  ).toMatchObject([{ kind: "message", content: "Public update" }]);
+});
+
+it("scopes failure details to the requested run and preserves owner/agent isolation", async () => {
+  const a = agent(),
+    foreign = agent("bob");
+  const first = submit("alice", {
+    agentId: a.id,
+    input: "Failed attempt",
+    idempotencyKey: id(),
+  });
+  const second = submit("alice", {
+    agentId: a.id,
+    input: "Other attempt",
+    idempotencyKey: id(),
+  });
+  const secret = submit("bob", {
+    agentId: foreign.id,
+    input: "Private attempt",
+    idempotencyKey: id(),
+  });
+  for (const run of [first, second, secret])
+    recordTrace(run, "run:failure", {
+      kind: "tool",
+      title: "Run failure",
+      content: run.input,
+      metadata: { state: "failed", isError: true },
+    });
+  const details = await get(`/agents/${a.id}/traces?run=${first.id}`);
+  expect(details.items).toHaveLength(1);
+  expect(details.items[0]).toMatchObject({
+    run_id: first.id,
+    content: "Failed attempt",
+  });
+  expect((await get(`/agents/${a.id}/traces?run=${secret.id}`)).items).toEqual(
+    [],
+  );
+  expect(
+    (await get(`/agents/${foreign.id}/traces?run=${secret.id}`)).error,
+  ).toBeDefined();
+  for (const run of [first, second, secret]) transition(run, "cancelled");
 });

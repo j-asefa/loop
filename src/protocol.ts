@@ -75,6 +75,7 @@ export type Item = {
   text: string;
   title?: string;
   status?: string;
+  phase?: "commentary" | "final_answer";
 };
 export type AdapterEvent =
   | { type: "status"; status: Status; detail?: string; recoverable?: boolean }

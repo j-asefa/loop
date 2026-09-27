@@ -40,8 +40,10 @@ export async function api<T = any>(
   path: string,
   body?: unknown,
   method?: string,
+  signal?: AbortSignal,
 ): Promise<T> {
   const r = await authorizedFetch("/api" + path, {
+    signal,
     method: method || (body ? "POST" : "GET"),
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -54,15 +56,17 @@ export async function api<T = any>(
     window.dispatchEvent(new Event("loop-auth-expired"));
     throw new Error("Sign in to Loop");
   }
-  const data = await r
-    .json()
-    .catch(() => ({ error: "Connection unavailable. Try again." }));
-  if (!r.ok) {
+  let parsed = true;
+  const data = await r.json().catch(() => {
+    parsed = false;
+    return { error: "Connection unavailable. Try again." };
+  });
+  if (!r.ok || !parsed) {
     if (r.status === 401) {
       clearAuthorization();
       window.dispatchEvent(new Event("loop-auth-expired"));
     }
-    throw new Error(data.error || data.message || "Request failed");
+    throw new Error(data?.error || data?.message || "Request failed");
   }
   return data;
 }

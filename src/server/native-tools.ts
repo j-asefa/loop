@@ -8,6 +8,7 @@ import { requestApproval } from "./approvals.js";
 import { saveArtifact } from "./artifacts.js";
 import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
+import { readRunFile } from "./uploads.js";
 
 const diagram = z.object({
   title: z.string().min(1).max(180),
@@ -26,6 +27,12 @@ const delegate = z.object({
     .max(8),
 });
 const schemas = {
+  loop_read_file: z.object({
+    fileId: z.string().uuid(),
+    offset: z.number().int().nonnegative().default(0),
+    length: z.number().int().min(1).max(16384).default(12000),
+    encoding: z.enum(["utf8", "base64"]).default("utf8"),
+  }),
   loop_diagram: diagram,
   loop_install_mcp: install,
   loop_delegate: delegate,
@@ -34,6 +41,8 @@ export function nativeBindings(run: Run): ToolBinding[] {
   const teamId = JSON.parse(run.payload).teamId;
   const team = teamId ? owned<any>("teams", teamId, run.owner_id) : null;
   const descriptions: Record<string, string> = {
+    loop_read_file:
+      "Read an uploaded file attached to this conversation. Offsets and lengths are bytes; use nextOffset to continue. Use utf8 for text or base64 for binary files. Decode base64 locally before using native document/image tools. Reading attached files needs no additional approval.",
     loop_diagram:
       "Create a native Mermaid flowchart or diagram in Loop. No installation needed. Supply plain Mermaid source without HTML, click handlers or directives.",
     loop_install_mcp:
@@ -90,7 +99,12 @@ export async function invokeNative(
   ).run(run.id, callId, binding.tool, encoded);
   let text: string,
     artifactId = "";
-  if (binding.tool === "loop_diagram") {
+  if (binding.tool === "loop_read_file") {
+    const file = schemas.loop_read_file.parse(args);
+    text = JSON.stringify(
+      readRunFile(run, file.fileId, file.offset, file.length, file.encoding),
+    );
+  } else if (binding.tool === "loop_diagram") {
     const d = diagram.parse(args);
     if (/%%\{|\bclick\s|<\/?[a-z]/i.test(d.source))
       throw new Problem(400, "Use plain, noninteractive Mermaid source");

@@ -2,9 +2,15 @@ import { useEffect, useState } from "react";
 import { api, parse } from "./api";
 import { Sheet } from "./components";
 import { McpCatalog } from "./McpCatalog";
-export function Tools({ onClose }: { onClose: () => void }) {
+export function Tools({
+  onClose,
+  initialView = "catalog",
+}: {
+  onClose: () => void;
+  initialView?: "catalog" | "permissions";
+}) {
   const [connections, setConnections] = useState<any[]>([]),
-    [view, setView] = useState("catalog"),
+    [view, setView] = useState<string>(initialView),
     [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState("datadog"),
     [editing, setEditing] = useState<string | null>(null),
@@ -62,53 +68,6 @@ export function Tools({ onClose }: { onClose: () => void }) {
         Install once for your whole workspace. Connected MCPs are available to
         all your current and future agents.
       </p>
-      <section className="tool-approval-preferences">
-        <label>
-          Tool approvals
-          <select
-            aria-label="Tool approvals"
-            value={approvalMode || "ask"}
-            disabled={busy || !approvalMode}
-            onChange={(e) => {
-              const mode = e.target.value as "ask" | "allow";
-              void action(async () => {
-                const result = await api(
-                  "/mcp/preferences",
-                  { approvalMode: mode },
-                  "PUT",
-                );
-                setApprovalMode(result.approvalMode);
-                setNotice(
-                  mode === "allow"
-                    ? `Connected tools can run automatically.${result.resumed ? ` ${result.resumed} waiting ${result.resumed === 1 ? "task has" : "tasks have"} resumed.` : ""}`
-                    : "New tool calls will ask for your approval.",
-                );
-              });
-            }}
-          >
-            <option value="ask">Ask every time</option>
-            <option value="allow">Allow connected tools</option>
-          </select>
-        </label>
-        <p className="field-hint">
-          {approvalMode === "allow"
-            ? "All your agents can use connected MCP tools without stopping for approval. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
-            : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
-        </p>
-        <p className="field-hint">
-          Allow connected tools also gives managed coding agents your connected
-          GitHub token in their shell environment, with its full permissions.
-          Shell commands can read and transmit that token; output redaction does
-          not prevent this. Enable it only for agents and content you trust.
-          Agents using the same subscription account share a filesystem and can
-          read or modify each other’s workspaces.
-        </p>
-        <p className="field-hint">
-          Managed coding runs stop after 60 minutes without provider output,
-          including during silent builds or CI waits. Saved partial work remains
-          available to inspect before retrying.
-        </p>
-      </section>
       {error && (
         <p className="error" role="alert">
           {error}
@@ -119,21 +78,12 @@ export function Tools({ onClose }: { onClose: () => void }) {
           {notice}
         </p>
       )}
-      {view !== "catalog" && (
-        <section className="note">
-          <strong>Included with Loop</strong>
-          <p>
-            Native flowcharts and Mermaid diagrams are ready for every agent.
-            Agents can also request MCP installation here, with your approval.
-          </p>
-        </section>
-      )}
       <div className="actions tools-views" role="group" aria-label="Tools view">
         <button
           aria-pressed={view === "catalog"}
           onClick={() => setView("catalog")}
         >
-          Browse catalog
+          Catalog
         </button>
         <button
           aria-pressed={view === "installed"}
@@ -146,9 +96,64 @@ export function Tools({ onClose }: { onClose: () => void }) {
           aria-pressed={view === "custom"}
           onClick={() => setView("custom")}
         >
-          Custom server
+          Custom
+        </button>
+        <button
+          aria-pressed={view === "permissions"}
+          onClick={() => setView("permissions")}
+        >
+          Permissions
         </button>
       </div>
+      {view === "permissions" && (
+        <section className="tool-approval-preferences">
+          <label>
+            Tool approvals
+            <select
+              aria-label="Tool approvals"
+              value={approvalMode || "ask"}
+              disabled={busy || !approvalMode}
+              onChange={(e) => {
+                const mode = e.target.value as "ask" | "allow";
+                void action(async () => {
+                  const result = await api(
+                    "/mcp/preferences",
+                    { approvalMode: mode },
+                    "PUT",
+                  );
+                  setApprovalMode(result.approvalMode);
+                  setNotice(
+                    mode === "allow"
+                      ? `Connected tools can run automatically.${result.resumed ? ` ${result.resumed} waiting ${result.resumed === 1 ? "task has" : "tasks have"} resumed.` : ""}`
+                      : "New tool calls will ask for your approval.",
+                  );
+                });
+              }}
+            >
+              <option value="ask">Ask every time</option>
+              <option value="allow">Allow connected tools</option>
+            </select>
+          </label>
+          <p className="field-hint">
+            {approvalMode === "allow"
+              ? "All your agents can use connected MCP tools without stopping for approval. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
+              : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
+          </p>
+          <p className="field-hint">
+            Allow connected tools also gives managed coding agents your
+            connected GitHub token in their shell environment, with its full
+            permissions. Shell commands can read and transmit that token; output
+            redaction does not prevent this. Enable it only for agents and
+            content you trust. Agents using the same subscription account share
+            a filesystem and can read or modify each other’s workspaces.
+          </p>
+          <p className="field-hint">
+            Managed coding runs stop after 60 minutes without provider output,
+            including during silent builds or CI waits. Saved partial work
+            remains available to inspect before retrying.
+          </p>
+        </section>
+      )}
       {view === "catalog" && (
         <McpCatalog
           connections={connections}
@@ -220,6 +225,12 @@ export function Tools({ onClose }: { onClose: () => void }) {
       )}
       {view === "installed" && (
         <>
+          {connections.length === 0 && (
+            <p>
+              No tools installed yet. Browse the catalog to connect your first
+              integration.
+            </p>
+          )}
           <label>
             Find connections
             <input
@@ -276,7 +287,7 @@ export function Tools({ onClose }: { onClose: () => void }) {
                     }
                     title={
                       c.authType === "query"
-                        ? "Use Edit setup in Browse catalog to update this key"
+                        ? "Use Edit setup in Catalog to update this key"
                         : undefined
                     }
                     onClick={() => {

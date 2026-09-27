@@ -31,8 +31,8 @@ export async function tracesJourney(page, api, base, dir) {
   const update =
     "Checking **public sources**.\n\n- First source is ready\n- Comparing the next source";
   try {
-    // The implicit first recipient must inherit its project; an explicit inbox
-    // choice must still be sent as null. Inspect requests without running a model.
+    // Recipient selection persists across reloads. Explicitly choose this fixture
+    // and verify that new messages inherit its project without a project picker.
     await page.goto(base);
     const submitted = [];
     const reject = async (route) => {
@@ -48,12 +48,12 @@ export async function tracesJourney(page, api, base, dir) {
     await page
       .getByRole("button", { name: "Compose a message", exact: true })
       .click();
+    await page
+      .getByLabel("Agent recipient", { exact: true })
+      .selectOption(agent.id);
     await expect(
-      page.getByLabel("Agent recipient", { exact: true }),
-    ).toHaveValue(agent.id);
-    await expect(page.getByLabel("Project", { exact: true })).toHaveValue(
-      project.id,
-    );
+      page.locator(".composer").getByLabel("Project", { exact: true }),
+    ).toHaveCount(0);
     await page
       .getByLabel("Message your agent")
       .fill("Fixture project destination");
@@ -62,12 +62,21 @@ export async function tracesJourney(page, api, base, dir) {
       .click();
     await expect.poll(() => submitted.length).toBe(1);
     assert.equal(submitted[0].folderId, project.id);
-    await page.getByLabel("Project", { exact: true }).selectOption("");
+    const inboxAgent = (await api("/bootstrap")).agents.find(
+      (a) => a.connection_id && !a.folder_id,
+    );
+    assert(inboxAgent, "The fixture has an inbox agent");
+    await page
+      .getByLabel("Agent recipient", { exact: true })
+      .selectOption(inboxAgent.id);
     await page
       .getByRole("button", { name: "Send message", exact: true })
       .click();
     await expect.poll(() => submitted.length).toBe(2);
-    assert.equal(submitted[1].folderId, null);
+    assert.equal(submitted[1].folderId, undefined);
+    await page
+      .getByLabel("Agent recipient", { exact: true })
+      .selectOption(agent.id);
     await page.getByLabel("Message your agent").fill("");
     await page.unroute("**/api/runs", reject);
     db.transaction(() => {
@@ -207,11 +216,93 @@ export async function tracesJourney(page, api, base, dir) {
       .filter({ hasText: "@trace-browser-agent" })
       .click();
     await page.getByRole("button", { name: "Messages", exact: true }).click();
-    await expect(page.getByRole("region", { name: "Agent messages" }))
-      .toContainText("public sources");
+    await expect(
+      page.getByRole("region", { name: "Agent messages" }),
+    ).toContainText("public sources");
+    const updateCard = page
+      .getByRole("region", { name: "Agent messages" })
+      .locator(".feed-card")
+      .first();
+    const selectedMessage = (await api(`/agents/${agent.id}/messages`))
+      .items[0];
+    const replies = [];
+    const sendReply = async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      replies.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: replies.length === 1 ? 503 : 202,
+        contentType: "application/json",
+        body: JSON.stringify(
+          replies.length === 1
+            ? { error: "Fixture reply unavailable" }
+            : { id: "accepted" },
+        ),
+      });
+    };
+    await page.route("**/api/runs", sendReply);
+    await updateCard
+      .getByRole("button", { name: "Reply", exact: true })
+      .click();
+    const replySheet = page.getByRole("dialog", {
+      name: `Reply to @${agent.name}`,
+      exact: true,
+    });
+    await expect(replySheet.locator(".message-reply-quote")).toContainText(
+      "Comparing the next source",
+    );
+    await expect(
+      replySheet.getByRole("textbox", { name: "Reply to agent", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(
+        (theme) => (document.documentElement.dataset.theme = theme),
+        theme,
+      );
+      await page.screenshot({
+        path: join(
+          tmpdir(),
+          `loop-message-reply-${process.env.LOOP_BROWSER || "chromium"}-${theme}.png`,
+        ),
+      });
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        "Message replies fit the mobile viewport",
+      );
+    }
+    await replySheet
+      .getByRole("textbox", { name: "Reply to agent", exact: true })
+      .fill("Why is that source reliable?");
+    await replySheet
+      .getByRole("button", { name: "Send reply", exact: true })
+      .click();
+    await expect(replySheet.getByRole("alert")).toContainText(
+      "Fixture reply unavailable",
+    );
+    await replySheet
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await updateCard
+      .getByRole("button", { name: "Reply", exact: true })
+      .click();
+    await expect(
+      replySheet.getByRole("textbox", { name: "Reply to agent", exact: true }),
+    ).toHaveValue("Why is that source reliable?");
+    await replySheet
+      .getByRole("button", { name: "Send reply", exact: true })
+      .click();
+    await expect(replySheet).toHaveCount(0);
+    assert.equal(replies.length, 2);
+    assert.equal(replies[0].idempotencyKey, replies[1].idempotencyKey);
+    assert.equal(replies[1].replyToMessageId, selectedMessage.id);
+    assert.equal(replies[1].agentId, agent.id);
+    assert.equal(replies[1].conversationId, conversation);
+    assert.equal(replies[1].input, "Why is that source reliable?");
+    await page.unroute("**/api/runs", sendReply);
     await page.getByRole("button", { name: "Traces", exact: true }).click();
     const traces = page.getByRole("region", { name: "Agent traces" });
-    await expect(traces).not.toContainText("public sources");
+    await expect(traces).toContainText("public sources");
     const errorTrace = traces
       .locator(".trace-card")
       .filter({ hasText: "pull request review write" });
@@ -221,7 +312,7 @@ export async function tracesJourney(page, api, base, dir) {
       "Can not request changes on your own pull request",
     );
     await traces.getByRole("button", { name: "View tool result" }).click();
-    await expect(page.getByRole("dialog")).toContainText(
+    await expect(page.locator("dialog[open]").last()).toContainText(
       "Useful evidence from the source.",
     );
     await page
@@ -278,7 +369,106 @@ export async function tracesJourney(page, api, base, dir) {
         ).toHaveCount(0);
       }
     }
+    await page.getByRole("button", { name: "Messages", exact: true }).click();
+    const messageList = page.getByRole("region", { name: "Agent messages" });
+    const earlierMessages = messageList.getByRole("button", {
+      name: "Earlier messages",
+      exact: true,
+    });
+    await expect(messageList.locator(".feed-card")).toHaveCount(1);
+    for (let burst = 0; burst < 2; burst++) {
+      db.transaction(() => {
+        const insert = db.prepare(
+          "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES(?,?,?,'message','Agent update',?,'{}',?)",
+        );
+        for (let i = 0; i < 65; i++)
+          insert.run(
+            owner,
+            run,
+            `message:${burst}:${i}`,
+            `Progress update ${burst * 65 + i}`,
+            Date.now(),
+          );
+        db.prepare(
+          "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'progress','{}',?)",
+        ).run(owner, run, Date.now());
+      })();
+      await expect(messageList.locator(".feed-card")).toHaveCount(
+        1 + burst * 65 + 50,
+      );
+      while (await earlierMessages.count()) {
+        await earlierMessages.click();
+        await expect(
+          messageList.getByRole("button", { name: "Loading…", exact: true }),
+        ).toHaveCount(0);
+      }
+      await expect(messageList.locator(".feed-card")).toHaveCount(
+        1 + (burst + 1) * 65,
+      );
+    }
+    await messageList
+      .locator(".feed-card")
+      .first()
+      .getByRole("button", { name: "Open conversation", exact: true })
+      .click();
+    const liveConversation = page.locator("dialog[open]").last();
+    const loadHistory = async (dialog) => {
+      const earlier = dialog.getByRole("button", {
+        name: "Load earlier messages",
+        exact: true,
+      });
+      while (await earlier.count()) {
+        await earlier.click();
+        await expect
+          .poll(() =>
+            earlier.evaluateAll(
+              (buttons) => !buttons.length || !buttons[0].disabled,
+            ),
+          )
+          .toBe(true);
+      }
+    };
+    await expect(liveConversation.locator(".agent-progress")).toHaveCount(49);
+    await loadHistory(liveConversation);
+    await expect(liveConversation.locator(".agent-progress")).toHaveCount(131);
     db.transaction(() => {
+      const insert = db.prepare(
+        "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES(?,?,?,'message','Agent update',?,'{}',?)",
+      );
+      for (let i = 0; i < 65; i++)
+        insert.run(
+          owner,
+          run,
+          `live-message:${i}`,
+          `Live conversation update ${i}`,
+          Date.now(),
+        );
+      db.prepare(
+        "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'progress','{}',?)",
+      ).run(owner, run, Date.now());
+    })();
+    await expect(
+      liveConversation.getByRole("button", {
+        name: "Load earlier messages",
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 10000 });
+    await loadHistory(liveConversation);
+    await expect(liveConversation.locator(".agent-progress")).toHaveCount(196);
+    await liveConversation
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    while (await earlierMessages.count()) {
+      await earlierMessages.click();
+      await expect(
+        messageList.getByRole("button", { name: "Loading…", exact: true }),
+      ).toHaveCount(0);
+    }
+    await expect(messageList.locator(".feed-card")).toHaveCount(196);
+    db.transaction(() => {
+      db.prepare(
+        "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES(?,?,'final','message','Final answer','Final heliotrope browser answer','{\"final\":true}',?)",
+      ).run(owner, run, Date.now());
       db.prepare(
         "UPDATE messages SET content='Final heliotrope browser answer',metadata='{}' WHERE id=?",
       ).run(message);
@@ -296,7 +486,43 @@ export async function tracesJourney(page, api, base, dir) {
         "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'state','{}',?)",
       ).run(owner, run, Date.now());
     })();
-    await page.getByRole("button", { name: "Outputs", exact: true }).click();
+    await expect(messageList.locator(".feed-card")).toHaveCount(197);
+    await expect(messageList.locator(".feed-card").first()).toContainText(
+      "Final heliotrope browser answer",
+    );
+    await messageList
+      .locator(".feed-card")
+      .first()
+      .getByRole("button", { name: "Open conversation", exact: true })
+      .click();
+    const conversationDialog = page.locator("dialog[open]").last();
+    await expect(conversationDialog.locator(".agent-progress")).toHaveCount(49);
+    while (
+      await conversationDialog
+        .getByRole("button", { name: "Load earlier messages", exact: true })
+        .count()
+    ) {
+      const previous = await conversationDialog.locator(".message").count();
+      await conversationDialog
+        .getByRole("button", { name: "Load earlier messages", exact: true })
+        .click();
+      await expect
+        .poll(() => conversationDialog.locator(".message").count())
+        .toBeGreaterThan(previous);
+    }
+    await expect(conversationDialog.locator(".agent-progress")).toHaveCount(
+      196,
+    );
+    await expect(conversationDialog.locator(".message").last()).toContainText(
+      "Final heliotrope browser answer",
+    );
+    await expect(conversationDialog.locator(".messages")).not.toContainText(
+      "pull_request_review_write",
+    );
+    await conversationDialog
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Results", exact: true }).click();
     await expect(page.locator(".feed-card")).toHaveCount(1);
     await expect(page.locator(".feed-card")).toContainText(
       "Final heliotrope browser answer",

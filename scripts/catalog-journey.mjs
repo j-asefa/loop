@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -8,29 +9,37 @@ export async function catalogJourney(page, api, base) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   const catalog = page.getByRole("region", { name: "MCP catalog" });
-  const catalogSize = (await api("/mcp/catalog")).entries.length;
+  const catalogSize = (await api("/mcp/catalog")).entries.filter(
+    (entry) =>
+      !/\bdeprecated\b/i.test(`${entry.description} ${entry.note || ""}`),
+  ).length;
   await expect(
-    catalog.getByText(`Showing ${catalogSize} of ${catalogSize} tools`, { exact: true }),
+    catalog.getByText(`${catalogSize} tools available`, { exact: true }),
   ).toBeVisible();
   await expect(catalog.getByRole("article")).toHaveCount(catalogSize);
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 844 });
     assert.ok(
       await page
-        .locator("dialog")
+        .locator("dialog[open]")
+        .last()
         .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
       "Catalog fits viewport " + width,
     );
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  await catalog.getByRole("button", { name: "Databases", exact: true }).click();
+  await catalog
+    .getByRole("combobox", { name: /^Category/ })
+    .selectOption("Databases");
   await expect(
     catalog.getByRole("article", { name: "MongoDB", exact: true }),
   ).toBeVisible();
   await expect(
     catalog.getByRole("article", { name: "GitHub", exact: true }),
   ).toHaveCount(0);
-  await catalog.getByRole("button", { name: "All", exact: true }).click();
+  await catalog
+    .getByRole("combobox", { name: /^Category/ })
+    .selectOption("All");
   await catalog.getByLabel("No credentials listed", { exact: true }).check();
   assert.ok((await catalog.getByRole("article").count()) >= 5);
   await expect(
@@ -75,9 +84,7 @@ export async function catalogJourney(page, api, base) {
   await expect(
     installed.getByRole("button", { name: "Enable", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Browse catalog", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Catalog", exact: true }).click();
   await catalog.getByLabel("Search tools").fill("deepwiki");
   await catalog
     .getByRole("button", { name: "Install DeepWiki", exact: true })
@@ -92,12 +99,16 @@ export async function catalogJourney(page, api, base) {
     1,
   );
   await catalog.getByLabel("Search tools").fill("");
-  await page.locator("dialog").evaluate((el) => el.scrollTo(0, 0));
+  await page
+    .locator("dialog[open]")
+    .last()
+    .locator(".sheet-body")
+    .evaluate((el) => el.scrollTo(0, 0));
   await page.screenshot({
     path: join(tmpdir(), "loop-mcp-catalog.png"),
     fullPage: false,
   });
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
@@ -105,7 +116,7 @@ export async function catalogJourney(page, api, base) {
   await expect(
     catalog.getByRole("button", { name: "DeepWiki installed", exact: true }),
   ).toBeDisabled();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   console.log(
     `PASS: ${catalogSize}-tool catalog, category/search filters, 320/390/768px layouts, one-click install, secret form, re-enable without duplication and installed state after reload (fixture MCP).`,
   );

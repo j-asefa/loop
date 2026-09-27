@@ -1,4 +1,5 @@
 import { NativeOutput } from "./native-output.js";
+import { SteeringInbox } from "./steering.js";
 import { realpathSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { createHash } from "node:crypto";
@@ -6,6 +7,7 @@ import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordTrace } from "./traces.js";
+import { attachedFiles, localAttachmentPrompt } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
 import { Codex } from "../adapters/codex.js";
 import { Claude } from "../adapters/claude.js";
@@ -20,6 +22,7 @@ import {
   type Request,
 } from "../protocol.js";
 import type { Snapshot } from "./agent-runtime.js";
+import { replyPrompt } from "../shared/replies.js";
 
 export const OWNER = "local-workspace";
 const classes = { codex: Codex, claude: Claude, pi: Pi, opencode: OpenCode };
@@ -338,7 +341,10 @@ export class NativeSessions {
       if (current && !current.closed) {
         await current.ready;
         if (current.run)
-          throw new Problem(409, "This native conversation is already running.");
+          throw new Problem(
+            409,
+            "This native conversation is already running.",
+          );
         await this.dispose(current);
       }
       db.prepare(
@@ -589,16 +595,21 @@ export class NativeSessions {
       .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
       .get(run.id) as any;
     if (!checkpoint) return;
-    const output = [...live.items.values()]
-      .filter((i) => i.kind === "assistant")
-      .map((i) => i.text)
-      .join("\n\n")
-      .slice(-1_000_000);
+    const finalItem = !partial
+      ? [...live.items.values()].findLast(
+          (i) =>
+            i.kind === "assistant" && i.phase !== "commentary" && i.text.trim(),
+        )
+      : undefined;
+    // Progress remains durable in Messages/Traces. Publish only the last reply
+    // after the harness confirms that the turn completed successfully.
+    const output = finalItem?.text || "";
     const metadata = JSON.stringify({
       ...JSON.parse(run.payload),
       partial,
       native: true,
       messageId: checkpoint.message_id,
+      finalNativeItemId: finalItem?.id,
     });
     db.transaction(() => {
       if (
@@ -633,7 +644,21 @@ export class NativeSessions {
           JSON.stringify(item),
           now(),
         );
+        if (item.kind === "assistant")
+          recordTrace(run, `native-message:${item.id}`, {
+            kind: "message",
+            title: "Agent update",
+            content: item.text,
+            metadata: { native: true, itemId: item.id, final: false },
+          });
       }
+      if (finalItem)
+        recordTrace(run, `native-message:${finalItem.id}`, {
+          kind: "message",
+          title: "Final answer",
+          content: finalItem.text,
+          metadata: { native: true, itemId: finalItem.id, final: true },
+        });
       emit(run.owner_id, run.id, "message.delta", {
         messageId: checkpoint.message_id,
         native: true,
@@ -657,6 +682,7 @@ export class NativeSessions {
     live.run = run;
     live.cancelling = false;
     const snapshot = JSON.parse(run.payload) as Snapshot;
+    const input = replyPrompt(run.input, snapshot.replyTo);
     db.transaction(() => {
       const messageId = id();
       db.prepare(
@@ -679,7 +705,7 @@ export class NativeSessions {
       ).run(
         run.id,
         live.generation,
-        createHash("sha256").update(run.input).digest("hex"),
+        createHash("sha256").update(input).digest("hex"),
         now(),
       );
       db.prepare(
@@ -704,11 +730,35 @@ export class NativeSessions {
           (snapshot as any).maxSeconds * 1000,
         )
       : undefined;
+    const steering = new SteeringInbox(run);
+    let stopSteering: (() => Promise<void>) | undefined;
     try {
-      await live.adapter.prompt(run.input);
+      await live.adapter.prompt(
+        localAttachmentPrompt(
+          run.owner_id,
+          input,
+          attachedFiles(run.owner_id, snapshot.attachmentIds || []),
+        ),
+      );
       db.prepare(
         "UPDATE native_dispatch SET state='accepted' WHERE run_id=? AND state='unknown'",
       ).run(run.id);
+      stopSteering = steering.listen(async (message) => {
+        if (
+          !live.adapter.steer ||
+          live.closed ||
+          live.cancelling ||
+          live.run?.id !== run.id
+        )
+          throw new Error("This native turn cannot accept live input");
+        await live.adapter.steer(
+          localAttachmentPrompt(
+            run.owner_id,
+            message.content,
+            message.attachments || [],
+          ),
+        );
+      });
       const state = await complete;
       const current = owned<Run>("runs", run.id, run.owner_id).state;
       if (current === "cancelled") return false;
@@ -736,6 +786,7 @@ export class NativeSessions {
       await this.dispose(live);
       return false;
     } finally {
+      await stopSteering?.();
       clearInterval(poll);
       clearTimeout(deadline);
       clearTimeout(live.flush);

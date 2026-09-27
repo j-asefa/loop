@@ -43,6 +43,8 @@ const send=m=>process.stdout.write(JSON.stringify(m)+'\n');
 if(args[0]==='auth') {
  if(args[1]!=='status') { fs.writeFileSync(path.join(home,'auth-mutated'),'yes');process.exit(2); }
  send({loggedIn:fs.readFileSync(auth,'utf8')==='subscription',authMethod:'claude.ai',subscriptionType:'fixture'});
+} else if(args.includes('--input-format')) {
+ require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:{models:[{value:'fixture',displayName:'Fixture',supportedEffortLevels:['low','max']}],commands:[]}}});});
 } else {
  if(args.includes('--tools')||args.includes('--strict-mcp-config')||args.includes('--max-turns')||args[args.indexOf('--permission-mode')+1]!=='bypassPermissions')process.exit(3);
  let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{
@@ -146,7 +148,9 @@ it("pairs a native host, runs tools in its project with its configuration, and u
     authenticated: true,
     authMode: "subscription",
   });
-  expect(login.models.map((m: any) => m.id)).toContain("sonnet");
+  expect(login.models).toMatchObject([
+    { id: "fixture", effortLevels: [{ value: "low" }, { value: "max" }] },
+  ]);
   const response = await request("turn", { input: input() });
   const events = (await response.text())
     .trim()

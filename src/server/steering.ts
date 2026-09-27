@@ -1,0 +1,146 @@
+import { db, emit, id, now } from "./db.js";
+import { owned, Problem } from "./domain.js";
+import type { Run } from "./queue.js";
+import type { ChatMessage } from "./providers.js";
+import { attachmentPrompt } from "./uploads.js";
+import { replyPrompt } from "../shared/replies.js";
+
+type Delivery = (message: ChatMessage, id: string) => Promise<void>;
+type Input = {
+  id: string;
+  message_id: string;
+  content: string;
+  metadata: string;
+};
+
+export function steeringReceipt(owner: string, key: string, request: string) {
+  const prior = db
+    .prepare(
+      "SELECT * FROM run_steering WHERE owner_id=? AND idempotency_key=?",
+    )
+    .get(owner, key) as
+    { request: string; run_id: string; id: string } | undefined;
+  if (!prior) return;
+  if (prior.request !== request)
+    throw new Problem(409, "This request key belongs to different work");
+  return { ...owned<Run>("runs", prior.run_id, owner), steeringId: prior.id };
+}
+
+export function saveSteering(
+  run: Run,
+  key: string,
+  request: string,
+  content: string,
+  metadata: object,
+) {
+  const steeringId = id(),
+    messageId = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
+  ).run(
+    messageId,
+    run.owner_id,
+    run.conversation_id,
+    run.id,
+    content,
+    JSON.stringify({ ...metadata, steeringId }),
+    now(),
+  );
+  db.prepare(
+    "INSERT INTO run_steering(id,owner_id,run_id,message_id,idempotency_key,request,created_at) VALUES(?,?,?,?,?,?,?)",
+  ).run(steeringId, run.owner_id, run.id, messageId, key, request, now());
+  emit(run.owner_id, run.id, "steering.pending", { messageId, steeringId });
+  return { ...run, steeringId };
+}
+
+function message(input: Input): ChatMessage {
+  const metadata = JSON.parse(input.metadata);
+  return {
+    role: "user",
+    content: attachmentPrompt(
+      replyPrompt(input.content, metadata.replyTo),
+      metadata.attachments || [],
+    ),
+    attachments: metadata.attachments || [],
+  };
+}
+
+/** The worker owns delivery. Pending input is durable; an uncertain dispatch is
+ * never replayed. A listener exists only while its exact native turn is alive. */
+export class SteeringInbox {
+  private busy?: Promise<void>;
+  private listener?: Delivery;
+  private timer?: ReturnType<typeof setInterval>;
+  constructor(
+    private run: Run,
+    private delivered: (message: ChatMessage) => void = () => {},
+  ) {}
+  private pending() {
+    return db
+      .prepare(
+        "SELECT s.id,s.message_id,m.content,m.metadata FROM run_steering s JOIN messages m ON m.id=s.message_id WHERE s.run_id=? AND s.state='pending' ORDER BY s.created_at,s.rowid",
+      )
+      .all(this.run.id) as Input[];
+  }
+  private receipt(input: Input, state: string, error?: string) {
+    db.prepare(
+      "UPDATE run_steering SET state=?,error=? WHERE id=? AND state IN ('pending','sending')",
+    ).run(state, error || null, input.id);
+    emit(this.run.owner_id, this.run.id, "steering." + state, {
+      messageId: input.message_id,
+    });
+  }
+  listen(deliver: Delivery) {
+    if (this.listener || this.busy)
+      throw new Error("Steering listener already active");
+    this.listener = deliver;
+    const pump = () => {
+      if (this.busy || this.listener !== deliver) return;
+      const input = this.pending()[0];
+      if (!input) return;
+      const claimed = db
+        .prepare(
+          "UPDATE run_steering SET state='sending' WHERE id=? AND state='pending' AND EXISTS(SELECT 1 FROM runs WHERE id=run_id AND state IN ('running','awaiting_approval'))",
+        )
+        .run(input.id).changes;
+      if (!claimed) return;
+      this.busy = (async () => {
+        try {
+          const value = message(input);
+          await deliver(value, input.id);
+          db.transaction(() => {
+            this.delivered(value);
+            this.receipt(input, "delivered");
+          }).immediate();
+        } catch {
+          this.receipt(
+            input,
+            "failed",
+            "Live delivery could not be confirmed. Review the agent's messages before sending again.",
+          );
+        }
+      })().finally(() => {
+        this.busy = undefined;
+      });
+    };
+    this.timer = setInterval(pump, 100);
+    pump();
+    return async () => {
+      if (this.listener === deliver) {
+        this.listener = undefined;
+        clearInterval(this.timer);
+      }
+      await this.busy;
+    };
+  }
+  // Use at an ordinary model boundary, inside the same transaction that saves
+  // its history/checkpoint. This also catches sends racing with turn completion.
+  appendPending(history: ChatMessage[]) {
+    const pending = this.pending();
+    for (const input of pending) {
+      history.push(message(input));
+      this.receipt(input, "delivered");
+    }
+    return pending.length;
+  }
+}

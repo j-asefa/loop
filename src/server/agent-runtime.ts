@@ -14,7 +14,11 @@ import {
 } from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordTrace } from "./traces.js";
+import { attachedFiles, attachmentPrompt } from "./uploads.js";
 import { toolErrorMessage } from "./mcp/results.js";
+import { messageReplyContext } from "./message-replies.js";
+import { replyPrompt, type ReplyContext } from "../shared/replies.js";
+import { saveSteering, steeringReceipt, SteeringInbox } from "./steering.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 export type Snapshot = {
   agentId: string;
@@ -29,6 +33,8 @@ export type Snapshot = {
   maxSeconds?: number;
   source?: { url: string; title: string; excerpt: string };
   teamId?: string;
+  attachmentIds?: string[];
+  replyTo?: ReplyContext;
 };
 export function submit(
   owner: string,
@@ -40,11 +46,28 @@ export function submit(
     folderId?: string | null;
     source?: { url: string; title: string; excerpt: string };
     teamId?: string;
+    attachmentIds?: string[];
+    replyToMessageId?: string;
+    // Internal retries preserve the original quote, even if the source changed.
+    replyTo?: ReplyContext;
+    // User follow-ups steer active work. Internal delegation/retry creates work.
+    steer?: boolean;
   },
 ) {
   return db
     .transaction(() => {
+      const request = JSON.stringify({
+        agentId: data.agentId,
+        conversationId: data.conversationId,
+        input: data.input,
+        folderId: data.folderId,
+        attachmentIds: data.attachmentIds || [],
+        replyToMessageId: data.replyToMessageId,
+      });
+      const steered = steeringReceipt(owner, data.idempotencyKey, request);
+      if (steered) return steered;
       const agent = owned<Agent>("agents", data.agentId, owner);
+      const attachments = attachedFiles(owner, data.attachmentIds || []);
       if (!agent.connection_id)
         throw new Problem(409, "Connect a provider to this agent first");
       const connection = owned<Connection>(
@@ -65,22 +88,49 @@ export function submit(
           (data.conversationId &&
             prior.conversation_id !== data.conversationId) ||
           (data.folderId !== undefined &&
-            JSON.parse(prior.payload).folderId !== data.folderId)
+            JSON.parse(prior.payload).folderId !== data.folderId) ||
+          JSON.stringify(JSON.parse(prior.payload).attachmentIds || []) !==
+            JSON.stringify(attachments.map((file) => file.id)) ||
+          JSON.parse(prior.payload).replyTo?.id !==
+            (data.replyToMessageId || data.replyTo?.id)
         )
           throw new Problem(409, "This request key belongs to different work");
         return prior;
       }
+      const replyTo =
+        data.replyTo ||
+        (data.replyToMessageId
+          ? messageReplyContext(
+              owner,
+              agent.id,
+              data.conversationId,
+              data.replyToMessageId,
+            )
+          : undefined);
       let conversation = data.conversationId,
         teamId = data.teamId;
+      if (data.steer && !conversation) {
+        const active = db
+          .prepare(
+            "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC",
+          )
+          .all(owner, agent.id) as Run[];
+        if (active.length > 1)
+          throw new Problem(
+            409,
+            "This agent has several active conversations. Open the one you want to steer and reply there.",
+          );
+        conversation = active[0]?.conversation_id || undefined;
+      }
       if (!conversation && !teamId) {
         const managerTeam = db
           .prepare(
-            "SELECT conversation_id,id FROM teams WHERE owner_id=? AND manager_id=? ORDER BY created_at DESC LIMIT 1",
+            "SELECT conversation_id,id FROM teams WHERE owner_id=? AND manager_id=? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
           )
           .get(owner, agent.id) as
           { conversation_id: string; id: string } | undefined;
         if (managerTeam) {
-          conversation = managerTeam.conversation_id;
+          conversation = managerTeam.conversation_id || undefined;
           teamId = managerTeam.id;
         }
       }
@@ -96,6 +146,27 @@ export function submit(
           throw new Problem(400, "This conversation belongs to another agent");
         if (teamId && c.team_id !== teamId)
           throw new Problem(400, "Conversation belongs to another team");
+        const previous = db
+          .prepare(
+            "SELECT payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY rowid DESC LIMIT 1",
+          )
+          .get(owner, conversation) as { payload: string } | undefined;
+        if (
+          previous &&
+          JSON.parse(previous.payload).connectionId !== connection.id &&
+          !(
+            data.steer &&
+            db
+              .prepare(
+                "SELECT 1 FROM runs r WHERE owner_id=? AND agent_id=? AND conversation_id=? AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done')",
+              )
+              .get(owner, agent.id, conversation)
+          )
+        )
+          throw new Problem(
+            409,
+            "This agent's provider or account changed. Start a new conversation to use it.",
+          );
         teamId = c.team_id || undefined;
         if (data.folderId === undefined) {
           const previous = db
@@ -130,6 +201,10 @@ export function submit(
           now(),
           teamId || null,
         );
+        if (teamId)
+          db.prepare(
+            "UPDATE teams SET conversation_id=? WHERE id=? AND owner_id=? AND manager_id=? AND conversation_id IS NULL AND deleted_at IS NULL",
+          ).run(conversation, teamId, owner, agent.id);
       }
       const snapshot: Snapshot = {
         agentId: agent.id,
@@ -142,15 +217,50 @@ export function submit(
         folderId,
         source: data.source,
         teamId,
+        attachmentIds: attachments.map((file) => file.id),
+        replyTo,
       };
+      if (data.steer) {
+        const active = db
+          .prepare(
+            "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND conversation_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC LIMIT 1",
+          )
+          .get(owner, agent.id, conversation) as Run | undefined;
+        if (active) {
+          if (
+            data.folderId !== undefined &&
+            (JSON.parse(active.payload).folderId || null) !== data.folderId
+          )
+            throw new Problem(
+              409,
+              "This agent is working in another project. Reply in its active conversation or wait for it to finish.",
+            );
+          return saveSteering(
+            active,
+            data.idempotencyKey,
+            request,
+            data.input,
+            { attachments, replyTo },
+          );
+        }
+      }
       const run = enqueue(owner, data.input, data.idempotencyKey, {
         agent: agent.id,
         conversation,
         payload: snapshot,
       });
       db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?,?)",
-      ).run(id(), owner, conversation, run.id, "user", data.input, now());
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(
+        id(),
+        owner,
+        conversation,
+        run.id,
+        "user",
+        data.input,
+        JSON.stringify({ attachments, replyTo }),
+        now(),
+      );
       return run;
     })
     .immediate();
@@ -180,12 +290,21 @@ export async function executeAgent(run: Run): Promise<boolean> {
   if (!cp) {
     const turns = db
       .prepare(
-        "SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid",
+        "SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid",
       )
-      .all(run.conversation_id, run.owner_id, run.id) as Message[];
+      .all(run.conversation_id, run.owner_id, run.id, run.id) as Message[];
     const history: ChatMessage[] = turns.map((m) => ({
       role: m.role as "user" | "assistant",
-      content: m.content,
+      content: attachmentPrompt(
+        replyPrompt(
+          m.content,
+          m.role === "user" ? JSON.parse(m.metadata).replyTo : undefined,
+        ),
+        JSON.parse(m.metadata).attachments || [],
+      ),
+      ...(JSON.parse(m.metadata).attachments?.length
+        ? { attachments: JSON.parse(m.metadata).attachments }
+        : {}),
     }));
     // Bound total context explicitly; oversized histories require an intentional continuation.
     if (Buffer.byteLength(JSON.stringify(history)) > 500000)
@@ -226,6 +345,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
     output = cp.output as string,
     round = cp.round as number;
   if (cp.stage === "done") return true;
+  const steering = new SteeringInbox(run, (message) => {
+    history.push(message);
+    db.prepare("UPDATE agent_checkpoints SET history=? WHERE run_id=?").run(
+      JSON.stringify(history),
+      run.id,
+    );
+  });
   const persist = db.transaction((partial: boolean) => {
     const metadata = JSON.stringify({
       ...snapshot,
@@ -373,13 +499,20 @@ export async function executeAgent(run: Run): Promise<boolean> {
               isError: outcome.result.isError === true,
             },
           });
-          const modelContent = JSON.stringify({
+          const toolContent = JSON.stringify({
             isError: outcome.result.isError === true,
             structuredContent: outcome.result.structuredContent,
             content: outcome.result.content?.filter(
               (x: any) => x.type === "text",
             ),
-          }).slice(0, 30000);
+          });
+          // File chunks are already bounded by bytes. Truncating the JSON
+          // would corrupt escaped text or base64 needed to recover the file.
+          const modelContent =
+            invocation.binding.connectionId === "__loop__" &&
+            invocation.call.name === "loop_read_file"
+              ? toolContent
+              : toolContent.slice(0, 30000);
           history.push({
             role: "tool",
             toolCallId: invocation.call.id,
@@ -427,6 +560,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
             ...nativeBindings(run),
           ];
       const calls: ToolCall[] = [];
+      db.transaction(() => {
+        steering.appendPending(history);
+        db.prepare("UPDATE agent_checkpoints SET history=? WHERE run_id=?").run(
+          JSON.stringify(history),
+          run.id,
+        );
+      }).immediate();
       let turnText = "";
       // Each provider round is a trace. Only the round with no tool calls
       // becomes the saved answer; earlier commentary must not accumulate in it.
@@ -445,49 +585,78 @@ export async function executeAgent(run: Run): Promise<boolean> {
         round,
         snapshot,
       });
-      for await (const chunk of streamConnection(currentConnection, {
-        workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
-        model: snapshot.model,
-        effort: snapshot.effort || undefined,
-        instructions: snapshot.instructions,
-        messages: structuredClone(history),
-        signal: controller.signal,
-        maxTokens: snapshot.maxTokens,
-        tools: bindings.length ? bindings : undefined,
-      })) {
-        if (chunk.trace) {
-          const trace = chunk.trace;
-          recordTrace(run, `runtime:${round}:${trace.id}`, {
-            kind: trace.kind,
-            title: trace.title,
-            content: trace.content,
-            metadata: { native: true, state: trace.state },
-          });
-          emit(run.owner_id, run.id, "trace.updated", { round });
+      const generation = new AbortController();
+      const redirected = new Error("Input added to the active run");
+      const stopSteering = !isSubscription(currentConnection)
+        ? steering.listen(async () => {
+            generation.abort(redirected);
+          })
+        : undefined;
+      try {
+        for await (const chunk of streamConnection(currentConnection, {
+          workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
+          model: snapshot.model,
+          effort: snapshot.effort || undefined,
+          instructions: snapshot.instructions,
+          messages: structuredClone(history),
+          signal: AbortSignal.any([controller.signal, generation.signal]),
+          steering,
+          maxTokens: snapshot.maxTokens,
+          tools: bindings.length ? bindings : undefined,
+        })) {
+          if (chunk.trace) {
+            const trace = chunk.trace;
+            recordTrace(run, `runtime:${round}:${trace.id}`, {
+              kind: trace.kind,
+              title: trace.title,
+              content: trace.content,
+              metadata: { native: true, state: trace.state },
+            });
+            emit(run.owner_id, run.id, "trace.updated", { round });
+          }
+          if (chunk.text) {
+            turnText += chunk.text;
+            output += chunk.text;
+            saveTurn();
+            persist(true);
+            emit(run.owner_id, run.id, "message.delta", {
+              messageId: cp.message_id,
+              text: chunk.text,
+            });
+          }
+          if (chunk.toolCall) {
+            if (calls.length >= 8)
+              throw new Problem(
+                422,
+                "Provider exceeded the per-turn tool-call limit",
+              );
+            calls.push(chunk.toolCall);
+          }
+          if (chunk.usage || chunk.externalId)
+            emit(run.owner_id, run.id, "provider.receipt", {
+              usage: chunk.usage,
+              externalId: chunk.externalId,
+            });
         }
-        if (chunk.text) {
-          turnText += chunk.text;
-          output += chunk.text;
-          saveTurn();
-          persist(true);
-          emit(run.owner_id, run.id, "message.delta", {
-            messageId: cp.message_id,
-            text: chunk.text,
-          });
-        }
-        if (chunk.toolCall) {
-          if (calls.length >= 8)
-            throw new Problem(
-              422,
-              "Provider exceeded the per-turn tool-call limit",
-            );
-          calls.push(chunk.toolCall);
-        }
-        if (chunk.usage || chunk.externalId)
-          emit(run.owner_id, run.id, "provider.receipt", {
-            usage: chunk.usage,
-            externalId: chunk.externalId,
-          });
+      } catch (error) {
+        if (
+          generation.signal.reason !== redirected ||
+          controller.signal.aborted
+        )
+          throw error;
+      } finally {
+        await stopSteering?.();
+      }
+      if (
+        generation.signal.reason === redirected &&
+        !controller.signal.aborted
+      ) {
+        round++;
+        db.prepare("UPDATE agent_checkpoints SET round=? WHERE run_id=?").run(
+          round,
+          run.id,
+        );
+        continue;
       }
       controller.signal.throwIfAborted();
       if (owned<Run>("runs", run.id, run.owner_id).state === "cancelled") {
@@ -506,6 +675,23 @@ export async function executeAgent(run: Run): Promise<boolean> {
         toolCalls: calls.length ? calls : undefined,
       });
       if (!calls.length) {
+        // Serialize the final boundary with submit(): input arriving before
+        // completion stays in this run; input arriving afterwards starts work.
+        const continuing = db
+          .transaction(() => {
+            if (steering.appendPending(history)) {
+              db.prepare(
+                "UPDATE agent_checkpoints SET round=?,history=? WHERE run_id=?",
+              ).run(round, JSON.stringify(history), run.id);
+              return true;
+            }
+            db.prepare(
+              "UPDATE agent_checkpoints SET round=?,history=?,stage='done' WHERE run_id=?",
+            ).run(round, JSON.stringify(history), run.id);
+            return false;
+          })
+          .immediate();
+        if (continuing) continue;
         saveTurn(true);
         persist(false);
         db.prepare("UPDATE runs SET result=? WHERE id=?").run(output, run.id);

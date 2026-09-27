@@ -5,6 +5,7 @@ export class Problem extends Error {
   constructor(
     public status: number,
     message: string,
+    public diagnostic?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -17,6 +18,7 @@ export function owned<T>(table: string, recordId: string, owner: string): T {
     "runs",
     "messages",
     "artifacts",
+    "objects",
     "folders",
     "imports",
     "workflows",
@@ -58,7 +60,11 @@ export const agentInput = z.object({
   name: handle,
   connectionId: z.string(),
   model: z.string().min(1).max(150),
-  effort: z.enum(["low", "medium", "high"]).nullable().optional(),
+  effort: z
+    .string()
+    .regex(/^[a-z][a-z0-9_-]{0,31}$/)
+    .nullable()
+    .optional(),
   instructions: z.string().max(12000).default(""),
   folderId: z.string().optional(),
 });
@@ -71,13 +77,11 @@ export function createAgent(owner: string, value: unknown) {
   const models = JSON.parse(connection.models) as { id: string }[];
   if (!models.some((m) => m.id === data.model))
     throw new Problem(400, "Choose an available model from this connection");
+  validateEffort(connection, data.model, data.effort);
   return db
     .transaction(() => {
       if (db.prepare("SELECT 1 FROM handles WHERE name=?").get(data.name))
-        throw new Problem(
-          409,
-          "That name is taken. Try adding a short suffix.",
-        );
+        throw new Problem(409, "That name is taken. Choose another name.");
       const agentId = id();
       db.prepare(
         "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id,effort) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
@@ -102,6 +106,21 @@ export function createAgent(owner: string, value: unknown) {
       return owned<Agent>("agents", agentId, owner);
     })
     .immediate();
+}
+export function validateEffort(
+  connection: Connection,
+  model: string,
+  effort?: string | null,
+) {
+  const selected = (
+    JSON.parse(connection.models) as import("../shared/models.js").ModelOption[]
+  ).find((option) => option.id === model);
+  if (
+    effort &&
+    selected?.effortLevels &&
+    !selected.effortLevels.some((option) => option.value === effort)
+  )
+    throw new Problem(400, "Choose an effort level reported by this model");
 }
 export function renameAgent(owner: string, agentId: string, name: unknown) {
   const normalized = handle.parse(name);

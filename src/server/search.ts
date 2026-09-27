@@ -1,3 +1,4 @@
+import { searchExcerpt } from "../shared/search-excerpt.js";
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
 import { db, now } from "./db.js";
@@ -427,7 +428,7 @@ export async function search(
         ...d,
         ...(agent as object),
         content: undefined,
-        snippet: d.content.slice(0, 360),
+        snippet: searchExcerpt(d.content, d.title, q),
         message_id: messageId || null,
         score: scores.get(d.id),
         url: messageId

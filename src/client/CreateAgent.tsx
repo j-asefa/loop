@@ -1,9 +1,12 @@
+import { EffortSelect } from "./EffortSelect";
+import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { api, parse } from "./api";
-import { Sheet, Badge } from "./components";
+import { Sheet, Badge, providerName } from "./components";
 import type { Connection, CreatedAgent, Folder } from "../shared/types";
+import { modelDisplayName } from "./modelChoices";
 export function CreateAgent({
   connections,
   folders,
@@ -29,19 +32,36 @@ export function CreateAgent({
   const [provider, setProvider] = useState(connected[0]?.provider || "openai"),
     [connection, setConnection] = useState(connected[0]?.id || ""),
     [model, setModel] = useState(""),
+    [effort, setEffort] = useState(""),
     [initialPrompt, setInitialPrompt] = useState(""),
-    [suggestedName] = useState(
-      () => "scout-" + crypto.randomUUID().slice(0, 4),
-    ),
+    [name, setName] = useState(""),
+    [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const instructionsHint = useId(),
     promptHint = useId();
   const locked = useRef(false),
-    request = useRef({ signature: "", key: "" });
+    request = useRef({ signature: "", key: "" }),
+    nameEdited = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    api<{ name: string }>("/agents/suggest-name")
+      .then((suggestion) => {
+        if (!cancelled && !nameEdited.current) setName(suggestion.name);
+      })
+      .catch(() => {
+        // Manual naming remains available if suggestions cannot be loaded.
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingName(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const accounts = connected.filter((c) => c.provider === provider);
   const selected = accounts.find((c) => c.id === connection) || accounts[0];
-  const models = parse<{ id: string; name: string }[]>(selected?.models, []);
+  const models = parse<ModelOption[]>(selected?.models, []);
   const chosen = models.find((m) => m.id === model)?.id || models[0]?.id || "";
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -96,6 +116,7 @@ export function CreateAgent({
                 key={p}
                 disabled={busy}
                 className={provider === p ? "selected" : ""}
+                aria-pressed={provider === p}
                 onClick={() => {
                   setProvider(p);
                   setConnection("");
@@ -134,7 +155,7 @@ export function CreateAgent({
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name}
+                    {modelDisplayName(m)}
                   </option>
                 ))}
               </select>
@@ -150,13 +171,7 @@ export function CreateAgent({
           </>
         ) : (
           <div className="note">
-            Connect{" "}
-            {provider === "codex"
-              ? "ChatGPT"
-              : provider === "openai"
-                ? "OpenAI"
-                : "Claude"}{" "}
-            to choose an available model.
+            Connect {providerName(provider)} to choose an available model.
             <button type="button" className="text-button" onClick={onConnect}>
               <Plus size={16} />
               Connect account
@@ -170,26 +185,32 @@ export function CreateAgent({
             <input
               name="name"
               required
-              defaultValue={suggestedName}
+              value={name}
+              onChange={(e) => {
+                nameEdited.current = true;
+                setName(e.target.value);
+              }}
+              placeholder={loadingName ? "Choosing a name…" : "Choose a name"}
               pattern="[a-zA-Z][a-zA-Z0-9-]{2,31}"
               maxLength={32}
               disabled={busy}
             />
           </div>
         </label>
-        {(provider === "openai" || provider === "codex") && (
-          <label>
-            Reasoning effort
-            <select name="effort" defaultValue="">
-              <option value="">Provider default</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </label>
-        )}
         <details className="advanced-agent-options">
-          <summary>Advanced options</summary>
+          <summary>Instructions & advanced options</summary>
+          <EffortSelect
+            model={models.find((m) => m.id === chosen)}
+            value={
+              models
+                .find((m) => m.id === chosen)
+                ?.effortLevels?.some((level) => level.value === effort)
+                ? effort
+                : ""
+            }
+            onChange={setEffort}
+          />
+
           <label>
             Agent instructions
             <textarea
@@ -255,7 +276,7 @@ export function CreateAgent({
             {error}
           </p>
         )}
-        <button className="primary" disabled={busy || !chosen}>
+        <button className="primary" disabled={busy || !chosen || !name.trim()}>
           {busy
             ? "Creating…"
             : initialPrompt.trim()

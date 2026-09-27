@@ -1,3 +1,9 @@
+import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
+import {
+  diagnosticText,
+  errorFacts,
+  errorSummary,
+} from "../../../runtime/diagnostics.mjs";
 import Ajv from "ajv";
 import Ajv2019 from "ajv/dist/2019.js";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -199,6 +205,16 @@ export async function invokeTool(
     metadata: { state: "running" },
   });
   let client;
+  let phase = "connecting";
+  const controller = new AbortController();
+  const monitor = setInterval(() => {
+    const live = db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as
+      { state: string } | undefined;
+    if (!live || ["cancelled", "interrupted"].includes(live.state))
+      controller.abort();
+  }, 500);
+  const started = now();
+  let received = false;
   try {
     client = await connectForRun(connection, run.id);
     authorizeTool(
@@ -211,11 +227,14 @@ export async function invokeTool(
     const live = owned<Run>("runs", run.id, run.owner_id);
     if (live.state !== "running")
       throw new Problem(409, "Run is no longer executing");
+    phase = "calling";
     let result: any = await client.callTool(
       { name: binding.tool, arguments: args },
       undefined,
-      { timeout: 30000 },
+      { timeout: MCP_TOOL_TIMEOUT_MS, signal: controller.signal },
     );
+    received = true;
+    phase = "saving the result";
     const redact = (value: unknown) =>
       redactCredentials(value, [
         readSecret(connection),
@@ -322,23 +341,69 @@ export async function invokeTool(
     });
     return { result, artifactId };
   } catch (error) {
+    const elapsedMs = now() - started;
+    const facts = {
+      ...errorFacts(error),
+      ...(error instanceof Problem ? error.diagnostic : {}),
+    };
+    let cause = errorSummary(error, [], false);
+    try {
+      const secrets = [
+        readSecret(connection),
+        readSecret(
+          owned<MCPConnection>("mcp_connections", connection.id, run.owner_id),
+        ),
+      ];
+      cause = diagnosticText(
+        redactCredentials(
+          (error as Error)?.message || "No error message was returned",
+          secrets,
+        ),
+      );
+    } catch {
+      // A removed or unreadable connection must not hide the original failure.
+      // Without its credentials, retain only the error's class and code.
+    }
+    const outcome = received
+      ? "received"
+      : phase === "connecting"
+        ? "not_sent"
+        : "unknown";
+    const message = `${connection.name} · ${binding.tool} failed while ${phase} after ${Math.ceil(elapsedMs / 1000)}s: ${cause}${outcome === "unknown" ? " Its external outcome is unknown; it will not be replayed." : outcome === "received" ? " The tool responded, but Loop could not save the result. The call will not be replayed." : " The tool request was not sent."}`;
+    const failure = {
+      phase,
+      server: connection.name,
+      tool: binding.tool,
+      elapsedMs,
+      outcome,
+      ...facts,
+    };
     recordTrace(run, "tool:" + callId, {
       kind: "tool",
       title: binding.tool,
-      metadata: { state: "failed" },
+      content: message,
+      metadata: { state: "failed", isError: true, failure },
     });
     db.prepare(
-      "UPDATE tool_invocations SET state='unknown' WHERE id=? AND state='executing'",
-    ).run(invocation.id);
+      "UPDATE tool_invocations SET state='unknown',result=? WHERE id=? AND state='executing'",
+    ).run(
+      JSON.stringify({
+        isError: true,
+        content: [{ type: "text", text: message }],
+        failure,
+      }),
+      invocation.id,
+    );
     db.prepare(
-      "UPDATE approvals SET state='unknown' WHERE id=? AND state='executing'",
-    ).run(approval.id);
-    if (error instanceof Problem) throw error;
+      "UPDATE approvals SET state='unknown',result=? WHERE id=? AND state='executing'",
+    ).run(JSON.stringify({ error: message, failure }), approval.id);
     throw new Problem(
-      422,
-      "Tool call failed or timed out. Its external outcome is unknown; it will not be replayed.",
+      error instanceof Problem ? error.status : 422,
+      message,
+      failure,
     );
   } finally {
+    clearInterval(monitor);
     if (JSON.parse(connection.metadata).transport !== "stdio")
       await client?.close().catch(() => {});
   }

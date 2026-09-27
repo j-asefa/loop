@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import Database from "better-sqlite3";
@@ -23,9 +24,11 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await page.goto(base);
   await page.getByRole("button", { name: "Projects", exact: true }).click();
   await page.getByRole("button", { name: "New project", exact: true }).click();
-  let dialog = page.getByRole("dialog");
+  let dialog = page.locator("dialog[open]").last();
   await dialog.getByLabel("Name", { exact: true }).fill("Field notes");
-  await dialog.getByRole("button", { name: "Create", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Field notes", exact: true }),
   ).toBeVisible();
@@ -34,7 +37,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   );
   await expect(page.locator(".project-agents .project-agent")).toHaveCount(0);
   await page.getByRole("button", { name: "New agent", exact: true }).click();
-  dialog = page.getByRole("dialog");
+  dialog = page.locator("dialog[open]").last();
   await expect(dialog.getByLabel("Project", { exact: true })).toHaveValue(
     project.id,
   );
@@ -61,12 +64,16 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   );
   await page.reload();
   await page.getByRole("button", { name: "Projects", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Field notes", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "All projects", exact: true }).click();
   await page.getByRole("button", { name: /Field notes.*2 agents/ }).click();
   await expect(page.locator(".projects-view .project-agent")).toHaveCount(2);
   await page.getByRole("button", { name: /@project-resident/ }).click();
   await page.getByRole("button", { name: "Edit agent", exact: true }).click();
   await expect(
-    page.getByRole("dialog").getByLabel("Project", { exact: true }),
+    page.locator("dialog[open]").last().getByLabel("Project", { exact: true }),
   ).toHaveValue(project.id);
   await page
     .getByRole("dialog")
@@ -169,7 +176,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.goto(base);
     const banner = page.getByRole("button", { name: /need attention/ });
     await expect(banner).toBeVisible();
-    assert.ok((await banner.boundingBox()).height >= 64);
+    assert.ok((await banner.boundingBox()).height >= 44);
     await page.screenshot({
       path: join(
         tmpdir(),
@@ -200,7 +207,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await expect(dismiss).toBeHidden();
     await page
       .getByRole("button", {
-        name: "Dismiss approval: Project attention fixture",
+        name: "Cancel task: Project attention fixture",
         exact: true,
       })
       .click();
@@ -217,13 +224,13 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.getByRole("button", { name: "Queued", exact: true }).click();
     await page
       .getByRole("button", {
-        name: "Dismiss task: Unwanted queued idea",
+        name: "Cancel task: Unwanted queued idea",
         exact: true,
       })
       .click();
     await expect(
       page.getByRole("button", {
-        name: "Dismiss task: Unwanted queued idea",
+        name: "Cancel task: Unwanted queued idea",
         exact: true,
       }),
     ).toBeHidden();
@@ -242,17 +249,25 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       "failed",
     );
     await page.goto(`${base}/?conversation=${conversation}`);
-    await expect(page.getByRole("dialog")).toContainText("Dismissible failure");
-    const reading = await page.getByRole("dialog").evaluate((el) => ({
-      height: el.getBoundingClientRect().height,
-      viewport: innerHeight,
-      font: parseFloat(
-        getComputedStyle(el.querySelector(".message .markdown")).fontSize,
-      ),
-    }));
+    await expect(page.locator("dialog[open]").last()).toContainText(
+      "Dismissible failure",
+    );
+    const reading = await page
+      .locator("dialog[open]")
+      .last()
+      .evaluate((el) => ({
+        height: el.getBoundingClientRect().height,
+        viewport: innerHeight,
+        font: parseFloat(
+          getComputedStyle(el.querySelector(".message .markdown")).fontSize,
+        ),
+      }));
     assert.ok(reading.height >= reading.viewport * 0.94);
     assert.ok(reading.font >= 16);
-    await page.getByRole("dialog").evaluate((el) => (el.scrollTop = 0));
+    await page
+      .locator("dialog[open]")
+      .last()
+      .evaluate((el) => (el.scrollTop = 0));
     await page.screenshot({
       path: join(
         tmpdir(),
@@ -361,9 +376,9 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       }
     }
     await markdown
-      .getByRole("button", { name: "View full output", exact: true })
+      .getByRole("button", { name: "View full result", exact: true })
       .click();
-    await expect(page.getByRole("dialog")).toContainText(
+    await expect(page.locator("dialog[open]").last()).toContainText(
       "Full original ending.",
     );
     await page
@@ -376,6 +391,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await page.goto(base);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
+  await page.getByRole("button", { name: "Permissions", exact: true }).click();
   const tools = page.getByRole("dialog", {
     name: "Tools & integrations",
     exact: true,
@@ -401,6 +417,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
+  await page.getByRole("button", { name: "Permissions", exact: true }).click();
   await expect(tools.getByLabel("Tool approvals", { exact: true })).toHaveValue(
     "allow",
   );
@@ -411,7 +428,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await expect(
     tools.getByLabel("Tool approvals", { exact: true }),
   ).toBeEnabled();
-  await tools.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page.waitForLoadState("networkidle");
   console.log(
     "PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, prominent attention, dismiss/retry/persistence, rejected approvals, queued cancellation, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.",

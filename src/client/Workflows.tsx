@@ -8,6 +8,7 @@ import {
   MessageSquare,
   GitBranch,
 } from "lucide-react";
+import { reorderSteps } from "./workflowOrder";
 import { api, parse } from "./api";
 import { Sheet, Badge, RichText, Empty } from "./components";
 import type { Agent, Folder } from "../shared/types";
@@ -109,13 +110,17 @@ export function WorkflowEditor({
     }
   }
   useEffect(() => {
-    void api("/workflows").then(setList);
+    void api("/workflows")
+      .then(setList)
+      .catch((e) => setError(e.message));
     if (initialId) void load(initialId, true);
   }, []);
   useEffect(() => {
     if (!selectedRun) return;
     const update = () =>
-      api<any[]>("/runs/" + selectedRun + "/steps").then(setSteps);
+      api<any[]>("/runs/" + selectedRun + "/steps")
+        .then(setSteps)
+        .catch((e) => setError(e.message));
     void update();
     const timer = setInterval(() => void update(), 1800);
     return () => clearInterval(timer);
@@ -178,7 +183,7 @@ export function WorkflowEditor({
     }
   }
   return (
-    <Sheet wide title="Executable workflows" onClose={onClose}>
+    <Sheet wide title="Workflows" onClose={onClose}>
       <p className="muted">
         A saved plan, connected agents, and a clear path from idea to output.
       </p>
@@ -214,15 +219,17 @@ export function WorkflowEditor({
       <div className="segmented">
         <button
           className={mode === "preview" ? "selected" : ""}
+          aria-pressed={mode === "preview"}
           onClick={() => setMode("preview")}
         >
-          Preview
+          Edit steps
         </button>
         <button
           className={mode === "source" ? "selected" : ""}
+          aria-pressed={mode === "source"}
           onClick={() => setMode("source")}
         >
-          Source
+          Advanced JSON
         </button>
       </div>
       {mode === "source" ? (
@@ -238,13 +245,28 @@ export function WorkflowEditor({
         </label>
       ) : spec ? (
         <>
-          <h3 className="section-title">{spec.title}</h3>
+          <label>
+            Workflow name
+            <input
+              value={spec.title || ""}
+              onChange={(e) => {
+                spec.title = e.target.value;
+                setSource(JSON.stringify(spec, null, 2));
+              }}
+            />
+          </label>
           <div className="workflow-steps">
             {spec.steps?.map((s: any, i: number) => (
               <div className="workflow-step" key={s.id}>
                 <span className="step-number">{i + 1}</span>
                 <div>
-                  <strong>{s.id}</strong>
+                  <strong>
+                    {s.type === "agent"
+                      ? "Ask an agent"
+                      : s.type === "approval"
+                        ? "Review before continuing"
+                        : "Save output"}
+                  </strong>
                   <small>
                     {s.type === "agent"
                       ? `Ask ${s.agent}`
@@ -253,7 +275,94 @@ export function WorkflowEditor({
                         : `Save ${s.source}`}
                   </small>
                 </div>
-                <span className="status">{s.type}</span>
+                <span className="status">{s.id}</span>
+                <div className="step-order">
+                  {[-1, 1].map((direction) => (
+                    <button
+                      key={direction}
+                      className="text-button"
+                      aria-label={`Move step ${i + 1} ${direction < 0 ? "up" : "down"}`}
+                      disabled={!reorderSteps(spec.steps, i, direction)}
+                      title="Steps must follow their input dependencies"
+                      onClick={() => {
+                        const steps = reorderSteps(spec.steps, i, direction);
+                        if (steps) {
+                          spec.steps = steps;
+                          setSource(JSON.stringify(spec, null, 2));
+                        }
+                      }}
+                    >
+                      {direction < 0 ? "Move up" : "Move down"}
+                    </button>
+                  ))}
+                </div>
+                <div className="workflow-step-fields">
+                  {s.type === "agent" && (
+                    <label>
+                      Agent role
+                      <select
+                        value={s.agent}
+                        onChange={(e) => {
+                          spec.steps[i].agent = e.target.value;
+                          setSource(JSON.stringify(spec, null, 2));
+                        }}
+                      >
+                        {Object.keys(spec.agents || {}).map((role) => (
+                          <option key={role}>{role}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {(s.type === "agent" || s.type === "approval") && (
+                    <label>
+                      {s.type === "agent" ? "Prompt" : "Review message"}
+                      <textarea
+                        rows={4}
+                        value={
+                          (s.type === "agent" ? s.prompt : s.message) || ""
+                        }
+                        onChange={(e) => {
+                          spec.steps[i][
+                            s.type === "agent" ? "prompt" : "message"
+                          ] = e.target.value;
+                          setSource(JSON.stringify(spec, null, 2));
+                        }}
+                      />
+                    </label>
+                  )}
+                  {s.type === "save" && (
+                    <label>
+                      Output title
+                      <input
+                        value={s.title || ""}
+                        onChange={(e) => {
+                          spec.steps[i].title = e.target.value;
+                          setSource(JSON.stringify(spec, null, 2));
+                        }}
+                      />
+                    </label>
+                  )}
+                  {s.source && (
+                    <label>
+                      Use output from
+                      <select
+                        value={s.source}
+                        onChange={(e) => {
+                          spec.steps[i].source = e.target.value;
+                          setSource(JSON.stringify(spec, null, 2));
+                        }}
+                      >
+                        {spec.steps
+                          .slice(0, i)
+                          .map((previous: any, index: number) => (
+                            <option key={previous.id} value={previous.id}>
+                              Step {index + 1} · {previous.id}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -198,3 +198,14 @@ it("keeps unknown broker errors generic", async () => {
     message: expect.stringContaining("Check sign-in"),
   });
 });
+
+it("retains typed runtime failures with redacted details", async () => {
+  const running = await start(undefined, {
+    code: "runtime_failure",
+    error: "Codex turn failed: rate limit exceeded; Bearer private-auth-token",
+  });
+  running.finish();
+  const { error } = await running.result;
+  expect(error.message).toContain("rate limit exceeded");
+  expect(error.message).not.toContain("private-auth-token");
+});

@@ -85,6 +85,21 @@ for (const [name, Klass] of Object.entries({
       await until(() =>
         events.some((e) => e.type === "status" && e.status === "interrupted"),
       );
+      if ("steer" in adapter) {
+        events.length = 0;
+        await adapter.prompt("wait");
+        await until(() => events.some((e) => e.type === "delta"));
+        await adapter.steer!("Focus on the tests");
+        await until(() =>
+          events.some((e) => e.type === "status" && e.status === "completed"),
+        );
+        assert(
+          !events.some(
+            (e) => e.type === "status" && e.status === "interrupted",
+          ),
+          "steering must not terminate the Loop run",
+        );
+      }
     } finally {
       await adapter.dispose();
       delete process.env.LOOP_TEST_HARNESS;

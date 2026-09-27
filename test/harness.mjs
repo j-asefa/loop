@@ -204,6 +204,13 @@ if (kind !== "opencode") {
       finish("interrupted");
       return;
     }
+    if (type === "turn/steer") {
+      if (m.params.expectedTurnId !== active)
+        throw new Error("Wrong turn was steered");
+      result({ turnId: active });
+      setTimeout(() => finish(), 30);
+      return;
+    }
     if (
       type === "extension_ui_response" ||
       type === "control_response" ||
@@ -333,7 +340,9 @@ if (kind !== "opencode") {
 } else {
   const streams = new Set();
   let streamReady;
-  const listening = new Promise((resolve) => { streamReady = resolve; });
+  const listening = new Promise((resolve) => {
+    streamReady = resolve;
+  });
   let history = [],
     permissions = [];
   const event = (type, properties) => {

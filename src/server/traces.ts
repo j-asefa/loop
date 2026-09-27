@@ -43,16 +43,22 @@ export function agentTraces(
   owner: string,
   agent: string,
   before = Number.MAX_SAFE_INTEGER,
+  runId?: string,
 ) {
   owned("agents", agent, owner);
   const items = db
     .prepare(
-      `SELECT t.*,r.input,r.state run_state,r.conversation_id
+      `SELECT t.*,r.input,r.state run_state,r.error run_error,r.conversation_id, c.name server,inv.state invocation_state
     FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-    WHERE t.owner_id=? AND r.agent_id=? AND t.id<? AND t.kind!='message'
-      AND t.trace_key NOT LIKE 'turn:%' AND ${publicTraceFilter}
+    LEFT JOIN tool_invocations inv ON inv.run_id=t.run_id AND inv.owner_id=t.owner_id AND t.trace_key='tool:'||inv.call_id
+    LEFT JOIN mcp_connections c ON c.id=inv.connection_id AND c.owner_id=t.owner_id
+    WHERE t.owner_id=? AND r.agent_id=? AND t.id<? AND (? IS NULL OR r.id=?)
+      AND (t.kind!='message' OR (json_extract(t.metadata,'$.final') IS NOT 1 AND length(trim(t.content))>0))
+      AND ${publicTraceFilter}
     ORDER BY t.id DESC LIMIT 40`,
     )
-    .all(owner, agent, before) as { id: number }[];
+    .all(owner, agent, before, runId || null, runId || null) as {
+    id: number;
+  }[];
   return { items, next: items.length === 40 ? items.at(-1)!.id : null };
 }

@@ -105,17 +105,22 @@ try {
     .fill(otherProject);
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create", exact: true })
+    .getByRole("button", { name: "Create project", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Feed", exact: true }).last().click();
   for (let i = 0; i < 3; i++) {
     await page
-      .getByRole("button", { name: "New agent", exact: true })
+      .getByRole("button", {
+        name: i === 0 ? "Create your first agent" : "New agent",
+        exact: true,
+      })
       .first()
       .click();
     await page.getByLabel("Unique name").fill("browser-" + i);
-    await page.getByText("Advanced options", { exact: true }).click();
+    await page
+      .getByText("Instructions & advanced options", { exact: true })
+      .click();
     await page
       .getByLabel("Agent instructions", { exact: true })
       .fill("Keep this native instruction " + i);

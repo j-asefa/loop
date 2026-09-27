@@ -97,6 +97,22 @@ it("reports initial preparation, indexes batches and title-only files, and ignor
   );
 });
 
+it("returns the matching passage through the search service", async () => {
+  const owner = id();
+  const artifact = saveArtifact(owner, {
+    title: "Integration report",
+    content:
+      "# Integration report\n\n" +
+      "Background context. ".repeat(40) +
+      "Use web_fetch_exa to retrieve the release notes.",
+  });
+  const result = await search(owner, "web_fetch_exa");
+  expect(
+    result.items.find((item) => item.id === "artifact:" + artifact)?.snippet,
+  ).toContain("web_fetch_exa");
+  expect(result.items[0].snippet).not.toContain("Integration report");
+});
+
 it("exposes a sanitized indexing failure, keeps keyword results, and recovers on a later retry", async () => {
   const owner = id();
   saveArtifact(owner, {

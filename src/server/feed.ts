@@ -1,11 +1,25 @@
 import { db } from "./db.js";
 
+export function projectFolders(owner: string, project: string): string[] {
+  return (
+    db
+      .prepare(
+        `WITH RECURSIVE scope(id) AS (
+    SELECT id FROM folders WHERE owner_id=? AND id=?
+    UNION SELECT f.id FROM folders f JOIN scope s ON f.parent_id=s.id WHERE f.owner_id=?
+  ) SELECT id FROM scope`,
+      )
+      .all(owner, project, owner) as { id: string }[]
+  ).map((row) => row.id);
+}
+
 // The same rule must govern initial pages and update tombstones. A running or
 // failed placeholder is not an output, and tool artifacts belong to Traces.
 export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
   OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
 export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
 export const feedOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)
+  AND json_extract(a.metadata,'$.upload') IS NOT 1
   AND COALESCE(json_extract(a.metadata,'$.partial'),0)=0`;
 
 export function feedRevision(owner: string) {
@@ -33,6 +47,9 @@ export function feedUpdates(
   // replayed next time, never skipped because its revision was acknowledged early.
   const revision = feedRevision(owner);
   const prompts = options.view === "prompts";
+  const folders = options.folder
+    ? new Set(projectFolders(owner, options.folder))
+    : null;
   const rows = db
     .prepare(
       prompts
@@ -80,7 +97,7 @@ export function feedUpdates(
         ? item.role === "user"
         : !item.archived && !item.feed_hidden && output_visible) &&
       (!options.teams?.length || options.teams.includes(item.team_id)) &&
-      (!options.folder || item.folder_id === options.folder) &&
+      (!folders || folders.has(item.folder_id)) &&
       (!options.agent ||
         (prompts ? feed_agent_id : item.agent_id) === options.agent) &&
       (options.view !== "files" || fileKinds.has(item.kind));

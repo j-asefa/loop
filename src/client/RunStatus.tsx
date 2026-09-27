@@ -33,7 +33,11 @@ export function RunStatus({
     >
       <strong>{labels[state] || state}</strong>
       {error && <span>{error}</span>}
-      {empty && stopped && <span>No answer was saved for this run.</span>}
+      {empty && stopped && (
+        <span>
+          No final answer was saved. Check Traces for any saved progress.
+        </span>
+      )}
       {state === "interrupted" && !error && (
         <span>
           The worker stopped before finishing. Review any partial work before
@@ -41,7 +45,7 @@ export function RunStatus({
         </span>
       )}
       {state === "awaiting_approval" && (
-        <span>Review the tool request in Running → Needs you.</span>
+        <span>Review the pending request to continue.</span>
       )}
     </div>
   );

@@ -1,13 +1,27 @@
+import { AgentModelSettings } from "./AgentModelSettings";
+import { agentModelName, effortName } from "./modelChoices";
+import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
+import { MAX_MESSAGE_FILES } from "../shared/uploads";
 import { capabilities } from "./capabilities";
 import { NativeHistory } from "./NativeHistory";
 import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
 import { RunStatus } from "./RunStatus";
+import { AgentDirectory } from "./AgentDirectory";
+import { YourAgents } from "./YourAgents";
+import { belongsToProject } from "../shared/projects";
+import { ProjectFiles } from "./ProjectFiles";
+import { ProjectActivity } from "./ProjectActivity";
 import { Projects } from "./Projects";
 import { Traces } from "./Traces";
 import { AgentMessages } from "./AgentMessages";
 import { FeedPager } from "./feed";
-import { TeamFilter, CreateTeam } from "./Teams";
+import {
+  TeamFilter,
+  CreateTeam,
+  ProfileTeams,
+  TeamManagerShortcut,
+} from "./Teams";
 import { RuntimeHosts } from "./RuntimeHosts";
 import {
   ShareSheet,
@@ -104,7 +118,13 @@ export default function App() {
       folders: [],
     }),
     [tab, setTab] = useState(
-      new URLSearchParams(location.search).has("folder") ? "saved" : "feed",
+      tabs.some(
+        (t) => t.id === new URLSearchParams(location.search).get("page"),
+      )
+        ? new URLSearchParams(location.search).get("page")!
+        : new URLSearchParams(location.search).has("folder")
+          ? "saved"
+          : "feed",
     ),
     [sheet, setSheet] = useState(
       new URLSearchParams(location.search).has("tools")
@@ -120,7 +140,9 @@ export default function App() {
     [items, setItems] = useState<any[]>([]),
     [next, setNext] = useState<number | null>(null),
     [runs, setRuns] = useState<Run[]>([]),
-    [selected, setSelected] = useState(""),
+    [selected, setSelected] = useState(
+      sessionStorage.getItem("loop-draft-agent") || "",
+    ),
     [folder, setFolder] = useState(
       new URLSearchParams(location.search).get("folder") || "",
     ),
@@ -136,19 +158,35 @@ export default function App() {
       localStorage.getItem("loop-theme") || "system",
     ),
     [query, setQuery] = useState("");
+  const [failureRun, setFailureRun] = useState<Run | null>(null);
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<Artifact | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);
-  const [teamSelection, setTeamSelection] = useState<string[]>([]);
+  const [teamSelection, setTeamSelection] = useState<string[]>(() =>
+    (new URLSearchParams(location.search).get("teams") || "")
+      .split(",")
+      .filter(Boolean),
+  );
   const teamKey = [...teamSelection].sort().join(",");
   const [messageId, setMessageId] = useState<string | null>(
     new URLSearchParams(location.search).get("message"),
   );
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [project, setProject] = useState("");
+  const [project, setProject] = useState(
+    new URLSearchParams(location.search).get("projectView") || "",
+  );
   const [folderChoice, setFolderChoice] = useState<string | undefined>(
     () => new URLSearchParams(location.search).get("folder") ?? undefined,
   );
+  const [modelAgent, setModelAgent] = useState<Agent | null>(null);
+  const [attachments, setAttachments] = useAttachments("loop-draft-files");
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const [uploading, setUploading] = useState(false);
+  const [composerError, setComposerError] = useState("");
+  useEffect(() => {
+    sessionStorage.setItem("loop-draft-agent", selected);
+  }, [selected]);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const [dismissNotice, setDismissNotice] = useState("");
   const dismissLock = useRef(false);
@@ -157,17 +195,13 @@ export default function App() {
   function setConversation(id: string | null, message?: string) {
     setMessageId(message || null);
     updateConversation(id);
-    if (id)
-      history.replaceState(
-        history.state,
-        "",
-        "/?" +
-          new URLSearchParams({
-            conversation: id,
-            ...(message ? { message } : {}),
-          }),
-      );
-    else {
+    if (id) {
+      const url = new URL(location.href);
+      url.searchParams.set("conversation", id);
+      if (message) url.searchParams.set("message", message);
+      else url.searchParams.delete("message");
+      history.replaceState(history.state, "", url.pathname + url.search);
+    } else {
       const team =
         teamSelection.length === 1
           ? data.teams?.find((t) => t.id === teamSelection[0])
@@ -189,8 +223,18 @@ export default function App() {
     document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
     setComposerExpanded(false);
   }
+  function messageTeam(team: Team) {
+    setSelected(team.manager_id);
+    setContextArtifact(null);
+    if (team.conversation_id) setConversation(team.conversation_id);
+    else {
+      setTeamSelection([team.id]);
+      focusComposer();
+    }
+  }
   useEffect(() => {
     const outside = (e: PointerEvent) => {
+      if ((e.target as Element)?.closest?.("dialog[open]")) return;
       if (!composerRef.current?.contains(e.target as Node))
         setComposerExpanded(false);
     };
@@ -208,7 +252,47 @@ export default function App() {
     }
   }
   const [searchAgent, setSearchAgent] = useState("");
-  const [projectFilter, setProjectFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState(
+    new URLSearchParams(location.search).get("project") || "",
+  );
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedError, setFeedError] = useState("");
+  const [settingsParent, setSettingsParent] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  function closeSheet() {
+    setSheet(
+      sheet === "create" && ["share", "workflows", "teams"].includes(returnTo)
+        ? returnTo
+        : settingsParent
+          ? "settings"
+          : "",
+    );
+    setReturnTo("");
+  }
+  function openSettingsPage(page: string) {
+    setSettingsParent(true);
+    setSheet(page);
+  }
+  useEffect(() => {
+    const url = new URL(location.href);
+    for (const [key, value] of Object.entries({
+      page: tab === "feed" ? "" : tab,
+      project: projectFilter,
+      teams: teamKey,
+      projectView: project,
+    })) {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    }
+    // Pairing and shared links keep their fragment until their owning flow
+    // consumes it; persisting navigation must not discard that state.
+    history.replaceState(
+      history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
+  }, [tab, projectFilter, teamKey, project]);
   const [workflowId, setWorkflowId] = useState<string | undefined>(undefined);
   const [workflowSource, setWorkflowSource] = useState<string | undefined>(
     undefined,
@@ -220,9 +304,10 @@ export default function App() {
   const ownerRef = useRef<string | undefined>(undefined);
   ownerRef.current = session?.user?.id;
   const personalWorkspace = useRef(false);
+  const stopEventsPoll = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
   const feed = useRef(new FeedPager<any>());
-  const lastFeedTap = useRef(0);
+  const lastNavTap = useRef<{ tab: string; at: number } | null>(null);
   const feedContext = useRef("");
   feedContext.current = [
     session?.user?.id,
@@ -236,10 +321,35 @@ export default function App() {
       ? data.agents.find((a) => a.id === routePreview?.agent?.id)
       : data.agents.find((a) => a.id === selected) ||
         data.agents.find((a) => a.connection_id);
-  const working = runs.filter((r) =>
+  const selectedTeams =
+    data.teams?.filter((t) => teamSelection.includes(t.id)) || [];
+  const teamAgents = new Set(
+    selectedTeams.flatMap((t) => [t.manager_id, ...t.members]),
+  );
+  const scopedAgents = data.agents.filter(
+    (a) =>
+      (!projectFilter ||
+        belongsToProject(a.folder_id, projectFilter, data.folders)) &&
+      (!teamSelection.length || teamAgents.has(a.id)),
+  );
+  const scopedRuns = runs.filter(
+    (r) =>
+      !projectFilter ||
+      belongsToProject(
+        parse<any>(r.payload, {}).folderId,
+        projectFilter,
+        data.folders,
+      ),
+  );
+  const working = scopedRuns.filter((r) =>
     ["running", "pausing", "waiting_children"].includes(r.state),
   );
-  const attention = runs.filter((r) =>
+  const runningAgentCount = new Set(
+    scopedRuns
+      .filter((r) => ["running", "pausing"].includes(r.state))
+      .map((r) => r.agent_id),
+  ).size;
+  const attention = scopedRuns.filter((r) =>
     [
       "failed",
       "interrupted",
@@ -289,10 +399,24 @@ export default function App() {
       result ? { ...result, mode: result.mode || "multi-user" } : null,
     );
   }
+  const bootstrapGeneration = useRef(0);
   async function bootstrap() {
+    const generation = ++bootstrapGeneration.current;
     const owner = ownerRef.current;
     const result = await api("/bootstrap");
-    if (owner && owner === ownerRef.current) setData(result);
+    if (
+      owner &&
+      owner === ownerRef.current &&
+      generation === bootstrapGeneration.current
+    ) {
+      setData(result);
+      setTeamSelection((old) => {
+        const present = old.filter((id) =>
+          result.teams?.some((team: Team) => team.id === id),
+        );
+        return present.length === old.length ? old : present;
+      });
+    }
   }
   const runsKey = useRef("");
   const runsGeneration = useRef(0);
@@ -324,36 +448,44 @@ export default function App() {
     if (feed.current.key !== key) {
       setItems([]);
       setNext(null);
+      setFeedLoading(true);
     }
-    const query = () => {
-      const q = new URLSearchParams({
-        view: ["traces", "messages"].includes(view) ? "all" : view,
-        teams: teamKey,
-      });
-      if (profile) q.set("agent", profile.id);
-      if (projectFilter && !profile) q.set("folder", projectFilter);
-      return q;
-    };
-    const result = await feed.current.load(
-      key,
-      append,
-      async (before) => {
-        const q = query();
-        if (before !== null) q.set("before", String(before));
-        return api("/feed?" + q);
-      },
-      async (after, through) => {
-        const q = query();
-        q.set("after", String(after));
-        q.set("through", String(through));
-        return api("/feed/updates?" + q);
-      },
-    );
-    if (!result || owner !== ownerRef.current || key !== feedContext.current)
-      return;
-    setItems(result.items);
-    setNext(result.next);
-    if (notify) setRevision((v) => v + 1);
+    setFeedError("");
+    try {
+      const query = () => {
+        const q = new URLSearchParams({
+          view: ["traces", "messages"].includes(view) ? "all" : view,
+          teams: teamKey,
+        });
+        if (profile) q.set("agent", profile.id);
+        if (projectFilter && !profile) q.set("folder", projectFilter);
+        return q;
+      };
+      const result = await feed.current.load(
+        key,
+        append,
+        async (before) => {
+          const q = query();
+          if (before !== null) q.set("before", String(before));
+          return api("/feed?" + q);
+        },
+        async (after, through) => {
+          const q = query();
+          q.set("after", String(after));
+          q.set("through", String(through));
+          return api("/feed/updates?" + q);
+        },
+      );
+      if (!result || owner !== ownerRef.current || key !== feedContext.current)
+        return;
+      setItems(result.items);
+      setNext(result.next);
+      if (notify) setRevision((v) => v + 1);
+    } catch (e) {
+      if (key === feedContext.current) setFeedError((e as Error).message);
+    } finally {
+      if (key === feedContext.current) setFeedLoading(false);
+    }
   }
   async function refresh() {
     await Promise.all([bootstrap(), loadFeed(), loadRuns()]);
@@ -366,6 +498,7 @@ export default function App() {
         return;
       }
       setSession(null);
+      setFailureRun(null);
       setData({ agents: [], connections: [], folders: [] });
       setItems([]);
       setRuns([]);
@@ -374,6 +507,7 @@ export default function App() {
       setArchivedCard(null);
       setComposerExpanded(false);
       setDraft("");
+      setSelected("");
       setFolderChoice(undefined);
       setSharedDraft({
         url: "",
@@ -388,6 +522,7 @@ export default function App() {
       setContextArtifact(null);
       setRoutePreview(null);
       setFiling(null);
+      setSettingsParent(false);
       setSheet("");
     };
     window.addEventListener("loop-auth-expired", expire);
@@ -401,9 +536,25 @@ export default function App() {
     if (!capabilities.pairedDevices) {
       let cursor = 0;
       let cancelled = false;
+      const active = new Set<AbortController>();
+      const stop = () => {
+        cancelled = true;
+        clearInterval(timer);
+        for (const controller of active) controller.abort();
+        active.clear();
+      };
+      stopEventsPoll.current = stop;
       const timer = setInterval(async () => {
+        if (cancelled) return;
+        const controller = new AbortController();
+        active.add(controller);
         try {
-          const events = await api<any[]>("/events?after=" + cursor);
+          const events = await api<any[]>(
+            "/events?after=" + cursor,
+            undefined,
+            undefined,
+            controller.signal,
+          );
           if (cancelled) return;
           if (events.length) {
             cursor = events.at(-1).id;
@@ -415,11 +566,13 @@ export default function App() {
             loadFeed(false, events.length === 0),
             ...(events.length ? [loadRuns()] : []),
           ]);
-        } catch {}
+        } catch {} finally {
+          active.delete(controller);
+        }
       }, 1800);
       return () => {
-        cancelled = true;
-        clearInterval(timer);
+        stop();
+        if (stopEventsPoll.current === stop) stopEventsPoll.current = () => {};
       };
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -453,7 +606,7 @@ export default function App() {
     sessionStorage.setItem("loop-draft", draft);
   }, [draft]);
   async function send() {
-    if (busy || !draft.trim()) return;
+    if (busy || uploading || !draft.trim()) return;
     if (/^(put|move|file|organize)\b[\s\S]*\b(in|into|to)\b/i.test(draft)) {
       if (!contextArtifact) {
         setError(
@@ -502,6 +655,7 @@ export default function App() {
     }
     if (!draft.trim()) return;
     setBusy(true);
+    setComposerError("");
     try {
       let recipient = activeAgent;
       if (draft.trim().startsWith("@")) {
@@ -515,19 +669,21 @@ export default function App() {
           (!teamSelection.length || teamSelection.includes(t.id)),
       );
       const conversationId = managerTeam
-        ? managerTeam.conversation_id
+        ? managerTeam.conversation_id || undefined
         : contextArtifact?.agent_id === recipient.id
           ? contextArtifact.conversation_id || undefined
           : teamSelection.length === 1 &&
               data.teams?.find((t) => t.id === teamSelection[0])?.manager_id ===
                 recipient.id
-            ? data.teams.find((t) => t.id === teamSelection[0])!.conversation_id
+            ? data.teams.find((t) => t.id === teamSelection[0])!
+                .conversation_id || undefined
             : undefined;
       const signature = JSON.stringify([
         recipient.id,
         draft,
         folderChoice,
         conversationId,
+        attachments.map((file) => file.id),
       ]);
       if (request.current.signature !== signature)
         request.current = { signature, key: crypto.randomUUID() };
@@ -536,6 +692,7 @@ export default function App() {
         conversationId,
         input: draft,
         idempotencyKey: request.current.key,
+        attachmentIds: attachments.map((file) => file.id),
         folderId:
           folderChoice !== undefined
             ? folderChoice || null
@@ -544,11 +701,12 @@ export default function App() {
               : recipient.folder_id || undefined,
       });
       setDraft("");
+      setAttachments([]);
       request.current = { signature: "", key: "" };
       collapseComposer();
       void refresh().catch((e) => setError(e.message));
     } catch (e) {
-      setError((e as Error).message);
+      setComposerError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -590,8 +748,25 @@ export default function App() {
         .catch((e) => setError(e.message));
   }, [session?.user?.id]);
   useEffect(() => {
-    if (profile) setView("messages");
+    if (!profile) return;
+    setView(sessionStorage.getItem("loop-agent-tab-" + profile.id) || "all");
+    if (!draft.trim()) {
+      setSelected(profile.id);
+      setFolderChoice(undefined);
+      setFolder(profile.folder_id || "");
+    }
   }, [profile?.id]);
+  useEffect(() => {
+    if (profile || draft.trim()) return;
+    const target =
+      scopedAgents.find((a) => a.id === selected) ||
+      scopedAgents.find((a) => a.connection_id);
+    if (target) {
+      setSelected(target.id);
+      setFolderChoice(undefined);
+      setFolder(target.folder_id || "");
+    }
+  }, [projectFilter, teamKey, data.agents]);
   async function runAction(r: Run, action: string) {
     try {
       await api(`/runs/${r.id}/${action}`, {});
@@ -606,13 +781,29 @@ export default function App() {
         <button
           key={t.id}
           aria-label={t.label}
+          aria-current={tab === t.id ? "page" : undefined}
           className={tab === t.id ? "current" : ""}
           onClick={() => {
-            if (t.id === "feed") {
-              const now = Date.now();
-              if (tab === "feed" && now - lastFeedTap.current < 350)
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              lastFeedTap.current = now;
+            if (t.id === "feed" || t.id === "running") {
+              const now = performance.now();
+              if (
+                lastNavTap.current?.tab === t.id &&
+                now - lastNavTap.current.at < 350
+              ) {
+                lastNavTap.current = null;
+                requestAnimationFrame(() =>
+                  window.scrollTo({
+                    top: 0,
+                    behavior: window.matchMedia(
+                      "(prefers-reduced-motion: reduce)",
+                    ).matches
+                      ? "instant"
+                      : "smooth",
+                  }),
+                );
+              } else lastNavTap.current = { tab: t.id, at: now };
+            } else {
+              lastNavTap.current = null;
             }
             setTab(t.id);
             setProfile(null);
@@ -621,15 +812,12 @@ export default function App() {
         >
           <t.icon size={21} />
           <span>{t.label}</span>
-          {t.id === "running" && working.length > 0 && (
-            <small>{working.length}</small>
-          )}
-          {t.id === "running" && attention.length > 0 && (
+          {t.id === "running" && runningAgentCount > 0 && (
             <small
-              className="attention-count"
-              aria-label={`${attention.length} items need your attention`}
+              className="running-count"
+              aria-label={`${runningAgentCount} ${runningAgentCount === 1 ? "agent" : "agents"} running`}
             >
-              {attention.length}
+              {runningAgentCount}
             </small>
           )}
         </button>
@@ -764,26 +952,38 @@ export default function App() {
                 <Avatar name={profile.name} provider={profile.provider} />
                 <h1>@{profile.name}</h1>
                 <Badge provider={profile.provider} />
-                <p className="muted">{profile.model}</p>
+                <p className="muted profile-model">
+                  {agentModelName(profile, data.connections)}
+                </p>
                 <p>{profile.instructions || "Ready for your next idea."}</p>
-                <button
-                  className="primary"
-                  onClick={() => {
-                    setSelected(profile.id);
-                    setFolderChoice(undefined);
-                    setFolder(profile.folder_id || "");
-                    focusComposer();
-                  }}
-                >
-                  <MessageSquare size={16} />
-                  Message
-                </button>
-                <button
-                  className="text-button"
-                  onClick={() => setSheet("edit-agent")}
-                >
-                  Edit agent
-                </button>
+                <ProfileTeams
+                  agent={profile}
+                  teams={data.teams || []}
+                  onMessage={messageTeam}
+                />
+                <div className="profile-actions">
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      setSelected(profile.id);
+                      setFolderChoice(undefined);
+                      setFolder(profile.folder_id || "");
+                      focusComposer();
+                    }}
+                  >
+                    <MessageSquare size={16} />
+                    Message
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setEditError("");
+                      setSheet("edit-agent");
+                    }}
+                  >
+                    Edit agent
+                  </button>
+                </div>
                 <button
                   className="text-button"
                   onClick={() => {
@@ -838,16 +1038,24 @@ export default function App() {
               </section>
               <div className="segmented">
                 {[
-                  ["all", "Outputs"],
+                  ["all", "Results"],
                   ["messages", "Messages"],
-                  ["prompts", "Your prompts"],
                   ["files", "Files"],
                   ["traces", "Traces"],
+                  ["prompts", "Your prompts"],
                 ].map(([v, label]) => (
                   <button
                     className={view === v ? "selected" : ""}
                     key={v}
-                    onClick={() => setView(v)}
+                    aria-pressed={view === v}
+                    onClick={() => {
+                      setView(v);
+                      if (profile)
+                        sessionStorage.setItem(
+                          "loop-agent-tab-" + profile.id,
+                          v,
+                        );
+                    }}
                   >
                     {label}
                   </button>
@@ -868,7 +1076,7 @@ export default function App() {
                 </span>
                 <h1>
                   {tab === "feed"
-                    ? "Your loop."
+                    ? "Feed"
                     : tab === "running"
                       ? "Running"
                       : tab === "search"
@@ -877,60 +1085,105 @@ export default function App() {
                           ? "Projects"
                           : "Saved"}
                 </h1>
+                {tab === "feed" && (
+                  <p className="page-description">
+                    Your agents, their work, and what’s next.
+                  </p>
+                )}
               </div>
-              {tab !== "projects" && (
+              {tab === "feed" && data.agents.length > 0 ? (
                 <button
-                  className="secondary"
-                  onClick={() => setSheet("create")}
+                  className="icon-button feed-compose-button"
+                  aria-label="New message"
+                  onClick={focusComposer}
                 >
-                  <Plus size={18} />
-                  <span>New agent</span>
+                  <Plus size={29} />
                 </button>
+              ) : (
+                tab !== "projects" &&
+                data.agents.length > 0 && (
+                  <button
+                    className="secondary"
+                    aria-label="New agent"
+                    onClick={() => {
+                      setFolder(projectFilter);
+                      setSheet("create");
+                    }}
+                  >
+                    <Plus size={18} />
+                    <span>New agent</span>
+                  </button>
+                )
               )}
             </div>
           )}
-          {["feed", "running"].includes(tab) && !profile && (
-            <TeamFilter
-              teams={data.teams || []}
-              selected={teamSelection}
-              onChange={(ids) => {
-                setTeamSelection(ids);
-                const team =
-                  ids.length === 1
-                    ? data.teams?.find((t) => t.id === ids[0])
-                    : undefined;
-                if (team) {
-                  setSelected(team.manager_id);
-                  setContextArtifact(null);
-                }
-              }}
-              onCreate={() => setSheet("teams")}
-              onOpen={(team) => {
-                if (team) setConversation(team.conversation_id);
-              }}
-            />
-          )}
-          {["feed", "running"].includes(tab) && !profile && (
-            <label className="project-feed-filter">
-              Project
-              <select
-                aria-label="Filter by project"
-                value={projectFilter}
-                onChange={(e) => setProjectFilter(e.target.value)}
-              >
-                <option value="">All projects</option>
-                {data.folders
-                  .filter((f) => f.kind === "project")
-                  .map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
+          {["feed", "running"].includes(tab) &&
+            !profile &&
+            data.agents.length > 0 && (
+              <div className="workspace-scope">
+                <TeamFilter
+                  teams={data.teams || []}
+                  selected={teamSelection}
+                  onDeleted={(id) => {
+                    setTeamSelection((old) =>
+                      old.filter((team) => team !== id),
+                    );
+                    void bootstrap();
+                  }}
+                  onChange={(ids) => {
+                    setTeamSelection(ids);
+                    const team =
+                      ids.length === 1
+                        ? data.teams?.find((t) => t.id === ids[0])
+                        : undefined;
+                    if (team && !draft.trim()) {
+                      setSelected(team.manager_id);
+                      setContextArtifact(null);
+                    }
+                  }}
+                  onCreate={() => setSheet("teams")}
+                  onOpen={messageTeam}
+                />
+                <label className="project-feed-filter">
+                  Project
+                  <select
+                    aria-label="Filter by project"
+                    value={projectFilter}
+                    onChange={(e) => setProjectFilter(e.target.value)}
+                  >
+                    <option value="">All projects</option>
+                    {data.folders
+                      .filter((f) => f.kind === "project")
+                      .map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <TeamManagerShortcut
+                  teams={data.teams || []}
+                  agents={data.agents}
+                  selected={teamSelection}
+                  onOpen={messageTeam}
+                />
+              </div>
+            )}
           {tab === "feed" && !profile && (
             <>
+              {data.agents.length > 0 && (
+                <YourAgents
+                  agents={scopedAgents}
+                  connections={data.connections}
+                  runs={scopedRuns}
+                  onProfile={setProfile}
+                  onDirectory={() => setSheet("agents")}
+                  onCreate={() => {
+                    setFolder(projectFilter);
+                    setSheet("create");
+                  }}
+                />
+              )}
               {attention.length > 0 && (
                 <button
                   className="attention-banner"
@@ -943,40 +1196,23 @@ export default function App() {
                   <CircleAlert size={25} />
                   <span>
                     <strong>Needs your attention</strong>
-                    <small>
-                      Review approvals and tasks that need a decision
-                    </small>
+                    <small>Review tasks and approvals</small>
                   </span>
                   <b>{attention.length}</b>
                   <ArrowUpRight size={20} />
                 </button>
               )}
-              <div className="agent-strip">
-                {data.agents.slice(0, 7).map((a) => (
-                  <button key={a.id} onClick={() => setProfile(a)}>
-                    <small className="agent-strip-model" title={a.model}>
-                      {a.model}
-                    </small>
-                    <Avatar name={a.name} provider={a.provider} />
-                    <span>@{a.name}</span>
-                  </button>
-                ))}
-                <button onClick={() => setSheet("create")}>
-                  <span className="avatar add">
-                    <Plus size={22} />
-                  </span>
-                  <span>New agent</span>
-                </button>
-              </div>
               <div className="feed-filters">
                 <div className="segmented">
                   <button
+                    aria-pressed={view === "all"}
                     className={view === "all" ? "selected" : ""}
                     onClick={() => setView("all")}
                   >
-                    All activity
+                    Results
                   </button>
                   <button
+                    aria-pressed={view === "prompts"}
                     className={view === "prompts" ? "selected" : ""}
                     onClick={() => setView("prompts")}
                   >
@@ -986,7 +1222,7 @@ export default function App() {
                 <span className="muted">
                   {working.length
                     ? `${working.length} in progress`
-                    : runs.some((r) => r.state === "queued")
+                    : scopedRuns.some((r) => r.state === "queued")
                       ? "Work queued"
                       : attention.length
                         ? ""
@@ -1005,146 +1241,180 @@ export default function App() {
             />
           )}
           {profile && view === "messages" && (
-            <AgentMessages agentId={profile.id} revision={revision}
-              onConversation={setConversation} />
+            <AgentMessages
+              key={profile.id}
+              agent={profile}
+              revision={revision}
+              onConversation={setConversation}
+              onSent={() => {
+                collapseComposer();
+                void refresh().catch((e) => setError(e.message));
+              }}
+            />
           )}
-          {(tab === "feed" || profile) && !(profile && ["traces", "messages"].includes(view)) && (
-            <div className="feed">
-              {items.length ? (
-                items.map((item) =>
-                  item.role ? (
-                    <article
-                      key={item.id}
-                      className="feed-card prompt-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() =>
-                        setConversation(item.conversation_id, item.id)
-                      }
-                      onKeyDown={(e) => {
-                        if (
-                          e.target === e.currentTarget &&
-                          ["Enter", " "].includes(e.key)
-                        ) {
-                          e.preventDefault();
-                          setConversation(item.conversation_id, item.id);
-                        }
-                      }}
+          {(tab === "feed" || profile) &&
+            !(profile && ["traces", "messages"].includes(view)) && (
+              <div className="feed">
+                {feedLoading ? (
+                  <div
+                    className="feed-loading"
+                    role="status"
+                    aria-label="Loading activity"
+                  >
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ) : feedError ? (
+                  <div className="error" role="alert">
+                    {feedError}
+                    <button
+                      className="text-button"
+                      onClick={() => void loadFeed()}
                     >
-                      <span className="eyebrow">
-                        You →{" "}
+                      Try again
+                    </button>
+                  </div>
+                ) : items.length ? (
+                  items.map((item) =>
+                    item.role ? (
+                      <article
+                        key={item.id}
+                        className="feed-card prompt-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() =>
+                          setConversation(item.conversation_id, item.id)
+                        }
+                        onKeyDown={(e) => {
+                          if (
+                            e.target === e.currentTarget &&
+                            ["Enter", " "].includes(e.key)
+                          ) {
+                            e.preventDefault();
+                            setConversation(item.conversation_id, item.id);
+                          }
+                        }}
+                      >
+                        <span className="eyebrow">
+                          You →{" "}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProfile(
+                                data.agents.find((a) => a.name === item.name) ||
+                                  null,
+                              );
+                            }}
+                          >
+                            @{item.name}
+                          </button>
+                        </span>
+                        <time className="field-hint">
+                          {new Date(item.created_at).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                        <p>{item.content}</p>
+                        <RunStatus
+                          state={item.run_state}
+                          error={item.run_error}
+                        />
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setProfile(
-                              data.agents.find((a) => a.name === item.name) ||
-                                null,
+                          className="text-button"
+                          onClick={() => {
+                            setConversation(item.conversation_id, item.id);
+                            setSelected(
+                              data.agents.find((a) => a.name === item.name)
+                                ?.id || "",
                             );
                           }}
                         >
-                          @{item.name}
+                          Open conversation
+                          <ArrowUpRight size={15} />
                         </button>
-                      </span>
-                      <time className="field-hint">
-                        {new Date(item.created_at).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                      <p>{item.content}</p>
-                      <RunStatus
-                        state={item.run_state}
-                        error={item.run_error}
-                      />
-                      <button
-                        className="text-button"
-                        onClick={() => {
-                          setConversation(item.conversation_id, item.id);
-                          setSelected(
-                            data.agents.find((a) => a.name === item.name)?.id ||
-                              "",
-                          );
-                        }}
-                      >
-                        Open conversation
-                        <ArrowUpRight size={15} />
-                      </button>
-                    </article>
-                  ) : (
-                    <ArtifactCard
-                      key={item.id}
-                      item={item}
-                      project={[
-                        data.teams?.find((t) => t.id === item.team_id)?.name,
-                        data.folders.find((f) => f.id === item.folder_id)
-                          ?.name || "Workspace inbox",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                      onOpen={() => openCard(item)}
-                      onArtifact={() => void open(item)}
-                      onArchive={() => void archiveCard(item.id)}
-                      onProfile={() =>
-                        setProfile(
-                          data.agents.find((a) => a.id === item.agent_id) ||
-                            null,
-                        )
-                      }
-                      onFile={() => setFiling(item)}
-                      onPin={async () => {
-                        try {
-                          await api(
-                            "/artifacts/" + item.id,
-                            { pinned: !item.pinned, version: item.version },
-                            "PATCH",
-                          );
-                          await changed();
-                        } catch (e) {
-                          setError((e as Error).message);
+                      </article>
+                    ) : (
+                      <ArtifactCard
+                        key={item.id}
+                        item={item}
+                        project={[
+                          data.teams?.find((t) => t.id === item.team_id)?.name,
+                          data.folders.find((f) => f.id === item.folder_id)
+                            ?.name || "Workspace inbox",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        onOpen={() => openCard(item)}
+                        onArtifact={() => void open(item)}
+                        onArchive={() => void archiveCard(item.id)}
+                        onProfile={() =>
+                          setProfile(
+                            data.agents.find((a) => a.id === item.agent_id) ||
+                              null,
+                          )
                         }
-                      }}
-                    />
-                  ),
-                )
-              ) : (
-                <Empty
-                  title={
-                    view === "prompts"
-                      ? "Your ideas start here."
-                      : "Your next idea belongs here."
-                  }
-                  action={
-                    <button
-                      className="primary"
-                      onClick={() =>
-                        data.agents.length
-                          ? focusComposer()
-                          : setSheet("create")
-                      }
-                    >
-                      <Plus size={17} />
-                      {data.agents.length
-                        ? "Start a conversation"
-                        : "Create your first agent"}
-                    </button>
-                  }
-                >
-                  A question, a half-formed thought, an ambitious plan. Give it
-                  to an agent and watch the work take shape.
-                </Empty>
-              )}
-              {next && (
-                <button
-                  className="secondary load-more"
-                  onClick={() => void loadFeed(true)}
-                >
-                  Earlier activity
-                </button>
-              )}
-            </div>
-          )}
+                        onFile={() => setFiling(item)}
+                        onPin={async () => {
+                          try {
+                            await api(
+                              "/artifacts/" + item.id,
+                              { pinned: !item.pinned, version: item.version },
+                              "PATCH",
+                            );
+                            await changed();
+                          } catch (e) {
+                            setError((e as Error).message);
+                          }
+                        }}
+                      />
+                    ),
+                  )
+                ) : (
+                  <Empty
+                    title={
+                      projectFilter || teamSelection.length
+                        ? "No activity in this view yet."
+                        : view === "prompts"
+                          ? "Your prompts will appear here."
+                          : data.agents.length
+                            ? "Ready for your next task."
+                            : "Create your first agent."
+                    }
+                    action={
+                      <button
+                        className="primary"
+                        onClick={() =>
+                          data.agents.length
+                            ? focusComposer()
+                            : setSheet("create")
+                        }
+                      >
+                        <Plus size={17} />
+                        {data.agents.length
+                          ? "Start a conversation"
+                          : "Create your first agent"}
+                      </button>
+                    }
+                  >
+                    {projectFilter || teamSelection.length
+                      ? "Choose another project or team, or start a task here."
+                      : "Choose a provider, give your agent a task, and find its finished work here."}
+                  </Empty>
+                )}
+                {next && (
+                  <button
+                    className="secondary load-more"
+                    onClick={() => void loadFeed(true)}
+                  >
+                    Earlier activity
+                  </button>
+                )}
+              </div>
+            )}
           {tab === "running" && !profile && (
             <div className="run-list">
               {capabilities.nativeHarnesses && (
@@ -1152,6 +1422,7 @@ export default function App() {
               )}
               <Approvals
                 teams={teamKey}
+                runIds={projectFilter ? scopedRuns.map((r) => r.id) : undefined}
                 revision={revision}
                 onChange={() => void changed()}
                 onConversation={setConversation}
@@ -1164,6 +1435,7 @@ export default function App() {
                 ].map(([v, label]) => (
                   <button
                     key={v}
+                    aria-pressed={runFilter === v}
                     className={runFilter === v ? "selected" : ""}
                     onClick={() => setRunFilter(v)}
                   >
@@ -1171,36 +1443,46 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              {runs.filter((r) =>
-                (!projectFilter ||
-                  parse<any>(r.payload, {}).folderId === projectFilter) &&
-                (runFilter === "all"
-                  ? ["running", "pausing"].includes(r.state)
-                  : runFilter === "queued"
-                    ? r.state === "queued"
-                    : [
-                        "paused",
-                        "awaiting_approval",
-                        "interrupted",
-                        "failed",
-                        "waiting_children",
-                      ].includes(r.state)),
+              {runs.filter(
+                (r) =>
+                  (!projectFilter ||
+                    belongsToProject(
+                      parse<any>(r.payload, {}).folderId,
+                      projectFilter,
+                      data.folders,
+                    )) &&
+                  (runFilter === "all"
+                    ? ["running", "pausing"].includes(r.state)
+                    : runFilter === "queued"
+                      ? r.state === "queued"
+                      : [
+                          "paused",
+                          "awaiting_approval",
+                          "interrupted",
+                          "failed",
+                          "waiting_children",
+                        ].includes(r.state)),
               ).length ? (
                 runs
-                  .filter((r) =>
-                    (!projectFilter ||
-                      parse<any>(r.payload, {}).folderId === projectFilter) &&
-                    (runFilter === "all"
-                      ? ["running", "pausing"].includes(r.state)
-                      : runFilter === "queued"
-                        ? r.state === "queued"
-                        : [
-                            "paused",
-                            "awaiting_approval",
-                            "interrupted",
-                            "failed",
-                            "waiting_children",
-                          ].includes(r.state)),
+                  .filter(
+                    (r) =>
+                      (!projectFilter ||
+                        belongsToProject(
+                          parse<any>(r.payload, {}).folderId,
+                          projectFilter,
+                          data.folders,
+                        )) &&
+                      (runFilter === "all"
+                        ? ["running", "pausing"].includes(r.state)
+                        : runFilter === "queued"
+                          ? r.state === "queued"
+                          : [
+                              "paused",
+                              "awaiting_approval",
+                              "interrupted",
+                              "failed",
+                              "waiting_children",
+                            ].includes(r.state)),
                   )
                   .map((r) => {
                     const a = data.agents.find((a) => a.id === r.agent_id),
@@ -1244,8 +1526,12 @@ export default function App() {
                         headerActions={
                           !["running", "pausing"].includes(r.state) && (
                             <button
-                              className="icon-button dismiss-attention"
-                              aria-label={`Dismiss task: ${r.input}`}
+                              className={
+                                ["failed", "interrupted"].includes(r.state)
+                                  ? "icon-button dismiss-attention"
+                                  : "text-button dismiss-attention"
+                              }
+                              aria-label={`${["failed", "interrupted"].includes(r.state) ? "Dismiss" : "Cancel"} task: ${r.input}`}
                               title={
                                 ["failed", "interrupted"].includes(r.state)
                                   ? "Dismiss from attention"
@@ -1254,7 +1540,9 @@ export default function App() {
                               disabled={dismissing !== null}
                               onClick={() => void dismiss(r)}
                             >
-                              <X size={20} />
+                              <X size={18} />
+                              {!["failed", "interrupted"].includes(r.state) &&
+                                "Cancel task"}
                             </button>
                           )
                         }
@@ -1319,6 +1607,12 @@ export default function App() {
                                   Retry as a new run
                                 </button>
                               )}
+                            {["failed", "interrupted"].includes(r.state) &&
+                              r.agent_id && (
+                                <button onClick={() => setFailureRun(r)}>
+                                  View failure details
+                                </button>
+                              )}
                             {r.conversation_id && (
                               <button
                                 onClick={() => {
@@ -1364,17 +1658,17 @@ export default function App() {
               folders={data.folders}
               onOpen={open}
               onConversation={(c, m) => {
-                history.replaceState(
-                  {},
-                  "",
-                  `/?conversation=${c}${m ? "&message=" + m : ""}`,
-                );
                 setConversation(c, m);
               }}
             />
           )}
           {tab === "saved" && !profile && (
             <Saved
+              initialView={
+                new URLSearchParams(location.search).has("folder")
+                  ? "folders"
+                  : "recent"
+              }
               folders={data.folders}
               folder={folder}
               onFolder={setFolder}
@@ -1404,10 +1698,47 @@ export default function App() {
                 await api(`/agents/${a.id}`, { folderId: id }, "PATCH");
                 await bootstrap();
               }}
-              onFiles={(id) => {
-                setFolder(id);
-                setTab("saved");
-              }}
+              renderActivity={(id) => (
+                <ProjectActivity
+                  key={id}
+                  projectId={id}
+                  agents={data.agents}
+                  revision={revision}
+                  onOpen={open}
+                  onConversation={setConversation}
+                  onAgent={setProfile}
+                  onFile={setFiling}
+                />
+              )}
+              renderFiles={(id) => (
+                <>
+                  <UploadButton
+                    folderId={id}
+                    label="Upload files"
+                    onUploaded={() => {
+                      void changed();
+                    }}
+                  />
+                  <ProjectFiles
+                    key={id}
+                    embedded
+                    folders={data.folders}
+                    folder={id}
+                    onFolder={setProject}
+                    onOpen={open}
+                    onFile={setFiling}
+                    onCreate={() => {
+                      setFolder(id);
+                      setSheet("project");
+                    }}
+                    onEdit={() => {
+                      setFolder(id);
+                      setSheet("folder-edit");
+                    }}
+                    version={revision}
+                  />
+                </>
+              )}
               onEdit={() => {
                 setFolder(project);
                 setSheet("folder-edit");
@@ -1427,187 +1758,194 @@ export default function App() {
             </p>
           )}
         </main>
-        <section
-          ref={composerRef}
-          className={
-            "composer-dock " + (composerExpanded ? "expanded" : "collapsed")
-          }
-        >
-          {!composerExpanded && (
-            <button
-              className="composer-launch"
-              onClick={focusComposer}
-              aria-label="Compose a message"
-              aria-expanded={false}
-            >
-              <MessageSquare size={20} />
-              <span>
-                {draft
-                  ? "Continue your draft…"
-                  : activeAgent
-                    ? "Message @" + activeAgent.name + "…"
-                    : "Message an agent…"}
-              </span>
-              <Plus size={18} />
-            </button>
-          )}
-          <div className="composer" hidden={!composerExpanded}>
-            <div className="composer-heading">
-              <strong>New message</strong>
+        {data.agents.length > 0 && (
+          <section
+            ref={composerRef}
+            className={
+              "composer-dock " + (composerExpanded ? "expanded" : "collapsed")
+            }
+          >
+            {!composerExpanded && (
               <button
-                className="composer-collapse text-button"
-                onClick={collapseComposer}
-                aria-label="Collapse composer"
+                className="composer-launch"
+                onClick={focusComposer}
+                aria-label="Compose a message"
+                aria-expanded={false}
               >
-                <ChevronDown size={18} /> Minimize
+                <MessageSquare size={20} />
+                <span>
+                  {draft
+                    ? `Draft to @${activeAgent?.name || "agent"}…`
+                    : activeAgent
+                      ? "Message @" + activeAgent.name + "…"
+                      : "Message an agent…"}
+                </span>
+                <Plus size={18} />
               </button>
-            </div>
-            <div className="composer-top">
-              <label className="composer-field">
-                <span>Send to</span>
-                <select
-                  aria-label="Agent recipient"
-                  value={
-                    selected === "__route__"
-                      ? "__route__"
-                      : activeAgent?.id || ""
-                  }
-                  onChange={(e) => {
-                    setSelected(e.target.value);
-                    setFolderChoice(undefined);
-                    const agent = data.agents.find(
-                      (a) => a.id === e.target.value,
-                    );
-                    if (agent) setFolder(agent.folder_id || "");
-                  }}
-                >
-                  {!data.agents.length && (
-                    <option value="">Choose your first agent</option>
-                  )}
-                  <option value="__route__">Let Loop route this</option>
-                  {data.agents.map((a) => (
-                    <option value={a.id} key={a.id}>
-                      @{a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="composer-field">
-                <span>Project</span>
-                <select
-                  aria-label="Project"
-                  value={
-                    folderChoice ??
-                    (contextArtifact?.agent_id === activeAgent?.id
-                      ? contextArtifact?.folder_id || ""
-                      : activeAgent?.folder_id || "")
-                  }
-                  onChange={(e) => {
-                    setFolder(e.target.value);
-                    setFolderChoice(e.target.value);
-                  }}
-                >
-                  <option value="">Workspace inbox</option>
-                  {data.folders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            {selected === "__route__" && routePreview && (
-              <p className="route-preview">
-                {routePreview.agent
-                  ? "Recipient: @" + routePreview.agent.name + " · "
-                  : ""}
-                {routePreview.reason}
-              </p>
             )}
-            {contextArtifact && (
-              <div className="context-strip">
-                <span>About: {contextArtifact.title}</span>
+            <div className="composer" hidden={!composerExpanded}>
+              <div className="composer-heading">
+                <label className="composer-field">
+                  <span className="sr-only">Send to</span>
+                  <select
+                    aria-label="Agent recipient"
+                    value={
+                      selected === "__route__"
+                        ? "__route__"
+                        : activeAgent?.id || ""
+                    }
+                    onChange={(e) => {
+                      setSelected(e.target.value);
+                      setFolderChoice(undefined);
+                      const agent = data.agents.find(
+                        (a) => a.id === e.target.value,
+                      );
+                      if (agent) setFolder(agent.folder_id || "");
+                    }}
+                  >
+                    {!data.agents.length && (
+                      <option value="">Choose your first agent</option>
+                    )}
+                    <option value="__route__">Let Loop route this</option>
+                    {data.agents.map((a) => (
+                      <option value={a.id} key={a.id}>
+                        @{a.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
-                  aria-label="Clear conversation context"
-                  onClick={() => setContextArtifact(null)}
+                  className="composer-collapse text-button"
+                  onClick={collapseComposer}
+                  aria-label="Collapse composer"
                 >
-                  ×
+                  <ChevronDown size={18} /> Minimize
                 </button>
               </div>
-            )}
-            <div className="composer-main">
-              <textarea
-                id="composer"
-                aria-label="Message your agent"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setComposerExpanded(false);
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                placeholder="An idea, a question, a ‘what if’…"
-                rows={2}
-              />
-            </div>
-            <div className="composer-foot">
-              <HarnessPicker
-                agentId={selected === "__route__" ? undefined : activeAgent?.id}
-                value={draft}
-                onChange={setDraft}
-                focusInput={() => document.getElementById("composer")?.focus()}
-              />
-              <span className="composer-model">
-                {activeAgent ? (
-                  <>
-                    <Badge provider={activeAgent.provider} />
-                    <span title={activeAgent.model}>{activeAgent.model}</span>
-                  </>
-                ) : (
-                  "Start with a model. Make it your agent."
-                )}
-              </span>
-            </div>
-            <div className="composer-actions">
-              <button
-                className="composer-action"
-                onClick={() => setSheet("create")}
-                aria-label="Create an agent"
-              >
-                <Plus size={17} /> Agent
-              </button>
-              <button
-                className="composer-action"
-                onClick={() => {
-                  setWorkflowId(undefined);
-                  setWorkflowSource(undefined);
-                  setSheet("workflows");
-                }}
-              >
-                Workflows
-              </button>
-              <button
-                className="send-button"
-                aria-label={
-                  selected === "__route__" && !routePreview
-                    ? "Preview route"
-                    : "Send message"
+              {selected === "__route__" && routePreview && (
+                <p className="route-preview">
+                  {routePreview.agent
+                    ? "Recipient: @" + routePreview.agent.name + " · "
+                    : ""}
+                  {routePreview.reason}
+                </p>
+              )}
+              {contextArtifact && (
+                <div className="context-strip">
+                  <span>About: {contextArtifact.title}</span>
+                  <button
+                    aria-label="Clear conversation context"
+                    onClick={() => setContextArtifact(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+              <div className="composer-main">
+                <textarea
+                  id="composer"
+                  aria-label="Message your agent"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setComposerExpanded(false);
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  placeholder="An idea, a question, a ‘what if’…"
+                  rows={2}
+                />
+              </div>
+              <AttachmentList
+                files={attachments}
+                onRemove={(id) =>
+                  setAttachments(attachments.filter((file) => file.id !== id))
                 }
-                disabled={busy || !draft.trim()}
-                onClick={() => void send()}
-              >
-                {busy
-                  ? "Sending…"
-                  : selected === "__route__" && !routePreview
-                    ? "Preview"
-                    : "Send"}
-                <ArrowUp size={19} />
-              </button>
+              />
+              {composerError && (
+                <div className="composer-error error" role="alert">
+                  {composerError}
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setComposerError("")}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+              <div className="composer-foot">
+                <HarnessPicker
+                  agentId={
+                    selected === "__route__" ? undefined : activeAgent?.id
+                  }
+                  value={draft}
+                  onChange={setDraft}
+                  focusInput={() =>
+                    document.getElementById("composer")?.focus()
+                  }
+                />
+              </div>
+              <div className="composer-actions">
+                <UploadButton
+                  menu
+                  folderId={folderChoice ?? activeAgent?.folder_id}
+                  agentId={activeAgent?.id}
+                  disabled={busy}
+                  remaining={MAX_MESSAGE_FILES - attachments.length}
+                  onBusy={setUploading}
+                  onUploaded={(file) => {
+                    attachmentsRef.current = [...attachmentsRef.current, file];
+                    setAttachments(attachmentsRef.current);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="composer-model"
+                  aria-label="Select model and effort"
+                  aria-haspopup="dialog"
+                  disabled={!activeAgent}
+                  onClick={() => activeAgent && setModelAgent(activeAgent)}
+                >
+                  {activeAgent ? (
+                    <>
+                      <span className="composer-model-label">
+                        <span className="composer-model-name">
+                          {agentModelName(activeAgent, data.connections)}
+                        </span>
+                        <small className="composer-effort">
+                          {effortName(activeAgent.effort)} effort
+                        </small>
+                      </span>
+                      <ChevronDown size={15} />
+                    </>
+                  ) : (
+                    "Select an agent"
+                  )}
+                </button>
+                <button
+                  className="send-button"
+                  aria-label={
+                    selected === "__route__" && !routePreview
+                      ? "Preview route"
+                      : "Send message"
+                  }
+                  disabled={busy || uploading || !draft.trim()}
+                  onClick={() => void send()}
+                >
+                  {busy
+                    ? "Sending…"
+                    : selected === "__route__" && !routePreview
+                      ? "Preview"
+                      : "Send"}
+                  <ArrowUp size={19} />
+                </button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
         <nav className="mobile-nav">{nav}</nav>
       </div>
       {archivedCard && (
@@ -1630,6 +1968,146 @@ export default function App() {
           <button onClick={() => setError("")}>Dismiss</button>
         </div>
       )}
+      {(sheet === "settings" || settingsParent) && (
+        <Sheet
+          title="Settings"
+          onClose={() => {
+            setSettingsParent(false);
+            setSheet("");
+          }}
+        >
+          <button
+            className="text-button"
+            onClick={() => openSettingsPage("install")}
+          >
+            Install & share on your phone
+          </button>
+          <h3>Appearance</h3>
+          <div className="theme-picker">
+            {[
+              ["system", Monitor],
+              ["light", Sun],
+              ["dark", Moon],
+            ].map(([v, I]: any) => (
+              <button
+                key={v}
+                aria-pressed={theme === v}
+                className={theme === v ? "selected" : ""}
+                onClick={() => setTheme(v)}
+              >
+                <I size={20} />
+                {v}
+              </button>
+            ))}
+          </div>
+          <h3>Connections</h3>
+          <div className="settings-links">
+            <button onClick={() => openSettingsPage("connections")}>
+              <LinkIcon size={20} />
+              <span>
+                Provider connections
+                <small>ChatGPT, Claude, and your API accounts</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+            <button onClick={() => openSettingsPage("runtime-hosts")}>
+              <Monitor size={20} />
+              <span>
+                Runtime machines<small>Run agents on your remote machine</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+          </div>
+          <h3>Tools</h3>
+          <div className="settings-links">
+            <button onClick={() => openSettingsPage("mcp")}>
+              <Plus size={20} />
+              <span>
+                Tools & integrations
+                <small>Connect your agents to your workspace</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+            <button
+              onClick={() => {
+                setWorkflowId(undefined);
+                setWorkflowSource(undefined);
+                openSettingsPage("workflows");
+              }}
+            >
+              <Orbit size={20} />
+              <span>
+                Workflows<small>Connect agents into an executable plan</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+          </div>
+          <h3>Workspace</h3>
+          <div className="settings-links">
+            <button onClick={() => openSettingsPage("teams")}>
+              <Orbit size={20} />
+              <span>
+                Agent teams<small>Create a manager and worker feed</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+            <button onClick={() => openSettingsPage("search-settings")}>
+              <Search size={20} />
+              <span>
+                Search preferences
+                <small>Control semantic indexing and data flow</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+            <button onClick={() => openSettingsPage("import")}>
+              <MessageSquare size={20} />
+              <span>
+                Import conversations
+                <small>Bring your past work into Loop</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+          </div>
+          {session.mode === "multi-user" && (
+            <button
+              className="text-button"
+              onClick={async () => {
+                stopEventsPoll.current();
+                await api("/auth/sign-out", {});
+                sessionStorage.clear();
+                setTeamSelection([]);
+                setArchivedCard(null);
+                setComposerExpanded(false);
+                setSharedDraft({
+                  url: "",
+                  title: "",
+                  excerpt: "",
+                  question: "",
+                  folderId: "",
+                });
+                setActiveArtifact(null);
+                setContextArtifact(null);
+                setRoutePreview(null);
+                setFiling(null);
+                setSheet("");
+                history.replaceState({}, "", "/");
+                setDraft("");
+                setFolderChoice(undefined);
+                setConversation(null);
+                setFailureRun(null);
+                setProfile(null);
+                setSession(null);
+                setData({ agents: [], connections: [], folders: [] });
+                setItems([]);
+                setRuns([]);
+              }}
+            >
+              <LogOut size={18} />
+              Sign out
+            </button>
+          )}
+        </Sheet>
+      )}
       {sheet === "share" && (
         <ShareSheet
           draft={sharedDraft}
@@ -1637,7 +2115,7 @@ export default function App() {
           folders={data.folders}
           agents={data.agents}
           newAgentId={shareAgent}
-          onClose={() => setSheet("")}
+          onClose={closeSheet}
           onCreate={() => {
             setReturnTo("share");
             setSheet("create");
@@ -1657,7 +2135,12 @@ export default function App() {
           }}
         />
       )}
-      {sheet === "install" && <InstallHelp onClose={() => setSheet("")} />}
+      {sheet === "install" && (
+        <InstallHelp
+          personal={session.mode === "single-user"}
+          onClose={closeSheet}
+        />
+      )}
       {sheet === "workflows" && (
         <WorkflowEditor
           agents={data.agents}
@@ -1670,12 +2153,13 @@ export default function App() {
             setReturnTo("workflows");
             setSheet("create");
           }}
-          onClose={() => setSheet("")}
+          onClose={closeSheet}
           onStarted={() => {
             setTab("running");
             void changed();
           }}
           onConversation={(c) => {
+            setSettingsParent(false);
             setSheet("");
             setConversation(c);
           }}
@@ -1685,7 +2169,7 @@ export default function App() {
         <Connections
           connections={data.connections}
           onChange={bootstrap}
-          onClose={() => setSheet(returnTo ? "create" : "")}
+          onClose={() => (returnTo ? setSheet("create") : closeSheet())}
         />
       )}
       {sheet === "create" && (
@@ -1693,7 +2177,7 @@ export default function App() {
           initialFolder={folder}
           connections={data.connections}
           folders={data.folders}
-          onClose={() => setSheet("")}
+          onClose={closeSheet}
           onConnect={() => {
             setSheet("connections");
             if (!returnTo) setReturnTo("create");
@@ -1723,18 +2207,17 @@ export default function App() {
           }}
         />
       )}
-      {sheet === "runtime-hosts" && (
-        <RuntimeHosts onClose={() => setSheet("")} />
-      )}
+      {sheet === "runtime-hosts" && <RuntimeHosts onClose={closeSheet} />}
       {sheet === "teams" && (
         <CreateTeam
           agents={data.agents}
-          onClose={() => setSheet("")}
+          onClose={closeSheet}
           onCreateAgent={() => {
             setReturnTo("teams");
             setSheet("create");
           }}
           onCreated={(team) => {
+            setSettingsParent(false);
             setSheet("");
             setTeamSelection([team.id]);
             setSelected(team.manager_id);
@@ -1745,133 +2228,88 @@ export default function App() {
           }}
         />
       )}
-      {sheet === "mcp" && <Tools onClose={() => setSheet("")} />}
-      {sheet === "settings" && (
-        <Sheet title="Make Loop yours" onClose={() => setSheet("")}>
-          <button className="text-button" onClick={() => setSheet("install")}>
-            Install & share on your phone
-          </button>
-          <h3>Appearance</h3>
-          <div className="theme-picker">
-            {[
-              ["system", Monitor],
-              ["light", Sun],
-              ["dark", Moon],
-            ].map(([v, I]: any) => (
-              <button
-                key={v}
-                className={theme === v ? "selected" : ""}
-                onClick={() => setTheme(v)}
-              >
-                <I size={20} />
-                {v}
-              </button>
-            ))}
-          </div>
-          <div className="settings-links">
-            <button onClick={() => setSheet("runtime-hosts")}>
-              <Monitor size={20} />
-              <span>
-                Runtime machines<small>Run agents on your remote machine</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => setSheet("teams")}>
-              <Orbit size={20} />
-              <span>
-                Agent teams<small>Create a manager and worker feed</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button
-              onClick={() => {
-                setWorkflowId(undefined);
-                setWorkflowSource(undefined);
-                setSheet("workflows");
-              }}
-            >
-              <Orbit size={20} />
-              <span>
-                Workflows<small>Connect agents into an executable plan</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => setSheet("search-settings")}>
-              <Search size={20} />
-              <span>
-                Search preferences
-                <small>Control semantic indexing and data flow</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => setSheet("connections")}>
-              <LinkIcon size={20} />
-              <span>
-                Provider connections
-                <small>OpenAI, Anthropic, and your accounts</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => setSheet("import")}>
-              <MessageSquare size={20} />
-              <span>
-                Import conversations
-                <small>Bring your past work into Loop</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => setSheet("mcp")}>
-              <Plus size={20} />
-              <span>
-                Tools & integrations
-                <small>Connect your agents to your workspace</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-          </div>
-          {session.mode === "multi-user" && (
-            <button
-              className="text-button"
-              onClick={async () => {
-                await api("/auth/sign-out", {});
-                sessionStorage.clear();
-                setTeamSelection([]);
-                setArchivedCard(null);
-                setComposerExpanded(false);
-                setSharedDraft({
-                  url: "",
-                  title: "",
-                  excerpt: "",
-                  question: "",
-                  folderId: "",
-                });
-                setActiveArtifact(null);
-                setContextArtifact(null);
-                setRoutePreview(null);
-                setFiling(null);
-                setSheet("");
-                history.replaceState({}, "", "/");
-                setDraft("");
-                setFolderChoice(undefined);
-                setConversation(null);
-                setProfile(null);
-                setSession(null);
-                setData({ agents: [], connections: [], folders: [] });
-                setItems([]);
-                setRuns([]);
-              }}
-            >
-              <LogOut size={18} />
-              Sign out
-            </button>
-          )}
+      {sheet === "mcp" && <Tools onClose={closeSheet} />}
+      {sheet === "agents" && (
+        <AgentDirectory
+          agents={data.agents}
+          scopedIds={scopedAgents.map((a) => a.id)}
+          folders={data.folders}
+          onClose={closeSheet}
+          onCreate={() => {
+            setFolder(projectFilter);
+            setSheet("create");
+          }}
+          onAgent={(a) => {
+            setSheet("");
+            setProfile(a);
+          }}
+        />
+      )}
+      {failureRun?.agent_id && (
+        <Sheet
+          title="Run failure details"
+          wide
+          swipeToClose
+          onClose={() => setFailureRun(null)}
+        >
+          <RunStatus state={failureRun.state} error={failureRun.error} />
+          <p className="field-hint">
+            Saved progress and tool activity for this attempt.
+          </p>
+          <Traces
+            key={failureRun.id}
+            agentId={failureRun.agent_id}
+            runId={failureRun.id}
+            revision={revision}
+            onConversation={(id) => {
+              setFailureRun(null);
+              setConversation(id);
+            }}
+            onArtifact={(artifact) => {
+              setFailureRun(null);
+              setActiveArtifact(artifact);
+            }}
+          />
         </Sheet>
       )}
+      {modelAgent && (
+        <AgentModelSettings
+          agent={modelAgent}
+          connections={data.connections}
+          onClose={() => setModelAgent(null)}
+          onSaved={(saved) => {
+            if (saved.connection_id !== modelAgent.connection_id)
+              setContextArtifact(null);
+            if (profile?.id === saved.id) setProfile(saved);
+            setModelAgent((current) =>
+              current?.id === saved.id ? saved : current,
+            );
+            setData((old) => ({
+              ...old,
+              agents: old.agents.map((agent) =>
+                agent.id === saved.id ? saved : agent,
+              ),
+              teams:
+                saved.connection_id !== modelAgent.connection_id
+                  ? old.teams?.map((team) =>
+                      team.manager_id === saved.id
+                        ? { ...team, conversation_id: null }
+                        : team,
+                    )
+                  : old.teams,
+            }));
+            void bootstrap();
+          }}
+        />
+      )}
       {sheet === "edit-agent" && profile && (
-        <Sheet title="Edit agent" onClose={() => setSheet("")}>
+        <Sheet title="Edit agent" onClose={closeSheet}>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
+              if (editBusy) return;
+              setEditBusy(true);
+              setEditError("");
               const f = new FormData(e.currentTarget);
               try {
                 const a = await api<Agent>(
@@ -1879,8 +2317,6 @@ export default function App() {
                   {
                     name: f.get("name"),
                     instructions: f.get("instructions"),
-                    model: f.get("model"),
-                    effort: f.get("effort") || null,
                     folderId: f.get("folder") || null,
                   },
                   "PATCH",
@@ -1888,8 +2324,11 @@ export default function App() {
                 setProfile(a);
                 await bootstrap();
                 setSheet("");
+                setDismissNotice("Agent changes saved.");
               } catch (e) {
-                setError((e as Error).message);
+                setEditError((e as Error).message);
+              } finally {
+                setEditBusy(false);
               }
             }}
           >
@@ -1909,30 +2348,13 @@ export default function App() {
               Guidance for every future task, such as the agent’s role, focus,
               or writing style.
             </p>
-            <label>
-              Future model
-              <select name="model" defaultValue={profile.model}>
-                {parse<any[]>(
-                  data.connections.find((c) => c.id === profile.connection_id)
-                    ?.models,
-                  [],
-                ).map((m) => (
-                  <option key={m.id}>{m.id}</option>
-                ))}
-              </select>
-            </label>
-            {(profile.provider === "openai" ||
-              profile.provider === "codex") && (
-              <label>
-                Reasoning effort
-                <select name="effort" defaultValue={profile.effort || ""}>
-                  <option value="">Provider default</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </label>
-            )}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setModelAgent(profile)}
+            >
+              Model, provider & effort
+            </button>
             <p className="note">
               Past outputs and running tasks retain their original provider and
               model.
@@ -1952,13 +2374,20 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <button className="primary">Save changes</button>
+            {editError && (
+              <p className="error" role="alert">
+                {editError}
+              </p>
+            )}
+            <button className="primary" disabled={editBusy}>
+              {editBusy ? "Saving…" : "Save changes"}
+            </button>
           </form>
         </Sheet>
       )}
       {sheet === "native-history" && (
         <NativeHistory
-          onClose={() => setSheet("")}
+          onClose={closeSheet}
           onOpen={(id) => {
             setSheet("");
             setConversation(id);
@@ -1972,17 +2401,23 @@ export default function App() {
           id={conversation}
           messageId={messageId}
           onAgentChanged={() => void bootstrap()}
+          onNewConversation={(agent) => {
+            setConversation(null);
+            setSelected(agent.id);
+            setContextArtifact(null);
+            setComposerExpanded(true);
+          }}
           onProfile={(a) => {
             setConversation(null);
             setProfile(a);
+            requestAnimationFrame(() =>
+              window.scrollTo({ top: 0, behavior: "instant" }),
+            );
           }}
           agents={data.agents}
           connections={data.connections}
           teams={data.teams || []}
-          onClose={() => {
-            setConversation(null);
-            history.replaceState({}, "", location.pathname);
-          }}
+          onClose={() => setConversation(null)}
           onContinue={setConversation}
           onSent={() => {
             setConversation(null);
@@ -1990,13 +2425,15 @@ export default function App() {
             void refresh().catch((e) => setError(e.message));
           }}
           onSubmitted={refresh}
-          onError={setError}
         />
       )}
       {activeArtifact && (
         <ArtifactViewer
+          key={activeArtifact.id}
           item={activeArtifact}
-          folders={data.folders}
+          agent={data.agents.find(
+            (agent) => agent.id === activeArtifact.agent_id,
+          )}
           onClose={() => setActiveArtifact(null)}
           onFile={() => {
             setFiling(activeArtifact);
@@ -2004,17 +2441,15 @@ export default function App() {
           }}
           onConversation={() => {
             const message = parse<any>(activeArtifact.metadata, {}).messageId;
-            history.replaceState(
-              {},
-              "",
-              "/?conversation=" +
-                activeArtifact.conversation_id +
-                (message ? "&message=" + message : ""),
-            );
             setConversation(activeArtifact.conversation_id, message);
             setActiveArtifact(null);
           }}
           onChanged={() => void changed()}
+          onSent={() => {
+            setActiveArtifact(null);
+            collapseComposer();
+            void refresh().catch((e) => setError(e.message));
+          }}
           onWorkflow={(source) => {
             setWorkflowSource(source);
             setWorkflowId(undefined);
@@ -2042,6 +2477,7 @@ export default function App() {
       )}
       {(sheet === "project" || sheet === "folder-edit") && (
         <FolderForm
+          kind={tab === "projects" ? "project" : "folder"}
           existing={
             sheet === "folder-edit"
               ? data.folders.find((f) => f.id === folder)
@@ -2049,7 +2485,7 @@ export default function App() {
           }
           folders={data.folders}
           parent={folder}
-          onClose={() => setSheet("")}
+          onClose={closeSheet}
           onCreated={(created) => {
             if (tab === "projects") {
               setProject(created.id);
@@ -2062,17 +2498,14 @@ export default function App() {
       {sheet === "import" && (
         <ImportSheet
           onClose={() => {
-            setSheet("");
+            closeSheet();
             void changed();
           }}
           onChange={() => void changed()}
         />
       )}
       {sheet === "search-settings" && (
-        <SearchSettings
-          connections={data.connections}
-          onClose={() => setSheet("")}
-        />
+        <SearchSettings connections={data.connections} onClose={closeSheet} />
       )}
     </div>
   );

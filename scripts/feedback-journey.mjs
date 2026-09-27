@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import Database from "better-sqlite3";
@@ -6,7 +7,7 @@ import { tmpdir } from "node:os";
 
 export async function feedbackJourney(page, api, base, dir) {
   await page.goto(base);
-  await page.getByRole("heading", { name: "Your loop." }).waitFor();
+  await page.getByRole("heading", { name: "Feed" }).waitFor();
   assert.equal(await page.getByLabel("Message your agent").isVisible(), false);
   await page.getByRole("button", { name: "Compose a message" }).click();
   await page.getByLabel("Message your agent").fill("Keep this draft");
@@ -35,6 +36,7 @@ export async function feedbackJourney(page, api, base, dir) {
     instructions: "fixture-team:" + worker.id,
   });
   await page.reload();
+  await page.getByRole("button", { name: /^Filter by team:/ }).click();
   await page.getByRole("button", { name: "New team", exact: true }).click();
   await page.getByLabel("Team name").fill("Feedback team");
   await page.getByLabel("Manager", { exact: true }).selectOption(manager.id);
@@ -46,7 +48,7 @@ export async function feedbackJourney(page, api, base, dir) {
     .getByPlaceholder("Continue with @feedback-manager…")
     .fill("Coordinate this work");
   await page.getByRole("button", { name: "Send reply" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("dialog[open]").last()).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
@@ -58,13 +60,13 @@ export async function feedbackJourney(page, api, base, dir) {
         exact: true,
       }),
     })
-    .getByRole("button", { name: "Continue", exact: true })
+    .getByRole("button", { name: "Reply", exact: true })
     .click();
   await page
     .getByRole("dialog")
     .getByText("Fixture response:", { exact: false })
     .waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await page
     .locator(".feed-card")
     .filter({ hasText: "Collect evidence for the team" })
@@ -91,10 +93,14 @@ export async function feedbackJourney(page, api, base, dir) {
       exact: true,
     }),
   });
-  await card.locator(".card-content").click();
-  await page.getByRole("dialog").waitFor();
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await page.locator("dialog[open]").last().waitFor();
+  await page.getByLabel("Result options", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Source conversation", exact: true })
+    .click();
   await page.locator(".message.anchored").waitFor();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   await card.locator(".identity").click();
   await page
     .getByRole("heading", { name: "@feedback-worker", exact: true })
@@ -197,7 +203,7 @@ export async function feedbackJourney(page, api, base, dir) {
     }),
   );
   await page.screenshot({ path: join(tmpdir(), "loop-feedback-diagram.png") });
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await closeSheets(page);
   for (const width of [320, 390, 430, 1024]) {
     await page.setViewportSize({ width, height: 844 });
     assert.equal(

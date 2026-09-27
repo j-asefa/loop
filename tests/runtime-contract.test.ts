@@ -43,13 +43,19 @@ if(provider==='codex') {
   if(m.method==='account/login/start'){result={verificationUrl:'https://auth.openai.com/codex/device',userCode:'FIXTURE-123'};fs.writeFileSync(auth,'subscription');setTimeout(()=>send({method:'account/login/completed',params:{success:true}}),20);}
   if(m.method==='skills/list')result={data:[{skills:[{name:'fixture-skill',path:'/fixture/SKILL.md',description:'Fixture skill',enabled:true}]}]};
   if(m.method==='account/logout')fs.writeFileSync(auth,'none');
-  if(m.method==='model/list')result={data:[{id:'fixture',model:'fixture',displayName:'Fixture subscription model'}],nextCursor:null};
+  if(m.method==='model/list')result={data:[{id:'fixture',model:'fixture',displayName:'Fixture subscription model',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'xhigh',description:'Deep work'}],defaultReasoningEffort:'low'}],nextCursor:null};
   if(m.method==='thread/start'){global.model=m.params.model;result={thread:{id:'thread-fixture'}};}
   if(m.method==='review/start'){result={turn:{id:'review-fixture'}};setTimeout(()=>{send({method:'item/completed',params:{threadId:'thread-fixture',turnId:'review-fixture',item:{type:'exitedReviewMode',review:'Native review result'}}});send({method:'turn/completed',params:{threadId:'thread-fixture',turn:{id:'review-fixture',status:'completed'}}});},20);}
   if(m.method==='turn/start'){
    if(!m.params.outputSchema)throw Error('Missing structured output');
+   if(global.model==='steering'){send({id:m.id,result:{turn:{id:'active-fixture'}}});return;}
    if(global.model==='credential')credentialTrace();
-   setTimeout(()=>{send({method:'item/agentMessage/delta',params:{delta:JSON.stringify(answer(global.model))}});send({method:'turn/completed',params:{turn:{status:global.model==='quota'?'failed':'completed'}}});},global.model==='slow'?100:20);
+   setTimeout(()=>{send({method:'item/agentMessage/delta',params:{delta:JSON.stringify(answer(global.model))}});send({method:'turn/completed',params:{turn:{status:global.model==='quota'?'failed':'completed',error:global.model==='quota'?{message:'Usage limit reached; '+(process.env.GH_TOKEN||''),codexErrorInfo:'usage_limit'}:undefined}}});},global.model==='slow'?100:20);
+  }
+  if(m.method==='turn/steer') {
+   if(m.params.expectedTurnId!=='active-fixture')throw Error('Wrong active turn');
+   result={turnId:'active-fixture'};
+   setTimeout(()=>{send({method:'item/agentMessage/delta',params:{delta:JSON.stringify({...answer(global.model),text:m.params.input[0].text})}});send({method:'turn/completed',params:{turn:{id:'active-fixture',status:'completed'}}});},20);
   }
   send({id:m.id,result});
  });
@@ -62,11 +68,24 @@ if(provider==='codex') {
   rl.createInterface({input:process.stdin}).on('line',code=>{if(code!=='fixture-code')process.exit(1);fs.writeFileSync(auth,'subscription');process.exit(0);});
  }
 } else if(args.includes('--input-format')) {
- rl.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify({control:m})+'\\n');if(m.type==='user'){const model=args[args.indexOf('--model')+1];fs.appendFileSync(log,JSON.stringify({prompt:m.message.content})+'\\n');send({type:'result',subtype:'success',structured_output:answer(model),session_id:'claude-fixture'});return}send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:{commands:[{name:'fixture-command',description:'Fixture command',argumentHint:'task'},{name:'compact',description:'Compact history'}]}}});});
+ const modeFile=path.join(home,'fixture-catalog-mode');
+ const mode=fs.existsSync(modeFile)?fs.readFileSync(modeFile,'utf8'):'';
+ if(mode==='exit')process.exit(1);
+ rl.createInterface({input:process.stdin}).on('line',line=>{
+  const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify({control:m})+'\\n');
+  if(m.type==='user'){const model=args[args.indexOf('--model')+1];fs.appendFileSync(log,JSON.stringify({prompt:m.message.content})+'\\n');if(model==='steering'&&!global.followed){global.followed=true;return;}send({type:'result',subtype:'success',structured_output:model==='steering'?{...answer(model),text:m.message.content}:answer(model),session_id:'claude-fixture'});return}
+  if(m.request?.subtype==='interrupt')send({type:'result',subtype:'interrupted',is_error:true});
+  if(mode==='timeout')return;
+  const catalog={models:[{value:'fixture',displayName:'Fixture Claude',resolvedModel:'claude-opus-5-5',supportedEffortLevels:['low','max']}],commands:[{name:'fixture-command',description:'Fixture command',argumentHint:'task'},{name:'compact',description:'Compact history'}]};
+  if(mode==='missing-models')delete catalog.models;
+  if(mode==='empty-models')catalog.models=[];
+  if(mode==='missing-commands')delete catalog.commands;
+  send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:catalog}});
+ });
 } else {
  const model=args[args.indexOf('--model')+1];let prompt='';
  if(args.includes('--tools')||args.includes('--strict-mcp-config')||!args.includes('bypassPermissions'))throw Error('Native tools are restricted');
- process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{fs.appendFileSync(log,JSON.stringify({prompt})+'\\n');if(!prompt.includes('CONVERSATION')&&!args.includes('--append-system-prompt'))throw Error('Missing history');if(model==='credential')credentialTrace();setTimeout(()=>{if(model!=='workspace')formatted(model);send({type:'result',subtype:model==='quota'?'error_max_turns':'success',is_error:model==='quota',structured_output:answer(model),session_id:'claude-fixture'});},model==='slow'?100:0);});
+ process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{fs.appendFileSync(log,JSON.stringify({prompt})+'\\n');if(!prompt.includes('CONVERSATION')&&!args.includes('--append-system-prompt'))throw Error('Missing history');if(model==='credential')credentialTrace();setTimeout(()=>{if(model!=='workspace')formatted(model);send({type:'result',subtype:model==='quota'?'error_max_turns':'success',is_error:model==='quota',errors:model==='quota'?['Maximum turns reached; '+(process.env.GH_TOKEN||'')]:undefined,structured_output:answer(model),session_id:'claude-fixture'});},model==='slow'?100:0);});
 }
 `;
 for (const name of ["codex", "claude"])
@@ -84,11 +103,16 @@ function invoke(
     key?: string;
     githubToken?: string;
     fastClock?: boolean;
+    effort?: string;
+    catalogMode?: string;
+    steering?: string;
   } = {},
 ) {
   const home = workspace.home || mkdtempSync(join(root, "account-"));
   writeFileSync(join(home, "fixture-auth"), auth);
   writeFileSync(join(home, "calls"), "");
+  if (workspace.catalogMode)
+    writeFileSync(join(home, "fixture-catalog-mode"), workspace.catalogMode);
   const p = spawn(
     process.execPath,
     [
@@ -125,6 +149,14 @@ function invoke(
       events.push(event);
       if (event.login?.acceptsCode)
         p.stdin.write(JSON.stringify({ code: "fixture-code" }) + "\n");
+      if (event.steeringReady && workspace.steering)
+        p.stdin.write(
+          JSON.stringify({
+            action: "steer",
+            id: "followup-fixture",
+            text: workspace.steering,
+          }) + "\n",
+        );
     }
   });
   p.stdin.write(
@@ -135,6 +167,8 @@ function invoke(
       input: {
         workspaceKey: workspace.key,
         model,
+        effort: workspace.effort,
+        controlId: workspace.steering ? "steering-fixture" : undefined,
         instructions: "Be clear",
         messages: [...history, { role: "user", content: prompt }],
         tools: [
@@ -147,17 +181,20 @@ function invoke(
       },
     }) + "\n",
   );
-  if (action !== "login") p.stdin.end();
+  if (action !== "login" && !workspace.steering) p.stdin.end();
   return new Promise<{
     code: number | null;
     events: any[];
     calls: any[];
     home: string;
   }>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      p.kill();
-      reject(new Error("Runtime contract timeout"));
-    }, 5000);
+    const timer = setTimeout(
+      () => {
+        p.kill();
+        reject(new Error("Runtime contract timeout"));
+      },
+      workspace.catalogMode === "timeout" ? 25000 : 5000,
+    );
     p.once("error", reject);
     p.once("close", (code) => {
       clearTimeout(timer);
@@ -175,6 +212,136 @@ function invoke(
   });
 }
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+it.each(["codex", "claude"])(
+  "%s delivers live input before the initial turn finishes",
+  async (provider) => {
+    const result = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "steering",
+      false,
+      "Keep working until I send a follow-up",
+      [],
+      { steering: "Focus on the local tests" },
+    );
+    expect(result.code).toBe(0);
+    expect(result.events).toContainEqual({
+      steeringResult: { id: "followup-fixture", accepted: true },
+    });
+    expect(result.events).toContainEqual({
+      chunk: { text: "Focus on the local tests" },
+    });
+    expect(result.events.filter((event) => event.done)).toHaveLength(1);
+    if (provider === "codex") {
+      expect(
+        result.calls.filter((call) => call.rpc?.method === "turn/start"),
+      ).toHaveLength(1);
+      expect(
+        result.calls.find((call) => call.rpc?.method === "turn/steer").rpc
+          .params.expectedTurnId,
+      ).toBe("active-fixture");
+    } else {
+      expect(
+        result.calls.filter(
+          (call) => call.control?.request?.subtype === "interrupt",
+        ),
+      ).toHaveLength(1);
+      expect(result.calls.filter((call) => call.prompt)).toHaveLength(2);
+    }
+  },
+);
+it.each([
+  "exit",
+  "timeout",
+  "missing-models",
+  "empty-models",
+  "missing-commands",
+])(
+  "Claude status remains connected when catalog discovery has %s",
+  async (catalogMode) => {
+    const result = await invoke(
+      "claude",
+      "status",
+      "subscription",
+      "fixture",
+      false,
+      "",
+      [],
+      { catalogMode },
+    );
+    expect(result.code).toBe(0);
+    const status = result.events.at(-1).result;
+    expect(status).toMatchObject({
+      authenticated: true,
+      authMode: "subscription",
+    });
+    if (catalogMode === "missing-commands") {
+      expect(status.models[0]).toMatchObject({
+        id: "fixture",
+        resolvedModel: "claude-opus-5-5",
+        effortLevels: [{ value: "low" }, { value: "max" }],
+      });
+    } else {
+      expect(status.models.map((model: any) => model.id)).toEqual([
+        "sonnet",
+        "opus",
+        "haiku",
+      ]);
+      expect(
+        status.models.every((model: any) => model.effortLevels === undefined),
+      ).toBe(true);
+    }
+    expect(result.calls.some((call) => call.prompt)).toBe(false);
+  },
+  30000,
+);
+it("Claude login succeeds despite discovery failure, while command discovery still reports unavailable", async () => {
+  const login = await invoke(
+    "claude",
+    "login",
+    "none",
+    "fixture",
+    false,
+    "",
+    [],
+    { catalogMode: "exit" },
+  );
+  expect(login.code).toBe(0);
+  expect(login.events.at(-1).result).toMatchObject({
+    authenticated: true,
+    models: expect.arrayContaining([expect.objectContaining({ id: "sonnet" })]),
+  });
+  const commands = await invoke(
+    "claude",
+    "capabilities",
+    "subscription",
+    "fixture",
+    false,
+    "",
+    [],
+    { catalogMode: "missing-commands" },
+  );
+  expect(commands.code).toBe(1);
+  expect(commands.events.at(-1).error).toBeTruthy();
+  const unauthenticated = await invoke(
+    "claude",
+    "status",
+    "none",
+    "fixture",
+    false,
+    "",
+    [],
+    { catalogMode: "exit" },
+  );
+  expect(unauthenticated.events.at(-1).result).toMatchObject({
+    authenticated: false,
+    models: [],
+  });
+  expect(
+    unauthenticated.calls.some((call) => call.args?.includes("--input-format")),
+  ).toBe(false);
+});
 for (const provider of ["codex", "claude"]) {
   it(`${provider}: survives the former runtime kill deadline`, async () => {
     const result = await invoke(
@@ -205,10 +372,36 @@ for (const provider of ["codex", "claude"]) {
       authenticated: true,
       authMode: "subscription",
     });
-    expect(r.events.at(-1).result.models.length).toBeGreaterThan(0);
+    expect(r.events.at(-1).result.models[0].effortLevels).toEqual(
+      provider === "codex"
+        ? [{ value: "low" }, { value: "xhigh", description: "Deep work" }]
+        : [{ value: "low" }, { value: "max" }],
+    );
     expect(r.calls.filter((x) => x.args).every((x) => x.apiKey === null)).toBe(
       true,
     );
+  });
+  it(`${provider}: forwards selected effort unchanged to the official runtime`, async () => {
+    const r = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "fixture",
+      true,
+      "Check the work",
+      [],
+      { effort: "xhigh" },
+    );
+    expect(r.code).toBe(0);
+    if (provider === "codex")
+      expect(
+        r.calls.find((c) => c.rpc?.method === "turn/start").rpc.params
+          .reasoningEffort,
+      ).toBe("xhigh");
+    else {
+      const args = r.calls.find((c) => c.args?.includes("--model")).args;
+      expect(args[args.indexOf("--effort") + 1]).toBe("xhigh");
+    }
   });
   it(`${provider}: answers and typed tool requests pass through the official protocol`, async () => {
     const r = await invoke(provider, "turn");
@@ -231,6 +424,12 @@ for (const provider of ["codex", "claude"]) {
     const quota = await invoke(provider, "turn", "subscription", "quota");
     expect(quota.code).not.toBe(0);
     expect(quota.events.some((x) => x.done)).toBe(false);
+    expect(quota.events.find((x) => x.error)).toMatchObject({
+      code: "runtime_failure",
+      error: expect.stringContaining(
+        provider === "codex" ? "Usage limit reached" : "Maximum turns reached",
+      ),
+    });
     expect(
       quota.calls
         .filter((x) => x.args)
@@ -602,3 +801,22 @@ it("streams long command history through stdin instead of an oversized process a
       .every((c) => c.args.every((a: string) => a.length < 10000)),
   ).toBe(true);
 });
+
+for (const provider of ["codex", "claude"])
+  it(`${provider}: failure diagnostics survive without exposing native credentials`, async () => {
+    const secret = "private-failure-credential";
+    const failed = await invoke(
+      provider,
+      "turn",
+      "subscription",
+      "quota",
+      false,
+      "Inspect",
+      [],
+      { githubToken: secret },
+    );
+    const event = failed.events.find((e) => e.code === "runtime_failure");
+    expect(event.error).toContain("[redacted]");
+    expect(event.diagnostic).toMatchObject({ phase: "turn" });
+    expect(JSON.stringify(failed.events)).not.toContain(secret);
+  });

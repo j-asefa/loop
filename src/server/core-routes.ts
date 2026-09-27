@@ -8,9 +8,11 @@ import {
   feedUpdates,
   feedOutputSql,
   finishedArtifactSql,
+  projectFolders,
 } from "./feed.js";
 import { agentTraces } from "./traces.js";
-import { agentMessages, conversationUpdates } from "./agent-messages.js";
+import { agentMessages } from "./agent-messages.js";
+import { conversationMessages } from "./conversation-messages.js";
 import { dismissRun } from "./run-attention.js";
 import {
   isSubscription,
@@ -21,11 +23,19 @@ import {
 import { Router } from "express";
 import { z } from "zod";
 import { db, emit, id, now } from "./db.js";
-import { owned, renameAgent, Problem } from "./domain.js";
+import {
+  owned,
+  renameAgent,
+  Problem,
+  agentInput,
+  validateEffort,
+} from "./domain.js";
 import { createWithPrompt } from "./agent-creation.js";
+import { suggestAgentName } from "./agent-names.js";
 import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
 import { submit } from "./agent-runtime.js";
+import { attachmentIds } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import { listTeams, teamFilter } from "./teams.js";
@@ -120,6 +130,53 @@ core.post("/connections/:id/refresh", async (req, res) => {
     );
   }
 });
+core.get("/connections/:id/models", async (req, res) => {
+  const c = owned<Connection>("connections", req.params.id, res.locals.owner);
+  if (c.status !== "connected")
+    throw new Problem(409, "Reconnect this provider first");
+  let models;
+  if (isNativeConnection(c)) {
+    const harness = JSON.parse(c.metadata).loopHarness;
+    await nativeSessions.enable(nativeSessions.registration(harness));
+    models = JSON.parse(
+      owned<Connection>("connections", c.id, res.locals.owner).models,
+    );
+  } else if (isSubscription(c)) {
+    const result = await runtimeAction(c, "status");
+    if (!result.authenticated)
+      throw new Problem(409, "Reconnect this provider first");
+    models = result.models;
+  } else
+    models = await adapter(c.provider).models(
+      unseal(c.secret, res.locals.owner),
+    );
+  const catalog = z
+    .array(
+      z.object({
+        id: z.string().min(1).max(200),
+        name: z.string().max(200),
+        resolvedModel: z.string().min(1).max(200).optional(),
+        capabilities: z.string().max(500).optional(),
+        effortLevels: z
+          .array(
+            z.object({
+              value: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/),
+              description: z.string().max(1000).optional(),
+            }),
+          )
+          .max(20)
+          .optional(),
+        defaultEffort: z.string().max(32).optional(),
+      }),
+    )
+    .max(300)
+    .parse(models);
+  db.prepare("UPDATE connections SET models=? WHERE id=?").run(
+    JSON.stringify(catalog),
+    c.id,
+  );
+  res.json({ models: catalog });
+});
 core.post("/connections/:id/reconnect", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner),
     secret = z.string().min(8).max(4096).parse(req.body.secret);
@@ -151,6 +208,9 @@ core.delete("/connections/:id", async (req, res) => {
   if (isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
+core.get("/agents/suggest-name", (_req, res) =>
+  res.set("Cache-Control", "no-store").json({ name: suggestAgentName() }),
+);
 core.post("/agents", (req, res) =>
   res.status(201).json(createWithPrompt(res.locals.owner, req.body)),
 );
@@ -173,33 +233,40 @@ core.patch("/agents/:id", (req, res) => {
           z.string().max(12000).parse(req.body.instructions),
           agent.id,
         );
-      if (req.body.effort !== undefined) {
-        const effort = z
-          .enum(["low", "medium", "high"])
-          .nullable()
-          .parse(req.body.effort);
-        db.prepare("UPDATE agents SET effort=? WHERE id=? AND owner_id=?").run(
-          effort,
-          agent.id,
-          owner,
-        );
-      }
-      if (req.body.model !== undefined) {
+      if (
+        req.body.model !== undefined ||
+        req.body.connectionId !== undefined ||
+        req.body.effort !== undefined
+      ) {
         const c = owned<Connection>(
           "connections",
-          agent.connection_id || "",
+          z.string().parse(req.body.connectionId ?? agent.connection_id ?? ""),
           owner,
         );
-        if (
-          !JSON.parse(c.models).some(
-            (m: { id: string }) => m.id === req.body.model,
-          )
-        )
-          throw new Problem(400, "Model unavailable on this connection");
-        db.prepare("UPDATE agents SET model=? WHERE id=?").run(
-          req.body.model,
-          agent.id,
+        if (c.status !== "connected")
+          throw new Problem(409, "Reconnect this provider first");
+        const model = z
+          .string()
+          .min(1)
+          .max(200)
+          .parse(req.body.model ?? agent.model);
+        const effort = agentInput.shape.effort.parse(
+          req.body.effort === undefined
+            ? model === agent.model && c.id === agent.connection_id
+              ? agent.effort
+              : null
+            : req.body.effort,
         );
+        if (!JSON.parse(c.models).some((m: { id: string }) => m.id === model))
+          throw new Problem(400, "Model unavailable on this connection");
+        validateEffort(c, model, effort);
+        db.prepare(
+          "UPDATE agents SET connection_id=?,provider=?,model=?,effort=? WHERE id=?",
+        ).run(c.id, c.provider, model, effort || null, agent.id);
+        if (c.id !== agent.connection_id)
+          db.prepare(
+            "UPDATE teams SET conversation_id=NULL WHERE owner_id=? AND manager_id=? AND deleted_at IS NULL",
+          ).run(owner, agent.id);
       }
       return owned("agents", agent.id, owner);
     })
@@ -252,10 +319,12 @@ core.get("/agents/:id/traces", (req, res) => {
     .max(Number.MAX_SAFE_INTEGER)
     .optional()
     .parse(req.query.before);
-  res.json(agentTraces(res.locals.owner, req.params.id, before));
+  const runId = z.string().min(1).max(100).optional().parse(req.query.run);
+  res.json(agentTraces(res.locals.owner, req.params.id, before, runId));
 });
 core.get("/agents/:id/messages", (req, res) => {
-  res.json({ items: agentMessages(res.locals.owner, req.params.id) });
+  const before = z.string().min(1).max(512).optional().parse(req.query.before);
+  res.json(agentMessages(res.locals.owner, req.params.id, before));
 });
 core.get("/agents/:id", (req, res) => {
   const a = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -278,12 +347,14 @@ core.post("/runs", (req, res) => {
     .object({
       agentId: z.string(),
       conversationId: z.string().optional(),
+      replyToMessageId: z.string().min(1).max(150).optional(),
       input: z.string().trim().min(1).max(30000),
+      attachmentIds,
       idempotencyKey: z.string().min(8).max(150),
       folderId: z.string().min(1).nullable().optional(),
     })
     .parse(req.body);
-  res.status(202).json(submit(res.locals.owner, d));
+  res.status(202).json(submit(res.locals.owner, { ...d, steer: true }));
 });
 core.post("/runs/:id/:action", (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
@@ -327,6 +398,8 @@ core.post("/runs/:id/:action", (req, res) => {
         conversationId: run.conversation_id || undefined,
         input: run.input,
         idempotencyKey: d.idempotencyKey,
+        attachmentIds: JSON.parse(run.payload).attachmentIds || [],
+        replyTo: JSON.parse(run.payload).replyTo,
       }),
     );
     return;
@@ -405,8 +478,12 @@ core.get("/feed", (req, res) => {
   }
   if (req.query.folder) {
     owned("folders", String(req.query.folder), res.locals.owner);
-    where += " AND a.folder_id=?";
-    params.push(req.query.folder);
+    where += " AND a.folder_id IN (SELECT value FROM json_each(?))";
+    params.push(
+      JSON.stringify(
+        projectFolders(res.locals.owner, String(req.query.folder)),
+      ),
+    );
   }
   if (req.query.agent) {
     owned("agents", String(req.query.agent), res.locals.owner);
@@ -426,8 +503,12 @@ core.get("/feed", (req, res) => {
     }
     if (req.query.folder) {
       filter +=
-        " AND EXISTS (SELECT 1 FROM runs fr WHERE fr.id=m.run_id AND json_extract(fr.payload,'$.folderId')=?)";
-      values.push(req.query.folder);
+        " AND EXISTS (SELECT 1 FROM runs fr WHERE fr.id=m.run_id AND json_extract(fr.payload,'$.folderId') IN (SELECT value FROM json_each(?)))";
+      values.push(
+        JSON.stringify(
+          projectFolders(res.locals.owner, String(req.query.folder)),
+        ),
+      );
     }
     if (req.query.agent) {
       filter += " AND c.agent_id=?";
@@ -478,36 +559,11 @@ core.patch("/feed/:id", (req, res) => {
 });
 core.get("/conversations/:id", (req, res) => {
   const c = owned("conversations", req.params.id, res.locals.owner);
-  let before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
-  if (req.query.message) {
-    const m = owned<any>(
-      "messages",
-      String(req.query.message),
-      res.locals.owner,
-    );
-    if (m.conversation_id !== req.params.id)
-      throw new Problem(404, "Message not found");
-    const anchor = db
-      .prepare("SELECT rowid r FROM messages WHERE id=?")
-      .get(m.id) as { r: number };
-    before = anchor.r + 25;
-  }
-  const items = db
-    .prepare(
-      "SELECT m.*,m.rowid AS cursor,r.state run_state,r.error run_error FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id WHERE m.owner_id=? AND m.conversation_id=? AND m.rowid<? ORDER BY m.rowid DESC LIMIT 50",
-    )
-    .all(res.locals.owner, req.params.id, before) as (Message & { cursor: number })[];
+  const before = z.string().max(512).optional().parse(req.query.before);
+  const anchor = z.string().max(150).optional().parse(req.query.message);
   res.json({
     conversation: c,
-    messages: items.reverse().flatMap((m) => {
-      if (m.role !== "assistant" || !m.run_id) return [m];
-      const updates = conversationUpdates(res.locals.owner, req.params.id, m.run_id);
-      return [...updates.map((item, index) => ({
-        ...item,
-        cursor: m.cursor - 1 + (index + 1) / (updates.length + 1),
-      })), m];
-    }),
-    next: items.length === 50 ? items[0].cursor : null,
+    ...conversationMessages(res.locals.owner, req.params.id, before, anchor),
   });
 });
 core.get("/messages/:id", (req, res) =>

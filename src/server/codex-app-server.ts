@@ -1,3 +1,4 @@
+import { modelOptions } from "../../runtime/model-options.mjs";
 import { idleDeadline } from "../../runtime/idle-deadline.mjs";
 import { WebSocket, type Dispatcher } from "undici";
 import { Problem } from "./domain.js";
@@ -5,6 +6,13 @@ import type { ChatInput, Chunk } from "./providers.js";
 import { nativeReply } from "../../runtime/native-tools.mjs";
 import { codexCatalog, codexTurn } from "../../runtime/harness.mjs";
 import { resultChunks } from "../../runtime/protocol.mjs";
+import {
+  RuntimeFailure,
+  diagnosticText,
+  errorFacts,
+  errorSummary,
+  runtimeFailureFacts,
+} from "../../runtime/diagnostics.mjs";
 
 export type CodexEndpoint = {
   url: string;
@@ -34,6 +42,7 @@ class CodexRpc {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      method: string;
     }
   >();
   private events: Message[] = [];
@@ -42,9 +51,28 @@ class CodexRpc {
     reject: (error: Error) => void;
   };
   private failure?: Error;
-  private constructor(private socket: WebSocket) {
-    socket.addEventListener("error", () => this.fail(unavailable()));
-    socket.addEventListener("close", () => this.fail(unavailable()));
+  private constructor(
+    private socket: WebSocket,
+    private token: string,
+  ) {
+    socket.addEventListener("error", ({ error }) =>
+      this.fail(
+        new Problem(
+          502,
+          `Remote Codex connection failed (${errorSummary(error, [], false)}). Check Traces for saved progress.`,
+          { phase: "connection", ...errorFacts(error) },
+        ),
+      ),
+    );
+    socket.addEventListener("close", ({ code }) =>
+      this.fail(
+        new Problem(
+          502,
+          `Remote Codex connection closed (WebSocket code ${code}) before the response finished. Check Traces for saved progress.`,
+          { phase: "connection", code },
+        ),
+      ),
+    );
     socket.addEventListener("message", ({ data }) => {
       try {
         if (typeof data !== "string" || Buffer.byteLength(data) > 4_000_000)
@@ -57,9 +85,22 @@ class CodexRpc {
           if (!pending) return;
           this.pending.delete(Number(message.id));
           clearTimeout(pending.timer);
-          message.error
-            ? pending.reject(unavailable())
-            : pending.resolve(message.result);
+          if (message.error) {
+            const error = message.error as {
+              message?: unknown;
+              code?: unknown;
+            };
+            pending.reject(
+              new Problem(
+                422,
+                `Remote Codex rejected ${pending.method}: ${diagnosticText(error.message, [this.token]) || "No reason returned."}`,
+                runtimeFailureFacts({
+                  phase: pending.method,
+                  code: error.code,
+                }),
+              ),
+            );
+          } else pending.resolve(message.result);
         } else if (this.waiter) {
           const waiter = this.waiter;
           this.waiter = undefined;
@@ -79,7 +120,7 @@ class CodexRpc {
       headers: { authorization: "Bearer " + endpoint.token },
       dispatcher: endpoint.dispatcher,
     });
-    const rpc = new CodexRpc(socket);
+    const rpc = new CodexRpc(socket, endpoint.token);
     try {
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
@@ -125,9 +166,15 @@ class CodexRpc {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(unavailable());
+        reject(
+          new Problem(
+            408,
+            `Remote Codex ${method} timed out after ${Math.ceil(timeout / 1000)} seconds.`,
+            { phase: method, code: "request_timeout" },
+          ),
+        );
       }, timeout);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, method });
       try {
         this.send({ id, method, params });
       } catch {
@@ -191,6 +238,7 @@ export async function codexStatus(endpoint: CodexEndpoint) {
           id: model.model || model.id,
           name: model.displayName || model.id,
           capabilities: "Remote Codex app-server · ChatGPT subscription",
+          ...modelOptions(model),
         })),
       );
       cursor = page.nextCursor;
@@ -229,6 +277,7 @@ export async function* codexStream(
   let threadId: string | undefined,
     turnId: string | undefined,
     completed = false;
+  let stopSteering: (() => Promise<void>) | undefined;
   try {
     const { account } = await rpc.call("account/read", { refreshToken: true });
     if (account?.type !== "chatgpt")
@@ -258,8 +307,16 @@ export async function* codexStream(
     const { turn, review } = await codexTurn(rpc, threadId, input, true);
     turnId = turn.id;
     if (typeof turnId !== "string" || !turnId) throw unavailable();
+    stopSteering = input.steering?.listen(async (message) => {
+      await rpc.call("turn/steer", {
+        threadId,
+        expectedTurnId: turnId,
+        input: [{ type: "text", text: message.content }],
+      });
+    });
     idle.progress();
     let answer = "";
+    const traceMessages = new Map();
     for (;;) {
       const message = await rpc.event(signal),
         params = message.params;
@@ -269,7 +326,7 @@ export async function* codexStream(
       }
       if (params?.threadId !== threadId) continue;
       if (params.turnId && params.turnId !== turnId) continue;
-      const trace = codexTrace(message);
+      const trace = codexTrace(message, traceMessages);
       if (trace) {
         idle.progress();
         yield { trace };
@@ -293,17 +350,40 @@ export async function* codexStream(
         if (params.turn.status !== "completed")
           throw new Problem(
             422,
-            "Remote Codex stopped. Check sign-in, model access and subscription allowance. No API fallback was used.",
+            `Remote Codex turn ${diagnosticText(params.turn.status, [endpoint.token]) || "failed"}: ${diagnosticText(params.turn.error?.message, [endpoint.token]) || "The runtime did not provide a reason."}`,
+            runtimeFailureFacts({
+              phase: "turn",
+              code: params.turn.error?.codexErrorInfo,
+            }),
           );
-        yield* review
-          ? [{ text: answer }]
-          : resultChunks(JSON.parse(answer), input);
+        let output;
+        if (!review) {
+          try {
+            output = JSON.parse(answer);
+          } catch {
+            throw new Problem(
+              422,
+              "Remote Codex returned an invalid structured response. Check Traces for saved progress.",
+              { phase: "response", code: "invalid_json" },
+            );
+          }
+        }
+        yield* review ? [{ text: answer }] : resultChunks(output, input);
         yield { externalId: threadId };
         return;
       }
     }
+  } catch (error) {
+    if (error instanceof RuntimeFailure)
+      throw new Problem(
+        422,
+        `Remote Codex: ${diagnosticText(error.message, [endpoint.token])}`,
+        runtimeFailureFacts(error.details),
+      );
+    throw error;
   } finally {
     idle.clear();
+    await stopSteering?.();
     if (threadId && turnId && !completed)
       await rpc
         .call("turn/interrupt", { threadId, turnId }, 5000)

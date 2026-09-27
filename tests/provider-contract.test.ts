@@ -46,8 +46,18 @@ it("uses the actual OpenAI SDK to send selected model and decode text, tool call
   const chunks = [];
   for await (const c of adapter("openai").stream("fixture-secret", {
     model: "selected-model-fixture",
+    effort: "xhigh",
     instructions: "Instructions",
-    messages: [{ role: "user", content: "Question" }],
+    messages: [
+      {
+        role: "user",
+        content: "Question",
+        files: [
+          { name: "photo.png", mime: "image/png", data: "aGVsbG8=" },
+          { name: "report.pdf", mime: "application/pdf", data: "cGRm" },
+        ],
+      },
+    ],
     signal: new AbortController().signal,
     tools: [
       {
@@ -59,6 +69,20 @@ it("uses the actual OpenAI SDK to send selected model and decode text, tool call
   }))
     chunks.push(c);
   expect(body.model).toBe("selected-model-fixture");
+  expect(body.reasoning.effort).toBe("xhigh");
+  expect(body.input[0].content).toEqual([
+    { type: "input_text", text: "Question" },
+    {
+      type: "input_image",
+      image_url: "data:image/png;base64,aGVsbG8=",
+      detail: "auto",
+    },
+    {
+      type: "input_file",
+      filename: "report.pdf",
+      file_data: "data:application/pdf;base64,cGRm",
+    },
+  ]);
   expect(body.store).toBe(false);
   expect(body.tools[0].strict).toBe(false);
   expect(chunks).toContainEqual({ text: "Contract fixture." });
@@ -111,9 +135,17 @@ it.each([false, true])(
     const chunks = [];
     for await (const c of adapter("anthropic").stream("fixture-secret", {
       model: "selected-claude-fixture",
+      effort: "max",
       instructions: "Review",
       messages: [
-        { role: "user", content: "Query" },
+        {
+          role: "user",
+          content: "Query",
+          files: [
+            { name: "report.pdf", mime: "application/pdf", data: "cGRm" },
+            { name: "photo.png", mime: "image/png", data: "aGVsbG8=" },
+          ],
+        },
         { role: "assistant", content: "" },
         {
           role: "assistant",
@@ -132,6 +164,18 @@ it.each([false, true])(
     }))
       chunks.push(c);
     expect(body.model).toBe("selected-claude-fixture");
+    expect(body.output_config.effort).toBe("max");
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "Query" },
+      {
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: "cGRm" },
+      },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+      },
+    ]);
     expect(body.max_tokens).toBe(222);
     expect(body.messages).toHaveLength(3);
     expect(body.messages[1].content[0]).toMatchObject({

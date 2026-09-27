@@ -1,3 +1,4 @@
+import { RuntimeFailure } from "./diagnostics.mjs";
 // Shared, dependency-free framing for the official runtime processes.
 export function lines(stream, onLine, onError) {
   let buffer = "";
@@ -5,7 +6,7 @@ export function lines(stream, onLine, onError) {
   stream.on("data", (chunk) => {
     buffer += chunk;
     if (buffer.length > 2_000_000) {
-      onError(new Error("Runtime output exceeds limit"));
+      onError(new RuntimeFailure("Runtime output exceeds limit"));
       return;
     }
     let end;
@@ -32,8 +33,13 @@ export class Rpc {
     this.child = child;
     child.stdin.on("error", (e) => this.fail(e));
     child.on("error", (e) => this.fail(e));
-    child.on("exit", () =>
-      this.fail(new Error("Runtime exited before completion")),
+    child.on("exit", (code, signal) =>
+      this.fail(
+        new RuntimeFailure(
+          `Runtime exited before completion (${signal ? `signal ${signal}` : `exit code ${code}`}).`,
+          { phase: "process", exitCode: code, signal },
+        ),
+      ),
     );
     lines(
       child.stdout,
@@ -44,7 +50,12 @@ export class Rpc {
           this.pending.delete(m.id);
           clearTimeout(p.timer);
           m.error
-            ? p.reject(new Error("Runtime rejected " + p.method))
+            ? p.reject(
+                new RuntimeFailure(
+                  `Codex rejected ${p.method}: ${typeof m.error.message === "string" ? m.error.message : "No reason returned"}`,
+                  { phase: p.method, code: m.error.code },
+                ),
+              )
             : p.resolve(m.result);
         } else if (m.id != null) {
           if (onRequest) {
@@ -66,7 +77,7 @@ export class Rpc {
           w.resolve(m);
         } else {
           if (this.events.length >= 5000)
-            this.fail(new Error("Too many runtime events"));
+            this.fail(new RuntimeFailure("Too many runtime events"));
           else this.events.push(m);
         }
       },
@@ -83,7 +94,12 @@ export class Rpc {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error("Runtime request timed out"));
+        reject(
+          new RuntimeFailure(`Codex ${method} timed out after 30 seconds.`, {
+            phase: method,
+            code: "request_timeout",
+          }),
+        );
       }, 30000);
       this.pending.set(id, { resolve, reject, timer, method });
       this.send({ id, method, params });
@@ -131,22 +147,33 @@ export function resultChunks(value, input) {
     typeof value.text !== "string" ||
     typeof value.arguments !== "string"
   )
-    throw new Error("Invalid structured runtime result");
+    throw new RuntimeFailure("Invalid structured runtime result", {
+      phase: "response",
+    });
   if (value.kind === "answer") {
     if (value.tool !== null || value.text.length > 100000)
-      throw new Error("Invalid answer");
+      throw new RuntimeFailure("Invalid answer", { phase: "response" });
     return [{ text: value.text }];
   }
   if (!input.tools?.some((t) => t.name === value.tool))
-    throw new Error("Runtime requested an ungranted tool");
-  const args = JSON.parse(value.arguments);
+    throw new RuntimeFailure("Runtime requested an ungranted tool", {
+      phase: "response",
+    });
+  let args;
+  try {
+    args = JSON.parse(value.arguments);
+  } catch {
+    throw new RuntimeFailure("Runtime returned invalid JSON tool arguments", {
+      phase: "response",
+    });
+  }
   if (
     !args ||
     typeof args !== "object" ||
     Array.isArray(args) ||
     value.arguments.length > 50000
   )
-    throw new Error("Invalid tool arguments");
+    throw new RuntimeFailure("Invalid tool arguments", { phase: "response" });
   return [
     {
       toolCall: { id: crypto.randomUUID(), name: value.tool, arguments: args },

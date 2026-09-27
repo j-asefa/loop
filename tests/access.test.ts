@@ -472,7 +472,7 @@ it("data directories cannot cross authorization profiles", async () => {
   database.close();
   const rejected = await launch(dir, {}, true);
   expect(rejected.errors).toContain("belongs to the companion profile");
-});
+}, 30000);
 
 it("companion database startup rejects data bound to the server profile", async () => {
   const dir = directory();

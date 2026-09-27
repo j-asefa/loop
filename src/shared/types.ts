@@ -84,6 +84,6 @@ export type Team = {
   id: string;
   name: string;
   manager_id: string;
-  conversation_id: string;
+  conversation_id: string | null;
   members: string[];
 };

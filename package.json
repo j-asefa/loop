@@ -20,7 +20,8 @@
     "test:all": "npm test && npm run test:native",
     "prepack": "npm run build",
     "smoke:companion": "node scripts/companion-browser-smoke.mjs",
-    "smoke:package": "node scripts/package-smoke.mjs"
+    "smoke:package": "node scripts/package-smoke.mjs",
+    "smoke:design": "node scripts/design-browser-smoke.mjs"
   },
   "repository": {
     "type": "git",

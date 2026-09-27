@@ -1,4 +1,9 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const directory = mkdtempSync(join(tmpdir(), "loop-runtime-network-"));
+process.env.LOOP_DATA_DIR = directory;
 const { remoteFetch } = vi.hoisted(() => ({ remoteFetch: vi.fn() }));
 vi.mock("undici", async (original) => ({
   ...(await original<typeof import("undici")>()),
@@ -6,6 +11,11 @@ vi.mock("undici", async (original) => ({
 }));
 const { safeFetch, safeRuntimeFetch } =
   await import("../src/server/mcp/network");
+afterAll(async () => {
+  const { db } = await import("../src/server/db");
+  db.close();
+  rmSync(directory, { recursive: true, force: true });
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -61,4 +71,35 @@ it("retains the 4 MB response limit for ordinary MCP requests", async () => {
   await expect(response.arrayBuffer()).rejects.toThrow(
     "MCP response exceeds 4 MB",
   );
+});
+
+it("gives long MCP calls their configured timeout without losing caller cancellation", async () => {
+  const { safeToolFetch } = await import("../src/server/mcp/network");
+  const { MCP_TOOL_TIMEOUT_MS } = await import("../src/server/mcp/timeouts");
+  vi.useFakeTimers();
+  vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new Error("Tool deadline")), ms);
+    return controller.signal;
+  });
+  let signal!: AbortSignal;
+  remoteFetch.mockImplementation(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        signal = init.signal;
+        expect(init.bodyTimeout).toBe(MCP_TOOL_TIMEOUT_MS);
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      }),
+  );
+  const caller = new AbortController();
+  const pending = safeToolFetch("https://tools.example/mcp", {
+    signal: caller.signal,
+  });
+  const stopped = expect(pending).rejects.toThrow("Explicit cancellation");
+  await vi.advanceTimersByTimeAsync(90000);
+  expect(signal.aborted).toBe(false);
+  caller.abort(new Error("Explicit cancellation"));
+  await stopped;
 });

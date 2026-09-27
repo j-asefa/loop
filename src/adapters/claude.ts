@@ -1,3 +1,5 @@
+import { modelOptions } from "../../runtime/model-options.mjs";
+import { ClaudeSteering } from "../../runtime/claude-steering.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -30,6 +32,8 @@ export class Claude implements Adapter {
   private session: string;
   private messageIds = new Map<string, string>();
   private interrupted = false;
+  private active = false;
+  private steering = new ClaudeSteering();
   private billing!: Billing;
   constructor(
     private options: Options,
@@ -79,6 +83,7 @@ export class Claude implements Adapter {
         "--permission-prompts",
         "host",
         ...(this.options.model ? ["--model", this.options.model] : []),
+        ...(this.options.effort ? ["--effort", this.options.effort] : []),
         ...(!this.options.resume && this.options.instructions
           ? ["--append-system-prompt", this.options.instructions]
           : []),
@@ -123,6 +128,7 @@ export class Claude implements Adapter {
     this.models = (init.models || []).map((m: any) => ({
       id: m.value || m.id,
       name: m.displayName || m.name || m.value || m.id,
+      ...modelOptions(m),
     }));
     this.commands = (init.commands || []).map((c: any) => ({
       name: c.name,
@@ -177,6 +183,7 @@ export class Claude implements Adapter {
   }
   async prompt(text: string) {
     this.interrupted = false;
+    this.active = true;
     await this.native.write({
       type: "user",
       session_id: this.session,
@@ -184,6 +191,25 @@ export class Claude implements Adapter {
       parent_tool_use_id: null,
       message: { role: "user", content: text },
     });
+  }
+  async steer(text: string) {
+    if (!this.active) throw new Error("No active Claude turn.");
+    try {
+      await this.steering.steer(
+        text,
+        () => this.control({ subtype: "interrupt" }),
+        (value: string) => this.prompt(value),
+      );
+    } catch (error) {
+      this.active = false;
+      this.emit({
+        type: "status",
+        status: "failed",
+        detail:
+          "Claude could not confirm the follow-up. Review its saved progress before continuing.",
+      });
+      throw error;
+    }
   }
   async cancel() {
     this.interrupted = true;
@@ -378,6 +404,8 @@ export class Claude implements Adapter {
             },
           });
     if (m.type === "result") {
+      if (this.steering.result()) return;
+      this.active = false;
       this.messageIds.clear();
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });

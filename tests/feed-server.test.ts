@@ -2,18 +2,45 @@ import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import express from "express";
 const dir = mkdtempSync(join(tmpdir(), "loop-feed-"));
 process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { feedRevision, feedUpdates } = await import("../src/server/feed");
+const { core } = await import("../src/server/core-routes");
+const { enqueue } = await import("../src/server/queue");
+const app = express();
+app.use((req, res, next) => {
+  res.locals.owner = req.get("x-owner");
+  next();
+});
+app.use("/api", core);
+app.use((e: any, _req: any, res: any, _next: any) =>
+  res.status(e.status || 500).json({ error: e.message }),
+);
+const server = app.listen(0, "127.0.0.1");
+await new Promise<void>((resolve, reject) => {
+  server.once("listening", resolve);
+  server.once("error", reject);
+});
+const get = async (path: string, owner: string) => {
+  const response = await fetch(
+    `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
+    { headers: { "x-owner": owner } },
+  );
+  return { status: response.status, ...(await response.json()) };
+};
 const cursor = (artifact: string) =>
   (
     db
       .prepare("SELECT rowid cursor FROM artifacts WHERE id=?")
       .get(artifact) as any
   ).cursor as number;
-afterAll(() => {
+afterAll(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -166,4 +193,82 @@ it("keeps project feed updates scoped when outputs are filed or moved", () => {
     feedUpdates(owner, { after: first.revision, through: 0, folder: project })
       .removed,
   ).toContain(filed);
+});
+
+it("includes nested project folders and excludes another owner's folder tree", async () => {
+  const { projectFolders } = await import("../src/server/feed");
+  const owner = "nested-project-feed",
+    project = id(),
+    child = id(),
+    foreign = id();
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Parent',?)",
+  ).run(project, owner, now());
+  for (const [folder, who] of [
+    [child, owner],
+    [foreign, "other-owner"],
+  ])
+    db.prepare(
+      "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,?,'folder','Child',?)",
+    ).run(folder, who, project, now());
+  const artifact = saveArtifact(owner, {
+    title: "Nested result",
+    content: "Finished",
+    folder: child,
+  });
+  expect(projectFolders(owner, project)).toEqual([project, child]);
+  expect(
+    feedUpdates(owner, { after: 0, through: 0, folder: project }).items.map(
+      (item) => item.id,
+    ),
+  ).toContain(artifact);
+  expect(projectFolders("other-owner", project)).toEqual([]);
+  const outside = saveArtifact(owner, {
+    title: "Elsewhere",
+    content: "Other project",
+  });
+  const privateArtifact = saveArtifact("other-owner", {
+    title: "Private",
+    content: "Other owner",
+    folder: foreign,
+  });
+  expect(
+    (await get(`/feed?folder=${project}`, owner)).items.map(
+      (item: any) => item.id,
+    ),
+  ).toEqual([artifact]);
+  expect((await get(`/feed?folder=${project}`, "other-owner")).status).toBe(
+    404,
+  );
+  expect((await get(`/feed?folder=${foreign}`, owner)).status).toBe(404);
+  const conversation = id(),
+    agent = id();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',?)",
+  ).run(agent, owner, agent, agent, now());
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Project chat',?)",
+  ).run(conversation, owner, agent, now());
+  const prompts = [child, project, null].map((folderId) => {
+    const run = enqueue(owner, "Question", id(), {
+      agent,
+      conversation,
+      payload: { folderId },
+    });
+    const message = id();
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user','Question',?)",
+    ).run(message, owner, conversation, run.id, now());
+    return message;
+  });
+  expect(
+    (await get(`/feed?view=prompts&folder=${project}`, owner)).items.map(
+      (item: any) => item.id,
+    ),
+  ).toEqual([prompts[1], prompts[0]]);
+  expect(
+    (await get(`/feed?folder=${project}`, owner)).items.map(
+      (item: any) => item.id,
+    ),
+  ).not.toEqual(expect.arrayContaining([outside, privateArtifact]));
 });

@@ -24,26 +24,34 @@ type Approval = {
   input: string;
 };
 const label = (value: string) =>
-  value.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
+  value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/^./, (c) => c.toUpperCase());
 function describe(a: Approval) {
   const request = parse<any>(a.request, {});
+  const args =
+    request.arguments && typeof request.arguments === "object"
+      ? request.arguments
+      : {};
   const title =
     request.type === "mcp_install"
       ? "Install workspace tools"
       : request.type === "workflow_review"
         ? "Review workflow output"
-        : request.tool === "browser_navigate"
-          ? "Open a webpage"
-          : request.tool
-            ? label(request.tool)
-            : "Review requested action";
-  const args =
-    request.arguments && typeof request.arguments === "object"
-      ? request.arguments
-      : {};
-  const target = [args.url, args.path, args.command, args.query].find(
-    (v) => typeof v === "string",
-  );
+        : request.tool === "pull_request_review_write"
+          ? "Write a pull request review"
+          : request.tool === "browser_navigate"
+            ? "Open a webpage"
+            : request.tool
+              ? label(request.tool)
+              : "Review requested action";
+  const target =
+    args.owner && args.repo && (args.pullNumber || args.pull_number)
+      ? `${args.owner}/${args.repo} #${args.pullNumber || args.pull_number}`
+      : [args.url, args.path, args.command, args.query].find(
+          (v) => typeof v === "string",
+        );
   return { request, title, args, target };
 }
 
@@ -52,11 +60,15 @@ export function Approvals({
   teams = "",
   onChange,
   onConversation,
+  runId,
+  runIds,
 }: {
   revision: number;
   teams?: string;
   onChange: () => void;
   onConversation: (id: string) => void;
+  runId?: string;
+  runIds?: string[];
 }) {
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
@@ -68,17 +80,31 @@ export function Approvals({
   const [time, setTime] = useState(Date.now());
   const locked = useRef(false);
   const decided = useRef(new Set<string>());
+  const [poll, setPoll] = useState(0);
+  const scope = runIds?.join(",");
+  useEffect(() => {
+    if (!runId) return;
+    const timer = setInterval(() => setPoll((value) => value + 1), 5000);
+    return () => clearInterval(timer);
+  }, [runId]);
   useEffect(() => {
     setSelected(null);
     setItems([]);
     setError("");
-  }, [teams]);
+  }, [teams, runId, scope]);
   useEffect(() => {
     let current = true;
     void api<Approval[]>("/approvals?teams=" + encodeURIComponent(teams))
       .then((fresh) => {
         if (current)
-          setItems(fresh.filter((item) => !decided.current.has(item.id)));
+          setItems(
+            fresh.filter(
+              (item) =>
+                !decided.current.has(item.id) &&
+                (!runId || item.run_id === runId) &&
+                (!runIds || runIds.includes(item.run_id)),
+            ),
+          );
       })
       .catch((e) => {
         if (current) setError(e.message);
@@ -86,7 +112,7 @@ export function Approvals({
     return () => {
       current = false;
     };
-  }, [revision, teams]);
+  }, [revision, teams, runId, scope, poll]);
   useEffect(() => {
     if (!selected) return;
     setTime(Date.now());
@@ -127,9 +153,9 @@ export function Approvals({
         return (
           <article className="approval-card" key={item.id}>
             <button
-              className="icon-button approval-dismiss"
-              aria-label={`Dismiss approval: ${d.title}`}
-              title="Dismiss and cancel this request"
+              className="text-button approval-dismiss"
+              aria-label={`Cancel task: ${d.title}`}
+              title="Cancel this task and its pending request"
               disabled={!!dismissing || !!busy}
               onClick={async () => {
                 if (locked.current) return;
@@ -153,7 +179,7 @@ export function Approvals({
                 }
               }}
             >
-              <X size={20} />
+              <X size={16} /> Cancel task
             </button>
             <button
               className="approval-summary"
@@ -221,26 +247,58 @@ export function Approvals({
             {detail.request.message && (
               <p className="approval-description">{detail.request.message}</p>
             )}
-            {detail.request.tool && (
-              <div className="approval-tool">
-                <span>Tool</span>
-                <code>{detail.request.tool}</code>
-              </div>
+            {detail.target && (
+              <p className="approval-target">{detail.target}</p>
             )}
             {!!Object.keys(detail.args).length && (
               <dl className="approval-arguments">
-                {Object.entries(detail.args).map(([key, value]) => (
-                  <div key={key}>
-                    <dt>{key.toLowerCase() === "url" ? "URL" : label(key)}</dt>
-                    <dd>
-                      <pre>
-                        {typeof value === "string"
-                          ? value
-                          : JSON.stringify(value, null, 2)}
-                      </pre>
-                    </dd>
-                  </div>
-                ))}
+                {Object.entries(detail.args)
+                  .filter(
+                    ([key]) =>
+                      !(
+                        detail.request.tool === "pull_request_review_write" &&
+                        detail.target &&
+                        ["owner", "repo", "pullNumber", "pull_number"].includes(
+                          key,
+                        )
+                      ) &&
+                      !(key === "url" && detail.target === detail.args.url),
+                  )
+                  .map(([key, value]) => (
+                    <div key={key}>
+                      <dt>
+                        {key === "body"
+                          ? "Review text"
+                          : key === "event"
+                            ? "Action"
+                            : key.toLowerCase() === "url"
+                              ? "URL"
+                              : label(key)}
+                      </dt>
+                      <dd>
+                        <pre>
+                          {key === "event" && value === "COMMENT"
+                            ? "Post review comments"
+                            : key === "event" && value === "APPROVE"
+                              ? "Approve the pull request"
+                              : key === "event" && value === "REQUEST_CHANGES"
+                                ? "Request changes"
+                                : typeof value === "string"
+                                  ? value
+                                  : typeof value === "boolean"
+                                    ? value
+                                      ? "Yes"
+                                      : "No"
+                                    : Array.isArray(value) &&
+                                        value.every(
+                                          (item) => typeof item === "string",
+                                        )
+                                      ? value.join("\n")
+                                      : JSON.stringify(value, null, 2)}
+                        </pre>
+                      </dd>
+                    </div>
+                  ))}
               </dl>
             )}
             {detail.request.config && (
@@ -331,6 +389,7 @@ export function Approvals({
       )}
       {showTools && (
         <Tools
+          initialView="permissions"
           onClose={() => {
             setShowTools(false);
             onChange();

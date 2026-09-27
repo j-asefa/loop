@@ -3,11 +3,32 @@ import { PairedDevices } from "./PairedDevices";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
-function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
+function ServerRuntimeHosts({
+  onClose,
+  onAdded,
+  initialKind = "codex-app-server",
+}: {
+  onClose: () => void;
+  onAdded?: (host: { id: string; name: string; kind: string }) => void;
+  initialKind?: string;
+}) {
   const [hosts, setHosts] = useState<any[]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [kind, setKind] = useState("broker");
+    [kind, setKind] = useState(initialKind),
+    [copied, setCopied] = useState(false);
+  const command =
+    kind === "codex-app-server"
+      ? `codex login
+umask 077
+mkdir -p "$HOME/.codex"
+test -f "$HOME/.codex/loop-app-server-token" || openssl rand -hex 32 > "$HOME/.codex/loop-app-server-token"
+codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file "$HOME/.codex/loop-app-server-token"`
+      : `claude auth login
+umask 077
+mkdir -p "$HOME/.config/loop"
+test -f "$HOME/.config/loop/host-token" || openssl rand -hex 32 > "$HOME/.config/loop/host-token"
+LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/absolute/path/to/your/project" node runtime/host.mjs`;
   async function load() {
     setHosts(await api("/runtime-hosts"));
   }
@@ -21,11 +42,7 @@ function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
         configured tools. Choose Codex app-server or a native host for Claude
         Code.
       </p>
-      <p className="note">
-        Use an encrypted connection or an SSH tunnel. For a private address, the
-        server administrator must add its origin to
-        LOOP_ALLOWED_RUNTIME_ORIGINS.
-      </p>
+      {hosts.length > 0 && <h3>Connected machines</h3>}
       {hosts.map((h) => (
         <div className="connection-card" key={h.id}>
           <strong>{h.name}</strong>
@@ -63,7 +80,7 @@ function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
           setBusy(true);
           setError("");
           try {
-            await api("/runtime-hosts", {
+            const added = await api("/runtime-hosts", {
               name: f.get("name"),
               url: f.get("url"),
               token: f.get("token"),
@@ -71,6 +88,7 @@ function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
             });
             form.reset();
             await load();
+            onAdded?.(added);
           } catch (e) {
             setError((e as Error).message);
           } finally {
@@ -85,6 +103,7 @@ function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
             onChange={(e) => {
               setKind(e.target.value);
               setError("");
+              setCopied(false);
             }}
             disabled={busy}
           >
@@ -131,7 +150,7 @@ function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
               disconnect Loop.
             </p>
             <a
-              href="https://github.com/j-asefa/loop/blob/feat/reported-bugs-and-agent-teams/docs/feedback/RUNTIMES.md#native-host-for-claude-code-and-codex"
+              href="https://github.com/j-asefa/loop/blob/main/docs/feedback/RUNTIMES.md#native-host-for-claude-code-and-codex"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -145,6 +164,52 @@ function ServerRuntimeHosts({ onClose }: { onClose: () => void }) {
             app-server to work directly with your laptop’s files and tools.
           </p>
         )}
+        {kind !== "broker" && (
+          <details className="runtime-setup" open>
+            <summary>Set up your remote machine</summary>
+            <ol>
+              <li>
+                {kind === "codex-app-server"
+                  ? "Install Codex and open a terminal in the project directory on that machine."
+                  : "Install Node 24+ and Claude Code, then open a terminal in your Loop checkout. Replace the project path below."}
+              </li>
+              <li>Run this command and leave the process running.</li>
+            </ol>
+            <pre className="trace-log">{command}</pre>
+            <button
+              type="button"
+              className="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(command);
+                  setCopied(true);
+                } catch {
+                  setError(
+                    "Could not copy. Select the command above to copy it manually.",
+                  );
+                }
+              }}
+            >
+              {copied ? "Copied" : "Copy setup command"}
+            </button>
+            <p>
+              Connect it to the Loop server using an SSH tunnel or a private
+              encrypted proxy. The address below must be reachable from the Loop
+              server, including its containers.
+            </p>
+            <details>
+              <summary>Private addresses & tunnels</summary>
+              <p>
+                Add the machine’s origin to{" "}
+                <code>LOOP_ALLOWED_RUNTIME_ORIGINS</code> on the Loop server,
+                then restart the API and worker. Use the linked setup guide for
+                your deployment. The browser’s localhost is not the remote
+                machine.
+              </p>
+            </details>
+          </details>
+        )}
+        <h3>Test the connection</h3>
         <label>
           Machine name
           <input

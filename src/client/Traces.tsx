@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Download, ListTree } from "lucide-react";
+import { ArrowUpRight, Download, ListTree, MessageSquare } from "lucide-react";
 import { api, parse } from "./api";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
 
 type Trace = {
   id: number;
+  trace_key?: string;
   run_id: string;
   kind: string;
   title: string;
@@ -16,15 +17,20 @@ type Trace = {
   input: string;
   run_state: string;
   conversation_id: string | null;
+  run_error?: string | null;
+  server?: string | null;
+  invocation_state?: string | null;
 };
 type Page = { items: Trace[]; next: number | null };
 export function Traces({
   agentId,
+  runId,
   revision,
   onConversation,
   onArtifact,
 }: {
   agentId: string;
+  runId?: string;
   revision: number;
   onConversation: (id: string) => void;
   onArtifact: (item: Artifact) => void;
@@ -58,7 +64,13 @@ export function Traces({
     // the cursor for a newly discovered gap.
     if (moreBusy) return;
     let current = true;
-    void api<Page>(`/agents/${agentId}/traces`)
+    const request = new AbortController();
+    void api<Page>(
+      `/agents/${agentId}/traces${runId ? "?run=" + encodeURIComponent(runId) : ""}`,
+      undefined,
+      undefined,
+      request.signal,
+    )
       .then((page) => {
         if (!current) return;
         merge(page, true);
@@ -72,13 +84,16 @@ export function Traces({
       });
     return () => {
       current = false;
+      request.abort();
     };
-  }, [agentId, revision, moreBusy]);
+  }, [agentId, runId, revision, moreBusy]);
   const earlier = async () => {
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
-      const page = await api<Page>(`/agents/${agentId}/traces?before=${next}`);
+      const page = await api<Page>(
+        `/agents/${agentId}/traces?before=${next}${runId ? "&run=" + encodeURIComponent(runId) : ""}`,
+      );
       merge(page);
       setError("");
     } catch (e) {
@@ -100,10 +115,12 @@ export function Traces({
   };
   return (
     <section className="trace-list" aria-label="Agent traces">
-      <p className="field-hint">
-        Updates and tool activity from this agent. Final answers appear in
-        Outputs.
-      </p>
+      {!runId && (
+        <p className="field-hint">
+          Updates and tool activity from this agent. Final answers appear in
+          Results.
+        </p>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -112,68 +129,151 @@ export function Traces({
       {loading && <p role="status">Loading traces…</p>}
       {!loading && !items.length && (
         <Empty title="No traces yet.">
-          Activity will appear here when this agent starts working.
+          {runId
+            ? "This run has no saved activity. Its runtime did not record more failure details."
+            : "Activity will appear here when this agent starts working."}
         </Empty>
       )}
-      {items.map((item) => {
-        const meta = parse<any>(item.metadata, {});
-        const state =
-          meta.state === "running" || meta.state === "waiting"
-            ? ["completed", "failed", "cancelled", "interrupted"].includes(
-                item.run_state,
-              )
-              ? item.run_state
-              : meta.state
-            : meta.state;
+      {[...new Set(items.map((item) => item.run_id))].map((groupRunId) => {
+        const group = items.filter((item) => item.run_id === groupRunId);
+        const prompt = group[0].input || "Agent task";
+        const title = prompt.trim().replace(/\s+/g, " ");
         return (
-          <article className="trace-card" key={item.id}>
-            <div className="trace-heading">
-              <ListTree size={18} />
-              <strong>{item.title.replaceAll("_", " ")}</strong>
-              {state && <span className="status">{state}</span>}
-            </div>
-            <div className="trace-context">
-              <span>{item.input}</span>
-              <time>{new Date(item.created_at).toLocaleString()}</time>
-            </div>
-            {item.content && (
-              <details open={item.kind === "message" || meta.isError === true}>
-                <summary>
-                  {meta.isError
-                    ? "Tool error"
-                    : meta.final
-                      ? "Answer"
-                      : "Details"}
-                </summary>
-                <RichText content={item.content} />
-              </details>
+          <section className="trace-run" key={groupRunId}>
+            <header>
+              <div className="trace-run-meta">
+                <span className="status" data-state={group[0].run_state}>
+                  {group[0].run_state.replaceAll("_", " ")}
+                </span>
+                <time dateTime={new Date(group[0].created_at).toISOString()}>
+                  {new Date(group[0].created_at).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </time>
+                {group[0].conversation_id && (
+                  <button
+                    className="text-button"
+                    onClick={() => onConversation(group[0].conversation_id!)}
+                  >
+                    Open conversation <ArrowUpRight size={15} />
+                  </button>
+                )}
+              </div>
+              <h3>
+                {title.length > 140
+                  ? title.slice(0, 140).trimEnd() + "…"
+                  : title}
+              </h3>
+            </header>
+            <details className="trace-prompt">
+              <summary>View prompt</summary>
+              <RichText content={prompt} />
+            </details>
+            {!runId && group[0].run_error && (
+              <p className="error">{group[0].run_error}</p>
             )}
-            <div className="actions">
-              <button onClick={() => download(item)}>
-                <Download size={15} /> Download trace
-              </button>
-              {item.artifact_id && (
-                <button
-                  onClick={async () => {
-                    try {
-                      onArtifact(
-                        await api<Artifact>(`/artifacts/${item.artifact_id}`),
-                      );
-                    } catch (e) {
-                      setError((e as Error).message);
-                    }
-                  }}
+            {[...group].reverse().map((item) => {
+              const meta = parse<any>(item.metadata, {});
+              const state =
+                meta.state === "running" || meta.state === "waiting"
+                  ? [
+                      "completed",
+                      "failed",
+                      "cancelled",
+                      "interrupted",
+                    ].includes(item.run_state)
+                    ? item.run_state
+                    : meta.state
+                  : meta.state;
+              const failed =
+                meta.isError === true ||
+                state === "failed" ||
+                item.invocation_state === "unknown";
+              return (
+                <article
+                  className="trace-card"
+                  data-kind={item.kind}
+                  key={item.id}
                 >
-                  View tool result <ArrowUpRight size={15} />
-                </button>
-              )}
-              {item.conversation_id && (
-                <button onClick={() => onConversation(item.conversation_id!)}>
-                  Open conversation
-                </button>
-              )}
-            </div>
-          </article>
+                  <div className="trace-heading">
+                    {item.kind === "message" ? (
+                      <MessageSquare size={17} />
+                    ) : (
+                      <ListTree size={17} />
+                    )}
+                    <strong>{item.title.replaceAll("_", " ")}</strong>
+                    {state && <span className="status">{state}</span>}
+                  </div>
+                  <div className="trace-context">
+                    {item.server && <span>{item.server}</span>}
+                    {meta.failure?.phase && (
+                      <span>Stage: {String(meta.failure.phase)}</span>
+                    )}
+                    {meta.failure?.code != null && (
+                      <span>Error code: {String(meta.failure.code)}</span>
+                    )}
+                    <time dateTime={new Date(item.created_at).toISOString()}>
+                      {new Date(item.created_at).toLocaleTimeString(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </time>
+                  </div>
+                  {item.content && (
+                    <details open={item.kind === "message" || failed}>
+                      <summary>
+                        {failed
+                          ? item.trace_key === "run:failure"
+                            ? "Failure details"
+                            : "Tool error"
+                          : meta.final
+                            ? "Answer"
+                            : item.kind === "message"
+                              ? "Update"
+                              : "Details"}
+                      </summary>
+                      {item.kind === "message" ? (
+                        <RichText content={item.content} />
+                      ) : (
+                        <pre className="trace-log">{item.content}</pre>
+                      )}
+                    </details>
+                  )}
+                  {!item.content && failed && (
+                    <p className="field-hint">
+                      {item.invocation_state === "unknown"
+                        ? "The tool's external outcome is unknown. Its detailed error was not recorded by this version of Loop."
+                        : "This step stopped without a recorded error message."}
+                    </p>
+                  )}
+                  <div className="actions">
+                    <button onClick={() => download(item)}>
+                      <Download size={15} /> Download trace
+                    </button>
+                    {item.artifact_id && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            onArtifact(
+                              await api<Artifact>(
+                                `/artifacts/${item.artifact_id}`,
+                              ),
+                            );
+                          } catch (e) {
+                            setError((e as Error).message);
+                          }
+                        }}
+                      >
+                        View tool result <ArrowUpRight size={15} />
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </section>
         );
       })}
       {next && (

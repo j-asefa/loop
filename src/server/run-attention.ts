@@ -79,14 +79,18 @@ export function listRuns(owner: string, teams: string[] = [], active = false) {
         )
         .get(owner, run.id);
       const item = preview as { content: string } | undefined;
-      if (item && !item.content) {
-        const latest = db
-          .prepare(
-            `SELECT t.title,t.content FROM run_traces t WHERE t.owner_id=? AND t.run_id=? AND length(t.content)>0 AND ${publicTraceFilter} ORDER BY t.id DESC LIMIT 1`,
-          )
-          .get(owner, run.id) as { title: string; content: string } | undefined;
-        if (latest) item.content = latest.content;
-      }
-      return { ...run, preview_artifact: preview || null };
+      const latest = !item?.content
+        ? (db
+            .prepare(
+              `SELECT t.content FROM run_traces t WHERE t.owner_id=? AND t.run_id=? AND t.kind='message' AND length(trim(t.content))>0 AND ${publicTraceFilter} ORDER BY t.id DESC LIMIT 1`,
+            )
+            .get(owner, run.id) as { content: string } | undefined)
+        : undefined;
+      if (item && latest) item.content = latest.content;
+      return {
+        ...run,
+        ...(latest ? { preview: latest.content } : {}),
+        preview_artifact: preview || null,
+      };
     });
 }

@@ -1,8 +1,11 @@
+import { modelOptions } from "../../runtime/model-options.mjs";
 import { Problem } from "./domain.js";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Provider } from "../shared/types.js";
-export type ModelInfo = { id: string; name: string; capabilities: string };
+export type ModelInfo = import("../shared/models.js").ModelOption & {
+  capabilities: string;
+};
 export type ToolCall = {
   id: string;
   name: string;
@@ -14,6 +17,8 @@ export type ChatMessage = {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   isError?: boolean;
+  attachments?: import("../shared/uploads.js").UploadedFile[];
+  files?: { name: string; mime: string; data: string }[];
 };
 export type ChatInput = {
   model: string;
@@ -22,6 +27,7 @@ export type ChatInput = {
   messages: ChatMessage[];
   signal: AbortSignal;
   workspaceKey?: string;
+  steering?: import("./steering.js").SteeringInbox;
   maxTokens?: number;
   tools?: { name: string; description: string; inputSchema: any }[];
 };
@@ -78,7 +84,31 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
               },
             ]
           : [
-              ...(m.content ? [{ role: m.role, content: m.content }] : []),
+              ...(m.content || m.files?.length
+                ? [
+                    {
+                      role: m.role,
+                      content: m.files?.length
+                        ? [
+                            { type: "input_text", text: m.content },
+                            ...m.files.map((file) =>
+                              file.mime === "application/pdf"
+                                ? {
+                                    type: "input_file",
+                                    filename: file.name,
+                                    file_data: `data:${file.mime};base64,${file.data}`,
+                                  }
+                                : {
+                                    type: "input_image",
+                                    image_url: `data:${file.mime};base64,${file.data}`,
+                                    detail: "auto",
+                                  },
+                            ),
+                          ]
+                        : m.content,
+                    },
+                  ]
+                : []),
               ...(m.toolCalls || []).map((t) => ({
                 type: "function_call",
                 call_id: t.id,
@@ -165,6 +195,7 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
           id: m.id,
           name: m.display_name,
           capabilities: "Claude Messages API",
+          ...modelOptions(m),
         });
       return models;
     },
@@ -198,6 +229,15 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
                 role: m.role,
                 content: [
                   ...(m.content ? [{ type: "text", text: m.content }] : []),
+                  ...(m.files || []).map((file) => ({
+                    type:
+                      file.mime === "application/pdf" ? "document" : "image",
+                    source: {
+                      type: "base64",
+                      media_type: file.mime,
+                      data: file.data,
+                    },
+                  })),
                   ...(m.toolCalls || []).map((t) => ({
                     type: "tool_use",
                     id: t.id,
@@ -211,6 +251,14 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
         {
           model: input.model,
           system: input.instructions || undefined,
+          ...(input.effort
+            ? {
+                output_config: {
+                  effort: input.effort as
+                    "low" | "medium" | "high" | "xhigh" | "max",
+                },
+              }
+            : {}),
           messages,
           tools: input.tools?.map((t) => ({
             name: t.name,

@@ -1,3 +1,5 @@
+import { errorFacts, errorSummary } from "../../runtime/diagnostics.mjs";
+import { recordTrace } from "./traces.js";
 import { companionMode } from "./profile.js";
 import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";
@@ -34,14 +36,44 @@ export async function tick(
     const complete = await execute(run);
     if (complete !== false) transition(run, "completed");
   } catch (error) {
-    db.prepare(
-      "UPDATE runs SET error=? WHERE id=? AND state IN ('running','pausing','awaiting_approval')",
-    ).run(
+    const checkpoint = db
+      .prepare("SELECT stage,round FROM agent_checkpoints WHERE run_id=?")
+      .get(run.id) as { stage: string; round: number } | undefined;
+    const phase =
+      checkpoint?.stage === "tools"
+        ? "tool execution"
+        : checkpoint?.stage === "model"
+          ? "provider response"
+          : run.kind;
+    // Unexpected failures retain their class/code, not arbitrary thrown data.
+    // Provider and tool boundaries wrap their redacted messages in Problem.
+    const message =
       error instanceof Problem
         ? error.message
-        : "Execution failed. Check connection and retry explicitly.",
-      run.id,
-    );
+        : `The run stopped during ${phase} (${errorSummary(error, [], false)}). Open failure details to inspect the saved progress.`;
+    const updated = db
+      .prepare(
+        "UPDATE runs SET error=? WHERE id=? AND state IN ('running','pausing','awaiting_approval')",
+      )
+      .run(message, run.id);
+    if (updated.changes) {
+      recordTrace(run, "run:failure", {
+        kind: "tool",
+        title: "Run failure",
+        content: message,
+        metadata: {
+          state: "failed",
+          isError: true,
+          failure: {
+            phase,
+            round: checkpoint?.round,
+            ...errorFacts(error),
+            ...(error instanceof Problem ? error.diagnostic : {}),
+          },
+        },
+      });
+      emit(run.owner_id, run.id, "run.failed", { message, phase });
+    }
     if (run.kind === "import")
       db.prepare(
         "UPDATE imports SET status='failed' WHERE id=? AND owner_id=?",

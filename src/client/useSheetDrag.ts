@@ -29,16 +29,21 @@ export function useSheetDrag(
       )
         return;
       const handle = target.closest(".sheet-grip");
+      const scrollable = target.closest(".messages, .sheet-body");
       if (
         !handle &&
         (dialog.scrollTop > 0 ||
+          (scrollable?.scrollTop || 0) > 0 ||
           target.closest(
             "button,a,input,textarea,select,summary,pre,iframe,[role=button]",
           ) ||
           window.getSelection()?.toString())
       )
         return;
-      start = { x, y, time: performance.now(), handle: !!handle };
+      // Content gestures belong to their scroller. Only the handle dismisses
+      // the sheet, so selecting text and reading earlier messages stay safe.
+      if (!handle) return;
+      start = { x, y, time: performance.now(), handle: true };
       distance = 0;
     };
     const move = (event: Event, x: number, y: number) => {

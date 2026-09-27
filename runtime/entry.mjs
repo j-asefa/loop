@@ -1,3 +1,12 @@
+import {
+  RuntimeFailure,
+  diagnosticText,
+  errorSummary,
+  runtimeFailureFacts,
+} from "./diagnostics.mjs";
+import { modelOptions } from "./model-options.mjs";
+import { receiveSteering } from "./steering.mjs";
+import { ClaudeSteering } from "./claude-steering.mjs";
 // Official binaries are unmodified. Host mode is chosen by the local launcher,
 // never by an HTTP request; the default remains a per-connection container.
 import { spawn } from "node:child_process";
@@ -11,6 +20,7 @@ import {
   codexCatalog,
   codexTurn,
   claudeCatalog,
+  claudeModels,
   slashCommand,
   latestPrompt,
   HarnessError,
@@ -121,7 +131,7 @@ async function codex(request) {
           "shell_environment_policy.ignore_default_excludes=true",
         ]),
   ]);
-  let threadId;
+  let threadId, stopSteering;
   const rpc = new Rpc(p, (m) => nativeReply(m, threadId));
   try {
     await rpc.call("initialize", {
@@ -142,12 +152,13 @@ async function codex(request) {
       });
       const url = authorizationUrl(login.verificationUrl || "", "codex");
       if (!url || typeof login.userCode !== "string")
-        throw new Error("Device sign-in unavailable");
+        throw new RuntimeFailure("Device sign-in unavailable");
       emit({ login: { url, code: login.userCode, acceptsCode: false } });
       while (true) {
         const m = await rpc.event();
         if (m.method === "account/login/completed") {
-          if (!m.params.success) throw new Error("Sign-in was not completed");
+          if (!m.params.success)
+            throw new RuntimeFailure("Sign-in was not completed");
           break;
         }
       }
@@ -160,7 +171,7 @@ async function codex(request) {
     const { account } = await rpc.call("account/read", { refreshToken: true });
     if (account?.type !== "chatgpt") {
       if (request.action === "turn")
-        throw new Error("Subscription sign-in required");
+        throw new RuntimeFailure("Subscription sign-in required");
       emit({ result: { authenticated: false, models: [] } });
       return;
     }
@@ -178,6 +189,7 @@ async function codex(request) {
             id: m.model || m.id,
             name: m.displayName || m.id,
             capabilities: "ChatGPT subscription · account catalog",
+            ...modelOptions(m),
           })),
         );
         cursor = page.nextCursor;
@@ -213,14 +225,25 @@ async function codex(request) {
       true,
       workdir,
     );
+    if (request.input.controlId && started.turn?.id) {
+      stopSteering = receiveSteering(iterator, emit, (text) =>
+        rpc.call("turn/steer", {
+          threadId: thread.id,
+          expectedTurnId: started.turn.id,
+          input: [{ type: "text", text }],
+        }),
+      );
+      emit({ steeringReady: true });
+    }
     let answer = "";
+    const traceMessages = new Map();
     while (true) {
       const m = await rpc.event();
       if (m.params?.threadId && m.params.threadId !== thread.id) continue;
       if (m.params?.turnId && m.params.turnId !== started.turn?.id) continue;
       // Redact before trace truncation so clipping cannot expose a token prefix.
-      const trace = codexTrace(clean(m));
-      if (trace) emit({ chunk: { trace } });
+      const trace = codexTrace(clean(m), traceMessages);
+      if (trace) emit({ chunk: { trace: clean(trace) } });
       if (
         m.method === "turn/completed" &&
         m.params.turn?.id &&
@@ -230,7 +253,7 @@ async function codex(request) {
       if (m.method === "item/agentMessage/delta") {
         answer += m.params.delta;
         if (answer.length > 200000)
-          throw new Error("Runtime output exceeds limit");
+          throw new RuntimeFailure("Runtime output exceeds limit");
       }
       if (
         m.method === "item/completed" &&
@@ -244,11 +267,26 @@ async function codex(request) {
       )
         answer = m.params.item.review;
       if (m.method === "turn/completed") {
+        stopSteering?.();
         if (m.params.turn.status !== "completed")
-          throw new Error("Subscription run stopped or allowance exhausted");
+          throw new RuntimeFailure(
+            `Codex turn ${m.params.turn.status || "failed"}: ${diagnosticText(clean(m.params.turn.error?.message)) || "The runtime did not provide a reason."}`,
+            { phase: "turn", code: m.params.turn.error?.codexErrorInfo },
+          );
+        let output;
+        if (!started.review) {
+          try {
+            output = JSON.parse(answer);
+          } catch {
+            throw new RuntimeFailure(
+              "Codex returned an invalid structured response. Check Traces for saved progress.",
+              { phase: "response", code: "invalid_json" },
+            );
+          }
+        }
         for (const chunk of started.review
           ? [{ text: answer }]
-          : resultChunks(JSON.parse(answer), request.input))
+          : resultChunks(output, request.input))
           emit({ chunk });
         emit({ chunk: { externalId: thread.id } });
         emit({ done: true });
@@ -256,6 +294,7 @@ async function codex(request) {
       }
     }
   } finally {
+    stopSteering?.();
     rpc.close();
   }
 }
@@ -289,7 +328,7 @@ async function claude(request) {
       p.once("error", reject);
       p.once("close", resolve);
     });
-    if (code !== 0) throw new Error("Sign-in was not completed");
+    if (code !== 0) throw new RuntimeFailure("Sign-in was not completed");
   }
   if (request.action === "logout") {
     const p = launch("claude", ["auth", "logout"]);
@@ -298,30 +337,22 @@ async function claude(request) {
       p.once("error", reject);
       p.once("close", resolve);
     });
-    if (code !== 0) throw new Error("Sign-out failed");
+    if (code !== 0) throw new RuntimeFailure("Sign-out failed");
     emit({ result: { authenticated: false } });
     return;
   }
   const status = await claudeStatus();
   if (request.action !== "turn") {
-    // CLI aliases, not a fabricated account-discovery endpoint. Access checked by the native runtime.
     emit({
       result: {
         ...status,
-        models: status.authenticated
-          ? ["sonnet", "opus", "haiku"].map((id) => ({
-              id,
-              name: id,
-              capabilities:
-                "Claude Code alias · availability depends on your subscription",
-            }))
-          : [],
+        models: status.authenticated ? await claudeModels(launch) : [],
       },
     });
     return;
   }
   if (!status.authenticated)
-    throw new Error("Claude subscription sign-in required");
+    throw new RuntimeFailure("Claude subscription sign-in required");
   const command = slashCommand(request.input);
   if (command) {
     const catalog = await claudeCatalog(launch);
@@ -339,16 +370,65 @@ async function claude(request) {
     "--verbose",
     "--model",
     request.input.model,
+    ...(request.input.effort ? ["--effort", request.input.effort] : []),
     "--permission-mode",
     "bypassPermissions",
     "--no-session-persistence",
-    ...(command ? ["--input-format", "stream-json"] : []),
+    ...(command || request.input.controlId
+      ? ["--input-format", "stream-json"]
+      : []),
     "--json-schema",
     JSON.stringify(responseSchema),
   ]);
   let result,
     failure,
     initialized = false;
+  let stopSteering, interruptReceipt;
+  const steering = new ClaudeSteering();
+  const user = (text) =>
+    p.stdin.write(
+      JSON.stringify({
+        type: "user",
+        session_id: "",
+        parent_tool_use_id: null,
+        message: { role: "user", content: text },
+      }) + "\n",
+    );
+  const ready = () => {
+    if (!request.input.controlId) {
+      p.stdin.end();
+      return;
+    }
+    stopSteering = receiveSteering(iterator, emit, async (text, id) => {
+      try {
+        await steering.steer(
+          text,
+          () =>
+            new Promise((resolve, reject) => {
+              interruptReceipt = { id, resolve, reject };
+              p.stdin.write(
+                JSON.stringify({
+                  type: "control_request",
+                  request_id: id,
+                  request: { subtype: "interrupt" },
+                }) + "\n",
+              );
+            }),
+          async (value) => {
+            result = undefined;
+            user(value);
+          },
+        );
+      } catch (error) {
+        failure = error;
+        p.kill();
+        throw error;
+      } finally {
+        interruptReceipt = undefined;
+      }
+    });
+    emit({ steeringReady: true });
+  };
   const internalToolIds = new Set();
   const initializationTimer = command
     ? setTimeout(() => {
@@ -363,6 +443,15 @@ async function claude(request) {
   lines(
     p.stdout,
     (m) => {
+      if (
+        interruptReceipt &&
+        m.type === "control_response" &&
+        m.response?.request_id === interruptReceipt.id
+      ) {
+        m.response.subtype === "success"
+          ? interruptReceipt.resolve()
+          : interruptReceipt.reject(new Error("Claude rejected interrupt"));
+      }
       for (const trace of claudeTraces(clean(m), internalToolIds))
         emit({ chunk: { trace } });
       if (
@@ -378,16 +467,15 @@ async function claude(request) {
           p.kill();
           return;
         }
-        p.stdin.end(
-          JSON.stringify({
-            type: "user",
-            session_id: "",
-            parent_tool_use_id: null,
-            message: { role: "user", content: latestPrompt(request.input) },
-          }) + "\n",
-        );
+        user(latestPrompt(request.input));
+        ready();
       }
-      if (m.type === "result") result = m;
+      if (m.type === "result") {
+        if (steering.result()) return;
+        result = m;
+        stopSteering?.();
+        if (request.input.controlId) p.stdin.end();
+      }
     },
     (e) => {
       failure = e;
@@ -410,19 +498,26 @@ async function claude(request) {
         },
       }) + "\n",
     );
+  } else if (request.input.controlId) {
+    user(turnPrompt(request.input, true));
+    ready();
   } else p.stdin.end(turnPrompt(request.input, true));
-  const code = await new Promise((resolve, reject) => {
+  const { code, signal } = await new Promise((resolve, reject) => {
     p.once("error", reject);
-    p.once("close", resolve);
-  }).finally(() => clearTimeout(initializationTimer));
+    p.once("close", (code, signal) => resolve({ code, signal }));
+  }).finally(() => {
+    clearTimeout(initializationTimer);
+    stopSteering?.();
+  });
   if (
     failure ||
     code !== 0 ||
     result?.is_error ||
     result?.subtype !== "success"
   )
-    throw new Error(
-      "Subscription run stopped, model unavailable, or allowance exhausted",
+    throw new RuntimeFailure(
+      `Claude Code stopped (${signal ? `signal ${signal}` : `exit code ${code}`}${result?.subtype ? `, ${diagnosticText(clean(result.subtype))}` : ""}): ${diagnosticText(clean(failure?.message || (Array.isArray(result?.errors) ? result.errors.join("; ") : "") || (result?.is_error && typeof result.result === "string" ? result.result : ""))) || "No error details were returned."}`,
+      { phase: "turn", exitCode: code, signal, subtype: result?.subtype },
     );
   for (const chunk of command &&
   !result.structured_output &&
@@ -459,17 +554,21 @@ try {
       request.action,
     )
   )
-    throw new Error("Unknown action");
+    throw new RuntimeFailure("Unknown action");
   if (request.provider === "codex") await codex(request);
   else if (request.provider === "claude") await claude(request);
-  else throw new Error("Unknown runtime");
+  else throw new RuntimeFailure("Unknown runtime");
 } catch (error) {
   emit({
-    ...(error instanceof HarnessError ? { code: "harness_command" } : {}),
-    error:
-      error instanceof HarnessError
-        ? error.message
-        : "The subscription runtime could not complete this request. Check sign-in, model access and subscription limits; API billing was not used.",
+    code: error instanceof HarnessError ? "harness_command" : "runtime_failure",
+    diagnostic: runtimeFailureFacts(error.details),
+    error: diagnosticText(
+      clean(
+        error instanceof HarnessError || error instanceof RuntimeFailure
+          ? error.message
+          : errorSummary(error, [], false),
+      ),
+    ),
   });
   process.exitCode = 1;
 } finally {

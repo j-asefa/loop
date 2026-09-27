@@ -17,6 +17,7 @@ import type { Artifact, Provider } from "../shared/types";
 import { parse } from "./api";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
+import { registerSheet } from "./sheetHistory";
 import {
   browserPreview,
   compactMarkdown,
@@ -30,11 +31,11 @@ export const providerName = (p?: Provider) =>
     : p === "opencode"
       ? "OpenCode"
       : p === "anthropic"
-        ? "Anthropic"
+        ? "Claude"
         : p === "codex"
-          ? "Codex"
+          ? "ChatGPT"
           : p === "openai"
-            ? "OpenAI"
+            ? "OpenAI API"
             : "Loop";
 export function Badge({ provider }: { provider?: Provider }) {
   return (
@@ -114,6 +115,7 @@ export function Empty({
 }
 export function Sheet({
   title,
+  heading,
   children,
   onClose,
   wide = false,
@@ -122,6 +124,7 @@ export function Sheet({
   className = "",
 }: {
   title: string;
+  heading?: ReactNode;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
@@ -136,16 +139,10 @@ export function Sheet({
   useEffect(() => {
     const d = ref.current!;
     d.showModal();
-    const previous = history.state,
-      token = crypto.randomUUID();
-    history.pushState({ ...previous, loopDialog: token }, "", location.href);
-    const back = () => closeRef.current();
-    window.addEventListener("popstate", back);
+    const unregister = registerSheet(() => closeRef.current());
     return () => {
       d.close();
-      window.removeEventListener("popstate", back);
-      if (history.state?.loopDialog === token)
-        history.replaceState(previous, "", location.href);
+      unregister();
     };
   }, []);
   return (
@@ -158,7 +155,10 @@ export function Sheet({
         (swipeToClose ? "swipe-sheet " : "") +
         className
       }
-      onCancel={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -175,14 +175,16 @@ export function Sheet({
       )}
       <div className="sheet-inner">
         <div className="sheet-head">
-          <h2 ref={titleRef} tabIndex={titleRef ? -1 : undefined}>
-            {title}
-          </h2>
+          {heading || (
+            <h2 ref={titleRef} tabIndex={titleRef ? -1 : undefined}>
+              {title}
+            </h2>
+          )}
           <button aria-label="Close" className="icon-button" onClick={onClose}>
             <X size={20} />
           </button>
         </div>
-        {children}
+        <div className="sheet-body">{children}</div>
       </div>
     </dialog>
   );
@@ -533,12 +535,12 @@ export function ArtifactCard({
         tabIndex={0}
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest("a,button,summary,input"))
-            onOpen();
+            (onArtifact || onOpen)();
         }}
         onKeyDown={(e) => {
           if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) {
             e.preventDefault();
-            onOpen();
+            (onArtifact || onOpen)();
           }
         }}
       >
@@ -588,15 +590,15 @@ export function ArtifactCard({
             className="text-button preview-open"
             onClick={onArtifact || onOpen}
           >
-            View full output <ArrowUpRight size={14} />
+            View full result <ArrowUpRight size={14} />
           </button>
         )}
       </div>
       {footer || (
         <div className="card-actions">
-          <button onClick={onOpen}>
+          <button onClick={onArtifact || onOpen}>
             <MessageSquare size={16} />
-            Continue
+            Reply
           </button>
           {onFile && (
             <button onClick={onFile}>

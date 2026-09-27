@@ -305,3 +305,139 @@ it("keeps structured errors readable and bounds the short explanation", () => {
     toolErrorMessage({ content: [{ type: "text", text: "x".repeat(3000) }] }),
   ).toHaveLength(2000);
 });
+
+it("preserves the failed tool, transport code and redacted cause without replaying an uncertain call", async () => {
+  const { McpError, ErrorCode } =
+    await import("@modelcontextprotocol/sdk/types.js");
+  const { MCP_TOOL_TIMEOUT_MS } = await import("../src/server/mcp/timeouts");
+  setMcpApprovalMode("alice", "allow");
+  let requests = 0;
+  const restore = withTestMcp(
+    async () =>
+      ({
+        async callTool(_input: unknown, _schema: unknown, options: any) {
+          expect(options.timeout).toBe(MCP_TOOL_TIMEOUT_MS);
+          expect(options.timeout).toBeGreaterThan(30000);
+          requests++;
+          throw new McpError(
+            ErrorCode.RequestTimeout,
+            `Navigation did not finish; ${token} https://fixture.example/?access_token=private-query`,
+          );
+        },
+        async close() {},
+      }) as unknown as Client,
+  );
+  const run = queueTool("alice", {
+    agentId: agent.id,
+    connectionId: connection,
+    tool: "pull_request_review_write",
+    arguments: { method: "create" },
+    idempotencyKey: id(),
+  });
+  try {
+    await tick(execute);
+    const stored = db
+      .prepare("SELECT state,error FROM runs WHERE id=?")
+      .get(run.id) as any;
+    expect(stored.state).toBe("failed");
+    expect(stored.error).toContain(
+      "Review fixture · pull_request_review_write",
+    );
+    expect(stored.error).toContain("Navigation did not finish");
+    expect(stored.error).toContain("external outcome is unknown");
+    const invocation = db
+      .prepare("SELECT * FROM tool_invocations WHERE run_id=?")
+      .get(run.id) as any;
+    expect(invocation.state).toBe("unknown");
+    expect(JSON.parse(invocation.result).failure).toMatchObject({
+      phase: "calling",
+      outcome: "unknown",
+      code: ErrorCode.RequestTimeout,
+    });
+    const traces = db
+      .prepare("SELECT * FROM run_traces WHERE run_id=?")
+      .all(run.id) as any[];
+    expect(
+      traces.find((t) => t.title === "pull_request_review_write")?.content,
+    ).toContain("Navigation did not finish");
+    expect(traces.find((t) => t.title === "Run failure")?.content).toBe(
+      stored.error,
+    );
+    expect(
+      JSON.stringify({ stored, invocation: invocation.result, traces }),
+    ).not.toContain(token);
+    expect(JSON.stringify(traces)).not.toContain("private-query");
+    await expect(
+      invokeTool(
+        run,
+        toolBindings("alice", agent.id).find(
+          (b) => b.connectionId === connection,
+        )!,
+        invocation.call_id,
+        { method: "create" },
+      ),
+    ).rejects.toThrow(/uncertain/);
+    expect(requests).toBe(1);
+  } finally {
+    restore();
+  }
+});
+
+it("cancels an in-flight tool request promptly without changing the cancelled run to failed", async () => {
+  setMcpApprovalMode("alice", "allow");
+  let started!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let cancelled = false;
+  const restore = withTestMcp(
+    async () =>
+      ({
+        callTool(_input: unknown, _schema: unknown, options: any) {
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener(
+              "abort",
+              () => {
+                cancelled = true;
+                reject(new Error("Cancelled by user"));
+              },
+              { once: true },
+            );
+            started();
+          });
+        },
+        async close() {},
+      }) as unknown as Client,
+  );
+  const run = queueTool("alice", {
+    agentId: agent.id,
+    connectionId: connection,
+    tool: "pull_request_review_write",
+    arguments: { method: "create" },
+    idempotencyKey: id(),
+  });
+  try {
+    const work = tick(execute);
+    await waiting;
+    db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(run.id);
+    await work;
+    expect(cancelled).toBe(true);
+    expect(
+      db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
+    ).toEqual({ state: "cancelled", error: null });
+    expect(
+      db
+        .prepare("SELECT state FROM tool_invocations WHERE run_id=?")
+        .get(run.id),
+    ).toEqual({ state: "unknown" });
+    expect(
+      db
+        .prepare(
+          "SELECT id FROM run_traces WHERE run_id=? AND trace_key='run:failure'",
+        )
+        .get(run.id),
+    ).toBeUndefined();
+  } finally {
+    restore();
+  }
+});

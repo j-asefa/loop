@@ -1,3 +1,4 @@
+import { SearchExcerpt } from "./SearchExcerpt";
 import { capabilities } from "./capabilities";
 import { useEffect, useState, useRef, type FormEvent } from "react";
 import {
@@ -15,7 +16,7 @@ import {
   Check,
 } from "lucide-react";
 import { api, parse, authorizedFetch } from "./api";
-import { Sheet, Empty, Badge, RichText } from "./components";
+import { Sheet, Empty, Badge } from "./components";
 import type {
   Artifact,
   Folder as FolderType,
@@ -28,38 +29,54 @@ export function FolderForm({
   onCreated,
   parent = "",
   existing,
+  kind = "folder",
 }: {
   folders: FolderType[];
   onClose: () => void;
   onCreated: (folder: FolderType) => void;
   parent?: string;
   existing?: FolderType;
+  kind?: "project" | "folder";
 }) {
-  const [error, setError] = useState("");
+  const [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
   return (
     <Sheet
-      title={existing ? "Edit folder" : "Give your work a home"}
+      title={`${existing ? "Edit" : "New"} ${existing?.kind || kind}`}
       onClose={onClose}
     >
       <form
         onSubmit={async (e) => {
           e.preventDefault();
+          if (busy) return;
           const f = new FormData(e.currentTarget);
+          setBusy(true);
+          setError("");
           try {
             const created = await api<FolderType>(
               existing ? "/folders/" + existing.id : "/folders",
               {
                 path: f.get("path") || undefined,
                 name: f.get("name"),
-                kind: f.get("kind"),
+                kind: existing?.kind || kind,
                 parentId: f.get("parent") || null,
               },
               existing ? "PATCH" : "POST",
             );
-            onCreated(existing || created);
+            onCreated(
+              existing
+                ? {
+                    ...existing,
+                    name: String(f.get("name")),
+                    parent_id: String(f.get("parent") || "") || null,
+                  }
+                : created,
+            );
             onClose();
           } catch (e) {
             setError((e as Error).message);
+          } finally {
+            setBusy(false);
           }
         }}
       >
@@ -74,25 +91,16 @@ export function FolderForm({
           />
         </label>
         <label>
-          Type
-          <select
-            name="kind"
-            defaultValue={existing?.kind || "project"}
-            disabled={!!existing}
-          >
-            <option value="project">Project</option>
-            <option value="folder">Folder</option>
-          </select>
-        </label>
-        <label>
           Location
           <select name="parent" defaultValue={existing?.parent_id || parent}>
             <option value="">Workspace</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
+            {folders
+              .filter((f) => f.id !== existing?.id)
+              .map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
           </select>
         </label>
         {capabilities.localProjects && (
@@ -113,9 +121,9 @@ export function FolderForm({
           </>
         )}
         {error && <p className="error">{error}</p>}
-        <button className="primary">
+        <button className="primary" disabled={busy}>
           <Plus size={16} />
-          {existing ? "Save folder" : "Create"}
+          {busy ? "Saving…" : existing ? "Save changes" : `Create ${kind}`}
         </button>
       </form>
     </Sheet>
@@ -245,6 +253,8 @@ export function Saved({
   onCreate,
   onEdit,
   version,
+  embedded = false,
+  initialView = "recent",
 }: {
   folders: FolderType[];
   folder: string;
@@ -254,26 +264,40 @@ export function Saved({
   onCreate: () => void;
   onEdit: () => void;
   version: number;
+  embedded?: boolean;
+  initialView?: "recent" | "folders";
 }) {
-  const [view, setView] = useState("projects"),
+  const [view, setView] = useState<string>(initialView),
     [items, setItems] = useState<Artifact[]>([]),
     [next, setNext] = useState<number | null>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(true);
+  const request = useRef(0);
   async function load(append = false) {
+    const ticket = ++request.current;
+    if (!append) setLoading(true);
+    setError("");
     try {
       const params = new URLSearchParams();
-      if (view === "pinned") params.set("pinned", "1");
-      else if (view === "projects") params.set("folder", folder || "inbox");
+      if (!embedded && view === "pinned") params.set("pinned", "1");
+      else if (embedded || view === "folders")
+        params.set("folder", folder || "inbox");
       if (append && next) params.set("before", String(next));
       const r = await api("/artifacts?" + params);
+      if (ticket !== request.current) return;
       setItems((prev) => (append ? [...prev, ...r.items] : r.items));
       setNext(r.next);
     } catch (e) {
-      setError((e as Error).message);
+      if (ticket === request.current) setError((e as Error).message);
+    } finally {
+      if (ticket === request.current) setLoading(false);
     }
   }
   useEffect(() => {
     void load();
+    return () => {
+      request.current++;
+    };
   }, [folder, view, version]);
   async function pin(a: Artifact) {
     try {
@@ -290,44 +314,49 @@ export function Saved({
   const current = folders.find((f) => f.id === folder);
   return (
     <>
-      {current && (
+      {current && !embedded && view === "folders" && (
         <button className="text-button" onClick={onEdit}>
           Rename or move this folder
         </button>
       )}
-      <div className="feed-filters">
-        <div className="segmented">
-          {["projects", "recent", "pinned"].map((v) => (
-            <button
-              key={v}
-              className={view === v ? "selected" : ""}
-              onClick={() => setView(v)}
-            >
-              {v[0].toUpperCase() + v.slice(1)}
-            </button>
-          ))}
-        </div>
-        <button
-          className="icon-button"
-          aria-label="Create folder"
-          onClick={onCreate}
-        >
-          <Plus size={19} />
-        </button>
-      </div>
-      {view === "projects" && (
-        <>
-          <div className="breadcrumbs">
-            <button onClick={() => onFolder("")}>Workspace</button>
-            {current && (
-              <>
-                <ChevronRight size={14} />
-                <button onClick={() => onFolder(current.parent_id || "")}>
-                  {folderPath(current.id, folders)}
-                </button>
-              </>
-            )}
+      {!embedded && (
+        <div className="feed-filters">
+          <div className="segmented">
+            {["folders", "recent", "pinned"].map((v) => (
+              <button
+                key={v}
+                className={view === v ? "selected" : ""}
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+              >
+                {v[0].toUpperCase() + v.slice(1)}
+              </button>
+            ))}
           </div>
+          <button
+            className="icon-button"
+            aria-label="Create folder"
+            onClick={onCreate}
+          >
+            <Plus size={19} />
+          </button>
+        </div>
+      )}
+      {(embedded || view === "folders") && (
+        <>
+          {!embedded && (
+            <div className="breadcrumbs">
+              <button onClick={() => onFolder("")}>Workspace</button>
+              {current && (
+                <>
+                  <ChevronRight size={14} />
+                  <button onClick={() => onFolder(current.parent_id || "")}>
+                    {folderPath(current.id, folders)}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           <div className="folder-grid">
             {folders
               .filter((f) => f.parent_id === (folder || null))
@@ -345,37 +374,39 @@ export function Saved({
         </>
       )}
       {error && <p className="error">{error}</p>}
-      <div className="file-list">
-        {items.map((a) => (
-          <article key={a.id} className="file-row">
-            <button onClick={() => onOpen(a)}>
-              <FileText size={21} />
-              <span>
-                <strong>{a.title}</strong>
-                <small>
-                  <Badge provider={a.provider} />
-                  {a.kind} · {new Date(a.created_at).toLocaleDateString()}
-                </small>
-              </span>
-            </button>
-            <button
-              className="icon-button"
-              aria-label={a.pinned ? "Unpin" : "Pin"}
-              onClick={() => pin(a)}
-            >
-              <Bookmark size={17} fill={a.pinned ? "currentColor" : "none"} />
-            </button>
-            <button
-              className="icon-button"
-              aria-label={"File " + a.title}
-              onClick={() => onFile(a)}
-            >
-              <FolderInput size={17} />
-            </button>
-          </article>
-        ))}
+      {loading && <p role="status">Loading files…</p>}
+      <div className="file-list" aria-busy={loading}>
+        {!loading &&
+          items.map((a) => (
+            <article key={a.id} className="file-row">
+              <button onClick={() => onOpen(a)}>
+                <FileText size={21} />
+                <span>
+                  <strong>{a.title}</strong>
+                  <small>
+                    <Badge provider={a.provider} />
+                    {a.kind} · {new Date(a.created_at).toLocaleDateString()}
+                  </small>
+                </span>
+              </button>
+              <button
+                className="icon-button"
+                aria-label={a.pinned ? "Unpin" : "Pin"}
+                onClick={() => pin(a)}
+              >
+                <Bookmark size={17} fill={a.pinned ? "currentColor" : "none"} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label={"File " + a.title}
+                onClick={() => onFile(a)}
+              >
+                <FolderInput size={17} />
+              </button>
+            </article>
+          ))}
       </div>
-      {!items.length && (
+      {!loading && !error && !items.length && (
         <Empty
           title={
             view === "pinned"
@@ -457,6 +488,7 @@ export function SearchWorkspace({
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
     [result, setResult] = useState<any>(null),
+    [resultQuery, setResultQuery] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const searchRequest = useRef(0);
@@ -472,6 +504,7 @@ export function SearchWorkspace({
       if (append && result?.next) p.set("before", String(result.next));
       const r = await api("/search?" + p);
       if (request !== searchRequest.current) return;
+      setResultQuery(query);
       setResult((previous: any) =>
         append
           ? {
@@ -493,12 +526,11 @@ export function SearchWorkspace({
       if (request === searchRequest.current) setBusy(false);
     }
   }
+  useEffect(() => {
+    if (result && query.trim()) void run();
+  }, [scope, kind, agent, folder, from, to]);
   return (
     <>
-      <button className="text-button" onClick={onSearchSettings}>
-        Enable or configure semantic search
-      </button>
-      <SearchIndexStatus />
       <form
         className="search-box"
         onSubmit={(e) => {
@@ -517,71 +549,126 @@ export function SearchWorkspace({
           {busy ? "Finding…" : "Search"}
         </button>
       </form>
-      <div className="search-filters">
-        <select
-          aria-label="Search scope"
-          value={scope}
-          onChange={(e) => setScope(e.target.value)}
+      <details className="search-filter-panel">
+        <summary>
+          Filters
+          {[scope !== "all", !!agent, !!kind, !!folder, !!from, !!to].filter(
+            Boolean,
+          ).length > 0 &&
+            ` · ${[scope !== "all", !!agent, !!kind, !!folder, !!from, !!to].filter(Boolean).length} active`}
+        </summary>
+        <div className="search-filters">
+          <select
+            aria-label="Search scope"
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+          >
+            <option value="all">All agents</option>
+            <option value="running">Running agents</option>
+            <option value="mine">My messages</option>
+          </select>
+          <select
+            aria-label="Search agent"
+            value={agent}
+            onChange={(e) => setAgent(e.target.value)}
+          >
+            <option value="">Any agent</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                @{a.name}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Artifact type"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+          >
+            <option value="">All types</option>
+            {[
+              "message",
+              "markdown",
+              "table",
+              "diagram",
+              "workflow",
+              "chart",
+              "file",
+            ].map((k) => (
+              <option key={k}>{k}</option>
+            ))}
+          </select>
+          <select
+            aria-label="Search project"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+          >
+            <option value="">Any folder</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {folderPath(f.id, folders)}
+              </option>
+            ))}
+          </select>
+          <label>
+            From (UTC)
+            <input
+              aria-label="From date"
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </label>
+          <label>
+            Through (UTC)
+            <input
+              aria-label="Through date (UTC)"
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </label>
+        </div>
+        <button
+          className="text-button"
+          onClick={() => {
+            setScope("all");
+            setAgent("");
+            setKind("");
+            setFolder("");
+            setFrom("");
+            setTo("");
+          }}
         >
-          <option value="all">All agents</option>
-          <option value="running">Running agents</option>
-          <option value="mine">My messages</option>
-        </select>
-        <select
-          aria-label="Search agent"
-          value={agent}
-          onChange={(e) => setAgent(e.target.value)}
-        >
-          <option value="">Any agent</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              @{a.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Artifact type"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-        >
-          <option value="">All types</option>
-          {[
-            "message",
-            "markdown",
-            "table",
-            "diagram",
-            "workflow",
-            "chart",
-            "file",
-          ].map((k) => (
-            <option key={k}>{k}</option>
-          ))}
-        </select>
-        <select
-          aria-label="Search project"
-          value={folder}
-          onChange={(e) => setFolder(e.target.value)}
-        >
-          <option value="">Any folder</option>
-          {folders.map((f) => (
-            <option key={f.id} value={f.id}>
-              {folderPath(f.id, folders)}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="From date"
-          type="date"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-        />
-        <input
-          aria-label="Through date (UTC)"
-          type="date"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-        />
+          Clear filters
+        </button>
+      </details>
+      <div className="search-chips" aria-label="Active search filters">
+        {scope !== "all" && (
+          <button onClick={() => setScope("all")}>
+            {scope === "mine" ? "Your messages" : "Running agents"} ×
+          </button>
+        )}
+        {agent && (
+          <button onClick={() => setAgent("")}>
+            @{agents.find((a) => a.id === agent)?.name || "Agent"} ×
+          </button>
+        )}
+        {kind && <button onClick={() => setKind("")}>{kind} ×</button>}
+        {folder && (
+          <button onClick={() => setFolder("")}>
+            {folders.find((f) => f.id === folder)?.name || "Project"} ×
+          </button>
+        )}
+        {from && <button onClick={() => setFrom("")}>From {from} ×</button>}
+        {to && <button onClick={() => setTo("")}>Through {to} ×</button>}
       </div>
+      <details className="search-settings-summary">
+        <summary>Search options & index status</summary>
+        <SearchIndexStatus />
+        <button className="text-button" onClick={onSearchSettings}>
+          Configure semantic search
+        </button>
+      </details>
       {error && <p className="error">{error}</p>}
       {result ? (
         <>
@@ -636,9 +723,16 @@ export function SearchWorkspace({
                   <span>{new Date(r.created_at).toLocaleDateString()}</span>
                 </div>
                 <h3>{r.title}</h3>
-                <RichText content={r.snippet} compact />
+                <p className="search-snippet">
+                  <SearchExcerpt text={r.snippet} query={resultQuery} />
+                </p>
                 <small>
-                  {r.kind} ·{" "}
+                  {r.kind === "message"
+                    ? "Conversation"
+                    : r.kind === "markdown"
+                      ? "Output"
+                      : r.kind}{" "}
+                  ·{" "}
                   {r.folder_id
                     ? folderPath(r.folder_id, folders)
                     : "Workspace inbox"}

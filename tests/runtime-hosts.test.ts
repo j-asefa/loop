@@ -469,17 +469,29 @@ it("pairs Codex app-server, uses the host account, scopes access and never logs 
   expect(tools[0]).toMatchObject({
     toolCall: { name: "lookup", arguments: {} },
   });
-  for (const model of ["wrong-provider", "ungranted", "quota", "disconnect"]) {
-    await expect(
-      (async () => {
-        for await (const _chunk of subscriptionStream(connection, {
-          ...input,
-          model,
-        })) {
-          /* drain */
-        }
-      })(),
-    ).rejects.toThrow();
+  for (const [model, message] of [
+    ["wrong-provider", "did not use the ChatGPT provider"],
+    ["ungranted", "ungranted tool"],
+    ["quota", "Usage limit reached"],
+    ["disconnect", "Remote Codex connection"],
+    ["rejected", "Remote Codex rejected thread/start: Model access denied"],
+  ]) {
+    const failure = await (async () => {
+      for await (const _chunk of subscriptionStream(connection, {
+        ...input,
+        model,
+      })) {
+        /* drain */
+      }
+    })().catch((error) => error);
+    expect(failure).toBeInstanceOf(Problem);
+    expect(failure.message).toContain(message);
+    expect(JSON.stringify(failure)).not.toContain(fixtureToken);
+    if (model === "quota")
+      expect(failure.diagnostic).toEqual({
+        phase: "turn",
+        code: "usage_limit",
+      });
   }
   const controller = new AbortController();
   const cancelled = (async () => {

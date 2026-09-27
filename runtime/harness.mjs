@@ -1,3 +1,4 @@
+import { modelOptions } from "./model-options.mjs";
 import { lines, turnPrompt, responseSchema } from "./protocol.mjs";
 export class HarnessError extends Error {}
 
@@ -100,7 +101,7 @@ export async function codexTurn(rpc, threadId, input, nativeTools, cwd) {
 
 // The official SDK's initialize control message lists commands without sending
 // a user prompt or spending a model turn. Do not read arbitrary host files.
-export async function claudeCatalog(launch) {
+async function claudeInitialize(launch) {
   const p = launch("claude", [
     "-p",
     "--input-format",
@@ -111,7 +112,7 @@ export async function claudeCatalog(launch) {
     "--no-session-persistence",
   ]);
   try {
-    const commands = await new Promise((resolve, reject) => {
+    const initialized = await new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("Command discovery timed out")),
         20000,
@@ -133,10 +134,11 @@ export async function claudeCatalog(launch) {
             return;
           if (
             m.response.subtype !== "success" ||
-            !Array.isArray(m.response.response?.commands)
+            !m.response.response ||
+            typeof m.response.response !== "object"
           )
             finish(new Error("Command discovery is unavailable"));
-          else finish(null, m.response.response.commands);
+          else finish(null, m.response.response);
         },
         (e) => finish(e),
       );
@@ -148,33 +150,68 @@ export async function claudeCatalog(launch) {
         }) + "\n",
       );
     });
-    return {
-      available: true,
-      runtime: "Claude Code",
-      commands: commands
-        .filter((c) => validName(c.name))
-        .map((c) => ({
-          name: c.name,
-          token: "/" + c.name,
-          kind: "command",
-          description: c.description || "",
-          argumentHint: c.argumentHint || "",
-          ...([
-            "clear",
-            "compact",
-            "resume",
-            "rewind",
-            "fork",
-            "rename",
-          ].includes(c.name)
-            ? {
-                disabledReason:
-                  "Requires a persistent Claude terminal session. Loop keeps the conversation history here.",
-              }
-            : {}),
-        })),
-    };
+    return initialized;
   } finally {
     p.kill("SIGTERM");
   }
+}
+
+function claudeModelOptions(initialized) {
+  const models = Array.isArray(initialized?.models)
+    ? initialized.models
+        .filter((model) => typeof (model?.value || model?.id) === "string")
+        .map((model) => ({
+          id: model.value || model.id,
+          name: model.displayName || model.name || model.value || model.id,
+          capabilities: "Claude Code · runtime model catalog",
+          ...modelOptions(model),
+        }))
+    : [];
+  if (models.length) return models;
+  // Stable CLI aliases keep authenticated accounts usable on older runtimes or
+  // during discovery failures. Do not invent effort levels or versioned IDs.
+  // https://code.claude.com/docs/en/model-config#model-aliases
+  return ["sonnet", "opus", "haiku"].map((id) => ({
+    id,
+    name: "Claude " + id[0].toUpperCase() + id.slice(1),
+    capabilities: "Claude Code · model alias (catalog unavailable)",
+  }));
+}
+
+export async function claudeModels(launch) {
+  try {
+    return claudeModelOptions(await claudeInitialize(launch));
+  } catch {
+    // Discovery is optional for account status. The caller has already checked
+    // authentication with the official CLI; a catalog failure cannot undo it.
+    return claudeModelOptions(null);
+  }
+}
+
+export async function claudeCatalog(launch) {
+  const initialized = await claudeInitialize(launch);
+  if (!Array.isArray(initialized.commands))
+    throw new Error("Command discovery is unavailable");
+  return {
+    available: true,
+    runtime: "Claude Code",
+    models: claudeModelOptions(initialized),
+    commands: initialized.commands
+      .filter((c) => validName(c?.name))
+      .map((c) => ({
+        name: c.name,
+        token: "/" + c.name,
+        kind: "command",
+        description: c.description || "",
+        argumentHint: c.argumentHint || "",
+        ...(["clear", "compact", "resume", "rewind", "fork", "rename"].includes(
+          c.name,
+        )
+          ? {
+              disabledReason:
+                "Requires a persistent Claude terminal session. Loop keeps the conversation history here.",
+            }
+          : {}),
+      })),
+  };
 }
