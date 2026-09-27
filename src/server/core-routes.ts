@@ -1,3 +1,4 @@
+import { environment, hub, workerRequest } from "./hapi/environments.js";
 import {
   isNativeConnection,
   NATIVE_CONNECTION_SQL,
@@ -39,6 +40,7 @@ import { attachmentIds } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import { listTeams, teamFilter } from "./teams.js";
+import { nativeCancel, dispatchFor } from "./hapi/adapter.js";
 export const core = Router();
 core.get("/bootstrap", (_req, res) =>
   res.json({
@@ -205,7 +207,14 @@ core.delete("/connections/:id", async (req, res) => {
   db.prepare(
     "UPDATE connections SET secret='',status='disconnected' WHERE id=?",
   ).run(req.params.id);
-  if (isSubscription(c)) await runtimeAction(c, "logout");
+  const metadata = JSON.parse(c.metadata);
+  if (metadata.backend === "hapi")
+    await workerRequest(
+      environment(res.locals.owner, metadata.environmentId),
+      "/logout",
+      { flavor: metadata.flavor },
+    );
+  else if (isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
 core.get("/agents/suggest-name", (_req, res) =>
@@ -296,6 +305,47 @@ core.get("/agents/:id/harness", async (req, res) => {
       409,
       "Reconnect this agent’s provider to load commands and skills.",
     );
+  const native = JSON.parse(connection.metadata);
+  if (native.backend === "hapi") {
+    const session = db
+      .prepare(
+        "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
+      )
+      .get(agent.id, res.locals.owner) as any;
+    if (!session) {
+      res.json({
+        available: false,
+        commands: [],
+        message:
+          "Start a native conversation to discover commands and skills from that environment.",
+      });
+      return;
+    }
+    const client = hub(environment(res.locals.owner, session.environment_id));
+    const [commands, skills] = await Promise.all([
+      client.request(
+        "/api/sessions/" + session.hub_session_id + "/slash-commands",
+      ),
+      client.request("/api/sessions/" + session.hub_session_id + "/skills"),
+    ]);
+    res.json({
+      available: true,
+      commands: [
+        ...(commands.commands || []).map((c: any) => ({
+          ...c,
+          token: "/" + c.name.replace(/^\//, ""),
+          kind: "command",
+        })),
+        ...(skills.skills || []).map((c: any) => ({
+          ...c,
+          token: (native.flavor === "codex" ? "$" : "/") + c.name,
+          kind: "skill",
+        })),
+      ],
+      runtime: native.flavor,
+    });
+    return;
+  }
   const catalog = isNativeConnection(connection)
     ? await nativeSessions.catalog(
         agent,
@@ -356,9 +406,18 @@ core.post("/runs", (req, res) => {
     .parse(req.body);
   res.status(202).json(submit(res.locals.owner, { ...d, steer: true }));
 });
-core.post("/runs/:id/:action", (req, res) => {
+core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
   const action = req.params.action;
+  if (action === "cancel" && (await nativeCancel(run))) {
+    res.json({ ok: true, cancellationRequested: true });
+    return;
+  }
+  if (["retry", "resume", "pause"].includes(action) && dispatchFor(run.id))
+    throw new Problem(
+      409,
+      "Reconcile native execution before changing this run. An uncertain action cannot be replayed.",
+    );
   if (
     action === "pause" &&
     ["running", "awaiting_approval"].includes(run.state) &&

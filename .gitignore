@@ -11,3 +11,10 @@ test-results/
 .tmp/
 *.tgz
 npm-shrinkwrap.json
+
+.test-tmp/
+pnpm-lock.yaml
+deployment/out/
+__pycache__/
+*.pyc
+.local-native/

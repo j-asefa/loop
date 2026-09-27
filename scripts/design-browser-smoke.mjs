@@ -275,6 +275,15 @@ try {
         "Conversation reading area is too short",
       );
       await page.getByLabel("Conversation options", { exact: true }).click();
+      await dialog().locator(".native-conversation > summary").click();
+      await expect(
+        dialog().getByRole("checkbox", { name: "Include in shared memory" }),
+      ).toBeVisible();
+      assert(
+        (await dialog().locator(".messages").evaluate((el) => el.clientHeight)) ===
+          dimensions.messages,
+        "Conversation controls shrink the reading area",
+      );
       await dialog()
         .getByRole("button", { name: "Change model", exact: true })
         .click();

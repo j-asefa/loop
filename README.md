@@ -5,7 +5,10 @@ Loop has one shared UI, database schema and workspace API, with two deployment p
 - **Server:** the existing Loop agent runtime, personal or multi-user authentication, API connections, subscription runtimes and remote runtime hosts.
 - **Companion:** the same workspace over local Codex, Claude Code, Pi and OpenCode harnesses, with phone pairing, durable native sessions and an optional tunnel. Explicit API connections can also run Loop's managed agent runtime.
 
-Build once with `npm ci && npm run build`. Run the existing server deployment with `npm run setup && node --env-file=.env scripts/serve.mjs`, or start the compiled all-in-one server with `node --env-file=.env dist/cli.js` (plain `loop` once installed). Start a companion with `node dist/cli.js codex --local-only` (substitute `claude`, `pi` or `opencode`; omit `--local-only` to open a Quick Tunnel); it shows a pairing code and then keeps running in the background until `loop stop`. Pair from the standalone [Loop app](mobile/README.md), which survives Quick Tunnel address changes: run `loop pair` and scan again from inside the app, with no reinstall. For a standalone installation, run `npm pack` and install the generated tarball; it provides the `loop` command. No sibling checkout is required.
+Build once with `npm ci && npm run build`. Run the existing server deployment with `npm run setup && node --env-file=.env scripts/serve.mjs`, or start the compiled all-in-one server with `node --env-file=.env dist/cli.js server` (`loop server` once installed). Start a companion with `node dist/cli.js codex --local-only` (substitute `claude`, `pi` or `opencode`; omit `--local-only` to open a Quick Tunnel); it shows a pairing code and then keeps running in the background until `loop stop`. Pair from the standalone [Loop app](mobile/README.md), which survives Quick Tunnel address changes: run `loop pair` and scan again from inside the app, with no reinstall. For a standalone installation, run `npm pack` and install the generated tarball; it provides the `loop` command. No sibling checkout is required.
+
+For native **or Docker** agents behind one phone pairing, run `node dist/cli.js` / `loop`. Choose OpenAI / Anthropic and native / Docker / both on first launch. Existing Cloudflare named tunnels, persistent device trust, and optional startup at login are supported. See [laptop launcher setup](docs/specs/unified-runtime/01-OPERATIONS.md).
+
 
 See [deployment profiles and architecture](docs/UNIFIED-LOOP.md) and [companion commands](docs/companion/CLI.md). This consolidation targets fresh data directories; it does not promise compatibility with prior Loop or loop-cli databases. Each database is bound to its deployment profile.
 
@@ -42,6 +45,18 @@ The API and independent worker share persistent `loop-data`. Subscription creden
 
 For API-only development without Docker: `npm ci`, `npm run setup`, `npm run build`, then `node --env-file=.env scripts/serve.mjs`. Subscriptions additionally need the supplied broker/runtime infrastructure or a paired native host / Codex app-server; Loop cannot run on a static website host. Keyword search, local semantic search and imports need no provider account. OpenAI embeddings remain an optional, separately billed alternative.
 
+### Run Loop, HAPI and MemSearch entirely on this laptop
+
+The local native stack runs Loop, the private HAPI Hub, its persistent runner and MemSearch in Docker Compose. The runner starts one authenticated Codex `app-server` for the worker lifetime; concurrent Loop Codex agents attach their own native threads to that process. Their Codex login, native thread store, project files, Loop database and memory index stay in local Docker volumes. This is a local CLI app-server managed by Loop, not the visible Codex desktop app process. No AWS account, cloud resources or laptop pairing is used.
+
+```sh
+node scripts/setup.mjs
+node deployment/local/setup-native.mjs
+docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml up --build -d
+```
+
+Open http://localhost:3000, then connect the **This laptop** environment under **Settings → Provider connections** and choose ChatGPT (Codex) or Claude Code. Sign in through the provider's official flow and keep **Subscription** selected for Codex. Compose builds the pinned HAPI/native image and the local MemSearch image on first start. The native HAPI image currently runs as Linux x86-64; Apple Silicon uses Docker's x86 emulation. Local state and generated mutual-TLS credentials live in the ignored `.local-native/` directory and named Docker volumes. The separate Compose project name keeps these volumes apart from another local Loop stack. Back up those before removing volumes. Stop with the same `docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml down` command; do not add `-v` if you want to keep local sessions and content.
+
 ## Checks
 
 ```sh
@@ -56,7 +71,7 @@ npm run smoke:journey
 
 ## Deployment and operation
 
-The [deployment guide](docs/loop-v0/DEPLOYMENT.md) covers Docker Compose with Caddy HTTPS, persistent storage, secrets, health checks, backups and installation. One persistent Node host is required; stateless/static hosting is insufficient. The production container smoke job builds all images and checks real unsigned runtime status; its result is recorded in the PR. Local Docker remains unavailable.
+The [deployment guide](docs/loop-v0/DEPLOYMENT.md) covers Docker Compose with Caddy HTTPS, persistent storage, secrets, health checks, backups and installation. One persistent Node host is required; stateless/static hosting is insufficient. The production container smoke job builds all images and checks real unsigned runtime status; its result is recorded in the PR. The laptop-local native stack has been built and its Loop API, HAPI Hub, runner and shared Codex app-server startup verified; provider sign-in and an actual native agent run still require the user’s provider account.
 
 After a working HTTPS deployment exists, open it in Safari → Share → Add to Home Screen → Open as Web App → Add. Loop also includes copy/paste and Shortcut receiving instructions; opening a shared link only creates a draft. Actual iPhone testing remains outstanding.
 

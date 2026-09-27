@@ -20,6 +20,8 @@ import { workspace } from "./workspace-routes.js";
 import { core } from "./core-routes.js";
 import { Problem } from "./domain.js";
 import { ZodError } from "zod";
+import { executionRoutes } from "./hapi/routes.js";
+import { memoryRoutes } from "./memory.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
@@ -157,6 +159,8 @@ app.get("/api/runs", (req, res) => {
 });
 if (companionMode) app.use("/api", companion);
 app.use("/api", teams);
+app.use("/api", executionRoutes);
+app.use("/api", memoryRoutes);
 if (capabilities.runtimeHosts) app.use("/api", runtimeHosts);
 app.use("/api", subscriptions);
 app.use("/api", core);

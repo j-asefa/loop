@@ -5,7 +5,9 @@ import {
 } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile, rename, rm, chmod } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { homedir } from "node:os";
+import { parse as parseYaml, stringify as yaml } from "yaml";
 import { createHash } from "node:crypto";
 import { privateDir, atomic } from "./state.js";
 const exec = promisify(execFile);
@@ -167,6 +169,45 @@ export class TunnelSupervisor {
     });
   }
 }
+export async function namedTunnelConfig(
+  root: string,
+  port: number,
+  named: { name: string; origin: string; config?: string },
+) {
+  const source = named.config || join(homedir(), ".cloudflared", "config.yml");
+  const contents = await readFile(source, "utf8").catch((error) => {
+    if (named.config || error.code !== "ENOENT") throw error;
+    return "{}";
+  });
+  const saved = parseYaml(contents) || {};
+  if (saved.tunnel && saved.tunnel !== named.name)
+    throw new Error(
+      "Use the tunnel ID from your cloudflared config with --tunnel-name",
+    );
+  const config = join(root, "named-tunnel.yml");
+  // Never expose the private runner or retain an old project's ingress rules.
+  // Keep the existing tunnel identity and point its sole public origin at Loop.
+  const generated = {
+    tunnel: named.name,
+    ...(saved["credentials-file"]
+      ? {
+          "credentials-file": resolve(
+            dirname(source),
+            saved["credentials-file"],
+          ),
+        }
+      : {}),
+    ingress: [
+      {
+        hostname: new URL(named.origin).hostname,
+        service: `http://127.0.0.1:${port}`,
+      },
+      { service: "http_status:404" },
+    ],
+  };
+  await writeFile(config, yaml(generated), { mode: 0o600 });
+  return config;
+}
 export class Tunnel {
   private child?: ChildProcessWithoutNullStreams;
   private stopped = false;
@@ -174,25 +215,51 @@ export class Tunnel {
     private root: string,
     private port: number,
     private exited: () => void,
+    private named?: { name: string; origin: string; config?: string },
   ) {}
   async start(): Promise<string> {
     const binary = await helper(this.root);
     if (this.stopped) throw new Error("Quick Tunnel startup cancelled.");
-    const config = join(this.root, "quick-tunnel.yml");
-    await writeFile(config, "{}\n", { mode: 0o600 });
+    let config = join(this.root, "quick-tunnel.yml");
+    if (this.named) {
+      const url = new URL(this.named.origin);
+      if (
+        url.protocol !== "https:" ||
+        url.pathname !== "/" ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      )
+        throw new Error("Named tunnel requires a bare HTTPS origin");
+      if (!/^[a-zA-Z0-9_-]+$/.test(this.named.name))
+        throw new Error("Invalid tunnel name or ID");
+    }
+    if (this.named)
+      config = await namedTunnelConfig(this.root, this.port, this.named);
+    else await writeFile(config, "{}\n", { mode: 0o600 });
     if (this.stopped) throw new Error("Quick Tunnel startup cancelled.");
     this.child = spawn(
       binary,
-      [
-        "tunnel",
-        "--config",
-        config,
-        "--no-autoupdate",
-        "--url",
-        `http://127.0.0.1:${this.port}`,
-        "--protocol",
-        "http2",
-      ],
+      this.named
+        ? [
+            "tunnel",
+            "--config",
+            config,
+            "--no-autoupdate",
+            "run",
+            this.named.name,
+          ]
+        : [
+            "tunnel",
+            "--config",
+            config,
+            "--no-autoupdate",
+            "--url",
+            `http://127.0.0.1:${this.port}`,
+            "--protocol",
+            "http2",
+          ],
       { stdio: "pipe", shell: false },
     );
     return new Promise((resolve, reject) => {
@@ -209,7 +276,11 @@ export class Tunnel {
       const data = (b: Buffer) => {
         if (this.stopped) return;
         buffer = (buffer + b.toString()).slice(-16000);
-        const url = tunnelUrl(buffer);
+        const url = this.named
+          ? /Registered tunnel connection/.test(buffer)
+            ? this.named.origin
+            : undefined
+          : tunnelUrl(buffer);
         if (url && !ready) {
           ready = true;
           clearTimeout(timer);

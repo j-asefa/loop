@@ -194,7 +194,7 @@ export class NativeSessions {
         now(),
       );
       db.prepare(
-        "UPDATE agents SET connection_id=? WHERE connection_id IS NULL AND id IN (SELECT agent_id FROM conversations c JOIN native_sessions n ON n.conversation_id=c.id WHERE n.harness=?)",
+        "UPDATE agents SET connection_id=? WHERE connection_id IS NULL AND id IN (SELECT agent_id FROM conversations c JOIN companion_sessions n ON n.conversation_id=c.id WHERE n.harness=?)",
       ).run("native-" + options.harness, options.harness);
       this.addProject(options.project);
     }).immediate();
@@ -265,7 +265,7 @@ export class NativeSessions {
       if (c.agent_id !== agent.id)
         throw new Problem(400, "Conversation belongs to another agent");
       const binding = db
-        .prepare("SELECT project FROM native_sessions WHERE conversation_id=?")
+        .prepare("SELECT project FROM companion_sessions WHERE conversation_id=?")
         .get(conversation) as any;
       if (binding) project = this.directory(binding.project);
     }
@@ -302,7 +302,7 @@ export class NativeSessions {
     const harness = JSON.parse(connection.metadata).loopHarness as Harness;
     const registration = this.registration(harness);
     let binding = db
-      .prepare("SELECT * FROM native_sessions WHERE conversation_id=?")
+      .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
       .get(conversation) as Binding | undefined;
     if (!binding) {
       const project = this.project(snapshot, registration);
@@ -316,7 +316,7 @@ export class NativeSessions {
           JSON.stringify(transfer).slice(0, 100000)
         : "";
       db.prepare(
-        "INSERT INTO native_sessions(conversation_id,harness,project,model,instructions,updated_at,effort) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,updated_at,effort) VALUES(?,?,?,?,?,?,?)",
       ).run(
         conversation,
         harness,
@@ -327,7 +327,7 @@ export class NativeSessions {
         snapshot.effort || null,
       );
       binding = db
-        .prepare("SELECT * FROM native_sessions WHERE conversation_id=?")
+        .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
         .get(conversation) as Binding;
     }
     if (binding.harness !== harness)
@@ -348,7 +348,7 @@ export class NativeSessions {
         await this.dispose(current);
       }
       db.prepare(
-        "UPDATE native_sessions SET model=?,effort=?,updated_at=? WHERE conversation_id=?",
+        "UPDATE companion_sessions SET model=?,effort=?,updated_at=? WHERE conversation_id=?",
       ).run(model, effort, now(), conversation);
       binding.model = model;
       binding.effort = effort;
@@ -390,7 +390,7 @@ export class NativeSessions {
     );
     this.live.set(conversation, live);
     db.prepare(
-      "UPDATE native_sessions SET generation=?,state='starting',updated_at=? WHERE conversation_id=?",
+      "UPDATE companion_sessions SET generation=?,state='starting',updated_at=? WHERE conversation_id=?",
     ).run(generation, now(), conversation);
     live.ready = (async () => {
       try {
@@ -398,7 +398,7 @@ export class NativeSessions {
         if (this.stopped || live.closed)
           throw new Error("Workspace stopped during native startup.");
         db.prepare(
-          "UPDATE native_sessions SET state='idle',updated_at=? WHERE conversation_id=?",
+          "UPDATE companion_sessions SET state='idle',updated_at=? WHERE conversation_id=?",
         ).run(now(), conversation);
       } catch (error) {
         await this.dispose(live);
@@ -427,7 +427,7 @@ export class NativeSessions {
       if (!event.nativeSession || event.nativeSession.length > 4096) return;
       live.binding.native_id = event.nativeSession;
       db.prepare(
-        "UPDATE native_sessions SET native_id=?,updated_at=? WHERE conversation_id=?",
+        "UPDATE companion_sessions SET native_id=?,updated_at=? WHERE conversation_id=?",
       ).run(event.nativeSession, now(), live.binding.conversation_id);
       return;
     }
@@ -562,7 +562,7 @@ export class NativeSessions {
         run.id,
       );
       db.prepare(
-        "UPDATE native_sessions SET state=?,updated_at=? WHERE conversation_id=?",
+        "UPDATE companion_sessions SET state=?,updated_at=? WHERE conversation_id=?",
       ).run(
         event.status === "failed" && !event.recoverable
           ? "unavailable"
@@ -709,7 +709,7 @@ export class NativeSessions {
         now(),
       );
       db.prepare(
-        "UPDATE native_sessions SET state='running',last_run_id=?,updated_at=? WHERE conversation_id=?",
+        "UPDATE companion_sessions SET state='running',last_run_id=?,updated_at=? WHERE conversation_id=?",
       ).run(run.id, now(), run.conversation_id);
     }).immediate();
     const complete = new Promise<string>((resolve) => {
@@ -918,7 +918,7 @@ export class NativeSessions {
         emit(run.owner_id, run.id, "interrupted", { native: true });
       }
       db.prepare(
-        "UPDATE native_sessions SET generation=NULL,state='disconnected'",
+        "UPDATE companion_sessions SET generation=NULL,state='disconnected'",
       ).run();
       db.prepare(
         "UPDATE native_decisions SET state='expired' WHERE state='pending'",

@@ -1,0 +1,9 @@
+{
+  "name": "loop-native",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.280",
+    "@openai/codex": "0.157.0"
+  }
+}

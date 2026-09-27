@@ -269,7 +269,10 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
       "pairing codes reach the terminal, not the log",
     );
 
-    await assert.rejects(w.loop(["--project", "."]), /applies to loop/);
+    await assert.rejects(
+      w.loop(["--project", "."]),
+      /Run loop stop before changing/,
+    );
 
     const stopped = JSON.parse((await w.loop(["stop", "--json"])).stdout);
     assert.equal(stopped.stopped, true);
@@ -347,8 +350,15 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
     process.kill(second.pid, "SIGSTOP");
     await w.status().then((s) => assert.equal(s.state, "unresponsive"));
     // Records that no longer (or can't be shown to) belong to the workspace.
-    const reused = spawn("sleep", ["60"]);
-    const unverifiable = spawn("sleep", ["60"]);
+    // These must live until cleanup even when stop/relaunch is slow under load.
+    const reused = spawn(process.execPath, [
+      "-e",
+      "setInterval(() => {}, 1000)",
+    ]);
+    const unverifiable = spawn(process.execPath, [
+      "-e",
+      "setInterval(() => {}, 1000)",
+    ]);
     const children = JSON.parse(
       await readFile(join(w.dir, "children.json"), "utf8"),
     );
@@ -767,3 +777,23 @@ async function nativeChild(dir: string, url: URL) {
   }, 15000);
   return pid;
 }
+
+test("local-only overrides a saved public URL and named tunnel", async () => {
+  const w = await workspace();
+  try {
+    await mkdir(w.dir, { recursive: true });
+    await writeFile(
+      join(w.dir, "preferences.json"),
+      JSON.stringify({
+        publicUrl: "https://saved-tunnel.invalid",
+        tunnelName: "saved-tunnel",
+        tunnelConfig: "/nonexistent/tunnel.yml",
+      }),
+    );
+    const started = await w.start();
+    assert.match(started.stdout, PAIR_URL);
+    assert.doesNotMatch(started.stdout, /saved-tunnel/);
+  } finally {
+    await w.cleanup();
+  }
+});

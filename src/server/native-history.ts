@@ -43,7 +43,7 @@ function projection(thread: any): Item[] {
 nativeHistory.get("/native/history", async (req, res) => {
   const managed = db
     .prepare(
-      "SELECT n.conversation_id id,n.harness,n.project,n.state,c.title FROM native_sessions n JOIN conversations c ON c.id=n.conversation_id ORDER BY n.updated_at DESC LIMIT 200",
+      "SELECT n.conversation_id id,n.harness,n.project,n.state,c.title FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id ORDER BY n.updated_at DESC LIMIT 200",
     )
     .all();
   if (req.query.discover !== "1")
@@ -64,7 +64,7 @@ nativeHistory.get("/native/history", async (req, res) => {
           if (!t.id || typeof t.cwd !== "string") return null;
           const existing = db
             .prepare(
-              "SELECT conversation_id FROM native_sessions WHERE harness='codex' AND native_id=?",
+              "SELECT conversation_id FROM companion_sessions WHERE harness='codex' AND native_id=?",
             )
             .get(t.id) as any;
           if (existing) return null;

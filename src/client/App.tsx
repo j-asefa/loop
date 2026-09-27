@@ -23,6 +23,8 @@ import {
   TeamManagerShortcut,
 } from "./Teams";
 import { RuntimeHosts } from "./RuntimeHosts";
+import { ExecutionEnvironments } from "./ExecutionEnvironments";
+import { Memory } from "./Memory";
 import {
   ShareSheet,
   InstallHelp,
@@ -127,12 +129,14 @@ export default function App() {
           : "feed",
     ),
     [sheet, setSheet] = useState(
-      new URLSearchParams(location.search).has("tools")
-        ? "mcp"
-        : new URLSearchParams(location.search).has("share") ||
-            location.pathname === "/share"
-          ? "share"
-          : "",
+      new URLSearchParams(location.search).has("memory")
+        ? "memory"
+        : new URLSearchParams(location.search).has("tools")
+          ? "mcp"
+          : new URLSearchParams(location.search).has("share") ||
+              location.pathname === "/share"
+            ? "share"
+            : "",
     ),
     [error, setError] = useState(""),
     [profile, setProfile] = useState<Agent | null>(null),
@@ -2010,6 +2014,13 @@ export default function App() {
               </span>
               <ArrowUpRight size={18} />
             </button>
+            <button onClick={() => openSettingsPage("environments")}>
+              <Monitor size={20} />
+              <span>
+                Execution environments<small>Native and Docker execution</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
             <button onClick={() => openSettingsPage("runtime-hosts")}>
               <Monitor size={20} />
               <span>
@@ -2044,6 +2055,14 @@ export default function App() {
           </div>
           <h3>Workspace</h3>
           <div className="settings-links">
+            <button onClick={() => openSettingsPage("memory")}>
+              <Bookmark size={20} />
+              <span>
+                Shared memory
+                <small>Sources, notes and inclusion controls</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
             <button onClick={() => openSettingsPage("teams")}>
               <Orbit size={20} />
               <span>
@@ -2208,6 +2227,17 @@ export default function App() {
         />
       )}
       {sheet === "runtime-hosts" && <RuntimeHosts onClose={closeSheet} />}
+      {sheet === "environments" && (
+        <ExecutionEnvironments
+          folders={data.folders}
+          onClose={closeSheet}
+          onChange={() => void api("/bootstrap").then(setData)}
+          onLegacy={() => setSheet("runtime-hosts")}
+        />
+      )}
+      {sheet === "memory" && (
+        <Memory folders={data.folders} onClose={closeSheet} />
+      )}
       {sheet === "teams" && (
         <CreateTeam
           agents={data.agents}

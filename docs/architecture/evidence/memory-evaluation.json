@@ -1,0 +1,246 @@
+{
+  "schema": 1,
+  "corpus": "synthetic-v1-32",
+  "questions": 32,
+  "memsearchRecall5": 30,
+  "ftsRecall5": 31,
+  "noAnswerReturnedEmpty": true,
+  "isolationAndStaleDelete": "passed",
+  "revisionReplacement": "passed",
+  "coldStartSeconds": 8.28,
+  "warmP95Ms": 8728,
+  "indexP95Ms": 4911,
+  "maxRssKiB": 1318064,
+  "indexBytes": 207641,
+  "cases": [
+    {
+      "case": "durability",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 2485
+    },
+    {
+      "case": "identity",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 2029
+    },
+    {
+      "case": "billing",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 3592
+    },
+    {
+      "case": "memory",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1260
+    },
+    {
+      "case": "topology",
+      "project": "architecture",
+      "memsearchRecall5": false,
+      "ftsRecall5": true,
+      "latencyMs": 651
+    },
+    {
+      "case": "approvals",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 962
+    },
+    {
+      "case": "capacity",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 883
+    },
+    {
+      "case": "lineage",
+      "project": "architecture",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1487
+    },
+    {
+      "case": "image",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1415
+    },
+    {
+      "case": "captions",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1375
+    },
+    {
+      "case": "audio",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 785
+    },
+    {
+      "case": "font",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 863
+    },
+    {
+      "case": "duration",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1447
+    },
+    {
+      "case": "review",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1480
+    },
+    {
+      "case": "color",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1743
+    },
+    {
+      "case": "export",
+      "project": "publishing",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1534
+    },
+    {
+      "case": "backup",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 891
+    },
+    {
+      "case": "outage",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1096
+    },
+    {
+      "case": "region",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1017
+    },
+    {
+      "case": "deploy",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 944
+    },
+    {
+      "case": "retention",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1123
+    },
+    {
+      "case": "recovery",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1643
+    },
+    {
+      "case": "rollback",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1221
+    },
+    {
+      "case": "artifacts",
+      "project": "operations",
+      "memsearchRecall5": true,
+      "ftsRecall5": false,
+      "latencyMs": 1087
+    },
+    {
+      "case": "identity",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1448
+    },
+    {
+      "case": "metadata",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 2503
+    },
+    {
+      "case": "isolation",
+      "project": "security",
+      "memsearchRecall5": false,
+      "ftsRecall5": true,
+      "latencyMs": 5272
+    },
+    {
+      "case": "deletion",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 15357
+    },
+    {
+      "case": "credentials",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 8728
+    },
+    {
+      "case": "transport",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 3215
+    },
+    {
+      "case": "review",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 2256
+    },
+    {
+      "case": "paths",
+      "project": "security",
+      "memsearchRecall5": true,
+      "ftsRecall5": true,
+      "latencyMs": 1575
+    }
+  ],
+  "limitations": [
+    "Synthetic corpus, no provider execution",
+    "Linux amd64 container under desktop emulation; not AWS sizing evidence",
+    "Existing FTS baseline; existing local semantic baseline not measured"
+  ]
+}

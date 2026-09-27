@@ -20,6 +20,8 @@ import { messageReplyContext } from "./message-replies.js";
 import { replyPrompt, type ReplyContext } from "../shared/replies.js";
 import { saveSteering, steeringReceipt, SteeringInbox } from "./steering.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
+import { connectionSelection, type NativeSelection } from "./hapi/contracts.js";
+import { executeHapi } from "./hapi/adapter.js";
 export type Snapshot = {
   agentId: string;
   name: string;
@@ -33,6 +35,7 @@ export type Snapshot = {
   maxSeconds?: number;
   source?: { url: string; title: string; excerpt: string };
   teamId?: string;
+  execution?: NativeSelection;
   attachmentIds?: string[];
   replyTo?: ReplyContext;
 };
@@ -70,12 +73,37 @@ export function submit(
       const attachments = attachedFiles(owner, data.attachmentIds || []);
       if (!agent.connection_id)
         throw new Problem(409, "Connect a provider to this agent first");
-      const connection = owned<Connection>(
+      let connection = owned<Connection>(
         "connections",
         agent.connection_id,
         owner,
       );
-      if (connection.status !== "connected")
+      if (data.conversationId) {
+        const existing = owned<any>(
+          "conversations",
+          data.conversationId,
+          owner,
+        );
+        if (
+          existing.execution_backend === "hapi" &&
+          existing.execution_connection_id
+        )
+          connection = owned<Connection>(
+            "connections",
+            existing.execution_connection_id,
+            owner,
+          );
+        else if (
+          existing.execution_backend === "legacy" &&
+          connectionSelection(connection)
+        )
+          throw new Problem(
+            409,
+            "This conversation belongs to its original backend. Start a new native conversation.",
+          );
+      }
+      const execution = connectionSelection(connection);
+      if (connection.status !== "connected" && !execution)
         throw new Problem(409, "Reconnect the provider to run this agent");
       if (data.folderId) owned("folders", data.folderId, owner);
       const prior = db
@@ -209,18 +237,29 @@ export function submit(
       const snapshot: Snapshot = {
         agentId: agent.id,
         name: agent.name,
-        provider: agent.provider,
+        provider: connection.provider,
         connectionId: connection.id,
-        model: agent.model,
+        model:
+          connection.id === agent.connection_id
+            ? agent.model
+            : (
+                db
+                  .prepare(
+                    "SELECT json_extract(payload,'$.model') model FROM runs WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1",
+                  )
+                  .get(conversation) as { model?: string } | undefined
+              )?.model || agent.model,
         effort: agent.effort,
         instructions: agent.instructions,
         folderId,
         source: data.source,
         teamId,
+        execution,
         attachmentIds: attachments.map((file) => file.id),
         replyTo,
       };
-      if (data.steer) {
+      // HAPI has no SteeringInbox consumer; preserve durable queued follow-ups.
+      if (data.steer && !execution) {
         const active = db
           .prepare(
             "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND conversation_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC LIMIT 1",
@@ -244,6 +283,14 @@ export function submit(
           );
         }
       }
+      db.prepare(
+        "UPDATE conversations SET execution_backend=?,execution_connection_id=COALESCE(execution_connection_id,?),project_id=COALESCE(project_id,?) WHERE id=?",
+      ).run(
+        execution ? "hapi" : "legacy",
+        connection.id,
+        folderId,
+        conversation,
+      );
       const run = enqueue(owner, data.input, data.idempotencyKey, {
         agent: agent.id,
         conversation,
@@ -269,6 +316,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const snapshot = JSON.parse(run.payload) as Snapshot & {
     workflowRun?: string;
   };
+  if (snapshot.execution?.backend === "hapi") return executeHapi(run);
   const connection = owned<Connection>(
     "connections",
     snapshot.connectionId,

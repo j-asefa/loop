@@ -16,6 +16,7 @@ export function projectFolders(owner: string, project: string): string[] {
 // The same rule must govern initial pages and update tombstones. A running or
 // failed placeholder is not an output, and tool artifacts belong to Traces.
 export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
+  OR json_extract(a.metadata,'$.native')=1
   OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
 export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
 export const feedOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)

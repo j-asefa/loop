@@ -16,7 +16,7 @@ export function importSession(
 ) {
   const existing = db
     .prepare(
-      "SELECT conversation_id FROM native_sessions WHERE harness=? AND native_id=?",
+      "SELECT conversation_id FROM companion_sessions WHERE harness=? AND native_id=?",
     )
     .get(options.harness, nativeId) as any;
   if (existing) return existing.conversation_id as string;
@@ -45,7 +45,7 @@ export function importSession(
     "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,'native',?)",
   ).run(conversation, OWNER, agent, title, now());
   db.prepare(
-    "INSERT INTO native_sessions(conversation_id,harness,native_id,project,state,updated_at) VALUES(?,?,?,?,'disconnected',?)",
+    "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,state,updated_at) VALUES(?,?,?,?,'disconnected',?)",
   ).run(conversation, options.harness, nativeId, options.project, now());
   for (const item of items.slice(-2000)) {
     if (!item || typeof item.text !== "string") continue;

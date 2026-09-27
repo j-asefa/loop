@@ -186,13 +186,13 @@ try {
   const history = await api("/conversations/" + run.conversation_id);
   assert(history.messages.some((m) => m.content === "Fixture done"));
   await stop();
-  // The very same installed distribution runs the full server with plain `loop`.
+  // The very same installed distribution runs the full server with `loop server`.
   const reservation = createServer();
   await new Promise(resolve => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
   const serverOrigin = "http://127.0.0.1:" + port;
-  child = spawn(bin, [], {
+  child = spawn(bin, ["server"], {
     cwd: target,
     env: { ...env, PORT: String(port), LOOP_URL: serverOrigin, LOOP_DATA_DIR: join(base, "server-state"),
       LOOP_AUTH_MODE: "single-user", BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),

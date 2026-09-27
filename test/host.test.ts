@@ -354,7 +354,7 @@ test("bearer credentials: native pairing, session, cookie hand-off, CSRF, origin
     // The handed-off cookie lives exactly as long as the device pairing.
     const maxAge = (cookie: string) =>
       Number(/Max-Age=(\d+)/.exec(cookie)?.[1]);
-    assert(Math.abs(maxAge(handed) - 7 * 86400) <= 2, handed);
+    assert(Math.abs(maxAge(handed) - 365 * 86400) <= 2, handed);
     const now = Date.now;
     Date.now = () => now() + 86400000;
     try {
@@ -362,7 +362,7 @@ test("bearer credentials: native pairing, session, cookie hand-off, CSRF, origin
         headers: auth,
       });
       assert(
-        Math.abs(maxAge(later.headers.get("set-cookie")!) - 6 * 86400) <= 2,
+        Math.abs(maxAge(later.headers.get("set-cookie")!) - 365 * 86400) <= 2,
       );
     } finally {
       Date.now = now;
@@ -386,8 +386,8 @@ test("bearer credentials: native pairing, session, cookie hand-off, CSRF, origin
     host.setOrigin("https://rotated.example");
     assert.deepEqual(
       await control(dir, "devices"),
-      [],
-      "rotation revokes bearer and cookie devices alike",
+      listed,
+      "rotation preserves workspace device trust",
     );
   } finally {
     for (const s of sockets) s.terminate();
@@ -561,7 +561,7 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
     assert(cookie.startsWith("__Host-loop="));
     assert(cookie.includes("Secure;"));
     assert(cookie.includes("SameSite=Lax"));
-    Date.now = () => now() + 8 * 86400000;
+    Date.now = () => now() + 366 * 86400000;
     assert.equal(
       (
         await send("/session", {
@@ -573,6 +573,105 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
     );
   } finally {
     Date.now = now;
+    await host.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("device trust survives restart; explicit revocation survives the next restart", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-device-restart-"));
+  let host = new Host(dir, initial);
+  try {
+    await host.listen();
+    const secret = new URL(host.pair().url).hash.slice(6);
+    const paired = await fetch(host.origin + "/pair", {
+      method: "POST",
+      headers: { Origin: host.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret,
+        name: "persistent phone",
+        credential: "bearer",
+      }),
+    });
+    assert.equal(paired.status, 200);
+    const result = (await paired.json()) as any;
+    const token = result.token;
+    assert.equal(typeof token, "string");
+    await host.close();
+    host = new Host(dir, initial);
+    await host.listen();
+    assert.equal(
+      (
+        await fetch(host.origin + "/session", {
+          headers: { Authorization: "Bearer " + token },
+        })
+      ).status,
+      200,
+    );
+    const devices = await control(dir, "devices");
+    await control(dir, "revoke", { id: devices[0].id });
+    await host.close();
+    host = new Host(dir, initial);
+    await host.listen();
+    assert.equal(
+      (
+        await fetch(host.origin + "/session", {
+          headers: { Authorization: "Bearer " + token },
+        })
+      ).status,
+      401,
+    );
+  } finally {
+    await host.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("device renewal persists but cannot exceed its fixed maximum lifetime", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-device-cap-"));
+  let host = new Host(dir, initial);
+  try {
+    await host.listen();
+    const secret = new URL(host.pair().url).hash.slice(6);
+    const response = await fetch(host.origin + "/pair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret, credential: "bearer" }),
+    });
+    const { token } = (await response.json()) as any;
+    await host.close();
+    const file = join(dir, "devices.json");
+    const devices = JSON.parse(await readFile(file, "utf8"));
+    devices[0].expires = Date.now() + 60000;
+    const cap = (devices[0].maxExpires = Date.now() + 120000);
+    await writeFile(file, JSON.stringify(devices));
+    host = new Host(dir, initial);
+    await host.listen();
+    assert.equal(
+      (
+        await fetch(host.origin + "/session", {
+          headers: { Authorization: "Bearer " + token },
+        })
+      ).status,
+      200,
+    );
+    const renewed = JSON.parse(await readFile(file, "utf8"))[0];
+    assert.equal(renewed.expires, cap);
+    assert.equal(renewed.maxExpires, cap);
+    await host.close();
+    renewed.maxExpires = Date.now() - 1;
+    await writeFile(file, JSON.stringify([renewed]));
+    host = new Host(dir, initial);
+    await host.listen();
+    assert.equal(
+      (
+        await fetch(host.origin + "/session", {
+          headers: { Authorization: "Bearer " + token },
+        })
+      ).status,
+      401,
+    );
+  } finally {
     await host.close();
     await rm(dir, { recursive: true, force: true });
   }

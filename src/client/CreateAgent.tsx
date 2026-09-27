@@ -130,7 +130,7 @@ export function CreateAgent({
         {selected ? (
           <>
             <label>
-              Connected account
+              {parse<any>(selected.metadata, {}).backend === "hapi" ? "Run on" : "Connected account"}
               <select
                 disabled={busy}
                 value={selected.id}
@@ -252,7 +252,7 @@ export function CreateAgent({
             name="folder"
             aria-label="Project"
             disabled={busy}
-            defaultValue={initialFolder}
+            defaultValue={initialFolder || (parse<any>(selected?.metadata, {}).backend === "hapi" ? folders.find(f => f.kind === "project")?.id : "")}
           >
             <option value="">Workspace inbox</option>
             {folders.map((f) => (

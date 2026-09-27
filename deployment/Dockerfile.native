@@ -1,0 +1,27 @@
+FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS bun
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git unzip && rm -rf /var/lib/apt/lists/*
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN git clone https://github.com/tiann/hapi.git /opt/hapi && cd /opt/hapi && git checkout 0239edf38e2da653d662f31039e24ccea04c7837 && bun install --frozen-lockfile
+COPY native/apply-hapi-patch.mjs native/loopManaged.ts /opt/loop-native/
+RUN node /opt/loop-native/apply-hapi-patch.mjs /opt/hapi
+WORKDIR /opt/hapi
+RUN bun run typecheck:cli && bun run typecheck:hub && cd cli && bun run build:exe
+RUN target="bun-linux-$(uname -m)"; case "$(uname -m)" in x86_64) target=bun-linux-x64-baseline ;; aarch64) target=bun-linux-arm64 ;; esac; cp "cli/dist-exe/$target/hapi" /opt/loop-native/hapi
+RUN git diff > /opt/loop-native/hapi.patch && git archive --format=tar HEAD > /opt/loop-native/hapi-source.tar
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git python3 curl less openssh-client ripgrep tini && rm -rf /var/lib/apt/lists/* && useradd --uid 10000 --create-home --shell /bin/bash agent
+WORKDIR /opt/native
+COPY deployment/native/package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /opt/loop-native/hapi /usr/local/bin/hapi
+COPY --from=build /opt/hapi/LICENSE /opt/hapi/cli/NOTICE /opt/native/licenses/
+COPY native /opt/loop-native
+COPY --from=build /opt/loop-native/hapi.patch /opt/loop-native/hapi-source.tar /opt/loop-native/
+COPY --from=build /opt/hapi/node_modules/.bun/ws@8.18.3/node_modules/ws /opt/loop-native/node_modules/ws
+ENV PATH=/usr/local/bin:/opt/native/node_modules/.bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/agent CODEX_HOME=/home/agent/.codex CLAUDE_CONFIG_DIR=/home/agent/.claude HAPI_HOME=/home/agent/.hapi
+RUN mkdir -p /home/agent/.hapi /home/agent/.codex /home/agent/.claude /home/agent/.loop-launches /workspaces && chown -R 10000:10000 /home/agent /workspaces
+USER 10000:10000
+WORKDIR /home/agent
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+CMD ["node", "/opt/loop-native/supervisor.mjs"]

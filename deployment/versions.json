@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "platform": "linux/amd64",
+  "hapi": "0.30.7",
+  "hapiCommit": "0239edf38e2da653d662f31039e24ccea04c7837",
+  "codex": "0.157.0",
+  "claudeCode": "2.1.280",
+  "memsearch": "0.4.21",
+  "memsearchCommit": "2a4652fa086fbd45e92bfd8da7781ebe1642baa7",
+  "embeddingModel": "gpahal/bge-m3-onnx-int8",
+  "embeddingRevision": "2b34e84df040034d4b9eabb62383a87c18955822",
+  "bun": "1.4.0",
+  "node": "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+  "nginx": "nginx:stable-alpine@sha256:985220252f3863977e468f611ef118ebd01421289dd86ee1ae99cb068c3bce2b"
+}

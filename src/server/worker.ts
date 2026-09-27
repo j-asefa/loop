@@ -11,6 +11,13 @@ import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
 import { claim, recoverStale, transition, type Run } from "./queue.js";
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
+import {
+  observeEnvironments,
+  stopObservingEnvironments,
+} from "./hapi/observe.js";
+import { reconcileNative } from "./hapi/adapter.js";
+import { refreshEnvironment, environment } from "./hapi/environments.js";
+import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 const workerId = id();
 export async function tick(
@@ -108,6 +115,30 @@ export function startWorker() {
       .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
       .run(workerId, now());
   heartbeat();
+  const hapiTimers: ReturnType<typeof setInterval>[] = [];
+  hapiTimers.push(setInterval(() => void reconcileNative(), 2500));
+  hapiTimers.push(
+    setInterval(() => {
+      try {
+        observeEnvironments();
+      } catch {}
+    }, 5000),
+  );
+  hapiTimers.push(setInterval(() => void indexMemory(), 5000));
+  hapiTimers.push(
+    setInterval(() => {
+      const environments = db
+        .prepare(
+          "SELECT owner_id,host_id FROM execution_environments WHERE revoked_at IS NULL",
+        )
+        .all() as any[];
+      void Promise.allSettled(
+        environments.map((e) =>
+          refreshEnvironment(environment(e.owner_id, e.host_id)),
+        ),
+      );
+    }, 10000),
+  );
   const health = setInterval(heartbeat, 5000);
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
   const scheduling = setInterval(
@@ -127,6 +158,8 @@ export function startWorker() {
   );
   return async () => {
     stopping = true;
+    hapiTimers.forEach(clearInterval);
+    stopObservingEnvironments();
     clearInterval(health);
     clearInterval(index);
     clearInterval(scheduling);

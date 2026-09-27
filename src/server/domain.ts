@@ -27,6 +27,7 @@ export function owned<T>(table: string, recordId: string, owner: string): T {
     "operations",
     "teams",
     "runtime_hosts",
+    "memory_sources",
   ];
   if (!tables.includes(table)) throw new Error("Invalid resource");
   const record = db

@@ -41,7 +41,7 @@ loop devices revoke DEVICE_ID
 loop stop                  # waits until the background workspace exits
 ```
 
-Plain `loop` (alias `loop server`) starts the full multi-user Loop server in the foreground, not the companion workspace; see [deployment profiles](../UNIFIED-LOOP.md).
+Plain `loop` starts the [managed laptop launcher](../specs/unified-runtime/01-OPERATIONS.md), with independent provider and native/Docker choices. `loop server` starts the full server in the foreground; see [deployment profiles](../UNIFIED-LOOP.md).
 
 `loop claude-code` is an alias for `loop claude`. Claude requires an explicitly configured API/provider account. `--billing existing` retains the selected native provider and can incur charges; it never means verified subscription usage.
 
@@ -72,14 +72,14 @@ See [native adapter architecture](NATIVE-ADAPTERS.md) and [deployment profiles](
 
 Loop downloads a pinned, hash-verified cloudflared helper and starts an account-free Quick Tunnel. HTTPS serves the UI and authenticated WSS carries workspace updates. OpenCode's SSE remains local; the public connection does not rely on SSE. Cloudflare terminates TLS, so this is not application-level end-to-end encryption.
 
-Quick Tunnel URLs rotate after a restart, and the background workspace reconnects the tunnel with a new URL if it drops. Every paired device is signed out when the address changes. To reconnect, run `loop pair` and scan the code:
+Quick Tunnel URLs rotate after a restart, and the background workspace reconnects the tunnel with a new URL if it drops. Device trust survives changes, but the phone needs the new address. To reconnect, run `loop pair` and scan the code:
 
 - **Loop app:** open the app. It shows **Can't reach your computer**; tap **Scan new code**. The app pairs with the new address and reloads itself. Keep the same install and icon.
 - **Browser or home-screen web app:** open the new link. Browser drafts and home-screen web app data are tied to the old address, so a home-screen icon added from the old address stops working.
 
 For a tunnel you manage, use `--public-url https://your-host.example` and point it at the loopback port printed by Loop; the address then never changes. `--local-only` supports desktop testing. Never expose the private administration or native tool endpoints.
 
-Pairing links expire after two minutes and can be redeemed once. A paired device can control agents and access the desktop through their granted native tools. Revoke lost devices with the CLI or Settings → This computer. Pairing lasts seven days. Host restarts require pairing again in this preview.
+Pairing links expire after two minutes and can be redeemed once. A paired device can control agents and access the desktop through their granted native tools. Revoke lost devices with the CLI or Settings → This computer. Device trust lasts one year of inactivity and renews on authenticated use. Host restarts preserve pairing. A stable named tunnel reconnects without scanning again; a changed Quick Tunnel address still requires rediscovery through `loop pair`.
 
 The Loop app pairs with a bearer credential kept in the phone's secure storage instead of a browser cookie: `POST /pair` with `"credential": "bearer"` returns the device token in the response (no cookie), and the app hands it to its web view once through `GET /session/open`, which sets the usual HttpOnly cookie. Bearer requests skip the `Origin` check, since nothing attaches them automatically, but writes still require the CSRF token. Browser pairing is unchanged and never exposes the token to page scripts.
 

@@ -42,7 +42,10 @@ function embeddingConfig(owner: string) {
     )
     .get(owner) as (Connection & { embedding_model: string }) | undefined;
 }
-const eligibleText = "length(trim(d.title || ' ' || d.content))>0";
+// The selected shared corpus has one embedding owner (MemSearch). Existing
+// lexical search remains available; unrelated existing search keeps its backend.
+const eligibleText =
+  "length(trim(d.title || ' ' || d.content))>0 AND NOT EXISTS(SELECT 1 FROM memory_sources ms WHERE ms.owner_id=d.owner_id AND (ms.kind||':'||ms.source_id)=d.id AND ms.eligible=1 AND ms.tombstone=0)";
 const configuration = (c: Connection & { embedding_model?: string }) =>
   JSON.stringify([c.id, c.embedding_model || modelDefault]);
 export function searchStatus(owner: string) {
@@ -316,7 +319,7 @@ export async function search(
       const filter = filterSql(owner, filters);
       const rows = db
         .prepare(
-          `SELECT d.*,e.vector FROM embeddings e JOIN search_documents d ON d.id=e.document_id WHERE e.owner_id=? AND ${filter.sql} AND e.model=?`,
+          `SELECT d.*,e.vector FROM embeddings e JOIN search_documents d ON d.id=e.document_id WHERE e.owner_id=? AND ${filter.sql} AND e.model=? AND ${eligibleText}`,
         )
         .all(
           owner,

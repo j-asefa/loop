@@ -19,6 +19,19 @@ import { Diagram } from "./Diagram";
 import { api, parse } from "./api";
 import type { Agent, Artifact } from "../shared/types";
 export function ArtifactContent({ item }: { item: Artifact }) {
+  if (parse<any>(item.metadata, {}).uploaded)
+    return (
+      <p>
+        <a href={"/api/artifacts/" + item.id + "/download"}>
+          Open uploaded file
+        </a>
+        <br />
+        <small>
+          Saved in Loop storage · available independently of the execution
+          worker
+        </small>
+      </p>
+    );
   if (item.kind === "image") {
     const value = parse<any>(item.content, null);
     if (

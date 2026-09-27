@@ -8,6 +8,7 @@ import { requestApproval } from "./approvals.js";
 import { saveArtifact } from "./artifacts.js";
 import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
+import { connectionSelection } from "./hapi/contracts.js";
 import { readRunFile } from "./uploads.js";
 
 const diagram = z.object({
@@ -190,19 +191,44 @@ export async function invokeNative(
         throw new Problem(403, "Delegate only to this team's workers");
     const children = db
       .transaction(() => {
+        const existing = db
+          .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
+          .get(run.id) as { n: number };
         const prior = db
           .prepare(
             "SELECT d.*,r.state,r.result,r.error,r.agent_id,r.id FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? AND substr(d.call_id,1,?)=?",
           )
           .all(run.id, callId.length + 1, callId + ":") as any[];
         if (prior.length) return prior;
+        if (existing.n + tasks.length > 16)
+          throw new Problem(
+            400,
+            "This manager run reached its 16-task delegation budget",
+          );
         if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Manager is no longer running");
         return tasks.map((task, i) => {
+          const parent = JSON.parse(run.payload);
+          if (parent.execution) {
+            const worker = owned<any>("agents", task.agentId, run.owner_id);
+            const selection = connectionSelection(
+              owned<any>("connections", worker.connection_id, run.owner_id),
+            );
+            if (
+              !selection ||
+              selection.environmentId !== parent.execution.environmentId ||
+              selection.billing.allowApiFallback !== false
+            )
+              throw new Problem(
+                409,
+                "Delegated work must preserve the environment and the selected provider’s native billing policy",
+              );
+          }
           const child = submit(run.owner_id, {
             agentId: task.agentId,
             input: task.input,
             teamId,
+            folderId: parent.folderId,
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
           db.prepare("INSERT INTO delegations VALUES(?,?,?,?)").run(

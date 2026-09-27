@@ -77,11 +77,12 @@ companion.post("/native/decisions/:id", async (req, res) => {
     await nativeSessions.answer(String(req.params.id), d.commandId, d.answer),
   );
 });
-companion.get("/conversations/:id/native", (req, res) => {
-  owned("conversations", String(req.params.id), OWNER);
+companion.get("/conversations/:id/native", (req, res, next) => {
+  const conversation = owned<any>("conversations", String(req.params.id), OWNER);
+  if (conversation.execution_backend === "hapi") return next();
   const binding = db
     .prepare(
-      "SELECT harness,project,model,state,updated_at FROM native_sessions WHERE conversation_id=?",
+      "SELECT harness,project,model,state,updated_at FROM companion_sessions WHERE conversation_id=?",
     )
     .get(req.params.id);
   const items = db

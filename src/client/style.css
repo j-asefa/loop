@@ -2604,6 +2604,64 @@ pre {
     min-width: 0;
   }
 }
+/* Native environment and memory controls share the existing sheet navigation. */
+.native-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+.native-settings label:not(.native-toggle) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.native-settings input,
+.native-settings textarea,
+.native-settings select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--border, #7775);
+  border-radius: 0.6rem;
+  background: transparent;
+  color: inherit;
+}
+.native-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+.native-card {
+  padding: 1rem;
+  border: 1px solid var(--border, #7775);
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  overflow-wrap: anywhere;
+}
+.native-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.native-toggle input {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+.memory-excerpt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.native-conversation {
+  flex: 0 0 100%;
+  min-width: 0;
+  width: 100%;
+  padding: 0.65rem 0;
+  overflow-wrap: anywhere;
+}
 .trace-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3266,7 +3324,9 @@ fieldset {
   top: 44px;
   z-index: 10;
   display: grid;
-  min-width: 240px;
+  width: min(320px, calc(100vw - 48px));
+  max-height: min(480px, 60dvh);
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;

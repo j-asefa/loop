@@ -18,7 +18,8 @@ export function NativeConnections({
     <Sheet title="Connected harnesses" onClose={onClose}>
       <p>
         Enable a harness from your desktop. It joins this workspace and uses
-        your existing paired devices.
+        your existing paired devices. For managed native and Docker providers,
+        sign in under Settings → Execution environments.
       </p>
       <div className="connection-grid">
         {["codex", "pi", "claude", "opencode"].map((name) => (
@@ -64,7 +65,7 @@ export function NativeConnections({
             <p>{c.status}</p>
             <p>
               {metadata.billing?.description ||
-                metadata.billing ||
+                (metadata.backend === "hapi" ? "Provider sign-in verified on " + metadata.environmentName : typeof metadata.billing === "string" ? metadata.billing : undefined) ||
                 "Explicit API billing"}
             </p>
             {metadata.loopHarness && (
@@ -81,7 +82,7 @@ export function NativeConnections({
                 setBusy(true);
                 setError("");
                 try {
-                  await api("/connections/" + c.id + "/refresh", {});
+                  await api(metadata.backend === "hapi" ? `/environments/${metadata.environmentId}/provider/${metadata.flavor}/verify` : "/connections/" + c.id + "/refresh", {});
                   await onChange();
                 } catch (e) {
                   setError((e as Error).message);

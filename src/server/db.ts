@@ -30,19 +30,40 @@ db.transaction(() => {
   db.exec(
     "CREATE TABLE IF NOT EXISTS schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
   );
-  // Check before migrations create the profile table: old schemas are unsupported.
-  db.transaction(() => {
-    const existing = db.prepare("SELECT 1 FROM schema_version LIMIT 1").get();
-    const profiled = db
+  if (
+    db.prepare("SELECT 1 FROM schema_version LIMIT 1").get() &&
+    !db
       .prepare(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='deployment_profile'",
+        "SELECT 1 FROM sqlite_master WHERE name IN ('deployment_profile','execution_environments')",
       )
-      .get();
-    if (existing && !profiled)
-      throw new Error(
-        "Pre-unification databases are unsupported. Choose a fresh LOOP_DATA_DIR.",
+      .get()
+  )
+    throw new Error(
+      "Pre-unification databases are unsupported. Choose a fresh LOOP_DATA_DIR.",
+    );
+  // Both pre-merge branches used native_sessions and migration IDs 20/21.
+  // Detect the actual schema, not the version number, and preserve both histories.
+  const columns = db.pragma("table_info(native_sessions)") as {
+    name: string;
+  }[];
+  if (columns.some((c) => c.name === "harness"))
+    db.exec("ALTER TABLE native_sessions RENAME TO companion_sessions");
+  if (
+    columns.some((c) => c.name === "hub_session_id") &&
+    !db.prepare("SELECT 1 FROM schema_version WHERE version=27").get()
+  ) {
+    db.exec(
+      "INSERT OR IGNORE INTO schema_version VALUES(27,unixepoch()*1000); DELETE FROM schema_version WHERE version=20",
+    );
+    if (
+      db
+        .prepare("SELECT 1 FROM sqlite_master WHERE name='memory_sources'")
+        .get()
+    )
+      db.exec(
+        "INSERT OR IGNORE INTO schema_version VALUES(28,unixepoch()*1000); DELETE FROM schema_version WHERE version=21",
       );
-  }).immediate();
+  }
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

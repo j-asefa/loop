@@ -154,7 +154,7 @@ try {
     path: "test-results/mobile-workspace-running.png",
     fullPage: true,
   });
-  assert.equal(db.prepare("SELECT count(*) n FROM native_sessions").get().n, 3);
+  assert.equal(db.prepare("SELECT count(*) n FROM companion_sessions").get().n, 3);
   await page.getByRole("button", { name: "decline", exact: true }).click();
   await page
     .getByRole("button", { name: "Native conversations", exact: true })

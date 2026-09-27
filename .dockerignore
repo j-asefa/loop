@@ -4,10 +4,11 @@ mobile
 test/mobile-connection.test.ts
 dist
 .git
+data
 .env
 .env.*
-!.env.example
-data
+deployment/out
+test-results
 *.db*
 docs/loop-v0/evidence
 
@@ -15,3 +16,5 @@ docs/loop-v0/evidence
 *.tgz
 npm-shrinkwrap.json
 test-results
+.local-native
+.test-tmp

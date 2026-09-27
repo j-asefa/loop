@@ -182,12 +182,12 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         (
           db
             .prepare(
-              "SELECT count(*) AS n FROM native_sessions WHERE native_id IS NOT NULL",
+              "SELECT count(*) AS n FROM companion_sessions WHERE native_id IS NOT NULL",
             )
             .get() as { n: number }
         ).n === 3,
     );
-    const bindings = db.prepare("SELECT * FROM native_sessions").all() as any[];
+    const bindings = db.prepare("SELECT * FROM companion_sessions").all() as any[];
     assert.equal(new Set(bindings.map((b) => b.native_id)).size, 3);
     assert.deepEqual(
       bindings.map((b) => b.project).sort(),
@@ -235,7 +235,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           (
             db
               .prepare(
-                "SELECT native_id FROM native_sessions WHERE conversation_id=?",
+                "SELECT native_id FROM companion_sessions WHERE conversation_id=?",
               )
               .get(follow.conversation_id) as any
           ).native_id,

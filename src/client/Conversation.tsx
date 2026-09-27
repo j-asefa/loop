@@ -16,6 +16,7 @@ import { api, parse } from "./api";
 import { Sheet, RichText, Badge, Avatar } from "./components";
 import type { Agent, Connection, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
+import { NativeConversation, MemoryUsed } from "./Memory";
 export function Conversation({
   id,
   messageId,
@@ -249,6 +250,7 @@ export function Conversation({
             <MoreHorizontal size={20} />
           </summary>
           <div className="conversation-options-menu">
+            <NativeConversation id={id} />
             {agent && (
               <button
                 className="text-button"
@@ -398,6 +400,9 @@ export function Conversation({
                     ? "Sent to the active run"
                     : "Sending to the active run…"}
               </p>
+            )}
+            {m.role === "assistant" && m.run_id && (
+              <MemoryUsed runId={m.run_id} />
             )}
             {m.run_id &&
               !parse<any>(m.metadata, {}).progress &&

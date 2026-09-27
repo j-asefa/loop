@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
@@ -29,8 +29,8 @@ const { version: VERSION } = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
 const names = Harness.options;
-// Covers a first-run cloudflared download (120s) plus tunnel startup (45s).
-const STARTUP_TIMEOUT_MS = 240000;
+// First launch may install provider CLIs and compile pinned HAPI before pairing.
+const STARTUP_TIMEOUT_MS = 1800000;
 const STOP_WAIT_MS = 20000;
 // How long a workspace that stopped answering gets to exit after SIGTERM.
 const STOP_GRACE_MS = 5000;
@@ -47,7 +47,7 @@ type Ready = {
 };
 function showPair(pair: Pair) {
   console.log(
-    "\nScan with your phone to pair a new device, or with the Loop app to reconnect it after a restart. This single-use code expires in 2 minutes.",
+    "\nScan with your phone to pair a new device, or with the Loop app to reconnect after a Quick Tunnel address change. This single-use code expires in 2 minutes.",
   );
   qr.generate(pair.url, { small: true });
   console.log(pair.url);
@@ -96,6 +96,8 @@ export async function forceStop(
       `${unresolved.length} recorded native process(es) (${unresolved.map((r) => r.pid).join(", ")}) could not be confirmed as Loop's, or led a process group that outlived them, so they were left running. They stay on record: check them with ps, then run loop stop again.`,
     );
   }
+  const { stopManagedContainers } = await import("./local-runtime.js");
+  await stopManagedContainers(dirname(dir));
   await forgetWorkspace(dir);
 }
 async function stopWorkspace(dir: string) {
@@ -109,6 +111,8 @@ async function stopWorkspace(dir: string) {
       // A previous stop may have left records it couldn't resolve.
       if ((await recordedChildren(dir)).length)
         return forceStop(dir, undefined, "exited");
+      const { stopManagedContainers } = await import("./local-runtime.js");
+      if (await stopManagedContainers(dirname(dir))) return;
       throw new Error("No workspace is running.");
     }
     if (recorded.state === "unknown")
@@ -260,6 +264,10 @@ async function main() {
       foreground: { type: "boolean" },
       "local-only": { type: "boolean" },
       "public-url": { type: "string" },
+      providers: { type: "string" },
+      execution: { type: "string" },
+      "tunnel-name": { type: "string" },
+      "tunnel-config": { type: "string" },
     },
   });
   if (values.version) {
@@ -269,8 +277,11 @@ async function main() {
   if (values.help) {
     console.log(`Loop ${VERSION} — one workspace for your native agents
 
-loop                    Start the full Loop server in the foreground
-                        (alias: loop server).
+loop                    Start your laptop workspace; choose providers and
+                        native / Docker / both on first launch.
+loop [--providers openai|anthropic|both] [--execution native|docker|both]
+     [--project PATH] [--tunnel-name NAME --public-url https://HOST]
+loop server             Start the full server in the foreground.
 loop codex|claude|pi|opencode [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
      [--local-only | --public-url https://stable-origin] [--foreground]
@@ -283,6 +294,7 @@ loop pair               Show a fresh pairing code. Scan it to pair a new
                         after the tunnel address changed.
 loop status [--json] | devices | devices revoke ID | doctor [--json]
 loop logs [--follow] | stop | uninstall
+loop service install|uninstall  Start automatically at login
 
 Every project and enabled harness shares one workspace host and tunnel.
 Phone disconnection does not stop native work; loop stop does.
@@ -298,7 +310,7 @@ elsewhere. The UI does not take over arbitrary live Desktop/TUI sessions.
 Uninstall removes the package separately; workspace/native history is retained.`);
     return;
   }
-  if (!positionals.length || positionals[0] === "server") {
+  if (positionals[0] === "server") {
     const companion = (
       [
         "project",
@@ -308,11 +320,15 @@ Uninstall removes the package separately; workspace/native history is retained.`
         "local-only",
         "public-url",
         "foreground",
+        "providers",
+        "execution",
+        "tunnel-name",
+        "tunnel-config",
       ] as const
     ).find((k) => values[k] !== undefined);
     if (companion)
       throw new Error(
-        `--${companion} applies to loop codex|claude|pi|opencode. Plain loop starts the full server.`,
+        `--${companion} applies to loop codex|claude|pi|opencode. Use plain loop for the laptop launcher.`,
       );
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
@@ -341,8 +357,12 @@ Uninstall removes the package separately; workspace/native history is retained.`
   privateDir(dir);
   const logPath = join(dir, "daemon.log");
   if (daemonChild) installDaemonLog(logPath);
-  const project = await realpath(resolve(values.project ?? process.cwd()));
-  const action = positionals[0] === "claude-code" ? "claude" : positionals[0];
+  let project = await realpath(resolve(values.project ?? process.cwd()));
+  const action = !positionals.length
+    ? "laptop"
+    : positionals[0] === "claude-code"
+      ? "claude"
+      : positionals[0];
   if (action === "doctor") {
     const harnesses = await Promise.all(
       names.map((n) => discover(n, values.executable)),
@@ -368,6 +388,33 @@ Uninstall removes the package separately; workspace/native history is retained.`
         null,
         values.json ? 0 : 2,
       ),
+    );
+    return;
+  }
+  if (action === "service") {
+    const preferences = await readFile(join(dir, "preferences.json"), "utf8")
+      .then(JSON.parse)
+      .catch(() => ({}));
+    if (positionals[1] === "install" && !preferences.execution)
+      throw new Error(
+        "Run loop once to choose providers and execution before installing the service.",
+      );
+    if (
+      positionals[1] === "install" &&
+      (await control(dir, "status").catch(() => undefined))
+    )
+      await stopWorkspace(dir);
+    const { userService } = await import("./service.js");
+    await userService(
+      positionals[1],
+      fileURLToPath(import.meta.url),
+      root,
+      preferences.project || project,
+    );
+    console.log(
+      "Loop user service " +
+        positionals[1] +
+        " complete. Run loop pair when ready.",
     );
     return;
   }
@@ -428,17 +475,75 @@ Uninstall removes the package separately; workspace/native history is retained.`
     else console.log(JSON.stringify(output, null, values.json ? 0 : 2));
     return;
   }
-  if (positionals.length > 1 || !names.includes(action as Harness))
+  if (
+    positionals.length > 1 ||
+    (action !== "laptop" && !names.includes(action as Harness))
+  )
     throw new Error("Unknown command. See loop --help.");
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
-  const selected = action as Harness;
+  const managed = action === "laptop";
+  const selected = (managed ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
-  const probe = await discover(selected, values.executable);
+  let managedChoices: import("./local-runtime.js").LocalChoices | undefined;
+  if (managed) {
+    if (!values.project && preferences.project)
+      project = await realpath(preferences.project);
+    let providers = values.providers ?? preferences.providers;
+    let execution = values.execution ?? preferences.execution;
+    if ((!providers || !execution) && process.stdin.isTTY && !daemonChild) {
+      const input = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        providers ||=
+          (
+            await input.question(
+              "Providers [openai / anthropic / both] (both): ",
+            )
+          ).trim() || "both";
+        execution ||=
+          (
+            await input.question(
+              "Run agents [native / docker / both] (native): ",
+            )
+          ).trim() || "native";
+      } finally {
+        input.close();
+      }
+    }
+    const { choices } = await import("./local-runtime.js");
+    managedChoices = choices(
+      providers || "both",
+      execution || "native",
+      project,
+    );
+    values.providers = providers || "both";
+    values.execution = execution || "native";
+  }
+  if (!values["local-only"]) {
+    values["public-url"] ??= preferences.publicUrl;
+    values["tunnel-name"] ??= preferences.tunnelName;
+    values["tunnel-config"] ??= preferences.tunnelConfig;
+  }
+  if (values["tunnel-name"] && !values["public-url"])
+    throw new Error(
+      "A named tunnel requires --public-url https://your-hostname.",
+    );
+  const probe = managed
+    ? {
+        installed: true,
+        supported: true,
+        version: "managed",
+        executable: "codex",
+        help: "",
+      }
+    : await discover(selected, values.executable);
   if (!probe.installed || !probe.supported || !probe.version)
     throw new Error(probe.help);
   let billing =
@@ -483,9 +588,28 @@ Uninstall removes the package separately; workspace/native history is retained.`
   };
   const remember = () =>
     atomic(preferencesPath, {
+      ...preferences,
+      ...(managed
+        ? { providers: values.providers, execution: values.execution, project }
+        : {}),
+      publicUrl: values["public-url"],
+      tunnelName: values["tunnel-name"],
+      tunnelConfig: values["tunnel-config"],
       billing: { ...preferences.billing, [selected]: billing },
     });
   if (running) {
+    if (managed) {
+      if (
+        values.providers !== preferences.providers ||
+        values.execution !== preferences.execution ||
+        project !== preferences.project
+      )
+        throw new Error(
+          "Run loop stop before changing the running workspace's providers, execution or project.",
+        );
+      showPair(await control(dir, "pair"));
+      return;
+    }
     if (values.resume)
       throw new Error(
         "Open native history in Loop, or stop the host before an explicit --resume handoff.",
@@ -505,7 +629,15 @@ Uninstall removes the package separately; workspace/native history is retained.`
   }
   if (!values.foreground && !daemonChild)
     return daemonize(dir, [
-      selected,
+      ...(managed
+        ? [
+            "laptop",
+            "--providers",
+            values.providers!,
+            "--execution",
+            values.execution!,
+          ]
+        : [selected]),
       "--project",
       project,
       "--executable",
@@ -515,10 +647,17 @@ Uninstall removes the package separately; workspace/native history is retained.`
       ...(values.resume ? ["--resume", values.resume] : []),
       ...(values["local-only"] ? ["--local-only"] : []),
       ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
+      ...(values["tunnel-name"]
+        ? ["--tunnel-name", values["tunnel-name"]]
+        : []),
+      ...(values["tunnel-config"]
+        ? ["--tunnel-config", values["tunnel-config"]]
+        : []),
     ]);
   const { workspaceLock } = await import("./lifecycle.js");
   const release = workspaceLock(dir);
   recordOwnedProcesses(join(dir, "children.json"));
+  let runtime: import("./local-runtime.js").LocalRuntime | undefined;
   let host: import("./workspace-host.js").WorkspaceHost | undefined;
   let tunnel: TunnelSupervisor | undefined,
     stopping = false;
@@ -528,6 +667,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     try {
       await tunnel?.stop();
       await host?.close();
+      await runtime?.close();
     } finally {
       release();
     }
@@ -539,16 +679,26 @@ Uninstall removes the package separately; workspace/native history is retained.`
   try {
     process.env.LOOP_DATA_DIR = dir;
     process.env.LOOP_PROFILE = "companion";
+    if (managedChoices) {
+      const { LocalRuntime } = await import("./local-runtime.js");
+      runtime = new LocalRuntime(root, managedChoices);
+      await runtime.prepare();
+    }
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
     host = new WorkspaceHost(dir, options);
     host.gateway.onStop = stop;
     const { migrateLegacy, resumeFromDesktop } =
       await import("./server/migration.js");
-    const enabled = await host.start(options, async () => {
-      await migrateLegacy(root);
-      if (!stopping && values.resume) resumeFromDesktop(options, values.resume);
-    });
+    const enabled = await host.start(
+      options,
+      async () => {
+        await migrateLegacy(root);
+        if (!stopping && values.resume)
+          resumeFromDesktop(options, values.resume);
+      },
+      runtime ? () => runtime!.start() : undefined,
+    );
     if (stopping) {
       await host.close();
       return;
@@ -560,15 +710,27 @@ Uninstall removes the package separately; workspace/native history is retained.`
     const interactive = !!process.stdout.isTTY;
     const gateway = host;
     let notice: string | undefined;
-    if (values["public-url"]) {
+    if (values["public-url"] && !values["tunnel-name"]) {
       host.setOrigin(values["public-url"]);
       notice = "Point the HTTPS tunnel to http://127.0.0.1:" + host.port;
     } else if (values["local-only"])
       notice = "Local-only: open this link on the desktop.";
     else {
-      console.log("Preparing verified cloudflared Quick Tunnel…");
+      console.log("Preparing cloudflared tunnel…");
       tunnel = new TunnelSupervisor(
-        (exited) => new Tunnel(root, gateway.port, exited),
+        (exited) =>
+          new Tunnel(
+            root,
+            gateway.port,
+            exited,
+            values["tunnel-name"]
+              ? {
+                  name: values["tunnel-name"],
+                  origin: values["public-url"]!,
+                  config: values["tunnel-config"],
+                }
+              : undefined,
+          ),
         (origin, reconnected) => {
           gateway.setOrigin(origin);
           if (!reconnected) return;

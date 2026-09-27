@@ -7,6 +7,7 @@ import { compile, bind } from "./compiler.js";
 import { startWorkflow } from "./runtime.js";
 import { saveArtifact } from "../artifacts.js";
 import { decide } from "../approvals.js";
+import { nativeDecision } from "../hapi/adapter.js";
 export const workflows = Router();
 workflows.get("/workflows", (_req, res) =>
   res.json(
@@ -137,9 +138,26 @@ workflows.get("/approvals", (req, res) => {
       .all(res.locals.owner, ...teams),
   );
 });
-workflows.post("/approvals/:id", (req, res) => {
+workflows.post("/approvals/:id", async (req, res) => {
   const d = z
-    .object({ decision: z.enum(["approve", "reject"]) })
+    .object({
+      decision: z.enum(["approve", "reject"]),
+      answers: z
+        .record(
+          z.string(),
+          z.union([
+            z.array(z.string().max(4000)),
+            z.object({ answers: z.array(z.string().max(4000)) }),
+          ]),
+        )
+        .optional(),
+    })
     .parse(req.body);
+  if (
+    await nativeDecision(res.locals.owner, req.params.id, d.decision, d.answers)
+  ) {
+    res.json({ ok: true, pendingNativeAcknowledgement: true });
+    return;
+  }
   res.json(decide(res.locals.owner, req.params.id, d.decision));
 });

@@ -3,6 +3,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { readFileSync } from "node:fs";
 import { readFile, stat, unlink } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +26,7 @@ type Device = {
   hash: string;
   csrf: string;
   expires: number;
+  maxExpires: number;
 };
 const cleanDevice = ({ id, name, expires }: Device) => ({ id, name, expires });
 const equal = (a: string, b: string) =>
@@ -86,6 +88,35 @@ export class Host {
     initial: ConstructorParameters<typeof State>[1],
   ) {
     this.state = new State(dir, initial);
+    try {
+      const devices = z
+        .array(
+          z.object({
+            id: z.string().uuid(),
+            name: z.string().max(100),
+            hash: z.string().regex(/^[a-f0-9]{64}$/),
+            csrf: z.string(),
+            expires: z.number().finite(),
+            maxExpires: z.number().finite().optional(),
+          }),
+        )
+        .max(10)
+        .parse(JSON.parse(readFileSync(join(dir, "devices.json"), "utf8")));
+      for (const device of devices) {
+        const maxExpires = device.maxExpires ?? device.expires;
+        if (Math.min(device.expires, maxExpires) > Date.now())
+          this.devices.set(device.id, {
+            ...device,
+            expires: Math.min(device.expires, maxExpires),
+            maxExpires,
+          });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        throw new Error(
+          "Device trust store is unreadable. Restore devices.json or remove it to pair again.",
+        );
+    }
   }
   emit = (event: AdapterEvent) => {
     if (this.stopped) return;
@@ -213,10 +244,11 @@ export class Host {
       throw new Error("Public origin must be a bare HTTPS origin.");
     this.origin = url.origin;
     this.workspace?.originChanged(this.origin);
-    // Cookies are origin-scoped, and bearer devices are deliberately revoked too:
-    // reconnecting after a rotation is an in-person re-pair via a fresh `loop pair` QR.
+    // Device trust belongs to this workspace. Changing transport invalidates
+    // unused pairing links and old sockets, but never grants trust to a new device.
     this.pairs.clear();
-    for (const d of [...this.devices.keys()]) this.revoke(d);
+    for (const socket of this.clients.keys())
+      socket.close(1012, "Gateway address changed");
   }
   pair() {
     const token = secret();
@@ -287,9 +319,14 @@ export class Host {
           ? header.slice(7)
           : undefined;
     if (!token || token.length > 100) return;
-    return [...this.devices.values()].find(
+    const device = [...this.devices.values()].find(
       (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
     );
+    if (device && device.expires < Date.now() + 364 * 86400000) {
+      device.expires = Math.min(device.maxExpires, Date.now() + 365 * 86400000);
+      this.saveDevices();
+    }
+    return device;
   }
   private json(res: ServerResponse, status: number, value: unknown) {
     res.writeHead(status, {
@@ -339,7 +376,8 @@ export class Host {
           name: input.name || "Phone",
           hash: hash(token),
           csrf: secret(),
-          expires: Date.now() + 7 * 86400000,
+          expires: Date.now() + 365 * 86400000,
+          maxExpires: Date.now() + 2 * 365 * 86400000,
         };
         this.devices.set(device.id, device);
         this.saveDevices();

@@ -1,0 +1,194 @@
+[
+  [
+    "architecture",
+    "durability",
+    "We decided to use SQLite WAL for the durable application queue.",
+    "Which database journaling mode keeps queued work durable?"
+  ],
+  [
+    "architecture",
+    "identity",
+    "Each native conversation retains its HAPI launch ID across reconnects.",
+    "What identifier remains stable when native sessions reconnect?"
+  ],
+  [
+    "architecture",
+    "billing",
+    "Codex must use ChatGPT authentication; API billing fallback is forbidden.",
+    "Can a subscription Codex run silently switch to an API key?"
+  ],
+  [
+    "architecture",
+    "memory",
+    "Shared recall uses MemSearch with the local BGE M3 ONNX embedding model.",
+    "Which local embedding model powers shared memory?"
+  ],
+  [
+    "architecture",
+    "topology",
+    "The API and persistent queue live on the application host, separate from execution.",
+    "Where does durable queue state live?"
+  ],
+  [
+    "architecture",
+    "approvals",
+    "Native permissions retain the exact HAPI request ID until acknowledged.",
+    "How are native permission responses correlated?"
+  ],
+  [
+    "architecture",
+    "capacity",
+    "Admission counts running, idle and approval-waiting resident native processes.",
+    "Do idle native sessions consume capacity?"
+  ],
+  [
+    "architecture",
+    "lineage",
+    "Cold resume may replace the Hub session ID but must preserve the native thread.",
+    "Which identity must cold resume preserve?"
+  ],
+  [
+    "publishing",
+    "image",
+    "The approved cover artwork is 1080 by 1920 pixels in PNG format.",
+    "What dimensions and format were chosen for the cover?"
+  ],
+  [
+    "publishing",
+    "captions",
+    "Captions use sentence case, with no more than seven words on a line.",
+    "How long can a caption line be?"
+  ],
+  [
+    "publishing",
+    "audio",
+    "The audio master uses 48 kHz sample rate and stereo channels.",
+    "What sample rate is required for the audio master?"
+  ],
+  [
+    "publishing",
+    "font",
+    "The title font is Inter, with a minimum size of 48 pixels.",
+    "Which typeface and minimum size are used for titles?"
+  ],
+  [
+    "publishing",
+    "duration",
+    "The short episode target duration is two minutes and thirty seconds.",
+    "How long should each short episode last?"
+  ],
+  [
+    "publishing",
+    "review",
+    "Jamie approves the script before the final video render.",
+    "Who reviews the script before rendering?"
+  ],
+  [
+    "publishing",
+    "color",
+    "The background color is charcoal #151515 and the accent is mint #81E6B5.",
+    "Which hex values define the background and accent?"
+  ],
+  [
+    "publishing",
+    "export",
+    "The final vertical video export uses H264 in an MP4 container.",
+    "What codec and container should the final video use?"
+  ],
+  [
+    "operations",
+    "backup",
+    "Application backups include Loop SQLite, the HAPI store and memory tombstones.",
+    "What must an application recovery backup contain?"
+  ],
+  [
+    "operations",
+    "outage",
+    "During worker outages Loop serves stored messages and leaves new work queued.",
+    "What happens to new prompts while execution is offline?"
+  ],
+  [
+    "operations",
+    "region",
+    "The synthetic pilot region decision is eu-west-2.",
+    "Which AWS region did the synthetic pilot choose?"
+  ],
+  [
+    "operations",
+    "deploy",
+    "The release transport is SSM with SHA256-verified immutable OCI archives.",
+    "How are application release archives verified and deployed?"
+  ],
+  [
+    "operations",
+    "retention",
+    "Persistent execution disks retain native homes and uncommitted project files.",
+    "Where are uncommitted changes preserved across a restart?"
+  ],
+  [
+    "operations",
+    "recovery",
+    "An uncertain accepted native operation must be reconciled, never blindly replayed.",
+    "Should unknown accepted work automatically run again?"
+  ],
+  [
+    "operations",
+    "rollback",
+    "Image rollback keeps the current database; it cannot overwrite acknowledged newer writes.",
+    "What happens to current data during a version rollback?"
+  ],
+  [
+    "operations",
+    "artifacts",
+    "Generated files are uploaded to private S3 and downloads expire after sixty seconds.",
+    "How long is an artifact download URL valid?"
+  ],
+  [
+    "security",
+    "identity",
+    "Environment authentication requires a worker certificate plus its revocable credential.",
+    "What proves an execution environment identity?"
+  ],
+  [
+    "security",
+    "metadata",
+    "Generated worker code cannot access EC2 instance metadata or the application role.",
+    "Can native shell code read cloud instance credentials?"
+  ],
+  [
+    "security",
+    "isolation",
+    "Project recall is restricted to the selected logical project and promoted workspace notes.",
+    "Which memory scope is used automatically?"
+  ],
+  [
+    "security",
+    "deletion",
+    "A memory tombstone immediately denies retrieval even if the vector index is stale.",
+    "What prevents deleted memory from returning from old vectors?"
+  ],
+  [
+    "security",
+    "credentials",
+    "Provider OAuth credentials remain only inside the protected native home on the worker.",
+    "Where are provider sign-in tokens stored?"
+  ],
+  [
+    "security",
+    "transport",
+    "Worker transport uses mutual TLS over private network endpoints.",
+    "How is private traffic authenticated and encrypted?"
+  ],
+  [
+    "security",
+    "review",
+    "Retrieved historical text cannot grant permission for a current tool action.",
+    "Can a recalled instruction authorize an action?"
+  ],
+  [
+    "security",
+    "paths",
+    "Artifact publishing rejects dotfiles, parent traversal and symlinks outside the project.",
+    "Which filesystem paths are forbidden for artifact uploads?"
+  ]
+]

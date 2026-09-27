@@ -50,16 +50,17 @@
     "mermaid": "^12.0.0",
     "multer": "^2.4.0",
     "openai": "^7.22.0",
+    "qrcode-terminal": "0.12.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tsx": "^4.23.15",
     "undici": "^8.11.0",
+    "ws": "8.21.3",
+    "yaml": "^2.8.2",
     "yauzl": "^3.4.0",
-    "zod": "^4.6.5",
-    "qrcode-terminal": "0.12.0",
-    "ws": "8.21.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -68,17 +69,17 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.6.2",
+    "@types/qrcode-terminal": "0.12.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/ws": "8.18.1",
     "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "esbuild": "0.28.2",
     "prettier": "^3.9.8",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
-    "vitest": "^5.0.1",
-    "@types/qrcode-terminal": "0.12.2",
-    "@types/ws": "8.18.1",
-    "esbuild": "0.28.2"
+    "vitest": "^5.0.1"
   },
   "private": true,
   "bin": {
@@ -93,6 +94,8 @@
     "runtime",
     "docs",
     "README.md",
-    "npm-shrinkwrap.json"
+    "npm-shrinkwrap.json",
+    "native",
+    "deployment"
   ]
 }

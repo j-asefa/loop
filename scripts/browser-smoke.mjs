@@ -1,3 +1,4 @@
+import { architectureSettingsJourney } from "./architecture-settings-journey.mjs";
 import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
 import { createServer as reservePort } from "node:net";
 async function freePort() {
@@ -278,6 +279,7 @@ try {
   );
   assert.equal(reopened.mode, "single-user");
   assert.equal(reopened.user.id, identity.user.id);
+  await architectureSettingsJourney(page);
   assert.deepEqual(errors, []);
 
   console.log(

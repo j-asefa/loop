@@ -64,3 +64,18 @@ jobs:
         run: docker compose logs --tail=100 loop runtime-broker runtime-image
       - if: always()
         run: docker compose down -v --remove-orphans
+
+  native-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: docker build -f deployment/Dockerfile.native -t loop-architecture-native:validation .
+      - run: node scripts/native-transport-smoke.mjs
+      - run: docker run --rm --network none loop-architecture-native:validation node /opt/loop-native/compatibility.mjs
+

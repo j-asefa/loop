@@ -477,6 +477,12 @@ function ServerConnections({
                         className="text-button"
                         disabled={busy}
                         onClick={() => {
+                          if (account.runtimeKind === "hapi") {
+                            setError(
+                              "Open Settings → Execution environments to manage this provider sign-in.",
+                            );
+                            return;
+                          }
                           if (sub)
                             void perform((ticket) =>
                               start(

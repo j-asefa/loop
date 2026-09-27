@@ -122,7 +122,11 @@ export class WorkspaceHost {
   setOrigin(origin: string) {
     this.gateway.setOrigin(origin);
   }
-  async start(options: Options, beforeWorker?: () => Promise<void>) {
+  async start(
+    options: Options,
+    beforeWorker?: () => Promise<void>,
+    managed?: () => Promise<any>,
+  ) {
     if (this.closing) throw new Error("Workspace is stopping");
     await this.tools.start();
     if (this.closing) {
@@ -138,7 +142,9 @@ export class WorkspaceHost {
       await this.gateway.close();
       throw new Error("Workspace is stopping");
     }
-    const account = await nativeSessions.enable(options);
+    const account = managed
+      ? await managed()
+      : await nativeSessions.enable(options);
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
     this.stopWorker = startWorker();
