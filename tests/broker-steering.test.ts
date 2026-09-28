@@ -58,7 +58,7 @@ for await (const line of input) {
         },
         body: JSON.stringify({
           key: "a".repeat(64),
-          provider: "codex",
+          provider: "claude",
           ...data,
         }),
         signal: controller.signal,
@@ -84,7 +84,7 @@ for await (const line of input) {
     expect((await post({ ...followup, controlId: "previous" })).status).toBe(
       409,
     );
-    expect((await post({ ...followup, provider: "claude" })).status).toBe(409);
+    expect((await post({ ...followup, provider: "codex" })).status).toBe(409);
     expect(await (await post(followup)).json()).toEqual({ accepted: true });
     expect(await (await post(followup)).json()).toEqual({ accepted: true });
     expect((await post({ ...followup, text: "different content" })).ok).toBe(

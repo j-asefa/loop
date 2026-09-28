@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { lines } from "./protocol.mjs";
 import { SteeringControls } from "./steering.mjs";
+import { SharedCodex } from "./shared-codex.mjs";
 import {
   loginDeadline,
   LoginTimeoutError,
@@ -36,6 +37,15 @@ const pending = new Map(),
   logins = new Map(),
   generations = new Map();
 const MAX_ACTIVE = 8;
+const codexWorkers = new Map();
+const codexMaintenance = new Map();
+const activeCount = () =>
+  active.size +
+  [...codexWorkers.values()].reduce(
+    (n, worker) => n + worker.operations.size,
+    0,
+  );
+const codexBusy = (key) => !!codexWorkers.get(key)?.operations.size;
 function authorized(header) {
   const a = Buffer.from(header || ""),
     b = Buffer.from("Bearer " + token);
@@ -54,14 +64,12 @@ async function remove(name) {
     p.once("close", resolve);
   });
 }
-async function execute(key, request, onEvent, signal) {
-  if (active.size >= MAX_ACTIVE)
-    throw new Error("Runtime capacity reached. Retry later.");
+function spawnRuntime(key, entry) {
   const name = `${prefix}-${randomUUID()}`;
   const p = hostMode
     ? spawn(
         process.execPath,
-        [fileURLToPath(new URL("./entry.mjs", import.meta.url))],
+        [fileURLToPath(new URL("./" + entry, import.meta.url))],
         {
           cwd: workdir,
           env: { ...process.env, LOOP_RUNTIME_WORKDIR: workdir },
@@ -69,7 +77,43 @@ async function execute(key, request, onEvent, signal) {
           stdio: ["pipe", "pipe", "pipe"],
         },
       )
-    : docker(containerArgs(prefix, key, image, name));
+    : docker([
+        ...containerArgs(prefix, key, image, name).slice(0, -1),
+        "/runtime/" + entry,
+      ]);
+  const stop = (force = false) => {
+    const signal = force === true ? "SIGKILL" : "SIGTERM";
+    if (hostMode && process.platform !== "win32" && p.pid) {
+      try {
+        process.kill(-p.pid, signal);
+      } catch {}
+    } else p.kill(signal);
+    if (!hostMode) void remove(name);
+  };
+  return { p, name, stop };
+}
+function codexWorker(key) {
+  let worker = codexWorkers.get(key);
+  if (worker) return worker;
+  // Bound persistent homes without evicting any active operation.
+  if (codexWorkers.size >= MAX_ACTIVE) {
+    const idle = [...codexWorkers.values()].find((w) => !w.operations.size);
+    if (!idle) throw new Error("Runtime capacity reached. Retry later.");
+    idle.close();
+  }
+  const { p, stop } = spawnRuntime(key, "codex-worker.mjs");
+  worker = new SharedCodex(p, stop, () => {
+    if (codexWorkers.get(key) === worker) codexWorkers.delete(key);
+  });
+  codexWorkers.set(key, worker);
+  return worker;
+}
+async function execute(key, request, onEvent, signal) {
+  if (activeCount() >= MAX_ACTIVE)
+    throw new Error("Runtime capacity reached. Retry later.");
+  if (request.provider === "codex")
+    return codexWorker(key).run(request, onEvent, signal);
+  const { p, name } = spawnRuntime(key, "entry.mjs");
   let result,
     error,
     exitSignal,
@@ -259,6 +303,28 @@ const server = createServer(async (req, res) => {
     if (!/^[a-f0-9]{64}$/.test(key) || !["codex", "claude"].includes(provider))
       throw new Error("Invalid runtime");
     if (action === "steer") {
+      if (provider === "codex") {
+        if (
+          typeof data.controlId !== "string" ||
+          !data.controlId ||
+          typeof data.id !== "string" ||
+          !data.id ||
+          data.id.length > 150 ||
+          typeof data.text !== "string" ||
+          !data.text.trim() ||
+          data.text.length > 500000
+        )
+          throw new Error("Invalid steering input");
+        const receipt = codexWorkers
+          .get(key)
+          ?.steer(data.controlId, data.id, data.text);
+        if (!receipt) {
+          json(res, { error: "The selected turn is no longer active." }, 409);
+          return;
+        }
+        json(res, await receipt);
+        return;
+      }
       const target = active.get(key);
       if (
         !target?.ready ||
@@ -284,7 +350,10 @@ const server = createServer(async (req, res) => {
     // Pair the host user's existing login; never start login or sign out the
     // shared Codex/Claude installation on behalf of a Loop connection.
     if (hostMode && ["login", "status"].includes(action)) {
-      if (pending.has(key)) {
+      if (
+        pending.has(key) ||
+        (action === "login" && provider === "codex" && codexBusy(key))
+      ) {
         json(res, { state: "busy" });
         return;
       }
@@ -309,11 +378,12 @@ const server = createServer(async (req, res) => {
     if (hostMode && action === "logout") {
       generations.set(key, (generations.get(key) || 0) + 1);
       active.get(key)?.cancel();
+      if (provider === "codex") codexWorkers.get(key)?.close();
       json(res, { ok: true });
       return;
     }
     if (action === "login") {
-      if (pending.has(key)) {
+      if (pending.has(key) || (provider === "codex" && codexBusy(key))) {
         json(
           res,
           {
@@ -328,6 +398,8 @@ const server = createServer(async (req, res) => {
         expiresAt: Date.now() + LOGIN_START_MS,
       };
       logins.set(key, login);
+      const maintenance = Symbol();
+      if (provider === "codex") codexMaintenance.set(key, maintenance);
       void serial(key, () =>
         execute(key, { provider, action }, (m) => {
           if (m.login && login.state === "starting") {
@@ -338,12 +410,16 @@ const server = createServer(async (req, res) => {
         }),
       ).then(
         (result) => {
+          if (codexMaintenance.get(key) === maintenance)
+            codexMaintenance.delete(key);
           if (login.state === "cancelled") return;
           login.state = "completed";
           login.result = result;
           delete login.login;
         },
         (error) => {
+          if (codexMaintenance.get(key) === maintenance)
+            codexMaintenance.delete(key);
           if (login.state === "cancelled") return;
           login.state = "failed";
           login.error =
@@ -384,6 +460,7 @@ const server = createServer(async (req, res) => {
         delete l.login;
       }
       active.get(key)?.cancel();
+      if (provider === "codex") codexWorkers.get(key)?.cancelLogin();
       json(res, { ok: true });
       return;
     }
@@ -417,7 +494,20 @@ const server = createServer(async (req, res) => {
       generations.set(key, (generations.get(key) || 0) + 1);
       logins.delete(key);
       active.get(key)?.cancel();
-      await serial(key, () => execute(key, { provider, action }, () => {}));
+      const maintenance = Symbol();
+      if (provider === "codex") {
+        codexMaintenance.set(key, maintenance);
+        codexWorkers.get(key)?.close();
+      }
+      try {
+        await serial(key, () => execute(key, { provider, action }, () => {}));
+      } finally {
+        if (provider === "codex") {
+          codexWorkers.get(key)?.close();
+          if (codexMaintenance.get(key) === maintenance)
+            codexMaintenance.delete(key);
+        }
+      }
       json(res, { ok: true });
       return;
     }
@@ -473,6 +563,20 @@ const server = createServer(async (req, res) => {
       !Array.isArray(data.input.messages)
     )
       throw new Error("Invalid action");
+    if (
+      provider === "codex" &&
+      (codexMaintenance.has(key) || activeCount() >= MAX_ACTIVE)
+    ) {
+      json(
+        res,
+        {
+          error:
+            "Codex runtime is busy with account maintenance or at capacity. Retry when a slot is available.",
+        },
+        409,
+      );
+      return;
+    }
     const controller = new AbortController();
     res.on("close", () => {
       if (!res.writableEnded) controller.abort();
@@ -487,7 +591,7 @@ const server = createServer(async (req, res) => {
     const heartbeat = setInterval(() => res.write("\n"), 15000);
     res.once("close", () => clearInterval(heartbeat));
     try {
-      await serial(key, () => {
+      const run = () => {
         if (controller.signal.aborted) throw new Error("Cancelled");
         return execute(
           key,
@@ -500,7 +604,9 @@ const server = createServer(async (req, res) => {
           (m) => res.write(JSON.stringify(m) + "\n"),
           controller.signal,
         );
-      });
+      };
+      if (provider === "codex") await run();
+      else await serial(key, run);
       res.end();
     } finally {
       clearInterval(heartbeat);
@@ -563,5 +669,6 @@ server.listen(
 );
 process.on("SIGTERM", () => {
   for (const a of active.values()) a.cancel();
+  for (const worker of codexWorkers.values()) worker.close();
   server.close();
 });

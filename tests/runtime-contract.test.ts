@@ -19,7 +19,14 @@ const fs=require('node:fs'),path=require('node:path'),rl=require('node:readline'
 const provider=path.basename(process.argv[1]), home=process.env.HOME, args=process.argv.slice(2);
 const auth=path.join(home,'fixture-auth'), log=path.join(home,'calls');
 fs.appendFileSync(log,JSON.stringify({provider,args,native:process.env.LOOP_RUNTIME_MODE==='host',cwd:process.cwd(),toolToken:process.env.FIXTURE_MCP_TOKEN||null,githubToken:process.env.GH_TOKEN||null,apiKey:process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY||process.env.CLAUDE_CODE_OAUTH_TOKEN||null})+'\\n');
-const send=m=>process.stdout.write(JSON.stringify(m)+'\\n');
+const send=m=>{
+ if(provider==='codex'&&(m.method?.startsWith('item/')||m.method?.startsWith('turn/'))){
+  const turnId=m.params?.turn?.id||(global.model==='steering'?'active-fixture':'turn-fixture');
+  m.params={threadId:'thread-fixture',turnId,...m.params};
+  if(m.method==='turn/completed')m.params.turn={id:turnId,...m.params.turn};
+ }
+ process.stdout.write(JSON.stringify(m)+'\\n');
+};
 const state=()=>fs.existsSync(auth)?fs.readFileSync(auth,'utf8'):'none';
 const answer=(model)=>{
  let text='Subscription fixture answer';
@@ -47,6 +54,7 @@ if(provider==='codex') {
   if(m.method==='thread/start'){global.model=m.params.model;result={thread:{id:'thread-fixture'}};}
   if(m.method==='review/start'){result={turn:{id:'review-fixture'}};setTimeout(()=>{send({method:'item/completed',params:{threadId:'thread-fixture',turnId:'review-fixture',item:{type:'exitedReviewMode',review:'Native review result'}}});send({method:'turn/completed',params:{threadId:'thread-fixture',turn:{id:'review-fixture',status:'completed'}}});},20);}
   if(m.method==='turn/start'){
+   result={turn:{id:'turn-fixture'}};
    if(!m.params.outputSchema)throw Error('Missing structured output');
    if(global.model==='steering'){send({id:m.id,result:{turn:{id:'active-fixture'}}});return;}
    if(global.model==='credential')credentialTrace();

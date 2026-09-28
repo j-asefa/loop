@@ -29,7 +29,8 @@ export class Rpc {
   events = [];
   waiter;
   failure;
-  constructor(child, onRequest) {
+  constructor(child, onRequest, onNotification, onFailure) {
+    this.onFailure = onFailure;
     this.child = child;
     child.stdin.on("error", (e) => this.fail(e));
     child.on("error", (e) => this.fail(e));
@@ -71,6 +72,8 @@ export class Rpc {
                 "Native tools are unavailable; use the supplied Loop tool schema.",
             },
           });
+        } else if (onNotification) {
+          onNotification(m);
         } else if (this.waiter) {
           const w = this.waiter;
           this.waiter = null;
@@ -113,7 +116,9 @@ export class Rpc {
     });
   }
   fail(error) {
+    if (this.failure) return;
     this.failure = error;
+    this.onFailure?.(error);
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
       p.reject(error);

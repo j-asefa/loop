@@ -4,7 +4,7 @@ import {
   errorSummary,
   runtimeFailureFacts,
 } from "./diagnostics.mjs";
-import { modelOptions } from "./model-options.mjs";
+import { CodexSession } from "./codex-session.mjs";
 import { receiveSteering } from "./steering.mjs";
 import { ClaudeSteering } from "./claude-steering.mjs";
 // Official binaries are unmodified. Host mode is chosen by the local launcher,
@@ -12,19 +12,11 @@ import { ClaudeSteering } from "./claude-steering.mjs";
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { nativeReply } from "./native-tools.mjs";
 import { readPublishedChunk } from "./published-files.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { redactValues } from "./redaction.mjs";
+import { claudeTraces, claudeActivities } from "./traces.mjs";
 import {
-  codexTrace,
-  claudeTraces,
-  codexActivity,
-  claudeActivities,
-} from "./traces.mjs";
-import {
-  codexCatalog,
-  codexTurn,
   claudeCatalog,
   claudeModels,
   slashCommand,
@@ -32,7 +24,6 @@ import {
   HarnessError,
 } from "./harness.mjs";
 import {
-  Rpc,
   lines,
   responseSchema,
   turnPrompt,
@@ -137,175 +128,29 @@ async function codex(request) {
           "shell_environment_policy.ignore_default_excludes=true",
         ]),
   ]);
-  let threadId, stopSteering;
-  const rpc = new Rpc(p, (m) => nativeReply(m, threadId));
+  const session = new CodexSession(p, {
+    hostMode,
+    home: env.HOME,
+    cwd: workdir,
+  });
+  let stopSteering;
   try {
-    await rpc.call("initialize", {
-      clientInfo: { name: "loop", version: "0.2.0" },
-    });
-    rpc.send({ method: "initialized", params: {} });
-    if (request.action === "capabilities") {
-      emit({
-        result: codexCatalog(
-          await rpc.call("skills/list", { cwds: [workdir], forceReload: true }),
-        ),
-      });
-      return;
-    }
-    if (request.action === "login") {
-      const login = await rpc.call("account/login/start", {
-        type: "chatgptDeviceCode",
-      });
-      const url = authorizationUrl(login.verificationUrl || "", "codex");
-      if (!url || typeof login.userCode !== "string")
-        throw new RuntimeFailure("Device sign-in unavailable");
-      emit({ login: { url, code: login.userCode, acceptsCode: false } });
-      while (true) {
-        const m = await rpc.event();
-        if (m.method === "account/login/completed") {
-          if (!m.params.success)
-            throw new RuntimeFailure("Sign-in was not completed");
-          break;
-        }
-      }
-    }
-    if (request.action === "logout") {
-      await rpc.call("account/logout");
-      emit({ result: { authenticated: false } });
-      return;
-    }
-    const { account } = await rpc.call("account/read", { refreshToken: true });
-    if (account?.type !== "chatgpt") {
-      if (request.action === "turn")
-        throw new RuntimeFailure("Subscription sign-in required");
-      emit({ result: { authenticated: false, models: [] } });
-      return;
-    }
-    if (request.action !== "turn") {
-      let cursor,
-        models = [];
-      do {
-        const page = await rpc.call("model/list", {
-          limit: 100,
-          includeHidden: false,
-          ...(cursor ? { cursor } : {}),
-        });
-        models.push(
-          ...page.data.map((m) => ({
-            id: m.model || m.id,
-            name: m.displayName || m.id,
-            capabilities: "ChatGPT subscription · account catalog",
-            ...modelOptions(m),
-          })),
-        );
-        cursor = page.nextCursor;
-      } while (cursor && models.length < 300);
-      let limits = null;
-      try {
-        limits = await rpc.call("account/rateLimits/read");
-      } catch {}
-      emit({
-        result: {
-          authenticated: true,
-          authMode: "subscription",
-          plan: account.planType,
-          models,
-          limits,
-        },
-      });
-      return;
-    }
-    const { thread } = await rpc.call("thread/start", {
-      model: request.input.model,
-      modelProvider: "openai",
-      cwd: workdir,
-      sandbox: "danger-full-access",
-      approvalPolicy: "never",
-      ephemeral: true,
-    });
-    threadId = thread.id;
-    const started = await codexTurn(
-      rpc,
-      thread.id,
-      request.input,
-      true,
-      workdir,
-    );
-    if (request.input.controlId && started.turn?.id) {
-      stopSteering = receiveSteering(iterator, emit, (text) =>
-        rpc.call("turn/steer", {
-          threadId: thread.id,
-          expectedTurnId: started.turn.id,
-          input: [{ type: "text", text }],
-        }),
-      );
-      emit({ steeringReady: true });
-    }
-    let answer = "";
-    const traceMessages = new Map();
-    while (true) {
-      const m = await rpc.event();
-      if (m.params?.threadId && m.params.threadId !== thread.id) continue;
-      if (m.params?.turnId && m.params.turnId !== started.turn?.id) continue;
-      // Redact before trace truncation so clipping cannot expose a token prefix.
-      const trace = codexTrace(clean(m), traceMessages);
-      if (trace) emit({ chunk: { trace: clean(trace) } });
-      const activity = codexActivity(clean(m));
-      if (activity) emit({ chunk: { activity } });
-      if (
-        m.method === "turn/completed" &&
-        m.params.turn?.id &&
-        m.params.turn.id !== started.turn?.id
-      )
-        continue;
-      if (m.method === "item/agentMessage/delta") {
-        answer += m.params.delta;
-        if (answer.length > 200000)
-          throw new RuntimeFailure("Runtime output exceeds limit");
-      }
-      if (
-        m.method === "item/completed" &&
-        m.params.item?.type === "agentMessage"
-      )
-        answer = m.params.item.text;
-      if (
-        started.review &&
-        m.method === "item/completed" &&
-        m.params.item?.type === "exitedReviewMode"
-      )
-        answer = m.params.item.review;
-      if (m.method === "turn/completed") {
+    await session.run(
+      request,
+      emit,
+      new AbortController().signal,
+      (deliver) => {
         stopSteering?.();
-        if (m.params.turn.status !== "completed")
-          throw new RuntimeFailure(
-            `Codex turn ${m.params.turn.status || "failed"}: ${diagnosticText(clean(m.params.turn.error?.message)) || "The runtime did not provide a reason."}`,
-            { phase: "turn", code: m.params.turn.error?.codexErrorInfo },
-          );
-        let output;
-        if (!started.review) {
-          try {
-            output = JSON.parse(answer);
-          } catch {
-            throw new RuntimeFailure(
-              "Codex returned an invalid structured response. Check Traces for saved progress.",
-              { phase: "response", code: "invalid_json" },
-            );
-          }
-        }
-        for (const chunk of started.review
-          ? [{ text: answer }]
-          : resultChunks(output, request.input))
-          emit({ chunk });
-        emit({ chunk: { externalId: thread.id } });
-        emit({ done: true });
-        return;
-      }
-    }
+        if (deliver && request.input?.controlId)
+          stopSteering = receiveSteering(iterator, emit, deliver);
+      },
+    );
   } finally {
     stopSteering?.();
-    rpc.close();
+    session.rpc.close();
   }
 }
+
 async function claude(request) {
   if (request.action === "capabilities") {
     emit({ result: await claudeCatalog(launch) });
@@ -552,7 +397,7 @@ try {
       Object.assign(env, githubEnvironment(request.githubToken));
       githubToken = request.githubToken;
     }
-    if (request.action === "turn")
+    if (request.action === "turn" && request.provider === "claude")
       request.input.instructions =
         (request.input.instructions || "") +
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${workdir}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +

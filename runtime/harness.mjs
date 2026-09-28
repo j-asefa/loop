@@ -48,7 +48,15 @@ export function slashCommand(input) {
   const match = latestPrompt(input).match(/^\/([\w.:-]+)(?:\s|$)/);
   return match?.[1];
 }
-export async function codexTurn(rpc, threadId, input, nativeTools, cwd) {
+export async function codexTurn(
+  rpc,
+  threadId,
+  input,
+  nativeTools,
+  cwd,
+  signal,
+) {
+  signal?.throwIfAborted();
   const command = slashCommand(input);
   if (nativeTools && command) {
     if (command !== "review")
@@ -91,6 +99,8 @@ export async function codexTurn(rpc, threadId, input, nativeTools, cwd) {
       );
     return [{ type: "skill", name, path: matches[0].path }];
   });
+  // Skill discovery can finish after the run has been stopped or disconnected.
+  signal?.throwIfAborted();
   return rpc.call("turn/start", {
     threadId,
     ...(input.effort ? { reasoningEffort: input.effort } : {}),

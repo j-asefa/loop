@@ -21,4 +21,5 @@ export function codexTurn(
   input: ChatInput,
   nativeTools: boolean,
   cwd?: string,
+  signal?: AbortSignal,
 ): Promise<{ turn: { id: string }; review?: boolean }>;

@@ -139,8 +139,8 @@ try {
     .getByRole("button", { name: "Create your first agent", exact: true })
     .click();
   const agentName = page.getByLabel("Unique name");
-  // fill selects then inserts text in separate browser protocol steps. A name
-  // suggestion arriving between them can prepend itself to the fixture name.
+  // Wait for the asynchronous suggestion before replacing it: it can otherwise
+  // race with fill's separate selection and insertion browser protocol steps.
   await expect(agentName).toHaveAttribute("placeholder", "Choose a name");
   await agentName.fill("journey-agent");
   await expect(agentName).toHaveValue("journey-agent");
