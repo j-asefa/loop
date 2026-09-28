@@ -20,6 +20,7 @@ import {
 } from "node:crypto";
 import { atomic, privateDir } from "./state.js";
 import { own, killOwned } from "./processes.js";
+import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
 const exec = promisify(execFile);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export type LocalChoices = {
@@ -410,7 +411,7 @@ export class LocalRuntime {
         certificateFingerprint: new X509Certificate(
           readFileSync(join(e.dir, "cert.pem")),
         ).fingerprint256,
-        capacity: 4,
+        capacity: MAX_CONCURRENT_RUNS,
       });
       // Only local provisioning may refresh the address of an unchanged identity.
       db.prepare("UPDATE runtime_hosts SET url=? WHERE id=?").run(

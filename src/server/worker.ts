@@ -1,4 +1,5 @@
 import { errorFacts, errorSummary } from "../../runtime/diagnostics.mjs";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 import { recordTrace } from "./traces.js";
 import { companionMode } from "./profile.js";
 import { executeMcp } from "./mcp/routes.js";
@@ -156,8 +157,7 @@ export function startWorker() {
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
   const scheduling = setInterval(
     () => {
-      if (stopping || active >= (companionMode ? 32 : 10)) return;
-      if (companionMode && active - nativeSessions.waiting >= 10) return;
+      if (stopping || active >= MAX_CONCURRENT_RUNS) return;
       active++;
       const promise = tick(execute)
         .catch(() => {})

@@ -100,7 +100,7 @@ export function Conversation({
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
   const generation = useRef(0);
-  const scrolled = useRef("");
+  const anchoring = useRef(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const initialScroll = useRef<string | null>(null);
   const followLatest = useRef(!anchor);
@@ -186,7 +186,7 @@ export function Conversation({
   }
   useEffect(() => {
     generation.current++;
-    scrolled.current = "";
+    anchoring.current = false;
     followLatest.current = !anchor;
     setAwayFromLatest(false);
     setData(null);
@@ -236,17 +236,43 @@ export function Conversation({
     return () => observer.disconnect();
   }, [id]);
   useEffect(() => {
-    if (!anchor || !data || scrolled.current === anchor) return;
-    const frame = requestAnimationFrame(() => {
-      const message = document.getElementById("message-" + anchor);
-      if (message) {
+    if (!anchor || data?.conversation.id !== id) return;
+    const messages = messagesRef.current;
+    const message = document.getElementById("message-" + anchor);
+    if (!messages || !message) return;
+    anchoring.current = true;
+    followLatest.current = false;
+    let frame = 0;
+    let focused = false;
+    const align = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!anchoring.current) return;
         message.scrollIntoView({ block: "center" });
-        message.focus({ preventScroll: true });
-        scrolled.current = anchor;
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [data, id, anchor]);
+        setAwayFromLatest(
+          messages.scrollHeight - messages.clientHeight - messages.scrollTop >= 48,
+        );
+        if (!focused) message.focus({ preventScroll: true });
+        focused = true;
+      });
+    };
+    // Opening the composer and rendering a diagram can change the scrollport
+    // after the first frame. Keep the link target visible until the user takes over.
+    const observer = new ResizeObserver(align);
+    observer.observe(messages);
+    observer.observe(message);
+    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"];
+    const stop = () => {
+      anchoring.current = false;
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      for (const input of inputs) messages.removeEventListener(input, stop);
+    };
+    for (const input of inputs)
+      messages.addEventListener(input, stop, { passive: true });
+    align();
+    return stop;
+  }, [data?.conversation.id, id, anchor]);
   return (
     <Sheet
       wide
@@ -353,6 +379,7 @@ export function Conversation({
           ref={messagesRef}
           aria-busy={loading}
           onScroll={(event) => {
+            if (anchoring.current) return;
             const el = event.currentTarget;
             // A composer resize can emit the preceding programmatic scroll
             // event with new dimensions. It is not a request to stop following.
@@ -695,6 +722,7 @@ export function Conversation({
             className="text-button conversation-latest"
             aria-label="Jump to latest messages"
             onClick={() => {
+              anchoring.current = false;
               followLatest.current = true;
               setAwayFromLatest(false);
               pinLatest();

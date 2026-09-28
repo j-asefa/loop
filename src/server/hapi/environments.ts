@@ -5,6 +5,7 @@ import { owned, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { digest, type NativeSelection } from "./contracts.js";
 import { HapiClient } from "./client.js";
+import { MAX_CONCURRENT_RUNS } from "../../../runtime/concurrency.mjs";
 
 export function environment(owner: string, hostId: string): any {
   const h = owned<any>("runtime_hosts", hostId, owner);
@@ -79,6 +80,15 @@ export function provisionEnvironment(
   },
 ) {
   // Operator-only entry point. Never exposed as public self-asserted enrollment.
+  const capacity = input.capacity ?? MAX_CONCURRENT_RUNS;
+  if (
+    !Number.isInteger(capacity) ||
+    capacity < 1 ||
+    capacity > MAX_CONCURRENT_RUNS
+  )
+    throw new Error(
+      `Environment capacity must be between 1 and ${MAX_CONCURRENT_RUNS}`,
+    );
   if (
     !/^(?:i-[a-f0-9]{8,17}|local-[a-f0-9-]{36})$/.test(input.instanceId) ||
     !/^[a-zA-Z0-9_-]{1,80}$/.test(input.namespace) ||
@@ -101,6 +111,9 @@ export function provisionEnvironment(
       throw new Error(
         "Environment already exists with another identity; fence and explicitly recover it",
       );
+    db.prepare(
+      "UPDATE execution_environments SET capacity=? WHERE host_id=?",
+    ).run(capacity, prior.host_id);
     return prior.host_id;
   }
   const hostId = id();
@@ -124,7 +137,7 @@ export function provisionEnvironment(
       input.namespace,
       digest(input.credential),
       input.certificateFingerprint.toUpperCase(),
-      input.capacity || 2,
+      capacity,
     );
   }).immediate();
   return hostId;

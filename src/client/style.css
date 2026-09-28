@@ -2041,6 +2041,7 @@ pre {
     gap: 4px;
   }
   .topbar {
+    height: calc(81px + env(safe-area-inset-top, 0px));
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
@@ -4494,8 +4495,9 @@ h1 {
 @media (max-width: 650px) {
   .topbar {
     border: 0;
-    height: 56px;
-    padding: 6px 18px;
+    /* Keep the toolbar below the status bar in the native shell and PWA. */
+    height: calc(56px + env(safe-area-inset-top, 0px));
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 18px 6px;
   }
   .workspace-content {
     padding: 12px 14px 150px;

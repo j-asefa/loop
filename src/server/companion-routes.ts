@@ -1,4 +1,5 @@
 import { nativeHistory } from "./native-history.js";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 import express from "express";
 import { z } from "zod";
 import { db } from "./db.js";
@@ -11,7 +12,7 @@ companion.get("/workspace", (_req, res) =>
   res.json({
     harnesses: nativeSessions.registrations(),
     nativeProcesses: nativeSessions.count,
-    concurrency: 8,
+    concurrency: MAX_CONCURRENT_RUNS,
     hostLifetime: "foreground",
     tunnelOrigin: config.url,
     projectPaths: db.prepare("SELECT * FROM project_paths").all(),

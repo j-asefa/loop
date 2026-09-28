@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { writeSync, appendFileSync } from "node:fs";
 const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
 let threadId = randomUUID();
+let thinkingLevel = "medium";
 const out = (x) => process.stdout.write(JSON.stringify(x) + "\n");
 let count = 0,
   active = "",
@@ -113,6 +114,13 @@ if (kind === "pi")
       subscription: true,
       provider: "openai-codex",
       model: "fixture",
+      modelEfforts: [
+        {
+          id: "openai-codex/fixture",
+          levels: ["off", "low", "medium", "high"],
+        },
+        { id: "openai-codex/plain", levels: ["off"] },
+      ],
     }) + "\n",
   );
 if (kind !== "opencode") {
@@ -139,7 +147,17 @@ if (kind !== "opencode") {
     if (type === "model/list") return result({ data: [] });
     if (type === "get_available_thinking_levels")
       return result({ levels: ["off", "low", "medium", "high"] });
-    if (type === "get_available_models") return result({ models: [] });
+    if (type === "get_available_models")
+      return result({
+        models: [
+          { provider: "openai-codex", id: "fixture", name: "Fixture" },
+          { provider: "openai-codex", id: "plain", name: "Plain" },
+        ],
+      });
+    if (type === "set_thinking_level") {
+      thinkingLevel = m.level;
+      return result({});
+    }
     if (type === "config/read")
       return result({ config: { model_provider: "openai" } });
     if (type === "thread/start" || type === "thread/resume") {
@@ -178,7 +196,12 @@ if (kind !== "opencode") {
           ],
         },
       });
-    if (type === "get_state") return result({ sessionId: "pi-1" });
+    if (type === "get_state")
+      return result({
+        sessionId: "pi-1",
+        model: { provider: "openai-codex", id: "fixture" },
+        thinkingLevel,
+      });
     if (type === "get_messages") return result({ messages: [] });
     if (type === "control_request") {
       out({

@@ -258,8 +258,17 @@ it("rejects API authentication, recovers after process death without replaying l
   await expect.poll(() => held.output).toContain('"steeringReady":true');
   const crash = await run("crash", "crash");
   await Promise.all([held.done, crash.done]);
-  expect(held.output).toContain("shared Codex runtime stopped");
-  expect(crash.output).toContain("shared Codex runtime stopped");
+  for (const stream of [held, crash]) {
+    const events = stream.output.trim().split("\n").map((line) => JSON.parse(line));
+    // The child failure or the worker close can arrive first; both must report
+    // a process failure instead of completing the interrupted turn.
+    expect(events).toContainEqual(expect.objectContaining({
+      code: "runtime_failure",
+      diagnostic: expect.objectContaining({ phase: "process" }),
+      error: expect.any(String),
+    }));
+    expect(events.some((event) => event.done)).toBe(false);
+  }
   const recovered = await run("recovered", "quick");
   await recovered.done;
   expect(recovered.output).toContain('"done":true');
@@ -267,18 +276,18 @@ it("rejects API authentication, recovers after process death without replaying l
   expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(3);
 });
 
-it("bounds concurrent admission and lets status/commands use the same process", async () => {
+it("admits 32 concurrent turns, releases capacity and reuses the process for status/commands", async () => {
   const { run, post, calls } = await fixture();
   const held = await Promise.all(
-    Array.from({ length: 8 }, (_, i) => run("run-" + i)),
+    Array.from({ length: 32 }, (_, i) => run("run-" + i)),
   );
   await expect
     .poll(() => held.every((s) => s.output.includes('"steeringReady":true')))
     .toBe(true);
   const overflow = await run("overflow");
-  await overflow.done;
   expect(overflow.response.status).toBe(409);
-  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(8);
+  await overflow.done;
+  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(32);
   held[0].controller.abort();
   await expect
     .poll(
@@ -286,6 +295,11 @@ it("bounds concurrent admission and lets status/commands use the same process", 
         calls().filter((c) => c.rpc?.method === "thread/unsubscribe").length,
     )
     .toBe(1);
+  const replacement = await run("replacement", "quick");
+  expect(replacement.response.status).toBe(200);
+  await replacement.done;
+  expect(replacement.output).toContain('"done":true');
+  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(33);
   expect(await (await post({ action: "status" })).json()).toMatchObject({
     authenticated: true,
     authMode: "subscription",

@@ -197,12 +197,8 @@ export async function feedbackJourney(page, api, base, dir) {
   assert.match(await anchor.locator(".diagram svg").textContent(), /Plan/);
   assert.match(await anchor.locator(".diagram svg").textContent(), /Build/);
   assert.equal(await anchor.locator(".diagram foreignObject").count(), 0);
-  assert.ok(
-    await anchor.evaluate((e) => {
-      const r = e.getBoundingClientRect();
-      return r.top < innerHeight && r.bottom > 0;
-    }),
-  );
+  // The composer and diagram resize after the initial deep-link scroll.
+  await expect(anchor).toBeInViewport();
   await page.screenshot({ path: join(tmpdir(), "loop-feedback-diagram.png") });
   await closeSheets(page);
   for (const width of [320, 390, 430, 1024]) {

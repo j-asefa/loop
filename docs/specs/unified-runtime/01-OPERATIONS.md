@@ -14,6 +14,10 @@ The host launches one private HAPI Hub, its mTLS gateway, and the selected runne
 
 Pair with the QR code. Under **Settings → Execution environments**, complete sign-in for any selected provider not already authenticated. Native sign-in uses the existing host home; Docker sign-in belongs to its volume. Verification creates a provider connection automatically. Create an agent by choosing its provider, **Run on**, model and project. Existing conversations retain their original provider connection and execution environment. Native and Docker agents may run concurrently.
 
+Loop defaults to 32 concurrent tasks per scheduler and 32 resident sessions per managed environment, for both native and Docker execution. The subscription runtime broker also admits 32 simultaneous operations. Each environment has its own capacity; idle resident sessions count toward it. Additional tasks queue until capacity is available. Operator provisioning can explicitly choose a lower environment capacity (1–32), and re-provisioning an existing identity applies capacity changes without replacing sessions or credentials. These admission limits do not reserve CPU or memory or change provider rate limits.
+
+The laptop launcher applies the new capacity on restart. For an existing local Compose installation, rerun `node deployment/local/setup-native.mjs` and recreate the Loop app service: setup upgrades the old generated four-session default while preserving identities and other settings, and app startup re-provisions the stored capacity. Rebuild the app and runtime-broker images to load the new scheduler and broker limits.
+
 Inference is remote. Native execution refers to the location of the CLI and its shell/file tools. Managed Codex enforces ChatGPT authentication without API fallback; managed Claude keeps PR #14's verified native authentication policy. Companion `loop claude` retains its separate existing-provider restrictions.
 
 ## Stable Cloudflare tunnel

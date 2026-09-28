@@ -1,5 +1,6 @@
 // Loaded process-locally by `loop pi`. No credentials, model overrides or settings writes.
 import { writeSync } from "node:fs";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 export default function loopMetadata(pi) {
   let toolsReady = !process.env.LOOP_TOOLS_URL;
   const describe = (ctx) => {
@@ -9,6 +10,10 @@ export default function loopMetadata(pi) {
       toolsReady,
       provider: model?.provider,
       model: model?.id,
+      modelEfforts: ctx.modelRegistry.getAvailable().map((available) => ({
+        id: `${available.provider}/${available.id}`,
+        levels: getSupportedThinkingLevels(available),
+      })),
       configured: !!model && ctx.modelRegistry.hasConfiguredAuth(model),
       subscription:
         !!model &&

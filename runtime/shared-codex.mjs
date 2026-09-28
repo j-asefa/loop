@@ -30,9 +30,20 @@ export class SharedCodex {
     lines(
       process.stdout,
       (message) => {
+        const m = message.event;
+        if (m?.error && m.diagnostic?.phase === "process") {
+          // The native process can fail before the worker pipe closes. Retire
+          // this worker now so a new request cannot reuse its dead session.
+          this.close(
+            new RuntimeFailure(
+              diagnosticText(m.error),
+              runtimeFailureFacts(m.diagnostic),
+            ),
+          );
+          return;
+        }
         const op = this.operations.get(message.id);
         if (!op) return;
-        const m = message.event;
         if (m.finished) {
           op.finish();
           return;

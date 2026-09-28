@@ -10,6 +10,7 @@ import type {
   SettingsData,
   SettingValue,
 } from "../agent-activities.js";
+import type { ModelOption } from "../shared/models.js";
 export type Options = {
   harness: Harness;
   executable: string;
@@ -35,7 +36,8 @@ export type NativeCommand = {
 export type Emit = (event: AdapterEvent) => void;
 export interface Adapter {
   capabilities: Capabilities;
-  models?: { id: string; name: string }[];
+  models?: ModelOption[];
+  defaultModelOption?: ModelOption;
   commands?: NativeCommand[];
   activityCapabilities?: ActivityCapabilities;
   settings?: SettingsData;

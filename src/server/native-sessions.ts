@@ -1,4 +1,5 @@
 import { NativeOutput } from "./native-output.js";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 import { SteeringInbox } from "./steering.js";
 import { realpathSync, statSync } from "node:fs";
 import { basename } from "node:path";
@@ -250,7 +251,7 @@ export class NativeSessions {
       billing: options.billing,
       args: options.harness === "acp" ? options.args : undefined,
     };
-    const native = new classes[options.harness](
+    const native: Adapter = new classes[options.harness](
       { ...options, probeOnly: true },
       () => {},
     );
@@ -262,7 +263,10 @@ export class NativeSessions {
     }
     if (this.stopped) throw new Problem(409, "Workspace is stopping");
     const models = [
-      { id: "native-default", name: "Use native default" },
+      native.defaultModelOption || {
+        id: "native-default",
+        name: "Use native default",
+      },
       ...(native.models || []).filter((m) => m.id && m.id !== "native-default"),
     ];
     const capabilities = {
@@ -491,7 +495,7 @@ export class NativeSessions {
     }
     if (this.stopped) throw new Problem(409, "Workspace is stopping.");
     for (const old of this.live.values()) {
-      if (this.live.size < 16) break;
+      if (this.live.size < MAX_CONCURRENT_RUNS) break;
       if (!old.run) await this.dispose(old);
     }
     const generation = id();

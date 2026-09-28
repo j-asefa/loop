@@ -86,6 +86,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       assert(r.ok, JSON.stringify({ path, status: r.status, data }));
       return data as any;
     };
+    assert.equal((await api("/workspace")).concurrency, 32);
     await t.test("pairing enforces CSRF and profile capabilities", async () => {
       assert.equal(
         (

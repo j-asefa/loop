@@ -3,6 +3,48 @@ import assert from "node:assert/strict";
 import { choices } from "../src/local-runtime.js";
 import { serviceDefinition } from "../src/service.js";
 
+test("local Compose setup upgrades the old capacity without replacing credentials", async () => {
+  const { mkdtemp, mkdir, cp, writeFile, readFile, rm } =
+    await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const root = await mkdtemp(join(tmpdir(), "loop-capacity-upgrade-"));
+  try {
+    await mkdir(join(root, "deployment/local"), { recursive: true });
+    await mkdir(join(root, "runtime"));
+    await mkdir(join(root, ".local-native/secrets/app"), { recursive: true });
+    await cp(
+      "deployment/local/setup-native.mjs",
+      join(root, "deployment/local/setup-native.mjs"),
+    );
+    await cp("runtime/concurrency.mjs", join(root, "runtime/concurrency.mjs"));
+    const path = join(root, ".local-native/secrets/app/environments.json");
+    const original = [
+      {
+        name: "Docker",
+        capacity: 4,
+        credential: "fixture-only",
+        namespace: "preserved",
+      },
+      { name: "Custom", capacity: 8 },
+    ];
+    await writeFile(path, JSON.stringify(original));
+    const setup = () =>
+      promisify(execFile)(process.execPath, [
+        join(root, "deployment/local/setup-native.mjs"),
+      ]);
+    await setup();
+    const expected = [{ ...original[0], capacity: 32 }, original[1]];
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), expected);
+    await setup();
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), expected);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("provider and location choices form independent combinations", () => {
   for (const provider of ["openai", "anthropic", "both"]) {
     for (const execution of ["native", "docker", "both"]) {

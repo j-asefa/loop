@@ -182,6 +182,17 @@ export function CreateAgent({
                     : "Available to this connection. API-billed."}
               </span>
             </label>
+            <EffortSelect
+              model={models.find((m) => m.id === chosen)}
+              value={
+                models
+                  .find((m) => m.id === chosen)
+                  ?.effortLevels?.some((level) => level.value === effort)
+                  ? effort
+                  : ""
+              }
+              onChange={setEffort}
+            />
           </>
         ) : (
           <div className="note">
@@ -213,18 +224,6 @@ export function CreateAgent({
         </label>
         <details className="advanced-agent-options">
           <summary>Instructions & advanced options</summary>
-          <EffortSelect
-            model={models.find((m) => m.id === chosen)}
-            value={
-              models
-                .find((m) => m.id === chosen)
-                ?.effortLevels?.some((level) => level.value === effort)
-                ? effort
-                : ""
-            }
-            onChange={setEffort}
-          />
-
           <label>
             Agent instructions
             <textarea

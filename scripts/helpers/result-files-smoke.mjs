@@ -16,7 +16,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
   const fileId = randomUUID(),
     callId = randomUUID();
   const bytes = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
     "base64",
   );
   const checksum = createHash("sha256").update(bytes).digest("base64");

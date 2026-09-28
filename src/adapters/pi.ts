@@ -13,6 +13,7 @@ import {
   type Options,
 } from "./types.js";
 import type { Billing } from "../protocol.js";
+import type { ModelOption } from "../shared/models.js";
 
 export class Pi implements Adapter {
   private controlState?: DirectControls;
@@ -48,7 +49,8 @@ export class Pi implements Adapter {
   }
 
   capabilities = { ...capabilities };
-  models: { id: string; name: string }[] = [];
+  models: ModelOption[] = [];
+  defaultModelOption?: ModelOption;
   commands: NativeCommand[] = [];
   private native!: Native;
   private info: any;
@@ -180,7 +182,49 @@ export class Pi implements Adapter {
     this.models = (available.models || []).map((m: any) => ({
       id: m.provider + "/" + m.id,
       name: m.name || m.id,
+      effortLevels: this.info.modelEfforts
+        ?.find((entry: any) => entry.id === `${m.provider}/${m.id}`)
+        ?.levels.map((value: string) => ({ value })),
     }));
+    let settings = await this.readSettings();
+    const thinking = settings.find((setting) => setting.id === "effort");
+    this.defaultModelOption = {
+      id: "native-default",
+      name: "Use native default",
+      resolvedModel: state.model
+        ? `${state.model.provider}/${state.model.id}`
+        : undefined,
+      effortLevels: thinking?.choices?.map(({ value }) => ({
+        value: String(value),
+      })),
+      defaultEffort:
+        typeof thinking?.confirmed === "string"
+          ? thinking.confirmed
+          : undefined,
+    };
+    // Apply the saved agent preference to both new and resumed sessions before
+    // sending any prompt. Pi's RPC reports the effective value after clamping.
+    if (this.options.effort) {
+      if (
+        !thinking?.choices?.some(({ value }) => value === this.options.effort)
+      )
+        throw new Error(
+          "Choose a thinking level supported by the selected Pi model.",
+        );
+      await this.native.request(
+        "set_thinking_level",
+        { level: this.options.effort },
+        false,
+      );
+      settings = await this.readSettings();
+      if (
+        settings.find((setting) => setting.id === "effort")?.confirmed !==
+        this.options.effort
+      )
+        throw new Error(
+          "Pi did not apply the selected thinking level. Refresh the model options and retry.",
+        );
+    }
     const catalog = await this.native.request("get_commands", {}, false);
     this.commands = (catalog.commands || [])
       .filter((c: any) => c.name !== "loop-status")
@@ -190,7 +234,7 @@ export class Pi implements Adapter {
         kind: c.source || "command",
         description: c.description || "",
       }));
-    this.displayControls.publish(await this.readSettings(), this.commands);
+    this.displayControls.publish(settings, this.commands);
     const billing = this.billing();
     this.emit({
       type: "metadata",

@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSyn
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const state = resolve(root, ".local-native");
@@ -11,7 +12,18 @@ const appSecrets = resolve(secrets, "app");
 const workerSecrets = resolve(secrets, "worker");
 const memorySecrets = resolve(secrets, "memory");
 if (existsSync(resolve(appSecrets, "environments.json"))) {
-  console.log("Local native environment already exists; preserved. Delete .local-native only to reset it.");
+  const path = resolve(appSecrets, "environments.json");
+  const environments = JSON.parse(readFileSync(path, "utf8"));
+  // Upgrade the old generated default without replacing identities or custom caps.
+  let changed = false;
+  for (const environment of environments) {
+    if (environment.capacity === 4 || environment.capacity === undefined) {
+      environment.capacity = MAX_CONCURRENT_RUNS;
+      changed = true;
+    }
+  }
+  if (changed) writeFileSync(path, JSON.stringify(environments, null, 2) + "\n", { mode: 0o600 });
+  console.log("Local native environment preserved; capacity defaults updated. Restart Loop to apply provisioning changes.");
   process.exit(0);
 }
 const openssl = spawnSync("openssl", ["version"], { encoding: "utf8" });
@@ -47,7 +59,7 @@ const namespace = "local-" + randomBytes(8).toString("hex");
 writeFileSync(resolve(appSecrets, "environments.json"), JSON.stringify([{
   name: "Docker", url: "https://runner:3010", instanceId, namespace, credential: token,
   certificateFingerprint: workerCertificateFingerprint,
-  capacity: 4,
+  capacity: MAX_CONCURRENT_RUNS,
 }], null, 2) + "\n", { mode: 0o600 });
 writeFileSync(resolve(workerSecrets, "worker.json"), JSON.stringify({
   nativeHome: "/home/agent",

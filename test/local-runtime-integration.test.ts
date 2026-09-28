@@ -63,6 +63,7 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
       )
       .get() as any;
     assert.equal(environment.state, "online");
+    assert.equal(environment.capacity, 32);
     assert.match(environment.instance_id, /^local-/);
     assert.match(environment.url, /^https:\/\/127.0.0.1:/);
     const connection = db

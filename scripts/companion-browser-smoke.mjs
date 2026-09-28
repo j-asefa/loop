@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
@@ -60,7 +61,18 @@ try {
   });
   const page = await context.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (error) => {
+    // Reloading or revoking the device can interrupt an in-flight API fetch.
+    // Keep the same narrow WebKit diagnostic filter as the other browser checks.
+    if (
+      !isWebKitNavigationFetchError(
+        process.env.LOOP_BROWSER,
+        error,
+        host.gateway.origin,
+      )
+    )
+      errors.push(error.message);
+  });
   await page.goto(host.pair().url);
   await page.getByRole("button", { name: "Pair and open Loop" }).click();
   await page

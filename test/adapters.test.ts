@@ -12,6 +12,68 @@ import type { AdapterEvent, Harness } from "../src/protocol.js";
 const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
 import { until } from "./helpers.js";
+test("Pi exposes model-specific effort and applies saved effort to new and resumed sessions", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  try {
+    for (const resume of [undefined, "pi-1"]) {
+      const adapter = new Pi(
+        {
+          harness: "pi",
+          project: process.cwd(),
+          executable,
+          billing: "existing",
+          version: "fixture",
+          effort: "high",
+          resume,
+        },
+        () => {},
+      );
+      try {
+        await adapter.start();
+        assert.deepEqual(
+          adapter.models.map((model) => [
+            model.id,
+            model.effortLevels?.map((level) => level.value),
+          ]),
+          [
+            ["openai-codex/fixture", ["off", "low", "medium", "high"]],
+            ["openai-codex/plain", ["off"]],
+          ],
+        );
+        assert.equal(adapter.defaultModelOption?.defaultEffort, "medium");
+        assert.equal(
+          adapter.defaultModelOption?.resolvedModel,
+          "openai-codex/fixture",
+        );
+        assert.equal(
+          adapter.settings.options.find((option) => option.id === "effort")
+            ?.confirmed,
+          "high",
+        );
+      } finally {
+        await adapter.dispose();
+      }
+    }
+    const invalid = new Pi(
+      {
+        harness: "pi",
+        project: process.cwd(),
+        executable,
+        billing: "existing",
+        version: "fixture",
+        effort: "ultra",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(invalid.start(), /thinking level supported/);
+    } finally {
+      await invalid.dispose();
+    }
+  } finally {
+    delete process.env.LOOP_TEST_HARNESS;
+  }
+});
 for (const [name, Klass] of Object.entries({
   codex: Codex,
   pi: Pi,

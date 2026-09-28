@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 export function PairedDevices({ onClose }: { onClose: () => void }) {
   const [workspace, setWorkspace] = useState<any>(),
     [devices, setDevices] = useState<any[]>([]),
@@ -25,7 +26,7 @@ export function PairedDevices({ onClose }: { onClose: () => void }) {
       </p>
       <p className="muted">
         {workspace?.nativeProcesses || 0} native processes · up to{" "}
-        {workspace?.concurrency || 8} active tasks
+        {workspace?.concurrency ?? MAX_CONCURRENT_RUNS} active tasks
       </p>
       <p>
         Run <code>loop pair</code> to authorize another device. When the Quick

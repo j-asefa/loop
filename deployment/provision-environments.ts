@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../src/server/db.js";
 import { initializeAccess } from "../src/server/access.js";
 import { provisionEnvironment } from "../src/server/hapi/environments.js";
+import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
 initializeAccess();
 const owner = (
   db.prepare("SELECT owner_id FROM installation WHERE id=1").get() as any
@@ -21,7 +22,7 @@ const inputs = z
       namespace: z.string(),
       credential: z.string(),
       certificateFingerprint: z.string(),
-      capacity: z.number().int().min(1).max(32).default(2),
+      capacity: z.number().int().min(1).max(MAX_CONCURRENT_RUNS).default(MAX_CONCURRENT_RUNS),
     }),
   )
   .parse(JSON.parse(readFileSync(process.env.LOOP_ENVIRONMENTS_FILE || "/private/environments.json", "utf8")));

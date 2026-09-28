@@ -15,6 +15,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { lines } from "./protocol.mjs";
 import { SteeringControls } from "./steering.mjs";
 import { SharedCodex } from "./shared-codex.mjs";
+import { MAX_CONCURRENT_RUNS } from "./concurrency.mjs";
 import {
   loginDeadline,
   LoginTimeoutError,
@@ -36,7 +37,7 @@ const pending = new Map(),
   active = new Map(),
   logins = new Map(),
   generations = new Map();
-const MAX_ACTIVE = 8;
+const MAX_ACTIVE = MAX_CONCURRENT_RUNS;
 const codexWorkers = new Map();
 const codexMaintenance = new Map();
 const activeCount = () =>
