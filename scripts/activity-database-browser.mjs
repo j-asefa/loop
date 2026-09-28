@@ -314,9 +314,10 @@ try {
       `${base}/activity-integration?conversation=${conversation}&agent=${agent}`,
       { waitUntil: "domcontentloaded" },
     );
+    await expect(page.getByText("0 of 1 complete")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: /Command output/ }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText("Approve fixture command", { exact: true }),
     ).toBeVisible();
@@ -347,7 +348,7 @@ try {
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: /Command output/ }),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     assert.equal(await page.locator("img[src=x]").count(), 0);
     assert.equal(await page.evaluate(() => globalThis.pwned), undefined);
     assert(
@@ -355,12 +356,25 @@ try {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
-    const output = page.getByLabel("Scrollable command output");
+    // Raw calls/output stay out of the transcript, but remain inspectable.
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("button", { name: "Tool activity", exact: true })
+      .click();
+    const toolSheet = page.getByRole("dialog", {
+      name: "Tool activity",
+      exact: true,
+    });
+    const output = toolSheet.getByLabel("Scrollable command output");
+    await expect(output).toBeVisible();
     await output.evaluate((e) => {
       e.scrollTop = 0;
       e.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
-    await page.getByRole("button", { name: "Follow latest output" }).click();
+    await toolSheet
+      .getByRole("button", { name: "Follow latest output" })
+      .click();
+    await toolSheet.getByRole("button", { name: "Close", exact: true }).click();
     const activeRejection = await page.request.patch(
       `${base}/api/conversations/${conversation}/settings/model`,
       {
@@ -432,13 +446,13 @@ try {
     await expect(page.getByText("1 of 1 complete")).toBeVisible();
     await expect(
       page.locator("summary").filter({ hasText: "Broker fixture" }),
-    ).toHaveCount(1);
-    await expect(page.getByText("Exit code: 0")).toBeVisible();
+    ).toHaveCount(0);
+    await expect(page.getByText("Exit code: 0")).toHaveCount(0);
     await page.reload();
     await expect(page.getByText("1 of 1 complete")).toBeVisible();
     await expect(
       page.locator("summary").filter({ hasText: "Broker fixture" }),
-    ).toHaveCount(1);
+    ).toHaveCount(0);
     await page.screenshot({
       path: `.tmp/activity-database-${width}.png`,
       fullPage: true,
@@ -448,9 +462,19 @@ try {
     );
     await page.getByRole("button", { name: /Integrated activities/ }).click();
     await expect(page.getByText("1 of 1 complete")).toBeVisible();
+    await expect(page.locator(".messages")).not.toContainText("Broker fixture");
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("button", { name: "Tool activity", exact: true })
+      .click();
     await expect(
       page.locator("summary").filter({ hasText: "Broker fixture" }),
     ).toHaveCount(1);
+    await expect(page.getByText("Exit code: 0")).toBeVisible();
+    await page
+      .getByRole("dialog", { name: "Tool activity", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     nativeSessions.live.delete(conversation);
     await page.getByLabel("Conversation options").click();
     await page

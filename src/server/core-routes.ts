@@ -8,7 +8,7 @@ import {
   feedRevision,
   feedUpdates,
   feedOutputSql,
-  finishedArtifactSql,
+  fileArtifactSql,
   projectFolders,
 } from "./feed.js";
 import { agentTraces } from "./traces.js";
@@ -590,7 +590,7 @@ core.get("/feed", (req, res) => {
     return;
   }
   if (req.query.view === "files")
-    where += ` AND ${finishedArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
+    where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
   else where += ` AND ${feedOutputSql}`;
   const items = db
     .prepare(

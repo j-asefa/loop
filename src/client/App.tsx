@@ -1,5 +1,5 @@
 import { AgentModelSettings } from "./AgentModelSettings";
-import { agentModelName, effortName } from "./modelChoices";
+import { agentModelName, effortName, runModelName } from "./modelChoices";
 import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
 import { MAX_MESSAGE_FILES } from "../shared/uploads";
 import { capabilities } from "./capabilities";
@@ -9,12 +9,19 @@ import { HarnessPicker } from "./HarnessPicker";
 import { RunStatus } from "./RunStatus";
 import { AgentDirectory } from "./AgentDirectory";
 import { YourAgents } from "./YourAgents";
+import { AgentWork, currentAgentWork } from "./AgentWork";
+import { agentStatusLine } from "./agentStatusLine";
+import { AgentConversations } from "./AgentConversations";
 import { belongsToProject } from "../shared/projects";
 import { ProjectFiles } from "./ProjectFiles";
 import { ProjectActivity } from "./ProjectActivity";
 import { Projects } from "./Projects";
 import { Traces } from "./Traces";
 import { AgentMessages } from "./AgentMessages";
+import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
+import { usePageHistory } from "./usePageHistory";
+import { useSwipeBack } from "./useSwipeBack";
+import type { ComposerContext } from "./composerContext";
 import { FeedPager } from "./feed";
 import {
   TeamFilter,
@@ -176,6 +183,23 @@ export default function App() {
     new URLSearchParams(location.search).get("message"),
   );
   const [composerExpanded, setComposerExpanded] = useState(false);
+  const [replyContext, setReplyContext] = useState<ComposerContext | null>(() =>
+    parse(sessionStorage.getItem("loop-draft-context") || "", null),
+  );
+  const [conversationTarget, setConversationTarget] =
+    useState<ComposerContext | null>(null);
+  useEffect(() => {
+    if (replyContext)
+      sessionStorage.setItem(
+        "loop-draft-context",
+        JSON.stringify(replyContext),
+      );
+    else sessionStorage.removeItem("loop-draft-context");
+  }, [replyContext]);
+  useEffect(() => {
+    if (replyContext && selected !== replyContext.agentId)
+      setReplyContext(null);
+  }, [selected]);
   const [project, setProject] = useState(
     new URLSearchParams(location.search).get("projectView") || "",
   );
@@ -193,10 +217,18 @@ export default function App() {
   }, [selected]);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const [dismissNotice, setDismissNotice] = useState("");
+  const [sendNotice, setSendNotice] = useState<{
+    runId: string;
+    conversationId: string | null;
+    agentId: string;
+    agentName: string;
+    steering: boolean;
+  } | null>(null);
   const dismissLock = useRef(false);
   const [archivedCard, setArchivedCard] = useState<string | null>(null);
   const composerRef = useRef<HTMLElement>(null);
   function setConversation(id: string | null, message?: string) {
+    setConversationTarget(null);
     setMessageId(message || null);
     updateConversation(id);
     if (id) {
@@ -210,7 +242,11 @@ export default function App() {
         teamSelection.length === 1
           ? data.teams?.find((t) => t.id === teamSelection[0])
           : undefined;
-      if (team) setSelected(team.manager_id);
+      // Closing a conversation must leave an unsent reply with its recipient.
+      if (!draft.trim() && !attachments.length) {
+        if (profile) setSelected(profile.id);
+        else if (team) setSelected(team.manager_id);
+      }
       const url = new URL(location.href);
       url.searchParams.delete("conversation");
       url.searchParams.delete("message");
@@ -227,7 +263,52 @@ export default function App() {
     document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
     setComposerExpanded(false);
   }
+  function beginReply(context: ComposerContext, text?: string) {
+    setConversation(null);
+    setActiveArtifact(null);
+    setContextArtifact(null);
+    setReplyContext(context);
+    setSelected(context.agentId);
+    setFolderChoice(undefined);
+    setComposerError("");
+    const url = new URL(location.href);
+    url.searchParams.delete("artifact");
+    history.replaceState(history.state, "", url.pathname + url.search);
+    if (text !== undefined) setDraft(text);
+    else if (!draft.trim()) {
+      const previous =
+        (context.messageId &&
+          sessionStorage.getItem("loop-message-reply-" + context.messageId)) ||
+        (context.artifactId &&
+          sessionStorage.getItem("loop-result-reply-" + context.artifactId));
+      if (previous) setDraft(previous);
+    }
+    setComposerExpanded(true);
+    afterSheetsClose(focusComposer);
+  }
+  async function replyToArtifact(item: Artifact) {
+    try {
+      const original = await api<Artifact>("/artifacts/" + item.id);
+      if (
+        !original.agent_id ||
+        !original.conversation_id ||
+        parse<any>(original.metadata, {}).origin === "import"
+      )
+        return void open(original);
+      beginReply({
+        agentId: original.agent_id,
+        conversationId: original.conversation_id,
+        messageId: parse<any>(original.metadata, {}).messageId,
+        artifactId: original.id,
+        title: original.title,
+        content: original.content,
+      });
+    } catch (error) {
+      setError((error as Error).message);
+    }
+  }
   function messageTeam(team: Team) {
+    setReplyContext(null);
     setSelected(team.manager_id);
     setContextArtifact(null);
     if (team.conversation_id) setConversation(team.conversation_id);
@@ -261,7 +342,64 @@ export default function App() {
   );
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedError, setFeedError] = useState("");
+  const [workspaceLoadError, setWorkspaceLoadError] = useState("");
   const [settingsParent, setSettingsParent] = useState(false);
+  const previousPage = usePageHistory(
+    JSON.stringify([
+      tab,
+      profile?.id,
+      tab === "projects" ? project : "",
+      tab === "saved" ? folder : "",
+      teamKey,
+    ]),
+    {
+      tab,
+      profileId: profile?.id,
+      project,
+      folder,
+      view,
+      teamSelection,
+      projectFilter,
+      query,
+      conversation,
+      messageId,
+      activeArtifact,
+    },
+    session?.user?.id,
+    (previous, scroll) => {
+      setTab(previous.tab);
+      setProfile(
+        data.agents.find((agent) => agent.id === previous.profileId) || null,
+      );
+      setProject(previous.project);
+      setFolder(previous.folder);
+      setView(previous.view);
+      setTeamSelection(previous.teamSelection);
+      setProjectFilter(previous.projectFilter);
+      setQuery(previous.query);
+      setConversation(previous.conversation, previous.messageId || undefined);
+      setActiveArtifact(previous.activeArtifact);
+      afterSheetsClose(() =>
+        window.scrollTo({ top: scroll, behavior: "instant" }),
+      );
+    },
+  );
+  useSwipeBack(Boolean(session?.user), () => {
+    if (closeTopSheet() || previousPage()) return true;
+    if (profile) {
+      setProfile(null);
+      setView("all");
+    } else if (tab === "projects" && project) setProject("");
+    else if (tab === "saved" && folder)
+      setFolder(
+        data.folders.find((item) => item.id === folder)?.parent_id || "",
+      );
+    else if (tab !== "feed") {
+      setTab("feed");
+      setView("all");
+    } else return false;
+    return true;
+  });
   const [editError, setEditError] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   function closeSheet() {
@@ -304,7 +442,12 @@ export default function App() {
   const [filing, setFiling] = useState<Artifact | null>(null),
     [revision, setRevision] = useState(0),
     [runFilter, setRunFilter] = useState("all");
-  const request = useRef({ signature: "", key: "" });
+  const request = useRef(
+    parse<{ signature: string; key: string }>(
+      sessionStorage.getItem("loop-draft-receipt") || "",
+      { signature: "", key: "" },
+    ),
+  );
   const ownerRef = useRef<string | undefined>(undefined);
   ownerRef.current = session?.user?.id;
   const personalWorkspace = useRef(false);
@@ -324,7 +467,7 @@ export default function App() {
     selected === "__route__"
       ? data.agents.find((a) => a.id === routePreview?.agent?.id)
       : data.agents.find((a) => a.id === selected) ||
-        data.agents.find((a) => a.connection_id);
+        (!replyContext ? data.agents.find((a) => a.connection_id) : undefined);
   const selectedTeams =
     data.teams?.filter((t) => teamSelection.includes(t.id)) || [];
   const teamAgents = new Set(
@@ -338,12 +481,29 @@ export default function App() {
   );
   const scopedRuns = runs.filter(
     (r) =>
-      !projectFilter ||
-      belongsToProject(
-        parse<any>(r.payload, {}).folderId,
-        projectFilter,
-        data.folders,
-      ),
+      (!teamSelection.length ||
+        teamSelection.includes(parse<any>(r.payload, {}).teamId)) &&
+      (!projectFilter ||
+        belongsToProject(
+          parse<any>(r.payload, {}).folderId,
+          projectFilter,
+          data.folders,
+        )),
+  );
+  const profileWork = currentAgentWork(runs, profile?.id);
+  const sentRun = runs.find((run) => run.id === sendNotice?.runId);
+  const visibleRuns = scopedRuns.filter((run) =>
+    runFilter === "all"
+      ? ["running", "pausing"].includes(run.state)
+      : runFilter === "queued"
+        ? run.state === "queued"
+        : [
+            "paused",
+            "awaiting_approval",
+            "interrupted",
+            "failed",
+            "waiting_children",
+          ].includes(run.state),
   );
   const working = scopedRuns.filter((r) =>
     ["running", "pausing", "waiting_children"].includes(r.state),
@@ -422,27 +582,15 @@ export default function App() {
       });
     }
   }
-  const runsKey = useRef("");
   const runsGeneration = useRef(0);
-  const runsScope = session?.user?.id + ":" + teamKey;
-  const runsScopeRef = useRef(runsScope);
-  runsScopeRef.current = runsScope;
   async function loadRuns() {
     const owner = ownerRef.current;
-    const key = owner + ":" + teamKey;
-    if (key !== runsScopeRef.current) return;
-    runsKey.current = key;
+    if (!owner) return;
     const generation = ++runsGeneration.current;
-    const result = await api<Run[]>(
-      "/runs?active=1&teams=" + encodeURIComponent(teamKey),
-    );
-    if (
-      owner &&
-      owner === ownerRef.current &&
-      runsKey.current === key &&
-      generation === runsGeneration.current &&
-      key === runsScopeRef.current
-    )
+    // Profiles show all of an agent's work. Feed and Running apply their
+    // team/project filters locally without changing the profile's data.
+    const result = await api<Run[]>("/runs?active=1");
+    if (owner === ownerRef.current && generation === runsGeneration.current)
       setRuns(result);
   }
   async function loadFeed(append = false, notify = true) {
@@ -459,7 +607,7 @@ export default function App() {
       const query = () => {
         const q = new URLSearchParams({
           view: ["traces", "messages"].includes(view) ? "all" : view,
-          teams: teamKey,
+          teams: profile ? "" : teamKey,
         });
         if (profile) q.set("agent", profile.id);
         if (projectFilter && !profile) q.set("folder", projectFilter);
@@ -491,8 +639,30 @@ export default function App() {
       if (key === feedContext.current) setFeedLoading(false);
     }
   }
+  const refreshGeneration = useRef(0);
   async function refresh() {
-    await Promise.all([bootstrap(), loadFeed(), loadRuns()]);
+    const owner = ownerRef.current;
+    const generation = ++refreshGeneration.current;
+    const [workspace, , tasks] = await Promise.allSettled([
+      bootstrap(),
+      loadFeed(),
+      loadRuns(),
+    ]);
+    if (
+      !owner ||
+      owner !== ownerRef.current ||
+      generation !== refreshGeneration.current
+    )
+      return;
+    // Loading failures recover independently of action errors. A later
+    // successful read must remove its warning without hiding a failed send.
+    setWorkspaceLoadError(
+      workspace.status === "rejected"
+        ? "Couldn’t refresh your agents and projects."
+        : tasks.status === "rejected"
+          ? "Couldn’t refresh task status."
+          : "",
+    );
   }
   useEffect(() => {
     void check().catch((e) => setError(e.message));
@@ -506,6 +676,8 @@ export default function App() {
       setData({ agents: [], connections: [], folders: [] });
       setItems([]);
       setRuns([]);
+      setSendNotice(null);
+      setWorkspaceLoadError("");
       sessionStorage.clear();
       setTeamSelection([]);
       setArchivedCard(null);
@@ -524,6 +696,7 @@ export default function App() {
       setConversation(null);
       setActiveArtifact(null);
       setContextArtifact(null);
+      setReplyContext(null);
       setRoutePreview(null);
       setFiling(null);
       setSettingsParent(false);
@@ -535,6 +708,32 @@ export default function App() {
   useEffect(() => {
     if (session?.user) void refresh().catch((e) => setError(e.message));
   }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
+  useEffect(() => {
+    if (!session?.user) return;
+    const retry = () => {
+      void refresh();
+    };
+    const visible = () => {
+      if (document.visibilityState === "visible") retry();
+    };
+    const timer = workspaceLoadError ? setInterval(retry, 5000) : undefined;
+    window.addEventListener("online", retry);
+    window.addEventListener("pageshow", retry);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", retry);
+      window.removeEventListener("pageshow", retry);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [
+    session?.user?.id,
+    profile?.id,
+    view,
+    teamKey,
+    projectFilter,
+    workspaceLoadError,
+  ]);
   useEffect(() => {
     if (!session?.user) return;
     if (!capabilities.pairedDevices) {
@@ -570,7 +769,8 @@ export default function App() {
             loadFeed(false, events.length === 0),
             ...(events.length ? [loadRuns()] : []),
           ]);
-        } catch {} finally {
+        } catch {
+        } finally {
           active.delete(controller);
         }
       }, 1800);
@@ -611,7 +811,11 @@ export default function App() {
   }, [draft]);
   async function send() {
     if (busy || uploading || !draft.trim()) return;
-    if (/^(put|move|file|organize)\b[\s\S]*\b(in|into|to)\b/i.test(draft)) {
+    if (
+      !replyContext &&
+      !conversation &&
+      /^(put|move|file|organize)\b[\s\S]*\b(in|into|to)\b/i.test(draft)
+    ) {
       if (!contextArtifact) {
         setError(
           "Open the output you want to organize first, then enter your filing instruction.",
@@ -660,6 +864,7 @@ export default function App() {
     if (!draft.trim()) return;
     setBusy(true);
     setComposerError("");
+    const owner = ownerRef.current;
     try {
       let recipient = activeAgent;
       if (draft.trim().startsWith("@")) {
@@ -670,30 +875,67 @@ export default function App() {
       const managerTeam = data.teams?.find(
         (t) =>
           t.manager_id === recipient.id &&
-          (!teamSelection.length || teamSelection.includes(t.id)),
+          (profile || !teamSelection.length || teamSelection.includes(t.id)),
       );
-      const conversationId = managerTeam
-        ? managerTeam.conversation_id || undefined
-        : contextArtifact?.agent_id === recipient.id
-          ? contextArtifact.conversation_id || undefined
-          : teamSelection.length === 1 &&
-              data.teams?.find((t) => t.id === teamSelection[0])?.manager_id ===
-                recipient.id
-            ? data.teams.find((t) => t.id === teamSelection[0])!
-                .conversation_id || undefined
-            : undefined;
+      const reply =
+        replyContext?.agentId === recipient.id ? replyContext : undefined;
+      const currentConversation =
+        conversation && conversationTarget?.agentId === recipient.id
+          ? conversationTarget.conversationId
+          : undefined;
+      const conversationId =
+        reply?.conversationId ||
+        currentConversation ||
+        (managerTeam
+          ? managerTeam.conversation_id || undefined
+          : contextArtifact?.agent_id === recipient.id
+            ? contextArtifact.conversation_id || undefined
+            : teamSelection.length === 1 &&
+                data.teams?.find((t) => t.id === teamSelection[0])
+                  ?.manager_id === recipient.id
+              ? data.teams.find((t) => t.id === teamSelection[0])!
+                  .conversation_id || undefined
+              : undefined);
       const signature = JSON.stringify([
         recipient.id,
         draft,
         folderChoice,
         conversationId,
+        reply?.messageId,
         attachments.map((file) => file.id),
       ]);
-      if (request.current.signature !== signature)
-        request.current = { signature, key: crypto.randomUUID() };
-      await api<Run>("/runs", {
+      if (request.current.signature !== signature) {
+        // A conversation draft from the previous composer may be retrying a
+        // response that was saved by the server but never acknowledged.
+        const previous =
+          conversationId && !reply?.messageId
+            ? parse<{ signature?: string; key?: string }>(
+                sessionStorage.getItem("loop-receipt-" + conversationId) || "",
+                {},
+              )
+            : {};
+        const previousSignature = JSON.stringify([
+          conversationId,
+          recipient.id,
+          draft,
+          attachments.map((file) => file.id),
+        ]);
+        request.current = {
+          signature,
+          key:
+            previous.signature === previousSignature && previous.key
+              ? previous.key
+              : crypto.randomUUID(),
+        };
+      }
+      sessionStorage.setItem(
+        "loop-draft-receipt",
+        JSON.stringify(request.current),
+      );
+      const accepted = await api<Run & { steeringId?: string }>("/runs", {
         agentId: recipient.id,
         conversationId,
+        replyToMessageId: reply?.messageId,
         input: draft,
         idempotencyKey: request.current.key,
         attachmentIds: attachments.map((file) => file.id),
@@ -704,13 +946,42 @@ export default function App() {
               ? undefined
               : recipient.folder_id || undefined,
       });
+      if (owner !== ownerRef.current) return;
+      // Publish the confirmed receipt before any background refresh. Discard
+      // older reads so a response started before this send cannot erase it.
+      ++runsGeneration.current;
+      if (accepted.agent_id && accepted.state)
+        setRuns((old) => [
+          { ...old.find((run) => run.id === accepted.id), ...accepted },
+          ...old.filter((run) => run.id !== accepted.id),
+        ]);
+      setSendNotice({
+        runId: accepted.id,
+        conversationId: accepted.conversation_id || conversationId || null,
+        agentId: recipient.id,
+        agentName: recipient.name,
+        steering: Boolean(accepted.steeringId),
+      });
       setDraft("");
       setAttachments([]);
       request.current = { signature: "", key: "" };
+      sessionStorage.removeItem("loop-draft-receipt");
+      if (conversationId) {
+        sessionStorage.removeItem("loop-conversation-" + conversationId);
+        sessionStorage.removeItem("loop-conversation-files-" + conversationId);
+        sessionStorage.removeItem("loop-receipt-" + conversationId);
+      }
+      if (reply?.messageId)
+        sessionStorage.removeItem("loop-message-reply-" + reply.messageId);
+      if (reply?.artifactId)
+        sessionStorage.removeItem("loop-result-reply-" + reply.artifactId);
+      setReplyContext(null);
+      setContextArtifact(null);
+      if (conversation) setConversation(null);
       collapseComposer();
       void refresh().catch((e) => setError(e.message));
     } catch (e) {
-      setComposerError((e as Error).message);
+      if (owner === ownerRef.current) setComposerError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -761,7 +1032,7 @@ export default function App() {
     }
   }, [profile?.id]);
   useEffect(() => {
-    if (profile || draft.trim()) return;
+    if (conversation || profile || draft.trim() || replyContext) return;
     const target =
       scopedAgents.find((a) => a.id === selected) ||
       scopedAgents.find((a) => a.connection_id);
@@ -770,7 +1041,7 @@ export default function App() {
       setFolderChoice(undefined);
       setFolder(target.folder_id || "");
     }
-  }, [projectFilter, teamKey, data.agents]);
+  }, [projectFilter, teamKey, data.agents, conversation]);
   async function runAction(r: Run, action: string) {
     try {
       await api(`/runs/${r.id}/${action}`, {});
@@ -837,6 +1108,266 @@ export default function App() {
       </div>
     );
   if (!session?.user) return <Auth onDone={() => void check()} />;
+  const messageComposer =
+    data.agents.length > 0 ? (
+      <section
+        ref={composerRef}
+        className={
+          "composer-dock " + (composerExpanded ? "expanded" : "collapsed")
+        }
+      >
+        {sendNotice && !composerExpanded && !conversation && (
+          <div className="send-confirmation" role="status">
+            <span>
+              {sendNotice.steering
+                ? "Follow-up accepted for"
+                : sentRun?.state === "queued"
+                  ? "Queued for"
+                  : ["running", "pausing", "waiting_children"].includes(
+                        sentRun?.state || "",
+                      )
+                    ? "Running with"
+                    : "Message sent to"}{" "}
+              <strong>@{sendNotice.agentName}</strong>
+            </span>
+            {sendNotice.conversationId && (
+              <button
+                className="text-button"
+                onClick={() => {
+                  setSelected(sendNotice.agentId);
+                  setConversation(sendNotice.conversationId);
+                  setSendNotice(null);
+                }}
+              >
+                View conversation <ArrowUpRight size={16} />
+              </button>
+            )}
+            <button
+              className="icon-button"
+              aria-label="Dismiss send confirmation"
+              onClick={() => setSendNotice(null)}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+        {!composerExpanded && (
+          <button
+            className="composer-launch"
+            onClick={focusComposer}
+            aria-label="Compose a message"
+            aria-expanded={false}
+          >
+            <MessageSquare size={20} />
+            <span>
+              {draft
+                ? `Draft to @${activeAgent?.name || "agent"}…`
+                : activeAgent
+                  ? "Message @" + activeAgent.name + "…"
+                  : "Message an agent…"}
+            </span>
+            <Plus size={18} />
+          </button>
+        )}
+        <div className="composer" hidden={!composerExpanded}>
+          <div className="composer-heading">
+            <label className="composer-field">
+              <span className="sr-only">Send to</span>
+              <select
+                aria-label="Agent recipient"
+                disabled={busy || uploading}
+                value={
+                  selected === "__route__" ? "__route__" : activeAgent?.id || ""
+                }
+                onChange={(e) => {
+                  setSelected(e.target.value);
+                  setReplyContext(null);
+                  setContextArtifact(null);
+                  if (
+                    conversation &&
+                    e.target.value !== conversationTarget?.agentId
+                  )
+                    setConversation(null);
+                  setFolderChoice(undefined);
+                  const agent = data.agents.find(
+                    (a) => a.id === e.target.value,
+                  );
+                  if (agent) setFolder(agent.folder_id || "");
+                }}
+              >
+                {!data.agents.length && (
+                  <option value="">Choose your first agent</option>
+                )}
+                <option value="__route__">Let Loop route this</option>
+                {data.agents.map((a) => (
+                  <option value={a.id} key={a.id}>
+                    @{a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="composer-collapse text-button"
+              onClick={collapseComposer}
+              aria-label="Collapse composer"
+            >
+              <ChevronDown size={18} /> Minimize
+            </button>
+          </div>
+          {selected === "__route__" && routePreview && (
+            <p className="route-preview">
+              {routePreview.agent
+                ? "Recipient: @" + routePreview.agent.name + " · "
+                : ""}
+              {routePreview.reason}
+            </p>
+          )}
+          {replyContext && (replyContext.content || !conversation) && (
+            <div className="composer-reply-context">
+              <div className="composer-context-heading">
+                <span>Replying to @{activeAgent?.name}</span>
+                <button
+                  className="icon-button"
+                  aria-label="Clear reply context"
+                  onClick={() => setReplyContext(null)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              {replyContext.content && (
+                <div
+                  className="composer-quote"
+                  role="region"
+                  aria-label="Original message"
+                  tabIndex={0}
+                >
+                  <RichText content={replyContext.content} compact />
+                </div>
+              )}
+            </div>
+          )}
+          {!replyContext && contextArtifact && (
+            <div className="context-strip">
+              <span>About: {contextArtifact.title}</span>
+              <button
+                aria-label="Clear conversation context"
+                onClick={() => setContextArtifact(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          <div className="composer-main">
+            <textarea
+              id="composer"
+              aria-label={
+                replyContext || conversation
+                  ? "Reply to agent"
+                  : "Message your agent"
+              }
+              disabled={busy}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setComposerExpanded(false);
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              placeholder="An idea, a question, a ‘what if’…"
+              rows={2}
+            />
+          </div>
+          <AttachmentList
+            files={attachments}
+            onRemove={(id) =>
+              setAttachments(attachments.filter((file) => file.id !== id))
+            }
+          />
+          {composerError && (
+            <div className="composer-error error" role="alert">
+              {composerError}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setComposerError("")}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          <div className="composer-foot">
+            <HarnessPicker
+              conversationId={
+                replyContext?.conversationId || (conversation ?? undefined)
+              }
+              agentId={selected === "__route__" ? undefined : activeAgent?.id}
+              value={draft}
+              onChange={setDraft}
+              focusInput={() => document.getElementById("composer")?.focus()}
+            />
+          </div>
+          <div className="composer-actions">
+            <UploadButton
+              menu
+              folderId={folderChoice ?? activeAgent?.folder_id}
+              agentId={activeAgent?.id}
+              disabled={busy}
+              remaining={MAX_MESSAGE_FILES - attachments.length}
+              onBusy={setUploading}
+              onUploaded={(file) => {
+                attachmentsRef.current = [...attachmentsRef.current, file];
+                setAttachments(attachmentsRef.current);
+              }}
+            />
+            <button
+              type="button"
+              className="composer-model"
+              aria-label="Select model and effort"
+              aria-haspopup="dialog"
+              disabled={!activeAgent}
+              onClick={() => activeAgent && setModelAgent(activeAgent)}
+            >
+              {activeAgent ? (
+                <>
+                  <span className="composer-model-label">
+                    <span className="composer-model-name">
+                      {agentModelName(activeAgent, data.connections)}
+                    </span>
+                    <small className="composer-effort">
+                      {effortName(activeAgent.effort)} effort
+                    </small>
+                  </span>
+                  <ChevronDown size={15} />
+                </>
+              ) : (
+                "Select an agent"
+              )}
+            </button>
+            <button
+              className="send-button"
+              aria-label={
+                selected === "__route__" && !routePreview
+                  ? "Preview route"
+                  : replyContext || conversation
+                    ? "Send reply"
+                    : "Send message"
+              }
+              disabled={busy || uploading || !draft.trim()}
+              onClick={() => void send()}
+            >
+              {busy
+                ? "Sending…"
+                : selected === "__route__" && !routePreview
+                  ? "Preview"
+                  : "Send"}
+              <ArrowUp size={19} />
+            </button>
+          </div>
+        </div>
+      </section>
+    ) : null;
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -931,6 +1462,14 @@ export default function App() {
           </div>
         </header>
         <main className="workspace-content">
+          {workspaceLoadError && (
+            <div className="workspace-load-status note" role="status">
+              <span>{workspaceLoadError} Retrying…</span>
+              <button className="text-button" onClick={() => void refresh()}>
+                Retry now
+              </button>
+            </div>
+          )}
           {capabilities.pairedDevices && <WorkspaceConnection />}
           {capabilities.nativeHarnesses && (
             <button
@@ -959,11 +1498,48 @@ export default function App() {
                 <p className="muted profile-model">
                   {agentModelName(profile, data.connections)}
                 </p>
-                <p>{profile.instructions || "Ready for your next idea."}</p>
+                <p className="profile-status">
+                  {profile.instructions ||
+                    (profileWork.some((run) =>
+                      ["running", "pausing", "waiting_children"].includes(
+                        run.state,
+                      ),
+                    )
+                      ? agentStatusLine(
+                          profile.id,
+                          profileWork.find((run) =>
+                            ["running", "pausing", "waiting_children"].includes(
+                              run.state,
+                            ),
+                          )?.id,
+                        )
+                      : profileWork.some((run) =>
+                            ["paused", "awaiting_approval"].includes(run.state),
+                          )
+                        ? "Waiting for your input."
+                        : profileWork.length
+                          ? "Your work is queued."
+                          : agentStatusLine(profile.id))}
+                </p>
                 <ProfileTeams
                   agent={profile}
                   teams={data.teams || []}
                   onMessage={messageTeam}
+                  onOpen={(team) => {
+                    setProfile(null);
+                    setTab("feed");
+                    setView("all");
+                    setTeamSelection([team.id]);
+                    setProjectFilter("");
+                    if (!draft.trim() && !attachments.length) {
+                      setSelected(team.manager_id);
+                      setReplyContext(null);
+                      setContextArtifact(null);
+                    }
+                    afterSheetsClose(() =>
+                      window.scrollTo({ top: 0, behavior: "instant" }),
+                    );
+                  }}
                 />
                 <div className="profile-actions">
                   <button
@@ -978,6 +1554,15 @@ export default function App() {
                     <MessageSquare size={16} />
                     Message
                   </button>
+                  <AgentConversations
+                    key={session.user.id + ":" + profile.id}
+                    agent={profile}
+                    teams={data.teams || []}
+                    onOpen={(id) => {
+                      setSelected(profile.id);
+                      setConversation(id);
+                    }}
+                  />
                   <button
                     className="text-button"
                     onClick={() => {
@@ -998,47 +1583,10 @@ export default function App() {
                 >
                   Search this agent
                 </button>
-                <p className="field-hint">
-                  {
-                    runs.filter(
-                      (r) => r.agent_id === profile.id && r.state === "queued",
-                    ).length
-                  }{" "}
-                  pending tasks in this agent’s queue
-                </p>
-                {runs.filter(
-                  (r) => r.agent_id === profile.id && r.state === "queued",
-                ).length > 0 && (
-                  <details className="agent-queue">
-                    <summary>View pending tasks</summary>
-                    <ol>
-                      {runs
-                        .filter(
-                          (r) =>
-                            r.agent_id === profile.id && r.state === "queued",
-                        )
-                        .sort(
-                          (a, b) =>
-                            ((a as any).queue_position || 0) -
-                            ((b as any).queue_position || 0),
-                        )
-                        .map((r) => (
-                          <li key={r.id}>
-                            <button
-                              className="text-button"
-                              onClick={() =>
-                                r.conversation_id &&
-                                setConversation(r.conversation_id)
-                              }
-                            >
-                              {r.input}
-                            </button>
-                            <small>Position {(r as any).queue_position}</small>
-                          </li>
-                        ))}
-                    </ol>
-                  </details>
-                )}
+                <AgentWork
+                  runs={profileWork}
+                  onConversation={setConversation}
+                />
               </section>
               <div className="segmented">
                 {[
@@ -1098,8 +1646,12 @@ export default function App() {
               {tab === "feed" && data.agents.length > 0 ? (
                 <button
                   className="icon-button feed-compose-button"
-                  aria-label="New message"
-                  onClick={focusComposer}
+                  aria-label="Create agent"
+                  onClick={() => {
+                    setReturnTo("");
+                    setFolder(projectFilter);
+                    setSheet("create");
+                  }}
                 >
                   <Plus size={29} />
                 </button>
@@ -1179,9 +1731,8 @@ export default function App() {
                 <YourAgents
                   agents={scopedAgents}
                   connections={data.connections}
-                  runs={scopedRuns}
+                  runs={runs}
                   onProfile={setProfile}
-                  onDirectory={() => setSheet("agents")}
                   onCreate={() => {
                     setFolder(projectFilter);
                     setSheet("create");
@@ -1250,10 +1801,7 @@ export default function App() {
               agent={profile}
               revision={revision}
               onConversation={setConversation}
-              onSent={() => {
-                collapseComposer();
-                void refresh().catch((e) => setError(e.message));
-              }}
+              onReply={beginReply}
             />
           )}
           {(tab === "feed" || profile) &&
@@ -1345,6 +1893,7 @@ export default function App() {
                       <ArtifactCard
                         key={item.id}
                         item={item}
+                        connections={data.connections}
                         project={[
                           data.teams?.find((t) => t.id === item.team_id)?.name,
                           data.folders.find((f) => f.id === item.folder_id)
@@ -1354,6 +1903,7 @@ export default function App() {
                           .join(" · ")}
                         onOpen={() => openCard(item)}
                         onArtifact={() => void open(item)}
+                        onReply={() => void replyToArtifact(item)}
                         onArchive={() => void archiveCard(item.id)}
                         onProfile={() =>
                           setProfile(
@@ -1380,13 +1930,19 @@ export default function App() {
                 ) : (
                   <Empty
                     title={
-                      projectFilter || teamSelection.length
-                        ? "No activity in this view yet."
-                        : view === "prompts"
+                      profile
+                        ? view === "prompts"
                           ? "Your prompts will appear here."
-                          : data.agents.length
-                            ? "Ready for your next task."
-                            : "Create your first agent."
+                          : view === "files"
+                            ? "No files yet."
+                            : "No results yet."
+                        : projectFilter || teamSelection.length
+                          ? "No activity in this view yet."
+                          : view === "prompts"
+                            ? "Your prompts will appear here."
+                            : data.agents.length
+                              ? "Ready for your next task."
+                              : "Create your first agent."
                     }
                     action={
                       <button
@@ -1404,9 +1960,13 @@ export default function App() {
                       </button>
                     }
                   >
-                    {projectFilter || teamSelection.length
-                      ? "Choose another project or team, or start a task here."
-                      : "Choose a provider, give your agent a task, and find its finished work here."}
+                    {profile
+                      ? profileWork.length
+                        ? "Your agent’s work is shown above. Open its conversation to follow along."
+                        : "Send a message to this agent to get started."
+                      : projectFilter || teamSelection.length
+                        ? "Choose another project or team, or start a task here."
+                        : "Choose a provider, give your agent a task, and find its finished work here."}
                   </Empty>
                 )}
                 {next && (
@@ -1447,192 +2007,153 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              {runs.filter(
-                (r) =>
-                  (!projectFilter ||
-                    belongsToProject(
-                      parse<any>(r.payload, {}).folderId,
-                      projectFilter,
-                      data.folders,
-                    )) &&
-                  (runFilter === "all"
-                    ? ["running", "pausing"].includes(r.state)
-                    : runFilter === "queued"
-                      ? r.state === "queued"
-                      : [
-                          "paused",
-                          "awaiting_approval",
-                          "interrupted",
-                          "failed",
-                          "waiting_children",
-                        ].includes(r.state)),
-              ).length ? (
-                runs
-                  .filter(
-                    (r) =>
-                      (!projectFilter ||
-                        belongsToProject(
-                          parse<any>(r.payload, {}).folderId,
-                          projectFilter,
-                          data.folders,
-                        )) &&
-                      (runFilter === "all"
-                        ? ["running", "pausing"].includes(r.state)
-                        : runFilter === "queued"
-                          ? r.state === "queued"
-                          : [
-                              "paused",
-                              "awaiting_approval",
-                              "interrupted",
-                              "failed",
-                              "waiting_children",
-                            ].includes(r.state)),
-                  )
-                  .map((r) => {
-                    const a = data.agents.find((a) => a.id === r.agent_id),
-                      snapshot = parse<any>(r.payload, {});
-                    return (
-                      <ArtifactCard
-                        key={r.id}
-                        className="run-card"
-                        label={r.state.replaceAll("_", " ")}
-                        item={{
-                          id: r.id,
-                          owner_id: "",
-                          agent_id: r.agent_id,
-                          conversation_id: r.conversation_id,
-                          run_id: r.id,
-                          title: r.input,
-                          kind: "markdown",
-                          content: (r as any).preview || "",
-                          metadata: r.payload,
-                          folder_id: snapshot.folderId || null,
-                          pinned: 0,
-                          archived: 0,
-                          version: 1,
-                          created_at: r.created_at,
-                          updated_at: r.updated_at,
-                          ...r.preview_artifact,
-                          name: a?.name,
-                          provider: snapshot.provider || a?.provider,
-                          run_state: r.state,
-                          run_error: r.error,
-                        }}
-                        project={
-                          data.folders.find((f) => f.id === snapshot.folderId)
-                            ?.name || "Workspace inbox"
-                        }
-                        onProfile={() => a && setProfile(a)}
-                        onOpen={() =>
-                          r.conversation_id &&
-                          setConversation(r.conversation_id)
-                        }
-                        headerActions={
-                          !["running", "pausing"].includes(r.state) && (
-                            <button
-                              className={
-                                ["failed", "interrupted"].includes(r.state)
-                                  ? "icon-button dismiss-attention"
-                                  : "text-button dismiss-attention"
-                              }
-                              aria-label={`${["failed", "interrupted"].includes(r.state) ? "Dismiss" : "Cancel"} task: ${r.input}`}
-                              title={
-                                ["failed", "interrupted"].includes(r.state)
-                                  ? "Dismiss from attention"
-                                  : "Dismiss and cancel task"
-                              }
-                              disabled={dismissing !== null}
-                              onClick={() => void dismiss(r)}
-                            >
-                              <X size={18} />
-                              {!["failed", "interrupted"].includes(r.state) &&
-                                "Cancel task"}
+              {visibleRuns.length ? (
+                visibleRuns.map((r) => {
+                  const a = data.agents.find((a) => a.id === r.agent_id),
+                    snapshot = parse<any>(r.payload, {});
+                  return (
+                    <ArtifactCard
+                      key={r.id}
+                      connections={data.connections}
+                      className="run-card"
+                      label={r.state.replaceAll("_", " ")}
+                      model={runModelName(snapshot, data.connections)}
+                      item={{
+                        id: r.id,
+                        owner_id: "",
+                        agent_id: r.agent_id,
+                        conversation_id: r.conversation_id,
+                        run_id: r.id,
+                        title: r.input,
+                        kind: "markdown",
+                        content: (r as any).preview || "",
+                        metadata: r.payload,
+                        folder_id: snapshot.folderId || null,
+                        pinned: 0,
+                        archived: 0,
+                        version: 1,
+                        created_at: r.created_at,
+                        updated_at: r.updated_at,
+                        ...r.preview_artifact,
+                        name: a?.name,
+                        provider: snapshot.provider || a?.provider,
+                        run_state: r.state,
+                        run_error: r.error,
+                      }}
+                      project={
+                        data.folders.find((f) => f.id === snapshot.folderId)
+                          ?.name || "Workspace inbox"
+                      }
+                      onProfile={() => a && setProfile(a)}
+                      onOpen={() =>
+                        r.conversation_id && setConversation(r.conversation_id)
+                      }
+                      headerActions={
+                        !["running", "pausing"].includes(r.state) && (
+                          <button
+                            className={
+                              ["failed", "interrupted"].includes(r.state)
+                                ? "icon-button dismiss-attention"
+                                : "text-button dismiss-attention"
+                            }
+                            aria-label={`${["failed", "interrupted"].includes(r.state) ? "Dismiss" : "Cancel"} task: ${r.input}`}
+                            title={
+                              ["failed", "interrupted"].includes(r.state)
+                                ? "Dismiss from attention"
+                                : "Dismiss and cancel task"
+                            }
+                            disabled={dismissing !== null}
+                            onClick={() => void dismiss(r)}
+                          >
+                            <X size={18} />
+                            {!["failed", "interrupted"].includes(r.state) &&
+                              "Cancel task"}
+                          </button>
+                        )
+                      }
+                      detail={
+                        <p className="field-hint">
+                          {Math.floor((Date.now() - r.created_at) / 60000)} min
+                          since submitted
+                          {r.state === "queued"
+                            ? ` · position ${(r as any).queue_position} in this agent’s queue`
+                            : ""}
+                        </p>
+                      }
+                      footer={
+                        <div className="actions">
+                          {(r.state === "queued" ||
+                            (r.state === "running" &&
+                              !parse<any>(
+                                data.connections.find(
+                                  (c) => c.id === snapshot.connectionId,
+                                )?.metadata,
+                                {},
+                              ).loopHarness)) && (
+                            <button onClick={() => runAction(r, "pause")}>
+                              <Pause size={16} />
+                              Pause
                             </button>
-                          )
-                        }
-                        detail={
-                          <p className="field-hint">
-                            {Math.floor((Date.now() - r.created_at) / 60000)}{" "}
-                            min since submitted
-                            {r.state === "queued"
-                              ? ` · position ${(r as any).queue_position} in this agent’s queue`
-                              : ""}
-                          </p>
-                        }
-                        footer={
-                          <div className="actions">
-                            {(r.state === "queued" ||
-                              (r.state === "running" &&
-                                !parse<any>(
-                                  data.connections.find(
-                                    (c) => c.id === snapshot.connectionId,
-                                  )?.metadata,
-                                  {},
-                                ).loopHarness)) && (
-                              <button onClick={() => runAction(r, "pause")}>
-                                <Pause size={16} />
-                                Pause
-                              </button>
-                            )}
-                            {r.state === "pausing" && (
-                              <p className="note">
-                                Pausing after the current provider response.
-                              </p>
-                            )}
-                            {r.state === "paused" && (
-                              <button onClick={() => runAction(r, "resume")}>
-                                <Play size={16} />
-                                Resume
-                              </button>
-                            )}
-                            {!["completed", "failed", "cancelled"].includes(
-                              r.state,
-                            ) && (
-                              <button onClick={() => runAction(r, "cancel")}>
-                                <Square size={14} />
-                                Cancel
-                              </button>
-                            )}
-                            {["failed", "interrupted"].includes(r.state) &&
-                              r.agent_id &&
-                              (r as any).kind === "agent" && (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await api(`/runs/${r.id}/retry`, {
-                                        idempotencyKey: crypto.randomUUID(),
-                                      });
-                                      await refresh();
-                                    } catch (e) {
-                                      setError((e as Error).message);
-                                    }
-                                  }}
-                                >
-                                  Retry as a new run
-                                </button>
-                              )}
-                            {["failed", "interrupted"].includes(r.state) &&
-                              r.agent_id && (
-                                <button onClick={() => setFailureRun(r)}>
-                                  View failure details
-                                </button>
-                              )}
-                            {r.conversation_id && (
+                          )}
+                          {r.state === "pausing" && (
+                            <p className="note">
+                              Pausing after the current provider response.
+                            </p>
+                          )}
+                          {r.state === "paused" && (
+                            <button onClick={() => runAction(r, "resume")}>
+                              <Play size={16} />
+                              Resume
+                            </button>
+                          )}
+                          {!["completed", "failed", "cancelled"].includes(
+                            r.state,
+                          ) && (
+                            <button onClick={() => runAction(r, "cancel")}>
+                              <Square size={14} />
+                              Cancel
+                            </button>
+                          )}
+                          {["failed", "interrupted"].includes(r.state) &&
+                            r.agent_id &&
+                            (r as any).kind === "agent" && (
                               <button
-                                onClick={() => {
-                                  setConversation(r.conversation_id);
-                                  setSelected(r.agent_id || "");
+                                onClick={async () => {
+                                  try {
+                                    await api(`/runs/${r.id}/retry`, {
+                                      idempotencyKey: crypto.randomUUID(),
+                                    });
+                                    await refresh();
+                                  } catch (e) {
+                                    setError((e as Error).message);
+                                  }
                                 }}
                               >
-                                <ArrowUpRight size={16} />
-                                Open
+                                Retry as a new run
                               </button>
                             )}
-                          </div>
-                        }
-                      />
-                    );
-                  })
+                          {["failed", "interrupted"].includes(r.state) &&
+                            r.agent_id && (
+                              <button onClick={() => setFailureRun(r)}>
+                                View failure details
+                              </button>
+                            )}
+                          {r.conversation_id && (
+                            <button
+                              onClick={() => {
+                                setConversation(r.conversation_id);
+                                setSelected(r.agent_id || "");
+                              }}
+                            >
+                              <ArrowUpRight size={16} />
+                              Open
+                            </button>
+                          )}
+                        </div>
+                      }
+                    />
+                  );
+                })
               ) : (
                 <Empty
                   title="Ready when you are."
@@ -1707,8 +2228,10 @@ export default function App() {
                   key={id}
                   projectId={id}
                   agents={data.agents}
+                  connections={data.connections}
                   revision={revision}
                   onOpen={open}
+                  onReply={(item) => void replyToArtifact(item)}
                   onConversation={setConversation}
                   onAgent={setProfile}
                   onFile={setFiling}
@@ -1762,194 +2285,7 @@ export default function App() {
             </p>
           )}
         </main>
-        {data.agents.length > 0 && (
-          <section
-            ref={composerRef}
-            className={
-              "composer-dock " + (composerExpanded ? "expanded" : "collapsed")
-            }
-          >
-            {!composerExpanded && (
-              <button
-                className="composer-launch"
-                onClick={focusComposer}
-                aria-label="Compose a message"
-                aria-expanded={false}
-              >
-                <MessageSquare size={20} />
-                <span>
-                  {draft
-                    ? `Draft to @${activeAgent?.name || "agent"}…`
-                    : activeAgent
-                      ? "Message @" + activeAgent.name + "…"
-                      : "Message an agent…"}
-                </span>
-                <Plus size={18} />
-              </button>
-            )}
-            <div className="composer" hidden={!composerExpanded}>
-              <div className="composer-heading">
-                <label className="composer-field">
-                  <span className="sr-only">Send to</span>
-                  <select
-                    aria-label="Agent recipient"
-                    value={
-                      selected === "__route__"
-                        ? "__route__"
-                        : activeAgent?.id || ""
-                    }
-                    onChange={(e) => {
-                      setSelected(e.target.value);
-                      setFolderChoice(undefined);
-                      const agent = data.agents.find(
-                        (a) => a.id === e.target.value,
-                      );
-                      if (agent) setFolder(agent.folder_id || "");
-                    }}
-                  >
-                    {!data.agents.length && (
-                      <option value="">Choose your first agent</option>
-                    )}
-                    <option value="__route__">Let Loop route this</option>
-                    {data.agents.map((a) => (
-                      <option value={a.id} key={a.id}>
-                        @{a.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="composer-collapse text-button"
-                  onClick={collapseComposer}
-                  aria-label="Collapse composer"
-                >
-                  <ChevronDown size={18} /> Minimize
-                </button>
-              </div>
-              {selected === "__route__" && routePreview && (
-                <p className="route-preview">
-                  {routePreview.agent
-                    ? "Recipient: @" + routePreview.agent.name + " · "
-                    : ""}
-                  {routePreview.reason}
-                </p>
-              )}
-              {contextArtifact && (
-                <div className="context-strip">
-                  <span>About: {contextArtifact.title}</span>
-                  <button
-                    aria-label="Clear conversation context"
-                    onClick={() => setContextArtifact(null)}
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
-              <div className="composer-main">
-                <textarea
-                  id="composer"
-                  aria-label="Message your agent"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setComposerExpanded(false);
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      void send();
-                    }
-                  }}
-                  placeholder="An idea, a question, a ‘what if’…"
-                  rows={2}
-                />
-              </div>
-              <AttachmentList
-                files={attachments}
-                onRemove={(id) =>
-                  setAttachments(attachments.filter((file) => file.id !== id))
-                }
-              />
-              {composerError && (
-                <div className="composer-error error" role="alert">
-                  {composerError}
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => setComposerError("")}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
-              <div className="composer-foot">
-                <HarnessPicker
-                  agentId={
-                    selected === "__route__" ? undefined : activeAgent?.id
-                  }
-                  value={draft}
-                  onChange={setDraft}
-                  focusInput={() =>
-                    document.getElementById("composer")?.focus()
-                  }
-                />
-              </div>
-              <div className="composer-actions">
-                <UploadButton
-                  menu
-                  folderId={folderChoice ?? activeAgent?.folder_id}
-                  agentId={activeAgent?.id}
-                  disabled={busy}
-                  remaining={MAX_MESSAGE_FILES - attachments.length}
-                  onBusy={setUploading}
-                  onUploaded={(file) => {
-                    attachmentsRef.current = [...attachmentsRef.current, file];
-                    setAttachments(attachmentsRef.current);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="composer-model"
-                  aria-label="Select model and effort"
-                  aria-haspopup="dialog"
-                  disabled={!activeAgent}
-                  onClick={() => activeAgent && setModelAgent(activeAgent)}
-                >
-                  {activeAgent ? (
-                    <>
-                      <span className="composer-model-label">
-                        <span className="composer-model-name">
-                          {agentModelName(activeAgent, data.connections)}
-                        </span>
-                        <small className="composer-effort">
-                          {effortName(activeAgent.effort)} effort
-                        </small>
-                      </span>
-                      <ChevronDown size={15} />
-                    </>
-                  ) : (
-                    "Select an agent"
-                  )}
-                </button>
-                <button
-                  className="send-button"
-                  aria-label={
-                    selected === "__route__" && !routePreview
-                      ? "Preview route"
-                      : "Send message"
-                  }
-                  disabled={busy || uploading || !draft.trim()}
-                  onClick={() => void send()}
-                >
-                  {busy
-                    ? "Sending…"
-                    : selected === "__route__" && !routePreview
-                      ? "Preview"
-                      : "Send"}
-                  <ArrowUp size={19} />
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
+        {!conversation && messageComposer}
         <nav className="mobile-nav">{nav}</nav>
       </div>
       {archivedCard && (
@@ -2106,6 +2442,7 @@ export default function App() {
                 });
                 setActiveArtifact(null);
                 setContextArtifact(null);
+                setReplyContext(null);
                 setRoutePreview(null);
                 setFiling(null);
                 setSheet("");
@@ -2308,8 +2645,17 @@ export default function App() {
           connections={data.connections}
           onClose={() => setModelAgent(null)}
           onSaved={(saved) => {
-            if (saved.connection_id !== modelAgent.connection_id)
+            if (saved.connection_id !== modelAgent.connection_id) {
               setContextArtifact(null);
+              if (
+                replyContext?.agentId === saved.id ||
+                conversationTarget?.agentId === saved.id
+              ) {
+                setReplyContext(null);
+                setConversation(null);
+                setComposerExpanded(true);
+              }
+            }
             if (profile?.id === saved.id) setProfile(saved);
             setModelAgent((current) =>
               current?.id === saved.id ? saved : current,
@@ -2430,29 +2776,66 @@ export default function App() {
           key={conversation}
           id={conversation}
           messageId={messageId}
+          revision={revision}
           onAgentChanged={() => void bootstrap()}
           onNewConversation={(agent) => {
             setConversation(null);
             setSelected(agent.id);
             setContextArtifact(null);
+            setReplyContext(null);
             setComposerExpanded(true);
           }}
           onProfile={(a) => {
             setConversation(null);
+            collapseComposer();
+            if (!draft.trim() && !attachments.length) setReplyContext(null);
             setProfile(a);
-            requestAnimationFrame(() =>
+            afterSheetsClose(() =>
               window.scrollTo({ top: 0, behavior: "instant" }),
             );
           }}
           agents={data.agents}
           connections={data.connections}
           teams={data.teams || []}
-          onClose={() => setConversation(null)}
-          onContinue={setConversation}
-          onSent={() => {
+          onClose={() => {
             setConversation(null);
             collapseComposer();
-            void refresh().catch((e) => setError(e.message));
+            if (!draft.trim() && !attachments.length) setReplyContext(null);
+          }}
+          onContinue={setConversation}
+          composer={messageComposer}
+          onReady={(context) => {
+            setConversationTarget(context);
+            setSelected(context.agentId);
+            setFolderChoice(undefined);
+            setContextArtifact(null);
+            setReplyContext((current) =>
+              current?.agentId === context.agentId &&
+              current.conversationId === context.conversationId
+                ? current
+                : context,
+            );
+            setComposerExpanded(true);
+            if (!draft.trim()) {
+              const oldDraft = sessionStorage.getItem(
+                "loop-conversation-" + context.conversationId,
+              );
+              if (oldDraft) setDraft(oldDraft);
+            }
+            if (!attachments.length) {
+              const oldFiles = parse(
+                sessionStorage.getItem(
+                  "loop-conversation-files-" + context.conversationId,
+                ) || "",
+                [],
+              );
+              if (oldFiles.length) setAttachments(oldFiles);
+            }
+          }}
+          onReply={beginReply}
+          onUsePrompt={(text) => {
+            setDraft(text);
+            focusComposer();
           }}
           onSubmitted={refresh}
         />
@@ -2461,6 +2844,15 @@ export default function App() {
         <ArtifactViewer
           key={activeArtifact.id}
           item={activeArtifact}
+          connections={data.connections}
+          onProfile={(agent) => {
+            setActiveArtifact(null);
+            setConversation(null);
+            setProfile(agent);
+            afterSheetsClose(() =>
+              window.scrollTo({ top: 0, behavior: "instant" }),
+            );
+          }}
           agent={data.agents.find(
             (agent) => agent.id === activeArtifact.agent_id,
           )}
@@ -2475,11 +2867,7 @@ export default function App() {
             setActiveArtifact(null);
           }}
           onChanged={() => void changed()}
-          onSent={() => {
-            setActiveArtifact(null);
-            collapseComposer();
-            void refresh().catch((e) => setError(e.message));
-          }}
+          onReply={() => void replyToArtifact(activeArtifact)}
           onWorkflow={(source) => {
             setWorkflowSource(source);
             setWorkflowId(undefined);

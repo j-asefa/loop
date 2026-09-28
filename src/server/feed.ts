@@ -19,8 +19,10 @@ export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
   OR json_extract(a.metadata,'$.native')=1
   OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
 export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
+export const fileArtifactSql = `(${finishedArtifactSql} OR json_extract(a.metadata,'$.uploaded')=1)`;
 export const feedOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)
   AND json_extract(a.metadata,'$.upload') IS NOT 1
+  AND json_extract(a.metadata,'$.uploaded') IS NOT 1
   AND COALESCE(json_extract(a.metadata,'$.partial'),0)=0`;
 
 export function feedRevision(owner: string) {
@@ -63,7 +65,7 @@ export function feedUpdates(
     ORDER BY f.revision LIMIT 200
   `
         : `
-    SELECT f.revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.view === "files" ? finishedArtifactSql : feedOutputSql}) AS output_visible
+    SELECT f.revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.view === "files" ? fileArtifactSql : feedOutputSql}) AS output_visible
     FROM feed_revisions f LEFT JOIN artifacts a ON a.id=f.object_id AND a.owner_id=f.owner_id
     LEFT JOIN artifact_publications p ON p.artifact_id=f.object_id
     LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id

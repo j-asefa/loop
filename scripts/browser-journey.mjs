@@ -1,4 +1,5 @@
 import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
+import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { tracesJourney } from "./traces-journey.mjs";
 import { failureJourney } from "./harness-journey.mjs";
 import { projectsAttentionJourney } from "./projects-attention-journey.mjs";
@@ -78,6 +79,10 @@ let logs = "";
 children.forEach((c) => c.stderr.on("data", (b) => (logs += b)));
 let browser, page;
 const errors = [];
+const recordPageError = (error) => {
+  if (!isWebKitNavigationFetchError(process.env.LOOP_BROWSER, error, base))
+    errors.push(error.message);
+};
 try {
   for (let i = 0; i < 80; i++) {
     try {
@@ -98,7 +103,7 @@ try {
     hasTouch: true,
   });
   page = await workspaceContext.newPage();
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", recordPageError);
   await page.goto(base);
   await page.getByText("New here? Create an account").click();
   await page.getByLabel("Your name").fill("Fixture journey");
@@ -147,7 +152,10 @@ try {
       response.url().endsWith("/api/agents") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create agent", exact: true })
+    .click();
   const createdResponse = await agentCreated;
   assert.equal(createdResponse.status(), 201);
   assert.equal((await createdResponse.json()).name, "journey-agent");
@@ -159,7 +167,7 @@ try {
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
   await expect(page.locator("dialog[open]").last()).toHaveCount(0);
-  await page
+  const resultReply = page
     .locator(".feed-card")
     .filter({
       has: page.getByRole("heading", {
@@ -167,13 +175,20 @@ try {
         exact: true,
       }),
     })
-    .getByRole("button", { name: "Reply", exact: true })
-    .click();
-  await page
-    .getByRole("dialog")
-    .getByText("Fixture response:", { exact: false })
-    .waitFor();
-  await closeSheets(page);
+    .getByRole("button", { name: "Reply", exact: true });
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    // A short feed must scroll far enough for Reply to clear both the send
+    // confirmation and the fixed composer. Keep the notice open for this check.
+    await expect(page.locator(".send-confirmation")).toBeVisible();
+    await resultReply.click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Original message" }),
+    ).toContainText("Fixture response:");
+    await page.getByRole("button", { name: "Clear reply context" }).click();
+    await page.getByRole("button", { name: "Collapse composer" }).click();
+  }
   await page
     .getByRole("heading", { name: "Explain bids precisely", exact: true })
     .waitFor();
@@ -273,7 +288,7 @@ try {
     hasTouch: true,
   });
   const reviewPage = await reviewContext.newPage();
-  reviewPage.on("pageerror", (e) => errors.push(e.message));
+  reviewPage.on("pageerror", recordPageError);
   try {
     await reviewPage.goto(base);
     await reviewPage
@@ -382,7 +397,7 @@ try {
   }
   assert.ok(detachedDone, "worker completes with client closed");
   page = await context.newPage();
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", recordPageError);
   await page.goto(base + "/?conversation=" + detached.conversation_id);
   await page
     .getByRole("dialog")
@@ -552,7 +567,7 @@ try {
           new URL(response.url()).pathname,
         ]);
     });
-    providerPage.on("pageerror", (e) => errors.push(e.message));
+    providerPage.on("pageerror", recordPageError);
     await providerPage.goto(base);
     await providerPage.getByRole("heading", { name: "Feed" }).waitFor();
     const providerApi = async (path, body, method) =>
@@ -605,7 +620,7 @@ try {
   });
   try {
     const feedbackPage = await feedbackContext.newPage();
-    feedbackPage.on("pageerror", (e) => errors.push(e.message));
+    feedbackPage.on("pageerror", recordPageError);
     await projectsAttentionJourney(feedbackPage, api, base, dir);
     await tracesJourney(feedbackPage, api, base, dir);
   } finally {

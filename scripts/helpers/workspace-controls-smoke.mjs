@@ -66,7 +66,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
       state: "waiting_children",
     },
   ];
-  const runPattern = /\/api\/runs\?active=1&teams=/;
+  const runPattern = /\/api\/runs\?active=1(?:&|$)/;
   const counts = (route) => route.fulfill({ json: navRuns });
   await page.route(runPattern, counts);
   try {
@@ -231,6 +231,23 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     buffer: Buffer.from("Review these project notes."),
   });
   await expect(page.locator(".composer .attachment-list")).toContainText(name);
+  const previewAttachment = async (parentSheets) => {
+    const url = page.url();
+    await page
+      .getByRole("button", { name: `Preview ${name}`, exact: true })
+      .click();
+    await expect(page.locator("dialog[open]")).toHaveCount(parentSheets + 1);
+    await expect(dialog().locator(".file-preview-content pre")).toHaveText(
+      "Review these project notes.",
+    );
+    await expect(
+      dialog().getByRole("button", { name: "Close", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    assert.equal(page.url(), url);
+    await dialog().getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.locator("dialog[open]")).toHaveCount(parentSheets);
+  };
+  await previewAttachment(0);
   await page.reload();
   await page.locator(".composer-launch").click();
   await expect(page.locator(".composer .attachment-list")).toContainText(name);
@@ -272,6 +289,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await expect(dialog().locator(".message .attachment-list")).toContainText(
     name,
   );
+  await previewAttachment(1);
   await expect(
     dialog().locator(".conversation-composer .attachment-list"),
   ).toHaveCount(0);

@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { ArtifactCard, Empty } from "./components";
 import { FeedPager, type FeedPage, type FeedUpdates } from "./feed";
-import type { Agent, Artifact } from "../shared/types";
+import type { Agent, Artifact, Connection } from "../shared/types";
 
 type ProjectOutput = Artifact & { cursor: number };
 
 type Props = {
   projectId: string;
   agents: Agent[];
+  connections: Connection[];
   revision: number;
   onOpen: (item: Artifact) => void;
+  onReply: (item: Artifact) => void;
   onConversation: (id: string) => void;
   onAgent: (agent: Agent) => void;
   onFile: (item: Artifact) => void;
@@ -25,8 +27,10 @@ export function ProjectActivity(props: Props) {
 function ProjectActivityFeed({
   projectId,
   agents,
+  connections,
   revision,
   onOpen,
+  onReply,
   onConversation,
   onAgent,
   onFile,
@@ -97,12 +101,14 @@ function ProjectActivityFeed({
         <ArtifactCard
           key={item.id}
           item={item}
+          connections={connections}
           onOpen={() =>
             item.conversation_id
               ? onConversation(item.conversation_id)
               : onOpen(item)
           }
           onArtifact={() => onOpen(item)}
+          onReply={() => onReply(item)}
           onProfile={() => {
             const agent = agents.find((a) => a.id === item.agent_id);
             if (agent) onAgent(agent);

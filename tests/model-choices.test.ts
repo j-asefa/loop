@@ -1,5 +1,9 @@
 import { expect, it } from "vitest";
-import { agentModelName, modelDisplayName } from "../src/client/modelChoices";
+import {
+  agentModelName,
+  modelDisplayName,
+  runModelName,
+} from "../src/client/modelChoices";
 import type { Connection } from "../src/shared/types";
 
 it("shows harness-resolved versions without guessing the version of an alias", () => {
@@ -64,4 +68,54 @@ it("resolves the model using the agent's own connection", () => {
   expect(
     agentModelName({ connection_id: "missing", model: "opus" }, connections),
   ).toBe("opus");
+});
+
+const runConnections = [
+  {
+    id: "older-account",
+    provider: "anthropic",
+    models: JSON.stringify([
+      { id: "default", name: "Default", resolvedModel: "claude-opus-4-8" },
+    ]),
+  },
+  {
+    id: "run-account",
+    provider: "anthropic",
+    models: JSON.stringify([
+      { id: "default", name: "Default", resolvedModel: "claude-opus-5-5" },
+    ]),
+  },
+] as Connection[];
+
+it("resolves a saved default through the run's connection, not another account", () => {
+  expect(
+    runModelName(
+      { model: "default", connectionId: "run-account", provider: "anthropic" },
+      runConnections,
+    ),
+  ).toBe("Claude Opus 5.5");
+});
+
+it("preserves the execution model when the connection's default has changed", () => {
+  const snapshot = { connectionId: "run-account", provider: "anthropic" };
+  expect(
+    runModelName({ ...snapshot, model: "claude-opus-4-8" }, runConnections),
+  ).toBe("Claude Opus 4.8");
+  expect(
+    runModelName(
+      { ...snapshot, model: "default", resolvedModel: "claude-opus-4-8" },
+      runConnections,
+    ),
+  ).toBe("Claude Opus 4.8");
+});
+
+it("does not guess a model when the saved account or provider does not match", () => {
+  for (const snapshot of [
+    { model: "default" },
+    { model: "default", connectionId: "deleted-account" },
+    { model: "default", connectionId: "run-account", provider: "codex" },
+  ]) {
+    expect(runModelName(snapshot, runConnections)).toBe("default");
+  }
+  expect(runModelName({}, runConnections)).toBe("");
 });

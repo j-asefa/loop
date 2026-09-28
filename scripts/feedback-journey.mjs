@@ -45,7 +45,7 @@ export async function feedbackJourney(page, api, base, dir) {
     .getByRole("button", { name: "Create team & talk to manager" })
     .click();
   await page
-    .getByPlaceholder("Continue with @feedback-manager…")
+    .getByLabel("Reply to agent")
     .fill("Coordinate this work");
   await page.getByRole("button", { name: "Send reply" }).click();
   await expect(page.locator("dialog[open]").last()).toHaveCount(0);
@@ -62,11 +62,12 @@ export async function feedbackJourney(page, api, base, dir) {
     })
     .getByRole("button", { name: "Reply", exact: true })
     .click();
-  await page
-    .getByRole("dialog")
-    .getByText("Fixture response:", { exact: false })
-    .waitFor();
-  await closeSheets(page);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "Original message" }),
+  ).toContainText("Fixture response:");
+  await page.getByRole("button", { name: "Clear reply context" }).click();
+  await page.getByRole("button", { name: "Collapse composer" }).click();
   await page
     .locator(".feed-card")
     .filter({ hasText: "Collect evidence for the team" })
@@ -93,7 +94,7 @@ export async function feedbackJourney(page, api, base, dir) {
       exact: true,
     }),
   });
-  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await card.getByRole("button", { name: "Open output", exact: true }).click();
   await page.locator("dialog[open]").last().waitFor();
   await page.getByLabel("Result options", { exact: true }).click();
   await page

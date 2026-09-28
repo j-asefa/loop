@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Reply } from "lucide-react";
 import type { Agent } from "../shared/types";
 import { api } from "./api";
-import { Avatar, Badge, Empty, RichText, Sheet } from "./components";
-import { ResultReply } from "./ResultReply";
+import { Empty, RichText } from "./components";
+import type { ComposerContext } from "./composerContext";
 
 type AgentMessage = {
   id: string;
@@ -11,6 +11,8 @@ type AgentMessage = {
   created_at: number;
   conversation_id: string | null;
   final: number | boolean;
+  model?: string | null;
+  run_id?: string | null;
 };
 type Page = { items: AgentMessage[]; next: string | null };
 
@@ -18,15 +20,14 @@ export function AgentMessages({
   agent,
   revision,
   onConversation,
-  onSent,
+  onReply,
 }: {
   agent: Agent;
   revision: number;
   onConversation: (id: string) => void;
-  onSent: () => void;
+  onReply: (context: ComposerContext) => void;
 }) {
   const agentId = agent.id;
-  const [reply, setReply] = useState<AgentMessage | null>(null);
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [moreBusy, setMoreBusy] = useState(false);
   const [error, setError] = useState(""),
@@ -56,7 +57,16 @@ export function AgentMessages({
   useEffect(() => {
     if (moreBusy) return;
     let active = true;
-    void api<Page>(`/agents/${agentId}/messages`)
+    const request = new AbortController();
+    const cancel = () => request.abort();
+    // Stop reads before WebKit tears down a document during navigation.
+    window.addEventListener("pagehide", cancel);
+    void api<Page>(
+      `/agents/${agentId}/messages`,
+      undefined,
+      undefined,
+      request.signal,
+    )
       .then((page) => {
         if (active) {
           merge(page, true);
@@ -64,13 +74,15 @@ export function AgentMessages({
         }
       })
       .catch((e) => {
-        if (active) setError(e.message);
+        if (active && !request.signal.aborted) setError(e.message);
       })
       .finally(() => {
         if (active) setLoading(false);
       });
     return () => {
       active = false;
+      cancel();
+      window.removeEventListener("pagehide", cancel);
     };
   }, [agentId, revision, moreBusy]);
   const earlier = async () => {
@@ -110,7 +122,17 @@ export function AgentMessages({
           <RichText content={item.content} />
           {item.conversation_id && (
             <div className="agent-message-actions">
-              <button className="secondary" onClick={() => setReply(item)}>
+              <button
+                className="secondary"
+                onClick={() =>
+                  onReply({
+                    agentId: agent.id,
+                    conversationId: item.conversation_id!,
+                    messageId: item.id,
+                    content: item.content,
+                  })
+                }
+              >
                 <Reply size={16} aria-hidden="true" /> Reply
               </button>
               <button
@@ -131,46 +153,6 @@ export function AgentMessages({
         >
           {moreBusy ? "Loading…" : "Earlier messages"}
         </button>
-      )}
-      {reply && (
-        <Sheet
-          key={reply.id}
-          wide
-          swipeToClose
-          className="result-sheet message-reply-sheet"
-          title={`Reply to @${agent.name}`}
-          onClose={() => setReply(null)}
-          heading={
-            <div className="result-header">
-              <Avatar name={agent.name} provider={agent.provider} />
-              <div className="result-author">
-                <h2>@{agent.name}</h2>
-                <Badge provider={agent.provider} />
-                <time dateTime={new Date(reply.created_at).toISOString()}>
-                  {new Date(reply.created_at).toLocaleString()}
-                </time>
-              </div>
-            </div>
-          }
-        >
-          <div className="result-content">
-            <p className="eyebrow">Replying to this message</p>
-            <blockquote className="message-reply-quote">
-              <RichText content={reply.content} />
-            </blockquote>
-          </div>
-          <ResultReply
-            item={reply}
-            agent={agent}
-            replyToMessageId={reply.id}
-            onSent={() => {
-              setReply((current) =>
-                current?.id === reply.id ? null : current,
-              );
-              onSent();
-            }}
-          />
-        </Sheet>
       )}
     </section>
   );

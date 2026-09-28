@@ -47,6 +47,12 @@ export async function api<T = any>(
     method: method || (body ? "POST" : "GET"),
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
+  }).catch((error) => {
+    if (error instanceof TypeError && !signal?.aborted)
+      throw new Error(
+        "Couldn’t reach Loop. Check your connection and try again.",
+      );
+    throw error;
   });
   if (
     r.redirected &&

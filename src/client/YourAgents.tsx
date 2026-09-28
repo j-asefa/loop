@@ -1,4 +1,4 @@
-import { ArrowUpRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Agent, Connection, Run } from "../shared/types";
 import { Avatar } from "./components";
 import { agentModelName } from "./modelChoices";
@@ -8,32 +8,33 @@ export function YourAgents({
   connections,
   runs,
   onProfile,
-  onDirectory,
   onCreate,
 }: {
   agents: Agent[];
   connections: Connection[];
   runs: Run[];
   onProfile: (agent: Agent) => void;
-  onDirectory: () => void;
   onCreate: () => void;
 }) {
   return (
     <section className="your-agents" aria-label="Your agents">
       <header>
         <h2>Your agents</h2>
-        <button
-          className="text-button agent-directory-trigger"
-          onClick={onDirectory}
-          aria-label={`All agents (${agents.length})`}
-        >
-          All agents{" "}
-          <span className="agent-directory-count">{agents.length}</span>
-          <ArrowUpRight size={17} />
-        </button>
       </header>
       <div className="agent-strip">
-        {agents.slice(0, 3).map((agent) => {
+        <button
+          className="new-agent-shortcut"
+          onClick={onCreate}
+          aria-label="New agent"
+        >
+          <span className="agent-shortcut-model" aria-hidden="true" />
+          <span className="agent-portrait">
+            <Plus size={27} />
+          </span>
+          <span className="agent-shortcut-name">New agent</span>
+          <span className="agent-shortcut-status">Create</span>
+        </button>
+        {agents.map((agent) => {
           const model = agentModelName(agent, connections);
           const activity = runs.filter((run) => run.agent_id === agent.id);
           const status = activity.some((run) =>
@@ -74,18 +75,6 @@ export function YourAgents({
             </button>
           );
         })}
-        <button
-          className="new-agent-shortcut"
-          onClick={onCreate}
-          aria-label="New agent"
-        >
-          <span className="agent-shortcut-model" aria-hidden="true" />
-          <span className="agent-portrait">
-            <Plus size={27} />
-          </span>
-          <span className="agent-shortcut-name">New agent</span>
-          <span className="agent-shortcut-status">Create</span>
-        </button>
       </div>
     </section>
   );

@@ -24,9 +24,7 @@ export function TeamManagerShortcut({
   onOpen: (team: Team) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const choices = selected.length
-    ? teams.filter((team) => selected.includes(team.id))
-    : teams;
+  const choices = teams.filter((team) => selected.includes(team.id));
   if (!choices.length) return null;
   const manager =
     choices.length === 1
@@ -85,10 +83,12 @@ export function ProfileTeams({
   agent,
   teams,
   onMessage,
+  onOpen,
 }: {
   agent: Agent;
   teams: Team[];
   onMessage: (team: Team) => void;
+  onOpen: (team: Team) => void;
 }) {
   const memberships = teams.filter(
     (team) => team.manager_id === agent.id || team.members.includes(agent.id),
@@ -101,10 +101,31 @@ export function ProfileTeams({
       </span>
       {memberships.map((team) => (
         <div className="profile-team" key={team.id}>
-          <span>
-            <strong>{team.name}</strong>
-            <small>{team.manager_id === agent.id ? "Manager" : "Member"}</small>
-          </span>
+          <a
+            className="profile-team-link"
+            href={`/?teams=${encodeURIComponent(team.id)}`}
+            aria-label={`Open team ${team.name}`}
+            onClick={(event) => {
+              if (
+                event.button ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              event.preventDefault();
+              onOpen(team);
+            }}
+          >
+            <span>
+              <strong>{team.name}</strong>
+              <small>
+                {team.manager_id === agent.id ? "Manager" : "Member"}
+              </small>
+            </span>
+            <ArrowUpRight size={16} aria-hidden="true" />
+          </a>
           <button
             className="text-button"
             aria-label={`Message manager of ${team.name}`}

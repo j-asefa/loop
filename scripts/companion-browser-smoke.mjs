@@ -154,7 +154,10 @@ try {
     path: "test-results/mobile-workspace-running.png",
     fullPage: true,
   });
-  assert.equal(db.prepare("SELECT count(*) n FROM companion_sessions").get().n, 3);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM companion_sessions").get().n,
+    3,
+  );
   await page.getByRole("button", { name: "decline", exact: true }).click();
   await page
     .getByRole("button", { name: "Native conversations", exact: true })
@@ -176,8 +179,9 @@ try {
     .getByRole("status")
     .filter({ hasText: "Connected to desktop" })
     .waitFor();
-  // Reopen from the workspace; drafts are persisted per conversation.
-  if (!(await page.getByLabel("Reply to agent").isVisible())) {
+  // A restored conversation loads after the desktop connection. Its composer
+  // label can still be loading, so check the route before opening another sheet.
+  if (!new URL(page.url()).searchParams.has("conversation")) {
     await page
       .getByRole("button", { name: "Native conversations", exact: true })
       .click();
@@ -187,8 +191,7 @@ try {
       .last()
       .click();
   }
-  assert.equal(
-    await page.getByLabel("Reply to agent").inputValue(),
+  await expect(page.getByLabel("Reply to agent")).toHaveValue(
     "Draft survives reconnect",
   );
   await page.screenshot({

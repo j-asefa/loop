@@ -171,6 +171,16 @@ workspace.get("/artifacts", (req, res) => {
     .all(...args) as any[];
   res.json({ items, next: items.length === 60 ? items.at(-1).cursor : null });
 });
+workspace.get("/runs/:id/files", (req, res) => {
+  owned("runs", req.params.id, res.locals.owner);
+  res.json(
+    db
+      .prepare(
+        "SELECT a.id,a.title,a.metadata FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0 ORDER BY a.created_at,a.rowid",
+      )
+      .all(res.locals.owner, req.params.id),
+  );
+});
 workspace.get("/artifacts/:id", (req, res) => {
   const a = owned<Artifact>("artifacts", req.params.id, res.locals.owner);
   const agent = a.agent_id

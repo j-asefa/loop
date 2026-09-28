@@ -421,6 +421,26 @@ const server = createServer(async (req, res) => {
       json(res, { ok: true });
       return;
     }
+    if (action === "read-file") {
+      const result = await serial(key, () =>
+        execute(
+          key,
+          {
+            // File reads are provider-independent. Use the one-shot runtime
+            // path even when Codex turns use a persistent worker.
+            provider: "file",
+            action,
+            workspaceKey: data.workspaceKey,
+            path: data.path,
+            offset: data.offset,
+            version: data.version,
+          },
+          () => {},
+        ),
+      );
+      json(res, result);
+      return;
+    }
     if (action === "capabilities") {
       if (pending.has(key)) {
         json(

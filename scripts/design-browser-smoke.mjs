@@ -8,7 +8,13 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
 import { teamNavigationSmoke } from "./helpers/team-navigation-smoke.mjs";
 import { profileNavigationSmoke } from "./helpers/profile-navigation-smoke.mjs";
+import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
+import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
+import { resultFilesSmoke } from "./helpers/result-files-smoke.mjs";
 import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
+import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
+import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
+import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
 
 const fixture = await designFixture();
 const screenshots =
@@ -103,12 +109,27 @@ try {
         name: "Your agents",
         exact: true,
       });
-      await expect(shortcuts.locator(".agent-strip button")).toHaveCount(4);
+      await expect(shortcuts.locator(".agent-strip button")).toHaveCount(
+        fixture.agents.length + 1,
+      );
       await expect(
-        shortcuts.getByRole("button", { name: "New agent", exact: true }),
-      ).toBeVisible();
+        shortcuts.locator(".agent-strip button").first(),
+      ).toHaveAccessibleName("New agent");
+      await expect(
+        shortcuts.getByRole("button", { name: /^All agents/ }),
+      ).toHaveCount(0);
       await page
-        .getByRole("button", { name: "New message", exact: true })
+        .getByRole("button", { name: "Create agent", exact: true })
+        .click();
+      await expect(
+        dialog().getByRole("heading", {
+          name: "Meet your next agent",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await close();
+      await page
+        .getByRole("button", { name: "Compose a message", exact: true })
         .click();
       await expect(
         page.getByRole("textbox", { name: "Message your agent" }),
@@ -117,21 +138,26 @@ try {
         .getByRole("button", { name: "Collapse composer", exact: true })
         .click();
 
-      // The response stays readable while its only primary action is Reply.
+      // Every reply enters the common composer with its original context.
       const resultCard = page.locator(".feed-card").first();
       await resultCard
         .getByRole("button", { name: "Reply", exact: true })
         .click();
-      await expect(dialog().locator(".result-author h2")).toContainText("@");
+      const composer = page.locator(".composer");
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
       await expect(
-        dialog().getByRole("button", { name: "Copy", exact: true }),
-      ).not.toBeVisible();
-      await expect(
-        dialog().getByRole("button", { name: "Use as prompt", exact: true }),
-      ).not.toBeVisible();
-      await expect(
-        dialog().getByRole("textbox", { name: "Reply to agent" }),
+        composer.getByRole("textbox", { name: "Reply to agent" }),
       ).toBeInViewport({ ratio: 1 });
+      await expect(
+        composer.getByRole("region", { name: "Original message" }),
+      ).toBeVisible();
+      await expect(
+        composer.getByRole("button", { name: "Select model and effort" }),
+      ).toBeVisible();
+      await expect(
+        composer.getByRole("button", { name: "Add attachments" }),
+      ).toBeVisible();
+      await expect(page.locator(".composer textarea")).toHaveCount(1);
       await capture("result-reply");
       const requests = [];
       await page.route("**/api/runs", async (route) => {
@@ -147,23 +173,23 @@ try {
           ),
         });
       });
-      await dialog()
+      await composer
         .getByRole("textbox", { name: "Reply to agent" })
         .fill("Explain the next step");
-      await dialog()
+      await composer
         .getByRole("button", { name: "Send reply", exact: true })
         .click();
-      await expect(dialog().getByRole("alert")).toContainText(
+      await expect(composer.getByRole("alert")).toContainText(
         "Fixture reply unavailable",
       );
-      await close();
+      await composer.getByRole("button", { name: "Collapse composer" }).click();
       await resultCard
         .getByRole("button", { name: "Reply", exact: true })
         .click();
       await expect(
-        dialog().getByRole("textbox", { name: "Reply to agent" }),
+        composer.getByRole("textbox", { name: "Reply to agent" }),
       ).toHaveValue("Explain the next step");
-      await dialog()
+      await composer
         .getByRole("button", { name: "Send reply", exact: true })
         .click();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
@@ -174,12 +200,9 @@ try {
         .get(requests[1].conversationId);
       assert.equal(requests[1].agentId, repliedConversation.agent_id);
       await page.unroute("**/api/runs");
-      await page
-        .getByRole("button", { name: "All agents (11)", exact: true })
+      await shortcuts
+        .getByRole("button", { name: /^@code-reviewer ·/ })
         .click();
-      await dialog().getByRole("searchbox").fill("code-reviewer");
-      await expect(dialog().locator(".project-agent")).toHaveCount(1);
-      await dialog().locator(".project-agent").click();
       await expect(
         page.getByRole("heading", { name: "@code-reviewer", exact: true }),
       ).toBeVisible();
@@ -277,7 +300,7 @@ try {
         "Conversation has an extra outer scroller",
       );
       assert(
-        dimensions.messages > 430,
+        dimensions.messages > 300,
         "Conversation reading area is too short",
       );
       await page.getByLabel("Conversation options", { exact: true }).click();
@@ -369,11 +392,9 @@ try {
         await page
           .locator(".feed-card")
           .first()
-          .getByRole("button", { name: "Reply", exact: true })
+          .getByRole("button", { name: "Open output", exact: true })
           .click();
-        await expect(
-          dialog().getByRole("textbox", { name: "Reply to agent" }),
-        ).toBeVisible();
+        await expect(dialog().locator(".result-author-name")).toBeVisible();
         await close();
       }
       assert(
@@ -384,8 +405,8 @@ try {
         .getByLabel("Filter by project")
         .selectOption(fixture.projects[0].id);
       await expect(
-        page.getByRole("button", { name: "All agents (4)", exact: true }),
-      ).toBeVisible();
+        shortcuts.locator(".agent-strip button"),
+      ).toHaveCount(5);
       await expect(page.locator(".attention-banner b")).toHaveText("2");
       await nav("Running");
       await expect(page.getByLabel("Filter by project")).toHaveValue(
@@ -584,6 +605,12 @@ try {
       await workspaceControlsSmoke(page, fixture, engine.name(), capture);
       await teamNavigationSmoke(page, fixture, engine.name(), capture);
       await profileNavigationSmoke(page, fixture, engine.name(), capture);
+      await modelLabelsSmoke(page, fixture, capture);
+      await swipeBackSmoke(page, fixture, engine.name(), capture);
+      await messageNavigationSmoke(page, fixture);
+      await resultFilesSmoke(page, fixture, capture);
+      await profileWorkSmoke(page, capture);
+      await conversationLiveSmoke(page, capture);
       assert.deepEqual(errors, [], "Unexpected browser errors");
       console.log(`${engine.name()}: design regressions passed`);
     } finally {

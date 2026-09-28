@@ -181,7 +181,15 @@ export async function tracesJourney(page, api, base, dir) {
         ["native:envelope:result", "Tool result", "INTERNAL_RECEIPT_SENTINEL"],
       ])
         trace.run(
-          owner, run, key, "tool", title, content, '{"native":true}', null, time,
+          owner,
+          run,
+          key,
+          "tool",
+          title,
+          content,
+          '{"native":true}',
+          null,
+          time,
         );
     })();
     await page.goto(base);
@@ -255,11 +263,9 @@ export async function tracesJourney(page, api, base, dir) {
     await updateCard
       .getByRole("button", { name: "Reply", exact: true })
       .click();
-    const replySheet = page.getByRole("dialog", {
-      name: `Reply to @${agent.name}`,
-      exact: true,
-    });
-    await expect(replySheet.locator(".message-reply-quote")).toContainText(
+    const replySheet = page.locator(".composer");
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    await expect(replySheet.locator(".composer-quote")).toContainText(
       "Comparing the next source",
     );
     await expect(
@@ -293,7 +299,7 @@ export async function tracesJourney(page, api, base, dir) {
       "Fixture reply unavailable",
     );
     await replySheet
-      .getByRole("button", { name: "Close", exact: true })
+      .getByRole("button", { name: "Collapse composer", exact: true })
       .click();
     await updateCard
       .getByRole("button", { name: "Reply", exact: true })
@@ -304,7 +310,7 @@ export async function tracesJourney(page, api, base, dir) {
     await replySheet
       .getByRole("button", { name: "Send reply", exact: true })
       .click();
-    await expect(replySheet).toHaveCount(0);
+    await expect(replySheet).not.toBeVisible();
     assert.equal(replies.length, 2);
     assert.equal(replies[0].idempotencyKey, replies[1].idempotencyKey);
     assert.equal(replies[1].replyToMessageId, selectedMessage.id);
@@ -507,7 +513,7 @@ export async function tracesJourney(page, api, base, dir) {
       .first()
       .getByRole("button", { name: "Open conversation", exact: true })
       .click();
-    const conversationDialog = page.locator("dialog[open]").last();
+    const conversationDialog = page.locator("dialog[open].conversation-sheet");
     await expect(conversationDialog.locator(".agent-progress")).toHaveCount(49);
     while (
       await conversationDialog
@@ -528,9 +534,20 @@ export async function tracesJourney(page, api, base, dir) {
     await expect(conversationDialog.locator(".message").last()).toContainText(
       "Final heliotrope browser answer",
     );
-    // Public tools now appear as collapsed shared activities beside the answer,
-    // not as assistant progress or prose. Internal runtime data stays excluded.
-    const reviewActivity = conversationDialog
+    // Raw calls stay out of the transcript and open in a separate activity
+    // sheet. Internal runtime data stays excluded from both views.
+    await expect(conversationDialog.locator(".messages")).not.toContainText(
+      "pull_request_review_write",
+    );
+    await conversationDialog.getByLabel("Conversation options").click();
+    await conversationDialog
+      .getByRole("button", { name: "Tool activity", exact: true })
+      .click();
+    const activityDialog = page.getByRole("dialog", {
+      name: "Tool activity",
+      exact: true,
+    });
+    const reviewActivity = activityDialog
       .locator("details.activity-panel")
       .filter({
         has: page.locator("summary", { hasText: "pull_request_review_write" }),
@@ -553,6 +570,9 @@ export async function tracesJourney(page, api, base, dir) {
     await expect(conversationDialog.locator(".messages")).not.toContainText(
       /StructuredOutput|INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL|RAW_METADATA_SENTINEL/,
     );
+    await expect(activityDialog).not.toContainText(
+      /StructuredOutput|INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL|RAW_METADATA_SENTINEL/,
+    );
     const activityPage = await api(`/conversations/${conversation}/activities`);
     assert(
       !/INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL|RAW_METADATA_SENTINEL/.test(
@@ -560,9 +580,12 @@ export async function tracesJourney(page, api, base, dir) {
       ),
     );
     // The public legacy bursts are intentional activity content, not secrets.
-    await expect(
-      conversationDialog.locator("details.activity-panel"),
-    ).toHaveCount(182);
+    await expect(activityDialog.locator("details.activity-panel")).toHaveCount(
+      182,
+    );
+    await activityDialog
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await conversationDialog
       .getByRole("button", { name: "Close", exact: true })
       .click();

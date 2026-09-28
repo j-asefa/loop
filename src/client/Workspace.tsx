@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { api, parse, authorizedFetch } from "./api";
 import { Sheet, Empty, Badge } from "./components";
+import { FileLink } from "./FilePreview";
 import type {
   Artifact,
   Folder as FolderType,
@@ -896,7 +897,9 @@ export function ImportSheet({
                   </button>
                 )
               )}
-              <a href={"/api/objects/" + s.objectId}>Original export</a>
+              <FileLink url={"/api/objects/" + s.objectId}>
+                Original export
+              </FileLink>
             </div>
           </div>
         );

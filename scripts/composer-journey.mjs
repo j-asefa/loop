@@ -251,9 +251,7 @@ export async function sendCollapseJourney(page, api) {
     const prompt = reply
       ? "Collapse after this reply"
       : "Collapse after this message";
-    const storageKey = reply
-      ? "loop-conversation-" + conversationId
-      : "loop-draft";
+    const storageKey = "loop-draft";
     await input.fill(prompt);
 
     // A lost acknowledgement must retain the draft and retry the same saved run.
@@ -287,6 +285,36 @@ export async function sendCollapseJourney(page, api) {
         await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
         prompt,
       );
+
+      if (reply) {
+        // Recover a lost acknowledgement across the old conversation composer
+        // and the shared composer, without creating a second run.
+        await page.evaluate(
+          ({ conversationId, agentId, prompt, key }) => {
+            sessionStorage.removeItem("loop-draft");
+            sessionStorage.removeItem("loop-draft-context");
+            sessionStorage.removeItem("loop-draft-receipt");
+            sessionStorage.setItem("loop-conversation-" + conversationId, prompt);
+            sessionStorage.setItem(
+              "loop-receipt-" + conversationId,
+              JSON.stringify({
+                signature: JSON.stringify([conversationId, agentId, prompt, []]),
+                key,
+              }),
+            );
+          },
+          {
+            conversationId,
+            agentId: agent.id,
+            prompt,
+            key: attempts[0].idempotencyKey,
+          },
+        );
+      }
+      await page.reload();
+      if (!reply)
+        await page.getByRole("button", { name: "Compose a message" }).click();
+      await expect(input).toHaveValue(prompt);
 
       // Keep the post-send refresh pending: dismissal must not wait for it.
       await page.route("**/api/bootstrap", refresh);
@@ -329,7 +357,7 @@ export async function sendCollapseJourney(page, api) {
   await expect(page.getByLabel("Reply to agent")).toHaveValue("");
   await closeSheets(page);
   await page.getByRole("button", { name: "Compose a message" }).click();
-  await expect(page.getByLabel("Message your agent")).toHaveValue("");
+  await expect(page.locator(".composer textarea")).toHaveValue("");
   await page.getByRole("button", { name: "Collapse composer" }).click();
   console.log(
     "PASS: messages and replies collapse before refresh, lost-response retries preserve drafts without duplicate runs, and sent drafts stay cleared when reopened.",

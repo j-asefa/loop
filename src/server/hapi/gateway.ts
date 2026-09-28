@@ -12,7 +12,6 @@ import { invokeTool, toolBindings } from "../mcp/broker.js";
 import { nativeBindings, invokeNative } from "../native-tools.js";
 import { digest, matchesSecret, type NativeSession } from "./contracts.js";
 import { readMemory, searchMemory } from "../memory.js";
-import { publishFile } from "./artifact-storage.js";
 
 export function gatewayContext(
   credential: string,
@@ -77,20 +76,6 @@ const memoryTools = [
         projectId: { type: "string" },
       },
       required: ["sourceId", "revision"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "loop_publish_file",
-    description:
-      "Upload an explicitly selected generated file within this project to Loop. Native homes, dotfiles and paths outside this project are unavailable.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string", maxLength: 1000 },
-        title: { type: "string", maxLength: 180 },
-      },
-      required: ["path", "title"],
       additionalProperties: false,
     },
   },
@@ -161,13 +146,6 @@ export async function handleGateway(
     }
     const callId =
       String(extra.requestId) + ":" + digest(JSON.stringify(request.params));
-    if (request.params.name === "loop_publish_file") {
-      if (typeof args.path !== "string" || typeof args.title !== "string")
-        throw new Problem(400, "Path and title required");
-      return result(
-        await publishFile(run, callId, { path: args.path, title: args.title }),
-      );
-    }
     const binding = [
       ...toolBindings(run.owner_id, run.agent_id!),
       ...nativeBindings(run),

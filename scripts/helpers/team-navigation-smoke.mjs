@@ -42,10 +42,6 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
   const profile = async (agent) => {
     await settled();
     await page.goto(fixture.base);
-    await page
-      .getByRole("button", { name: "All agents (11)", exact: true })
-      .click();
-    await dialog().getByRole("searchbox").fill(agent.name);
     const loaded = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
@@ -53,7 +49,10 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
         url.searchParams.get("agent") === agent.id
       );
     });
-    await dialog().locator(".project-agent").click();
+    await page
+      .getByRole("region", { name: "Your agents", exact: true })
+      .getByRole("button", { name: new RegExp(`^@${agent.name} ·`) })
+      .click();
     await expect(page.locator(".profile-head h1")).toHaveText("@" + agent.name);
     await loaded;
     await expect(
@@ -76,14 +75,22 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
   try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(fixture.base);
+    await expect(
+      page.getByRole("button", { name: "Filter by team: All teams" }),
+    ).toBeVisible();
+    await expect(shortcut()).toHaveCount(0);
+    await page
+      .locator(".mobile-nav")
+      .getByRole("button", { name: "Running", exact: true })
+      .click();
+    await expect(shortcut()).toHaveCount(0);
+    await page.goto(`${fixture.base}/?teams=${product.id},${second.id}`);
     await shortcut().click();
     await expect(dialog()).toHaveAttribute(
       "aria-label",
       "Message a team manager",
     );
-    await expect(dialog().locator(".team-manager-option")).toHaveCount(
-      teams.length + 1,
-    );
+    await expect(dialog().locator(".team-manager-option")).toHaveCount(2);
     await capture("team-managers");
     await dialog()
       .getByRole("button", {
@@ -117,6 +124,13 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await shortcut().click();
     await expect(dialog().locator(".team-manager-option")).toHaveCount(2);
     await close();
+    await page.getByRole("button", { name: /^Filter by team:/ }).click();
+    await dialog()
+      .getByRole("button", { name: /^All teams/ })
+      .click();
+    await dialog().getByRole("button", { name: "Done", exact: true }).click();
+    await settled();
+    await expect(shortcut()).toHaveCount(0);
 
     await profile(member);
     const memberships = page.getByRole("group", {
@@ -153,6 +167,20 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await settled();
     assert.equal(requests[1].agentId, manager.id);
     assert.equal(requests[1].conversationId, product.conversation_id);
+
+    await memberships
+      .getByRole("link", { name: `Open team ${product.name}`, exact: true })
+      .click();
+    await expect(page.locator(".profile-head")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: `Filter by team: ${product.name}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(shortcut()).toContainText("@" + manager.name);
+    assert.equal(new URL(page.url()).searchParams.get("teams"), product.id);
+    await capture("profile-team-link-destination");
 
     await profile(manager);
     await expect(page.locator(".profile-teams small")).toHaveText([

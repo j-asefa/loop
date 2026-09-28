@@ -59,6 +59,35 @@ export function agentModelName(
   );
 }
 
+export function runModelName(
+  snapshot: {
+    model?: unknown;
+    resolvedModel?: unknown;
+    connectionId?: unknown;
+    provider?: unknown;
+  },
+  connections: Connection[],
+) {
+  // Prefer an execution-time identity when one was recorded. Older runs only
+  // saved an alias, so resolve it using their own connection's model catalog,
+  // never the agent's current model or a different account's default.
+  if (typeof snapshot.resolvedModel === "string" && snapshot.resolvedModel)
+    return modelDisplayName({
+      id: snapshot.resolvedModel,
+      name: snapshot.resolvedModel,
+    });
+  if (typeof snapshot.model !== "string" || !snapshot.model) return "";
+  const connection = connections.find(
+    (c) =>
+      c.id === snapshot.connectionId &&
+      (!snapshot.provider || c.provider === snapshot.provider),
+  );
+  return agentModelName(
+    { connection_id: connection?.id || null, model: snapshot.model },
+    connections,
+  );
+}
+
 export function modelDisplayName(model: ModelOption) {
   const id = model.resolvedModel || model.id;
   const claude = id.match(

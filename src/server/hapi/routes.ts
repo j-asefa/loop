@@ -306,8 +306,22 @@ export async function connectProvider(e: any, flavor: "codex" | "claude") {
 
 executionRoutes.get("/artifacts/:id/file", (req, res) => {
   const file = localArtifact(res.locals.owner, req.params.id);
+  const artifact = owned<any>("artifacts", req.params.id, res.locals.owner);
+  const name = JSON.parse(artifact.metadata).name || artifact.title;
+  const inline =
+    req.query.preview === "1" &&
+    ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mime);
   res.setHeader("Content-Type", file.mime);
-  res.setHeader("Content-Disposition", "attachment");
+  const filename = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
+  );
+  res.setHeader(
+    "Content-Disposition",
+    `${inline ? "inline" : "attachment"}; filename*=UTF-8''${filename}`,
+  );
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.send(file.bytes);
 });

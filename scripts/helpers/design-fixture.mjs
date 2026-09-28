@@ -244,6 +244,7 @@ export async function designFixture() {
           JSON.stringify({
             messageId: message,
             partial: state !== "completed",
+            model: agent.model,
           }),
           agent.folder_id,
           t,

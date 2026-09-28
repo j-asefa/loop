@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { nativeReply } from "./native-tools.mjs";
+import { readPublishedChunk } from "./published-files.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { redactValues } from "./redaction.mjs";
 import {
@@ -542,7 +543,7 @@ try {
   const request = JSON.parse(first.value);
   if (request.action !== "turn") timeout = setTimeout(stop, 30 * 60 * 1000);
   if (!hostMode) {
-    if (["turn", "capabilities"].includes(request.action))
+    if (["turn", "capabilities", "read-file"].includes(request.action))
       workdir = managedWorkspace(
         env.HOME,
         request.input?.workspaceKey ?? request.workspaceKey,
@@ -559,13 +560,22 @@ try {
           ? " Git and gh are authenticated with the workspace's connected GitHub account. Use them for the user's authorized repository work; never print or store authentication tokens."
           : "");
   }
-  if (
+  if (request.action === "read-file") {
+    emit({
+      result: readPublishedChunk(
+        workdir,
+        request.path,
+        request.offset,
+        request.version,
+      ),
+    });
+  } else if (
     !["login", "status", "logout", "turn", "capabilities"].includes(
       request.action,
     )
-  )
+  ) {
     throw new RuntimeFailure("Unknown action");
-  if (request.provider === "codex") await codex(request);
+  } else if (request.provider === "codex") await codex(request);
   else if (request.provider === "claude") await claude(request);
   else throw new RuntimeFailure("Unknown runtime");
 } catch (error) {

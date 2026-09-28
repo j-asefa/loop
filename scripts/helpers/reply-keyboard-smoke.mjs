@@ -3,8 +3,11 @@ import { expect } from "@playwright/test";
 
 export async function replyKeyboardSmoke(page, fixture, capture) {
   const sheet = () => page.locator("dialog[open]").last();
+  const composer = () => page.locator(".composer");
   const close = () =>
-    sheet().getByRole("button", { name: "Close", exact: true }).click();
+    composer()
+      .getByRole("button", { name: "Collapse composer", exact: true })
+      .click();
   const resetViewport = () =>
     page.evaluate(() => {
       delete window.visualViewport.height;
@@ -36,7 +39,8 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
           .getByRole("button", { name: "Reply", exact: true })
           .click();
       }
-      const input = sheet().getByRole("textbox", { name: "Reply to agent" });
+      const input = composer().getByRole("textbox", { name: "Reply to agent" });
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
       await input.fill("Everything runs locally. Can you clarify this part?");
       for (const width of [390, 320]) {
         await page.setViewportSize({ width, height: 844 });
@@ -59,21 +63,23 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
           await input.press("!");
           await expect
             .poll(() =>
-              sheet().evaluate((dialog) => {
+              composer().evaluate((dialog) => {
                 const v = window.visualViewport;
                 const top = v.offsetTop;
                 const bottom = top + v.height;
-                const content = dialog.querySelector(".result-content");
+                const content = dialog.querySelector(".composer-quote");
                 const within = (element) => {
                   const r = element.getBoundingClientRect();
                   return r.top >= top && r.bottom <= bottom && r.height > 0;
                 };
-                const original = content.querySelector(".markdown h2");
+                const original = content.querySelector(
+                  ".markdown > :first-child",
+                );
                 return (
-                  within(dialog.querySelector(".sheet-head")) &&
-                  within(dialog.querySelector(".result-reply")) &&
+                  within(dialog.querySelector(".composer-heading")) &&
+                  within(dialog.querySelector(".composer-main")) &&
                   within(content) &&
-                  content.clientHeight >= 120 &&
+                  content.clientHeight >= 60 &&
                   within(original) &&
                   original.getBoundingClientRect().bottom <=
                     content.getBoundingClientRect().bottom
@@ -87,21 +93,23 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       }
       // The whole original message remains independently scrollable while the
       // keyboard is open; scrolling it must not move the author or composer.
-      const headerBefore = await sheet().locator(".sheet-head").boundingBox();
+      const headerBefore = await composer()
+        .locator(".composer-heading")
+        .boundingBox();
       const replyBefore = await input.boundingBox();
-      await sheet()
-        .locator(".result-content")
+      await composer()
+        .locator(".composer-quote")
         .evaluate((el) => {
           el.scrollTop = el.scrollHeight;
         });
       assert(
-        await sheet()
-          .locator(".result-content")
+        await composer()
+          .locator(".composer-quote")
           .evaluate((el) => el.scrollTop > 0),
         "The complete original message can be read while replying",
       );
       assert.equal(
-        (await sheet().locator(".sheet-head").boundingBox()).y,
+        (await composer().locator(".composer-heading").boundingBox()).y,
         headerBefore.y,
       );
       assert.equal((await input.boundingBox()).y, replyBefore.y);
@@ -110,6 +118,10 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       await expect(page.locator(".mobile-nav")).toBeVisible();
       await resetViewport();
       await expect(input).toHaveValue(draft);
+      await input.fill("");
+      await composer()
+        .getByRole("button", { name: "Clear reply context" })
+        .click();
       await close();
     }
   } finally {

@@ -13,25 +13,17 @@ import {
   Code,
   MoreHorizontal,
 } from "lucide-react";
-import { Sheet, RichText, Badge, Avatar } from "./components";
-import { ResultReply } from "./ResultReply";
+import { Sheet, RichText } from "./components";
+import { ResultIdentity } from "./ResultIdentity";
+import { runModelName } from "./modelChoices";
+import { PublishedFile, RunFiles } from "./PublishedFiles";
+import { FileLink } from "./FilePreview";
 import { Diagram } from "./Diagram";
 import { api, parse } from "./api";
-import type { Agent, Artifact } from "../shared/types";
+import type { Agent, Artifact, Connection } from "../shared/types";
 export function ArtifactContent({ item }: { item: Artifact }) {
   if (parse<any>(item.metadata, {}).uploaded)
-    return (
-      <p>
-        <a href={"/api/artifacts/" + item.id + "/download"}>
-          Open uploaded file
-        </a>
-        <br />
-        <small>
-          Saved in Loop storage · available independently of the execution
-          worker
-        </small>
-      </p>
-    );
+    return <PublishedFile item={item} />;
   if (item.kind === "image") {
     const value = parse<any>(item.content, null);
     if (
@@ -92,24 +84,28 @@ export function ArtifactContent({ item }: { item: Artifact }) {
 }
 export function ArtifactViewer({
   item,
+  connections,
   agent,
+  onProfile,
   onClose,
   onFile,
   onConversation,
   onChanged,
   onRun,
   onWorkflow,
-  onSent,
+  onReply,
 }: {
   item: Artifact;
+  connections: Connection[];
   agent?: Agent;
+  onProfile: (agent: Agent) => void;
   onClose: () => void;
   onFile: () => void;
   onConversation: () => void;
   onChanged: () => void;
   onRun: (text: string) => void;
   onWorkflow: (source: string) => void;
-  onSent: () => void;
+  onReply: () => void;
 }) {
   const meta = parse<any>(item.metadata, {}),
     [editing, setEditing] = useState(false),
@@ -138,22 +134,12 @@ export function ArtifactViewer({
       onClose={onClose}
       heading={
         <div className="result-header">
-          <Avatar
-            name={author || "Loop"}
-            provider={meta.provider || item.provider || agent?.provider}
+          <ResultIdentity
+            name={author}
+            model={runModelName(meta, connections)}
+            createdAt={item.created_at}
+            onProfile={agent ? () => onProfile(agent) : undefined}
           />
-          <div className="result-author">
-            <h2>{author ? "@" + author : "Saved result"}</h2>
-            <Badge
-              provider={meta.provider || item.provider || agent?.provider}
-            />
-            <time dateTime={new Date(item.created_at).toISOString()}>
-              {new Date(item.created_at).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "short",
-              })}
-            </time>
-          </div>
           <details className="conversation-options result-options">
             <summary aria-label="Result options">
               <MoreHorizontal size={20} />
@@ -211,13 +197,15 @@ export function ArtifactViewer({
                 </button>
               )}
               {(meta.objectId || meta.rawObjectId) && (
-                <a
+                <FileLink
                   className="text-button"
-                  href={"/api/objects/" + (meta.objectId || meta.rawObjectId)}
+                  url={"/api/objects/" + (meta.objectId || meta.rawObjectId)}
+                  name={meta.name || item.title}
+                  mime={meta.mime}
                 >
                   <Download size={16} />
-                  Download original
-                </a>
+                  Original file
+                </FileLink>
               )}
               <button
                 onClick={() => {
@@ -284,6 +272,7 @@ export function ArtifactViewer({
             Partial output. This run did not finish normally.
           </p>
         )}
+        <RunFiles runId={item.run_id} excludeId={item.id} />
         {error && (
           <p className="error" role="alert">
             {error}
@@ -294,7 +283,12 @@ export function ArtifactViewer({
         agent &&
         item.conversation_id &&
         meta.origin !== "import" && (
-          <ResultReply item={item} agent={agent} onSent={onSent} />
+          <div className="result-edit-actions">
+            <button className="primary" onClick={onReply}>
+              <MessageSquare size={18} />
+              Reply
+            </button>
+          </div>
         )}
       {editing && (
         <div className="result-edit-actions">

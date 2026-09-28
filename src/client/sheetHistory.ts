@@ -6,6 +6,7 @@ const sheets: Entry[] = [];
 let ownsEntry = false;
 let pendingBack: string | null = null;
 let scheduled = false;
+const afterClose: (() => void)[] = [];
 
 function reconcile() {
   if (scheduled) return;
@@ -24,8 +25,25 @@ function reconcile() {
       ownsEntry = false;
       pendingBack = location.href;
       history.back();
+    } else if (!sheets.length && afterClose.length) {
+      const callbacks = afterClose.splice(0);
+      // Popstate's automatic scroll restoration happens after its listeners.
+      // Navigation scrolls must run after that restoration and dialog focus.
+      requestAnimationFrame(() => callbacks.forEach((callback) => callback()));
     }
   });
+}
+
+export function afterSheetsClose(callback: () => void) {
+  afterClose.push(callback);
+  reconcile();
+}
+
+export function closeTopSheet() {
+  const sheet = sheets.at(-1);
+  if (!sheet) return false;
+  sheet.close();
+  return true;
 }
 
 if (typeof window !== "undefined") {

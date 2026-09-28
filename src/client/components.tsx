@@ -1,6 +1,6 @@
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
-import { useEffect, useRef, type ReactNode, type Ref } from "react";
+import { useEffect, useMemo, useRef, type ReactNode, type Ref } from "react";
 import {
   X,
   Orbit,
@@ -11,13 +11,15 @@ import {
   MoreHorizontal,
   Archive,
 } from "lucide-react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Artifact, Provider } from "../shared/types";
+import type { Artifact, Connection, Provider } from "../shared/types";
 import { parse } from "./api";
+import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
 import { registerSheet } from "./sheetHistory";
+import { FileLink, loopFileUrl } from "./FilePreview";
 import {
   browserPreview,
   compactMarkdown,
@@ -200,41 +202,68 @@ export function RichText({
   diagrams?: boolean;
   compact?: boolean;
 }) {
+  // Preserve table scroll positions and open file previews during refreshes.
+  const renderers = useMemo<Components>(
+    () => ({
+      table: ({ children }) => (
+        <div
+          className="table-scroll"
+          role="region"
+          aria-label="Table"
+          tabIndex={0}
+        >
+          <table>{children}</table>
+        </div>
+      ),
+      pre: ({ children, node }) => {
+        const code = node?.children[0] as any;
+        if (
+          diagrams &&
+          code?.tagName === "code" &&
+          code.properties?.className?.includes("language-mermaid")
+        )
+          return (
+            <Diagram
+              compact={compact}
+              source={code.children
+                .map((c: any) => c.value || "")
+                .join("")
+                .trim()}
+            />
+          );
+        return <pre>{children}</pre>;
+      },
+      a: ({ children, href }) => {
+        const file = loopFileUrl(href);
+        return file ? (
+          <FileLink url={file}>{children}</FileLink>
+        ) : (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
+      },
+      img: ({ alt, src }) => {
+        const file = loopFileUrl(src);
+        return file ? (
+          <FileLink url={file} name={alt || "Image preview"}>
+            {alt || "View image"}
+          </FileLink>
+        ) : (
+          <span className="note">
+            [Image: {alt || "external image"} — open the original source to
+            view]
+          </span>
+        );
+      },
+    }),
+    [diagrams, compact],
+  );
   return (
     <div className="markdown">
       <Markdown
         remarkPlugins={compact ? [remarkGfm, compactMarkdown] : [remarkGfm]}
-        components={{
-          pre: ({ children, node }) => {
-            const code = node?.children[0] as any;
-            if (
-              diagrams &&
-              code?.tagName === "code" &&
-              code.properties?.className?.includes("language-mermaid")
-            )
-              return (
-                <Diagram
-                  compact={compact}
-                  source={code.children
-                    .map((c: any) => c.value || "")
-                    .join("")
-                    .trim()}
-                />
-              );
-            return <pre>{children}</pre>;
-          },
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
-          img: ({ alt }) => (
-            <span className="note">
-              [Image: {alt || "external image"} — open the original source to
-              view]
-            </span>
-          ),
-        }}
+        components={renderers}
       >
         {content}
       </Markdown>
@@ -334,6 +363,21 @@ function ArtifactPreview({
   tool?: string;
   web?: ReturnType<typeof webPreview>;
 }) {
+  const metadata = parse<any>(item.metadata, {});
+  if (
+    metadata.uploaded &&
+    ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+      metadata.mime,
+    )
+  )
+    return (
+      <img
+        className="preview-image"
+        src={`/api/artifacts/${item.id}/file?preview=1`}
+        alt={metadata.name || item.title}
+        loading="lazy"
+      />
+    );
   if (web)
     return (
       <div className="web-preview">
@@ -410,13 +454,16 @@ function ArtifactPreview({
 }
 export function ArtifactCard({
   item,
+  connections,
   onOpen,
   onProfile,
   onFile,
   onPin,
   onArchive,
   onArtifact,
+  onReply,
   project,
+  model,
   className,
   label,
   headerActions,
@@ -424,13 +471,16 @@ export function ArtifactCard({
   detail,
 }: {
   item: Artifact;
+  connections: Connection[];
   project?: string;
+  model?: string;
   onOpen: () => void;
   onProfile: () => void;
   onFile?: () => void;
   onPin?: () => void;
   onArchive?: () => void;
   onArtifact?: () => void;
+  onReply?: () => void;
   className?: string;
   label?: string;
   headerActions?: ReactNode;
@@ -438,6 +488,7 @@ export function ArtifactCard({
   detail?: ReactNode;
 }) {
   const meta = parse<any>(item.metadata, {});
+  const modelName = model || runModelName(meta, connections);
   const web = webPreview(
     item.content,
     meta.tool ||
@@ -507,7 +558,7 @@ export function ArtifactCard({
                 : "Your workspace"}
             </strong>
             <span className="subline">
-              <Badge provider={item.provider || meta.provider} />
+              {modelName && <span className="card-model">{modelName}</span>}
               <time>
                 {new Date(item.created_at).toLocaleDateString(undefined, {
                   month: "short",
@@ -598,7 +649,7 @@ export function ArtifactCard({
       </div>
       {footer || (
         <div className="card-actions">
-          <button onClick={onArtifact || onOpen}>
+          <button onClick={onReply || onArtifact || onOpen}>
             <MessageSquare size={16} />
             Reply
           </button>
@@ -625,7 +676,6 @@ export function ArtifactCard({
               <Archive size={16} />
             </button>
           )}
-          <span className="saved-label">{meta.model || "Private to you"}</span>
         </div>
       )}
     </article>

@@ -10,6 +10,7 @@ import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { connectionSelection } from "./hapi/contracts.js";
 import { readRunFile } from "./uploads.js";
+import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { applyActivity } from "./activities.js";
 import { ACTIVITY_LIMITS } from "../agent-activities.js";
 
@@ -60,7 +61,9 @@ export function runtimeInstructions(
   bindings: Pick<ToolBinding, "tool" | "connectionId">[],
 ) {
   if (
-    !bindings.some((b) => b.tool === "loop_plan" && b.connectionId === "__loop__")
+    !bindings.some(
+      (b) => b.tool === "loop_plan" && b.connectionId === "__loop__",
+    )
   )
     return instructions;
   return instructions.trim()
@@ -68,6 +71,7 @@ export function runtimeInstructions(
     : PLAN_GUIDANCE;
 }
 const schemas = {
+  loop_publish_file: publishFileSchema,
   loop_plan: plan,
   loop_read_file: z.object({
     fileId: z.string().uuid(),
@@ -86,6 +90,8 @@ export function nativeBindings(
   const teamId = JSON.parse(run.payload).teamId;
   const team = teamId ? owned<any>("teams", teamId, run.owner_id) : null;
   const descriptions: Record<string, string> = {
+    loop_publish_file:
+      "Publish a generated file to the user's Loop workspace. Use a path relative to your persistent workspace, or content for a small text/base64 file (use its filename as title). Copy files generated elsewhere into your workspace first. Hidden files, credentials, and files outside the workspace cannot be published. Files appear in the agent's Files tab and beside its result. Include the returned url in your answer; never claim a file is available until this tool succeeds. Publish generated images, documents, and mockups instead of leaving them on the worker.",
     ...(options.plans && {
       loop_plan:
         "Publish or update your plan for this task as a live checklist the user can follow. For multi-step work, publish the plan before starting and call this again with the complete updated list whenever a step starts or finishes. Keep each step's id stable and mark exactly the step you are working on as in_progress. Loop never infers a plan from your messages. It does not run anything and needs no approval.",
@@ -150,7 +156,23 @@ export async function invokeNative(
   ).run(run.id, callId, binding.tool, encoded);
   let text: string,
     artifactId = "";
-  if (binding.tool === "loop_plan") {
+  let isError = false;
+  if (binding.tool === "loop_publish_file") {
+    try {
+      const published = await publishRunFile(
+        run,
+        callId,
+        publishFileSchema.parse(args),
+      );
+      artifactId = published.artifactId;
+      text = JSON.stringify(published);
+    } catch (error) {
+      if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+        throw error;
+      isError = true;
+      text = "File was not published: " + (error as Error).message;
+    }
+  } else if (binding.tool === "loop_plan") {
     const p = plan.parse(args);
     const ids = new Set<string>();
     const steps = p.steps.map((step, i) => {
@@ -159,7 +181,12 @@ export async function invokeNative(
       if (step.id) ids.add(step.id);
       return step.id
         ? { id: step.id, title: step.title, status: step.status }
-        : { id: `step-${i}`, positional: true, title: step.title, status: step.status };
+        : {
+            id: `step-${i}`,
+            positional: true,
+            title: step.title,
+            status: step.status,
+          };
     });
     const applied = applyActivity(
       {
@@ -343,7 +370,10 @@ export async function invokeNative(
       })),
     );
   }
-  const result = { content: [{ type: "text", text }] };
+  const result = {
+    content: [{ type: "text", text }],
+    ...(isError ? { isError: true } : {}),
+  };
   db.prepare(
     "UPDATE native_calls SET result=?,artifact_id=? WHERE run_id=? AND call_id=?",
   ).run(JSON.stringify(result), artifactId || null, run.id, callId);

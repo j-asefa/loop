@@ -13,27 +13,43 @@ import {
 } from "./conversationMessages";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName } from "./modelChoices";
-import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
-import { MAX_MESSAGE_FILES } from "../shared/uploads";
+import { AttachmentList } from "./Attachments";
+import type { ComposerContext } from "./composerContext";
 import { NativeDecisions } from "./NativeControls";
 import { Approvals } from "./Approvals";
-import { HarnessPicker } from "./HarnessPicker";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, Copy, MoreHorizontal } from "lucide-react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ArrowDown, Copy, MoreHorizontal, Reply } from "lucide-react";
 import { api, parse } from "./api";
-import { Sheet, RichText, Badge, Avatar } from "./components";
+import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
+import { RunFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
+
+// Keep the transcript focused on public messages, plans and files. Raw tool
+// calls and command output are available separately from the options menu.
+const conversationActivity = (record: ActivityRecord) =>
+  record.kind !== "tool" && record.kind !== "output";
+
 export function Conversation({
   id,
   messageId,
+  revision,
   agents,
   connections,
   teams,
   onClose,
   onContinue,
-  onSent,
+  composer,
+  onReady,
+  onReply,
+  onUsePrompt,
   onSubmitted,
   onProfile,
   onAgentChanged,
@@ -41,27 +57,34 @@ export function Conversation({
 }: {
   id: string;
   messageId?: string | null;
+  revision: number;
   agents: Agent[];
   connections: Connection[];
   teams: Team[];
   onClose: () => void;
   onContinue: (id: string) => void;
-  onSent: () => void;
+  composer: ReactNode;
+  onReady: (context: ComposerContext) => void;
+  onReply: (context: ComposerContext) => void;
+  onUsePrompt: (text: string) => void;
   onSubmitted: () => void;
   onProfile: (agent: Agent) => void;
   onAgentChanged?: () => void;
   onNewConversation: (agent: Agent) => void;
 }) {
   const activityItems = useConversationActivities(id);
-  const activities = visibleActivities(activityItems);
+  const allActivities = visibleActivities(activityItems);
+  const activities = allActivities.filter((item) =>
+    conversationActivity(item.record),
+  );
+  const toolActivities = allActivities.filter(
+    (item) => !conversationActivity(item.record),
+  );
   const [data, setData] = useState<{
       conversation: any;
       messages: ConversationMessage[];
       next: string | null;
     } | null>(null),
-    [draft, setDraft] = useState(
-      sessionStorage.getItem("loop-conversation-" + id) || "",
-    ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [loadError, setLoadError] = useState(""),
@@ -70,36 +93,50 @@ export function Conversation({
     [transfer, setTransfer] = useState(false),
     [destination, setDestination] = useState(""),
     [included, setIncluded] = useState<string[]>([]),
-    [editingModel, setEditingModel] = useState(false);
+    [editingModel, setEditingModel] = useState(false),
+    [showToolActivity, setShowToolActivity] = useState(false);
   const [newProvider, setNewProvider] = useState<Agent | null>(null);
-  const request = useRef(
-      parse<{ signature: string; key: string }>(
-        sessionStorage.getItem("loop-receipt-" + id) || "",
-        { signature: "", key: "" },
-      ),
-    ),
-    anchor = messageId;
+  const anchor = messageId;
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
   const generation = useRef(0);
   const scrolled = useRef("");
   const messagesRef = useRef<HTMLDivElement>(null);
   const initialScroll = useRef<string | null>(null);
+  const followLatest = useRef(!anchor);
+  const pinnedSize = useRef({ height: 0, viewport: 0 });
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
   const retryKeys = useRef(new Map<string, string>());
   const [retrying, setRetrying] = useState<string | null>(null);
   const retryBusy = useRef(false);
-  const [attachments, setAttachments] = useAttachments(
-    "loop-conversation-files-" + id,
-  );
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
-  const [uploading, setUploading] = useState(false);
   const paging = useRef(false);
   const loadRequest = useRef(0);
+  const refreshRequest = useRef<{
+    generation: number;
+    queued: boolean;
+  } | null>(null);
+  const seenRevision = useRef(revision);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const agent = agents.find((a) => a.id === data?.conversation.agent_id),
     imported = data?.conversation.origin.endsWith("-import");
+  function pinLatest() {
+    const messages = messagesRef.current;
+    if (!messages) return;
+    pinnedSize.current = {
+      height: messages.scrollHeight,
+      viewport: messages.clientHeight,
+    };
+    messages.scrollTop = messages.scrollHeight;
+  }
   async function load(initial = false) {
     if (paging.current) return;
     const current = generation.current;
+    if (refreshRequest.current?.generation === current) {
+      refreshRequest.current.queued = true;
+      return;
+    }
+    const request = { generation: current, queued: false };
+    refreshRequest.current = request;
     const ticket = ++loadRequest.current;
     if (initial) setLoading(true);
     try {
@@ -141,14 +178,20 @@ export function Conversation({
     } finally {
       if (current === generation.current && ticket === loadRequest.current)
         setLoading(false);
+      if (refreshRequest.current === request) {
+        refreshRequest.current = null;
+        if (current === generation.current && request.queued) void load();
+      }
     }
   }
   useEffect(() => {
     generation.current++;
     scrolled.current = "";
+    followLatest.current = !anchor;
+    setAwayFromLatest(false);
     setData(null);
-    setDraft(sessionStorage.getItem("loop-conversation-" + id) || "");
     setTransfer(false);
+    setShowToolActivity(false);
     setError("");
     setNotice("");
     void load(true);
@@ -162,16 +205,36 @@ export function Conversation({
     };
   }, [id, anchor]);
   useEffect(() => {
-    sessionStorage.setItem("loop-conversation-" + id, draft);
-  }, [draft, id]);
+    if (seenRevision.current === revision) return;
+    seenRevision.current = revision;
+    void load();
+  }, [revision]);
+  useEffect(() => {
+    if (!imported && agent && data?.conversation.id === id)
+      readyRef.current({
+        agentId: agent.id,
+        conversationId: id,
+        title: data.conversation.title,
+      });
+  }, [id, agent?.id, data?.conversation.title, imported]);
   useLayoutEffect(() => {
-    if (data?.conversation.id !== id || anchor || initialScroll.current === id)
-      return;
+    if (data?.conversation.id !== id) return;
     const messages = messagesRef.current;
     if (!messages) return;
-    messages.scrollTop = messages.scrollHeight;
+    if (followLatest.current) pinLatest();
     initialScroll.current = id;
   }, [data, id, anchor]);
+  useEffect(() => {
+    const messages = messagesRef.current;
+    if (!messages) return;
+    // Keep the current output in view when the composer or mobile keyboard
+    // changes the available height, unless the user is reading older messages.
+    const observer = new ResizeObserver(() => {
+      if (followLatest.current && initialScroll.current === id) pinLatest();
+    });
+    observer.observe(messages);
+    return () => observer.disconnect();
+  }, [id]);
   useEffect(() => {
     if (!anchor || !data || scrolled.current === anchor) return;
     const frame = requestAnimationFrame(() => {
@@ -184,46 +247,6 @@ export function Conversation({
     });
     return () => cancelAnimationFrame(frame);
   }, [data, id, anchor]);
-  async function send() {
-    if (busy || uploading || !draft.trim() || !agent) return;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const targetConversation = id;
-      const signature = JSON.stringify([
-        targetConversation,
-        agent.id,
-        draft,
-        attachments.map((file) => file.id),
-      ]);
-      if (request.current.signature !== signature)
-        request.current = { signature, key: crypto.randomUUID() };
-      sessionStorage.setItem(
-        "loop-receipt-" + id,
-        JSON.stringify(request.current),
-      );
-      await api("/runs", {
-        agentId: agent.id,
-        conversationId: targetConversation,
-        input: draft,
-        idempotencyKey: request.current.key,
-        attachmentIds: attachments.map((file) => file.id),
-      });
-      // Clear persisted text before closing unmounts this conversation.
-      sessionStorage.removeItem("loop-conversation-" + id);
-      setDraft("");
-      setAttachments([]);
-      request.current = { signature: "", key: "" };
-      sessionStorage.removeItem("loop-receipt-" + id);
-      document.getElementById("conversation-reply")?.blur();
-      onSent();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
     <Sheet
       wide
@@ -243,7 +266,6 @@ export function Conversation({
             <span className="conversation-agent-copy">
               <strong>@{agent.name}</strong>
               <span className="conversation-agent-details">
-                <Badge provider={agent.provider} />
                 <span title={agentModelName(agent, connections)}>
                   {agentModelName(agent, connections)}
                 </span>
@@ -261,6 +283,17 @@ export function Conversation({
           </summary>
           <div className="conversation-options-menu">
             <NativeConversation id={id} />
+            {!!toolActivities.length && (
+              <button
+                className="text-button"
+                onClick={(e) => {
+                  e.currentTarget.closest("details")?.removeAttribute("open");
+                  setShowToolActivity(true);
+                }}
+              >
+                Tool activity
+              </button>
+            )}
             <SessionActivityControls
               key={id}
               conversationId={id}
@@ -291,6 +324,13 @@ export function Conversation({
           </div>
         </details>
       </div>
+      {showToolActivity && (
+        <Sheet title="Tool activity" onClose={() => setShowToolActivity(false)}>
+          <ActivityRecords
+            records={toolActivities.map((item) => item.record)}
+          />
+        </Sheet>
+      )}
       {editingModel && agent && (
         <AgentModelSettings
           agent={agent}
@@ -307,263 +347,362 @@ export function Conversation({
           }}
         />
       )}
-      <div className="messages" ref={messagesRef} aria-busy={loading}>
-        {loading && (
-          <p role="status" className="muted">
-            Loading conversation…
-          </p>
-        )}
-        {loadError && (
-          <div role="alert" className="error">
-            {loadError}
-            <button className="text-button" onClick={() => void load(!data)}>
-              Try again
-            </button>
-          </div>
-        )}
-        {data?.next && (
-          <button
-            className="text-button"
-            disabled={loadingEarlier}
-            onClick={async () => {
-              if (paging.current) return;
-              paging.current = true;
-              loadRequest.current++;
-              setLoadingEarlier(true);
-              const current = generation.current;
-              try {
-                const older = await api(
-                  "/conversations/" + id + "?before=" + data.next,
-                );
-                if (current !== generation.current) return;
-                setData((previous) =>
-                  previous
-                    ? {
-                        ...previous,
-                        messages: mergeConversationMessages(
-                          previous.messages,
-                          older.messages,
-                        ),
-                        next: older.next,
-                      }
-                    : previous,
-                );
-                setError("");
-              } catch (e) {
-                if (current === generation.current)
-                  setError((e as Error).message);
-              } finally {
-                paging.current = false;
-                if (current === generation.current) {
-                  setLoadingEarlier(false);
-                  void load();
-                }
-              }
-            }}
-          >
-            Load earlier messages
-          </button>
-        )}
-        <ActivityRecords
-          records={activities.filter((a) => !a.run).map((a) => a.record)}
-        />
-        {data?.messages.map((m) => (
-          <article
-            key={m.id}
-            id={"message-" + m.id}
-            tabIndex={-1}
-            className={
-              "message " +
-              m.role +
-              (parse<any>(m.metadata, {}).progress ? " agent-progress" : "") +
-              (anchor === m.id ? " anchored" : "")
+      <div className="conversation-message-area">
+        <div
+          className="messages"
+          ref={messagesRef}
+          aria-busy={loading}
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            // A composer resize can emit the preceding programmatic scroll
+            // event with new dimensions. It is not a request to stop following.
+            if (
+              followLatest.current &&
+              (pinnedSize.current.height !== el.scrollHeight ||
+                pinnedSize.current.viewport !== el.clientHeight)
+            ) {
+              pinLatest();
+              return;
             }
-          >
-            <span className="eyebrow">
-              {m.role === "user" ? "You" : `@${agent?.name || "agent"}`}
-              {parse<any>(m.metadata, {}).progress ? " · Update" : ""}
-              {parse<any>(m.metadata, {}).activeBranch === false
-                ? " · alternate branch"
-                : ""}
-            </span>
-            {m.role === "user" && parse<any>(m.metadata, {}).replyTo && (
-              <details className="message-reply-context">
-                <summary>
-                  Replying to @{parse<any>(m.metadata, {}).replyTo.name}
-                  {" · View quoted message"}
-                </summary>
-                <RichText
-                  content={parse<any>(m.metadata, {}).replyTo.content}
-                />
-              </details>
-            )}
-            {m.content && parse<any>(m.metadata, {}).partial !== true && (
-              <RichText content={m.content} />
-            )}
-            <ActivityRecords
-              records={(
-                parse<any>(m.metadata, {}).activities ||
-                (parse<any>(m.metadata, {}).activity
-                  ? [parse<any>(m.metadata, {}).activity]
-                  : [])
-              ).filter(
-                (record: ActivityRecord) =>
-                  !activities.some(
-                    (a) =>
-                      a.run === m.run_id &&
-                      a.record.id === record.id &&
-                      a.record.kind === record.kind &&
-                      a.record.source.transport === record.source.transport &&
-                      a.record.source.harness === record.source.harness,
-                  ),
-              )}
-            />
-            <AttachmentList
-              files={parse<any>(m.metadata, {}).attachments || []}
-            />
-            {parse<any>(m.metadata, {}).steeringId && (
-              <p
-                className={
-                  parse<any>(m.metadata, {}).delivery === "failed"
-                    ? "error"
-                    : "field-hint"
+            const following =
+              el.scrollHeight - el.clientHeight - el.scrollTop < 48;
+            followLatest.current = following;
+            setAwayFromLatest(!following);
+          }}
+        >
+          {loading && (
+            <p role="status" className="muted">
+              Loading conversation…
+            </p>
+          )}
+          {loadError && (
+            <div role="alert" className="error">
+              {loadError}
+              <button className="text-button" onClick={() => void load(!data)}>
+                Try again
+              </button>
+            </div>
+          )}
+          {data?.next && (
+            <button
+              className="text-button"
+              disabled={loadingEarlier}
+              onClick={async () => {
+                if (paging.current) return;
+                paging.current = true;
+                loadRequest.current++;
+                setLoadingEarlier(true);
+                const current = generation.current;
+                try {
+                  const older = await api(
+                    "/conversations/" + id + "?before=" + data.next,
+                  );
+                  if (current !== generation.current) return;
+                  setData((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          messages: mergeConversationMessages(
+                            previous.messages,
+                            older.messages,
+                          ),
+                          next: older.next,
+                        }
+                      : previous,
+                  );
+                  setError("");
+                } catch (e) {
+                  if (current === generation.current)
+                    setError((e as Error).message);
+                } finally {
+                  paging.current = false;
+                  if (current === generation.current) {
+                    setLoadingEarlier(false);
+                    void load();
+                  }
                 }
-                role="status"
-              >
-                {parse<any>(m.metadata, {}).delivery === "failed"
-                  ? parse<any>(m.metadata, {}).deliveryError
-                  : parse<any>(m.metadata, {}).delivery === "delivered"
-                    ? "Sent to the active run"
-                    : "Sending to the active run…"}
-              </p>
-            )}
-            {m.role === "assistant" && m.run_id && (
-              <MemoryUsed runId={m.run_id} />
-            )}
-            {m.run_id &&
-              !parse<any>(m.metadata, {}).progress &&
-              (
-                data.messages
-                  .filter(
-                    (other) =>
-                      other.run_id === m.run_id &&
-                      other.role === "assistant" &&
-                      !parse<any>(other.metadata, {}).progress,
-                  )
-                  .at(-1) ||
-                data.messages.find(
+              }}
+            >
+              Load earlier messages
+            </button>
+          )}
+          <ActivityRecords
+            records={activities.filter((a) => !a.run).map((a) => a.record)}
+          />
+          {data?.messages.map((m) => {
+            const meta = parse<any>(m.metadata, {});
+            const pendingAnswer =
+              m.role === "assistant" &&
+              !meta.progress &&
+              (meta.partial === true || !m.content.trim());
+            // Current runtimes stream public text as message traces. Older
+            // records may only have partial answer text; display it if there is
+            // no trace for that run, without duplicating the current stream.
+            const showContent =
+              m.content &&
+              (meta.partial !== true ||
+                !data.messages.some(
                   (other) =>
                     other.run_id === m.run_id &&
-                    !parse<any>(other.metadata, {}).progress,
-                )
-              )?.id === m.id && (
-                <>
-                  <ActivityRecords
-                    records={activities
-                      .filter((a) => a.run === m.run_id)
-                      .map((a) => a.record)}
-                  />
-                  <RunStatus
-                    state={m.run_state}
-                    error={m.run_error}
-                    empty={
-                      m.role === "assistant"
-                        ? !m.content ||
-                          parse<any>(m.metadata, {}).partial === true
-                        : true
+                    parse<any>(other.metadata, {}).progress,
+                ));
+            return (
+              <article
+                key={m.id}
+                id={"message-" + m.id}
+                tabIndex={-1}
+                className={
+                  "message " +
+                  m.role +
+                  (pendingAnswer ? " pending-answer" : "") +
+                  (parse<any>(m.metadata, {}).progress
+                    ? " agent-progress"
+                    : "") +
+                  (anchor === m.id ? " anchored" : "")
+                }
+              >
+                {(!pendingAnswer || showContent) && (
+                  <header className="message-meta">
+                    <span className="eyebrow">
+                      {m.role === "user" ? "You" : `@${agent?.name || "agent"}`}
+                      {parse<any>(m.metadata, {}).progress ? " · Update" : ""}
+                      {parse<any>(m.metadata, {}).activeBranch === false
+                        ? " · alternate branch"
+                        : ""}
+                    </span>
+                    <time
+                      dateTime={new Date(m.created_at).toISOString()}
+                      title={new Date(m.created_at).toLocaleString()}
+                    >
+                      {new Date(m.created_at).toLocaleDateString(undefined, {
+                        day: "numeric",
+                        month: "short",
+                      })}
+                      {" · "}
+                      {new Date(m.created_at).toLocaleTimeString(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </time>
+                  </header>
+                )}
+                {m.role === "user" && parse<any>(m.metadata, {}).replyTo && (
+                  <details className="message-reply-context">
+                    <summary>
+                      Replying to @{parse<any>(m.metadata, {}).replyTo.name}
+                      {" · View quoted message"}
+                    </summary>
+                    <RichText
+                      content={parse<any>(m.metadata, {}).replyTo.content}
+                    />
+                  </details>
+                )}
+                {showContent && <RichText content={m.content} />}
+                <ActivityRecords
+                  records={(
+                    meta.activities || (meta.activity ? [meta.activity] : [])
+                  ).filter(
+                    (record: ActivityRecord) =>
+                      conversationActivity(record) &&
+                      !activities.some(
+                        (a) =>
+                          a.run === m.run_id &&
+                          a.record.id === record.id &&
+                          a.record.kind === record.kind &&
+                          a.record.source.transport ===
+                            record.source.transport &&
+                          a.record.source.harness === record.source.harness,
+                      ),
+                  )}
+                />
+                <AttachmentList
+                  files={parse<any>(m.metadata, {}).attachments || []}
+                />
+                {parse<any>(m.metadata, {}).steeringId && (
+                  <p
+                    className={
+                      parse<any>(m.metadata, {}).delivery === "failed"
+                        ? "error"
+                        : "field-hint"
                     }
-                  />
-                  {m.run_state === "awaiting_approval" && (
-                    <Approvals
+                    role="status"
+                  >
+                    {parse<any>(m.metadata, {}).delivery === "failed"
+                      ? parse<any>(m.metadata, {}).deliveryError
+                      : parse<any>(m.metadata, {}).delivery === "delivered"
+                        ? "Sent to the active run"
+                        : "Sending to the active run…"}
+                  </p>
+                )}
+                {m.role === "assistant" &&
+                  m.run_id &&
+                  !meta.progress &&
+                  !pendingAnswer && <MemoryUsed runId={m.run_id} />}
+                {m.run_id &&
+                  !parse<any>(m.metadata, {}).progress &&
+                  (
+                    data.messages
+                      .filter(
+                        (other) =>
+                          other.run_id === m.run_id &&
+                          other.role === "assistant" &&
+                          !parse<any>(other.metadata, {}).progress,
+                      )
+                      .at(-1) ||
+                    data.messages.find(
+                      (other) =>
+                        other.run_id === m.run_id &&
+                        !parse<any>(other.metadata, {}).progress,
+                    )
+                  )?.id === m.id && (
+                    <>
+                      <ActivityRecords
+                        records={activities
+                          .filter((a) => a.run === m.run_id)
+                          .map((a) => a.record)}
+                      />
+                      <RunStatus
+                        state={m.run_state}
+                        error={m.run_error}
+                        empty={
+                          m.role === "assistant"
+                            ? !m.content ||
+                              parse<any>(m.metadata, {}).partial === true
+                            : true
+                        }
+                      />
+                      {m.run_state === "awaiting_approval" && (
+                        <Approvals
+                          runId={m.run_id}
+                          revision={0}
+                          onChange={() => {
+                            onSubmitted();
+                            void load();
+                          }}
+                          onConversation={() => {}}
+                        />
+                      )}
+                      {["failed", "interrupted"].includes(
+                        m.run_state || "",
+                      ) && (
+                        <button
+                          className="text-button"
+                          disabled={!!retrying}
+                          onClick={async () => {
+                            if (retryBusy.current) return;
+                            retryBusy.current = true;
+                            setRetrying(m.run_id);
+                            const key =
+                              retryKeys.current.get(m.run_id!) ||
+                              crypto.randomUUID();
+                            retryKeys.current.set(m.run_id!, key);
+                            try {
+                              await api(`/runs/${m.run_id}/retry`, {
+                                idempotencyKey: key,
+                              });
+                              onSubmitted();
+                              await load();
+                            } catch (e) {
+                              setError((e as Error).message);
+                            } finally {
+                              retryBusy.current = false;
+                              setRetrying(null);
+                            }
+                          }}
+                        >
+                          {retrying === m.run_id
+                            ? "Queuing retry…"
+                            : "Retry as a new run"}
+                        </button>
+                      )}
+                    </>
+                  )}
+                {!parse<any>(m.metadata, {}).progress &&
+                  m.role === "assistant" && (
+                    <RunFiles
                       runId={m.run_id}
-                      revision={0}
-                      onChange={() => {
-                        onSubmitted();
-                        void load();
-                      }}
-                      onConversation={() => {}}
+                      active={m.run_state === "running"}
                     />
                   )}
-                  {["failed", "interrupted"].includes(m.run_state || "") && (
+                {m.role === "assistant" &&
+                  agent &&
+                  !imported &&
+                  !pendingAnswer && (
                     <button
                       className="text-button"
-                      disabled={!!retrying}
+                      onClick={() =>
+                        onReply({
+                          agentId: agent.id,
+                          conversationId: id,
+                          messageId: m.id,
+                          content: m.content,
+                        })
+                      }
+                    >
+                      <Reply size={16} /> Reply
+                    </button>
+                  )}
+                {!meta.progress && !pendingAnswer && (
+                  <div className="message-actions">
+                    <button
+                      aria-label="Copy message"
                       onClick={async () => {
-                        if (retryBusy.current) return;
-                        retryBusy.current = true;
-                        setRetrying(m.run_id);
-                        const key =
-                          retryKeys.current.get(m.run_id!) ||
-                          crypto.randomUUID();
-                        retryKeys.current.set(m.run_id!, key);
                         try {
-                          await api(`/runs/${m.run_id}/retry`, {
-                            idempotencyKey: key,
-                          });
-                          onSubmitted();
-                          await load();
-                        } catch (e) {
-                          setError((e as Error).message);
-                        } finally {
-                          retryBusy.current = false;
-                          setRetrying(null);
+                          await navigator.clipboard.writeText(m.content);
+                          setNotice("Message copied.");
+                        } catch {
+                          setError(
+                            "Could not copy. Select the message text and copy it.",
+                          );
                         }
                       }}
                     >
-                      {retrying === m.run_id
-                        ? "Queuing retry…"
-                        : "Retry as a new run"}
+                      <Copy size={14} />
                     </button>
-                  )}
-                </>
-              )}
-            {!parse<any>(m.metadata, {}).progress && (
-              <div className="message-actions">
-                <button
-                  aria-label="Copy message"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(m.content);
-                      setNotice("Message copied.");
-                    } catch {
-                      setError(
-                        "Could not copy. Select the message text and copy it.",
-                      );
-                    }
-                  }}
-                >
-                  <Copy size={14} />
-                </button>
-                <button
-                  onClick={() => {
-                    setDraft(m.content);
-                    document.getElementById("conversation-reply")?.focus();
-                  }}
-                >
-                  Edit as prompt
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      await api("/artifacts", {
-                        title: "Saved prompt: " + m.content.slice(0, 65),
-                        content: m.content,
-                        kind: "markdown",
-                      });
-                      onSubmitted();
-                      setNotice("Prompt saved to your files.");
-                    } catch (e) {
-                      setError((e as Error).message);
-                    }
-                  }}
-                >
-                  Save as prompt
-                </button>
-                <a href={`/?conversation=${id}&message=${m.id}`}>Link</a>
-              </div>
-            )}
-          </article>
-        ))}
+                    <button
+                      onClick={() => {
+                        onUsePrompt(m.content);
+                      }}
+                    >
+                      Edit as prompt
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api("/artifacts", {
+                            title: "Saved prompt: " + m.content.slice(0, 65),
+                            content: m.content,
+                            kind: "markdown",
+                          });
+                          onSubmitted();
+                          setNotice("Prompt saved to your files.");
+                        } catch (e) {
+                          setError((e as Error).message);
+                        }
+                      }}
+                    >
+                      Save as prompt
+                    </button>
+                    <a href={`/?conversation=${id}&message=${m.id}`}>Link</a>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+        {awayFromLatest && (
+          <button
+            className="text-button conversation-latest"
+            aria-label="Jump to latest messages"
+            onClick={() => {
+              followLatest.current = true;
+              setAwayFromLatest(false);
+              pinLatest();
+            }}
+          >
+            <ArrowDown size={16} aria-hidden="true" /> Latest messages
+          </button>
+        )}
       </div>
       {transfer && (
         <Sheet
@@ -675,61 +814,8 @@ export function Conversation({
         </div>
       )}
       <NativeDecisions conversation={id} />
-      {!imported && (
-        <div className="conversation-composer">
-          <AttachmentList
-            files={attachments}
-            onRemove={(id) =>
-              setAttachments(attachments.filter((file) => file.id !== id))
-            }
-          />
-          <div className="conversation-composer-controls">
-            <UploadButton
-              menu
-              folderId={agent?.folder_id}
-              agentId={agent?.id}
-              disabled={busy}
-              remaining={MAX_MESSAGE_FILES - attachments.length}
-              onBusy={setUploading}
-              onUploaded={(file) => {
-                attachmentsRef.current = [...attachmentsRef.current, file];
-                setAttachments(attachmentsRef.current);
-              }}
-            />
-            <HarnessPicker
-              agentId={agent?.id}
-              conversationId={id}
-              value={draft}
-              onChange={setDraft}
-              focusInput={() =>
-                document.getElementById("conversation-reply")?.focus()
-              }
-            />
-          </div>
-          <form
-            className="reply-box"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
-          >
-            <textarea
-              id="conversation-reply"
-              aria-label="Reply to agent"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={`Continue with @${agent?.name || "agent"}…`}
-              rows={1}
-            />
-            <button
-              className="primary icon-button"
-              disabled={!draft.trim() || busy || uploading || !agent}
-              aria-label="Send reply"
-            >
-              <ArrowUp size={20} />
-            </button>
-          </form>
-        </div>
+      {!imported && agent && (
+        <div className="conversation-composer">{composer}</div>
       )}
     </Sheet>
   );

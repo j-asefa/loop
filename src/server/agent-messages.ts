@@ -37,16 +37,17 @@ export function agentMessages(owner: string, agent: string, before?: string) {
     WHERE m.owner_id=? AND c.agent_id=? AND m.role='assistant'
     AND json_extract(m.metadata,'$.partial') IS NOT 1
     AND length(trim(m.content))>0
-    ) SELECT * FROM entries WHERE (created_at,final,id)<(?,?,?)
+    ) SELECT *, (SELECT json_extract(r.payload,'$.model') FROM runs r WHERE r.id=entries.run_id AND r.owner_id=?) model FROM entries WHERE (created_at,final,id)<(?,?,?)
     ORDER BY created_at DESC,final DESC,id DESC LIMIT 51`,
     )
-    .all(owner, agent, owner, agent, ...cursor) as {
+    .all(owner, agent, owner, agent, owner, ...cursor) as {
     id: string;
     content: string;
     created_at: number;
     conversation_id: string | null;
     run_id: string | null;
     final: number;
+    model: string | null;
   }[];
   const hasMore = items.length > 50;
   if (hasMore) items.pop();

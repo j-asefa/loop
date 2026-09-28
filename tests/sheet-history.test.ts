@@ -46,6 +46,31 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it("waits for dialog history and browser restoration before scrolling to a profile", async () => {
+  const { registerSheet, afterSheetsClose } =
+    await import("../src/client/sheetHistory");
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+    frames.push(callback),
+  );
+  const close = registerSheet(() => {});
+  await settle();
+  const scroll = vi.fn();
+  afterSheetsClose(scroll);
+  await settle();
+  expect(frames).toHaveLength(0);
+  close();
+  await settle();
+  expect(pending).toBe(true);
+  expect(frames).toHaveLength(0);
+  pop();
+  await settle();
+  expect(scroll).not.toHaveBeenCalled();
+  expect(frames).toHaveLength(1);
+  frames.shift()!(0);
+  expect(scroll).toHaveBeenCalledOnce();
+});
+
 it("uses one Back entry for a stack and closes only its top sheet", async () => {
   const { registerSheet } = await import("../src/client/sheetHistory");
   const outerClose = vi.fn(() => outer());

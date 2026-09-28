@@ -10,6 +10,7 @@ import {
 const card = (content: string, kind = "markdown", metadata = "{}") =>
   renderToStaticMarkup(
     <ArtifactCard
+      connections={[]}
       item={
         {
           id: "preview",

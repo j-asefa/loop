@@ -1,5 +1,6 @@
 import { architectureSettingsJourney } from "./architecture-settings-journey.mjs";
 import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
+import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { createServer as reservePort } from "node:net";
 async function freePort() {
   const server = reservePort();
@@ -72,7 +73,10 @@ try {
     deviceScaleFactor: 1,
   });
   const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (e) => {
+    if (!isWebKitNavigationFetchError(process.env.LOOP_BROWSER, e, base))
+      errors.push(e.message);
+  });
   await page.goto(base);
   await page.getByRole("heading", { name: "Feed" }).waitFor();
   await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
@@ -195,7 +199,10 @@ try {
     .selectOption("browser-fixture-model");
   const newName = "browser-" + crypto.randomUUID().slice(0, 8);
   await page.getByLabel("Unique name").fill(newName);
-  await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create agent", exact: true })
+    .click();
   await page.getByRole("heading", { name: "Bring it into Loop" }).waitFor();
   assert.equal(
     await page.getByLabel("Your question").inputValue(),

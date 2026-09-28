@@ -26,7 +26,10 @@ export async function agentCreationJourney(page, api) {
   await page
     .getByLabel("Agent instructions", { exact: true })
     .fill("Keep answers concise.");
-  await button("Create agent").click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create agent", exact: true })
+    .click();
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   const idle = (await api("/bootstrap")).agents.find(
     (a) => a.name === "creation-idle",

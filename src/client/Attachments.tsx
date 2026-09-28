@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
+import { FilePreview } from "./FilePreview";
 import { authorizedFetch, parse } from "./api";
 import {
   MAX_MESSAGE_FILES,
@@ -34,29 +35,45 @@ export function AttachmentList({
   files: UploadedFile[];
   onRemove?: (id: string) => void;
 }) {
+  const [preview, setPreview] = useState<UploadedFile>();
   if (!files.length) return null;
   return (
-    <ul className="attachment-list" aria-label="Attached files">
-      {files.map((file) => (
-        <li key={file.id}>
-          <File size={17} aria-hidden="true" />
-          <a href={`/api/objects/${file.objectId}`} download={file.name}>
-            <span>{file.name}</span>
-            <small>{size(file.size)}</small>
-          </a>
-          {onRemove && (
+    <>
+      <ul className="attachment-list" aria-label="Attached files">
+        {files.map((file) => (
+          <li key={file.id}>
+            <File size={17} aria-hidden="true" />
             <button
               type="button"
-              className="icon-button"
-              aria-label={`Remove ${file.name}`}
-              onClick={() => onRemove(file.id)}
+              className="attachment-open"
+              aria-label={`Preview ${file.name}`}
+              onClick={() => setPreview(file)}
             >
-              <X size={17} />
+              <span>{file.name}</span>
+              <small>{size(file.size)}</small>
             </button>
-          )}
-        </li>
-      ))}
-    </ul>
+            {onRemove && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => onRemove(file.id)}
+              >
+                <X size={17} />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {preview && (
+        <FilePreview
+          url={`/api/objects/${preview.objectId}`}
+          name={preview.name}
+          mime={preview.mime}
+          onClose={() => setPreview(undefined)}
+        />
+      )}
+    </>
   );
 }
 export function UploadButton({
