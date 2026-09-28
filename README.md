@@ -20,7 +20,9 @@ Implemented: subscription connections through official Codex/Claude Code runtime
 
 September feedback adds local semantic search, generated avatars, compact composition, response links, feed-only archiving, native Mermaid diagrams, manager/worker teams with filtered feeds, a searchable 50-tool MCP catalog, JSON MCP installation and remote runtime machines. See the [report and verification](docs/feedback/REPORT.md) and [runtime/MCP setup](docs/feedback/RUNTIMES.md). The Pi.dev integration design is documented; its provider adapter is not yet shipped.
 
-The composer supports file attachments and agent provider/model/effort settings. Public progress updates live in **Messages** and **Traces**, with only final answers in conversations and the feed. Teams can be deleted while preserving their agents and history. See [workspace controls](docs/feedback/WORKSPACE-CONTROLS.md).
+The composer supports file attachments and agent provider/model/effort settings. Conversations include public progress updates as well as final answers, with tool details kept separately. Teams can be deleted while preserving their agents and history. See [workspace controls](docs/feedback/WORKSPACE-CONTROLS.md).
+
+**Saved** contains only cards you bookmark, with the same team and project filters as Feed. Profiles support retiring and restoring agents, and **Settings → Result notifications** enables phone alerts for new results. On iPhone, open Loop from its Home Screen icon before enabling notifications. See [Saved, retirement and notifications](docs/feedback/SAVED-NOTIFICATIONS.md).
 
 Existing remote Codex installations can also connect directly through **Settings → Runtime machines → Codex app-server**. This reuses the machine's ChatGPT login and enables its native tools. Claude Code can use the new native host runner with the laptop's existing sign-in, files and tool configuration. See [direct app-server setup and Claude equivalents](docs/feedback/RUNTIMES.md#connect-directly-to-codex-app-server) for tunneling, authentication and current limits.
 

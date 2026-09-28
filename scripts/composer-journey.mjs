@@ -173,7 +173,24 @@ export async function composerJourney(page, api) {
       await openComposer.click();
       await page.getByLabel("Message your agent").focus();
       await expect(page.locator(".mobile-nav")).toBeHidden();
-      await page.getByRole("button", { name: trigger, exact: true }).click();
+      const triggerButton = page.getByRole("button", {
+        name: trigger,
+        exact: true,
+      });
+      if (trigger === "Add attachments") {
+        const bounds = await triggerButton.boundingBox();
+        await page.mouse.move(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2,
+        );
+        await page.mouse.down();
+        // Blurring on pointerdown moves the keyboard-anchored control before
+        // pointerup, losing the tap on WebKit. Focus lasts until the click.
+        await expect(page.getByLabel("Message your agent")).toBeFocused();
+        await page.mouse.up();
+      } else {
+        await triggerButton.click();
+      }
       const sheet = page.locator("dialog[open]").last();
       await expect(
         sheet.getByRole("heading", { name: title, exact: true }),
@@ -294,11 +311,19 @@ export async function sendCollapseJourney(page, api) {
             sessionStorage.removeItem("loop-draft");
             sessionStorage.removeItem("loop-draft-context");
             sessionStorage.removeItem("loop-draft-receipt");
-            sessionStorage.setItem("loop-conversation-" + conversationId, prompt);
+            sessionStorage.setItem(
+              "loop-conversation-" + conversationId,
+              prompt,
+            );
             sessionStorage.setItem(
               "loop-receipt-" + conversationId,
               JSON.stringify({
-                signature: JSON.stringify([conversationId, agentId, prompt, []]),
+                signature: JSON.stringify([
+                  conversationId,
+                  agentId,
+                  prompt,
+                  [],
+                ]),
                 key,
               }),
             );

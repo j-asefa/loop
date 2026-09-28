@@ -44,12 +44,13 @@ export function feedUpdates(
     folder?: string;
     view?: string;
     teams?: string[];
+    saved?: boolean;
   },
 ) {
   // Capture the watermark before reading: a later concurrent write will be
   // replayed next time, never skipped because its revision was acknowledged early.
   const revision = feedRevision(owner);
-  const prompts = options.view === "prompts";
+  const prompts = !options.saved && options.view === "prompts";
   const folders = options.folder
     ? new Set(projectFolders(owner, options.folder))
     : null;
@@ -65,9 +66,9 @@ export function feedUpdates(
     ORDER BY f.revision LIMIT 200
   `
         : `
-    SELECT f.revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.view === "files" ? fileArtifactSql : feedOutputSql}) AS output_visible
+    SELECT f.revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.saved || options.view === "files" ? fileArtifactSql : feedOutputSql}) AS output_visible
     FROM feed_revisions f LEFT JOIN artifacts a ON a.id=f.object_id AND a.owner_id=f.owner_id
-    LEFT JOIN artifact_publications p ON p.artifact_id=f.object_id
+    LEFT JOIN ${options.saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=f.object_id
     LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     LEFT JOIN agents g ON g.id=a.agent_id LEFT JOIN conversations c ON c.id=a.conversation_id
     WHERE f.owner_id=? AND f.entity='artifact' AND f.revision>? AND f.revision<=? AND (p.sequence>=? OR p.sequence IS NULL)
@@ -98,12 +99,14 @@ export function feedUpdates(
       item.id &&
       (prompts
         ? item.role === "user"
-        : !item.archived && !item.feed_hidden && output_visible) &&
+        : !item.archived &&
+          (options.saved ? item.pinned : !item.feed_hidden) &&
+          output_visible) &&
       (!options.teams?.length || options.teams.includes(item.team_id)) &&
       (!folders || folders.has(item.folder_id)) &&
       (!options.agent ||
         (prompts ? feed_agent_id : item.agent_id) === options.agent) &&
-      (options.view !== "files" || fileKinds.has(item.kind));
+      (options.saved || options.view !== "files" || fileKinds.has(item.kind));
     if (visible)
       items.push(prompts ? { ...item, agent_id: feed_agent_id } : item);
     else removed.push(changed_id);

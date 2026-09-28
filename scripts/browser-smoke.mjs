@@ -103,19 +103,21 @@ try {
     .getByRole("heading", { name: "Market research", exact: true })
     .waitFor();
   await page.screenshot({ path: join(dir, "mobile-feed.png") });
+  const imported = page
+    .locator(".feed-card")
+    .filter({
+      has: page.getByRole("heading", { name: "Market research", exact: true }),
+    });
+  await imported.getByRole("button", { name: "Save", exact: true }).click();
   await page
     .getByRole("navigation")
     .last()
     .getByRole("button", { name: "Saved", exact: true })
     .click();
-  await page.getByRole("button", { name: "Create folder" }).click();
-  await page.getByLabel("Name", { exact: true }).fill("Research Radar");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Create folder", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Folders", exact: true }).click();
-  await page.getByRole("button", { name: "Research Radar folder" }).waitFor();
+  await expect(imported).toBeVisible();
+  await expect(
+    imported.getByRole("button", { name: "Unsave", exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("navigation")
     .last()

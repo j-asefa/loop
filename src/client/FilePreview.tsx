@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Download, File as FileIcon, Share2 } from "lucide-react";
 import { authorizedFetch } from "./api";
 import { Sheet } from "./components";
+import { isHtmlFile } from "../shared/file-preview";
 
 export function loopFileUrl(href?: string) {
   if (!href) return;
@@ -77,6 +78,8 @@ const previewMime: Record<string, string> = {
   jpeg: "image/jpeg",
   webp: "image/webp",
   gif: "image/gif",
+  html: "text/html",
+  htm: "text/html",
   txt: "text/plain",
   md: "text/plain",
   csv: "text/plain",
@@ -91,6 +94,7 @@ type ReadyFile = {
   file: File;
   downloadUrl: string;
   imageUrl?: string;
+  htmlUrl?: string;
   text?: string;
   truncated?: boolean;
 };
@@ -141,6 +145,10 @@ export function FilePreview({
               "application/octet-stream"
             : responseType;
         const file = new File([blob], fileName, { type });
+        const localUrl = loopFileUrl(url);
+        const html = isHtmlFile(fileName, type) && localUrl;
+        const htmlUrl = html ? new URL(localUrl, location.href) : undefined;
+        htmlUrl?.searchParams.set("preview", "html");
         const image = [
           "image/png",
           "image/jpeg",
@@ -148,16 +156,20 @@ export function FilePreview({
           "image/gif",
         ].includes(type);
         const text =
-          type.startsWith("text/") ||
-          ["application/json", "application/xml", "application/yaml"].includes(
-            type,
-          );
+          !html &&
+          (type.startsWith("text/") ||
+            [
+              "application/json",
+              "application/xml",
+              "application/yaml",
+            ].includes(type));
         const content = text ? await file.slice(0, 100_000).text() : undefined;
         if (controller.signal.aborted) return;
         setReady({
           file,
-          // Only raster images render as active media. HTML, SVG and other
-          // files must never become documents in Loop's origin.
+          // HTML is a server-sandboxed document, never an app-origin blob or
+          // srcdoc. The full file (including embedded assets) is preserved.
+          htmlUrl: htmlUrl ? htmlUrl.pathname + htmlUrl.search : undefined,
           imageUrl: image ? objectUrl(file) : undefined,
           text: content,
           truncated: text && file.size > 100_000,
@@ -214,7 +226,10 @@ export function FilePreview({
         wide
         onClose={onClose}
       >
-        <div className="file-preview-content" aria-busy={!ready && !error}>
+        <div
+          className={`file-preview-content${ready?.htmlUrl && !error ? " file-preview-html" : ""}`}
+          aria-busy={!ready && !error}
+        >
           {error ? (
             <div className="file-preview-placeholder">
               <FileIcon size={44} aria-hidden="true" />
@@ -230,6 +245,13 @@ export function FilePreview({
             </div>
           ) : !ready ? (
             <p role="status">Loading preview…</p>
+          ) : ready.htmlUrl ? (
+            <iframe
+              src={ready.htmlUrl}
+              title={`Preview of ${ready.file.name}`}
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
+            />
           ) : ready.imageUrl ? (
             <img
               src={ready.imageUrl}

@@ -217,6 +217,11 @@ try {
         `https://127.0.0.1:${gatewayPort}` + path,
         {
           ...(certificate ? tls : { ca: tls.ca }),
+          // Each authorization assertion needs a fresh TLS connection. Node's
+          // default keep-alive pool can reuse the pre-revocation socket while
+          // the proxy's revocation sweep is destroying it (ECONNRESET instead
+          // of the expected 401 on a new connection).
+          agent: false,
           headers: {
             "x-loop-environment-token": token,
             authorization: "Bearer " + hubToken + ":fixture",

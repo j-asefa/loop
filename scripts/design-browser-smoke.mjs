@@ -118,8 +118,9 @@ try {
       await expect(
         shortcuts.getByRole("button", { name: /^All agents/ }),
       ).toHaveCount(0);
-      await page
-        .getByRole("button", { name: "Create agent", exact: true })
+      await expect(page.locator(".feed-compose-button")).toHaveCount(0);
+      await shortcuts
+        .getByRole("button", { name: "New agent", exact: true })
         .click();
       await expect(
         dialog().getByRole("heading", {
@@ -404,9 +405,7 @@ try {
       await page
         .getByLabel("Filter by project")
         .selectOption(fixture.projects[0].id);
-      await expect(
-        shortcuts.locator(".agent-strip button"),
-      ).toHaveCount(5);
+      await expect(shortcuts.locator(".agent-strip button")).toHaveCount(5);
       await expect(page.locator(".attention-banner b")).toHaveText("2");
       await nav("Running");
       await expect(page.getByLabel("Filter by project")).toHaveValue(
@@ -558,8 +557,11 @@ try {
       await expect(page.locator(".project-heading h2")).toHaveText("Loop");
       await nav("Saved");
       await expect(
+        page.getByRole("heading", { name: "Saved", exact: true }),
+      ).toBeVisible();
+      await expect(
         page.getByRole("button", { name: "Recent", exact: true }),
-      ).toHaveAttribute("aria-pressed", "true");
+      ).toHaveCount(0);
       await nav("Search");
       await expect(page.getByLabel("From date")).not.toBeVisible();
       await page.getByLabel("Search everything").fill("preserve");

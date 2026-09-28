@@ -11,6 +11,7 @@ export type Agent = {
   instructions: string;
   folder_id?: string | null;
   origin: string;
+  retired_at?: number | null;
   created_at: number;
 };
 export type CreatedAgent = Agent & {

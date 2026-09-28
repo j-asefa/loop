@@ -19,6 +19,7 @@ import { reconcileNative } from "./hapi/adapter.js";
 import { refreshEnvironment, environment } from "./hapi/environments.js";
 import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
+import { deliverNotifications } from "./notifications.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -116,6 +117,18 @@ export function startWorker() {
       .run(workerId, now());
   heartbeat();
   const hapiTimers: ReturnType<typeof setInterval>[] = [];
+  let notifying = false;
+  hapiTimers.push(
+    setInterval(() => {
+      if (notifying || stopping) return;
+      notifying = true;
+      void deliverNotifications()
+        .catch(() => {})
+        .finally(() => {
+          notifying = false;
+        });
+    }, 3000),
+  );
   hapiTimers.push(setInterval(() => void reconcileNative(), 2500));
   hapiTimers.push(
     setInterval(() => {

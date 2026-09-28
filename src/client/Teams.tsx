@@ -190,7 +190,7 @@ export function TeamFilter({
         <span>{summary}</span>
         <ChevronDown size={16} />
       </button>
-      {open && (
+      {open && !deleting && (
         <Sheet title="Filter by team" onClose={close}>
           <p className="muted">
             Choose the teams you want to see in your feed.
@@ -332,12 +332,21 @@ export function TeamFilter({
                 setBusy(true);
                 setError("");
                 try {
-                  await api(`/teams/${deleting.id}`, undefined, "DELETE");
+                  await api(
+                    `/teams/${deleting.id}`,
+                    undefined,
+                    "DELETE",
+                    AbortSignal.timeout(15000),
+                  );
                   onDeleted(deleting.id);
                   setDeleting(null);
                   close();
                 } catch (error) {
-                  setError((error as Error).message);
+                  setError(
+                    (error as Error).name === "TimeoutError"
+                      ? "Loop took too long to respond. Try deleting again; your agents and history stay safe."
+                      : (error as Error).message,
+                  );
                 } finally {
                   setBusy(false);
                 }
@@ -362,7 +371,7 @@ export function CreateTeam({
   onCreated: (t: Team) => void;
   onCreateAgent: () => void;
 }) {
-  const available = agents.filter((a) => a.connection_id);
+  const available = agents.filter((a) => a.connection_id && !a.retired_at);
   const [name, setName] = useState(""),
     [manager, setManager] = useState(available[0]?.id || ""),
     [members, setMembers] = useState<string[]>([]),

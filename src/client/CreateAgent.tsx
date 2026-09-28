@@ -7,6 +7,8 @@ import { api, parse } from "./api";
 import { Sheet, Badge, providerName } from "./components";
 import type { Connection, CreatedAgent, Folder } from "../shared/types";
 import { modelDisplayName } from "./modelChoices";
+import { AttachmentList, UploadButton } from "./Attachments";
+import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 export function CreateAgent({
   connections,
   folders,
@@ -34,6 +36,14 @@ export function CreateAgent({
     [model, setModel] = useState(""),
     [effort, setEffort] = useState(""),
     [initialPrompt, setInitialPrompt] = useState(""),
+    [attachments, setAttachments] = useState<UploadedFile[]>([]),
+    [uploading, setUploading] = useState(false),
+    [folderChoice, setFolderChoice] = useState(
+      initialFolder ||
+        (parse<any>(connected[0]?.metadata, {}).backend === "hapi"
+          ? folders.find((f) => f.kind === "project")?.id || ""
+          : ""),
+    ),
     [name, setName] = useState(""),
     [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
@@ -65,7 +75,7 @@ export function CreateAgent({
   const chosen = models.find((m) => m.id === model)?.id || models[0]?.id || "";
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (locked.current) return;
+    if (locked.current || uploading) return;
     const f = new FormData(e.currentTarget);
     const data = {
       name: String(f.get("name") || "")
@@ -76,6 +86,7 @@ export function CreateAgent({
       effort: String(f.get("effort") || "") || null,
       instructions: String(f.get("instructions") || ""),
       initialPrompt: initialPrompt.trim(),
+      attachmentIds: attachments.map((file) => file.id),
       folderId: String(f.get("folder") || "") || undefined,
     };
     const signature = JSON.stringify(data);
@@ -131,7 +142,9 @@ export function CreateAgent({
         {selected ? (
           <>
             <label>
-              {parse<any>(selected.metadata, {}).backend === "hapi" ? "Run on" : "Connected account"}
+              {parse<any>(selected.metadata, {}).backend === "hapi"
+                ? "Run on"
+                : "Connected account"}
               <select
                 disabled={busy}
                 value={selected.id}
@@ -236,6 +249,7 @@ export function CreateAgent({
             aria-label="Initial prompt"
             rows={3}
             maxLength={30000}
+            required={attachments.length > 0}
             disabled={busy}
             value={initialPrompt}
             onChange={(e) => setInitialPrompt(e.target.value)}
@@ -243,9 +257,34 @@ export function CreateAgent({
             placeholder="Find three promising ideas for my next project…"
           />
         </label>
+        <div className="initial-prompt-attachments">
+          <UploadButton
+            menu
+            folderId={folderChoice}
+            disabled={busy}
+            remaining={MAX_MESSAGE_FILES - attachments.length}
+            onBusy={setUploading}
+            onUploaded={(file) => setAttachments((files) => [...files, file])}
+          />
+          <span className="field-hint">
+            Add photos or files to your first message
+          </span>
+        </div>
+        <AttachmentList
+          files={attachments}
+          onRemove={
+            busy || uploading
+              ? undefined
+              : (id) =>
+                  setAttachments((files) =>
+                    files.filter((file) => file.id !== id),
+                  )
+          }
+        />
         <p className="field-hint" id={promptHint}>
-          Optional. Your first message to this agent. It starts work when you
-          create the agent. Leave blank to start later.
+          {attachments.length
+            ? "Add a prompt for these files. The agent receives them when its first task starts."
+            : "Optional. Your first message to this agent. It starts work when you create the agent. Leave blank to start later."}
         </p>
         <label>
           Project
@@ -253,7 +292,8 @@ export function CreateAgent({
             name="folder"
             aria-label="Project"
             disabled={busy}
-            defaultValue={initialFolder || (parse<any>(selected?.metadata, {}).backend === "hapi" ? folders.find(f => f.kind === "project")?.id : "")}
+            value={folderChoice}
+            onChange={(event) => setFolderChoice(event.target.value)}
           >
             <option value="">Workspace inbox</option>
             {folders.map((f) => (
@@ -277,7 +317,16 @@ export function CreateAgent({
             {error}
           </p>
         )}
-        <button className="primary" disabled={busy || !chosen || !name.trim()}>
+        <button
+          className="primary"
+          disabled={
+            busy ||
+            uploading ||
+            !chosen ||
+            !name.trim() ||
+            (!!attachments.length && !initialPrompt.trim())
+          }
+        >
           {busy
             ? "Creating…"
             : initialPrompt.trim()

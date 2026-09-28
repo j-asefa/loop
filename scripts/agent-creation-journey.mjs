@@ -57,6 +57,76 @@ export async function agentCreationJourney(page, api) {
     .getByRole("dialog")
     .getByRole("combobox", { name: /^Project/ });
   await projectChoice.selectOption(project.id);
+  const creationSheet = () => page.locator("dialog[open]").first();
+  const menu = () => page.locator("dialog[open]").last();
+  // Closing the nested file picker must never submit the surrounding create
+  // form. Its buttons used to inherit the form's default submit behaviour.
+  let createRequests = 0;
+  const trackCreation = (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/agents"))
+      createRequests++;
+  };
+  page.on("request", trackCreation);
+  await creationSheet()
+    .getByRole("button", { name: "Add attachments", exact: true })
+    .click();
+  await expect(
+    menu().getByRole("heading", { name: "Add to message", exact: true }),
+  ).toBeVisible();
+  await menu().getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.locator("dialog[open]")).toHaveCount(1);
+  assert.equal(createRequests, 0);
+  await creationSheet()
+    .getByRole("button", { name: "Add attachments", exact: true })
+    .click();
+  const choosing = page.waitForEvent("filechooser");
+  await menu().getByRole("button", { name: "Files", exact: true }).click();
+  let releaseUpload;
+  await page.route(
+    "**/api/uploads",
+    async (route) => {
+      await new Promise((resolve) => {
+        releaseUpload = resolve;
+      });
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const brief = {
+    name: "initial-brief.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Brief for the new agent’s first task."),
+  };
+  const removed = {
+    name: "remove-me.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Not part of the task"),
+  };
+  await (await choosing).setFiles([brief, removed]);
+  await expect.poll(() => typeof releaseUpload).toBe("function");
+  await expect(button("Create & start")).toBeDisabled();
+  releaseUpload();
+  await expect(
+    creationSheet().getByRole("list", { name: "Attached files" }),
+  ).toContainText(removed.name);
+  await expect(button("Create & start")).toBeEnabled();
+  await creationSheet()
+    .getByRole("button", { name: "Remove " + removed.name, exact: true })
+    .click();
+  await expect(
+    creationSheet().getByRole("list", { name: "Attached files" }),
+  ).not.toContainText(removed.name);
+  await creationSheet()
+    .getByRole("button", { name: "Preview " + brief.name, exact: true })
+    .click();
+  await expect(menu().locator(".file-preview-content pre")).toHaveText(
+    brief.buffer.toString(),
+  );
+  await menu().getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.locator("dialog[open]")).toHaveCount(1);
+  await page.getByLabel("Initial prompt", { exact: true }).fill("");
+  await expect(button("Create agent")).toBeDisabled();
+  await page.getByLabel("Initial prompt", { exact: true }).fill(prompt);
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await page
@@ -94,6 +164,9 @@ export async function agentCreationJourney(page, api) {
     page.getByLabel("Agent instructions", { exact: true }),
   ).toHaveValue(instructions);
   await expect(projectChoice).toHaveValue(project.id);
+  await expect(
+    creationSheet().getByRole("list", { name: "Attached files" }),
+  ).toContainText(brief.name);
   const retry = page.waitForResponse(
     (r) => r.url().endsWith("/api/agents") && r.request().method() === "POST",
   );
@@ -125,6 +198,25 @@ export async function agentCreationJourney(page, api) {
   assert.equal(details.agent.instructions, instructions);
   const conversation = await api(
     `/conversations/${created.initialRun.conversation_id}`,
+  );
+  const initialMessage = conversation.messages.find(
+    (message) => message.role === "user",
+  );
+  const files = JSON.parse(initialMessage.metadata).attachments;
+  assert.equal(files.length, 1);
+  assert.equal(files[0].name, brief.name);
+  assert.equal(files[0].size, brief.buffer.length);
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("list", { name: "Attached files" })
+      .first(),
+  ).toContainText(brief.name);
+  page.off("request", trackCreation);
+  assert.equal(
+    createRequests,
+    2,
+    "Only the deliberate create and its lost-response retry may submit",
   );
   assert.equal(
     conversation.messages.filter((m) => m.role === "user").length,

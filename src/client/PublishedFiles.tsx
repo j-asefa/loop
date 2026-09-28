@@ -3,6 +3,7 @@ import { Expand, File } from "lucide-react";
 import { api, parse } from "./api";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
+import { isHtmlFile } from "../shared/file-preview";
 type Published = Pick<Artifact, "id" | "title" | "metadata"> &
   Partial<Pick<Artifact, "content">>;
 export function PublishedFile({
@@ -31,7 +32,7 @@ export function PublishedFile({
           <img src={url + "?preview=1"} alt={name} loading="lazy" />
         </button>
       )}
-      {preview && meta.text && (
+      {preview && meta.text && !isHtmlFile(name, meta.mime) && (
         <pre className="file-text-preview">{item.content}</pre>
       )}
       <button

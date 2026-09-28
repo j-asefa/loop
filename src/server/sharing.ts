@@ -41,6 +41,11 @@ export function routeHandle(owner: string, text: string) {
       409,
       "This imported agent needs a provider connection before it can run.",
     );
+  if (agent.retired_at)
+    throw new Problem(
+      409,
+      "This agent is retired. Restore it from its profile first.",
+    );
   return agent;
 }
 const shareSchema = z.object({
@@ -113,7 +118,7 @@ sharing.post("/routing/preview", (req, res) => {
     agent =
       (db
         .prepare(
-          "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=? AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (? IS NULL OR json_extract(r.payload,'$.folderId')=?)),0) DESC,a.created_at DESC LIMIT 1",
+          "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=? AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (? IS NULL OR json_extract(r.payload,'$.folderId')=?)),0) DESC,a.created_at DESC LIMIT 1",
         )
         .get(
           res.locals.owner,

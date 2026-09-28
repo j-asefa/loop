@@ -8,6 +8,7 @@ import { owned, Problem } from "./domain.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
 import { uploadFile } from "./uploads.js";
+import { sendHtmlPreview } from "./file-preview.js";
 import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
 import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
@@ -263,6 +264,7 @@ workspace.get("/objects/:id", (req, res) => {
     .prepare("SELECT * FROM objects WHERE id=? AND owner_id=?")
     .get(req.params.id, res.locals.owner) as any;
   if (!o) throw new Problem(404, "File not found");
+  if (sendHtmlPreview(res, req.query.preview, o)) return;
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader(
     "Content-Disposition",

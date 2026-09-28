@@ -3,10 +3,12 @@ import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { agentInput, createAgent, owned, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
+import { attachmentIds } from "./uploads.js";
 import type { Agent, CreatedAgent, Run } from "../shared/types.js";
 
 const input = agentInput.extend({
   initialPrompt: z.string().trim().max(30000).default(""),
+  attachmentIds,
   folderId: z.string().optional(),
   idempotencyKey: z.string().min(8).max(150).optional(),
 });
@@ -15,9 +17,17 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
   const { idempotencyKey = id(), ...data } = input.parse(value);
   // Keep the existing receipt serialization order when membership becomes an
   // agent field, so an acknowledgement lost before upgrade can still retry.
-  const { folderId, ...details } = data;
+  const { folderId, attachmentIds: files, ...details } = data;
   const hash = createHash("sha256")
-    .update(JSON.stringify({ ...details, folderId: folderId || null }))
+    .update(
+      JSON.stringify({
+        ...details,
+        folderId: folderId || null,
+        // Preserve receipts from clients that created an agent before uploads
+        // were supported. File order and identity matter when files are present.
+        ...(files.length ? { attachmentIds: files } : {}),
+      }),
+    )
     .digest("hex");
   return db
     .transaction(() => {
@@ -54,12 +64,15 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
             : {}),
         };
       }
+      if (files.length && !data.initialPrompt)
+        throw new Problem(400, "Add an initial prompt for these files.");
       if (data.folderId) owned("folders", data.folderId, owner);
       const agent = createAgent(owner, data);
       const run = data.initialPrompt
         ? submit(owner, {
             agentId: agent.id,
             input: data.initialPrompt,
+            attachmentIds: files,
             folderId: data.folderId || undefined,
             idempotencyKey: "agent-initial:" + agent.id,
           })

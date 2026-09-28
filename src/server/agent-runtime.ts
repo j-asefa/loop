@@ -142,6 +142,8 @@ export function submit(
               data.replyToMessageId,
             )
           : undefined);
+      if (agent.retired_at)
+        throw new Problem(409, "This agent is retired. Restore it from its profile before sending new work.");
       let conversation = data.conversationId,
         teamId = data.teamId;
       if (data.steer && !conversation) {

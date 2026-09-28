@@ -46,6 +46,11 @@ export function createTeam(owner: string, input: unknown) {
     );
   for (const agent of [d.managerId, ...members]) {
     const a = owned<Agent>("agents", agent, owner);
+    if (a.retired_at)
+      throw new Problem(
+        409,
+        "Restore retired agents before adding them to a team",
+      );
     if (
       !a.connection_id ||
       owned<any>("connections", a.connection_id, owner).status !== "connected"

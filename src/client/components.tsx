@@ -169,6 +169,7 @@ export function Sheet({
     >
       {swipeToClose && (
         <button
+          type="button"
           className="sheet-grip"
           aria-label="Close conversation"
           title="Drag down to close"
@@ -184,7 +185,12 @@ export function Sheet({
               {title}
             </h2>
           )}
-          <button aria-label="Close" className="icon-button" onClick={onClose}>
+          <button
+            type="button"
+            aria-label="Close"
+            className="icon-button"
+            onClick={onClose}
+          >
             <X size={20} />
           </button>
         </div>
@@ -611,7 +617,7 @@ export function ArtifactCard({
                     ? "Tool result"
                     : item.kind === "workflow"
                       ? "Workflow"
-                      : "Saved automatically")}
+                      : "Result")}
         </span>
         {project && <span className="field-hint">{project}</span>}
         {className?.includes("run-card") ? (
@@ -661,7 +667,7 @@ export function ArtifactCard({
           )}
           {onPin && (
             <button
-              aria-label={item.pinned ? "Unpin" : "Pin"}
+              aria-label={item.pinned ? "Unsave" : "Save"}
               className={item.pinned ? "active" : ""}
               onClick={onPin}
             >

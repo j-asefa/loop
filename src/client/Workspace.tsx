@@ -276,7 +276,8 @@ export function Saved({
   const request = useRef(0);
   async function load(append = false) {
     const ticket = ++request.current;
-    if (!append) setLoading(true);
+    // Keep existing rows mounted during background refreshes.
+    if (!append && !items.length) setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();

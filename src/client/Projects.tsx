@@ -44,7 +44,9 @@ export function Projects({
     [error, setError] = useState("");
   const current = folders.find((f) => f.id === selected);
   const members = (id: string) =>
-    agents.filter((a) => belongsToProject(a.folder_id, id, folders));
+    agents.filter(
+      (a) => !a.retired_at && belongsToProject(a.folder_id, id, folders),
+    );
   const projectAgents = current ? members(current.id) : [];
   return (
     <section className="projects-view">

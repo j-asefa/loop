@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import express from "express";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-agent-creation-"));
@@ -16,6 +16,7 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { PLAN_GUIDANCE } = await import("../src/server/native-tools");
+const { uploadFile, readRunFile } = await import("../src/server/uploads");
 const calls: any[] = [];
 const restore = withTestAdapter("openai", {
   async models() {
@@ -177,6 +178,128 @@ it.each([undefined, "  \n  "])(
     expect(counts(owner)).toEqual({ ...before, agents: 1, agent_creations: 1 });
   },
 );
+
+it("delivers uploaded files with the initial prompt and preserves them across retries", async () => {
+  const owner = "initial-files";
+  const text = uploadFile(owner, {
+    originalname: "brief.txt",
+    mimetype: "text/plain",
+    buffer: Buffer.from("A project brief for the first task."),
+  });
+  const image = uploadFile(owner, {
+    originalname: "reference.png",
+    mimetype: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  const input = {
+    name: "first-task-with-files",
+    connectionId: connection(owner),
+    model: "fixture",
+    initialPrompt: "Review this brief and image.",
+    attachmentIds: [text.id, image.id],
+    idempotencyKey: id(),
+  };
+  const first = await create(input, owner);
+  expect(first.status).toBe(201);
+  const retry = await create(input, owner);
+  expect(retry.data).toEqual(first.data);
+  expect(counts(owner)).toMatchObject({
+    agents: 1,
+    runs: 1,
+    conversations: 1,
+    messages: 1,
+  });
+  const run = claim("initial-files-worker")!;
+  expect(run.id).toBe(first.data.initialRun.id);
+  expect(JSON.parse(run.payload).attachmentIds).toEqual([text.id, image.id]);
+  const message = db
+    .prepare(
+      "SELECT content,metadata FROM messages WHERE run_id=? AND role='user'",
+    )
+    .get(run.id) as any;
+  expect(message.content).toBe(input.initialPrompt);
+  expect(JSON.parse(message.metadata).attachments).toEqual([text, image]);
+  expect(readRunFile(run, text.id, 0, 1000, "utf8").content).toBe(
+    "A project brief for the first task.",
+  );
+  await executeAgent(run);
+  transition(run, "completed");
+  const prompt = calls
+    .at(-1)
+    .messages.find((message: any) => message.role === "user");
+  expect(prompt.content).toContain("Review this brief and image.");
+  expect(prompt.content).toContain("brief.txt");
+  expect(prompt.attachments).toEqual([text, image]);
+  for (const attachmentIds of [[], [text.id], [image.id, text.id]])
+    expect((await create({ ...input, attachmentIds }, owner)).status).toBe(409);
+});
+
+it("rejects missing, foreign, excessive or promptless attachments without creating an agent", async () => {
+  const owner = "invalid-files";
+  const file = uploadFile(owner, {
+    originalname: "brief.txt",
+    mimetype: "text/plain",
+    buffer: Buffer.from("Brief"),
+  });
+  const foreign = uploadFile("someone-else", {
+    originalname: "private.txt",
+    mimetype: "text/plain",
+    buffer: Buffer.from("Private"),
+  });
+  const input = {
+    name: "invalid-file-agent",
+    connectionId: connection(owner),
+    model: "fixture",
+    initialPrompt: "Review the files",
+    idempotencyKey: id(),
+  };
+  const before = counts(owner);
+  for (const [change, status] of [
+    [{ attachmentIds: [id()] }, 404],
+    [{ attachmentIds: [foreign.id] }, 404],
+    [{ attachmentIds: Array.from({ length: 9 }, () => id()) }, 400],
+    [{ attachmentIds: [file.id], initialPrompt: " " }, 400],
+  ] as const) {
+    expect((await create({ ...input, ...change }, owner)).status).toBe(status);
+    expect(counts(owner)).toEqual(before);
+    expect(
+      db.prepare("SELECT 1 FROM handles WHERE name=?").get(input.name),
+    ).toBeUndefined();
+  }
+});
+
+it("retains creation receipts from before initial attachments were supported", async () => {
+  const owner = "old-creation";
+  const input = {
+    name: "old-creation-agent",
+    connectionId: connection(owner),
+    model: "fixture",
+    instructions: "Be concise.",
+  };
+  const agent = createAgent(owner, input);
+  const key = id();
+  const hash = createHash("sha256")
+    .update(JSON.stringify({ ...input, initialPrompt: "", folderId: null }))
+    .digest("hex");
+  db.prepare("INSERT INTO agent_creations VALUES(?,?,?,?,?,?)").run(
+    owner,
+    key,
+    hash,
+    agent.id,
+    null,
+    now(),
+  );
+  const retry = await create(
+    { ...input, attachmentIds: [], idempotencyKey: key },
+    owner,
+  );
+  expect(retry.status).toBe(201);
+  expect(retry.data.id).toBe(agent.id);
+  expect(counts(owner)).toMatchObject({ agents: 1, runs: 0 });
+});
 
 it("replays a lost create response without duplicating work and rejects changed details for that request", async () => {
   const owner = "retry",

@@ -20,15 +20,33 @@ export function AgentDirectory({
 }) {
   const [query, setQuery] = useState("");
   const [all, setAll] = useState(false);
+  const [retired, setRetired] = useState(false);
   const filtered = agents.filter(
     (a) =>
-      (all || scopedIds.includes(a.id)) &&
+      !!a.retired_at === retired &&
+      (retired || all || scopedIds.includes(a.id)) &&
       `${a.name} ${a.model} ${a.instructions}`
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
   );
   return (
     <Sheet title="Your agents" onClose={onClose}>
+      <div className="segmented">
+        <button
+          className={!retired ? "selected" : ""}
+          aria-pressed={!retired}
+          onClick={() => setRetired(false)}
+        >
+          Active agents
+        </button>
+        <button
+          className={retired ? "selected" : ""}
+          aria-pressed={retired}
+          onClick={() => setRetired(true)}
+        >
+          Retired agents
+        </button>
+      </div>
       <label className="directory-search">
         <Search size={18} />
         <input
@@ -40,16 +58,17 @@ export function AgentDirectory({
           onChange={(e) => setQuery(e.target.value)}
         />
       </label>
-      {scopedIds.length !== agents.length && (
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={all}
-            onChange={(e) => setAll(e.target.checked)}
-          />{" "}
-          Show all workspace agents
-        </label>
-      )}
+      {!retired &&
+        scopedIds.length !== agents.filter((a) => !a.retired_at).length && (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={all}
+              onChange={(e) => setAll(e.target.checked)}
+            />{" "}
+            Show all workspace agents
+          </label>
+        )}
       <div className="project-agents">
         {filtered.map((a) => (
           <button

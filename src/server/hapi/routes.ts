@@ -12,6 +12,7 @@ import {
 import { sessionFor, reconcile } from "./adapter.js";
 import { enabled } from "../memory.js";
 import { artifactDownload, localArtifact } from "./artifact-storage.js";
+import { sendHtmlPreview } from "../file-preview.js";
 export const executionRoutes = Router();
 executionRoutes.get("/environments", (_req, res) =>
   res.json(
@@ -308,6 +309,7 @@ executionRoutes.get("/artifacts/:id/file", (req, res) => {
   const file = localArtifact(res.locals.owner, req.params.id);
   const artifact = owned<any>("artifacts", req.params.id, res.locals.owner);
   const name = JSON.parse(artifact.metadata).name || artifact.title;
+  if (sendHtmlPreview(res, req.query.preview, { ...file, name })) return;
   const inline =
     req.query.preview === "1" &&
     ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mime);

@@ -106,7 +106,7 @@ export function nativeBindings(
   if (team?.manager_id === run.agent_id) {
     const workers = db
       .prepare(
-        "SELECT a.id,a.name,substr(a.instructions,1,1000) AS instructions FROM team_members m JOIN agents a ON a.id=m.agent_id WHERE m.team_id=? AND a.owner_id=?",
+        "SELECT a.id,a.name,substr(a.instructions,1,1000) AS instructions FROM team_members m JOIN agents a ON a.id=m.agent_id WHERE m.team_id=? AND a.owner_id=? AND a.retired_at IS NULL",
       )
       .all(team.id, run.owner_id);
     descriptions.loop_delegate =

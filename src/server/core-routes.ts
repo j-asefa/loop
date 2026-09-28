@@ -228,6 +228,12 @@ core.patch("/agents/:id", (req, res) => {
     .transaction(() => {
       const owner = res.locals.owner,
         agent = owned<Agent>("agents", req.params.id, owner);
+      if (req.body.retired !== undefined) {
+        const retired = z.boolean().parse(req.body.retired);
+        db.prepare(
+          "UPDATE agents SET retired_at=? WHERE id=? AND owner_id=?",
+        ).run(retired ? agent.retired_at || now() : null, agent.id, owner);
+      }
       if (req.body.folderId !== undefined) {
         const folderId = z.string().min(1).nullable().parse(req.body.folderId);
         if (folderId) owned("folders", folderId, owner);
@@ -514,6 +520,10 @@ core.get("/feed/updates", (req, res) => {
       agent: z.string().optional(),
       folder: z.string().optional(),
       view: z.enum(["all", "prompts", "files"]).default("all"),
+      saved: z
+        .enum(["1", "0"])
+        .optional()
+        .transform((v) => v === "1"),
     })
     .parse(req.query);
   if (options.agent) owned("agents", options.agent, res.locals.owner);
@@ -522,12 +532,15 @@ core.get("/feed/updates", (req, res) => {
   res.json(feedUpdates(res.locals.owner, { ...options, teams }));
 });
 core.get("/feed", (req, res) => {
+  const saved = req.query.saved === "1";
   const revision = feedRevision(res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
   const cursor = z.coerce.number().min(0).catch(0).parse(req.query.before),
     limit = 40;
   const params: unknown[] = [res.locals.owner];
-  let where = "a.owner_id=? AND a.archived=0 AND a.feed_hidden=0";
+  let where =
+    "a.owner_id=? AND a.archived=0" +
+    (saved ? " AND a.pinned=1" : " AND a.feed_hidden=0");
   if (teams.length) {
     where +=
       " AND a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=? AND team_id IN (" +
@@ -553,7 +566,7 @@ core.get("/feed", (req, res) => {
     where += " AND p.sequence<?";
     params.push(cursor);
   }
-  if (req.query.view === "prompts") {
+  if (!saved && req.query.view === "prompts") {
     const values: any[] = [res.locals.owner];
     let filter = "m.owner_id=? AND m.role='user'";
     if (teams.length) {
@@ -589,12 +602,13 @@ core.get("/feed", (req, res) => {
     });
     return;
   }
-  if (req.query.view === "files")
+  if (saved) where += ` AND ${fileArtifactSql}`;
+  else if (req.query.view === "files")
     where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
   else where += ` AND ${feedOutputSql}`;
   const items = db
     .prepare(
-      `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
+      `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
     )
     .all(...params, limit) as { cursor: number }[];
   res.json({

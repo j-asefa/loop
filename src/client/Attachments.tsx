@@ -188,6 +188,14 @@ export function UploadButton({
         aria-haspopup={menu ? "dialog" : undefined}
         aria-expanded={menu ? open : undefined}
         disabled={busy || disabled || remaining === 0}
+        onPointerDown={(event) => {
+          // Keep the focused prompt (and keyboard layout) until the click is
+          // delivered. Blurring on pointerdown can move this button away from
+          // pointerup and swallow a mouse click on mobile WebKit. Touch taps
+          // need their default pointer behavior to produce a click.
+          if (event.pointerType === "mouse" && event.button === 0)
+            event.preventDefault();
+        }}
         onClick={() => (menu ? setOpen(true) : input.current?.click())}
       >
         {menu ? (

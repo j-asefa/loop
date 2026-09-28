@@ -250,6 +250,63 @@ it("makes small text files downloadable, with safe names and no inline active co
   expect(agentMessages("alice", f.agent.id).items[0].model).toBe("gpt-6-astra");
 });
 
+it("renders complete HTML only in an explicitly requested, owner-scoped sandbox", async () => {
+  const f = fixture();
+  const html =
+    "<!doctype html><title>Mockup</title><button onclick=\"this.textContent='Done'\">Try it</button>";
+  const saved = await publish(f, { title: "résumé's.html", content: html });
+  const path = `/artifacts/${saved.artifactId}/file`;
+  const response = await request(path + "?preview=html");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  expect(response.headers.get("content-disposition")).toBe(
+    "inline; filename*=UTF-8''r%C3%A9sum%C3%A9%27s.html",
+  );
+  const policy = response.headers.get("content-security-policy");
+  expect(policy).toContain("sandbox allow-scripts");
+  expect(policy).not.toContain("allow-same-origin");
+  expect(policy).toContain("connect-src 'none'");
+  expect(policy).toContain("form-action 'none'");
+  expect(policy).toContain("font-src data:");
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("cache-control")).toContain("no-store");
+  expect(await response.text()).toBe(html);
+  expect((await request(path + "?preview=html", "bob")).status).toBe(404);
+  expect((await request(path)).headers.get("content-disposition")).toMatch(
+    /^attachment;/,
+  );
+});
+
+it("supports HTML upload previews without treating other file types as active documents", async () => {
+  const { uploadFile } = await import("../src/server/uploads");
+  for (const [name, mime, html] of [
+    ["PAGE.HTM", "application/octet-stream", true],
+    ["prototype", "text/html; charset=utf-8", true],
+    ["page.xhtml", "application/xhtml+xml", true],
+    ["notes.txt", "text/plain", false],
+    ["icon.svg", "image/svg+xml", false],
+  ] as const) {
+    const bytes = Buffer.from(
+      "<!doctype html><p>" + "Full content ".repeat(12_000) + "</p>",
+    );
+    const saved = uploadFile("alice", {
+      originalname: name,
+      mimetype: mime,
+      buffer: bytes,
+    });
+    const path = `/objects/${saved.objectId}`;
+    const response = await request(path + "?preview=html");
+    expect(response.headers.get("content-disposition")).toMatch(
+      html ? /^inline;/ : /^attachment;/,
+    );
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+    expect((await request(path + "?preview=html", "bob")).status).toBe(404);
+    expect((await request(path)).headers.get("content-disposition")).toMatch(
+      /^attachment;/,
+    );
+  }
+});
+
 it("rejects changed, corrupt, and cancelled transfers without publishing a partial file", async () => {
   const f = fixture();
   writeFileSync(

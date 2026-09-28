@@ -39,6 +39,8 @@ import {
   type SharedDraft,
 } from "./Sharing";
 import { PwaStatus } from "./Pwa";
+import { Notifications } from "./Notifications";
+import { RetireAgent } from "./RetireAgent";
 import { Tools } from "./Tools";
 import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
@@ -49,6 +51,7 @@ import {
   Activity,
   Search,
   Bookmark,
+  Bell,
   Plus,
   ArrowUp,
   SlidersHorizontal,
@@ -74,7 +77,6 @@ import { Auth } from "./Auth";
 import { Connections } from "./Connections";
 import { CreateAgent } from "./CreateAgent";
 import {
-  Saved,
   SearchWorkspace,
   FileSheet,
   FolderForm,
@@ -179,6 +181,8 @@ export default function App() {
       .filter(Boolean),
   );
   const teamKey = [...teamSelection].sort().join(",");
+  const savedFeed = tab === "saved" && !profile;
+  const availableAgents = data.agents.filter((a) => !a.retired_at);
   const [messageId, setMessageId] = useState<string | null>(
     new URLSearchParams(location.search).get("message"),
   );
@@ -349,7 +353,6 @@ export default function App() {
       tab,
       profile?.id,
       tab === "projects" ? project : "",
-      tab === "saved" ? folder : "",
       teamKey,
     ]),
     {
@@ -390,10 +393,6 @@ export default function App() {
       setProfile(null);
       setView("all");
     } else if (tab === "projects" && project) setProject("");
-    else if (tab === "saved" && folder)
-      setFolder(
-        data.folders.find((item) => item.id === folder)?.parent_id || "",
-      );
     else if (tab !== "feed") {
       setTab("feed");
       setView("all");
@@ -462,18 +461,21 @@ export default function App() {
     view,
     teamKey,
     projectFilter,
+    savedFeed,
   ].join(":");
   const activeAgent =
     selected === "__route__"
       ? data.agents.find((a) => a.id === routePreview?.agent?.id)
       : data.agents.find((a) => a.id === selected) ||
-        (!replyContext ? data.agents.find((a) => a.connection_id) : undefined);
+        (!replyContext
+          ? availableAgents.find((a) => a.connection_id)
+          : undefined);
   const selectedTeams =
     data.teams?.filter((t) => teamSelection.includes(t.id)) || [];
   const teamAgents = new Set(
     selectedTeams.flatMap((t) => [t.manager_id, ...t.members]),
   );
-  const scopedAgents = data.agents.filter(
+  const scopedAgents = availableAgents.filter(
     (a) =>
       (!projectFilter ||
         belongsToProject(a.folder_id, projectFilter, data.folders)) &&
@@ -595,7 +597,9 @@ export default function App() {
   }
   async function loadFeed(append = false, notify = true) {
     const owner = ownerRef.current,
-      key = [owner, profile?.id, view, teamKey, projectFilter].join(":");
+      key = [owner, profile?.id, view, teamKey, projectFilter, savedFeed].join(
+        ":",
+      );
     if (!owner || key !== feedContext.current) return;
     if (feed.current.key !== key) {
       setItems([]);
@@ -606,7 +610,9 @@ export default function App() {
     try {
       const query = () => {
         const q = new URLSearchParams({
-          view: ["traces", "messages"].includes(view) ? "all" : view,
+          view:
+            savedFeed || ["traces", "messages"].includes(view) ? "all" : view,
+          ...(savedFeed ? { saved: "1" } : {}),
           teams: profile ? "" : teamKey,
         });
         if (profile) q.set("agent", profile.id);
@@ -707,7 +713,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (session?.user) void refresh().catch((e) => setError(e.message));
-  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, savedFeed]);
   useEffect(() => {
     if (!session?.user) return;
     const retry = () => {
@@ -733,6 +739,7 @@ export default function App() {
     teamKey,
     projectFilter,
     workspaceLoadError,
+    savedFeed,
   ]);
   useEffect(() => {
     if (!session?.user) return;
@@ -795,7 +802,7 @@ export default function App() {
       clearInterval(fallback);
       window.removeEventListener("loop-workspace-change", update);
     };
-  }, [session?.user?.id, profile?.id, view, teamKey]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, savedFeed]);
   useEffect(() => {
     localStorage.setItem("loop-theme", theme);
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -1109,7 +1116,7 @@ export default function App() {
     );
   if (!session?.user) return <Auth onDone={() => void check()} />;
   const messageComposer =
-    data.agents.length > 0 ? (
+    availableAgents.length > 0 ? (
       <section
         ref={composerRef}
         className={
@@ -1195,11 +1202,16 @@ export default function App() {
                   if (agent) setFolder(agent.folder_id || "");
                 }}
               >
-                {!data.agents.length && (
+                {!availableAgents.length && (
                   <option value="">Choose your first agent</option>
                 )}
                 <option value="__route__">Let Loop route this</option>
-                {data.agents.map((a) => (
+                {activeAgent?.retired_at && (
+                  <option value={activeAgent.id} disabled>
+                    @{activeAgent.name} · Retired
+                  </option>
+                )}
+                {availableAgents.map((a) => (
                   <option value={a.id} key={a.id}>
                     @{a.name}
                   </option>
@@ -1214,6 +1226,12 @@ export default function App() {
               <ChevronDown size={18} /> Minimize
             </button>
           </div>
+          {activeAgent?.retired_at && (
+            <p className="note">
+              This agent is retired. Restore it from its profile to send new
+              work.
+            </p>
+          )}
           {selected === "__route__" && routePreview && (
             <p className="route-preview">
               {routePreview.agent
@@ -1354,7 +1372,9 @@ export default function App() {
                     ? "Send reply"
                     : "Send message"
               }
-              disabled={busy || uploading || !draft.trim()}
+              disabled={
+                busy || uploading || !draft.trim() || !!activeAgent?.retired_at
+              }
               onClick={() => void send()}
             >
               {busy
@@ -1541,9 +1561,16 @@ export default function App() {
                     );
                   }}
                 />
+                {profile.retired_at && (
+                  <p className="note" role="status">
+                    Retired · History stays available. Restore this agent to
+                    send new work.
+                  </p>
+                )}
                 <div className="profile-actions">
                   <button
                     className="primary"
+                    disabled={!!profile.retired_at}
                     onClick={() => {
                       setSelected(profile.id);
                       setFolderChoice(undefined);
@@ -1571,6 +1598,12 @@ export default function App() {
                     }}
                   >
                     Edit agent
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => setSheet("retire-agent")}
+                  >
+                    {profile.retired_at ? "Restore agent" : "Retire agent"}
                   </button>
                 </div>
                 <button
@@ -1643,21 +1676,8 @@ export default function App() {
                   </p>
                 )}
               </div>
-              {tab === "feed" && data.agents.length > 0 ? (
-                <button
-                  className="icon-button feed-compose-button"
-                  aria-label="Create agent"
-                  onClick={() => {
-                    setReturnTo("");
-                    setFolder(projectFilter);
-                    setSheet("create");
-                  }}
-                >
-                  <Plus size={29} />
-                </button>
-              ) : (
-                tab !== "projects" &&
-                data.agents.length > 0 && (
+              {!["feed", "projects", "saved"].includes(tab) &&
+                availableAgents.length > 0 && (
                   <button
                     className="secondary"
                     aria-label="New agent"
@@ -1669,11 +1689,10 @@ export default function App() {
                     <Plus size={18} />
                     <span>New agent</span>
                   </button>
-                )
-              )}
+                )}
             </div>
           )}
-          {["feed", "running"].includes(tab) &&
+          {["feed", "running", "saved"].includes(tab) &&
             !profile &&
             data.agents.length > 0 && (
               <div className="workspace-scope">
@@ -1681,6 +1700,10 @@ export default function App() {
                   teams={data.teams || []}
                   selected={teamSelection}
                   onDeleted={(id) => {
+                    setData((old) => ({
+                      ...old,
+                      teams: old.teams?.filter((team) => team.id !== id),
+                    }));
                     setTeamSelection((old) =>
                       old.filter((team) => team !== id),
                     );
@@ -1804,9 +1827,20 @@ export default function App() {
               onReply={beginReply}
             />
           )}
-          {(tab === "feed" || profile) &&
+          {(tab === "feed" || savedFeed || profile) &&
             !(profile && ["traces", "messages"].includes(view)) && (
               <div className="feed">
+                {feedError && items.length > 0 && (
+                  <div className="error" role="alert">
+                    {feedError}
+                    <button
+                      className="text-button"
+                      onClick={() => void loadFeed()}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                )}
                 {feedLoading ? (
                   <div
                     className="feed-loading"
@@ -1817,7 +1851,7 @@ export default function App() {
                     <span />
                     <span />
                   </div>
-                ) : feedError ? (
+                ) : feedError && !items.length ? (
                   <div className="error" role="alert">
                     {feedError}
                     <button
@@ -1904,7 +1938,11 @@ export default function App() {
                         onOpen={() => openCard(item)}
                         onArtifact={() => void open(item)}
                         onReply={() => void replyToArtifact(item)}
-                        onArchive={() => void archiveCard(item.id)}
+                        onArchive={
+                          savedFeed
+                            ? undefined
+                            : () => void archiveCard(item.id)
+                        }
                         onProfile={() =>
                           setProfile(
                             data.agents.find((a) => a.id === item.agent_id) ||
@@ -1930,43 +1968,49 @@ export default function App() {
                 ) : (
                   <Empty
                     title={
-                      profile
-                        ? view === "prompts"
-                          ? "Your prompts will appear here."
-                          : view === "files"
-                            ? "No files yet."
-                            : "No results yet."
-                        : projectFilter || teamSelection.length
-                          ? "No activity in this view yet."
-                          : view === "prompts"
+                      savedFeed
+                        ? "No saved cards yet."
+                        : profile
+                          ? view === "prompts"
                             ? "Your prompts will appear here."
-                            : data.agents.length
-                              ? "Ready for your next task."
-                              : "Create your first agent."
+                            : view === "files"
+                              ? "No files yet."
+                              : "No results yet."
+                          : projectFilter || teamSelection.length
+                            ? "No activity in this view yet."
+                            : view === "prompts"
+                              ? "Your prompts will appear here."
+                              : data.agents.length
+                                ? "Ready for your next task."
+                                : "Create your first agent."
                     }
                     action={
-                      <button
-                        className="primary"
-                        onClick={() =>
-                          data.agents.length
-                            ? focusComposer()
-                            : setSheet("create")
-                        }
-                      >
-                        <Plus size={17} />
-                        {data.agents.length
-                          ? "Start a conversation"
-                          : "Create your first agent"}
-                      </button>
+                      savedFeed ? undefined : (
+                        <button
+                          className="primary"
+                          onClick={() =>
+                            data.agents.length
+                              ? focusComposer()
+                              : setSheet("create")
+                          }
+                        >
+                          <Plus size={17} />
+                          {data.agents.length
+                            ? "Start a conversation"
+                            : "Create your first agent"}
+                        </button>
+                      )
                     }
                   >
-                    {profile
-                      ? profileWork.length
-                        ? "Your agent’s work is shown above. Open its conversation to follow along."
-                        : "Send a message to this agent to get started."
-                      : projectFilter || teamSelection.length
-                        ? "Choose another project or team, or start a task here."
-                        : "Choose a provider, give your agent a task, and find its finished work here."}
+                    {savedFeed
+                      ? "Save a card with its bookmark button to keep it here. Your team and project filters also apply to Saved."
+                      : profile
+                        ? profileWork.length
+                          ? "Your agent’s work is shown above. Open its conversation to follow along."
+                          : "Send a message to this agent to get started."
+                        : projectFilter || teamSelection.length
+                          ? "Choose another project or team, or start a task here."
+                          : "Choose a provider, give your agent a task, and find its finished work here."}
                   </Empty>
                 )}
                 {next && (
@@ -2187,23 +2231,6 @@ export default function App() {
               }}
             />
           )}
-          {tab === "saved" && !profile && (
-            <Saved
-              initialView={
-                new URLSearchParams(location.search).has("folder")
-                  ? "folders"
-                  : "recent"
-              }
-              folders={data.folders}
-              folder={folder}
-              onFolder={setFolder}
-              onOpen={open}
-              onFile={setFiling}
-              onCreate={() => setSheet("project")}
-              onEdit={() => setSheet("folder-edit")}
-              version={revision}
-            />
-          )}
           {tab === "projects" && !profile && (
             <Projects
               folders={data.folders}
@@ -2406,6 +2433,23 @@ export default function App() {
               </span>
               <ArrowUpRight size={18} />
             </button>
+            <button onClick={() => openSettingsPage("agents")}>
+              <Orbit size={20} />
+              <span>
+                Manage agents<small>Active and retired agents</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
+            <button onClick={() => openSettingsPage("notifications")}>
+              <Bell size={20} />
+              <span>
+                Result notifications
+                <small>
+                  Know when your agents finish, even with Loop closed
+                </small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
             <button onClick={() => openSettingsPage("search-settings")}>
               <Search size={20} />
               <span>
@@ -2463,6 +2507,35 @@ export default function App() {
             </button>
           )}
         </Sheet>
+      )}
+      {sheet === "notifications" && (
+        <Sheet title="Result notifications" onClose={closeSheet}>
+          <Notifications />
+        </Sheet>
+      )}
+      {sheet === "retire-agent" && profile && (
+        <RetireAgent
+          agent={profile}
+          onClose={closeSheet}
+          onChanged={(agent) => {
+            setProfile(agent);
+            setData((old) => ({
+              ...old,
+              agents: old.agents.map((a) => (a.id === agent.id ? agent : a)),
+            }));
+            if (agent.retired_at && selected === agent.id) {
+              setSelected("");
+              setReplyContext(null);
+              setContextArtifact(null);
+            }
+            setSheet("");
+            setDismissNotice(
+              agent.retired_at
+                ? "Agent retired. Its history is still available."
+                : "Agent restored.",
+            );
+          }}
+        />
       )}
       {sheet === "share" && (
         <ShareSheet
@@ -2607,8 +2680,12 @@ export default function App() {
             setSheet("create");
           }}
           onAgent={(a) => {
+            setSettingsParent(false);
             setSheet("");
             setProfile(a);
+            afterSheetsClose(() =>
+              window.scrollTo({ top: 0, behavior: "instant" }),
+            );
           }}
         />
       )}

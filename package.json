@@ -22,7 +22,9 @@
     "test:browser:acp": "node scripts/acp-deterministic-browser.mjs",
     "smoke:companion": "node scripts/companion-browser-smoke.mjs",
     "smoke:package": "node scripts/package-smoke.mjs",
-    "smoke:design": "node scripts/design-browser-smoke.mjs"
+    "smoke:design": "node scripts/design-browser-smoke.mjs",
+    "smoke:workspace": "node scripts/workspace-lifecycle-smoke.mjs",
+    "smoke:html": "node scripts/html-preview-smoke.mjs"
   },
   "repository": {
     "type": "git",
@@ -59,6 +61,7 @@
     "remark-gfm": "^4.0.1",
     "tsx": "^4.23.15",
     "undici": "^8.11.0",
+    "web-push": "^3.6.7",
     "ws": "8.21.3",
     "yaml": "^2.8.2",
     "yauzl": "^3.4.0",
@@ -74,6 +77,7 @@
     "@types/qrcode-terminal": "0.12.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "8.18.1",
     "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.1.1",
