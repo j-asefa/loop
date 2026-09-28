@@ -33,7 +33,7 @@ Server command-based MCP tools use the existing remote runtime transport. Compan
 
 ## Deliberate boundaries
 
-The adapters implement the source PR's actual transports: Codex App Server, Claude stream-json, Pi RPC and OpenCode HTTP. This is an ACP-style UI experience, not an implementation of the Agent Client Protocol wire standard. A literal ACP adapter is not included.
+Native adapters implement Codex App Server, Claude stream-json, Pi RPC, OpenCode HTTP and an opt-in local ACP subprocess. Existing connections keep their original transport. ACP uses the pinned `@agentclientprotocol/sdk` 1.5.0 wire implementation; see [local workspace architecture](companion/NATIVE-ADAPTERS.md) for setup and limits.
 
 There is no cloud-to-desktop execution bridge and no multi-user native host. A tunnel exposes a local companion UI; it does not relocate execution. The companion can combine local harness and explicit API connections. Server runtime-host management remains in the server profile. Importing arbitrary native accounts into a multi-user server or changing the backend of an existing conversation is not supported.
 

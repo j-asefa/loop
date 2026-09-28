@@ -1,3 +1,7 @@
+import { directActivityEmitter } from "./direct-activities.js";
+import { DirectControls } from "./direct-controls.js";
+import type { Setting, SettingValue } from "../agent-activities.js";
+import { piActivities, directUpdates } from "./direct-activities.js";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
@@ -11,6 +15,38 @@ import {
 import type { Billing } from "../protocol.js";
 
 export class Pi implements Adapter {
+  private controlState?: DirectControls;
+  private get displayControls() {
+    return (this.controlState ||= new DirectControls("pi", this.emit));
+  }
+  get settings() {
+    return this.displayControls.settings;
+  }
+  get commandCatalog() {
+    if (this.native) {
+      this.displayControls.refresh(
+        async () => {
+          const result = await this.native.request("get_commands", {}, false);
+          return (result.commands || [])
+            .filter((c: any) => c.name !== "loop-status")
+            .map((c: any) => ({
+              name: c.name,
+              token: "/" + c.name,
+              kind: c.source || "command",
+              description: c.description || "",
+            }));
+        },
+        (commands) => {
+          this.commands = commands;
+        },
+      );
+    }
+    return this.displayControls.commands;
+  }
+  get activityCapabilities() {
+    return this.displayControls.capabilities;
+  }
+
   capabilities = { ...capabilities };
   models: { id: string; name: string }[] = [];
   commands: NativeCommand[] = [];
@@ -28,7 +64,65 @@ export class Pi implements Adapter {
   constructor(
     private options: Options,
     private emit: Emit,
-  ) {}
+  ) {
+    this.emit = directActivityEmitter(emit);
+  }
+  private async readSettings(): Promise<Setting[]> {
+    const state = await this.native.request("get_state", {}, false);
+    const thinking = await this.native
+      .request("get_available_thinking_levels", {}, false)
+      .catch(() => ({ levels: [] }));
+    return [
+      {
+        id: "model",
+        label: "Model",
+        type: "select",
+        choices: this.models.map((m) => ({ value: m.id, label: m.name })),
+        confirmed: state.model
+          ? `${state.model.provider}/${state.model.id}`
+          : undefined,
+        application: "live",
+        mutable: this.models.length > 0,
+        provenance: "Pi get_state",
+      },
+      {
+        id: "effort",
+        label: "Thinking level",
+        type: "select",
+        choices: (thinking.levels || []).map((value: string) => ({
+          value,
+          label: value,
+        })),
+        confirmed: state.thinkingLevel,
+        application: "live",
+        mutable: !!thinking.levels?.length,
+        reason: !thinking.levels?.length
+          ? "This Pi version did not report allowed thinking levels."
+          : undefined,
+        provenance: "Pi get_state / get_available_thinking_levels",
+      },
+    ];
+  }
+  async setSetting(id: string, value: SettingValue, revision: number) {
+    return this.displayControls.change(id, value, revision, async () => {
+      if (typeof value !== "string") throw new Error("Invalid setting value.");
+      if (id === "model") {
+        const slash = value.indexOf("/");
+        await this.native.request(
+          "set_model",
+          { provider: value.slice(0, slash), modelId: value.slice(slash + 1) },
+          false,
+        );
+      } else if (id === "effort")
+        await this.native.request(
+          "set_thinking_level",
+          { level: value },
+          false,
+        );
+      else throw new Error("Unknown setting.");
+      return this.readSettings();
+    });
+  }
   async start(): Promise<Billing> {
     const extension = fileURLToPath(
       new URL("../pi-extension.mjs", import.meta.url),
@@ -96,6 +190,7 @@ export class Pi implements Adapter {
         kind: c.source || "command",
         description: c.description || "",
       }));
+    this.displayControls.publish(await this.readSettings(), this.commands);
     const billing = this.billing();
     this.emit({
       type: "metadata",
@@ -186,7 +281,21 @@ export class Pi implements Adapter {
     });
     this.emit({ type: "resolved", id });
   }
+  private activityInputs = new Map<string, { toolName: string; args: any }>();
   private message(m: any) {
+    if (m.type === "tool_execution_start")
+      this.activityInputs.set(m.toolCallId, {
+        toolName: m.toolName,
+        args: m.args,
+      });
+    for (const activity of directUpdates(
+      "pi",
+      piActivities(m, this.activityInputs.get(m.toolCallId)),
+    ))
+      this.emit({ type: "activity", activity });
+    if (m.type === "tool_execution_end")
+      this.activityInputs.delete(m.toolCallId);
+    if (m.type === "agent_settled") this.activityInputs.clear();
     if (m.type === "agent_start")
       this.emit({ type: "status", status: "running" });
     if (m.type === "agent_settled") {
@@ -303,6 +412,7 @@ export class Pi implements Adapter {
     }
   }
   async dispose() {
+    this.controlState?.stop();
     if (this.infoWait) {
       clearTimeout(this.infoWait.timer);
       this.infoWait.reject(new Error("Stopped"));

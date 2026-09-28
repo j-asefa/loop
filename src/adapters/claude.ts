@@ -1,3 +1,7 @@
+import { directActivityEmitter } from "./direct-activities.js";
+import { DirectControls } from "./direct-controls.js";
+import type { Setting, SettingValue } from "../agent-activities.js";
+import { claudeActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.mjs";
 import { ClaudeSteering } from "../../runtime/claude-steering.mjs";
 import { execFile } from "node:child_process";
@@ -16,6 +20,20 @@ import type { Billing } from "../protocol.js";
 const exec = promisify(execFile);
 
 export class Claude implements Adapter {
+  private controlState?: DirectControls;
+  private get displayControls() {
+    return (this.controlState ||= new DirectControls("claude", this.emit));
+  }
+  get settings() {
+    return this.displayControls.settings;
+  }
+  get commandCatalog() {
+    return this.displayControls.commands;
+  }
+  get activityCapabilities() {
+    return this.displayControls.capabilities;
+  }
+
   capabilities = { ...capabilities };
   models: { id: string; name: string }[] = [];
   commands: NativeCommand[] = [];
@@ -39,7 +57,72 @@ export class Claude implements Adapter {
     private options: Options,
     private emit: Emit,
   ) {
+    this.emit = directActivityEmitter(emit);
     this.session = options.resume ?? randomUUID();
+  }
+  private permissionMode?: string;
+  private sessionOptions(model?: string): Setting[] {
+    return [
+      {
+        id: "model",
+        label: "Model",
+        type: "select",
+        choices: this.models.map((m) => ({ value: m.id, label: m.name })),
+        confirmed: model,
+        mutable: this.models.length > 0,
+        application: "live",
+        provenance: "Claude control protocol",
+      },
+      {
+        id: "mode",
+        label: "Native permission mode",
+        type: "select",
+        choices: [
+          "default",
+          "acceptEdits",
+          "plan",
+          "bypassPermissions",
+          "dontAsk",
+          "auto",
+        ].map((value) => ({ value, label: value })),
+        confirmed: this.permissionMode,
+        mutable: true,
+        application: "live",
+        provenance: "Claude control protocol",
+        description:
+          "Changes the native harness permission mode. Loop workspace tool approvals remain governed by Loop.",
+      },
+      {
+        id: "effort",
+        label: "Reasoning effort",
+        type: "text",
+        requested: this.options.effort,
+        mutable: false,
+        application: "new-session",
+        reason:
+          "Configured with the Claude launch flag. Change the agent's model settings for its next session.",
+        provenance: "Claude --effort launch option",
+      },
+    ];
+  }
+  async setSetting(id: string, value: SettingValue, revision: number) {
+    return this.displayControls.change(id, value, revision, async () => {
+      if (typeof value !== "string" || !["model", "mode"].includes(id))
+        throw new Error("Invalid session setting.");
+      if (id === "mode") {
+        await this.control({ subtype: "set_permission_mode", mode: value });
+        this.permissionMode = value;
+      } else {
+        await this.control({ subtype: "set_model", model: value });
+        this.options.model = value;
+      }
+      return this.sessionOptions(
+        id === "model"
+          ? value
+          : (this.settings.options.find((o) => o.id === "model")?.confirmed as
+              string | undefined),
+      );
+    });
   }
   async start(): Promise<Billing> {
     if (this.options.billing === "subscription")
@@ -162,6 +245,10 @@ export class Claude implements Adapter {
       nativeSession: this.session,
       billing: this.billing,
     });
+    this.displayControls.publish(
+      this.sessionOptions(this.billing.model),
+      this.commands,
+    );
     return this.billing;
   }
   private control(request: Record<string, unknown>): Promise<any> {
@@ -247,7 +334,28 @@ export class Claude implements Adapter {
     });
     this.emit({ type: "resolved", id });
   }
+  private activityInputs = new Map<string, { name: string; input: any }>();
   private message(m: any) {
+    if (
+      ["assistant", "user"].includes(m.type) &&
+      Array.isArray(m.message?.content)
+    ) {
+      for (const block of m.message.content) {
+        if (block.type === "tool_use")
+          this.activityInputs.set(block.id, {
+            name: block.name,
+            input: block.input,
+          });
+        for (const activity of directUpdates(
+          "claude",
+          claudeActivities(block, this.activityInputs.get(block.tool_use_id)),
+        ))
+          this.emit({ type: "activity", activity });
+        if (block.type === "tool_result")
+          this.activityInputs.delete(block.tool_use_id);
+      }
+    }
+    if (m.type === "result") this.activityInputs.clear();
     if (m.type === "control_response") {
       const p = this.controls.get(m.response?.request_id);
       if (!p) return;
@@ -327,6 +435,32 @@ export class Claude implements Adapter {
       return;
     }
     if (m.type === "system" && m.subtype === "init") {
+      if (Array.isArray(m.slash_commands))
+        this.commands = m.slash_commands
+          .filter((name: unknown) => typeof name === "string")
+          .map((name: string) => ({
+            name,
+            token: "/" + name,
+            kind: "command",
+            description:
+              this.commands.find((c) => c.name === name)?.description || "",
+            disabledReason: [
+              "clear",
+              "resume",
+              "rewind",
+              "fork",
+              "rename",
+            ].includes(name)
+              ? "Use the native terminal for this session-management command."
+              : undefined,
+          }));
+      if (typeof m.permissionMode === "string")
+        this.permissionMode = m.permissionMode;
+      if (typeof m.model === "string")
+        this.displayControls.publish(
+          this.sessionOptions(m.model),
+          this.commands,
+        );
       this.session = m.session_id;
       this.emit({
         type: "metadata",

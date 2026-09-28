@@ -1,0 +1,3 @@
+8:24:10 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+8:24:11 PM [vite] (client) [optimizer] bundling dependencies...
+PASS activity fixtures: desktop/mobile, escaping, bounds, scroll retention, catalog conversation race/removal/selection

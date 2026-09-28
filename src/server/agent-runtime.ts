@@ -2,7 +2,11 @@ import { isNativeConnection } from "./native-connections.js";
 import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
 import { nativeSessions } from "./native-sessions.js";
-import { nativeBindings, invokeNative } from "./native-tools.js";
+import {
+  nativeBindings,
+  invokeNative,
+  runtimeInstructions,
+} from "./native-tools.js";
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
 import { enqueue, type Run, transition } from "./queue.js";
@@ -14,6 +18,9 @@ import {
 } from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordTrace } from "./traces.js";
+import { applyActivity, setActivityCapabilities } from "./activities.js";
+import { runtimeActivityMapper } from "./runtime-activities.js";
+import type { ActivityUpdate } from "../agent-activities.js";
 import { attachedFiles, attachmentPrompt } from "./uploads.js";
 import { toolErrorMessage } from "./mcp/results.js";
 import { messageReplyContext } from "./message-replies.js";
@@ -312,6 +319,137 @@ export function submit(
     })
     .immediate();
 }
+// API-provider activities come from Loop's own broker and runtime, never from
+// model prose. Display records must not fail a run, so rejections are dropped.
+function apiToolActivity(
+  run: Run,
+  callId: string,
+  patch: Extract<ActivityUpdate, { kind: "tool" }>["patch"],
+) {
+  applyActivity(
+    { owner: run.owner_id, conversation: run.conversation_id, run: run.id },
+    {
+      v: 1,
+      kind: "tool",
+      id: callId,
+      source: { transport: "api", origin: "broker" },
+      patch: { ...patch, links: { broker: callId, trace: "tool:" + callId } },
+    },
+  );
+}
+function apiSessionActivities(
+  run: Run,
+  snapshot: Snapshot,
+  tools: boolean,
+  runtime: "codex" | "claude" | undefined,
+  reported: ReadonlySet<string>,
+) {
+  const scope = { owner: run.owner_id, conversation: run.conversation_id };
+  const source = { transport: "api" as const, origin: "loop" };
+  const reason =
+    "Set in this agent's settings. Loop applies it at the start of each run.";
+  applyActivity(scope, {
+    v: 1,
+    kind: "settings",
+    id: "session",
+    source,
+    patch: {
+      options: [
+        {
+          id: "model",
+          label: "Model",
+          type: "select",
+          confirmed: snapshot.model,
+          application: "next-turn",
+          mutable: false,
+          reason,
+          provenance: "loop",
+        },
+        snapshot.effort
+          ? {
+              id: "effort",
+              label: "Effort",
+              type: "select",
+              confirmed: snapshot.effort,
+              application: "next-turn",
+              mutable: false,
+              reason,
+              provenance: "loop",
+            }
+          : { id: "effort", confirmed: null },
+      ],
+    },
+  });
+  apiCapabilities(run, tools, runtime, reported);
+}
+// Structured features this conversation's runtime already reported, so a new
+// run does not reset them to undiscovered before its first result.
+function reportedFeatures(run: Run, runtime: "codex" | "claude" | undefined) {
+  if (!runtime || !run.conversation_id) return [];
+  const row = db
+    .prepare(
+      "SELECT record FROM agent_activities WHERE owner_id=? AND scope=? AND activity_key=?",
+    )
+    .get(run.owner_id, run.conversation_id, `capabilities:api:${runtime}`) as
+    | { record: string }
+    | undefined;
+  const capabilities = row ? JSON.parse(row.record).capabilities || {} : {};
+  return (["output", "diffs"] as const).filter(
+    (feature) => capabilities[feature]?.state === "supported",
+  );
+}
+// Capabilities of an API-runtime run. Provider-key runs execute only Loop's
+// tool broker, whose MCP results carry no trusted file-change or command
+// metadata, and have no command catalog. Subscription runs execute in a Codex
+// or Claude Code runtime whose own executor reports structured command and
+// file results; those become supported once this run has received one, since
+// runtimes older than this build do not send them.
+function apiCapabilities(
+  run: Run,
+  tools: boolean,
+  runtime: "codex" | "claude" | undefined,
+  reported: ReadonlySet<string> = new Set(),
+) {
+  const scope = { owner: run.owner_id, conversation: run.conversation_id };
+  const unavailable = (reason: string) =>
+    ({ state: "unsupported", source: "loop", reason }) as const;
+  const label = runtime === "codex" ? "Codex runtime" : "Claude Code runtime";
+  const structured = (feature: string, what: string) =>
+    reported.has(feature)
+      ? ({ state: "supported", source: `${label} structured results` } as const)
+      : ({
+          state: "undiscovered",
+          source: label,
+          reason: `Shown when the runtime reports its first structured ${what}. Runtimes older than this Loop version report only text traces.`,
+        } as const);
+  setActivityCapabilities(scope, { transport: "api", harness: runtime }, {
+    plans: tools
+      ? {
+          state: "supported",
+          source: runtime ? `loop_plan tool and ${label}` : "loop_plan tool",
+        }
+      : unavailable("Workflow runs do not receive workspace tools."),
+    tools: tools
+      ? { state: "supported", source: "loop tool broker" }
+      : unavailable("Workflow runs do not receive workspace tools."),
+    diffs: runtime
+      ? structured("diffs", "file change")
+      : unavailable(
+          "Provider-key runs execute only Loop's tool broker; MCP tool results carry no trusted file-change data.",
+        ),
+    output: runtime
+      ? structured("output", "command result")
+      : unavailable(
+          "Provider-key runs execute only Loop's tool broker; MCP tool results carry no structured command output.",
+        ),
+    settings: { state: "supported", source: "loop agent settings" },
+    commands: runtime
+      ? { state: "supported", source: `${label} catalog (command picker)` }
+      : unavailable(
+          "Commands and skills come from a Codex or Claude Code runtime. This agent uses a provider API key.",
+        ),
+  });
+}
 export async function executeAgent(run: Run): Promise<boolean> {
   const snapshot = JSON.parse(run.payload) as Snapshot & {
     workflowRun?: string;
@@ -393,6 +531,19 @@ export async function executeAgent(run: Run): Promise<boolean> {
     output = cp.output as string,
     round = cp.round as number;
   if (cp.stage === "done") return true;
+  const runtime = isSubscription(connection)
+    ? connection.provider === "codex"
+      ? ("codex" as const)
+      : ("claude" as const)
+    : undefined;
+  const structured = runtimeActivityMapper(run, reportedFeatures(run, runtime));
+  apiSessionActivities(
+    run,
+    snapshot,
+    !snapshot.workflowRun,
+    runtime,
+    structured.reported,
+  );
   const steering = new SteeringInbox(run, (message) => {
     history.push(message);
     db.prepare("UPDATE agent_checkpoints SET history=? WHERE run_id=?").run(
@@ -495,21 +646,61 @@ export async function executeAgent(run: Run): Promise<boolean> {
             ...trace,
             metadata: { state: "running" },
           });
-          const outcome = await (
+          // A plan is its own activity; a second tool card would duplicate it.
+          const toolActivity =
+            invocation.binding.tool === "loop_plan" &&
             invocation.binding.connectionId === "__loop__"
-              ? invokeNative
-              : invokeTool
-          )(
-            run,
-            invocation.binding,
-            invocation.call.id,
-            invocation.call.arguments,
-          );
+              ? () => {}
+              : (patch: Parameters<typeof apiToolActivity>[2]) =>
+                  apiToolActivity(run, invocation.call.id, patch);
+          toolActivity({
+            title: invocation.binding.tool,
+            status: "running",
+            input: JSON.stringify(invocation.call.arguments ?? {}).slice(
+              0,
+              16000,
+            ),
+          });
+          let outcome: Awaited<ReturnType<typeof invokeTool>>;
+          try {
+            outcome =
+              invocation.binding.connectionId === "__loop__"
+                ? await invokeNative(
+                    run,
+                    invocation.binding,
+                    invocation.call.id,
+                    invocation.call.arguments,
+                    { plans: true },
+                  )
+                : await invokeTool(
+                    run,
+                    invocation.binding,
+                    invocation.call.id,
+                    invocation.call.arguments,
+                  );
+          } catch (error) {
+            // The broker marks calls whose external outcome is uncertain.
+            const unknown = (
+              db
+                .prepare(
+                  "SELECT 1 FROM tool_invocations WHERE run_id=? AND call_id=? AND state='unknown'",
+                )
+                .get(run.id, invocation.call.id) as unknown
+            )
+              ? true
+              : false;
+            toolActivity({
+              status: unknown ? "unknown" : "failed",
+              error: String((error as Error)?.message || error).slice(0, 16000),
+            });
+            throw error;
+          }
           if ("pending" in outcome) {
             recordTrace(run, traceKey, {
               ...trace,
               metadata: { state: "waiting" },
             });
+            toolActivity({ status: "waiting" });
             persist(true);
             // Release the lease only after the checkpoint is saved. A fast
             // worker must not resume this manager while it still persists.
@@ -546,6 +737,24 @@ export async function executeAgent(run: Run): Promise<boolean> {
               state: outcome.result.isError === true ? "failed" : "completed",
               isError: outcome.result.isError === true,
             },
+          });
+          toolActivity({
+            status: outcome.result.isError === true ? "failed" : "completed",
+            ...(outcome.result.isError === true && {
+              error: toolErrorMessage(outcome.result).slice(0, 16000),
+            }),
+            content: [
+              ...(outcome.artifactId
+                ? [{ type: "artifact" as const, artifactId: outcome.artifactId }]
+                : []),
+              ...(outcome.result.content || [])
+                .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+                .slice(0, 8)
+                .map((c: any) => ({
+                  type: "text" as const,
+                  text: String(c.text).slice(0, 16000),
+                })),
+            ],
           });
           const toolContent = JSON.stringify({
             isError: outcome.result.isError === true,
@@ -605,7 +814,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         ? []
         : [
             ...toolBindings(run.owner_id, run.agent_id!),
-            ...nativeBindings(run),
+            ...nativeBindings(run, { plans: true }),
           ];
       const calls: ToolCall[] = [];
       db.transaction(() => {
@@ -645,7 +854,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
           model: snapshot.model,
           effort: snapshot.effort || undefined,
-          instructions: snapshot.instructions,
+          instructions: runtimeInstructions(snapshot.instructions, bindings),
           messages: structuredClone(history),
           signal: AbortSignal.any([controller.signal, generation.signal]),
           steering,
@@ -661,6 +870,18 @@ export async function executeAgent(run: Run): Promise<boolean> {
               metadata: { native: true, state: trace.state },
             });
             emit(run.owner_id, run.id, "trace.updated", { round });
+          }
+          if (chunk.activity && runtime) {
+            const before = structured.reported.size;
+            if (structured.apply(chunk.activity))
+              emit(run.owner_id, run.id, "trace.updated", { round });
+            if (structured.reported.size !== before)
+              apiCapabilities(
+                run,
+                !snapshot.workflowRun,
+                runtime,
+                structured.reported,
+              );
           }
           if (chunk.text) {
             turnText += chunk.text;

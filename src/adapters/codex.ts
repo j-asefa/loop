@@ -1,3 +1,7 @@
+import { directActivityEmitter } from "./direct-activities.js";
+import { DirectControls } from "./direct-controls.js";
+import type { Setting, SettingValue } from "../agent-activities.js";
+import { codexActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.mjs";
 import { Native } from "../native.js";
 import type { Billing } from "../protocol.js";
@@ -11,6 +15,47 @@ import {
 } from "./types.js";
 
 export class Codex implements Adapter {
+  private controlState?: DirectControls;
+  private get displayControls() {
+    return (this.controlState ||= new DirectControls("codex", this.emit));
+  }
+  get settings() {
+    return this.displayControls.settings;
+  }
+  get commandCatalog() {
+    if (this.native && this.thread) {
+      this.displayControls.refresh(
+        async () => {
+          const result = await this.native.request("skills/list", {
+            cwds: [this.options.project],
+            forceReload: true,
+          });
+          this.skills = (result.data || [])
+            .flatMap((d: any) => d.skills || [])
+            .filter(
+              (s: any) =>
+                s.enabled &&
+                typeof s.path === "string" &&
+                /^[\w.:-]+$/.test(s.name),
+            );
+          return this.skills.map((s: any) => ({
+            name: s.name,
+            token: "$" + s.name,
+            kind: "skill",
+            description: s.interface?.shortDescription || s.description || "",
+          }));
+        },
+        (commands) => {
+          this.commands = commands;
+        },
+      );
+    }
+    return this.displayControls.commands;
+  }
+  get activityCapabilities() {
+    return this.displayControls.capabilities;
+  }
+
   capabilities = { ...capabilities };
   models: { id: string; name: string }[] = [];
   commands: NativeCommand[] = [];
@@ -23,7 +68,63 @@ export class Codex implements Adapter {
   constructor(
     private options: Options,
     private emit: Emit,
-  ) {}
+  ) {
+    this.emit = directActivityEmitter(emit);
+  }
+  private sessionOptions(model?: string): Setting[] {
+    const selected = this.models.find(
+      (m) => m.id === (this.options.model || model),
+    ) as any;
+    return [
+      {
+        id: "model",
+        label: "Model",
+        type: "select",
+        choices: this.models.map((m) => ({ value: m.id, label: m.name })),
+        confirmed: model,
+        mutable: this.models.length > 0,
+        application: "next-turn",
+        provenance: "native model catalog",
+      },
+      ...(selected?.effortLevels
+        ? [
+            {
+              id: "effort",
+              label: "Reasoning effort",
+              type: "select" as const,
+              choices: selected.effortLevels.map((e: any) => ({
+                value: e.value,
+                label: e.value,
+              })),
+              confirmed: this.options.effort,
+              mutable: true,
+              application: "next-turn" as const,
+              provenance: "native model catalog",
+            },
+          ]
+        : []),
+    ];
+  }
+  async setSetting(id: string, value: SettingValue, revision: number) {
+    return this.displayControls.change(id, value, revision, async () => {
+      if (typeof value !== "string" || !["model", "effort"].includes(id))
+        throw new Error("Invalid session setting.");
+      this.options[id as "model" | "effort"] = value;
+      if (id === "model") {
+        this.options.effort = undefined;
+        const options = this.sessionOptions(
+          this.settings.options.find((o) => o.id === "model")?.confirmed as
+            string | undefined,
+        );
+        this.displayControls.publish(
+          options.map((o) =>
+            o.id === "model" ? { ...o, requested: value } : o,
+          ),
+        );
+      }
+      return undefined; // The next prompt acknowledgement confirms application.
+    });
+  }
   async start(): Promise<Billing> {
     conflict(this.options.billing, [
       "OPENAI_API_KEY",
@@ -152,6 +253,7 @@ export class Codex implements Adapter {
       provider: r.modelProvider,
       model: r.model,
     };
+    this.displayControls.publish(this.sessionOptions(r.model), this.commands);
     this.emit({ type: "metadata", nativeSession: this.thread, billing });
     for (const turn of r.thread.turns ?? [])
       for (const item of turn.items ?? []) this.item(item, true, true);
@@ -191,7 +293,7 @@ export class Codex implements Adapter {
       ...(this.options.model || this.defaultModel
         ? { model: this.options.model || this.defaultModel }
         : {}),
-      ...(this.options.effort ? { reasoningEffort: this.options.effort } : {}),
+      ...(this.options.effort ? { effort: this.options.effort } : {}),
       input: [
         { type: "text", text, text_elements: [] },
         ...this.skills
@@ -203,6 +305,7 @@ export class Codex implements Adapter {
           .map((s) => ({ type: "skill", name: s.name, path: s.path })),
       ],
     });
+    this.displayControls.confirmNextTurn();
     // turn/started may arrive before its response; never overwrite a finished turn's state.
     if (!this.turn && r.turn.status === "inProgress") this.turn = r.turn.id;
   }
@@ -288,6 +391,43 @@ export class Codex implements Adapter {
   private message(m: any) {
     const p = m.params ?? {};
     if (p.threadId && this.thread && p.threadId !== this.thread) return;
+    const turnId = p.turnId || p.turn?.id;
+    if (
+      turnId &&
+      this.turn &&
+      turnId !== this.turn &&
+      m.method !== "turn/started"
+    )
+      return;
+    if (
+      m.method === "item/commandExecution/outputDelta" &&
+      typeof m.params?.itemId === "string" &&
+      typeof m.params?.delta === "string"
+    ) {
+      this.emit({
+        type: "activity",
+        activity: {
+          v: 1,
+          kind: "output",
+          id: m.params.itemId,
+          source: {
+            transport: "native",
+            harness: "codex",
+            origin: "codex:structured",
+          },
+          patch: {
+            append: [
+              { stream: "combined", text: m.params.delta.slice(-64000) },
+            ],
+          },
+        },
+      });
+    }
+    for (const activity of directUpdates(
+      "codex",
+      codexActivities(m.method, m.params ?? {}),
+    ))
+      this.emit({ type: "activity", activity });
     if (m.id !== undefined && m.method) {
       const id = String(m.id);
       if (m.method === "item/tool/requestUserInput") {
@@ -383,6 +523,7 @@ export class Codex implements Adapter {
       this.emit({ type: "error", message: p.error?.message ?? "Codex error" });
   }
   async dispose() {
+    this.controlState?.stop();
     await this.native?.dispose();
   }
 }

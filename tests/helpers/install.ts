@@ -2,6 +2,7 @@ import { Problem } from "../../src/server/domain";
 // Explicit test entrypoints only. No HTTP route enables these adapters.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { ownInstructions } from "./instructions";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -54,7 +55,7 @@ for (const provider of ["openai", "anthropic"] as const)
             arguments: {
               tasks: [
                 {
-                  agentId: input.instructions.slice(13),
+                  agentId: ownInstructions(input.instructions).slice(13),
                   input: "Collect evidence for the team",
                 },
               ],

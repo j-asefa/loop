@@ -120,6 +120,14 @@ export class Host {
   }
   emit = (event: AdapterEvent) => {
     if (this.stopped) return;
+    // The v1 session wire predates shared activities, and paired clients
+    // validate frames against a closed union, so an unknown variant would be
+    // rejected by older builds. Activities are persisted and served only by
+    // the workspace (GET /conversations/:id/activities); the legacy snapshot
+    // has no activity projection, so forwarding them could not be replayed
+    // consistently either.
+    if (event.type === "activity" || event.type === "activity_capabilities")
+      return;
     let frame;
     try {
       frame = this.state.apply(event);

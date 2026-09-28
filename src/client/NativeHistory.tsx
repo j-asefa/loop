@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { ActivityRecords } from "./ActivityRecords";
+import type { ActivityRecord } from "../agent-activities";
+import { useEffect, useRef, useState } from "react";
 import { api, parse } from "./api";
 import { Sheet, RichText } from "./components";
 export function NativeHistory({
@@ -10,9 +12,17 @@ export function NativeHistory({
 }) {
   const [data, setData] = useState<any>({ managed: [], external: [] }),
     [selected, setSelected] = useState<any>(),
+    [activities, setActivities] = useState<ActivityRecord[]>([]),
     [items, setItems] = useState<any[]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const selection = useRef(0);
+  useEffect(
+    () => () => {
+      selection.current++;
+    },
+    [],
+  );
   async function load(discover = false, cursor = "") {
     setBusy(true);
     setError("");
@@ -69,16 +79,23 @@ export function NativeHistory({
           className="project-agent"
           key={c.id}
           onClick={async () => {
+            const ticket = ++selection.current;
             setBusy(true);
             setError("");
             try {
-              const r = await api("/native/history/" + c.id);
+              const r = await api(
+                "/native/history/" + encodeURIComponent(c.id),
+              );
+              if (ticket !== selection.current) return;
               setSelected({ ...c, note: r.note });
               setItems(r.items);
+              setActivities(
+                (r.activities || []).map((a: any) => a.record || a),
+              );
             } catch (e) {
-              setError((e as Error).message);
+              if (ticket === selection.current) setError((e as Error).message);
             } finally {
-              setBusy(false);
+              if (ticket === selection.current) setBusy(false);
             }
           }}
         >
@@ -103,6 +120,7 @@ export function NativeHistory({
               <RichText content={item.text} />
             </article>
           ))}
+          <ActivityRecords records={activities} />
           <button
             disabled={busy}
             className="primary"

@@ -7,6 +7,7 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ownInstructions } from "./helpers/instructions";
 const dir = mkdtempSync(join(tmpdir(), "loop-feedback-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -250,7 +251,7 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
     },
     async *stream(_key, input) {
       if (
-        input.instructions === "team-manager" &&
+        ownInstructions(input.instructions) === "team-manager" &&
         !input.messages.some((m) => m.role === "tool")
       )
         yield {
@@ -268,7 +269,7 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
       else
         yield {
           text:
-            input.instructions === "team-manager"
+            ownInstructions(input.instructions) === "team-manager"
               ? "Synthesis: both worker results received."
               : "Worker evidence.",
         };
@@ -382,7 +383,10 @@ it("avoids cross-team manager deadlocks and cancels only the selected team's chi
             arguments: {
               tasks: [
                 {
-                  agentId: input.instructions === a.instructions ? b.id : a.id,
+                  agentId:
+                    ownInstructions(input.instructions) === a.instructions
+                      ? b.id
+                      : a.id,
                   input: "Independent evidence",
                 },
               ],

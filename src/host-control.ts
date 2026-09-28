@@ -20,6 +20,8 @@ const install = {
 };
 
 export async function discover(name: Harness, explicit?: string) {
+  if (name === "acp")
+    throw new Error("Use loop acp --executable with an absolute path.");
   let executable: string | undefined;
   for (const candidate of explicit
     ? [resolve(explicit)]

@@ -1,0 +1,8 @@
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6289542Z - Expected substring  -  1
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6310296Z - @journey-agent
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6312564Z + Review approvalPermission requestedMetrics◉OpenAI API@cherryjourney-agentDeterministic MCP fixtureAllow @cherryjourney-agent to call metrics on Deterministic MCP fixture?fixture latencyQueryfixture latencyIn response toShow latencyApproves this tool call once. The agent will continue with its result.Change tool approvalsExpires 9/28/2026, 9:04:42 PMOpen conversation Request details{
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6326598Z     at approvalJourney (/home/runner/work/loop/loop/scripts/approval-journey.mjs:19:24)
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6328682Z       '- Expected substring  -  1\n' +
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6329398Z       '- @journey-agent\n' +
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6350144Z       '+ Review approvalPermission requestedMetrics◉OpenAI API@cherryjourney-agentDeterministic MCP fixtureAllow @cherryjourney-agent to call metrics on Deterministic MCP fixture?fixture latencyQueryfixture latencyIn response toShow latencyApproves this tool call once. The agent will continue with its result.Change tool approvalsExpires 9/28/2026, 9:04:42 PMOpen conversation Request details{\n' +
+verify	Run npm run smoke:journey	2026-09-27T21:04:47.6491344Z ##[error]Process completed with exit code 1.

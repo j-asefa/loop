@@ -4,6 +4,12 @@ import type {
   Capabilities,
   Harness,
 } from "../protocol.js";
+import type {
+  ActivityCapabilities,
+  CommandsData,
+  SettingsData,
+  SettingValue,
+} from "../agent-activities.js";
 export type Options = {
   harness: Harness;
   executable: string;
@@ -16,6 +22,7 @@ export type Options = {
   instructions?: string;
   probeOnly?: boolean;
   workspaceTools?: { url: string; token: string };
+  args?: string[];
 };
 export type NativeCommand = {
   name: string;
@@ -30,6 +37,14 @@ export interface Adapter {
   capabilities: Capabilities;
   models?: { id: string; name: string }[];
   commands?: NativeCommand[];
+  activityCapabilities?: ActivityCapabilities;
+  settings?: SettingsData;
+  commandCatalog?: CommandsData;
+  setSetting?(
+    id: string,
+    value: SettingValue,
+    revision: number,
+  ): Promise<SettingsData>;
   start(): Promise<Billing>;
   prompt(text: string): Promise<void>;
   steer?(text: string): Promise<void>;

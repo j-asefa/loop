@@ -137,6 +137,8 @@ if (kind !== "opencode") {
     if (type === "skills/list") return result({ data: [] });
     if (type === "get_commands") return result({ commands: [] });
     if (type === "model/list") return result({ data: [] });
+    if (type === "get_available_thinking_levels")
+      return result({ levels: ["off", "low", "medium", "high"] });
     if (type === "get_available_models") return result({ models: [] });
     if (type === "config/read")
       return result({ config: { model_provider: "openai" } });

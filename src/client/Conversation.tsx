@@ -1,4 +1,12 @@
 import {
+  useConversationActivities,
+  visibleActivities,
+  recordedSessionControls,
+} from "./activityView";
+import { ActivityRecords } from "./ActivityRecords";
+import { SessionActivityControls } from "./SessionActivityControls";
+import type { ActivityRecord } from "../agent-activities";
+import {
   mergeConversationMessages,
   conversationRefreshCursor,
   type ConversationMessage,
@@ -44,6 +52,8 @@ export function Conversation({
   onAgentChanged?: () => void;
   onNewConversation: (agent: Agent) => void;
 }) {
+  const activityItems = useConversationActivities(id);
+  const activities = visibleActivities(activityItems);
   const [data, setData] = useState<{
       conversation: any;
       messages: ConversationMessage[];
@@ -251,6 +261,11 @@ export function Conversation({
           </summary>
           <div className="conversation-options-menu">
             <NativeConversation id={id} />
+            <SessionActivityControls
+              key={id}
+              conversationId={id}
+              recorded={recordedSessionControls(activityItems)}
+            />
             {agent && (
               <button
                 className="text-button"
@@ -349,6 +364,9 @@ export function Conversation({
             Load earlier messages
           </button>
         )}
+        <ActivityRecords
+          records={activities.filter((a) => !a.run).map((a) => a.record)}
+        />
         {data?.messages.map((m) => (
           <article
             key={m.id}
@@ -382,6 +400,24 @@ export function Conversation({
             {m.content && parse<any>(m.metadata, {}).partial !== true && (
               <RichText content={m.content} />
             )}
+            <ActivityRecords
+              records={(
+                parse<any>(m.metadata, {}).activities ||
+                (parse<any>(m.metadata, {}).activity
+                  ? [parse<any>(m.metadata, {}).activity]
+                  : [])
+              ).filter(
+                (record: ActivityRecord) =>
+                  !activities.some(
+                    (a) =>
+                      a.run === m.run_id &&
+                      a.record.id === record.id &&
+                      a.record.kind === record.kind &&
+                      a.record.source.transport === record.source.transport &&
+                      a.record.source.harness === record.source.harness,
+                  ),
+              )}
+            />
             <AttachmentList
               files={parse<any>(m.metadata, {}).attachments || []}
             />
@@ -406,14 +442,27 @@ export function Conversation({
             )}
             {m.run_id &&
               !parse<any>(m.metadata, {}).progress &&
-              (m.role === "assistant" ||
-                !data.messages.some(
+              (
+                data.messages
+                  .filter(
+                    (other) =>
+                      other.run_id === m.run_id &&
+                      other.role === "assistant" &&
+                      !parse<any>(other.metadata, {}).progress,
+                  )
+                  .at(-1) ||
+                data.messages.find(
                   (other) =>
                     other.run_id === m.run_id &&
-                    other.role === "assistant" &&
                     !parse<any>(other.metadata, {}).progress,
-                )) && (
+                )
+              )?.id === m.id && (
                 <>
+                  <ActivityRecords
+                    records={activities
+                      .filter((a) => a.run === m.run_id)
+                      .map((a) => a.record)}
+                  />
                   <RunStatus
                     state={m.run_state}
                     error={m.run_error}

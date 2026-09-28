@@ -1,0 +1,11 @@
+
+ RUN  v5.0.1 /home/node/workspaces/1d3530c28f76d7e75605f1b04c1a54ee35815140181de006268de7a31bd6c708/trace-ci-fix
+
+
+ Test Files  5 passed (5)
+      Tests  34 passed (34)
+   Start at  21:01:16
+   Duration  17.49s (import 61%, transform 20%, tests 20%)
+
+    Isolate  5 workers spawned · ~325ms startup each (spawn + environment, per file)
+             at least ~1.30s faster with isolate: false — reuses workers across files instead of one per file

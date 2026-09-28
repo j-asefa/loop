@@ -43,6 +43,12 @@ export type Chunk = {
     content: string;
     state?: string;
   };
+  // Structured result from a subscription runtime's own executor (Codex
+  // items/plans, Claude Code tool blocks); see runtime/traces.mjs. Display
+  // only: mapped to shared activities, never executed or applied.
+  activity?:
+    | { harness: "codex"; method: string; params: any }
+    | { harness: "claude"; block: any };
 };
 export interface ProviderAdapter {
   models(secret: string): Promise<ModelInfo[]>;

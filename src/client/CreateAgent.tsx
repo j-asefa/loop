@@ -105,10 +105,11 @@ export function CreateAgent({
       </p>
       <form onSubmit={create}>
         <div className="provider-picker">
-          {(["codex", "anthropic", "pi", "opencode", "openai"] as const)
+          {(["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const)
             .filter(
               (p) =>
-                capabilities.nativeHarnesses || !["pi", "opencode"].includes(p),
+                capabilities.nativeHarnesses ||
+                !["pi", "opencode", "acp"].includes(p),
             )
             .map((p) => (
               <button

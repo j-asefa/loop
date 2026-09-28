@@ -331,6 +331,8 @@ export async function* codexStream(
         idle.progress();
         yield { trace };
       }
+      const activity = codexActivity(message);
+      if (activity) yield { activity };
       if (message.method === "item/agentMessage/delta") answer += params.delta;
       if (
         message.method === "item/completed" &&
@@ -393,4 +395,4 @@ export async function* codexStream(
     rpc.close();
   }
 }
-import { codexTrace } from "../../runtime/traces.mjs";
+import { codexActivity, codexTrace } from "../../runtime/traces.mjs";

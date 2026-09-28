@@ -9,9 +9,13 @@ type Command = {
   description: string;
   argumentHint?: string;
   disabledReason?: string;
+  available?: boolean;
+  reason?: string;
 };
 type Catalog = {
   available: boolean;
+  revision?: number;
+  generation?: string;
   runtime?: string;
   commands: Command[];
   message?: string;
@@ -39,7 +43,7 @@ export function HarnessPicker({
     setOpen(false);
     setCatalog(null);
     setError("");
-  }, [agentId]);
+  }, [agentId, conversationId]);
   useEffect(() => {
     if (agentId && ["/", "$"].includes(value)) {
       setQuery("");
@@ -49,22 +53,46 @@ export function HarnessPicker({
   useEffect(() => {
     const current = ++generation.current;
     if (!open || !agentId) return;
+    let request = 0;
     setCatalog(null);
     setError("");
-    void api<Catalog>(
-      `/agents/${agentId}/harness` +
-        (conversationId ? "?conversation=" + conversationId : ""),
-    )
-      .then((result) => {
-        if (current === generation.current) setCatalog(result);
-      })
-      .catch((e) => {
-        if (current === generation.current) setError(e.message);
-      });
+    const refresh = async () => {
+      const own = ++request;
+      try {
+        const result = await api<Catalog>(
+          `/agents/${agentId}/harness` +
+            (conversationId
+              ? "?conversation=" + encodeURIComponent(conversationId)
+              : ""),
+        );
+        if (current === generation.current && own === request) {
+          setCatalog((old) =>
+            old &&
+            old.generation !== undefined &&
+            old.generation === result.generation &&
+            (old.revision ?? -1) > (result.revision ?? -1)
+              ? old
+              : result,
+          );
+          setError("");
+        }
+      } catch (e) {
+        if (current === generation.current && own === request) {
+          setError((e as Error).message);
+          setCatalog(null);
+        }
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 3000);
+    const update = () => void refresh();
+    window.addEventListener("loop-workspace-change", update);
     return () => {
       generation.current++;
+      clearInterval(timer);
+      window.removeEventListener("loop-workspace-change", update);
     };
-  }, [open, agentId, revision]);
+  }, [open, agentId, conversationId, revision]);
   function close() {
     setOpen(false);
     requestAnimationFrame(focusInput);
@@ -115,12 +143,14 @@ export function HarnessPicker({
           ) : (
             <div className="harness-options">
               {matches.length ? (
-                matches.map((command, index) => (
+                matches.map((command) => (
                   <button
                     type="button"
-                    key={command.token + index}
+                    key={command.kind + ":" + command.token}
                     className="harness-option"
-                    disabled={!!command.disabledReason}
+                    disabled={
+                      !!command.disabledReason || command.available === false
+                    }
                     onClick={() => {
                       const rest = value.replace(
                         /^\s*[/\$][\w.:-]*(?:\s+|$)/,
@@ -133,7 +163,11 @@ export function HarnessPicker({
                     <strong>
                       {command.token} <small>{command.kind}</small>
                     </strong>
-                    <span>{command.disabledReason || command.description}</span>
+                    <span>
+                      {command.disabledReason ||
+                        command.reason ||
+                        command.description}
+                    </span>
                     {command.argumentHint && (
                       <small>{command.argumentHint}</small>
                     )}

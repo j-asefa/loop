@@ -19,6 +19,7 @@
     "test:native": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
     "test:all": "npm test && npm run test:native",
     "prepack": "npm run build",
+    "test:browser:acp": "node scripts/acp-deterministic-browser.mjs",
     "smoke:companion": "node scripts/companion-browser-smoke.mjs",
     "smoke:package": "node scripts/package-smoke.mjs",
     "smoke:design": "node scripts/design-browser-smoke.mjs"
@@ -36,6 +37,7 @@
   },
   "homepage": "https://github.com/j-asefa/loop#readme",
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.5.0",
     "@anthropic-ai/sdk": "^0.128.0",
     "@huggingface/transformers": "4.3.0",
     "@modelcontextprotocol/ext-apps": "^2.0.0",

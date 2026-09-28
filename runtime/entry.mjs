@@ -15,7 +15,12 @@ import { createInterface } from "node:readline";
 import { nativeReply } from "./native-tools.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { redactValues } from "./redaction.mjs";
-import { codexTrace, claudeTraces } from "./traces.mjs";
+import {
+  codexTrace,
+  claudeTraces,
+  codexActivity,
+  claudeActivities,
+} from "./traces.mjs";
 import {
   codexCatalog,
   codexTurn,
@@ -244,6 +249,8 @@ async function codex(request) {
       // Redact before trace truncation so clipping cannot expose a token prefix.
       const trace = codexTrace(clean(m), traceMessages);
       if (trace) emit({ chunk: { trace: clean(trace) } });
+      const activity = codexActivity(clean(m));
+      if (activity) emit({ chunk: { activity } });
       if (
         m.method === "turn/completed" &&
         m.params.turn?.id &&
@@ -430,6 +437,7 @@ async function claude(request) {
     emit({ steeringReady: true });
   };
   const internalToolIds = new Set();
+  const structuredTools = new Set();
   const initializationTimer = command
     ? setTimeout(() => {
         failure = new Error("Command initialization timed out");
@@ -454,6 +462,8 @@ async function claude(request) {
       }
       for (const trace of claudeTraces(clean(m), internalToolIds))
         emit({ chunk: { trace } });
+      for (const activity of claudeActivities(clean(m), structuredTools))
+        emit({ chunk: { activity } });
       if (
         command &&
         m.type === "control_response" &&

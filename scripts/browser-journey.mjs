@@ -133,11 +133,24 @@ try {
   await page
     .getByRole("button", { name: "Create your first agent", exact: true })
     .click();
-  await page.getByLabel("Unique name").fill("journey-agent");
+  const agentName = page.getByLabel("Unique name");
+  // fill selects then inserts text in separate browser protocol steps. A name
+  // suggestion arriving between them can prepend itself to the fixture name.
+  await expect(agentName).toHaveAttribute("placeholder", "Choose a name");
+  await agentName.fill("journey-agent");
+  await expect(agentName).toHaveValue("journey-agent");
   await page
     .getByRole("combobox", { name: /^Model/ })
     .selectOption("openai-fixture");
+  const agentCreated = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/agents") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  const createdResponse = await agentCreated;
+  assert.equal(createdResponse.status(), 201);
+  assert.equal((await createdResponse.json()).name, "journey-agent");
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Compose a message" }).click();
   await page.getByLabel("Message your agent").fill("Explain bids precisely");

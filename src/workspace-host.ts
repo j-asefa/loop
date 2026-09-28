@@ -13,11 +13,12 @@ import { randomUUID } from "node:crypto";
 
 const registration = z
   .object({
-    harness: z.enum(["pi", "claude", "codex", "opencode"]),
+    harness: z.enum(["pi", "claude", "codex", "opencode", "acp"]),
     executable: z.string().min(1).max(4096),
     project: z.string().min(1).max(4096),
     version: z.string().max(100),
     billing: z.enum(["subscription", "existing"]),
+    args: z.array(z.string().max(4096)).max(32).optional(),
   })
   .strict();
 export class WorkspaceHost {

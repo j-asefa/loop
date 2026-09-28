@@ -10,9 +10,12 @@ export function harnessName(connection: Connection) {
       metadata.loopHarness === "claude"
       ? "Claude Code"
       : "Claude API";
-  return { openai: "OpenAI API", pi: "Pi", opencode: "OpenCode" }[
-    connection.provider
-  ];
+  return {
+    openai: "OpenAI API",
+    pi: "Pi",
+    opencode: "OpenCode",
+    acp: "ACP agent",
+  }[connection.provider];
 }
 export function modelGroups(
   connections: Connection[],

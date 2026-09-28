@@ -1,3 +1,7 @@
+import { directActivityEmitter } from "./direct-activities.js";
+import { DirectControls } from "./direct-controls.js";
+import type { Setting, SettingValue } from "../agent-activities.js";
+import { openCodeActivities, directUpdates } from "./direct-activities.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { secret } from "../state.js";
 import { killOwned, own } from "../processes.js";
@@ -12,6 +16,36 @@ import type { Billing } from "../protocol.js";
 
 /** Native HTTP/SSE stays on loopback; only normalized Loop WebSockets reach the phone. */
 export class OpenCode implements Adapter {
+  private controlState?: DirectControls;
+  private get displayControls() {
+    return (this.controlState ||= new DirectControls("opencode", this.emit));
+  }
+  get settings() {
+    return this.displayControls.settings;
+  }
+  get commandCatalog() {
+    if (this.origin && this.session) {
+      this.displayControls.refresh(
+        async () => {
+          const result = await this.api("/command");
+          return (Array.isArray(result) ? result : []).map((c: any) => ({
+            name: c.name,
+            token: "/" + c.name,
+            kind: "command",
+            description: c.description || "",
+          }));
+        },
+        (commands) => {
+          this.commands = commands;
+        },
+      );
+    }
+    return this.displayControls.commands;
+  }
+  get activityCapabilities() {
+    return this.displayControls.capabilities;
+  }
+
   capabilities = { ...capabilities };
   models: { id: string; name: string }[] = [];
   commands: NativeCommand[] = [];
@@ -38,7 +72,63 @@ export class OpenCode implements Adapter {
   constructor(
     private options: Options,
     private emit: Emit,
-  ) {}
+  ) {
+    this.emit = directActivityEmitter(emit);
+  }
+  private sessionOptions(model?: string): Setting[] {
+    const selected = this.models.find(
+      (m) => m.id === (this.options.model || model),
+    ) as any;
+    return [
+      {
+        id: "model",
+        label: "Model",
+        type: "select",
+        choices: this.models.map((m) => ({ value: m.id, label: m.name })),
+        confirmed: model,
+        mutable: this.models.length > 0,
+        application: "next-turn",
+        provenance: "native model catalog",
+      },
+      ...(selected?.effortLevels
+        ? [
+            {
+              id: "effort",
+              label: "Reasoning effort",
+              type: "select" as const,
+              choices: selected.effortLevels.map((e: any) => ({
+                value: e.value,
+                label: e.value,
+              })),
+              confirmed: this.options.effort,
+              mutable: true,
+              application: "next-turn" as const,
+              provenance: "native model catalog",
+            },
+          ]
+        : []),
+    ];
+  }
+  async setSetting(id: string, value: SettingValue, revision: number) {
+    return this.displayControls.change(id, value, revision, async () => {
+      if (typeof value !== "string" || !["model", "effort"].includes(id))
+        throw new Error("Invalid session setting.");
+      this.options[id as "model" | "effort"] = value;
+      if (id === "model") {
+        this.options.effort = undefined;
+        const options = this.sessionOptions(
+          this.settings.options.find((o) => o.id === "model")?.confirmed as
+            string | undefined,
+        );
+        this.displayControls.publish(
+          options.map((o) =>
+            o.id === "model" ? { ...o, requested: value } : o,
+          ),
+        );
+      }
+      return undefined; // The next prompt acknowledgement confirms application.
+    });
+  }
   async start(): Promise<Billing> {
     // The server's provider metadata does not expose an authoritative effective billing mode.
     // OAuth alone is not sufficient. Keep the native configuration only with explicit consent.
@@ -138,6 +228,13 @@ export class OpenCode implements Adapter {
         Object.entries(p.models || {}).map(([id, m]: [string, any]) => ({
           id: p.id + "/" + id,
           name: m.name || id,
+          ...(m.variants
+            ? {
+                effortLevels: Object.keys(m.variants).map((value) => ({
+                  value,
+                })),
+              }
+            : {}),
         })),
       );
 
@@ -158,6 +255,10 @@ export class OpenCode implements Adapter {
         "Existing OpenCode provider/authentication; billing is provider-specific and may use API credits",
       model: config.model ?? "Native default (resolved by OpenCode)",
     };
+    this.displayControls.publish(
+      this.sessionOptions(config.model),
+      this.commands,
+    );
     this.emit({ type: "metadata", nativeSession: this.session, billing });
     let ready!: () => void;
     let rejectReady!: (e: Error) => void;
@@ -231,13 +332,16 @@ export class OpenCode implements Adapter {
           command: command[1],
           arguments: command[2] || "",
           ...(this.options.model ? { model: this.options.model } : {}),
+          ...(this.options.effort ? { variant: this.options.effort } : {}),
         },
         1800000,
       );
+      this.displayControls.confirmNextTurn();
       return;
     }
     await this.api(`/session/${this.session}/prompt_async`, {
       parts: [{ type: "text", text }],
+      ...(this.options.effort ? { variant: this.options.effort } : {}),
       ...(this.options.model && this.options.model.includes("/")
         ? {
             model: {
@@ -250,6 +354,7 @@ export class OpenCode implements Adapter {
         ? { system: this.options.instructions }
         : {}),
     });
+    this.displayControls.confirmNextTurn();
   }
   async cancel() {
     this.interrupted = true;
@@ -286,6 +391,12 @@ export class OpenCode implements Adapter {
       this.previousMessages.has(p.messageID)
     )
       return;
+    if (this.activeTurn)
+      for (const activity of directUpdates(
+        "opencode",
+        openCodeActivities("message.part.updated", { part: p }),
+      ))
+        this.emit({ type: "activity", activity });
     this.parts.set(p.id, p);
     if (this.parts.size > 500)
       this.parts.delete(this.parts.keys().next().value!);
@@ -311,6 +422,12 @@ export class OpenCode implements Adapter {
       m = { ...m, type: m.type.replace(".v2.", "."), v2: true };
     const p = m.properties ?? {};
     if (p.sessionID && p.sessionID !== this.session) return;
+    if (m.type === "todo.updated" && this.activeTurn)
+      for (const activity of directUpdates(
+        "opencode",
+        openCodeActivities(m.type, p),
+      ))
+        this.emit({ type: "activity", activity });
     if (m.type === "message.updated" && p.info.sessionID === this.session) {
       this.roles.set(p.info.id, p.info.role);
       if (this.roles.size > 500)
@@ -573,6 +690,7 @@ export class OpenCode implements Adapter {
     }
   }
   async dispose() {
+    this.controlState?.stop();
     clearTimeout(this.refresh);
     this.abort.abort();
     if (this.child) killOwned(this.child, "SIGTERM");

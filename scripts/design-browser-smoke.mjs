@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, webkit, expect } from "@playwright/test";
 import { designFixture } from "./helpers/design-fixture.mjs";
+import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
 import { teamNavigationSmoke } from "./helpers/team-navigation-smoke.mjs";
@@ -27,6 +28,11 @@ try {
     page.setDefaultTimeout(8000);
     const errors = [];
     page.on("pageerror", (error) => {
+      // WebKit reports a same-origin fetch interrupted by page navigation as
+      // an access-control page error. The app handles the rejected request;
+      // this browser-only message does not indicate a failed API response.
+      if (isWebKitNavigationFetchError(engine.name(), error, fixture.base))
+        return;
       errors.push(error.message);
       console.error(
         `${engine.name()} page error at ${page.url()}: ${error.stack}`,
@@ -280,8 +286,9 @@ try {
         dialog().getByRole("checkbox", { name: "Include in shared memory" }),
       ).toBeVisible();
       assert(
-        (await dialog().locator(".messages").evaluate((el) => el.clientHeight)) ===
-          dimensions.messages,
+        (await dialog()
+          .locator(".messages")
+          .evaluate((el) => el.clientHeight)) === dimensions.messages,
         "Conversation controls shrink the reading area",
       );
       await dialog()

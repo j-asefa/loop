@@ -28,6 +28,9 @@ export async function tracesJourney(page, api, base, dir) {
   const owner = db
     .prepare("SELECT owner_id FROM agents WHERE id=?")
     .get(agent.id).owner_id;
+  // The fixture runs many independent journeys as one user. Keep this
+  // trace-heavy scenario from inheriting earlier journeys' request budget.
+  db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(owner);
   const update =
     "Checking **public sources**.\n\n- First source is ready\n- Comparing the next source";
   try {
@@ -167,10 +170,19 @@ export async function tracesJourney(page, api, base, dir) {
         "tool",
         "pull_request_review_write",
         "Review Can not request changes on your own pull request",
-        '{"state":"failed","isError":true}',
+        '{"state":"failed","isError":true,"privateFixture":"RAW_METADATA_SENTINEL"}',
         null,
         time,
       );
+      // Older native runtimes stored internal envelopes and their receipts.
+      // They must stay private even when legacy public tools become activities.
+      for (const [key, title, content] of [
+        ["native:envelope", "StructuredOutput", "INTERNAL_ENVELOPE_SENTINEL"],
+        ["native:envelope:result", "Tool result", "INTERNAL_RECEIPT_SENTINEL"],
+      ])
+        trace.run(
+          owner, run, key, "tool", title, content, '{"native":true}', null, time,
+        );
     })();
     await page.goto(base);
     await page
@@ -516,9 +528,41 @@ export async function tracesJourney(page, api, base, dir) {
     await expect(conversationDialog.locator(".message").last()).toContainText(
       "Final heliotrope browser answer",
     );
-    await expect(conversationDialog.locator(".messages")).not.toContainText(
-      "pull_request_review_write",
+    // Public tools now appear as collapsed shared activities beside the answer,
+    // not as assistant progress or prose. Internal runtime data stays excluded.
+    const reviewActivity = conversationDialog
+      .locator("details.activity-panel")
+      .filter({
+        has: page.locator("summary", { hasText: "pull_request_review_write" }),
+      });
+    await expect(reviewActivity).toHaveCount(1);
+    await expect(reviewActivity.locator("summary")).toHaveText(
+      "pull_request_review_write · failed",
     );
+    await expect(reviewActivity).not.toHaveAttribute("open", "");
+    await reviewActivity.locator("summary").click();
+    await expect(reviewActivity.locator("pre")).toBeVisible();
+    await expect(reviewActivity.locator("pre")).toHaveText(
+      "Review Can not request changes on your own pull request",
+    );
+    const messageText = conversationDialog.locator(".message > .markdown");
+    await expect(messageText).toHaveCount(197);
+    await expect
+      .poll(async () => (await messageText.allTextContents()).join("\n"))
+      .not.toMatch(/pull_request_review_write|Public update/);
+    await expect(conversationDialog.locator(".messages")).not.toContainText(
+      /StructuredOutput|INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL|RAW_METADATA_SENTINEL/,
+    );
+    const activityPage = await api(`/conversations/${conversation}/activities`);
+    assert(
+      !/INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL|RAW_METADATA_SENTINEL/.test(
+        JSON.stringify(activityPage),
+      ),
+    );
+    // The public legacy bursts are intentional activity content, not secrets.
+    await expect(
+      conversationDialog.locator("details.activity-panel"),
+    ).toHaveCount(182);
     await conversationDialog
       .getByRole("button", { name: "Close", exact: true })
       .click();
@@ -533,6 +577,10 @@ export async function tracesJourney(page, api, base, dir) {
     await page
       .getByRole("button", { name: "Back to feed", exact: true })
       .click();
+    // This scenario intentionally opens hundreds of trace/activity records.
+    // Its final publication assertions should test projections, not the
+    // shared fixture user's per-minute API rate limit.
+    db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(owner);
     const feed = await api("/feed");
     assert.equal(
       feed.items[0].id,

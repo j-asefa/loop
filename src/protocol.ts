@@ -1,7 +1,11 @@
 import { z } from "zod";
+import type {
+  ActivityEvent,
+  ActivityCapabilities,
+} from "./agent-activities.js";
 
 export const VERSION = 1;
-export const Harness = z.enum(["pi", "claude", "codex", "opencode"]);
+export const Harness = z.enum(["pi", "claude", "codex", "opencode", "acp"]);
 export type Harness = z.infer<typeof Harness>;
 export const Command = z.discriminatedUnion("type", [
   z
@@ -78,6 +82,10 @@ export type Item = {
   phase?: "commentary" | "final_answer";
 };
 export type AdapterEvent =
+  // Server-side adapter events only: NativeSessions persists them and the
+  // legacy Host drops them, so ServerFrame (the v1 wire) never carries them.
+  | ActivityEvent
+  | { type: "activity_capabilities"; capabilities: ActivityCapabilities }
   | { type: "status"; status: Status; detail?: string; recoverable?: boolean }
   | { type: "metadata"; nativeSession: string; billing?: Billing }
   | { type: "item"; item: Item }

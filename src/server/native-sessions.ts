@@ -13,6 +13,7 @@ import { Codex } from "../adapters/codex.js";
 import { Claude } from "../adapters/claude.js";
 import { Pi } from "../adapters/pi.js";
 import { OpenCode } from "../adapters/opencode.js";
+import { Acp } from "../adapters/acp.js";
 import type { Adapter, Options } from "../adapters/types.js";
 import {
   validateAnswer,
@@ -23,14 +24,29 @@ import {
 } from "../protocol.js";
 import type { Snapshot } from "./agent-runtime.js";
 import { replyPrompt } from "../shared/replies.js";
+import {
+  ingestNativeActivity,
+  ingestNativeCapabilities,
+} from "./activities.js";
+import {
+  undiscoveredCapabilities,
+  type SettingValue,
+} from "../agent-activities.js";
 
 export const OWNER = "local-workspace";
-const classes = { codex: Codex, claude: Claude, pi: Pi, opencode: OpenCode };
+const classes = {
+  codex: Codex,
+  claude: Claude,
+  pi: Pi,
+  opencode: OpenCode,
+  acp: Acp,
+};
 const labels = {
   codex: "Codex",
   claude: "Claude Code",
   pi: "Pi",
   opencode: "OpenCode",
+  acp: "ACP agent",
 };
 type Registration = {
   name: Harness;
@@ -88,6 +104,89 @@ export class NativeSessions {
   get count() {
     return this.live.size;
   }
+  controls(conversation: string) {
+    const binding = db
+      .prepare(
+        "SELECT generation,state,harness FROM companion_sessions WHERE conversation_id=?",
+      )
+      .get(conversation) as
+      | { generation: string | null; state: string; harness: Harness }
+      | undefined;
+    if (!binding) throw new Problem(404, "Native session has not started");
+    const candidate = this.live.get(conversation);
+    const live =
+      candidate &&
+      !candidate.closed &&
+      candidate.generation === binding.generation
+        ? candidate
+        : undefined;
+    return {
+      generation: live?.generation || binding.generation,
+      state: live ? binding.state : "disconnected",
+      settings: live?.adapter.settings || { options: [], revision: 0 },
+      commands: live?.adapter.commandCatalog || { commands: [], revision: 0 },
+      capabilities:
+        live?.adapter.activityCapabilities ||
+        undiscoveredCapabilities(
+          "Native adapter has not reported activity support",
+        ),
+    };
+  }
+  async setSetting(
+    conversation: string,
+    setting: string,
+    value: SettingValue,
+    revision: number,
+    generation: string,
+  ) {
+    const live = this.live.get(conversation);
+    if (!live || live.closed || !live.adapter.setSetting)
+      throw new Problem(
+        409,
+        "This native session does not expose live settings. Open the conversation and retry.",
+      );
+    await live.ready;
+    const isCurrent = () => {
+      const binding = db
+        .prepare(
+          "SELECT generation FROM companion_sessions WHERE conversation_id=?",
+        )
+        .get(conversation) as { generation: string | null } | undefined;
+      return (
+        this.live.get(conversation) === live &&
+        !live.closed &&
+        live.generation === generation &&
+        binding?.generation === generation
+      );
+    };
+    if (!isCurrent())
+      throw new Problem(409, "Native session changed; refresh and retry.");
+    if (live.run || live.cancelling)
+      throw new Problem(
+        409,
+        "Wait for the native turn to finish before changing settings.",
+      );
+    try {
+      const settings = await live.adapter.setSetting(setting, value, revision);
+      if (!isCurrent())
+        throw new Problem(409, "Native session changed; refresh and retry.");
+      return {
+        generation: live.generation,
+        settings,
+        commands: live.adapter.commandCatalog || { commands: [], revision: 0 },
+        capabilities:
+          live.adapter.activityCapabilities ||
+          undiscoveredCapabilities(
+            "Native adapter has not reported activity support",
+          ),
+      };
+    } catch (error) {
+      throw new Problem(
+        409,
+        error instanceof Error ? error.message : "Native setting was rejected",
+      );
+    }
+  }
   registrations() {
     return (
       db
@@ -126,12 +225,30 @@ export class NativeSessions {
   }
   private async probe(options: Options) {
     if (this.stopped) throw new Problem(409, "Workspace is stopping");
+    if (options.harness === "acp") {
+      const existing = db
+        .prepare("SELECT options FROM harnesses WHERE name='acp'")
+        .get() as { options: string } | undefined;
+      if (existing) {
+        const saved = JSON.parse(existing.options) as Options;
+        if (
+          saved.executable !== options.executable ||
+          JSON.stringify(saved.args || []) !==
+            JSON.stringify(options.args || [])
+        )
+          throw new Problem(
+            409,
+            "This workspace already has an ACP agent. Existing conversations retain that agent; changing its executable requires a distinct connection identity.",
+          );
+      }
+    }
     options = {
       harness: options.harness,
       executable: realpathSync(options.executable),
       version: options.version,
       project: this.directory(options.project),
       billing: options.billing,
+      args: options.harness === "acp" ? options.args : undefined,
     };
     const native = new classes[options.harness](
       { ...options, probeOnly: true },
@@ -265,9 +382,24 @@ export class NativeSessions {
       if (c.agent_id !== agent.id)
         throw new Problem(400, "Conversation belongs to another agent");
       const binding = db
-        .prepare("SELECT project FROM companion_sessions WHERE conversation_id=?")
+        .prepare(
+          "SELECT project FROM companion_sessions WHERE conversation_id=?",
+        )
         .get(conversation) as any;
       if (binding) project = this.directory(binding.project);
+      const live = this.live.get(conversation);
+      if (live && !live.closed && live.adapter.commandCatalog)
+        return {
+          available: true,
+          runtime: labels[harness],
+          commands: live.adapter.commands || [],
+          revision: live.adapter.commandCatalog.revision,
+          capabilities:
+            live.adapter.activityCapabilities ||
+            undiscoveredCapabilities(
+              "Native adapter has not reported activity support",
+            ),
+        };
     }
     this.catalogCount++;
     const native = new classes[harness](
@@ -402,6 +534,13 @@ export class NativeSessions {
         ).run(now(), conversation);
       } catch (error) {
         await this.dispose(live);
+        // Keep actionable setup guidance at the worker's safe error boundary.
+        // Raw process/SDK errors may contain local paths or provider details.
+        if (harness === "acp" && !(error instanceof Problem))
+          throw new Problem(
+            503,
+            "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run.",
+          );
         throw error;
       }
     })();
@@ -411,6 +550,11 @@ export class NativeSessions {
   /** @internal Adapter event entry point. */
   event(live: Live, input: AdapterEvent) {
     if (live.closed) return;
+    if (this.live.get(live.binding.conversation_id) !== live) return;
+    if (input.type === "activity" || input.type === "activity_capabilities") {
+      this.activity(live, input);
+      return;
+    }
     if (Buffer.byteLength(JSON.stringify(input)) > 256000) {
       if (live.run)
         void this.interrupt(
@@ -584,6 +728,51 @@ export class NativeSessions {
       generation: live.generation,
       event,
     });
+  }
+  // Trusted activity boundary. Adapters are untrusted display producers: the
+  // server supplies owner, conversation, turn and generation, persists the
+  // reduced record and publishes only a content-free `activity.updated`
+  // signal. Raw activity payloads are never written to the events stream, and
+  // display data never interrupts or disposes native work.
+  private activity(
+    live: Live,
+    event: Extract<
+      AdapterEvent,
+      { type: "activity" } | { type: "activity_capabilities" }
+    >,
+  ) {
+    // A restarted workspace or replaced session owns a different generation;
+    // late frames from an older process must not write into its records.
+    const current = db
+      .prepare(
+        "SELECT generation FROM companion_sessions WHERE conversation_id=?",
+      )
+      .get(live.binding.conversation_id) as
+      | { generation: string | null }
+      | undefined;
+    if (current?.generation !== live.generation) return;
+    const transport = live.binding.harness === "acp" ? "acp" : "native";
+    if (event.type === "activity_capabilities") {
+      ingestNativeCapabilities(live, transport, event.capabilities);
+      return;
+    }
+    const update: unknown = event.activity;
+    if (!update || typeof update !== "object") return;
+    // Transport is part of the record key. An adapter may not file records
+    // under another transport (for example as API-runtime records).
+    if (
+      (update as { source?: { transport?: unknown } }).source?.transport !==
+      transport
+    )
+      return;
+    const kind = (update as { kind?: unknown }).kind;
+    // Session-scoped catalogs/settings may arrive during new/load before a
+    // turn starts. Run-scoped records are accepted only during their turn:
+    // ACP load does not identify the original Loop turn for replayed tools, so
+    // those frames are discarded rather than assigned to the bootstrap run or
+    // presented as new work. Stored projections remain authoritative.
+    if (!live.run && kind !== "settings" && kind !== "commands") return;
+    ingestNativeActivity(live, { ...update, generation: live.generation });
   }
   /** @internal Flush the retained display projection. */
   projectOutput(live: Live, partial: boolean) {

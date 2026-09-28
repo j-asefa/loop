@@ -6,6 +6,13 @@ import { Problem } from "./domain.js";
 import { Codex } from "../adapters/codex.js";
 import { importSession } from "./migration.js";
 import type { Item } from "../protocol.js";
+import { codexActivities } from "../adapters/direct-activities.js";
+import { directActivityUpdate } from "../activity-bridge.js";
+import {
+  reduceActivities,
+  type ActivityUpdate,
+} from "../agent-activities.js";
+import { applyActivity } from "./activities.js";
 export const nativeHistory = Router();
 let inspecting = false;
 async function inspect<T>(fn: (native: Codex) => Promise<T>) {
@@ -39,6 +46,26 @@ function projection(thread: any): Item[] {
         });
     }
   return result.slice(-500).map((i) => ({ ...i, text: i.text.slice(-64000) }));
+}
+// Structured command/file records saved in a native thread, as replayed
+// display history. Codex keeps no plan in thread items, so none is invented.
+/** @internal Exported for tests. */
+export function historyActivities(thread: any): ActivityUpdate[] {
+  const updates: ActivityUpdate[] = [];
+  for (const turn of thread.turns || [])
+    for (const item of turn.items || [])
+      for (const activity of codexActivities("item/completed", { item }))
+        updates.push(
+          directActivityUpdate(activity, { harness: "codex", replay: true }),
+        );
+  return updates.slice(-500);
+}
+// Read-only view for a thread Loop does not own, folded by the shared reducer.
+export function historyProjection(thread: any) {
+  const records = reduceActivities(
+    historyActivities(thread).map((update) => ({ update, turn: "history" })),
+  );
+  return [...records].map(([key, record]) => ({ key, kind: record.kind, record }));
 }
 nativeHistory.get("/native/history", async (req, res) => {
   const managed = db
@@ -106,6 +133,7 @@ nativeHistory.get("/native/history/:id", async (req, res) => {
   );
   res.json({
     items: projection(data.thread),
+    activities: historyProjection(data.thread),
     note: "Read from native history. Large paginated native threads may require the native client for their complete history.",
   });
 });
@@ -149,6 +177,9 @@ nativeHistory.post("/native/history/:id/fork", async (req, res) => {
           projection(result.thread),
           "Fork: " + record.title,
         );
+        // Display history only: replayed records never mark tools as newly run.
+        for (const update of historyActivities(result.thread))
+          applyActivity({ owner: OWNER, conversation }, update);
         db.prepare(
           "UPDATE native_history_actions SET state='completed',conversation_id=? WHERE id=?",
         ).run(conversation, commandId);

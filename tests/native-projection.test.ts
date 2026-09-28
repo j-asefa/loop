@@ -70,6 +70,9 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     items: new NativeOutput(),
     closed: false,
   };
+  // Register the session as NativeSessions.ensure does: events from a Live
+  // that is not the conversation's current session are stale and dropped.
+  (sessions as any).live.set("conversation", live);
   const event = (item: Item) => sessions.event(live, { type: "item", item });
   try {
     event({ id: "one", kind: "assistant", text: "first" });
@@ -149,5 +152,67 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
   } finally {
     clearTimeout(live.flush);
     vi.useRealTimers();
+  }
+});
+
+it("drops item events from a superseded session generation", () => {
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('superseded','owner','test',0)",
+  ).run();
+  const queued = enqueue("owner", "test", "superseded-test", {
+    conversation: "superseded",
+  });
+  const run = claim("worker")!;
+  expect(run.id).toBe(queued.id);
+  const sessions = new NativeSessions();
+  const make = (generation: string): Live => ({
+    run,
+    binding: {
+      conversation_id: "superseded",
+      harness: "codex",
+      native_id: null,
+      project: dir,
+      model: null,
+      instructions: "",
+      generation,
+      state: "idle",
+    },
+    adapter: new Codex(
+      {
+        harness: "codex",
+        executable: "",
+        version: "fixture",
+        project: dir,
+        billing: "existing",
+      },
+      () => {},
+    ),
+    generation,
+    ready: Promise.resolve(),
+    bootstrapRun: run,
+    requests: new Map(),
+    cancelling: false,
+    waiting: false,
+    bridgeWaiting: 0,
+    items: new NativeOutput(),
+    closed: false,
+  });
+  const old = make("old");
+  const current = make("current");
+  (sessions as any).live.set("superseded", current);
+  try {
+    sessions.event(old, {
+      type: "item",
+      item: { id: "late", kind: "assistant", text: "from the old process" },
+    });
+    sessions.event(current, {
+      type: "item",
+      item: { id: "fresh", kind: "assistant", text: "current" },
+    });
+    expect(old.items.get("late")).toBeUndefined();
+    expect(current.items.get("fresh")).toBeDefined();
+  } finally {
+    clearTimeout(old.flush);
+    clearTimeout(current.flush);
   }
 });

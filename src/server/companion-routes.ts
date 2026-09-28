@@ -77,8 +77,38 @@ companion.post("/native/decisions/:id", async (req, res) => {
     await nativeSessions.answer(String(req.params.id), d.commandId, d.answer),
   );
 });
+companion.get("/conversations/:id/settings", (req, res) => {
+  const conversation = z.string().uuid().parse(req.params.id);
+  owned("conversations", conversation, OWNER);
+  res.json(nativeSessions.controls(conversation));
+});
+companion.patch("/conversations/:id/settings/:setting", async (req, res) => {
+  const conversation = z.string().uuid().parse(req.params.id);
+  owned("conversations", conversation, OWNER);
+  const body = z
+    .object({
+      value: z.union([z.string().max(1000), z.boolean(), z.number()]),
+      revision: z.number().int().nonnegative(),
+      generation: z.string().min(1).max(200),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    await nativeSessions.setSetting(
+      conversation,
+      String(req.params.setting),
+      body.value,
+      body.revision,
+      body.generation,
+    ),
+  );
+});
 companion.get("/conversations/:id/native", (req, res, next) => {
-  const conversation = owned<any>("conversations", String(req.params.id), OWNER);
+  const conversation = owned<any>(
+    "conversations",
+    String(req.params.id),
+    OWNER,
+  );
   if (conversation.execution_backend === "hapi") return next();
   const binding = db
     .prepare(

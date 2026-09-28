@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
-import { openSync, closeSync } from "node:fs";
+import { openSync, closeSync, statSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
@@ -257,6 +257,7 @@ async function main() {
       version: { type: "boolean", short: "v" },
       project: { type: "string" },
       executable: { type: "string" },
+      "acp-arg": { type: "string", multiple: true },
       billing: { type: "string" },
       resume: { type: "string" },
       json: { type: "boolean" },
@@ -289,6 +290,9 @@ loop codex|claude|pi|opencode [--project PATH] [--executable PATH]
                         show a pairing code, then keep running in the
                         background. If the workspace is already running, the
                         harness is added to it; no new pairing is required.
+loop acp --executable ABSOLUTE_PATH [--acp-arg ARG]...
+                        Add a local ACP v1 agent. Sign in with the agent's
+                        own CLI first; its own account pays for model use.
 loop pair               Show a fresh pairing code. Scan it to pair a new
                         device, or scan it from the Loop app to reconnect
                         after the tunnel address changed.
@@ -535,19 +539,49 @@ Uninstall removes the package separately; workspace/native history is retained.`
     throw new Error(
       "A named tunnel requires --public-url https://your-hostname.",
     );
-  const probe = managed
-    ? {
-        installed: true,
-        supported: true,
-        version: "managed",
-        executable: "codex",
-        help: "",
-      }
-    : await discover(selected, values.executable);
+  if (selected === "acp" && !values.executable)
+    throw new Error(
+      "ACP setup requires --executable with an absolute local executable path.",
+    );
+  const probe =
+    selected === "acp"
+      ? (() => {
+          const executable = statSync(values.executable!).isFile()
+            ? values.executable!
+            : "";
+          if (
+            !executable ||
+            !isAbsolute(executable) ||
+            !(statSync(executable).mode & 0o111)
+          )
+            throw new Error("Choose an executable local ACP agent file.");
+          return {
+            installed: true,
+            supported: true,
+            version: "ACP v1",
+            executable,
+            help: "",
+          };
+        })()
+      : managed
+        ? {
+            installed: true,
+            supported: true,
+            version: "managed",
+            executable: "codex",
+            help: "",
+          }
+        : await discover(selected, values.executable);
   if (!probe.installed || !probe.supported || !probe.version)
     throw new Error(probe.help);
   let billing =
-    values.billing ?? preferences.billing?.[selected] ?? "subscription";
+    values.billing ??
+    preferences.billing?.[selected] ??
+    (selected === "acp" ? "existing" : "subscription");
+  if (selected === "acp" && billing !== "existing")
+    throw new Error(
+      "ACP uses the agent's own authentication and billing; choose --billing existing.",
+    );
   if (!["subscription", "existing"].includes(billing))
     throw new Error("Billing must be subscription or existing.");
   if (
@@ -585,6 +619,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     version: probe.version,
     project,
     billing,
+    ...(selected === "acp" ? { args: values["acp-arg"] || [] } : {}),
   };
   const remember = () =>
     atomic(preferencesPath, {

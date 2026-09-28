@@ -10,6 +10,8 @@ import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { connectionSelection } from "./hapi/contracts.js";
 import { readRunFile } from "./uploads.js";
+import { applyActivity } from "./activities.js";
+import { ACTIVITY_LIMITS } from "../agent-activities.js";
 
 const diagram = z.object({
   title: z.string().min(1).max(180),
@@ -27,7 +29,46 @@ const delegate = z.object({
     .min(1)
     .max(8),
 });
+// Structured plans for API-provider runs. Display-only: a plan never grants
+// or runs anything. Native harnesses publish their own plans instead.
+const plan = z.object({
+  explanation: z.string().max(2000).optional(),
+  steps: z
+    .array(
+      z.object({
+        id: z
+          .string()
+          .regex(/^[A-Za-z0-9_.:-]{1,80}$/)
+          .optional()
+          .describe("Stable step identifier; keep it across plan updates."),
+        title: z.string().trim().min(1).max(500),
+        status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
+      }),
+    )
+    .min(1)
+    .max(ACTIVITY_LIMITS.steps),
+});
+// Agent-facing plan guidance for API-provider runs. The tool description says
+// how to call loop_plan; this says when, so providers that weigh system
+// instructions over tool descriptions still publish plans. Added only when
+// loop_plan is advertised, after the agent's own instructions, which are
+// stored unchanged.
+export const PLAN_GUIDANCE =
+  "Loop plans: for any task with more than one step, call loop_plan with your plan before you start working, then call it again with the complete updated list each time a step starts or finishes. Keep step ids stable across updates and mark only the step you are working on as in_progress. The user sees this as a live checklist; Loop never infers a plan from your messages. Skip loop_plan for single-step answers.";
+export function runtimeInstructions(
+  instructions: string,
+  bindings: Pick<ToolBinding, "tool" | "connectionId">[],
+) {
+  if (
+    !bindings.some((b) => b.tool === "loop_plan" && b.connectionId === "__loop__")
+  )
+    return instructions;
+  return instructions.trim()
+    ? instructions + "\n\n" + PLAN_GUIDANCE
+    : PLAN_GUIDANCE;
+}
 const schemas = {
+  loop_plan: plan,
   loop_read_file: z.object({
     fileId: z.string().uuid(),
     offset: z.number().int().nonnegative().default(0),
@@ -38,10 +79,17 @@ const schemas = {
   loop_install_mcp: install,
   loop_delegate: delegate,
 };
-export function nativeBindings(run: Run): ToolBinding[] {
+export function nativeBindings(
+  run: Run,
+  options: { plans?: boolean } = {},
+): ToolBinding[] {
   const teamId = JSON.parse(run.payload).teamId;
   const team = teamId ? owned<any>("teams", teamId, run.owner_id) : null;
   const descriptions: Record<string, string> = {
+    ...(options.plans && {
+      loop_plan:
+        "Publish or update your plan for this task as a live checklist the user can follow. For multi-step work, publish the plan before starting and call this again with the complete updated list whenever a step starts or finishes. Keep each step's id stable and mark exactly the step you are working on as in_progress. Loop never infers a plan from your messages. It does not run anything and needs no approval.",
+    }),
     loop_read_file:
       "Read an uploaded file attached to this conversation. Offsets and lengths are bytes; use nextOffset to continue. Use utf8 for text or base64 for binary files. Decode base64 locally before using native document/image tools. Reading attached files needs no additional approval.",
     loop_diagram:
@@ -72,10 +120,12 @@ export async function invokeNative(
   binding: ToolBinding,
   callId: string,
   input: Record<string, unknown>,
+  // Only callers that advertised loop_plan (the API runtime) may invoke it.
+  options: { plans?: boolean } = {},
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
   if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
-  if (!nativeBindings(run).some((t) => t.tool === binding.tool))
+  if (!nativeBindings(run, options).some((t) => t.tool === binding.tool))
     throw new Problem(403, "Native tool is unavailable to this agent");
   const args = schemas[binding.tool as keyof typeof schemas].parse(input);
   const encoded =
@@ -100,7 +150,36 @@ export async function invokeNative(
   ).run(run.id, callId, binding.tool, encoded);
   let text: string,
     artifactId = "";
-  if (binding.tool === "loop_read_file") {
+  if (binding.tool === "loop_plan") {
+    const p = plan.parse(args);
+    const ids = new Set<string>();
+    const steps = p.steps.map((step, i) => {
+      if (step.id && ids.has(step.id))
+        throw new Problem(400, "Plan step ids must be unique");
+      if (step.id) ids.add(step.id);
+      return step.id
+        ? { id: step.id, title: step.title, status: step.status }
+        : { id: `step-${i}`, positional: true, title: step.title, status: step.status };
+    });
+    const applied = applyActivity(
+      {
+        owner: run.owner_id,
+        conversation: run.conversation_id,
+        run: run.id,
+      },
+      {
+        v: 1,
+        kind: "plan",
+        id: "plan",
+        source: { transport: "api", origin: "loop_plan" },
+        patch: { steps, explanation: p.explanation ?? null },
+      },
+    );
+    if (!applied.applied && applied.reason !== "no change")
+      throw new Problem(422, "Plan could not be saved: " + applied.reason);
+    const done = steps.filter((s) => s.status === "completed").length;
+    text = `Plan updated: ${done}/${steps.length} steps completed.`;
+  } else if (binding.tool === "loop_read_file") {
     const file = schemas.loop_read_file.parse(args);
     text = JSON.stringify(
       readRunFile(run, file.fileId, file.offset, file.length, file.encoding),

@@ -1,0 +1,11 @@
+
+ RUN  v5.0.1 /home/node/workspaces/1d3530c28f76d7e75605f1b04c1a54ee35815140181de006268de7a31bd6c708/acp-deterministic-browser
+
+
+ Test Files  7 passed (7)
+      Tests  37 passed (37)
+   Start at  20:46:34
+   Duration  4.32s (tests 39%, import 31%, transform 29%, worker 1%)
+
+    Isolate  7 workers spawned · ~105ms startup each (spawn + environment, per file)
+             at least ~630ms faster with isolate: false — reuses workers across files instead of one per file

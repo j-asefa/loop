@@ -1,0 +1,19 @@
+PASS: readable approval details, conversation context, 320/390 layouts in both themes, failed-decision retry, duplicate-click protection, approval/rejection and stale-request handling.
+PASS: chat pull-down dismissal, visible sticky handle, cancelled/short/sideways/upward gestures, scroll and input isolation, and draft preservation.
+PASS: semantic index preparation, live progress, actionable failure and recovery status in search and preferences (status fixtures).
+PASS: provider-first setup; saved-account separation; Claude identity before bootstrap; method/key isolation; API validation/update; failed, timed-out and lost login responses; duplicate-free retry; pending sign-in resume/cancel; stale-status isolation; both themes and 320/390/430/768 layouts.
+PASS: codex runtime command discovery, search, slash shortcut, mobile picker, native dispatch, nested conversation picker and draft focus.
+PASS: remote Codex pairing error/retry, existing-account setup, provider/MCP machine filtering, durable worker response and account-preserving disconnect (WebSocket fixture).
+PASS: anthropic runtime command discovery, search, slash shortcut, mobile picker, native dispatch, nested conversation picker and draft focus.
+PASS: native Claude machine pairing, provider identity, existing account connection, durable worker result and unpairing (protocol fixture).
+PASS: separate standing instructions and initial prompt, idle creation, immediate first conversation, selected-project output, stable suggested name, lost-response retry with one agent/run/message, and 320/390 layouts.
+PASS: failed empty response kept out of feed and shown in attention and conversation, attention navigation and explicit retry.
+PASS: searchable, scroll-contained team selection; compact multi-team summary; 44px composer controls; phone layouts in both themes; simulated keyboard inset; focus restoration and draft preservation.
+PASS: messages and replies collapse before refresh, lost-response retries preserve drafts without duplicate runs, and sent drafts stay cleared when reopened.
+PASS: composer drafts, Anthropic selection, team delegation and multi-select feeds, executing-only Running, card/profile navigation, long-press archive/search/Undo, older message anchors, native diagrams, responsive layout.
+PASS: 149-tool catalog, category/search filters, 320/390/768px layouts, one-click install, secret form, re-enable without duplication and installed state after reload (fixture MCP).
+PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, prominent attention, dismiss/retry/persistence, rejected approvals, queued cancellation, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.
+ExpectError: expect(locator).not.toContainText(expected) failed
+Locator: locator('dialog[open]').last().locator('.messages')
+Expected substring: not "pull_request_review_write"
+    at tracesJourney (/home/node/workspaces/1d3530c28f76d7e75605f1b04c1a54ee35815140181de006268de7a31bd6c708/trace-ci-fix/scripts/traces-journey.mjs:519:63)

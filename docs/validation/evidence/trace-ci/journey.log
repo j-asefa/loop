@@ -1,0 +1,21 @@
+
+> loop@0.1.0 smoke:journey
+> node scripts/browser-journey.mjs
+
+PASS: readable approval details, conversation context, 320/390 layouts in both themes, failed-decision retry, duplicate-click protection, approval/rejection and stale-request handling.
+PASS: chat pull-down dismissal, visible sticky handle, cancelled/short/sideways/upward gestures, scroll and input isolation, and draft preservation.
+PASS: semantic index preparation, live progress, actionable failure and recovery status in search and preferences (status fixtures).
+PASS: provider-first setup; saved-account separation; Claude identity before bootstrap; method/key isolation; API validation/update; failed, timed-out and lost login responses; duplicate-free retry; pending sign-in resume/cancel; stale-status isolation; both themes and 320/390/430/768 layouts.
+PASS: codex runtime command discovery, search, slash shortcut, mobile picker, native dispatch, nested conversation picker and draft focus.
+PASS: remote Codex pairing error/retry, existing-account setup, provider/MCP machine filtering, durable worker response and account-preserving disconnect (WebSocket fixture).
+PASS: anthropic runtime command discovery, search, slash shortcut, mobile picker, native dispatch, nested conversation picker and draft focus.
+PASS: native Claude machine pairing, provider identity, existing account connection, durable worker result and unpairing (protocol fixture).
+PASS: separate standing instructions and initial prompt, idle creation, immediate first conversation, selected-project output, stable suggested name, lost-response retry with one agent/run/message, and 320/390 layouts.
+PASS: failed empty response kept out of feed and shown in attention and conversation, attention navigation and explicit retry.
+PASS: searchable, scroll-contained team selection; compact multi-team summary; 44px composer controls; phone layouts in both themes; simulated keyboard inset; focus restoration and draft preservation.
+PASS: messages and replies collapse before refresh, lost-response retries preserve drafts without duplicate runs, and sent drafts stay cleared when reopened.
+PASS: composer drafts, Anthropic selection, team delegation and multi-select feeds, executing-only Running, card/profile navigation, long-press archive/search/Undo, older message anchors, native diagrams, responsive layout.
+PASS: 149-tool catalog, category/search filters, 320/390/768px layouts, one-click install, secret form, re-enable without duplication and installed state after reload (fixture MCP).
+PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, prominent attention, dismiss/retry/persistence, rejected approvals, queued cancellation, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.
+PASS: Running previews, final-only Feed, readable tool errors, live trace pagination, tool-result access, final publication and deduplicated search.
+PASS: labeled fixture provider connection → chosen model → streamed artifact → natural filing/Undo → project search → original conversation; workspace MCP connect/discover → model approval → native chart → official Apps initialization + allowed request + denial + parent isolation + unsupported capability; disabled tools; client-close completion/reconnect without duplicate messages; direct second-user artifact/app/conversation/agent/search denial; both subscription sign-in UIs, subscription worker completion, disconnect and cross-user auth denial (fixtures).

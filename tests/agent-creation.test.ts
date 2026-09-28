@@ -15,6 +15,7 @@ const { Problem, createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
+const { PLAN_GUIDANCE } = await import("../src/server/native-tools");
 const calls: any[] = [];
 const restore = withTestAdapter("openai", {
   async models() {
@@ -125,7 +126,12 @@ it("creates a first message, queues work, and keeps standing instructions for fu
   ).toEqual([{ role: "user", content: "Compare three research ideas." }]);
   await executeAgent(run);
   transition(run, "completed");
-  expect(calls.at(-1).instructions).toBe(input.instructions);
+  // The agent's standing instructions reach the provider verbatim, followed by
+  // Loop's plan guidance because loop_plan is advertised to this run.
+  expect(calls.at(-1).instructions).toBe(
+    input.instructions + "\n\n" + PLAN_GUIDANCE,
+  );
+  expect(calls.at(-1).tools.map((t: any) => t.name)).toContain("loop_plan");
   expect(calls.at(-1).effort).toBe("high");
   expect(calls.at(-1).messages).toEqual([
     { role: "user", content: "Compare three research ideas." },
@@ -142,7 +148,9 @@ it("creates a first message, queues work, and keeps standing instructions for fu
   expect(next.id).toBe(followup.id);
   await executeAgent(next);
   transition(next, "completed");
-  expect(calls.at(-1).instructions).toBe(input.instructions);
+  expect(calls.at(-1).instructions).toBe(
+    input.instructions + "\n\n" + PLAN_GUIDANCE,
+  );
   expect(calls.at(-1).messages).toEqual([
     { role: "user", content: "A separate task." },
   ]);
