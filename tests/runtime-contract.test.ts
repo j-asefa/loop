@@ -596,7 +596,8 @@ for (const provider of ["codex", "claude"]) {
 }
 it("rejects off-provider sign-in URLs and unauthorized tool names", async () => {
   const path = resolve("runtime/protocol.mjs");
-  const { authorizationUrl, resultChunks } = await import(path);
+  const { authorizationUrl, nativeResponseSchema, resultChunks, turnPrompt } =
+    await import(path);
   expect(
     authorizationUrl("https://auth.openai.com.evil.test/device", "codex"),
   ).toBeUndefined();
@@ -630,7 +631,50 @@ it("rejects off-provider sign-in URLs and unauthorized tool names", async () => 
       { tools: [] },
     ),
   ).toThrow();
+  const input = {
+    instructions: "",
+    messages: [{ role: "user", content: "Inspect the pull request" }],
+    tools: [
+      {
+        name: "loop_tool_32",
+        description: "Read a pull request",
+        inputSchema: { type: "object" },
+      },
+    ],
+  };
+  expect(nativeResponseSchema(input)).toMatchObject({
+    properties: {
+      kind: { enum: ["answer", "tool"] },
+      tool: { enum: [null, "loop_tool_32"] },
+    },
+  });
+  const prompt = turnPrompt(input, true);
+  expect(prompt).toContain(
+    "LOOP FINAL-RESPONSE ACTIONS (DO NOT INVOKE AS NATIVE TOOLS)",
+  );
+  expect(prompt).toContain(
+    "Never invoke one of their names through the runtime's native tool API",
+  );
+  expect(nativeResponseSchema({ ...input, tools: [] })).toMatchObject({
+    properties: { kind: { enum: ["answer"] }, tool: { type: "null" } },
+  });
 });
+
+it.each(["codex", "claude"])(
+  "%s constrains native structured actions to the advertised names",
+  async (provider) => {
+    const result = await invoke(provider, "turn");
+    expect(result.code).toBe(0);
+    const turn = result.calls.find((call) => call.rpc?.method === "turn/start");
+    const launch = result.calls.find((call) =>
+      call.args?.includes("--json-schema"),
+    );
+    const schema = turn
+      ? turn.rpc.params.outputSchema
+      : JSON.parse(launch.args[launch.args.indexOf("--json-schema") + 1]);
+    expect(schema.properties.tool.enum).toEqual([null, "lookup"]);
+  },
+);
 it("creates isolated containers without host credentials, sockets or privileged execution", async () => {
   const path = resolve("runtime/container.mjs");
   const { containerArgs } = await import(path);

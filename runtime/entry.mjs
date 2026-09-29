@@ -25,7 +25,7 @@ import {
 } from "./harness.mjs";
 import {
   lines,
-  responseSchema,
+  nativeResponseSchema,
   turnPrompt,
   resultChunks,
   authorizationUrl,
@@ -231,7 +231,7 @@ async function claude(request) {
       ? ["--input-format", "stream-json"]
       : []),
     "--json-schema",
-    JSON.stringify(responseSchema),
+    JSON.stringify(nativeResponseSchema(request.input)),
   ]);
   let result,
     failure,

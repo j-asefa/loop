@@ -1,5 +1,10 @@
 import { modelOptions } from "./model-options.mjs";
-import { lines, turnPrompt, responseSchema } from "./protocol.mjs";
+import {
+  lines,
+  turnPrompt,
+  responseSchema,
+  nativeResponseSchema,
+} from "./protocol.mjs";
 export class HarnessError extends Error {}
 
 const validName = (name) =>
@@ -105,7 +110,7 @@ export async function codexTurn(
     threadId,
     ...(input.effort ? { reasoningEffort: input.effort } : {}),
     input: [{ type: "text", text: turnPrompt(input, nativeTools) }, ...items],
-    outputSchema: responseSchema,
+    outputSchema: nativeTools ? nativeResponseSchema(input) : responseSchema,
   });
 }
 
