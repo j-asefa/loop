@@ -321,6 +321,67 @@ it("steers the current harness after changing the agent's provider for future ru
   transition(next.data, "cancelled");
 });
 
+it("continues a conversation on the agent's new provider with Loop's transcript", async () => {
+  const { agent, run } = start();
+  const restoreOpenAI = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream() {
+      yield { text: "OpenAI answer" };
+    },
+  });
+  try {
+    expect(await executeAgent(run)).toBe(true);
+  } finally {
+    restoreOpenAI();
+  }
+  transition(run, "completed");
+  const nextConnection = id();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) SELECT ?,owner_id,'anthropic','Next provider',secret,status,models,created_at FROM connections WHERE id=?",
+  ).run(nextConnection, agent.connection_id);
+  db.prepare(
+    "UPDATE agents SET connection_id=?,provider='anthropic',model='next-model' WHERE id=?",
+  ).run(nextConnection, agent.id);
+  const next = await send({
+    agentId: agent.id,
+    conversationId: run.conversation_id,
+    input: "Keep going",
+    idempotencyKey: id(),
+  });
+  expect(next.status).toBe(202);
+  expect(next.data.conversation_id).toBe(run.conversation_id);
+  expect(JSON.parse(next.data.payload)).toMatchObject({
+    provider: "anthropic",
+    connectionId: nextConnection,
+    model: "next-model",
+  });
+  let seen: ChatMessage[] = [];
+  const restoreAnthropic = withTestAdapter("anthropic", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      seen = input.messages;
+      yield { text: "Anthropic answer" };
+    },
+  });
+  try {
+    const claimed = claim("steering-worker")!;
+    expect(claimed.id).toBe(next.data.id);
+    expect(await executeAgent(claimed)).toBe(true);
+    transition(claimed, "completed");
+  } finally {
+    restoreAnthropic();
+  }
+  expect(seen.map((m) => [m.role, m.content])).toEqual([
+    ["user", "Investigate"],
+    ["assistant", "OpenAI answer"],
+    ["user", "Keep going"],
+  ]);
+});
+
 async function executeWithDeadline(work: Promise<boolean>) {
   let timer: ReturnType<typeof setTimeout>;
   try {

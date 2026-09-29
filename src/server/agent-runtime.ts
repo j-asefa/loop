@@ -183,27 +183,8 @@ export function submit(
           throw new Problem(400, "This conversation belongs to another agent");
         if (teamId && c.team_id !== teamId)
           throw new Problem(400, "Conversation belongs to another team");
-        const previous = db
-          .prepare(
-            "SELECT payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY rowid DESC LIMIT 1",
-          )
-          .get(owner, conversation) as { payload: string } | undefined;
-        if (
-          previous &&
-          JSON.parse(previous.payload).connectionId !== connection.id &&
-          !(
-            data.steer &&
-            db
-              .prepare(
-                "SELECT 1 FROM runs r WHERE owner_id=? AND agent_id=? AND conversation_id=? AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done')",
-              )
-              .get(owner, agent.id, conversation)
-          )
-        )
-          throw new Problem(
-            409,
-            "This agent's provider or account changed. Start a new conversation to use it.",
-          );
+        // Loop owns the transcript, so a changed provider or model simply
+        // handles the next turn; active work keeps its original snapshot.
         teamId = c.team_id || undefined;
         if (data.folderId === undefined) {
           const previous = db

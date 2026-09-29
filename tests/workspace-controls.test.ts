@@ -488,7 +488,7 @@ it("deletes a team without deleting agents, history, or active work", async () =
   expect((await request(`/feed?teams=${team.id}`)).status).toBe(404);
 });
 
-it("changes provider, model, and supported effort atomically while preserving queued snapshots", async () => {
+it("changes provider, model, and supported effort atomically, continuing existing conversations while preserving queued snapshots", async () => {
   const a = agent(),
     team = createTeam("alice", {
       name: "Model changes",
@@ -520,14 +520,18 @@ it("changes provider, model, and supported effort atomically while preserving qu
         .payload,
     ).connectionId,
   ).toBe(a.connection_id);
-  expect(() =>
-    submit("alice", {
-      agentId: a.id,
-      conversationId: run.conversation_id!,
-      input: "Old conversation",
-      idempotencyKey: id(),
-    }),
-  ).toThrow("Start a new conversation");
+  const continued = submit("alice", {
+    agentId: a.id,
+    conversationId: run.conversation_id!,
+    input: "Old conversation",
+    idempotencyKey: id(),
+  });
+  expect(continued.conversation_id).toBe(run.conversation_id);
+  expect(JSON.parse(continued.payload)).toMatchObject({
+    connectionId: target,
+    model: "fixture",
+    effort: "xhigh",
+  });
   const fresh = submit("alice", {
     agentId: a.id,
     input: "Use new provider",
