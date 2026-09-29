@@ -315,23 +315,25 @@ it("catalog rediscovery replaces removals and disposal drops late results", asyn
   expect(stopped.commands.commands).toEqual([]);
 });
 
-it("retains old-turn activity snapshots during pagination and ignores older revisions", async () => {
-  const { mergeActivitySnapshots } =
-    await import("../src/client/activitySnapshots");
-  const update: any = {
-    v: 1,
-    kind: "plan",
-    id: "plan",
-    source: { transport: "native", harness: "codex", origin: "test" },
-    patch: { steps: [] },
-  };
-  const records = [...reduceActivities([{ update, turn: "old" }]).values()];
-  const older = { record: records[0], run_id: "old" };
-  const newer = { record: { ...records[0], revision: 5 }, run_id: "old" };
-  const other = { record: records[0], run_id: "new" };
-  const merged = mergeActivitySnapshots([newer, other], [older]);
-  expect(merged).toHaveLength(2);
-  expect(merged[0].record.revision).toBe(5);
+it("retains previous turns across activity pages and ignores overlapping older sequences", async () => {
+  const { mergeActivities } = await import("../src/client/activityView");
+  const item = (run: string, sequence: number) => ({
+    key: `${run}:plan`,
+    run,
+    sequence,
+    kind: "plan" as const,
+    record: { revision: sequence },
+  });
+  const oldTurn = item("old", 5);
+  const newTurn = item("new", 6);
+  const previous = mergeActivities([], { items: [oldTurn] });
+  const merged = mergeActivities(previous, { items: [newTurn, item("old", 3)] });
+  expect(merged).toEqual([oldTurn, newTurn]);
+  expect(previous).toEqual([oldTurn]);
+  expect(mergeActivities(merged, { items: [item("old", 7)] })).toEqual([
+    newTurn,
+    item("old", 7),
+  ]);
 });
 
 it("Codex rejects foreign-thread and previous-turn rich events before emission", () => {

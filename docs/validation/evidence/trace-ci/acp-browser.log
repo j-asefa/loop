@@ -1,6 +1,0 @@
-
-> loop@0.1.0 test:browser:acp
-> node scripts/acp-deterministic-browser.mjs
-
-PASS 1280x844: UI direct/ACP selection, stable bindings, setup error, mid-approval WS replay without reload, draft, one decision/receipt and no duplicate activity records
-PASS 390x844: UI direct/ACP selection, stable bindings, setup error, mid-approval WS replay without reload, draft, one decision/receipt and no duplicate activity records

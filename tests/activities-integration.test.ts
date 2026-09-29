@@ -1,3 +1,6 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ActivityRecords } from "../src/client/ActivityRecords";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +15,7 @@ import {
   type ActivityUpdate,
 } from "../src/agent-activities";
 import {
-  activityViews,
+  visibleActivities,
   mergeActivities,
   type ActivityItem,
 } from "../src/client/activityView";
@@ -206,7 +209,7 @@ it("persisted records equal the pure fold for duplicated, out-of-order delivery"
   for (const e of events) expect(Object.keys(JSON.parse(e.payload)).sort()).toEqual(["key", "kind", "sequence"]);
 });
 
-it("client merge keeps the newest record per key and renders shared panel props", () => {
+it("client merge keeps the newest record per key and renders the production activity components", () => {
   const item = (key: string, sequence: number, record: any, extra = {}): ActivityItem => ({
     key,
     kind: record.kind,
@@ -219,6 +222,7 @@ it("client merge keeps the newest record per key and renders shared panel props"
     v: 1,
     kind: "file_change",
     id: "f",
+    source: { transport: "native", harness: "codex" },
     data: {
       state,
       files: [
@@ -230,17 +234,25 @@ it("client merge keeps the newest record per key and renders shared panel props"
   let items = mergeActivities([], { items: [item("f", 5, file("applied"))] });
   // An overlapping older page after reconnect does not regress the view.
   items = mergeActivities(items, { items: [item("f", 3, file("proposed"))] });
-  const views = activityViews(items) as any[];
-  expect(views).toHaveLength(2);
-  expect(views[0].props).toMatchObject({ path: "<img src=x>.ts", before: null, after: "x", state: "applied · create" });
-  expect(views[1].props).toMatchObject({ state: "applied · delete", reason: "Content binary." });
-  expect("before" in views[1].props).toBe(false);
+  const render = () => renderToStaticMarkup(createElement(ActivityRecords, {
+    records: visibleActivities(items).map((item) => item.record),
+  }));
+  const html = render();
+  expect(html).toContain("&lt;img src=x&gt;.ts");
+  expect(html).not.toContain("<img");
+  expect(html).toContain("applied · create");
+  expect(html).toContain("applied · delete");
+  expect(html).not.toContain("proposed");
+  expect(html).toContain("new file");
+  expect(html).toContain("binary");
+  expect(html).not.toContain("Diff content was not supplied");
   // Legacy trace projections are replaced by real records; unknown versions are skipped.
   items = mergeActivities(
-    [item("t", 0, { v: 1, kind: "tool", data: { title: "x", status: "unknown", content: [] } }, { legacy: true })],
-    { items: [item("t", 0, { v: 1, kind: "tool", data: { title: "y", status: "completed", content: [] } }), item("z", 9, { v: 2, kind: "plan" })] },
+    [item("t", 0, { v: 1, kind: "tool", source: { transport: "native", harness: "codex" }, data: { title: "x", status: "unknown", content: [] } }, { legacy: true })],
+    { items: [item("t", 0, { v: 1, kind: "tool", source: { transport: "native", harness: "codex" }, data: { title: "y", status: "completed", content: [] } }), item("z", 9, { v: 2, kind: "plan" })] },
   );
-  expect(activityViews(items).map((v: any) => v.props.title)).toEqual(["y"]);
+  expect(visibleActivities(items).map((item) => item.record.data.title)).toEqual(["y"]);
+  expect(render()).toContain("y · completed");
 });
 
 it("offers loop_plan with a provider-compatible, validated schema and agent-facing description", () => {

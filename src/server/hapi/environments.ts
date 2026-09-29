@@ -3,7 +3,7 @@ import { Agent, fetch as secureFetch } from "undici";
 import { db, id, now } from "../db.js";
 import { owned, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
-import { digest, type NativeSelection } from "./contracts.js";
+import { digest } from "./contracts.js";
 import { HapiClient } from "./client.js";
 import { MAX_CONCURRENT_RUNS } from "../../../runtime/concurrency.mjs";
 
@@ -141,20 +141,6 @@ export function provisionEnvironment(
     );
   }).immediate();
   return hostId;
-}
-export function selectionSnapshot(
-  owner: string,
-  connection: any,
-): NativeSelection | undefined {
-  const m = JSON.parse(connection.metadata);
-  if (m.backend !== "hapi") return;
-  environment(owner, m.environmentId);
-  return {
-    backend: "hapi",
-    environmentId: m.environmentId,
-    flavor: m.flavor,
-    billing: m.billing,
-  };
 }
 export async function refreshEnvironment(e: any) {
   try {

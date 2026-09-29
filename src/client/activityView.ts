@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 // Type-only: the client bundle does not ship the zod schemas.
-import type { ActivityRecord, ActivityCapabilities } from "../agent-activities";
+import type { ActivityRecord } from "../agent-activities";
 
 // Client side of the shared activity projection. The server has already
 // reduced every record, so the client only replaces items by key: a full load
@@ -53,145 +53,6 @@ export function visibleActivities(items: ActivityItem[]) {
   );
 }
 
-// Props for the shared panels in ActivityPanels.tsx, grouped per run so a
-// conversation can place them beside the turn that produced them.
-export type ActivityView =
-  | {
-      key: string;
-      run: string | null;
-      kind: "plan";
-      props: {
-        steps: { id: string; text: string; status: string }[];
-        explanation?: string | null;
-      };
-    }
-  | {
-      key: string;
-      run: string | null;
-      kind: "file";
-      props: {
-        path: string;
-        oldPath?: string | null;
-        patch?: string | null;
-        before?: string | null;
-        after?: string | null;
-        state: string;
-        reason?: string | null;
-        truncated?: boolean;
-      };
-    }
-  | {
-      key: string;
-      run: string | null;
-      kind: "output";
-      props: {
-        command?: string | null;
-        cwd?: string | null;
-        text: string;
-        stream?: string;
-        exitCode?: number | null;
-        signal?: string | null;
-        state: string;
-        truncated?: boolean;
-        omittedBytes?: number;
-      };
-    }
-  | {
-      key: string;
-      run: string | null;
-      kind: "tool";
-      props: {
-        title: string;
-        status: string;
-        error?: string;
-        text: string;
-        artifacts: string[];
-      };
-    };
-
-export function activityViews(items: ActivityItem[]): ActivityView[] {
-  const views: ActivityView[] = [];
-  for (const item of items) {
-    const record = item.record as ActivityRecord;
-    if (!record || record.v !== 1) continue; // unknown future versions are skipped
-    const base = { key: item.key, run: item.run };
-    if (record.kind === "plan" && record.data.steps.length)
-      views.push({
-        ...base,
-        kind: "plan",
-        props: {
-          steps: record.data.steps.map((s) => ({
-            id: s.id,
-            text: s.title,
-            status: s.status,
-          })),
-          explanation: record.data.explanation ?? null,
-        },
-      });
-    else if (record.kind === "file_change")
-      record.data.files.forEach((file, index) =>
-        views.push({
-          key: item.key + "#" + index,
-          run: item.run,
-          kind: "file",
-          props: {
-            path: file.path,
-            oldPath: file.oldPath ?? null,
-            patch: file.patch ?? null,
-            // Omitted content stays undefined; explicit null marks create/delete.
-            ...(file.before !== undefined && { before: file.before }),
-            ...(file.after !== undefined && { after: file.after }),
-            state:
-              file.operation === "modify"
-                ? record.data.state
-                : `${record.data.state} · ${file.operation}`,
-            reason:
-              file.reason ??
-              (file.content !== "available"
-                ? `Content ${file.content}.`
-                : null),
-            truncated: file.content === "oversized",
-          },
-        }),
-      );
-    else if (record.kind === "output") {
-      const d = record.data;
-      views.push({
-        ...base,
-        kind: "output",
-        props: {
-          command: d.command ?? null,
-          cwd: d.cwd ?? null,
-          text: d.chunks.map((c) => c.text).join(""),
-          stream: d.streams,
-          exitCode: d.exitCode ?? null,
-          signal: d.signal ?? null,
-          state: d.status,
-          truncated: d.truncated.droppedBytes > 0 || !!d.truncated.upstream,
-          omittedBytes: d.truncated.droppedBytes || undefined,
-        },
-      });
-    } else if (record.kind === "tool")
-      views.push({
-        ...base,
-        kind: "tool",
-        props: {
-          title: record.data.title || "Tool",
-          status: record.data.status,
-          error: record.data.error,
-          text: record.data.content
-            .filter((c) => c.type === "text")
-            .map((c) => (c as { text: string }).text)
-            .join("\n"),
-          artifacts: record.data.content.flatMap((c) =>
-            c.type === "artifact" ? [c.artifactId] : [],
-          ),
-        },
-      });
-  }
-  return views;
-}
-
 // Pair durable controls only with capabilities from the same producer generation.
 export function recordedSessionControls(items: ActivityItem[]) {
   const settings = items.filter((i) => i.kind === "settings").at(-1)?.record;
@@ -208,18 +69,6 @@ export function recordedSessionControls(items: ActivityItem[]) {
     settings,
     capabilities: capability?.capabilities,
     capabilityGeneration: capability?.generation,
-  };
-}
-
-// Current session capabilities, settings and command catalog (not history).
-export function sessionActivities(items: ActivityItem[]) {
-  const pick = (kind: string) =>
-    items.filter((i) => i.kind === kind).at(-1)?.record;
-  return {
-    capabilities: pick("capabilities")?.capabilities as
-      ActivityCapabilities | undefined,
-    settings: pick("settings")?.data?.options as unknown[] | undefined,
-    commands: pick("commands")?.data?.commands as unknown[] | undefined,
   };
 }
 

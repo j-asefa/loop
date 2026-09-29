@@ -1,88 +1,102 @@
 # Loop
 
-Loop has one shared UI, database schema and workspace API, with two deployment profiles:
+Loop is a mobile-first agent platform. Pair the Loop app on your phone to a workspace running on your computer or a server, then start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. Agents keep working on your computer after your phone disconnects — reopen the app anytime to check progress, steer a run or approve the next step. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
 
-- **Server:** the existing Loop agent runtime, personal or multi-user authentication, API connections, subscription runtimes and remote runtime hosts.
-- **Companion:** the same workspace over local Codex, Claude Code, Pi and OpenCode harnesses, with phone pairing, durable native sessions and an optional tunnel. Explicit API connections can also run Loop's managed agent runtime.
+## Setup
 
-Build once with `npm ci && npm run build`. Run the existing server deployment with `npm run setup && node --env-file=.env scripts/serve.mjs`, or start the compiled all-in-one server with `node --env-file=.env dist/cli.js server` (`loop server` once installed). Start a companion with `node dist/cli.js codex --local-only` (substitute `claude`, `pi` or `opencode`; omit `--local-only` to open a Quick Tunnel); it shows a pairing code and then keeps running in the background until `loop stop`. Pair from the standalone [Loop app](mobile/README.md), which survives Quick Tunnel address changes: run `loop pair` and scan again from inside the app, with no reinstall. For a standalone installation, run `npm pack` and install the generated tarball; it provides the `loop` command. No sibling checkout is required.
-
-For native **or Docker** agents behind one phone pairing, run `node dist/cli.js` / `loop`. Choose OpenAI / Anthropic and native / Docker / both on first launch. Existing Cloudflare named tunnels, persistent device trust, and optional startup at login are supported. See [laptop launcher setup](docs/specs/unified-runtime/01-OPERATIONS.md).
-
-
-See [deployment profiles and architecture](docs/UNIFIED-LOOP.md) and [companion commands](docs/companion/CLI.md). This consolidation targets fresh data directories; it does not promise compatibility with prior Loop or loop-cli databases. Each database is bound to its deployment profile.
-
-
-
-A phone-first, private agent workspace. Choose a connected account and model, give an agent a durable @name, and keep its conversations, work and sources in one searchable place.
-
-Implemented: subscription connections through official Codex/Claude Code runtimes; optional OpenAI Responses and Anthropic Messages streaming adapters; importable ChatGPT/Claude history; durable ordered runs and approvals; Feed/Running/Search/Saved; project folders and reversible filing; bounded versioned multi-agent workflows; workspace-wide MCP connections; native chart snapshots and isolated MCP Apps; reviewed link sharing and an installable PWA shell.
-
-September feedback adds local semantic search, generated avatars, compact composition, response links, feed-only archiving, native Mermaid diagrams, manager/worker teams with filtered feeds, a searchable 50-tool MCP catalog, JSON MCP installation and remote runtime machines. See the [report and verification](docs/feedback/REPORT.md) and [runtime/MCP setup](docs/feedback/RUNTIMES.md). The Pi.dev integration design is documented; its provider adapter is not yet shipped.
-
-The composer supports file attachments and agent provider/model/effort settings. Conversations include public progress updates as well as final answers, with tool details kept separately. Teams can be deleted while preserving their agents and history. See [workspace controls](docs/feedback/WORKSPACE-CONTROLS.md).
-
-**Saved** contains only cards you bookmark, with the same team and project filters as Feed. Profiles support retiring and restoring agents, and **Settings → Result notifications** enables phone alerts for new results. On iPhone, open Loop from its Home Screen icon before enabling notifications. See [Saved, retirement and notifications](docs/feedback/SAVED-NOTIFICATIONS.md).
-
-Existing remote Codex installations can also connect directly through **Settings → Runtime machines → Codex app-server**. This reuses the machine's ChatGPT login and enables its native tools. Claude Code can use the new native host runner with the laptop's existing sign-in, files and tool configuration. See [direct app-server setup and Claude equivalents](docs/feedback/RUNTIMES.md#connect-directly-to-codex-app-server) for tunneling, authentication and current limits.
-
-**Release status: draft.** Local tests and labeled fixture journeys pass. Live provider/OpenAI embedding/Datadog verification and an HTTPS deployment with actual iPhone installation remain blocked by external access. Subscription runtimes and sign-in flows are implemented; authenticated allowance usage still needs user sign-in verification. No public preview URL is claimed. See the [acceptance evidence](docs/loop-v0/EVIDENCE.md).
-
-## Run with your subscriptions
-
-Docker with Compose and Node.js 24 (for generating configuration):
+Use Node.js **24** (the CI version) and a persistent disk. Docker is required only for container execution.
 
 ```sh
-node scripts/setup.mjs
+git clone https://github.com/j-asefa/loop.git
+cd loop
+npm ci
+npm run build
+npm link
+```
+
+`npm link` puts a `loop` command on your PATH so the examples below work as-is. Prefer not to link? Run `node dist/cli.js <command>` instead everywhere you see `loop <command>`.
+
+## Run the server
+
+```sh
+npm run setup
+loop server
+```
+
+Open **http://localhost:3000**. The server starts its worker and opens a personal workspace by default. Add a provider connection in Settings, then create an agent. API connections require your own provider credentials; subscription connections require a configured runtime.
+
+For the supplied Docker subscription stack:
+
+```sh
+npm run setup
 docker compose up --build -d
 ```
 
-No domain or Loop account is required. Open http://localhost:3000 directly into your personal workspace, then go to **Settings → Provider connections**. Choose **Add a provider** if you already have an account connected, then choose ChatGPT (Codex) or Claude (Claude Code). Keep **Subscription** selected and continue to the official provider sign-in flow. Then create an agent with that account and model. No provider API key is required. Plan limits and any extra-usage settings apply; Loop never falls back from a subscription connection to API billing.
+See [server operation](docs/server.md) for accounts, remote access, runtime machines, backups and the local HAPI/MemSearch stack.
 
-Single-user mode is the default. An existing installation with one Loop account keeps that account's workspace, conversations and encrypted connections. Remote single-user access uses one authenticated gateway, with a private `LOOP_GATEWAY_TOKEN` shared between the proxy and Loop. For separate user accounts, set `LOOP_AUTH_MODE=multi-user`. See [access configuration](docs/loop-v0/DEPLOYMENT.md#workspace-access).
+## Use a coding harness
 
-Without host Node, generate the configuration using `docker run --rm -v "$PWD:/setup" -w /setup node:24-bookworm-slim node scripts/setup.mjs` first. Setup preserves existing secrets and adds the private runtime token when missing.
-
-The API and independent worker share persistent `loop-data`. Subscription credentials live in separate per-connection runtime volumes. Preserve `.env`, the database volume and runtime credential volumes across restarts. The runtime broker is private and alone has Docker control access. See [subscription setup and boundaries](docs/loop-v0/SUBSCRIPTIONS.md).
-
-For API-only development without Docker: `npm ci`, `npm run setup`, `npm run build`, then `node --env-file=.env scripts/serve.mjs`. Subscriptions additionally need the supplied broker/runtime infrastructure or a paired native host / Codex app-server; Loop cannot run on a static website host. Keyword search, local semantic search and imports need no provider account. OpenAI embeddings remain an optional, separately billed alternative.
-
-### Run Loop, HAPI and MemSearch entirely on this laptop
-
-The local native stack runs Loop, the private HAPI Hub, its persistent runner and MemSearch in Docker Compose. The runner starts one authenticated Codex `app-server` for the worker lifetime; concurrent Loop Codex agents attach their own native threads to that process. Their Codex login, native thread store, project files, Loop database and memory index stay in local Docker volumes. This is a local CLI app-server managed by Loop, not the visible Codex desktop app process. No AWS account, cloud resources or laptop pairing is used.
+Install and sign in to the harness on your computer first, then run one of:
 
 ```sh
-node scripts/setup.mjs
-node deployment/local/setup-native.mjs
-docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml up --build -d
+loop codex --project /absolute/path/to/project
+loop pi --project /absolute/path/to/project
+loop claude --billing existing --project /absolute/path/to/project
+loop opencode --billing existing --project /absolute/path/to/project
+loop acp --executable /absolute/path/to/agent --billing existing
 ```
 
-Open http://localhost:3000, then connect the **This laptop** environment under **Settings → Provider connections** and choose ChatGPT (Codex) or Claude Code. Sign in through the provider's official flow and keep **Subscription** selected for Codex. Compose builds the pinned HAPI/native image and the local MemSearch image on first start. The native HAPI image currently runs as Linux x86-64; Apple Silicon uses Docker's x86 emulation. Local state and generated mutual-TLS credentials live in the ignored `.local-native/` directory and named Docker volumes. The separate Compose project name keeps these volumes apart from another local Loop stack. Back up those before removing volumes. Stop with the same `docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml down` command; do not add `-v` if you want to keep local sessions and content.
+These commands share one local workspace, return after startup, and keep it running in the background. `--local-only` skips the tunnel for desktop testing. `--billing existing` uses the harness's account configuration and may incur API charges. See [harnesses and the managed launcher](docs/harnesses.md) for supported versions, billing checks, ACP arguments and native/Docker execution.
 
-## Checks
+Plain `loop` starts the managed laptop launcher: choose OpenAI, Anthropic or both, and native, Docker or both. This launcher provisions its own HAPI services; it differs from selecting an installed harness directly.
+
+## Pair your phone
+
+1. Start a laptop workspace and scan its QR code in the Loop app, or open the pairing link in a browser and confirm pairing.
+2. Create an agent with an enabled connection and project. The computer must stay awake; work continues when the phone disconnects.
+3. If the Quick Tunnel address changes, run `loop pair` and scan again in the app. A stable hostname preserves reconnection across restarts.
 
 ```sh
+loop status
+loop pair
+loop logs --follow
+loop stop
+```
+
+Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).
+
+## Build the phone app
+
+```sh
+cd mobile
+npm ci
 npm run typecheck
-npm test
-npx playwright install chromium
-npm run smoke:browser
-npm run smoke:journey
+npm run ios       # macOS with Xcode
+# or: npm run android  # Android SDK/emulator or connected device
 ```
 
-`smoke:journey` uses explicit test entrypoints and official SDK fixtures, never live model or Datadog responses. Production has no HTTP switch enabling test adapters. Both browser scripts create isolated temporary databases. Set `CHROMIUM_PATH` if using an existing Chromium executable.
+The Expo shell loads the web app from your paired computer and stores the pairing token securely. [Mobile setup](mobile/README.md) covers bundle exports, EAS builds and installation.
 
-## Deployment and operation
+## Develop and contribute
 
-The [deployment guide](docs/loop-v0/DEPLOYMENT.md) covers Docker Compose with Caddy HTTPS, persistent storage, secrets, health checks, backups and installation. One persistent Node host is required; stateless/static hosting is insufficient. The production container smoke job builds all images and checks real unsigned runtime status; its result is recorded in the PR. The laptop-local native stack has been built and its Loop API, HAPI Hub, runner and shared Codex app-server startup verified; provider sign-in and an actual native agent run still require the user’s provider account.
+```sh
+npm run build
+npm run test:all
+```
 
-After a working HTTPS deployment exists, open it in Safari → Share → Add to Home Screen → Open as Web App → Add. Loop also includes copy/paste and Shortcut receiving instructions; opening a shared link only creates a draft. Actual iPhone testing remains outstanding.
+See [development and CI](docs/development.md) for browser, mobile, packaging and container checks. Automated harness fixtures verify Loop's behavior; they do not establish authenticated provider compatibility or physical-phone acceptance.
 
-- [Architecture](docs/loop-v0/ARCHITECTURE.md)
-- [Provider capabilities and sign-in limits](docs/loop-v0/CAPABILITIES.md)
-- [Workflow DSL, limits and OpenProse decision](docs/loop-v0/WORKFLOWS.md)
-- [Workspace MCPs, native results and Apps sandbox](docs/loop-v0/MCP.md)
-- [Acceptance status and detailed evidence](docs/loop-v0/EVIDENCE.md)
+Use the [documentation index](docs/README.md) for detailed guides and [AGENTS.md](AGENTS.md) for task-specific contributor context.
 
-### Test suites
+## Build from source
 
-Run `npm test` for server/domain and shared client logic (Vitest, `tests/`). Add queue, authorization-profile, API and persistence regressions there. Run `npm run test:native` for native adapter subprocess contracts and the companion host integration journey (Node test runner, `test/`). Use `test/helpers.ts` for bounded asynchronous waits. New native protocol/transport fixtures belong in `test/`; both suites run with `npm run test:all`.
+The CLI supports macOS/Linux and declares Node >=22.19. The build produces the web app and `dist/cli.js`.
+
+```sh
+git clone https://github.com/j-asefa/loop.git
+cd loop
+npm ci
+npm run build
+```
+
+For a `loop` command on your PATH, run `npm link`. For a portable installation instead, run `npm pack` and install the resulting tarball with `npm install -g /path/to/loop-0.1.0.tgz`. Without linking or installing, invoke the CLI directly as `node dist/cli.js <command>`.
