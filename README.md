@@ -100,6 +100,10 @@ See [development and CI](docs/development.md) for browser, mobile, packaging and
 
 Use the [documentation index](docs/README.md) for detailed guides and [AGENTS.md](AGENTS.md) for task-specific contributor context.
 
+## Security
+
+Pairing is how a device signs in; the tunnel address alone grants nothing. Treat pairing links and QR codes like passwords, and revoke unfamiliar devices with `loop devices revoke ID`. [SECURITY.md](SECURITY.md) covers the security model, server access and how to report a vulnerability.
+
 ## Build from source
 
 The CLI supports macOS/Linux and declares Node >=22.19. The build produces the web app and `dist/cli.js`.
