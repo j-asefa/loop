@@ -5,6 +5,7 @@ import {
   BackHandler,
   Linking,
   Platform,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
@@ -24,6 +25,7 @@ import {
   type Pairing,
 } from "./src/connection";
 import { clearPairing, loadPairing, savePairing } from "./src/storage";
+import { useDeviceLock } from "./src/lock";
 import { Scanner } from "./src/Scanner";
 import { Busy, Button, Code, Screen, colors } from "./src/ui";
 
@@ -71,6 +73,9 @@ function Shell() {
   // successful probe must reload it.
   const webFailed = useRef(false);
   const lastReload = useRef(0);
+  const lock = useDeviceLock();
+  // Only a paired workspace is worth protecting.
+  const guarded = lock.locked && pairing !== null;
 
   const verify = useCallback(async (attempts: number) => {
     const current = latest.current;
@@ -135,6 +140,11 @@ function Shell() {
     };
   }, [mode, verify]);
 
+  const { unlock } = lock;
+  useEffect(() => {
+    if (guarded && AppState.currentState === "active") void unlock();
+  }, [guarded, unlock]);
+
   const startScan = useCallback(() => {
     if (mode !== "scan" && mode !== "pairing") back.current = mode;
     setMode("scan");
@@ -150,6 +160,7 @@ function Shell() {
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
+        if (guarded) return false;
         if (mode === "scan") {
           leaveScanner();
           return true;
@@ -162,7 +173,7 @@ function Shell() {
       },
     );
     return () => subscription.remove();
-  }, [mode, leaveScanner]);
+  }, [mode, leaveScanner, guarded]);
 
   const fail = (message: string) => {
     leaveScanner();
@@ -180,6 +191,7 @@ function Shell() {
     try {
       const next = await pair(code, deviceName);
       await savePairing(next);
+      lock.release();
       latest.current = next;
       setPairing(next);
       setWebKey((k) => k + 1);
@@ -189,114 +201,146 @@ function Shell() {
     }
   };
 
-  if (mode === "starting") return <Busy label="Connecting to your computer…" />;
-  if (mode === "pairing") return <Busy label="Pairing…" />;
-  if (mode === "scan")
-    return (
-      <Scanner onScan={(data) => void onScan(data)} onCancel={leaveScanner} />
-    );
-  if (mode === "web" && pairing)
-    return (
-      // iOS reports safe areas to the page (viewport-fit=cover); Android's web
-      // view may not, so keep the page clear of the system bars there.
+  // The workspace stays loaded under the lock so unlocking doesn't reload it.
+  return (
+    <View style={{ flex: 1 }}>
       <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.background,
-          paddingTop: Platform.OS === "android" ? insets.top : 0,
-          paddingBottom: Platform.OS === "android" ? insets.bottom : 0,
-        }}
+        style={{ flex: 1 }}
+        accessibilityElementsHidden={guarded}
+        importantForAccessibility={guarded ? "no-hide-descendants" : "auto"}
       >
-        <WebView
-          key={webKey}
-          ref={web}
-          style={{ flex: 1, backgroundColor: colors.background }}
-          onNavigationStateChange={(state) => {
-            canGoBack.current = state.canGoBack;
-          }}
-          source={{
-            uri: openUrl(pairing),
-            headers: { Authorization: "Bearer " + pairing.token },
-          }}
-          onShouldStartLoadWithRequest={(request) => {
-            if (
-              sameOrigin(request.url, pairing.origin) ||
-              /^(about|blob|data):/.test(request.url)
-            )
-              return true;
-            // Only the paired workspace runs inside the app; links open outside it.
-            if (request.isTopFrame && /^(https?|mailto|tel):/.test(request.url))
-              void Linking.openURL(request.url);
-            return false;
-          }}
-          onMessage={(event) => {
-            if (!sameOrigin(event.nativeEvent.url, pairing.origin)) return;
-            try {
-              if (JSON.parse(event.nativeEvent.data)?.type === "loop:scan")
-                startScan();
-            } catch {
-              // Not a shell message.
-            }
-          }}
-          // Errors for a load arrive after its start and before its finish.
-          onLoadStart={() => {
-            webFailed.current = false;
-          }}
-          onError={() => {
-            webFailed.current = true;
-            void verify(2);
-          }}
-          onHttpError={(event) => {
-            if (event.nativeEvent.statusCode < 500) return;
-            webFailed.current = true;
-            void verify(2);
-          }}
-          onContentProcessDidTerminate={() => setWebKey((k) => k + 1)}
-          onRenderProcessGone={() => setWebKey((k) => k + 1)}
-          pullToRefreshEnabled
-          setSupportMultipleWindows={false}
-          allowsInlineMediaPlayback
-          webviewDebuggingEnabled={__DEV__}
-        />
+        {content()}
       </View>
-    );
-  if (mode === "unreachable" && pairing)
+      {guarded ? (
+        <View style={StyleSheet.absoluteFill}>
+          <Screen
+            title="Loop is locked"
+            body="Confirm it's you with Face ID, Touch ID or your device passcode to open your workspace."
+            error={lock.error}
+          >
+            <Button label="Unlock" onPress={() => void unlock()} />
+          </Screen>
+        </View>
+      ) : null}
+    </View>
+  );
+
+  function content() {
+    if (mode === "starting")
+      return <Busy label="Connecting to your computer…" />;
+    if (mode === "pairing") return <Busy label="Pairing…" />;
+    if (mode === "scan")
+      return (
+        <Scanner onScan={(data) => void onScan(data)} onCancel={leaveScanner} />
+      );
+    if (mode === "web" && pairing)
+      return (
+        // iOS reports safe areas to the page (viewport-fit=cover); Android's web
+        // view may not, so keep the page clear of the system bars there.
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: colors.background,
+            paddingTop: Platform.OS === "android" ? insets.top : 0,
+            paddingBottom: Platform.OS === "android" ? insets.bottom : 0,
+          }}
+        >
+          <WebView
+            key={webKey}
+            ref={web}
+            style={{ flex: 1, backgroundColor: colors.background }}
+            onNavigationStateChange={(state) => {
+              canGoBack.current = state.canGoBack;
+            }}
+            source={{
+              uri: openUrl(pairing),
+              headers: { Authorization: "Bearer " + pairing.token },
+            }}
+            onShouldStartLoadWithRequest={(request) => {
+              if (
+                sameOrigin(request.url, pairing.origin) ||
+                /^(about|blob|data):/.test(request.url)
+              )
+                return true;
+              // Only the paired workspace runs inside the app; links open outside it.
+              if (
+                request.isTopFrame &&
+                /^(https?|mailto|tel):/.test(request.url)
+              )
+                void Linking.openURL(request.url);
+              return false;
+            }}
+            onMessage={(event) => {
+              if (!sameOrigin(event.nativeEvent.url, pairing.origin)) return;
+              try {
+                if (JSON.parse(event.nativeEvent.data)?.type === "loop:scan")
+                  startScan();
+              } catch {
+                // Not a shell message.
+              }
+            }}
+            // Errors for a load arrive after its start and before its finish.
+            onLoadStart={() => {
+              webFailed.current = false;
+            }}
+            onError={() => {
+              webFailed.current = true;
+              void verify(2);
+            }}
+            onHttpError={(event) => {
+              if (event.nativeEvent.statusCode < 500) return;
+              webFailed.current = true;
+              void verify(2);
+            }}
+            onContentProcessDidTerminate={() => setWebKey((k) => k + 1)}
+            onRenderProcessGone={() => setWebKey((k) => k + 1)}
+            pullToRefreshEnabled
+            setSupportMultipleWindows={false}
+            allowsInlineMediaPlayback
+            webviewDebuggingEnabled={__DEV__}
+          />
+        </View>
+      );
+    if (mode === "unreachable" && pairing)
+      return (
+        <Screen
+          title="Can't reach your computer"
+          body={
+            <Text style={{ fontSize: 16, lineHeight: 23, color: colors.muted }}>
+              It may be asleep or offline, or Loop's tunnel address changed
+              after a restart. Run <Code>loop pair</Code> on your computer and
+              scan the new code.{"\n\n"}Last address:{" "}
+              {new URL(pairing.origin).host}
+            </Text>
+          }
+        >
+          <Button label="Scan new code" onPress={startScan} />
+          <Button label="Try again" secondary onPress={() => void verify(1)} />
+        </Screen>
+      );
+    if (mode === "revoked")
+      return (
+        <Screen
+          title="This phone was signed out"
+          body="It was revoked on your computer, its pairing expired, or Loop was restarted. Run loop pair on your computer and scan the code to pair again."
+        >
+          <Button label="Scan pairing code" onPress={startScan} />
+        </Screen>
+      );
     return (
       <Screen
-        title="Can't reach your computer"
+        title="Pair with your computer"
         body={
           <Text style={{ fontSize: 16, lineHeight: 23, color: colors.muted }}>
-            It may be asleep or offline, or Loop's tunnel address changed after
-            a restart. Run <Code>loop pair</Code> on your computer and scan the
-            new code.{"\n\n"}Last address: {new URL(pairing.origin).host}
+            On your computer, run <Code>loop codex</Code> (or{" "}
+            <Code>claude</Code>, <Code>pi</Code>, <Code>opencode</Code>). If
+            Loop is already running, run <Code>loop pair</Code>. Then scan the
+            code it shows.
           </Text>
         }
-      >
-        <Button label="Scan new code" onPress={startScan} />
-        <Button label="Try again" secondary onPress={() => void verify(1)} />
-      </Screen>
-    );
-  if (mode === "revoked")
-    return (
-      <Screen
-        title="This phone was signed out"
-        body="It was revoked on your computer, its pairing expired, or Loop was restarted. Run loop pair on your computer and scan the code to pair again."
       >
         <Button label="Scan pairing code" onPress={startScan} />
       </Screen>
     );
-  return (
-    <Screen
-      title="Pair with your computer"
-      body={
-        <Text style={{ fontSize: 16, lineHeight: 23, color: colors.muted }}>
-          On your computer, run <Code>loop codex</Code> (or <Code>claude</Code>,{" "}
-          <Code>pi</Code>, <Code>opencode</Code>). If Loop is already running,
-          run <Code>loop pair</Code>. Then scan the code it shows.
-        </Text>
-      }
-    >
-      <Button label="Scan pairing code" onPress={startScan} />
-    </Screen>
-  );
+  }
 }

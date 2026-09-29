@@ -5,6 +5,7 @@
   "dependencies": {
     "expo": "~57.0.25",
     "expo-camera": "~57.0.5",
+    "expo-local-authentication": "~57.0.3",
     "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",

@@ -6,7 +6,7 @@ Pairing belongs to the laptop companion profile, including the managed launcher.
 
 Start a workspace with `loop` or `loop <harness>`, then scan the displayed code in the [Loop app](../mobile/README.md). A browser can open the link and confirm **Pair and open Loop**. Run `loop pair` for a fresh code. Links are single-use and expire after two minutes; anyone holding one can gain control of the workspace.
 
-The phone app stores a bearer credential in secure storage. `/session/open` exchanges it for the web view's HttpOnly cookie without exposing the token to page scripts. Cookie requests use Host/Origin and CSRF checks; bearer writes still require CSRF. Only the paired origin loads inside the web view.
+The phone app stores a bearer credential in secure storage. `/session/open` exchanges it for the web view's HttpOnly cookie without exposing the token to page scripts. Cookie requests use Host/Origin and CSRF checks; bearer writes still require CSRF. Only the paired origin loads inside the web view. Once paired, the app asks for Face ID, Touch ID or the device passcode on launch and after more than 30 seconds in the background before showing the workspace; a phone with no passcode set skips the prompt. The lock protects a phone left unlocked or handed to someone else; revoke the device on the computer if the phone itself is lost.
 
 ```sh
 loop status --json

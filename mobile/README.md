@@ -1,6 +1,6 @@
 # Loop mobile app
 
-An Expo/React Native shell around the web app served by a paired laptop workspace. It owns scanning, secure credential storage, origin-restricted web view loading and reconnect UI. The application screens and workspace logic remain in the server's web app.
+An Expo/React Native shell around the web app served by a paired laptop workspace. It owns scanning, secure credential storage, the device lock, origin-restricted web view loading and reconnect UI. The application screens and workspace logic remain in the server's web app.
 
 For device trust, expiry, tunnels and recovery, use the canonical [pairing guide](../docs/pairing.md). A normal host restart preserves paired devices. A changed Quick Tunnel address requires scanning a new code to discover the new origin; it does not require reinstalling the app. Loopback-only URLs are rejected because a phone cannot reach the computer's localhost.
 

@@ -40,6 +40,12 @@
         }
       ],
       [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Loop uses Face ID to confirm it's you before opening your workspace."
+        }
+      ],
+      [
         "expo-secure-store",
         {
           "faceIDPermission": false
