@@ -818,10 +818,9 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
     assert.equal(status.serverReady, true);
     assert.equal(status.executionReady, false);
     assert.deepEqual(status.harnesses, []);
-    await assert.rejects(
-      w.loop(["start", "--local-only"]),
-      /Run loop stop before changing the running workspace/,
-    );
+    const resumed = await w.loop(["start", "--local-only"]);
+    assert.match(resumed.stdout, PAIR_URL);
+    assert.equal((await w.status()).pid, status.pid);
     const again = await w.loop([
       "start",
       "--local-only",
@@ -829,6 +828,9 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
       w.env.LOOP_HOME,
     ]);
     assert.match(again.stdout, PAIR_URL);
+    assert.equal((await w.status()).pid, status.pid);
+    const bare = await w.loop(["--local-only"]);
+    assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const otherProject = join(w.env.LOOP_HOME, "other-project");
     await mkdir(otherProject);
@@ -848,8 +850,8 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
       /Run loop stop before changing the running workspace/,
     );
     assert.equal((await w.status()).pid, status.pid);
-    // The second pairing request replaces only the unused first code.
-    const current = again.stdout.match(PAIR_URL)![0];
+    // Each pairing request replaces only the unused prior code.
+    const current = bare.stdout.match(PAIR_URL)![0];
     const origin = new URL(current).origin;
     const secret = new URL(current).hash.slice(6);
     const paired = await fetch(origin + "/pair", {
@@ -874,12 +876,8 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
     );
     await w.loop(["stop"]);
     await assert.rejects(w.loop(["pair"]), /loop start/);
-    const restarted = await w.loop([
-      "start",
-      "--local-only",
-      "--project",
-      w.env.LOOP_HOME,
-    ]);
+    const restarted = await w.loop(["--local-only"]);
+    assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
       headers: { Authorization: "Bearer " + credentials.token },
@@ -890,6 +888,26 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
       credentials.device.id,
     );
     assert.deepEqual((await w.status()).harnesses, []);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test("bare loop restores a saved managed project from another directory", async () => {
+  const w = await workspace();
+  try {
+    await w.loop(["start", "--local-only", "--project", w.env.LOOP_HOME]);
+    const running = await w.status();
+    const preferencesPath = join(w.dir, "preferences.json");
+    const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
+    await writeFile(
+      preferencesPath,
+      JSON.stringify({ ...preferences, providers: "openai", execution: "native" }),
+    );
+    const bare = await w.loop(["--local-only"]);
+    assert.match(bare.stdout, PAIR_URL);
+    assert.equal((await w.status()).pid, running.pid);
+    assert.equal((await w.status()).project, w.env.LOOP_HOME);
   } finally {
     await w.cleanup();
   }

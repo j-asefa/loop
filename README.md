@@ -1,6 +1,6 @@
 # Loop
 
-Loop is a mobile-first agent platform. Pair the Loop app on your phone to a workspace running on your computer or a server, then start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. Agents keep working on your computer after your phone disconnects — reopen the app anytime to check progress, steer a run or approve the next step. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
+Loop is a mobile-first agent platform. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. Agents keep working on your computer after your phone disconnects — reopen Loop anytime to check progress, steer a run or approve the next step. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
 
 ## Setup
 
@@ -9,12 +9,20 @@ Use Node.js **24** (the CI version) and a persistent disk. Docker is required on
 ```sh
 git clone https://github.com/j-asefa/loop.git
 cd loop
-npm ci
-npm run build
-npm link
+bash install
+loop start
 ```
 
-`npm link` puts a `loop` command on your PATH so the examples below work as-is. Prefer not to link? Run `node dist/cli.js <command>` instead everywhere you see `loop <command>`.
+The installer runs `npm ci`, builds Loop and links `loop` into a writable directory on your PATH. If none is writable, it uses `~/.local/bin` and prints the PATH command needed for your shell. Keep the checkout in place while using this installation.
+
+## Install on your phone
+
+1. In the Loop checkout on your computer, run `loop start`. It starts the workspace and displays a pairing QR code.
+2. Scan the QR code with your phone's camera. The link opens Loop's pairing page in your default mobile browser. Tap **Pair and open Loop**.
+3. In the browser, open **Share** and choose **Add to Home Screen**. On Android browsers, this may appear as **Install app** or **Add to Home screen** in the browser menu.
+4. Open Loop from the new home screen icon.
+
+The computer must stay awake for phone access. Pairing links are single use and expire after two minutes; run `loop pair` for a fresh code. If the Quick Tunnel address changes, scan a new code and add the new page to your home screen. See [pairing and recovery](docs/pairing.md).
 
 ## Run the server
 
@@ -50,11 +58,11 @@ loop acp --executable /absolute/path/to/agent --billing existing
 
 These commands share one local workspace, return after startup, and keep it running in the background. `--local-only` skips the tunnel for desktop testing. `--billing existing` uses the harness's account configuration and may incur API charges. See [harnesses and the managed launcher](docs/harnesses.md) for supported versions, billing checks, ACP arguments and native/Docker execution.
 
-Plain `loop` starts the managed laptop launcher: choose OpenAI, Anthropic or both, and native, Docker or both. This launcher provisions its own HAPI services; it differs from selecting an installed harness directly.
+`loop start` starts a workspace without requiring a harness. To use the managed HAPI launcher, run `loop start --providers both --execution native` (or choose `docker` or `both`). Bare `loop` is an alias for `loop start`.
 
 ## Pair your phone
 
-1. Start a laptop workspace and scan its QR code in the Loop app, or open the pairing link in a browser and confirm pairing.
+1. Start a laptop workspace with `loop start` and scan its QR code with your phone's camera, or use the native Loop app.
 2. Create an agent with an enabled connection and project. The computer must stay awake; work continues when the phone disconnects.
 3. If the Quick Tunnel address changes, run `loop pair` and scan again in the app. A stable hostname preserves reconnection across restarts.
 
@@ -65,9 +73,11 @@ loop logs --follow
 loop stop
 ```
 
+To update and restart a manually launched workspace, run `loop stop`, update the checkout with `git pull`, run `bash install`, then run `loop start`. There is no separate `loop restart` command. If you installed the login service, stop it before rebuilding, then start it again with `systemctl --user stop loop.service` and `systemctl --user start loop.service` on Linux, or `launchctl bootout gui/$(id -u)/dev.loop.workspace` and `loop service install` on macOS. A Quick Tunnel URL may change after restart; run `loop pair` to reconnect your phone.
+
 Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).
 
-## Build the phone app
+## Build the optional native phone app
 
 ```sh
 cd mobile
@@ -101,4 +111,4 @@ npm ci
 npm run build
 ```
 
-For a `loop` command on your PATH, run `npm link`. For a portable installation instead, run `npm pack` and install the resulting tarball with `npm install -g /path/to/loop-0.1.0.tgz`. Without linking or installing, invoke the CLI directly as `node dist/cli.js <command>`.
+Run `bash install` from the checkout to build and create the `loop` command. For a portable installation instead, run `npm pack` and install the resulting tarball with `npm install -g /path/to/loop-0.1.0.tgz`. Without linking or installing, invoke the CLI directly as `node dist/cli.js <command>`.

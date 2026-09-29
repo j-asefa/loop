@@ -35,7 +35,7 @@ const STOP_WAIT_MS = 20000;
 // How long a workspace that stopped answering gets to exit after SIGTERM.
 const STOP_GRACE_MS = 5000;
 const LOG_POLL_MS = 500;
-// Set only on the detached workspace process spawned by `loop <harness>`.
+// Set only on the detached workspace process spawned by `loop start` or `loop <harness>`.
 const daemonChild =
   process.env.LOOP_DAEMON_CHILD === "1" && typeof process.send === "function";
 type Pair = { url: string; expiresIn: number };
@@ -47,7 +47,7 @@ type Ready = {
 };
 function showPair(pair: Pair) {
   console.log(
-    "\nScan with your phone to pair a new device, or with the Loop app to reconnect after a Quick Tunnel address change. This single-use code expires in 2 minutes.",
+    "\nScan with your phone's camera to open Loop in your browser, then choose Pair and open Loop. Use Share → Add to Home Screen to install it. Scan a new code to reconnect after a tunnel address change. This single-use code expires in 2 minutes.",
   );
   qr.generate(pair.url, { small: true });
   console.log(pair.url);
@@ -280,9 +280,9 @@ async function main() {
 
 loop start              Start this computer and show a pairing QR code.
                         Choose runtimes in the app; no harness is required.
-loop                    Start your laptop workspace; choose providers and
-                        native / Docker / both on first launch.
-loop [--providers openai|anthropic|both] [--execution native|docker|both]
+loop                    Alias for loop start.
+loop start [--providers openai|anthropic|both]
+     [--execution native|docker|both]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
 loop server             Start the full server in the foreground.
 loop codex|claude|pi|opencode [--project PATH] [--executable PATH]
@@ -308,7 +308,7 @@ Default billing is verified native subscription; existing mode retains your
 selected native configuration and can incur API charges. No API fallback.
 Native permissions, skills, plugins and project configuration are preserved.
 Quick Tunnel URLs rotate. When that happens, run loop pair and scan the code
-from the Loop app. Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
+with your phone. Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
 --foreground keeps the workspace attached to this terminal (for service
 managers and debugging).
 --resume is an explicit desktop handoff of a native session you have stopped
@@ -334,7 +334,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ).find((k) => values[k] !== undefined);
     if (companion)
       throw new Error(
-        `--${companion} applies to loop codex|claude|pi|opencode. Use plain loop for the laptop launcher.`,
+        `--${companion} applies to loop start or loop codex|claude|pi|opencode.`,
       );
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
@@ -365,7 +365,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (daemonChild) installDaemonLog(logPath);
   let project = await realpath(resolve(values.project ?? process.cwd()));
   const action = !positionals.length
-    ? "laptop"
+    ? "start"
     : positionals[0] === "claude-code"
       ? "claude"
       : positionals[0];
@@ -447,14 +447,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
       if (action === "status") {
         const recorded = await recordedWorkspace(dir);
         const [state, message] = !recorded
-          ? [
-              "stopped",
-              "Run loop codex (or another enabled harness) to open this workspace.",
-            ]
+          ? ["stopped", "Run loop start to open this workspace."]
           : recorded.state === "exited"
             ? [
                 "crashed",
-                "The workspace exited unexpectedly. Check loop logs, then run loop codex (or another harness) again.",
+                "The workspace exited unexpectedly. Check loop logs, then run loop start again.",
               ]
             : recorded.state === "running"
               ? [
@@ -511,7 +508,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         (!!preferences.providers && !!preferences.execution)));
   const selected = (managed || neutral ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
-  if (managed && !neutral && !values.project && preferences.project)
+  if ((managed || neutral) && !values.project && preferences.project)
     project = await realpath(preferences.project);
   let managedChoices: import("./local-runtime.js").LocalChoices | undefined;
   if (managed) {

@@ -34,13 +34,13 @@ Loop advertises neither ACP filesystem nor terminal host methods. Agents may sti
 
 ## Managed launcher
 
-Plain `loop` provisions the managed laptop environment using HAPI. It requires Node 24, Git and OpenSSL; Docker execution also requires Docker. The initial build downloads pinned HAPI/Bun inputs. Missing selected provider CLIs are installed in Loop's private helper directory; existing host installations are retained.
+`loop start` launches the workspace without requiring a harness. To provision the managed laptop environment using HAPI, supply provider and execution options. That setup requires Node 24, Git and OpenSSL; Docker execution also requires Docker. The initial build downloads pinned HAPI/Bun inputs. Missing selected provider CLIs are installed in Loop's private helper directory; existing host installations are retained.
 
 ```sh
-loop --providers both --execution both --project /absolute/path/to/project
+loop start --providers both --execution both --project /absolute/path/to/project
 ```
 
-Provider choices are `openai`, `anthropic`, `both`; execution choices are `native`, `docker`, `both`. Interactive first launch asks for these choices; noninteractive defaults are both providers and native execution. Preferences persist under `LOOP_HOME`. Stop the workspace before changing execution configuration.
+Provider choices are `openai`, `anthropic`, `both`; execution choices are `native`, `docker`, `both`. If you provide only one choice on an interactive terminal, Loop asks for the other; noninteractive startup defaults to both providers and native execution. Preferences persist under `LOOP_HOME`. Stop the workspace before changing execution configuration.
 
 In Settings → Execution environments, complete sign-in, then create an agent choosing provider, Run on, model and project. Native runners use your OS identity and project access. Docker runners use separate provider homes and mount the selected project at `/workspaces/project`; they receive neither the host Docker socket nor host provider credentials. Model inference still occurs at the provider.
 
