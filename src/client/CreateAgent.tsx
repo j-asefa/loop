@@ -1,3 +1,4 @@
+import { RuntimeSetup } from "./RuntimeSetup";
 import { EffortSelect } from "./EffortSelect";
 import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
@@ -15,6 +16,7 @@ export function CreateAgent({
   initialFolder = "",
   onClose,
   onConnect,
+  onConnectionsChanged,
   onCreated,
 }: {
   connections: Connection[];
@@ -22,6 +24,7 @@ export function CreateAgent({
   initialFolder?: string;
   onClose: () => void;
   onConnect: () => void;
+  onConnectionsChanged: () => Promise<Connection[]>;
   onCreated: (a: CreatedAgent, folder: string) => void | Promise<void>;
 }) {
   const connected = connections
@@ -114,6 +117,25 @@ export function CreateAgent({
         A name, a model, and a little direction. You can change the details
         later.
       </p>
+      {capabilities.localProjects && (
+        <details open={!connected.length}>
+          <summary>Choose or enable a runtime on this computer</summary>
+          <RuntimeSetup
+            onEnabled={async (runtimeName) => {
+              const updated = await onConnectionsChanged();
+              const next = updated.find(
+                (c) =>
+                  c.status === "connected" &&
+                  parse<any>(c.metadata, {}).loopHarness === runtimeName,
+              );
+              if (next && !selected) {
+                setProvider(next.provider);
+                setConnection(next.id);
+              }
+            }}
+          />
+        </details>
+      )}
       <form onSubmit={create}>
         <div className="provider-picker">
           {(["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const)

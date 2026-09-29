@@ -583,6 +583,7 @@ export default function App() {
         return present.length === old.length ? old : present;
       });
     }
+    return result.connections as Connection[];
   }
   const runsGeneration = useRef(0);
   async function loadRuns() {
@@ -2597,7 +2598,9 @@ export default function App() {
       {sheet === "connections" && (
         <Connections
           connections={data.connections}
-          onChange={bootstrap}
+          onChange={async () => {
+            await bootstrap();
+          }}
           onClose={() => (returnTo ? setSheet("create") : closeSheet())}
         />
       )}
@@ -2606,6 +2609,7 @@ export default function App() {
           initialFolder={folder}
           connections={data.connections}
           folders={data.folders}
+          onConnectionsChanged={bootstrap}
           onClose={closeSheet}
           onConnect={() => {
             setSheet("connections");

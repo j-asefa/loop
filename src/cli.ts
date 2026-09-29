@@ -278,6 +278,8 @@ async function main() {
   if (values.help) {
     console.log(`Loop ${VERSION} — one workspace for your native agents
 
+loop start              Start this computer and show a pairing QR code.
+                        Choose runtimes in the app; no harness is required.
 loop                    Start your laptop workspace; choose providers and
                         native / Docker / both on first launch.
 loop [--providers openai|anthropic|both] [--execution native|docker|both]
@@ -399,10 +401,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
     const preferences = await readFile(join(dir, "preferences.json"), "utf8")
       .then(JSON.parse)
       .catch(() => ({}));
-    if (positionals[1] === "install" && !preferences.execution)
-      throw new Error(
-        "Run loop once to choose providers and execution before installing the service.",
-      );
+    if (positionals[1] === "install" && !preferences.project)
+      throw new Error("Run loop start once before installing the service.");
     if (
       positionals[1] === "install" &&
       (await control(dir, "status").catch(() => undefined))
@@ -473,7 +473,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           message,
         };
       }
-      throw new Error("No responsive workspace host. Run loop codex first.");
+      throw new Error("No responsive workspace host. Run loop start first.");
     });
     if (action === "pair") showPair(output);
     else console.log(JSON.stringify(output, null, values.json ? 0 : 2));
@@ -481,22 +481,40 @@ Uninstall removes the package separately; workspace/native history is retained.`
   }
   if (
     positionals.length > 1 ||
-    (action !== "laptop" && !names.includes(action as Harness))
+    (action !== "start" &&
+      action !== "laptop" &&
+      !names.includes(action as Harness))
   )
     throw new Error("Unknown command. See loop --help.");
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
-  const managed = action === "laptop";
-  const selected = (managed ? "codex" : action) as Harness;
-  const running = await control(dir, "status").catch(() => undefined);
+  const neutral = action === "start";
+  if (
+    neutral &&
+    (values.resume ||
+      values.executable ||
+      values.billing ||
+      values["acp-arg"]?.length)
+  )
+    throw new Error(
+      "Runtime options belong to loop codex|claude|pi|opencode|acp. Use loop start without a runtime, then choose it in the app.",
+    );
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
+  const managed =
+    action === "laptop" ||
+    (neutral &&
+      (!!values.providers ||
+        !!values.execution ||
+        (!!preferences.providers && !!preferences.execution)));
+  const selected = (managed || neutral ? "codex" : action) as Harness;
+  const running = await control(dir, "status").catch(() => undefined);
+  if (managed && !neutral && !values.project && preferences.project)
+    project = await realpath(preferences.project);
   let managedChoices: import("./local-runtime.js").LocalChoices | undefined;
   if (managed) {
-    if (!values.project && preferences.project)
-      project = await realpath(preferences.project);
     let providers = values.providers ?? preferences.providers;
     let execution = values.execution ?? preferences.execution;
     if ((!providers || !execution) && process.stdin.isTTY && !daemonChild) {
@@ -563,7 +581,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
             help: "",
           };
         })()
-      : managed
+      : managed || neutral
         ? {
             installed: true,
             supported: true,
@@ -624,20 +642,25 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const remember = () =>
     atomic(preferencesPath, {
       ...preferences,
+      ...(managed || neutral ? { project } : {}),
       ...(managed
-        ? { providers: values.providers, execution: values.execution, project }
+        ? { providers: values.providers, execution: values.execution }
         : {}),
       publicUrl: values["public-url"],
       tunnelName: values["tunnel-name"],
       tunnelConfig: values["tunnel-config"],
-      billing: { ...preferences.billing, [selected]: billing },
+      billing:
+        neutral && !managed
+          ? preferences.billing
+          : { ...preferences.billing, [selected]: billing },
     });
   if (running) {
-    if (managed) {
+    if (managed || neutral) {
       if (
-        values.providers !== preferences.providers ||
-        values.execution !== preferences.execution ||
-        project !== preferences.project
+        (managed &&
+          (values.providers !== preferences.providers ||
+            values.execution !== preferences.execution)) ||
+        project !== (running.project ?? preferences.project)
       )
         throw new Error(
           "Run loop stop before changing the running workspace's providers, execution or project.",
@@ -672,13 +695,12 @@ Uninstall removes the package separately; workspace/native history is retained.`
             "--execution",
             values.execution!,
           ]
-        : [selected]),
+        : [neutral ? "start" : selected]),
       "--project",
       project,
-      "--executable",
-      probe.executable,
-      "--billing",
-      billing,
+      ...(neutral && !managed
+        ? []
+        : ["--executable", probe.executable, "--billing", billing]),
       ...(values.resume ? ["--resume", values.resume] : []),
       ...(values["local-only"] ? ["--local-only"] : []),
       ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
@@ -733,6 +755,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           resumeFromDesktop(options, values.resume);
       },
       runtime ? () => runtime!.start() : undefined,
+      neutral && !managed,
     );
     if (stopping) {
       await host.close();

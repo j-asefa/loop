@@ -26,7 +26,7 @@ export function serviceDefinition(
   project: string,
   path: string,
 ) {
-  const args = [node, cli, "laptop", "--foreground", "--project", project];
+  const args = [node, cli, "start", "--foreground", "--project", project];
   if (platform === "darwin")
     return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>dev.loop.workspace</string><key>ProgramArguments</key><array>${args.map((s) => `<string>${xml(s)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${xml(project)}</string><key>EnvironmentVariables</key><dict><key>LOOP_HOME</key><string>${xml(root)}</string><key>PATH</key><string>${xml(path)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>30</integer><key>StandardOutPath</key><string>${xml(join(root, "workspace/service.log"))}</string><key>StandardErrorPath</key><string>${xml(join(root, "workspace/service.log"))}</string></dict></plist>\n`;
   if (platform !== "linux")

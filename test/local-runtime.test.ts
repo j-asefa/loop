@@ -74,7 +74,7 @@ test("login services preserve argument boundaries and own their child lifetime",
   );
   assert.match(
     linux,
-    /ExecStart="\/a b\/node" "\/a b\/cli.js" "laptop" "--foreground"/,
+    /ExecStart="\/a b\/node" "\/a b\/cli.js" "start" "--foreground"/,
   );
   assert.match(linux, /LOOP_HOME=\/state%%dir/);
   assert.match(linux, /KillMode=control-group/);

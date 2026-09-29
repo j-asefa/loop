@@ -235,6 +235,12 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
   try {
     const started = Date.now();
     const { stdout, pid } = await w.start();
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "preferences.json"), "utf8"))
+        .project,
+      undefined,
+      "a one-off harness launch does not replace the start project's default",
+    );
     assert(
       Date.now() - started < 20000,
       "parent returns once pairing is shown",
@@ -793,6 +799,97 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
     const started = await w.start();
     assert.match(started.stdout, PAIR_URL);
     assert.doesNotMatch(started.stdout, /saved-tunnel/);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test("loop start pairs without enabling a harness, reuses the host and survives restart", async () => {
+  const w = await workspace();
+  try {
+    const first = await w.loop([
+      "start",
+      "--local-only",
+      "--project",
+      w.env.LOOP_HOME,
+    ]);
+    assert.match(first.stdout, PAIR_URL);
+    const status = await w.status();
+    assert.equal(status.serverReady, true);
+    assert.equal(status.executionReady, false);
+    assert.deepEqual(status.harnesses, []);
+    await assert.rejects(
+      w.loop(["start", "--local-only"]),
+      /Run loop stop before changing the running workspace/,
+    );
+    const again = await w.loop([
+      "start",
+      "--local-only",
+      "--project",
+      w.env.LOOP_HOME,
+    ]);
+    assert.match(again.stdout, PAIR_URL);
+    assert.equal((await w.status()).pid, status.pid);
+    const otherProject = join(w.env.LOOP_HOME, "other-project");
+    await mkdir(otherProject);
+    await assert.rejects(
+      w.loop(["start", "--local-only", "--project", otherProject]),
+      /Run loop stop before changing the running workspace/,
+    );
+    await assert.rejects(
+      w.loop([
+        "start",
+        "--local-only",
+        "--providers",
+        "anthropic",
+        "--execution",
+        "docker",
+      ]),
+      /Run loop stop before changing the running workspace/,
+    );
+    assert.equal((await w.status()).pid, status.pid);
+    // The second pairing request replaces only the unused first code.
+    const current = again.stdout.match(PAIR_URL)![0];
+    const origin = new URL(current).origin;
+    const secret = new URL(current).hash.slice(6);
+    const paired = await fetch(origin + "/pair", {
+      method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret,
+        name: "start test",
+        credential: "bearer",
+      }),
+    });
+    assert.equal(paired.status, 200);
+    const credentials = (await paired.json()) as any;
+    await w.loop(["pair"]);
+    assert.equal(
+      (
+        await fetch(origin + "/session", {
+          headers: { Authorization: "Bearer " + credentials.token },
+        })
+      ).status,
+      200,
+    );
+    await w.loop(["stop"]);
+    await assert.rejects(w.loop(["pair"]), /loop start/);
+    const restarted = await w.loop([
+      "start",
+      "--local-only",
+      "--project",
+      w.env.LOOP_HOME,
+    ]);
+    const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
+    const session = await fetch(nextOrigin + "/session", {
+      headers: { Authorization: "Bearer " + credentials.token },
+    });
+    assert.equal(session.status, 200);
+    assert.equal(
+      ((await session.json()) as any).device.id,
+      credentials.device.id,
+    );
+    assert.deepEqual((await w.status()).harnesses, []);
   } finally {
     await w.cleanup();
   }

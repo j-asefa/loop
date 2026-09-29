@@ -106,10 +106,89 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     const bootstrap = await api("/bootstrap");
     const a = bootstrap.folders.find((f: any) => f.path === projectA);
     assert(a, "Bootstrap includes the canonical project directory");
+    await t.test(
+      "paired app discovers host runtimes and preserves billing and executable boundaries",
+      async () => {
+        const runtimeList = await api("/workspace/runtimes");
+        assert.equal(runtimeList.online, true);
+        assert.equal(runtimeList.runtimes.length, 4);
+        assert.equal(
+          runtimeList.runtimes.find((r: any) => r.name === "codex")
+            .authentication,
+          "previously_verified",
+        );
+        assert(
+          runtimeList.runtimes
+            .filter((r: any) => r.name !== "codex")
+            .every((r: any) => r.authentication === "unknown"),
+        );
+        assert.equal(
+          (await fetch(host.origin + "/api/workspace/runtimes")).status,
+          401,
+        );
+        assert.equal(
+          (
+            await raw("/workspace/runtimes/codex/enable", {
+              projectId: a.id,
+              billing: "subscription",
+            })
+          ).status,
+          409,
+        );
+        assert.equal(
+          (
+            await raw("/workspace/runtimes/codex/enable", {
+              projectId: a.id,
+              billing: "existing",
+              executable: "/bin/sh",
+            })
+          ).status,
+          400,
+        );
+        for (const name of ["claude", "opencode"]) {
+          const response = await raw(`/workspace/runtimes/${name}/enable`, {
+            projectId: a.id,
+            billing: "subscription",
+          });
+          assert.equal(response.status, 422);
+          assert.match(
+            await response.text(),
+            /Choose existing native configuration/,
+          );
+        }
+        const result = await api("/workspace/runtimes/codex/enable", {
+          projectId: a.id,
+          billing: "existing",
+        });
+        assert.equal(result.name, "codex");
+        assert.equal(
+          (await api("/bootstrap")).connections.filter(
+            (c: any) => c.id === "native-codex",
+          ).length,
+          1,
+        );
+      },
+    );
     const b = await api("/workspace/projects", {
       path: projectB,
       name: "Project B",
     });
+    assert.equal(
+      (
+        await raw("/workspace/runtimes/codex/enable", {
+          projectId: b.id,
+          billing: "existing",
+        })
+      ).status,
+      409,
+    );
+    assert.equal(nativeSessions.registration("codex").project, projectA);
+    assert.equal(
+      (await api("/workspace/runtimes")).runtimes.find(
+        (r: any) => r.name === "codex",
+      ).project,
+      projectA,
+    );
     const agents: any[] = [];
     for (let i = 0; i < 3; i++)
       agents.push(
@@ -188,7 +267,9 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
             .get() as { n: number }
         ).n === 3,
     );
-    const bindings = db.prepare("SELECT * FROM companion_sessions").all() as any[];
+    const bindings = db
+      .prepare("SELECT * FROM companion_sessions")
+      .all() as any[];
     assert.equal(new Set(bindings.map((b) => b.native_id)).size, 3);
     assert.deepEqual(
       bindings.map((b) => b.project).sort(),

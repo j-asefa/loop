@@ -1,3 +1,5 @@
+import { discover } from "../host-control.js";
+import { hostname } from "node:os";
 import { nativeHistory } from "./native-history.js";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 import express from "express";
@@ -18,6 +20,99 @@ companion.get("/workspace", (_req, res) =>
     projectPaths: db.prepare("SELECT * FROM project_paths").all(),
   }),
 );
+// Runs on the paired execution computer. Never accepts executable paths from the app.
+companion.get("/workspace/runtimes", async (_req, res) => {
+  const registered = nativeSessions.registrations();
+  const runtimes = await Promise.all(
+    (["codex", "claude", "pi", "opencode"] as const).map(async (name) => {
+      const enabled = registered.find((r) => r.name === name);
+      const saved = enabled ? nativeSessions.registration(name) : undefined;
+      const probe = await discover(name, saved?.executable);
+      return {
+        name,
+        installed: probe.installed,
+        available: !!(probe.installed && probe.supported),
+        version: probe.installed ? probe.version : undefined,
+        help: probe.help,
+        enabled: !!enabled,
+        authentication: enabled ? "previously_verified" : "unknown",
+        billing: saved?.billing,
+        project: saved?.project,
+      };
+    }),
+  );
+  res.json({ computer: hostname(), online: true, runtimes });
+});
+companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
+  const name = z
+    .enum(["codex", "claude", "pi", "opencode"])
+    .parse(req.params.name);
+  const input = z
+    .object({
+      projectId: z.string().min(1),
+      billing: z.enum(["subscription", "existing"]),
+    })
+    .strict()
+    .parse(req.body);
+  owned("folders", input.projectId, OWNER);
+  const project = db
+    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
+    .get(input.projectId) as { path: string } | undefined;
+  if (!project)
+    throw new Problem(
+      422,
+      "Choose a project with a directory on this computer. Add one in Projects.",
+    );
+  const registered = nativeSessions
+    .registrations()
+    .some((r) => r.name === name);
+  const saved = registered ? nativeSessions.registration(name) : undefined;
+  if (saved && input.billing !== saved.billing)
+    throw new Problem(
+      409,
+      "This runtime is already enabled with another billing policy. Change it explicitly from the desktop.",
+    );
+  if (saved && project.path !== saved.project)
+    throw new Problem(
+      409,
+      "This runtime is already bound to another project. Stop the desktop workspace before changing its project.",
+    );
+  if (input.billing === "subscription" && name === "claude")
+    throw new Problem(
+      422,
+      "Claude Code subscription integration requires Anthropic approval. Choose existing native configuration instead.",
+    );
+  if (input.billing === "subscription" && name === "opencode")
+    throw new Problem(
+      422,
+      "OpenCode cannot verify subscription billing. Choose existing native configuration instead.",
+    );
+  const probe = await discover(name, saved?.executable);
+  if (!probe.installed || !probe.supported || !probe.version)
+    throw new Problem(
+      409,
+      "Install or repair " + name + " on this computer. " + probe.help,
+    );
+  try {
+    res.json(
+      await nativeSessions.enable({
+        harness: name,
+        executable: probe.executable!,
+        version: probe.version,
+        project: project.path,
+        billing: input.billing,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof Problem) throw error;
+    // Provider/process diagnostics can contain credentials. Return setup guidance,
+    // not the raw adapter error, through the paired HTTP boundary.
+    throw new Problem(
+      422,
+      `Could not enable ${name} on this computer. Check its CLI sign-in and configuration, and verify the selected billing policy. Subscription mode requires a supported native subscription; no billing fallback was attempted. Run loop doctor for installation checks, then retry.`,
+    );
+  }
+});
 companion.post("/workspace/projects", (req, res) => {
   const d = z
     .object({

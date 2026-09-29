@@ -6,6 +6,8 @@ Build and optionally link the CLI as described in the [README](../README.md). Co
 
 Install the harness and complete its native sign-in first. Loop discovers it on PATH or accepts `--executable PATH`. Direct adapters do not install or upgrade harnesses. `loop doctor --json` reports discovery and version compatibility.
 
+Run `loop start` in a project directory to start and pair the workspace before selecting a harness. In **New agent → Choose or enable a runtime on this computer**, choose the bound project and billing policy, enable the installed harness, then select its connection and model. `loop start` returns after startup; `loop pair` issues a fresh code for the running workspace. Runtime-specific commands below remain available as shortcuts. See [start and runtime selection](companion/START-PAIR.md) for behavior and compatibility.
+
 | Command                                                            | Transport                             | Billing behavior                                                                                   |
 | ------------------------------------------------------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `loop codex`                                                       | Codex App Server                      | Default subscription mode requires ChatGPT login and the built-in OpenAI provider; no API fallback |

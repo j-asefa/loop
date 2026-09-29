@@ -50,6 +50,9 @@ export class WorkspaceHost {
       status: () => ({
         workspace: true,
         state: "ready",
+        project: options.project,
+        serverReady: true,
+        executionReady: nativeSessions.registrations().length > 0,
         harnesses: nativeSessions.registrations(),
         activeRuns: db
           .prepare(
@@ -127,6 +130,7 @@ export class WorkspaceHost {
     options: Options,
     beforeWorker?: () => Promise<void>,
     managed?: () => Promise<any>,
+    runtimeNeutral = false,
   ) {
     if (this.closing) throw new Error("Workspace is stopping");
     await this.tools.start();
@@ -145,7 +149,15 @@ export class WorkspaceHost {
     }
     const account = managed
       ? await managed()
-      : await nativeSessions.enable(options);
+      : runtimeNeutral
+        ? (nativeSessions.addProject(options.project),
+          {
+            billing: {
+              description:
+                "Execution host ready. Choose and enable an installed runtime in the app; authentication is checked when enabling.",
+            },
+          })
+        : await nativeSessions.enable(options);
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
     this.stopWorker = startWorker();

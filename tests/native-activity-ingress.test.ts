@@ -246,7 +246,7 @@ it("persists native activity events through restarts and serves them to reloads 
   expect(byKind((await snapshot("conv")).body.items, "settings")[0].record.data.options[0].confirmed).toBe("gpt-d");
 });
 
-it("never sends activity variants on the v1 host wire used by older clients", () => {
+it("never sends activity variants on the v1 host wire used by older clients", async () => {
   const host = new Host(join(dir, "host"), {
     harness: "codex",
     project: dir,
@@ -269,6 +269,8 @@ it("never sends activity variants on the v1 host wire used by older clients", ()
   expect(
     ServerFrame.safeParse({ v: 1, epoch: "e", cursor: 1, event: planEvent("g", ["pending"]) }).success,
   ).toBe(false);
+  // Cancel the debounced state flush so it cannot write after afterAll removes dir.
+  await host.close();
 });
 
 it("drops activity an adapter files under another transport", async () => {

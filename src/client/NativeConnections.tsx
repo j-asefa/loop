@@ -1,3 +1,4 @@
+import { RuntimeSetup } from "./RuntimeSetup";
 import { useState } from "react";
 import { api, parse } from "./api";
 import { Sheet, Badge } from "./components";
@@ -16,46 +17,7 @@ export function NativeConnections({
     [apiForm, setApiForm] = useState(false);
   return (
     <Sheet title="Connected harnesses" onClose={onClose}>
-      <p>
-        Enable a harness from your desktop. It joins this workspace and uses
-        your existing paired devices. For managed native and Docker providers,
-        sign in under Settings → Execution environments.
-      </p>
-      <div className="connection-grid">
-        {["codex", "pi", "claude", "opencode"].map((name) => (
-          <div key={name} className="native-decision">
-            <strong>
-              {name === "claude"
-                ? "Claude Code"
-                : name === "opencode"
-                  ? "OpenCode"
-                  : name === "pi"
-                    ? "Pi"
-                    : "Codex"}
-            </strong>
-            <p>
-              <code>
-                loop {name}
-                {["claude", "opencode"].includes(name)
-                  ? " --billing existing"
-                  : ""}
-              </code>
-            </p>
-            {name === "claude" && (
-              <p className="note">
-                Claude.ai subscription support requires Anthropic approval.
-                Configure an API/provider account explicitly.
-              </p>
-            )}
-            {name === "opencode" && (
-              <p className="note">
-                Existing provider configuration may incur API charges;
-                subscription billing cannot be verified.
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
+      <RuntimeSetup onEnabled={onChange} />
       {connections.map((c) => {
         const metadata = parse<any>(c.metadata, {});
         return (
@@ -65,7 +27,11 @@ export function NativeConnections({
             <p>{c.status}</p>
             <p>
               {metadata.billing?.description ||
-                (metadata.backend === "hapi" ? "Provider sign-in verified on " + metadata.environmentName : typeof metadata.billing === "string" ? metadata.billing : undefined) ||
+                (metadata.backend === "hapi"
+                  ? "Provider sign-in verified on " + metadata.environmentName
+                  : typeof metadata.billing === "string"
+                    ? metadata.billing
+                    : undefined) ||
                 "Explicit API billing"}
             </p>
             {metadata.loopHarness && (
@@ -82,7 +48,12 @@ export function NativeConnections({
                 setBusy(true);
                 setError("");
                 try {
-                  await api(metadata.backend === "hapi" ? `/environments/${metadata.environmentId}/provider/${metadata.flavor}/verify` : "/connections/" + c.id + "/refresh", {});
+                  await api(
+                    metadata.backend === "hapi"
+                      ? `/environments/${metadata.environmentId}/provider/${metadata.flavor}/verify`
+                      : "/connections/" + c.id + "/refresh",
+                    {},
+                  );
                   await onChange();
                 } catch (e) {
                   setError((e as Error).message);
