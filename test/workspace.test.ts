@@ -145,17 +145,18 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           ).status,
           400,
         );
-        for (const name of ["claude", "opencode"]) {
-          const response = await raw(`/workspace/runtimes/${name}/enable`, {
-            projectId: a.id,
-            billing: "subscription",
-          });
-          assert.equal(response.status, 422);
-          assert.match(
-            await response.text(),
-            /Choose existing native configuration/,
-          );
-        }
+        // OpenCode cannot verify subscription billing. Claude's account checks
+        // are covered with isolated CLI fixtures in adapters/native-auth-api;
+        // this discovery test must not enable the user's installed Claude CLI.
+        const response = await raw("/workspace/runtimes/opencode/enable", {
+          projectId: a.id,
+          billing: "subscription",
+        });
+        assert.equal(response.status, 422);
+        assert.match(
+          await response.text(),
+          /Choose existing native configuration/,
+        );
         const result = await api("/workspace/runtimes/codex/enable", {
           projectId: a.id,
           billing: "existing",

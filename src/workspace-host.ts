@@ -6,6 +6,7 @@ import { app } from "./server/index.js";
 import { db } from "./server/db.js";
 import { config } from "./server/config.js";
 import { nativeSessions, OWNER } from "./server/native-sessions.js";
+import { nativeSignIns } from "./server/native-auth.js";
 import { startWorker } from "./server/worker.js";
 import { z } from "zod";
 import { WebSocket } from "ws";
@@ -133,6 +134,7 @@ export class WorkspaceHost {
     runtimeNeutral = false,
   ) {
     if (this.closing) throw new Error("Workspace is stopping");
+    nativeSignIns.open();
     await this.tools.start();
     if (this.closing) {
       await this.tools.close();
@@ -165,6 +167,7 @@ export class WorkspaceHost {
   }
   async close() {
     this.closing = true;
+    await nativeSignIns.close();
     await this.stopWorker?.();
     if (!this.stopWorker) await nativeSessions.close();
     await this.tools.close();

@@ -14,6 +14,7 @@ import {
 } from "./types.js";
 import type { Billing } from "../protocol.js";
 import type { ModelOption } from "../shared/models.js";
+import { NativeSetupError } from "./setup-error.js";
 
 export class Pi implements Adapter {
   private controlState?: DirectControls;
@@ -165,6 +166,16 @@ export class Pi implements Adapter {
     });
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", () => {
+      if (this.infoWait) {
+        clearTimeout(this.infoWait.timer);
+        this.infoWait.reject(
+          new NativeSetupError(
+            "native_start_failed",
+            "Pi could not start. Check its executable, version and extension loading. No prompt was sent.",
+          ),
+        );
+        this.infoWait = undefined;
+      }
       this.emit({
         type: "status",
         status: "failed",
@@ -179,13 +190,23 @@ export class Pi implements Adapter {
       {},
       false,
     );
-    this.models = (available.models || []).map((m: any) => ({
-      id: m.provider + "/" + m.id,
-      name: m.name || m.id,
-      effortLevels: this.info.modelEfforts
-        ?.find((entry: any) => entry.id === `${m.provider}/${m.id}`)
-        ?.levels.map((value: string) => ({ value })),
-    }));
+    this.models = (available.models || [])
+      .filter(
+        (m: any) =>
+          this.options.billing !== "subscription" ||
+          this.info.modelBilling?.some(
+            (entry: any) =>
+              entry.id === `${m.provider}/${m.id}` &&
+              entry.subscription === true,
+          ),
+      )
+      .map((m: any) => ({
+        id: m.provider + "/" + m.id,
+        name: m.name || m.id,
+        effortLevels: this.info.modelEfforts
+          ?.find((entry: any) => entry.id === `${m.provider}/${m.id}`)
+          ?.levels.map((value: string) => ({ value })),
+      }));
     let settings = await this.readSettings();
     const thinking = settings.find((setting) => setting.id === "effort");
     this.defaultModelOption = {
@@ -208,7 +229,8 @@ export class Pi implements Adapter {
       if (
         !thinking?.choices?.some(({ value }) => value === this.options.effort)
       )
-        throw new Error(
+        throw new NativeSetupError(
+          "native_effort_unsupported",
           "Choose a thinking level supported by the selected Pi model.",
         );
       await this.native.request(
@@ -221,7 +243,8 @@ export class Pi implements Adapter {
         settings.find((setting) => setting.id === "effort")?.confirmed !==
         this.options.effort
       )
-        throw new Error(
+        throw new NativeSetupError(
+          "native_effort_unconfirmed",
           "Pi did not apply the selected thinking level. Refresh the model options and retry.",
         );
     }
@@ -266,7 +289,8 @@ export class Pi implements Adapter {
       const timer = setTimeout(() => {
         this.infoWait = undefined;
         reject(
-          new Error(
+          new NativeSetupError(
+            "native_metadata_unavailable",
             "Pi metadata extension did not initialize. Check Pi version and extension loading.",
           ),
         );
@@ -286,16 +310,19 @@ export class Pi implements Adapter {
   }
   private checkBilling() {
     if (this.options.workspaceTools && this.info?.toolsReady === false)
-      throw new Error(
+      throw new NativeSetupError(
+        "native_tools_unavailable",
         "Pi could not load workspace tools. Check the local Loop bridge; no prompt was sent.",
       );
     if (!this.info?.configured)
-      throw new Error(
+      throw new NativeSetupError(
+        "native_auth_missing",
         "Pi has no configured auth for its selected model. Sign in using Pi /login.",
       );
     if (this.options.billing === "subscription" && !this.info.subscription)
-      throw new Error(
-        "Pi did not confirm subscription support for the effective provider/auth. Use native Pi /login and provider selection, or explicitly choose --billing existing.",
+      throw new NativeSetupError(
+        "native_billing_mismatch",
+        "This Pi model does not use a confirmed subscription login. Choose a subscription model such as the openai-codex route, or explicitly enable existing-provider billing. No prompt was sent and no API fallback occurred.",
       );
   }
   async prompt(text: string) {

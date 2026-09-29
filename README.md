@@ -44,7 +44,7 @@ See [server operation](docs/server.md) for accounts, remote access, runtime mach
 
 ## Use a coding harness
 
-Install and sign in to the harness on your computer first. To pair the phone before choosing a harness, run `loop start` in your project directory. In **New agent**, choose or enable a runtime on this computer, select its project and billing policy, then create an agent. `loop start` leaves the workspace running in the background; `loop pair` issues another code for that workspace. See [start and runtime selection](docs/companion/START-PAIR.md).
+Install the harness on your computer, then run `loop start` in your project directory. In **New agent**, choose a runtime, sign in to its provider, select its project and billing policy, and enable it before creating an agent. Provider sign-in is also available in Settings → Provider connections. `loop start` leaves the workspace running in the background; `loop pair` issues another code for that workspace. See [native provider sign-in](docs/harnesses.md#provider-sign-in) and [start and runtime selection](docs/companion/START-PAIR.md).
 
 You can also enable a harness from the terminal:
 

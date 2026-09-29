@@ -93,6 +93,7 @@ export async function runtimeAction(
   c: Connection,
   action: string,
   extra: object = {},
+  signal?: AbortSignal,
 ) {
   const harness = JSON.parse(c.metadata).loopHarness;
   if (harness) {
@@ -108,7 +109,7 @@ export async function runtimeAction(
     );
   }
   try {
-    return await (await request(c, action, extra)).json();
+    return await (await request(c, action, extra, signal)).json();
   } catch (e) {
     if (e instanceof Problem) throw e;
     throw new Problem(

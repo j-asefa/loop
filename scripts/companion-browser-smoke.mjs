@@ -1,16 +1,18 @@
 process.env.LOOP_PROFILE = "companion";
 import { chromium, webkit, expect } from "@playwright/test";
-import { mkdtemp, rm, mkdir, chmod } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");
 const { db } = await import("../dist/server/db.js");
+const { nativeSessions } = await import("../dist/server/native-sessions.js");
 const { control } = await import("../dist/host-control.js");
 await chmod(resolve("test/harness.mjs"), 0o755);
 const options = {
@@ -211,6 +213,106 @@ try {
     fullPage: true,
   });
   assert.equal(await page.locator('a[href^="javascript:"]').count(), 0);
+  // Older Pi catalogs included identical model names for API and subscription
+  // routes. Creation must refresh, fail closed, and persist the supported route.
+  const piExecutable = join(dir, "pi-fixture");
+  await writeFile(
+    piExecutable,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexport LOOP_TEST_PI_API_MODEL=1\nexec '${process.execPath}' '${resolve("test/harness.mjs")}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  const pi = await nativeSessions.enable({
+    ...options,
+    harness: "pi",
+    executable: piExecutable,
+    billing: "subscription",
+  });
+  const staleModels = [{ id: "openai/fixture", name: "Fixture" }, ...pi.models];
+  db.prepare("UPDATE connections SET models=? WHERE id='native-pi'").run(
+    JSON.stringify(staleModels),
+  );
+  const modelContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block",
+  });
+  try {
+    const modelPage = await modelContext.newPage();
+    modelPage.on("pageerror", (error) => errors.push(error.message));
+    let requests = 0;
+    let releaseModels;
+    const delayedModels = new Promise((resolve) => (releaseModels = resolve));
+    await modelPage.route(
+      "**/api/connections/native-pi/models",
+      async (route) => {
+        if (++requests === 1)
+          return route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "Fixture model refresh failed" }),
+          });
+        await delayedModels;
+        await route.continue();
+      },
+    );
+    await modelPage.goto(host.pair().url);
+    await modelPage.getByRole("button", { name: "Pair and open Loop" }).click();
+    await modelPage
+      .getByRole("button", { name: "New agent", exact: true })
+      .first()
+      .click();
+    const creation = modelPage.getByRole("dialog", {
+      name: "Meet your next agent",
+    });
+    await creation.getByLabel("Unique name").fill("subscription-picker");
+    await expect(creation.getByRole("alert")).toContainText(
+      "Fixture model refresh failed",
+    );
+    await expect(
+      creation.getByRole("button", { name: "Create agent", exact: true }),
+    ).toBeDisabled();
+    await creation
+      .getByRole("button", { name: "Refresh models", exact: true })
+      .click();
+    await expect.poll(() => requests).toBe(2);
+    await expect(creation.getByLabel("Model", { exact: true })).toBeDisabled();
+    await expect(
+      creation.getByRole("button", { name: "Create agent", exact: true }),
+    ).toBeDisabled();
+    releaseModels();
+    await expect(creation.getByLabel("Model", { exact: true })).toBeEnabled();
+    await expect(
+      creation.locator('option[value="openai/fixture"]'),
+    ).toHaveCount(0);
+    await creation
+      .getByLabel("Model", { exact: true })
+      .selectOption({ value: "openai-codex/fixture" });
+    await expect(creation.getByLabel("Model", { exact: true })).toHaveValue(
+      "openai-codex/fixture",
+    );
+    await creation
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    await creation.waitFor({ state: "hidden" });
+    assert.equal(
+      db
+        .prepare("SELECT model FROM agents WHERE name='subscription-picker'")
+        .get().model,
+      "openai-codex/fixture",
+    );
+    const refreshed = db
+      .prepare("SELECT models FROM connections WHERE id='native-pi'")
+      .get();
+    assert(
+      !JSON.parse(refreshed.models).some(
+        (model) => model.id === "openai/fixture",
+      ),
+    );
+  } finally {
+    await modelContext.close();
+  }
+  await nativeAuthBrowser({ browser, host, dir, db });
   const devices = await control(dir, "devices");
   await control(dir, "revoke", { id: devices[0].id });
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();

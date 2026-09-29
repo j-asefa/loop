@@ -113,6 +113,42 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
         .all(),
     ).toEqual([{ content: "first" }]);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+    // A real Codex command can repeat a large stdout value in its native
+    // fields. Display projection must stay bounded without cancelling review.
+    event({
+      id: "large-command",
+      kind: "tool",
+      title: "commandExecution",
+      text: JSON.stringify({
+        stdout: "x".repeat(500000),
+        aggregatedOutput: "x".repeat(500000),
+      }),
+    });
+    expect(interrupt).not.toHaveBeenCalled();
+    sessions.projectOutput(live, true);
+    const preview = db
+      .prepare("SELECT content FROM run_traces WHERE trace_key='large-command'")
+      .get() as { content: string };
+    expect(preview.content).toContain("Earlier native output omitted");
+    expect(
+      Buffer.byteLength(JSON.stringify(preview.content)),
+    ).toBeLessThanOrEqual(64000);
+    expect(preview.content.endsWith('x"}')).toBe(true);
+    sessions.event(live, {
+      type: "request",
+      request: {
+        id: "oversized-approval",
+        kind: "approval",
+        title: "Approve command",
+        detail: "x".repeat(70000),
+      },
+    });
+    expect(interrupt).toHaveBeenCalledWith(
+      run.id,
+      "Native decision exceeds safe display bounds.",
+    );
+    expect(live.requests.size).toBe(0);
+    interrupt.mockClear();
     for (let i = 0; i < 80; i++)
       event({ id: "large-" + i, kind: "assistant", text: "é".repeat(32000) });
     expect(interrupt).toHaveBeenCalledWith(

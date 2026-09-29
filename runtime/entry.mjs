@@ -14,6 +14,11 @@ import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { readPublishedChunk } from "./published-files.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
+import {
+  cleanupWorkspaces,
+  workspaceCleanupInstructions,
+} from "./workspace-cleanup.mjs";
+import { join } from "node:path";
 import { redactValues } from "./redaction.mjs";
 import { claudeTraces, claudeActivities } from "./traces.mjs";
 import {
@@ -393,7 +398,10 @@ try {
         env.HOME,
         request.input?.workspaceKey ?? request.workspaceKey,
       );
-    if (request.action === "turn" && request.githubToken !== undefined) {
+    if (
+      ["turn", "cleanup"].includes(request.action) &&
+      request.githubToken !== undefined
+    ) {
       Object.assign(env, githubEnvironment(request.githubToken));
       githubToken = request.githubToken;
     }
@@ -403,9 +411,28 @@ try {
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${workdir}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +
         (env.GH_TOKEN
           ? " Git and gh are authenticated with the workspace's connected GitHub account. Use them for the user's authorized repository work; never print or store authentication tokens."
-          : "");
+          : "") +
+        workspaceCleanupInstructions(workdir);
   }
-  if (request.action === "read-file") {
+  if (request.action === "cleanup") {
+    if (hostMode)
+      throw new RuntimeFailure(
+        "Automatic workspace cleanup requires a managed Docker runtime.",
+      );
+    if (
+      !Array.isArray(request.workspaceKeys) ||
+      request.workspaceKeys.length > 100 ||
+      request.workspaceKeys.some(
+        (key) => typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key),
+      )
+    )
+      throw new RuntimeFailure("Invalid cleanup workspaces");
+    const results = await cleanupWorkspaces(
+      request.workspaceKeys.map((key) => join(env.HOME, "workspaces", key)),
+      env,
+    );
+    emit({ result: { results } });
+  } else if (request.action === "read-file") {
     emit({
       result: readPublishedChunk(
         workdir,

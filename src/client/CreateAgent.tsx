@@ -74,11 +74,45 @@ export function CreateAgent({
   }, []);
   const accounts = connected.filter((c) => c.provider === provider);
   const selected = accounts.find((c) => c.id === connection) || accounts[0];
-  const models = parse<ModelOption[]>(selected?.models, []);
+  const nativeConnection = parse<any>(selected?.metadata, {}).loopHarness
+    ? selected?.id || ""
+    : "";
+  const [catalog, setCatalog] = useState<{
+    connectionId: string;
+    models?: ModelOption[];
+    error?: string;
+  }>();
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  useEffect(() => {
+    if (!nativeConnection) return;
+    let current = true;
+    setCatalog({ connectionId: nativeConnection });
+    void api<{ models: ModelOption[] }>(
+      `/connections/${nativeConnection}/models`,
+    ).then(
+      ({ models }) => {
+        if (current) setCatalog({ connectionId: nativeConnection, models });
+      },
+      (error: Error) => {
+        if (current)
+          setCatalog({ connectionId: nativeConnection, error: error.message });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [nativeConnection, catalogRevision]);
+  const currentCatalog =
+    catalog?.connectionId === nativeConnection ? catalog : undefined;
+  const refreshingModels =
+    !!nativeConnection && !currentCatalog?.models && !currentCatalog?.error;
+  const models = nativeConnection
+    ? currentCatalog?.models || []
+    : parse<ModelOption[]>(selected?.models, []);
   const chosen = models.find((m) => m.id === model)?.id || models[0]?.id || "";
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (locked.current || uploading) return;
+    if (locked.current || uploading || !chosen || refreshingModels) return;
     const f = new FormData(e.currentTarget);
     const data = {
       name: String(f.get("name") || "")
@@ -132,6 +166,7 @@ export function CreateAgent({
                 setProvider(next.provider);
                 setConnection(next.id);
               }
+              setCatalogRevision((revision) => revision + 1);
             }}
           />
         </details>
@@ -185,10 +220,18 @@ export function CreateAgent({
             <label>
               Model
               <select
-                disabled={busy}
+                aria-label="Model"
+                disabled={busy || refreshingModels || !models.length}
                 value={chosen}
                 onChange={(e) => setModel(e.target.value)}
               >
+                {!models.length && (
+                  <option value="">
+                    {refreshingModels
+                      ? "Checking available models…"
+                      : "No models available"}
+                  </option>
+                )}
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
                     {modelDisplayName(m)}
@@ -204,6 +247,23 @@ export function CreateAgent({
                     : "Available to this connection. API-billed."}
               </span>
             </label>
+            {nativeConnection && currentCatalog?.error && (
+              <div>
+                <p className="error" role="alert">
+                  Could not refresh available models. {currentCatalog.error}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setCatalog({ connectionId: nativeConnection });
+                    setCatalogRevision((revision) => revision + 1);
+                  }}
+                >
+                  Refresh models
+                </button>
+              </div>
+            )}
             <EffortSelect
               model={models.find((m) => m.id === chosen)}
               value={
@@ -343,6 +403,7 @@ export function CreateAgent({
           disabled={
             busy ||
             uploading ||
+            refreshingModels ||
             !chosen ||
             !name.trim() ||
             (!!attachments.length && !initialPrompt.trim())

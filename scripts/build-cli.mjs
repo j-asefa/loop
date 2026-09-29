@@ -12,6 +12,7 @@ await build({
   packages: "external",
 });
 await cp("src/pi-extension.mjs", "dist/pi-extension.mjs");
+await cp("src/pi-auth-extension.mjs", "dist/pi-auth-extension.mjs");
 await cp("dist/client", "dist/web", { recursive: true });
 await chmod("dist/cli.js", 0o755);
 

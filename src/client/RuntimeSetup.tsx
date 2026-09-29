@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { RuntimeSignIn } from "./RuntimeSignIn";
+import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
 type Runtime = {
   name: string;
@@ -30,9 +32,27 @@ export function RuntimeSetup({
   >([]);
   const [project, setProject] = useState("");
   const [billing, setBilling] = useState("subscription");
-  const [busy, setBusy] = useState(false);
+  const [enabling, setEnabling] = useState<string>();
+  const busy = !!enabling;
   const [error, setError] = useState("");
+  const [enableError, setEnableError] = useState<{
+    name: string;
+    message: string;
+  }>();
+  const [signingIn, setSigningIn] = useState<string>();
+  const [authStates, setAuthStates] = useState<
+    Record<string, SignIn["state"] | undefined>
+  >({});
+  const authRevision = useRef(0);
+  const onAuthState = useCallback(
+    (name: string, state: SignIn["state"] | undefined) => {
+      authRevision.current++;
+      setAuthStates((current) => ({ ...current, [name]: state }));
+    },
+    [],
+  );
   async function refresh() {
+    const revision = authRevision.current;
     const [host, workspace] = await Promise.all([
       api<Discovery>("/workspace/runtimes"),
       api<{ projectPaths: { folder_id: string; path: string }[] }>(
@@ -44,10 +64,75 @@ export function RuntimeSetup({
     setProject(
       (current) => current || workspace.projectPaths[0]?.folder_id || "",
     );
+    // Read existing attempts without starting a harness or another sign-in.
+    const states = await Promise.allSettled(
+      host.runtimes.map(async (runtime) => {
+        const auth = await api<NativeAuthView>(
+          `/workspace/runtimes/${runtime.name}/auth/status`,
+        );
+        return [runtime.name, auth.attempt?.state] as const;
+      }),
+    );
+    // A sign-in response received during discovery is newer than this snapshot.
+    if (revision === authRevision.current)
+      setAuthStates((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          states.flatMap((result) =>
+            result.status === "fulfilled" ? [result.value] : [],
+          ),
+        ),
+      }));
+  }
+  async function enable(runtime: Runtime) {
+    setEnabling(runtime.name);
+    setEnableError(undefined);
+    setError("");
+    try {
+      const projectId = runtime.enabled
+        ? projects.find((p) => p.path === runtime.project)?.folder_id
+        : project;
+      await api(`/workspace/runtimes/${runtime.name}/enable`, {
+        projectId,
+        billing: runtime.billing || billing,
+      });
+      setSigningIn(undefined);
+      const results = await Promise.allSettled([
+        onEnabled(runtime.name),
+        refresh(),
+      ]);
+      if (results.some((result) => result.status === "rejected"))
+        setError(
+          "Runtime enabled, but the screen could not refresh. Check installed runtimes again.",
+        );
+    } catch (e) {
+      setEnableError({ name: runtime.name, message: (e as Error).message });
+    } finally {
+      setEnabling(undefined);
+    }
   }
   useEffect(() => {
     void refresh().catch((e) => setError(e.message));
   }, []);
+  const authInProgress = Object.values(authStates).some(
+    (state) => state === "starting" || state === "waiting",
+  );
+  useEffect(() => {
+    if (!authInProgress) return;
+    const timer = setInterval(() => {
+      void Promise.allSettled(
+        Object.entries(authStates)
+          .filter(([, state]) => state === "starting" || state === "waiting")
+          .map(async ([name]) => {
+            const view = await api<NativeAuthView>(
+              `/workspace/runtimes/${name}/auth/status`,
+            );
+            onAuthState(name, view.attempt?.state);
+          }),
+      );
+    }, 1200);
+    return () => clearInterval(timer);
+  }, [authInProgress, authStates, onAuthState]);
   return (
     <section className="native-decision" aria-label="Runtime setup">
       <h3>
@@ -56,16 +141,15 @@ export function RuntimeSetup({
           : "Checking this computer…"}
       </h3>
       <p>
-        Choose an installed runtime. Sign in with its CLI on this computer
-        first. Authentication is checked when enabling; pairing does not install
-        or sign in to agents.
+        Use the accounts already on this computer, or sign in below. Enable a
+        harness to make its models available in Loop.
       </p>
       <label>
         Project directory for new runtimes
         <select
           value={project}
           onChange={(e) => setProject(e.target.value)}
-          disabled={busy}
+          disabled={busy || !!signingIn || authInProgress}
         >
           {projects.map((p) => (
             <option key={p.folder_id} value={p.folder_id}>
@@ -93,69 +177,121 @@ export function RuntimeSetup({
         </select>
       </label>
       <p className="note">
-        No automatic billing fallback. Claude and OpenCode may require
+        No automatic billing fallback. OpenCode and API accounts require
         explicitly choosing existing configuration. Enabled runtimes keep their
         saved billing policy.
       </p>
-      {discovery?.runtimes.map((runtime) => (
-        <div key={runtime.name}>
-          <strong>{labels[runtime.name]}</strong> —{" "}
-          {runtime.enabled
-            ? "enabled"
-            : runtime.available
-              ? "installed; authentication unknown"
-              : runtime.installed
-                ? "unavailable"
-                : "not installed"}
-          {!runtime.available && <p>{runtime.help}</p>}
-          {runtime.enabled && (
-            <p className="note">
-              Bound project: {runtime.project || "unknown"}. Billing:{" "}
-              {runtime.billing || "unknown"}.
-            </p>
-          )}
-          <button
-            type="button"
-            disabled={
-              busy ||
-              !project ||
-              !runtime.available ||
-              !discovery.online ||
-              (runtime.enabled &&
-                !projects.some((p) => p.path === runtime.project))
-            }
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              let enabled = false;
-              try {
-                const projectId = runtime.enabled
-                  ? projects.find((p) => p.path === runtime.project)?.folder_id
-                  : project;
-                await api(`/workspace/runtimes/${runtime.name}/enable`, {
-                  projectId,
-                  billing: runtime.billing || billing,
-                });
-                enabled = true;
-                const results = await Promise.allSettled([
-                  onEnabled(runtime.name),
-                  refresh(),
-                ]);
-                if (results.some((result) => result.status === "rejected"))
-                  setError(
-                    "Runtime enabled, but the screen could not refresh. Check installed runtimes again.",
-                  );
-              } catch (e) {
-                if (!enabled) setError((e as Error).message);
-              } finally {
-                setBusy(false);
+      {discovery?.runtimes.map((runtime) => {
+        const label = labels[runtime.name];
+        const open = signingIn === runtime.name;
+        const signedIn = authStates[runtime.name] === "complete";
+        const authenticating = ["starting", "waiting"].includes(
+          authStates[runtime.name] || "",
+        );
+        const projectId = runtime.enabled
+          ? projects.find((p) => p.path === runtime.project)?.folder_id
+          : project;
+        const enableAction = (
+          <>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={
+                busy ||
+                (!!signingIn && !open) ||
+                (open && !signedIn) ||
+                authenticating ||
+                !projectId ||
+                !runtime.available ||
+                !discovery.online
               }
-            }}
-          >
-            {runtime.enabled ? "Refresh" : "Enable"} {labels[runtime.name]}
-          </button>
-        </div>
-      ))}
+              onClick={() => void enable(runtime)}
+            >
+              {enabling === runtime.name
+                ? runtime.enabled
+                  ? "Refreshing…"
+                  : "Enabling…"
+                : `${runtime.enabled ? "Refresh" : "Enable"} ${label}`}
+            </button>
+            {enableError?.name === runtime.name && (
+              <p className="error" role="alert">
+                {enableError.message}
+              </p>
+            )}
+          </>
+        );
+        return (
+          <div key={runtime.name} className="native-runtime">
+            <p className="native-runtime-title">
+              <strong>{label}</strong>
+              <span
+                className={`native-runtime-state${signedIn || runtime.enabled ? " connected" : ""}`}
+              >
+                {authenticating
+                  ? "Signing in…"
+                  : runtime.enabled
+                    ? "Enabled in Loop"
+                    : signedIn
+                      ? "Signed in"
+                      : runtime.available
+                        ? "Installed"
+                        : runtime.installed
+                          ? "Unavailable"
+                          : "Not installed"}
+              </span>
+            </p>
+            {!runtime.available && <p>{runtime.help}</p>}
+            {runtime.enabled && (
+              <p className="note">
+                Bound project: {runtime.project || "unknown"}. Billing:{" "}
+                {runtime.billing || "unknown"}.
+              </p>
+            )}
+            {open && (
+              <RuntimeSignIn
+                key={runtime.name + projectId}
+                name={runtime.name}
+                label={label}
+                projectId={projectId!}
+                signedIn={signedIn}
+                enabled={runtime.enabled}
+                enabling={busy}
+                enableAction={enableAction}
+                onStateChange={onAuthState}
+                onClose={() => {
+                  setSigningIn(undefined);
+                  void refresh().catch((e) => setError(e.message));
+                }}
+              />
+            )}
+            {!open && (
+              <div className="native-runtime-actions">
+                {enableAction}
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={
+                    busy ||
+                    !projectId ||
+                    !runtime.available ||
+                    !discovery.online
+                  }
+                  onClick={() => setSigningIn(runtime.name)}
+                  aria-label={
+                    signedIn || runtime.enabled
+                      ? `Manage ${label} account`
+                      : undefined
+                  }
+                >
+                  {signedIn || runtime.enabled
+                    ? "Manage account"
+                    : `Sign in to ${label}`}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
       <button
         type="button"
         disabled={busy}

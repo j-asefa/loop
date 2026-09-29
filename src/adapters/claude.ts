@@ -17,6 +17,7 @@ import {
   type Options,
 } from "./types.js";
 import type { Billing } from "../protocol.js";
+import { NativeSetupError } from "./setup-error.js";
 const exec = promisify(execFile);
 
 export class Claude implements Adapter {
@@ -125,10 +126,6 @@ export class Claude implements Adapter {
     });
   }
   async start(): Promise<Billing> {
-    if (this.options.billing === "subscription")
-      throw new Error(
-        "Claude.ai subscription integration requires Anthropic approval for third-party products. Loop has not established that approval. Use an explicitly configured API/provider account with --billing existing; Loop will not fall back automatically.",
-      );
     conflict(this.options.billing, [
       "ANTHROPIC_API_KEY",
       "ANTHROPIC_AUTH_TOKEN",
@@ -149,9 +146,15 @@ export class Claude implements Adapter {
       );
     });
     const auth = JSON.parse(result.stdout);
-    if (auth.authMethod === "claude.ai" && auth.apiProvider === "firstParty")
-      throw new Error(
-        "Claude.ai login is not enabled for this integration. Configure the native CLI with an allowed API/provider account, then use --billing existing.",
+    const subscription =
+      auth.loggedIn === true &&
+      auth.authMethod === "claude.ai" &&
+      auth.apiProvider === "firstParty" &&
+      (!auth.apiKeySource || auth.apiKeySource === "none");
+    if (this.options.billing === "subscription" && !subscription)
+      throw new NativeSetupError(
+        "claude_subscription_required",
+        "Sign in to Claude Code with your Claude account before using subscription mode. No API fallback was attempted.",
       );
     this.native = new Native(
       this.options.executable,
@@ -163,8 +166,8 @@ export class Claude implements Adapter {
         "stream-json",
         "--verbose",
         "--include-partial-messages",
-        "--permission-prompts",
-        "host",
+        "--permission-prompt-tool",
+        "stdio",
         ...(this.options.model ? ["--model", this.options.model] : []),
         ...(this.options.effort ? ["--effort", this.options.effort] : []),
         ...(!this.options.resume && this.options.instructions
@@ -227,17 +230,30 @@ export class Claude implements Adapter {
         : {}),
     }));
     const account = init.account ?? {};
-    if (
-      account.apiProvider === "firstParty" &&
-      (!account.apiKeySource || account.apiKeySource === "none")
-    )
-      throw new Error(
+    const apiKeyActive =
+      (!!auth.apiKeySource && auth.apiKeySource !== "none") ||
+      (!!account.apiKeySource && account.apiKeySource !== "none");
+    if (!subscription && account.apiProvider === "firstParty" && !apiKeyActive)
+      throw new NativeSetupError(
+        "claude_api_source_unverified",
         "Claude did not confirm an API credential source for this integration. No prompt was sent.",
+      );
+    if (
+      this.options.billing === "subscription" &&
+      (account.apiProvider !== "firstParty" || apiKeyActive)
+    )
+      throw new NativeSetupError(
+        "claude_subscription_unverified",
+        apiKeyActive
+          ? "Claude reported an API key for this session. Remove the key from Claude settings before using subscription mode. No prompt was sent."
+          : "Claude did not confirm the native subscription provider. No prompt was sent.",
       );
     this.billing = {
       mode: this.options.billing,
       description:
-        "Explicit native Claude API/provider mode; provider charges apply",
+        subscription && !apiKeyActive
+          ? "Native Claude account; provider plan limits and enabled usage credits apply"
+          : "Explicit native Claude API/provider mode; provider charges apply",
       provider: account.apiProvider ?? auth.apiProvider,
     };
     this.emit({

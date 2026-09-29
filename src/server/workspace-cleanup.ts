@@ -1,0 +1,66 @@
+import { db } from "./db.js";
+import { companionMode } from "./profile.js";
+import {
+  runtimeAction,
+  runtimeWorkspaceKey,
+  isSubscription,
+} from "./subscriptions.js";
+import { runtimeEndpoint } from "./runtime-hosts.js";
+import { runtimeGithubCredential } from "./runtime-github.js";
+import type { Connection } from "../shared/types.js";
+
+// No model turn or inference cost: the broker checks registered PRs using this
+// owner's allowed GitHub credential, and only when the connection is idle.
+export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
+  if (companionMode) return;
+  const connections = db
+    .prepare(
+      "SELECT * FROM connections WHERE status='connected' AND provider IN ('codex','anthropic')",
+    )
+    .all() as Connection[];
+  for (const connection of connections) {
+    if (signal?.aborted) return;
+    try {
+      if (!isSubscription(connection)) continue;
+      const metadata = JSON.parse(connection.metadata);
+      if (
+        metadata.loopHarness ||
+        runtimeEndpoint(
+          connection.owner_id,
+          metadata.runtimeHostId,
+          connection.provider === "codex" ? "codex" : "claude",
+        ).kind !== "broker"
+      )
+        continue;
+      const github = runtimeGithubCredential(connection.owner_id);
+      if (!github) continue;
+      const agents = db
+        .prepare("SELECT id FROM agents WHERE owner_id=? AND connection_id=?")
+        .all(connection.owner_id, connection.id) as { id: string }[];
+      if (!agents.length) continue;
+      for (let i = 0; i < agents.length; i += 100) {
+        if (signal?.aborted) return;
+        const result = await runtimeAction(
+          connection,
+          "cleanup",
+          {
+            workspaceKeys: agents
+              .slice(i, i + 100)
+              .map((agent) =>
+                runtimeWorkspaceKey(connection.owner_id, agent.id),
+              ),
+            githubToken: github.token,
+          },
+          AbortSignal.any([
+            AbortSignal.timeout(120000),
+            ...(signal ? [signal] : []),
+          ]),
+        );
+        if (result.skipped) break;
+      }
+    } catch {
+      // A disconnected account, busy host or unverified merge must never cause
+      // deletion or affect ordinary work. Retry during a later idle check.
+    }
+  }
+}

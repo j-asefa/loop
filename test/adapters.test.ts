@@ -5,6 +5,7 @@ import { chmodSync } from "node:fs";
 import { resolve } from "node:path";
 import { Codex } from "../src/adapters/codex.js";
 import { Pi } from "../src/adapters/pi.js";
+import { NativeSetupError } from "../src/adapters/setup-error.js";
 import { Claude } from "../src/adapters/claude.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { conflict } from "../src/adapters/types.js";
@@ -12,6 +13,61 @@ import type { AdapterEvent, Harness } from "../src/protocol.js";
 const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
 import { until } from "./helpers.js";
+test("Pi's subscription catalog excludes API routes for the same model", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP_TEST_PI_API_MODEL = "1";
+  try {
+    for (const billing of ["subscription", "existing"] as const) {
+      const adapter = new Pi(
+        {
+          harness: "pi",
+          project: process.cwd(),
+          executable,
+          billing,
+          version: "fixture",
+        },
+        () => {},
+      );
+      try {
+        await adapter.start();
+        assert(
+          adapter.models.some((model) => model.id === "openai-codex/fixture"),
+        );
+        assert.equal(
+          adapter.models.some((model) => model.id === "openai/fixture"),
+          billing === "existing",
+        );
+      } finally {
+        await adapter.dispose();
+      }
+    }
+    process.env.LOOP_TEST_PI_AUTH = "api";
+    const adapter = new Pi(
+      {
+        harness: "pi",
+        project: process.cwd(),
+        executable,
+        billing: "subscription",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(
+        adapter.start(),
+        (error) =>
+          error instanceof NativeSetupError &&
+          error.code === "native_billing_mismatch",
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  } finally {
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_PI_API_MODEL;
+    delete process.env.LOOP_TEST_PI_AUTH;
+  }
+});
 test("Pi exposes model-specific effort and applies saved effort to new and resumed sessions", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   try {
@@ -225,5 +281,153 @@ test("Pi preserves assistant failures until settled and resets on follow-up", as
   } finally {
     await adapter.dispose();
     delete process.env.LOOP_TEST_HARNESS;
+  }
+});
+
+test("Claude subscription mode accepts native OAuth and rejects API or unverified providers before dispatch", async () => {
+  const variables = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "LOOP_TEST_HARNESS",
+    "LOOP_TEST_CLAUDE_AUTH",
+    "LOOP_TEST_CLAUDE_PROVIDER",
+    "LOOP_TEST_CLAUDE_KEY_SOURCE",
+    "LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE",
+  ];
+  const saved = new Map(variables.map((name) => [name, process.env[name]]));
+  for (const name of variables) delete process.env[name];
+  process.env.LOOP_TEST_HARNESS = "claude";
+  try {
+    for (const auth of ["oauth", "api", "none"]) {
+      process.env.LOOP_TEST_CLAUDE_AUTH = auth;
+      const adapter = new Claude(
+        {
+          harness: "claude",
+          executable,
+          project: process.cwd(),
+          billing: "subscription",
+          version: "fixture",
+        },
+        () => {},
+      );
+      try {
+        if (auth === "oauth") {
+          const billing = await adapter.start();
+          assert.equal(billing.mode, "subscription");
+          assert.equal(billing.provider, "firstParty");
+        } else await assert.rejects(adapter.start(), /No API fallback/);
+      } finally {
+        await adapter.dispose();
+      }
+    }
+    process.env.LOOP_TEST_CLAUDE_AUTH = "oauth";
+    process.env.LOOP_TEST_CLAUDE_PROVIDER = "bedrock";
+    const changed = new Claude(
+      {
+        harness: "claude",
+        executable,
+        project: process.cwd(),
+        billing: "subscription",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(
+        changed.start(),
+        /did not confirm the native subscription provider/,
+      );
+    } finally {
+      await changed.dispose();
+    }
+    delete process.env.LOOP_TEST_CLAUDE_PROVIDER;
+    process.env.LOOP_TEST_CLAUDE_KEY_SOURCE = "ANTHROPIC_API_KEY";
+    const settingsKey = new Claude(
+      {
+        harness: "claude",
+        executable,
+        project: process.cwd(),
+        billing: "subscription",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(
+        settingsKey.start(),
+        (error) =>
+          error instanceof NativeSetupError &&
+          error.code === "claude_subscription_unverified",
+      );
+    } finally {
+      await settingsKey.dispose();
+    }
+    const existingKey = new Claude(
+      {
+        harness: "claude",
+        executable,
+        project: process.cwd(),
+        billing: "existing",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      assert.match(
+        (await existingKey.start()).description,
+        /provider charges apply/,
+      );
+    } finally {
+      await existingKey.dispose();
+    }
+    delete process.env.LOOP_TEST_CLAUDE_KEY_SOURCE;
+    process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE = "ANTHROPIC_API_KEY";
+    const authKey = new Claude(
+      {
+        harness: "claude",
+        executable,
+        project: process.cwd(),
+        billing: "subscription",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(
+        authKey.start(),
+        (error) =>
+          error instanceof NativeSetupError &&
+          error.code === "claude_subscription_required",
+      );
+    } finally {
+      await authKey.dispose();
+    }
+    delete process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE;
+    process.env.ANTHROPIC_API_KEY = "fixture-private-api-key";
+    const conflict = new Claude(
+      {
+        harness: "claude",
+        executable,
+        project: process.cwd(),
+        billing: "subscription",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(conflict.start(), /ANTHROPIC_API_KEY/);
+    } finally {
+      await conflict.dispose();
+    }
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 });

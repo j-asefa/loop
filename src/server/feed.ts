@@ -15,8 +15,12 @@ export function projectFolders(owner: string, project: string): string[] {
 
 // The same rule must govern initial pages and update tombstones. A running or
 // failed placeholder is not an output, and tool artifacts belong to Traces.
+// Native is provenance, not a tool marker: a completed checkpoint owns the
+// native harness's final answer, including answers saved by earlier versions.
 export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
-  OR json_extract(a.metadata,'$.native')=1
+  OR (json_extract(a.metadata,'$.native')=1 AND NOT EXISTS(
+    SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id
+      AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0))
   OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
 export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
 export const fileArtifactSql = `(${finishedArtifactSql} OR json_extract(a.metadata,'$.uploaded')=1)`;

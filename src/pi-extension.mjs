@@ -14,6 +14,13 @@ export default function loopMetadata(pi) {
         id: `${available.provider}/${available.id}`,
         levels: getSupportedThinkingLevels(available),
       })),
+      modelBilling: ctx.modelRegistry.getAvailable().map((available) => ({
+        id: `${available.provider}/${available.id}`,
+        subscription:
+          ctx.modelRegistry.isUsingOAuth(available) &&
+          ctx.modelRegistry.getProvider(available.provider)?.auth?.oauth
+            ?.isSubscription === true,
+      })),
       configured: !!model && ctx.modelRegistry.hasConfiguredAuth(model),
       subscription:
         !!model &&

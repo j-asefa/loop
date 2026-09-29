@@ -1,11 +1,38 @@
 import { Rpc, authorizationUrl, resultChunks } from "./protocol.mjs";
+import { setTimeout as delay } from "node:timers/promises";
 import { nativeReply } from "./native-tools.mjs";
 import { codexCatalog, codexTurn } from "./harness.mjs";
 import { codexTrace, codexActivity } from "./traces.mjs";
 import { modelOptions } from "./model-options.mjs";
 import { RuntimeFailure, diagnosticText } from "./diagnostics.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
+import { workspaceCleanupInstructions } from "./workspace-cleanup.mjs";
 import { redactValues } from "./redaction.mjs";
+
+async function readAccount(rpc, signal) {
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    try {
+      return await rpc.call("account/read", { refreshToken: true });
+    } catch (error) {
+      // Codex occasionally cannot discover its account routing even when the
+      // saved connection is valid. This read precedes any model or tool work.
+      if (
+        attempt >= 2 ||
+        !(error instanceof RuntimeFailure) ||
+        error.details?.phase !== "account/read" ||
+        !error.message.includes("workspace routing discovery failed")
+      )
+        throw error;
+      try {
+        await delay(300 * (attempt + 1), undefined, { signal });
+      } catch (delayError) {
+        signal.throwIfAborted();
+        throw delayError;
+      }
+    }
+  }
+}
 
 // A mailbox belongs to one thread. Never let another consumer drain its events.
 class Mailbox {
@@ -140,7 +167,7 @@ export class CodexSession {
       emit({ result: { authenticated: false } });
       return;
     }
-    const { account } = await rpc.call("account/read", { refreshToken: true });
+    const { account } = await readAccount(rpc, signal);
     signal.throwIfAborted();
     if (account?.type !== "chatgpt") {
       if (request.action === "turn")
@@ -195,7 +222,8 @@ export class CodexSession {
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${cwd}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +
         (secret
           ? " Git and gh are authenticated with the workspace's connected GitHub account. Use them for the user's authorized repository work; never print or store authentication tokens."
-          : "");
+          : "") +
+        workspaceCleanupInstructions(cwd);
     let threadId,
       turnId,
       completed = false;

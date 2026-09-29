@@ -1,0 +1,431 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import type { Duplex } from "node:stream";
+import { Native } from "../native.js";
+import { own, killOwned } from "../processes.js";
+import type {
+  AuthDriver,
+  AuthInteraction,
+  AuthOptions,
+} from "../server/native-auth.js";
+import type { AuthProvider } from "../shared/native-auth.js";
+
+async function stop(child?: ChildProcess) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null)
+    return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      killOwned(child, "SIGKILL");
+      resolve();
+    }, 1500);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    killOwned(child, "SIGTERM");
+  });
+}
+
+function cliDriver(options: AuthOptions): AuthDriver {
+  let child: ChildProcess | undefined;
+  const codex = options.name === "codex";
+  return {
+    async providers() {
+      return [
+        {
+          id: codex ? "openai" : "anthropic",
+          name: codex ? "ChatGPT" : "Claude",
+          methods: codex
+            ? [{ id: "oauth", type: "oauth", label: "Sign in with ChatGPT" }]
+            : [
+                { id: "oauth", type: "oauth", label: "Sign in with Claude" },
+                {
+                  id: "console",
+                  type: "oauth",
+                  label: "Anthropic Console (API billing)",
+                },
+              ],
+        },
+      ];
+    },
+    async login(_provider, method, io) {
+      await stop(child);
+      const process = (child = spawn(
+        options.executable,
+        codex
+          ? ["login", "--device-auth"]
+          : [
+              "auth",
+              "login",
+              method === "console" ? "--console" : "--claudeai",
+            ],
+        {
+          cwd: options.project,
+          env: {
+            ...globalThis.process.env,
+            BROWSER: "false",
+            DISABLE_AUTOUPDATER: "1",
+          },
+          stdio: "pipe",
+          detached: true,
+        },
+      ));
+      own(process);
+      await new Promise<void>((resolve, reject) => {
+        let output = "",
+          asked = false;
+        const abort = () => {
+          void stop(process);
+          reject(new Error("Sign-in cancelled"));
+        };
+        io.signal.addEventListener("abort", abort, { once: true });
+        const consume = (chunk: Buffer) => {
+          try {
+            if (io.signal.aborted) return;
+            output = (output + chunk.toString())
+              .replace(/\x1b\[[0-9;]*m/g, "")
+              .slice(-20000);
+            const url = (
+              output.match(/https:\/\/[^\s<>"']+(?=[\s<>"'])/g) || []
+            ).find((value) => {
+              try {
+                const parsed = new URL(value);
+                return (
+                  !parsed.username &&
+                  !parsed.password &&
+                  (codex
+                    ? /(^|\.)(openai\.com|chatgpt\.com)$/
+                    : /(^|\.)(anthropic\.com|claude\.ai|claude\.com)$/
+                  ).test(parsed.hostname)
+                );
+              } catch {
+                return false;
+              }
+            });
+            if (url)
+              io.link(
+                url,
+                codex
+                  ? output.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b/)?.[0]
+                  : undefined,
+              );
+            if (
+              url &&
+              !asked &&
+              /(?:paste|enter)[^\n]*code/i.test(output) &&
+              !codex
+            ) {
+              asked = true;
+              void io
+                .prompt({
+                  type: "manual_code",
+                  message: "Paste the verification code from Claude",
+                })
+                .then(
+                  (value) => {
+                    if (!io.signal.aborted) process.stdin?.write(value + "\n");
+                  },
+                  () => {},
+                );
+            }
+          } catch {
+            void stop(process);
+            reject(new Error("Unsupported sign-in response"));
+          }
+        };
+        process.stdout!.on("data", consume);
+        process.stderr!.on("data", consume);
+        process.stdin!.on("error", () => {});
+        process.once("error", () => {
+          io.signal.removeEventListener("abort", abort);
+          reject(new Error("Sign-in process failed"));
+        });
+        process.once("exit", (code) => {
+          output = "";
+          io.signal.removeEventListener("abort", abort);
+          code === 0 ? resolve() : reject(new Error("Sign-in failed"));
+        });
+        if (io.signal.aborted) abort();
+      });
+    },
+    async dispose() {
+      await stop(child);
+    },
+  };
+}
+
+async function piDriver(options: AuthOptions): Promise<AuthDriver> {
+  const native = new Native(
+    options.executable,
+    [
+      "--mode",
+      "rpc",
+      "--no-session",
+      "--no-extensions",
+      "--extension",
+      fileURLToPath(new URL("../pi-auth-extension.mjs", import.meta.url)),
+    ],
+    options.project,
+  );
+  const channel = native.child.stdio[3] as Duplex;
+  let dead = false;
+  let current:
+    | { io: AuthInteraction; resolve(): void; reject(error: Error): void }
+    | undefined;
+  const prompts = new Map<string, AbortController>();
+  const providers = await new Promise<AuthProvider[]>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Pi authentication setup timed out")),
+      20000,
+    );
+    native.on("failure", () => {
+      dead = true;
+      clearTimeout(timer);
+      reject(new Error("Pi authentication process exited"));
+      current?.reject(new Error("Pi authentication process exited"));
+      current = undefined;
+    });
+    native.on("metadata", (message) => {
+      if (message.type === "providers") {
+        clearTimeout(timer);
+        resolve(message.providers);
+      }
+      const login = current;
+      if (!login || login.io.signal.aborted) return;
+      if (message.type === "link")
+        login.io.link(message.url, message.code, message.instructions);
+      if (message.type === "prompt") {
+        const controller = new AbortController();
+        prompts.set(message.id, controller);
+        void login.io
+          .prompt(message.prompt, controller.signal)
+          .then(
+            (value) => {
+              if (
+                !controller.signal.aborted &&
+                current === login &&
+                !login.io.signal.aborted
+              )
+                channel.write(
+                  JSON.stringify({ type: "input", id: message.id, value }) +
+                    "\n",
+                );
+            },
+            (error) => {
+              if (
+                !controller.signal.aborted &&
+                current === login &&
+                !login.io.signal.aborted
+              ) {
+                current = undefined;
+                login.reject(
+                  error instanceof Error
+                    ? error
+                    : new Error("Pi sign-in prompt failed"),
+                );
+              }
+            },
+          )
+          .finally(() => prompts.delete(message.id));
+      }
+      if (message.type === "clear_prompt") prompts.get(message.id)?.abort();
+      if (message.type === "complete") {
+        login.resolve();
+        current = undefined;
+      }
+      if (message.type === "failed") {
+        login.reject(new Error("Pi sign-in failed"));
+        current = undefined;
+      }
+    });
+  }).catch(async (error) => {
+    await native.dispose();
+    throw error;
+  });
+  return {
+    get dead() {
+      return dead;
+    },
+    async providers() {
+      return providers;
+    },
+    login(provider, method, io) {
+      return new Promise<void>((resolve, reject) => {
+        if (dead) return reject(new Error("Pi authentication process exited"));
+        current = { io, resolve, reject };
+        channel.write(
+          JSON.stringify({ type: "login", provider, method }) + "\n",
+        );
+      });
+    },
+    async dispose() {
+      current?.reject(new Error("Sign-in cancelled"));
+      current = undefined;
+      for (const prompt of prompts.values()) prompt.abort();
+      await native.dispose();
+    },
+  };
+}
+
+async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
+  const password = randomBytes(32).toString("hex");
+  const child = spawn(
+    options.executable,
+    ["serve", "--hostname", "127.0.0.1", "--port", "0"],
+    {
+      cwd: options.project,
+      detached: true,
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        OPENCODE_SERVER_USERNAME: "loop",
+        OPENCODE_SERVER_PASSWORD: password,
+      },
+    },
+  );
+  own(child);
+  child.stderr.resume();
+  const origin = await new Promise<string>((resolve, reject) => {
+    let buffer = "";
+    const timer = setTimeout(
+      () => reject(new Error("OpenCode authentication setup timed out")),
+      20000,
+    );
+    const fail = () => {
+      clearTimeout(timer);
+      reject(new Error("OpenCode exited"));
+    };
+    child.on("error", fail);
+    child.on("exit", fail);
+    child.stdout.on("data", (chunk) => {
+      buffer = (buffer + chunk.toString()).slice(-16000);
+      const url = buffer.match(
+        /opencode server listening on (http:\/\/127\.0\.0\.1:\d+)/,
+      )?.[1];
+      if (url) {
+        clearTimeout(timer);
+        resolve(url);
+      }
+    });
+  }).catch(async (error) => {
+    await stop(child);
+    throw error;
+  });
+  const api = async (
+    path: string,
+    body?: unknown,
+    method = body ? "POST" : "GET",
+    signal = AbortSignal.timeout(15000),
+  ) => {
+    const response = await fetch(origin + path, {
+      method,
+      signal,
+      redirect: "error",
+      headers: {
+        Authorization:
+          "Basic " + Buffer.from("loop:" + password).toString("base64"),
+        "Content-Type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error("OpenCode authentication failed");
+    return response.json();
+  };
+  let methods: Record<string, any[]> = {};
+  return {
+    async providers() {
+      const [catalog, auth] = await Promise.all([
+        api("/provider"),
+        api("/provider/auth"),
+      ]);
+      methods = auth;
+      return catalog.all.map((provider: any) => ({
+        id: provider.id,
+        name: provider.name,
+        configured: catalog.connected.includes(provider.id),
+        methods: (auth[provider.id] || [{ type: "api", label: "API key" }]).map(
+          (method: any, index: number) => ({
+            id: String(index),
+            label: method.label,
+            type: method.type,
+          }),
+        ),
+      }));
+    },
+    async login(provider, method, io) {
+      const entry = methods[provider]?.[Number(method)] || { type: "api" };
+      const path = encodeURIComponent(provider);
+      if (entry.type === "api") {
+        const key = await io.prompt({
+          type: "secret",
+          message: "Enter your provider API key",
+        });
+        await api("/auth/" + path, { type: "api", key }, "PUT", io.signal);
+      } else {
+        const inputs: Record<string, string> = {};
+        for (const prompt of entry.prompts || []) {
+          const condition = prompt.when ?? prompt.condition;
+          if (
+            condition &&
+            (condition.op === "eq"
+              ? inputs[condition.key] !== condition.value
+              : inputs[condition.key] === condition.value)
+          )
+            continue;
+          inputs[prompt.key] = await io.prompt({
+            type: prompt.type === "select" ? "select" : "text",
+            message: prompt.message,
+            options: prompt.options?.map((option: any) => ({
+              id: option.value,
+              label: option.label,
+            })),
+          });
+        }
+        const authorization = await api(
+          `/provider/${path}/oauth/authorize`,
+          { method: Number(method), inputs },
+          "POST",
+          io.signal,
+        );
+        if (!["code", "auto"].includes(authorization.method))
+          throw new Error("Unsupported authorization method");
+        io.link(authorization.url, undefined, authorization.instructions);
+        const code =
+          authorization.method === "code"
+            ? await io.prompt({
+                type: "manual_code",
+                message:
+                  authorization.instructions ||
+                  "Paste the provider verification code",
+              })
+            : undefined;
+        if (
+          (await api(
+            `/provider/${path}/oauth/callback`,
+            { method: Number(method), code },
+            "POST",
+            io.signal,
+          )) !== true
+        )
+          throw new Error("Provider did not confirm authentication");
+      }
+      const catalog = await api("/provider");
+      if (!catalog.connected.includes(provider))
+        throw new Error("Provider did not confirm authentication");
+    },
+    async dispose() {
+      await stop(child);
+    },
+  };
+}
+
+export async function createAuthDriver(
+  options: AuthOptions,
+): Promise<AuthDriver> {
+  if (options.name === "codex" || options.name === "claude")
+    return cliDriver(options);
+  if (options.name === "pi") return piDriver(options);
+  if (options.name === "opencode") return openCodeDriver(options);
+  throw new Error("Unsupported sign-in harness");
+}

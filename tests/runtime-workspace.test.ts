@@ -15,6 +15,8 @@ const { runtimeGithubCredential } =
   await import("../src/server/runtime-github");
 const { runtimeWorkspaceKey, subscriptionStream } =
   await import("../src/server/subscriptions");
+const { cleanupMergedWorkspaces } =
+  await import("../src/server/workspace-cleanup");
 const { githubEnvironment } = await import(resolve("runtime/workspace.mjs"));
 const token = "fixture-github-secret";
 function preference(owner = "alice", mode = "allow") {
@@ -50,6 +52,10 @@ const requests: any[] = [];
 app.use(express.json());
 app.post("/runtime", (req, res) => {
   requests.push(req.body);
+  if (req.body.action === "cleanup") {
+    res.json({ results: [] });
+    return;
+  }
   res.type("application/x-ndjson").end(
     [
       {
@@ -87,7 +93,7 @@ beforeAll(async () => {
 });
 afterEach(() => {
   db.exec(
-    "DELETE FROM mcp_connections; DELETE FROM mcp_preferences; DELETE FROM runtime_hosts",
+    "DELETE FROM agents; DELETE FROM connections; DELETE FROM mcp_connections; DELETE FROM mcp_preferences; DELETE FROM runtime_hosts",
   );
   requests.length = 0;
 });
@@ -223,4 +229,73 @@ it("Git credentials are per-process and only returned to HTTPS github.com", () =
       ),
     ),
   ).not.toContain(token);
+});
+
+it("runs post-merge maintenance only for the owner's managed subscription workspaces and allowed GitHub account", async () => {
+  preference();
+  github();
+  preference("bob", "ask");
+  github({ owner: "bob", auth: { type: "bearer", token: "bob-secret" } });
+  const addConnection = (
+    owner: string,
+    provider: string,
+    metadata: object,
+    status = "connected",
+  ) => {
+    const key = id();
+    db.prepare(
+      "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,'Fixture','',?,?,?)",
+    ).run(key, owner, provider, status, JSON.stringify(metadata), now());
+    return key;
+  };
+  const addAgent = (owner: string, connection: string) => {
+    const key = id();
+    db.prepare(
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,?,?,?,'codex',?,'fixture',?)",
+    ).run(key, owner, key, key, connection, now());
+    return key;
+  };
+  const alice = addConnection("alice", "codex", { authMode: "subscription" });
+  const agent = addAgent("alice", alice);
+  addAgent("bob", alice); // Even a malformed cross-owner association cannot cross the boundary.
+  addAgent(
+    "bob",
+    addConnection("bob", "anthropic", { authMode: "subscription" }),
+  );
+  addAgent("alice", addConnection("alice", "anthropic", {})); // API connection.
+  addAgent(
+    "alice",
+    addConnection(
+      "alice",
+      "codex",
+      { authMode: "subscription" },
+      "disconnected",
+    ),
+  );
+  db.prepare(
+    "INSERT INTO runtime_hosts(id,owner_id,name,url,secret,kind,created_at) VALUES('native','alice','Native',?,?,'native-host',?)",
+  ).run(
+    process.env.LOOP_RUNTIME_URL,
+    seal(process.env.LOOP_RUNTIME_TOKEN!, "alice"),
+    now(),
+  );
+  addAgent(
+    "alice",
+    addConnection("alice", "codex", {
+      authMode: "subscription",
+      runtimeHostId: "native",
+    }),
+  );
+  await cleanupMergedWorkspaces();
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    action: "cleanup",
+    provider: "codex",
+    workspaceKeys: [runtimeWorkspaceKey("alice", agent)],
+    githubToken: token,
+  });
+  preference("alice", "ask");
+  requests.length = 0;
+  await cleanupMergedWorkspaces();
+  expect(requests).toHaveLength(0);
 });

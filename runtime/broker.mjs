@@ -40,6 +40,8 @@ const pending = new Map(),
 const MAX_ACTIVE = MAX_CONCURRENT_RUNS;
 const codexWorkers = new Map();
 const codexMaintenance = new Map();
+const workspaceCleanups = new Set();
+const workspaceCleanupDone = new Map();
 const activeCount = () =>
   active.size +
   [...codexWorkers.values()].reduce(
@@ -60,9 +62,9 @@ async function remove(name) {
   const p = docker(["rm", "-f", name]);
   p.stdout.resume();
   p.stderr.resume();
-  await new Promise((resolve) => {
-    p.once("error", resolve);
-    p.once("close", resolve);
+  return await new Promise((resolve) => {
+    p.once("error", () => resolve(false));
+    p.once("close", (code) => resolve(code === 0));
   });
 }
 function spawnRuntime(key, entry) {
@@ -102,10 +104,11 @@ function codexWorker(key) {
     if (!idle) throw new Error("Runtime capacity reached. Retry later.");
     idle.close();
   }
-  const { p, stop } = spawnRuntime(key, "codex-worker.mjs");
+  const { p, name, stop } = spawnRuntime(key, "codex-worker.mjs");
   worker = new SharedCodex(p, stop, () => {
     if (codexWorkers.get(key) === worker) codexWorkers.delete(key);
   });
+  worker.containerName = name;
   codexWorkers.set(key, worker);
   return worker;
 }
@@ -303,6 +306,66 @@ const server = createServer(async (req, res) => {
       { key, provider, action } = data;
     if (!/^[a-f0-9]{64}$/.test(key) || !["codex", "claude"].includes(provider))
       throw new Error("Invalid runtime");
+    if (action === "cleanup") {
+      if (hostMode) {
+        json(res, { skipped: true });
+        return;
+      }
+      if (
+        !Array.isArray(data.workspaceKeys) ||
+        data.workspaceKeys.length > 100 ||
+        data.workspaceKeys.some(
+          (value) => typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value),
+        )
+      )
+        throw new Error("Invalid cleanup workspaces");
+      if (
+        pending.has(key) ||
+        active.has(key) ||
+        codexBusy(key) ||
+        codexMaintenance.has(key) ||
+        activeCount() >= MAX_ACTIVE
+      ) {
+        json(res, { skipped: true });
+        return;
+      }
+      // Reserve the connection before awaiting. New Claude turns join serial's
+      // queue; new turns wait until this maintenance operation finishes.
+      const marker = {};
+      codexMaintenance.set(key, marker);
+      workspaceCleanups.add(key);
+      try {
+        const cleanup = serial(key, async () => {
+          const idleWorker = codexWorkers.get(key);
+          if (idleWorker) {
+            // Wait for Docker to confirm the container is gone, not just for
+            // its attached CLI to exit; background tools could still write.
+            const removed = await remove(idleWorker.containerName);
+            idleWorker.close();
+            if (!removed)
+              throw new Error("Could not stop the idle runtime for cleanup");
+          }
+          return execute(
+            key,
+            {
+              provider: "file",
+              action,
+              workspaceKeys: data.workspaceKeys,
+              githubToken: data.githubToken,
+            },
+            () => {},
+          );
+        });
+        workspaceCleanupDone.set(key, cleanup);
+        const result = await cleanup;
+        json(res, result);
+      } finally {
+        if (codexMaintenance.get(key) === marker) codexMaintenance.delete(key);
+        workspaceCleanups.delete(key);
+        workspaceCleanupDone.delete(key);
+      }
+      return;
+    }
     if (action === "steer") {
       if (provider === "codex") {
         if (
@@ -566,7 +629,8 @@ const server = createServer(async (req, res) => {
       throw new Error("Invalid action");
     if (
       provider === "codex" &&
-      (codexMaintenance.has(key) || activeCount() >= MAX_ACTIVE)
+      ((codexMaintenance.has(key) && !workspaceCleanups.has(key)) ||
+        activeCount() >= MAX_ACTIVE)
     ) {
       json(
         res,
@@ -606,8 +670,14 @@ const server = createServer(async (req, res) => {
           controller.signal,
         );
       };
-      if (provider === "codex") await run();
-      else await serial(key, run);
+      if (provider === "codex") {
+        await workspaceCleanupDone.get(key)?.catch(() => {});
+        if (activeCount() >= MAX_ACTIVE)
+          throw new Error(
+            "Codex runtime is at capacity. Retry when a slot is available.",
+          );
+        await run();
+      } else await serial(key, run);
       res.end();
     } finally {
       clearInterval(heartbeat);

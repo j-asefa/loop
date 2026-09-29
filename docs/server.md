@@ -31,6 +31,22 @@ The Docker broker retains per-connection native credential volumes. Codex operat
 
 [Remote server runtimes](remote-runtimes.md) covers a remote broker, a native host for Codex/Claude and direct Codex app-server. Those modes expose different host access than isolated containers.
 
+### Cleanup after a pull request merges
+
+Managed Docker agents receive a workspace lifecycle instruction: reuse a primary clone, create a linked Git worktree and branch per job, and register each job when opening or taking ownership of a GitHub PR:
+
+```sh
+node /runtime/workspace-cleanup.mjs track /home/node/workspaces/AGENT_KEY /home/node/workspaces/AGENT_KEY/job https://github.com/owner/repo/pull/123
+```
+
+The server worker checks registered jobs every five minutes when their subscription connection is idle, using the owner's allowed connected GitHub integration. It does not invoke a model. Registration is stored in the agent workspace's `.loop-cleanup` directory, survives restarts, and does not contain credentials. Jobs already on disk must be registered before automatic cleanup can find them. A busy connection is skipped until a later check; new work cannot overlap deletion. Rebuild the app, broker and runtime images together to enable this lifecycle.
+
+Cleanup verifies GitHub's merged status, repository, branch and exact PR head SHA, including squash/rebase merges. It removes ignored, untracked generated directories such as `node_modules`, `dist`, `build`, `coverage`, `.next` and `target`, including nested packages. It then removes a clean linked worktree with `git worktree remove` and deletes the matching local branch. A primary clone is kept for reuse, with its merged branch detached and deleted. Remote branches are separate: GitHub's **Automatically delete head branches** repository setting handles those.
+
+Dirty or locked worktrees, unpushed commits, default/base branches and submodules are preserved. Other ignored files (such as `.env` or user uploads) prevent worktree retirement even after generated files are removed. Failed or blocked checks leave a reason in the registration's `lastResult`; they are retried on later checks. Agents should upload deliverables to Loop before retiring a job. Cleanup never uses blanket `git clean` or forces removal of a worktree. Agents can also run `node /runtime/workspace-cleanup.mjs sweep /home/node/workspaces/AGENT_KEY` when their jobs are idle.
+
+This lifecycle applies to registered managed Docker workspaces, not arbitrary host directories, direct companion sessions, Docker images or build caches. It has no disk quota and does not bound storage growth during active work.
+
 ## Access configuration
 
 | Setting                      | Use                                                                                         |

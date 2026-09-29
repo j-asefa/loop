@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -271,4 +271,148 @@ it("includes nested project folders and excludes another owner's folder tree", a
       (item: any) => item.id,
     ),
   ).not.toEqual(expect.arrayContaining([outside, privateArtifact]));
+});
+
+function nativeAnswer(
+  owner: string,
+  content: string,
+  state: string,
+  partial = false,
+) {
+  const agent = id(),
+    conversation = id(),
+    message = id();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'pi','fixture',?)",
+  ).run(agent, owner, agent, agent, now());
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Native conversation',?)",
+  ).run(conversation, owner, agent, now());
+  const run = enqueue(owner, "Native question", id(), { agent, conversation });
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant',?,?)",
+  ).run(message, owner, conversation, run.id, content, now());
+  const artifact = saveArtifact(owner, {
+    agent,
+    conversation,
+    run: run.id,
+    title: "Native answer",
+    content,
+    metadata: { native: true, partial },
+  });
+  db.prepare(
+    "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history,stage) VALUES(?,?,?,'[]',?)",
+  ).run(run.id, message, artifact, partial ? "native" : "done");
+  db.prepare("UPDATE runs SET state=? WHERE id=?").run(state, run.id);
+  return { agent, conversation, run: run.id, artifact };
+}
+
+it("publishes native answers to feed and profile updates without exposing tools, partials or another owner", async () => {
+  const owner = "native-feed",
+    subscription = id();
+  db.prepare("INSERT INTO push_subscriptions VALUES(?,?,?,?,?)").run(
+    subscription,
+    owner,
+    "https://fcm.googleapis.com/native-feed",
+    "fixture",
+    now(),
+  );
+  const answer = nativeAnswer(owner, "", "running", true);
+  const tool = saveArtifact(owner, {
+    agent: answer.agent,
+    conversation: answer.conversation,
+    run: answer.run,
+    title: "Native tool",
+    content: "private tool output",
+    metadata: { native: true },
+  });
+  const after = feedRevision(owner);
+  expect((await get("/feed", owner)).items).toEqual([]);
+  expect(
+    db
+      .prepare("SELECT 1 FROM push_deliveries WHERE subscription_id=?")
+      .get(subscription),
+  ).toBeUndefined();
+  db.prepare(
+    "UPDATE artifacts SET content='Final native answer',metadata=? WHERE id=?",
+  ).run(JSON.stringify({ native: true, partial: false }), answer.artifact);
+  db.prepare("UPDATE agent_checkpoints SET stage='done' WHERE run_id=?").run(
+    answer.run,
+  );
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(answer.run);
+  nativeAnswer(owner, "Not finished", "completed", true);
+  nativeAnswer(owner, "Failed answer", "failed");
+  nativeAnswer(owner, "Interrupted answer", "interrupted");
+  nativeAnswer(owner, "   ", "completed");
+  nativeAnswer("native-stranger", "Another owner's answer", "completed");
+  for (const filter of ["", `&agent=${answer.agent}`]) {
+    expect(
+      (await get(`/feed?${filter}`, owner)).items.map((item: any) => item.id),
+    ).toEqual([answer.artifact]);
+    const updates = await get(
+      `/feed/updates?after=${after}&through=0${filter}`,
+      owner,
+    );
+    expect(updates.items.map((item: any) => item.id)).toEqual([
+      answer.artifact,
+    ]);
+    expect(updates.removed).toContain(tool);
+  }
+  expect(
+    (await get(`/feed?agent=${answer.agent}`, "native-stranger")).status,
+  ).toBe(404);
+  expect(
+    db
+      .prepare(
+        "SELECT artifact_id FROM push_deliveries WHERE subscription_id=?",
+      )
+      .all(subscription),
+  ).toEqual([{ artifact_id: answer.artifact }]);
+});
+
+it("restores previously published native cards without rewriting answers or replaying notifications", async () => {
+  const owner = "native-history";
+  const answer = nativeAnswer(owner, "Existing final answer", "completed");
+  const subscription = id();
+  db.prepare("INSERT INTO push_subscriptions VALUES(?,?,?,?,?)").run(
+    subscription,
+    owner,
+    "https://fcm.googleapis.com/native-history",
+    "fixture",
+    now(),
+  );
+  const after = feedRevision(owner);
+  db.prepare("DELETE FROM schema_version WHERE version=33").run();
+  db.exec(
+    readFileSync(
+      new URL(
+        "../migrations/033-native-answer-publication.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const updates = await get(`/feed/updates?after=${after}&through=0`, owner);
+  expect(updates.items).toMatchObject([
+    { id: answer.artifact, content: "Existing final answer" },
+  ]);
+  expect(
+    db
+      .prepare(
+        "SELECT count(*) n FROM artifact_publications WHERE artifact_id=?",
+      )
+      .get(answer.artifact),
+  ).toEqual({ n: 1 });
+  expect(
+    db
+      .prepare(
+        "SELECT version,content FROM artifact_versions WHERE artifact_id=?",
+      )
+      .all(answer.artifact),
+  ).toEqual([{ version: 1, content: "Existing final answer" }]);
+  expect(
+    db
+      .prepare("SELECT 1 FROM push_deliveries WHERE subscription_id=?")
+      .get(subscription),
+  ).toBeUndefined();
 });

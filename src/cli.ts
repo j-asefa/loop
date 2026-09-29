@@ -371,7 +371,9 @@ Uninstall removes the package separately; workspace/native history is retained.`
       : positionals[0];
   if (action === "doctor") {
     const harnesses = await Promise.all(
-      names.map((n) => discover(n, values.executable)),
+      names
+        .filter((n) => n !== "acp")
+        .map((n) => discover(n, values.executable)),
     );
     console.log(
       JSON.stringify(
@@ -388,6 +390,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           checks: [
             "No model request made.",
             "Native billing is checked when enabling and starting sessions.",
+            "ACP agents require --executable and negotiate their protocol at startup.",
             "Quick Tunnel needs outbound Cloudflare connectivity.",
           ],
         },

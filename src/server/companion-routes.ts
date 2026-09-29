@@ -8,8 +8,103 @@ import { db } from "./db.js";
 import { config } from "./config.js";
 import { Problem, owned } from "./domain.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSignIns } from "./native-auth.js";
 
 export const companion = express.Router();
+const authHarness = z.enum(["codex", "claude", "pi", "opencode"]);
+async function authOptions(
+  name: z.infer<typeof authHarness>,
+  projectId: string,
+) {
+  owned("folders", projectId, OWNER);
+  const project = db
+    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
+    .get(projectId) as { path: string } | undefined;
+  if (!project)
+    throw new Problem(422, "Choose a project directory on this computer.");
+  const saved = nativeSessions.registrations().some((r) => r.name === name)
+    ? nativeSessions.registration(name)
+    : undefined;
+  const probe = await discover(name, saved?.executable);
+  if (!probe.installed || !probe.supported) throw new Problem(409, probe.help);
+  return {
+    name,
+    executable: probe.executable!,
+    project: saved?.project || project.path,
+  };
+}
+companion.get("/workspace/runtimes/:name/auth", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const options = await authOptions(
+    authHarness.parse(req.params.name),
+    z.string().min(1).parse(req.query.projectId),
+  );
+  res.json(await nativeSignIns.catalog(options));
+});
+companion.get("/workspace/runtimes/:name/auth/status", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(nativeSignIns.status(authHarness.parse(req.params.name)));
+});
+companion.post("/workspace/runtimes/:name/auth/start", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const body = z
+    .object({
+      projectId: z.string().min(1),
+      provider: z.string().min(1).max(200),
+      method: z.string().min(1).max(100),
+      commandId: z.string().uuid(),
+    })
+    .strict()
+    .parse(req.body);
+  const options = await authOptions(
+    authHarness.parse(req.params.name),
+    body.projectId,
+  );
+  res.json(
+    await nativeSignIns.start(
+      options,
+      body.provider,
+      body.method,
+      body.commandId,
+    ),
+  );
+});
+companion.post("/workspace/runtimes/:name/auth/input", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const body = z
+    .object({
+      attemptId: z.string().uuid(),
+      promptId: z.string().uuid(),
+      value: z
+        .string()
+        .min(1)
+        .max(16000)
+        .regex(/^[^\r\n]+$/),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    nativeSignIns.answer(
+      authHarness.parse(req.params.name),
+      body.attemptId,
+      body.promptId,
+      body.value,
+    ),
+  );
+});
+companion.post("/workspace/runtimes/:name/auth/cancel", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const body = z
+    .object({ attemptId: z.string().uuid() })
+    .strict()
+    .parse(req.body);
+  res.json(
+    await nativeSignIns.cancel(
+      authHarness.parse(req.params.name),
+      body.attemptId,
+    ),
+  );
+});
 companion.get("/workspace", (_req, res) =>
   res.json({
     harnesses: nativeSessions.registrations(),
@@ -47,6 +142,11 @@ companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
   const name = z
     .enum(["codex", "claude", "pi", "opencode"])
     .parse(req.params.name);
+  if (nativeSignIns.inProgress(name))
+    throw new Problem(
+      409,
+      "Finish or cancel this runtime’s sign-in before enabling it.",
+    );
   const input = z
     .object({
       projectId: z.string().min(1),
@@ -76,11 +176,6 @@ companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
     throw new Problem(
       409,
       "This runtime is already bound to another project. Stop the desktop workspace before changing its project.",
-    );
-  if (input.billing === "subscription" && name === "claude")
-    throw new Problem(
-      422,
-      "Claude Code subscription integration requires Anthropic approval. Choose existing native configuration instead.",
     );
   if (input.billing === "subscription" && name === "opencode")
     throw new Problem(

@@ -270,6 +270,12 @@ function Shell() {
                 void Linking.openURL(request.url);
               return false;
             }}
+            onOpenWindow={({ nativeEvent }) => {
+              // Provider login opens in the system browser without the paired
+              // workspace's Authorization header, including target=_blank links.
+              if (/^https?:/.test(nativeEvent.targetUrl))
+                void Linking.openURL(nativeEvent.targetUrl);
+            }}
             onMessage={(event) => {
               if (!sameOrigin(event.nativeEvent.url, pairing.origin)) return;
               try {

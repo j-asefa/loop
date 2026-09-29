@@ -13,24 +13,40 @@ let count = 0,
   held = false;
 if (process.argv.includes("--version")) {
   console.log(
-    {
-      codex: "codex-cli 0.157.0",
-      pi: "0.87.1",
-      claude: "2.1.282 (Claude Code)",
-      opencode: "1.18.32",
-    }[kind],
+    process.env.LOOP_TEST_HARNESS_VERSION ??
+      {
+        codex: "codex-cli 0.157.0",
+        pi: "0.87.1",
+        claude: "2.1.282 (Claude Code)",
+        opencode: "1.18.32",
+      }[kind],
   );
   process.exit();
 }
 if (process.argv.includes("auth")) {
   console.log(
     JSON.stringify({
-      loggedIn: true,
-      authMethod: "api_key",
+      loggedIn: process.env.LOOP_TEST_CLAUDE_AUTH !== "none",
+      authMethod:
+        process.env.LOOP_TEST_CLAUDE_AUTH === "oauth" ? "claude.ai" : "api_key",
       apiProvider: "firstParty",
+      apiKeySource: process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE || "none",
     }),
   );
   process.exit();
+}
+if (kind === "claude" && process.argv.includes("--print")) {
+  const permissionFlag = process.argv.indexOf("--permission-prompt-tool");
+  if (
+    permissionFlag < 0 ||
+    process.argv[permissionFlag + 1] !== "stdio" ||
+    process.argv.includes("--permission-prompts")
+  ) {
+    console.error(
+      "Claude requires --permission-prompt-tool stdio for host permission decisions",
+    );
+    process.exit(1);
+  }
 }
 // Models a harness that keeps running after Loop's pipes close.
 if (process.env.LOOP_TEST_OUTLIVE_STDIN) setInterval(() => {}, 1 << 30);
@@ -111,7 +127,7 @@ if (kind === "pi")
     3,
     JSON.stringify({
       configured: true,
-      subscription: true,
+      subscription: process.env.LOOP_TEST_PI_AUTH !== "api",
       provider: "openai-codex",
       model: "fixture",
       modelEfforts: [
@@ -120,6 +136,11 @@ if (kind === "pi")
           levels: ["off", "low", "medium", "high"],
         },
         { id: "openai-codex/plain", levels: ["off"] },
+      ],
+      modelBilling: [
+        { id: "openai-codex/fixture", subscription: true },
+        { id: "openai-codex/plain", subscription: true },
+        { id: "openai/fixture", subscription: false },
       ],
     }) + "\n",
   );
@@ -152,6 +173,9 @@ if (kind !== "opencode") {
         models: [
           { provider: "openai-codex", id: "fixture", name: "Fixture" },
           { provider: "openai-codex", id: "plain", name: "Plain" },
+          ...(process.env.LOOP_TEST_PI_API_MODEL
+            ? [{ provider: "openai", id: "fixture", name: "Fixture" }]
+            : []),
         ],
       });
     if (type === "set_thinking_level") {
@@ -213,9 +237,14 @@ if (kind !== "opencode") {
             m.request.subtype === "initialize"
               ? {
                   account: {
-                    apiProvider: "firstParty",
+                    apiProvider:
+                      process.env.LOOP_TEST_CLAUDE_PROVIDER || "firstParty",
                     subscriptionType: "pro",
-                    apiKeySource: "user",
+                    apiKeySource:
+                      process.env.LOOP_TEST_CLAUDE_KEY_SOURCE ||
+                      (process.env.LOOP_TEST_CLAUDE_AUTH === "oauth"
+                        ? "none"
+                        : "user"),
                   },
                 }
               : {},

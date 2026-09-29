@@ -21,6 +21,7 @@ import { refreshEnvironment, environment } from "./hapi/environments.js";
 import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
+import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -118,6 +119,24 @@ export function startWorker() {
       .run(workerId, now());
   heartbeat();
   const hapiTimers: ReturnType<typeof setInterval>[] = [];
+  let cleaning = false;
+  const cleanupController = new AbortController();
+  hapiTimers.push(
+    setInterval(
+      () => {
+        if (cleaning || stopping) return;
+        cleaning = true;
+        const promise = cleanupMergedWorkspaces(cleanupController.signal)
+          .catch(() => {})
+          .finally(() => {
+            cleaning = false;
+            inflight.delete(promise);
+          });
+        inflight.add(promise);
+      },
+      5 * 60 * 1000,
+    ),
+  );
   let notifying = false;
   hapiTimers.push(
     setInterval(() => {
@@ -171,6 +190,7 @@ export function startWorker() {
   );
   return async () => {
     stopping = true;
+    cleanupController.abort();
     hapiTimers.forEach(clearInterval);
     stopObservingEnvironments();
     clearInterval(health);

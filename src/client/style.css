@@ -2847,6 +2847,61 @@ pre {
   border: 0;
   margin: 12px 0;
 }
+.native-runtime {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.native-runtime-title {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.native-runtime-state {
+  color: var(--muted);
+  font-size: 13px;
+}
+.native-runtime-state.connected,
+.native-sign-in-success {
+  color: var(--green);
+}
+.native-sign-in-success {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.native-sign-in-success svg {
+  flex: 0 0 auto;
+}
+.native-sign-in-success h3 {
+  margin: 0;
+}
+.native-runtime-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.native-runtime-actions .error {
+  flex-basis: 100%;
+}
+.native-runtime > button,
+.native-sign-in > button {
+  margin: 4px 8px 4px 0;
+  min-height: 44px;
+}
+.native-sign-in label {
+  display: block;
+  margin: 16px 0 12px;
+}
+.native-sign-in > .primary {
+  display: flex;
+  width: 100%;
+  margin: 12px 0;
+}
 
 /* Feed filters and conversation focus */
 .agent-strip .agent-strip-model {

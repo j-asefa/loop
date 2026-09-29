@@ -13,6 +13,7 @@ import { transition, type Run } from "./queue.js";
 import { Codex } from "../adapters/codex.js";
 import { Claude } from "../adapters/claude.js";
 import { Pi } from "../adapters/pi.js";
+import { NativeSetupError } from "../adapters/setup-error.js";
 import { OpenCode } from "../adapters/opencode.js";
 import { Acp } from "../adapters/acp.js";
 import type { Adapter, Options } from "../adapters/types.js";
@@ -49,6 +50,23 @@ const labels = {
   opencode: "OpenCode",
   acp: "ACP agent",
 };
+
+// Native tools can return far more text than the phone needs to display. Keep
+// a bounded tail in Loop's projection; the harness still owns the full output.
+function displayText(text: string) {
+  const limit = 64000;
+  if (Buffer.byteLength(JSON.stringify(text)) <= limit) return text;
+  const notice = "[Earlier native output omitted from this preview.]\n";
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const keep = Math.ceil((low + high) / 2);
+    const candidate = notice + text.slice(-keep);
+    if (Buffer.byteLength(JSON.stringify(candidate)) <= limit) low = keep;
+    else high = keep - 1;
+  }
+  return notice + (low ? text.slice(-low) : "");
+}
 type Registration = {
   name: Harness;
   options: string;
@@ -258,6 +276,13 @@ export class NativeSessions {
     let billing: Billing;
     try {
       billing = await native.start();
+    } catch (error) {
+      if (error instanceof NativeSetupError)
+        throw new Problem(422, error.message, {
+          phase: "native startup",
+          code: error.code,
+        });
+      throw error;
     } finally {
       await native.dispose();
     }
@@ -564,6 +589,14 @@ export class NativeSessions {
         ).run(now(), conversation);
       } catch (error) {
         await this.dispose(live);
+        db.prepare(
+          "UPDATE companion_sessions SET state='failed',updated_at=? WHERE conversation_id=? AND generation=?",
+        ).run(now(), conversation, generation);
+        if (error instanceof NativeSetupError)
+          throw new Problem(422, error.message, {
+            phase: "native startup",
+            code: error.code,
+          });
         // Keep actionable setup guidance at the worker's safe error boundary.
         // Raw process/SDK errors may contain local paths or provider details.
         if (harness === "acp" && !(error instanceof Problem))
@@ -585,7 +618,12 @@ export class NativeSessions {
       this.activity(live, input);
       return;
     }
-    if (Buffer.byteLength(JSON.stringify(input)) > 256000) {
+    // Project display text before checking event size. An oversized tool
+    // result is not an oversized approval and must not cancel native work.
+    const event = structuredClone(input);
+    if (event.type === "item") event.item.text = displayText(event.item.text);
+    if (event.type === "delta") event.text = displayText(event.text);
+    if (Buffer.byteLength(JSON.stringify(event)) > 256000) {
       if (live.run)
         void this.interrupt(
           live.run.id,
@@ -596,7 +634,6 @@ export class NativeSessions {
         void this.dispose(live);
       return;
     }
-    const event = structuredClone(input);
     if (event.type === "metadata") {
       if (!event.nativeSession || event.nativeSession.length > 4096) return;
       live.binding.native_id = event.nativeSession;
@@ -608,7 +645,6 @@ export class NativeSessions {
     if ((event.type === "item" || event.type === "delta") && !live.run) {
       // Native history is a projection; it is never fed back as model context.
       if (event.type === "item") {
-        event.item.text = event.item.text.slice(-64000);
         if (!live.items.replay(event.item)) return;
         db.prepare(
           "INSERT INTO native_items VALUES(?,?,NULL,?,?) ON CONFLICT(conversation_id,native_id) DO UPDATE SET item=excluded.item,updated_at=excluded.updated_at",
@@ -632,7 +668,6 @@ export class NativeSessions {
       return;
     }
     if (event.type === "item") {
-      event.item.text = event.item.text.slice(-64000);
       if (!live.items.set(event.item.id, event.item)) {
         void this.interrupt(
           run.id,
@@ -778,8 +813,7 @@ export class NativeSessions {
         "SELECT generation FROM companion_sessions WHERE conversation_id=?",
       )
       .get(live.binding.conversation_id) as
-      | { generation: string | null }
-      | undefined;
+      { generation: string | null } | undefined;
     if (current?.generation !== live.generation) return;
     const transport = live.binding.harness === "acp" ? "acp" : "native";
     if (event.type === "activity_capabilities") {

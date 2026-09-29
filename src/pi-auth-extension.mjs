@@ -1,0 +1,129 @@
+// Loaded only into a dedicated, prompt-free sign-in process. Pi owns auth.json.
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { Socket } from "node:net";
+import { randomUUID } from "node:crypto";
+
+export default function loopSignIn(pi) {
+  pi.on("input", () => ({ action: "handled" }));
+  pi.on("session_start", async () => {
+    const runtime = await ModelRuntime.create({ refreshOnCreate: false });
+    const channel = new Socket({ fd: 3, readable: true, writable: true });
+    const send = (value) => channel.write(JSON.stringify(value) + "\n");
+    const pending = new Map();
+    let abort;
+    let buffer = "";
+    channel.on("error", () => abort?.abort());
+    channel.on("close", () => abort?.abort());
+    channel.on("data", (chunk) => {
+      buffer += chunk.toString();
+      if (buffer.length > 100000) {
+        channel.destroy();
+        return;
+      }
+      let newline;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const text = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        let message;
+        try {
+          message = JSON.parse(text);
+        } catch {
+          continue;
+        }
+        if (message.type === "input") pending.get(message.id)?.(message.value);
+        if (message.type !== "login" || abort) continue;
+        abort = new AbortController();
+        void runtime
+          .login(
+            message.provider,
+            message.method === "api" ? "api_key" : "oauth",
+            {
+              signal: abort.signal,
+              notify(event) {
+                if (event.type === "auth_url")
+                  send({
+                    type: "link",
+                    url: event.url,
+                    instructions: event.instructions,
+                  });
+                if (event.type === "device_code")
+                  send({
+                    type: "link",
+                    url: event.verificationUri,
+                    code: event.userCode,
+                  });
+              },
+              prompt(prompt) {
+                return new Promise((resolve, reject) => {
+                  const id = randomUUID();
+                  const cleanup = () => {
+                    pending.delete(id);
+                    prompt.signal?.removeEventListener("abort", cancelled);
+                  };
+                  const cancelled = () => {
+                    cleanup();
+                    send({ type: "clear_prompt", id });
+                    reject(new Error("Cancelled"));
+                  };
+                  if (prompt.signal?.aborted) return cancelled();
+                  prompt.signal?.addEventListener("abort", cancelled, {
+                    once: true,
+                  });
+                  pending.set(id, (value) => {
+                    cleanup();
+                    resolve(value);
+                  });
+                  send({
+                    type: "prompt",
+                    id,
+                    prompt: {
+                      type: prompt.type,
+                      message: prompt.message,
+                      options: prompt.options?.map(({ id, label }) => ({
+                        id,
+                        label,
+                      })),
+                    },
+                  });
+                });
+              },
+            },
+          )
+          .then(
+            () => send({ type: "complete" }),
+            () => send({ type: "failed" }),
+          )
+          .finally(() => {
+            abort = undefined;
+          });
+      }
+    });
+    send({
+      type: "providers",
+      providers: runtime
+        .getProviders()
+        .map((provider) => ({
+          id: provider.id,
+          name: provider.name,
+          configured: runtime.hasConfiguredAuth(provider.id),
+          methods: [
+            ...(provider.auth?.oauth
+              ? [
+                  {
+                    id: "oauth",
+                    type: "oauth",
+                    label:
+                      provider.auth.oauth.loginLabel ||
+                      provider.auth.oauth.name,
+                  },
+                ]
+              : []),
+            ...(provider.auth?.apiKey?.login
+              ? [{ id: "api", type: "api", label: provider.auth.apiKey.name }]
+              : []),
+          ],
+        }))
+        .filter((provider) => provider.methods.length),
+    });
+  });
+}

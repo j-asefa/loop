@@ -6,9 +6,12 @@ import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
 import type { Harness } from "./protocol.js";
 const exec = promisify(execFile);
-const releases = {
+// Floors for the adapter protocols we require, not exact release pins. New
+// stable releases are admitted; adapter startup still checks the live protocol
+// and authentication/billing contract before dispatching a prompt.
+const minimumVersions = {
   codex: "0.157.0",
-  claude: "2.1.282",
+  claude: "2.1.237",
   pi: "0.87.1",
   opencode: "1.18.32",
 };
@@ -18,6 +21,20 @@ const install = {
   pi: "https://github.com/earendil-works/pi",
   opencode: "https://opencode.ai/docs",
 };
+
+function meetsMinimum(version: string | undefined, minimum: string) {
+  if (!version) return false;
+  const core = version.split("+")[0];
+  // Keep prerelease identifiers: stripping them would silently admit betas.
+  if (core.includes("-")) return false;
+  const parts = core.split(".").map(Number);
+  if (!parts.every(Number.isSafeInteger)) return false;
+  const floor = minimum.split(".").map(Number);
+  for (let i = 0; i < floor.length; i++) {
+    if (parts[i] !== floor[i]) return parts[i] > floor[i];
+  }
+  return true;
+}
 
 export async function discover(name: Harness, explicit?: string) {
   if (name === "acp")
@@ -41,8 +58,10 @@ export async function discover(name: Harness, explicit?: string) {
       timeout: 10000,
       maxBuffer: 20000,
     });
-    const version = stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0];
-    const supported = version === releases[name];
+    const version = stdout.match(
+      /(?:^|\s)v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=\s|$)/,
+    )?.[1];
+    const supported = meetsMinimum(version, minimumVersions[name]);
     return {
       name,
       installed: true as const,
@@ -51,7 +70,7 @@ export async function discover(name: Harness, explicit?: string) {
       supported,
       help: supported
         ? ""
-        : `Validated version: ${releases[name]}. Install/check it at ${install[name]}; Loop never upgrades your harness.`,
+        : `Requires a stable ${name} version >= ${minimumVersions[name]}. ${version ? `Found ${version}.` : "Could not read its version."} Install/check it at ${install[name]}; Loop never upgrades your harness.`,
     };
   } catch {
     return {
