@@ -6,7 +6,7 @@ Install the desired harness on the execution computer. [Sign in to its provider 
 
 `loop pair` displays a fresh code for the running instance; it does not start services or agents. It supersedes an unused pairing code, not already paired devices. If stopped, run `loop start`. `loop status --json` distinguishes server readiness from whether any native harness is registered. Registration is not a fresh authentication guarantee. Use `loop logs` for diagnostics and `loop stop` for shutdown. `--foreground` keeps startup attached to the terminal. `--local-only` is for desktop testing; mobile pairing requires HTTPS. `--public-url` uses your externally configured HTTPS tunnel; named-tunnel options are unchanged.
 
-Restarting retains workspace data and paired-device credentials. A Quick Tunnel can change address: run `loop pair`, scan with your phone’s camera and add the new page to your home screen. Use a stable HTTPS hostname to preserve the browser installation across restarts.
+Restarting retains workspace data and paired-device credentials. A Quick Tunnel can change address: run `loop pair`, scan with your phone’s camera and add the new page to your home screen.
 
 ## Ownership and compatibility
 

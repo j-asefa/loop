@@ -36,6 +36,6 @@ Run a saved version with inputs, review required approval steps and inspect link
 
 ## Browser and offline behavior
 
-The web app can be installed from an HTTPS origin using the browser's home-screen/app installation flow. A Quick Tunnel origin can change; use a stable HTTPS hostname to keep the home-screen installation working across restarts.
+The web app can be installed from an HTTPS origin using the browser's home-screen/app installation flow. A Quick Tunnel origin can change; run `loop pair` and add the new page to your home screen.
 
 The service worker caches public shell assets, not private API responses or credentials. Offline relaunch shows reconnect UI; there is no background-send queue. Share links create a draft for review rather than silently submitting work. See [pairing](pairing.md) for device access and reconnection.

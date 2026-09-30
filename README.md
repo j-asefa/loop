@@ -1,6 +1,16 @@
-# Loop
+# 🔁 Loop
 
-Loop is a phone-first agent web app. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. Agents keep working on your computer after your phone disconnects — reopen Loop anytime to check progress, steer a run or approve the next step. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
+Loop is a phone-first agent web app. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
+
+## Why Loop
+
+- 📲 **No app to install.** Scan a QR code, pair in your phone's browser and add Loop to your home screen. The same flow works on iPhone and Android, with no app store or account signup. A Quick Tunnel gives your computer an HTTPS address with no domain, router or account setup; if the address changes, run `loop pair` and scan again. See [pairing](docs/pairing.md).
+- 🎯 **Results, not logs.** Final answers appear as cards; plans, diffs, command output and traces stay one tap away. Phone notifications arrive when a result is ready, not for every tool call. See [notifications](docs/feedback/SAVED-NOTIFICATIONS.md).
+- 🗂️ **A feed, not one endless chat.** Run several agents and conversations at once, then follow them through Feed, Running, Search and Saved, organized by project. See [workspace](docs/workspace.md).
+- ↩️ **Reply to any update, even mid-run.** Loop quotes the message you picked alongside your reply. Intermediate updates may be missing from the harness's own history, so this puts that exact update back in front of the agent. During a run, your reply is delivered into the live turn.
+- 🔌 **Your harnesses, your subscriptions.** Codex, Claude Code, OpenCode, Pi and ACP agents keep their own context, tools and sign-in. Loop checks the billing policy you chose and never switches billing methods after a failure. See [harnesses](docs/harnesses.md).
+- 📶 **Built for flaky phone connections.** Loop records each send before dispatching it, never automatically replays an uncertain one, and catches up on missed updates after a reconnect. See [architecture](docs/architecture.md).
+- 🏠 **Your code stays on your computer.** Agents run on your machine and keep working after your phone disconnects; reopen Loop to check progress, steer a run or approve the next step. Only paired devices can sign in, and you can revoke them. See [SECURITY.md](SECURITY.md).
 
 ## Setup
 
@@ -66,7 +76,7 @@ Without explicit flags or saved preferences, `loop start` prepares Codex, Claude
 
 1. Start a laptop workspace with `loop start` and scan its QR code with your phone's camera.
 2. Create an agent with an enabled connection and project. The computer must stay awake; work continues when the phone disconnects.
-3. If the Quick Tunnel address changes, run `loop pair` and scan again with your phone’s camera. A stable hostname preserves reconnection across restarts.
+3. If the Quick Tunnel address changes, run `loop pair` and scan again with your phone’s camera.
 
 ```sh
 loop status

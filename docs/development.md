@@ -48,7 +48,7 @@ Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an 
 
 ## Containers and CI
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. Its jobs run in parallel: root test/build (`verify`), one browser-smoke job per engine (`browser`), package smoke, Docker Compose smoke, the companion image and native HAPI transport/compatibility checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. Its jobs run in parallel: root test/build (`verify`), one browser-smoke job per engine (`browser`), package smoke, Docker Compose smoke, the companion image and native HAPI transport/compatibility checks. A `changes` job skips all of them when a pull request touches only Markdown files or `docs/`; skipped jobs report success, so this also holds if they become required checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
 
 The native image compatibility job also runs `native/check-opencode-discovery.mjs` against the image’s guarded OpenCode executable and shipped runner service, with external networking disabled. It checks execution-guard evidence, native model discovery, credential replacement and provider-specific sign-out using disposable synthetic credentials. Locally, pass the guarded executable as the first argument; an optional second argument selects an already-built runner service. Without it, the fixture builds the service from the checkout. This does not verify real OAuth or inference.
 

@@ -34,7 +34,7 @@ The managed launcher can supervise an existing locally managed named Cloudflare 
 loop start --tunnel-name YOUR-TUNNEL-ID --tunnel-config ~/.cloudflared/config.yml --public-url https://loop.example.com
 ```
 
-Use a dedicated tunnel. Loop generates ingress only for its authenticated gateway, reuses the credentials file and leaves the original configuration unchanged. Remote token-managed tunnels are not auto-enrolled. A stable hostname lets trusted devices reconnect without a new scan after normal restarts.
+Use a dedicated tunnel. Loop generates ingress only for its authenticated gateway, reuses the credentials file and leaves the original configuration unchanged. Remote token-managed tunnels are not auto-enrolled.
 
 ## Storage and recovery
 

@@ -3,9 +3,31 @@ on: [pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  # Docs-only PRs skip the jobs below. A job skipped by its condition reports
+  # success, so this stays mergeable if these checks become required.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | grep -qvE '(\.md$|^docs/)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Unit tests, browser smokes and the package smoke run in parallel jobs;
   # each browser engine gets its own job.
   verify:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +41,8 @@ jobs:
       - run: npm run test:all
 
   browser:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -49,6 +73,8 @@ jobs:
           path: docs/loop-v0/evidence/*.png
 
   package:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +88,8 @@ jobs:
       - run: npm run smoke:package
 
   containers:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,6 +115,8 @@ jobs:
     # Keep the two deployment builds off the same disk: the guarded runtime
     # build exhausted the hosted runner after the server images were built.
     # Separate jobs get separate runners, so this runs alongside containers.
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -104,6 +134,8 @@ jobs:
       - run: node scripts/compose-companion-smoke.mjs
 
   native-contract:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
