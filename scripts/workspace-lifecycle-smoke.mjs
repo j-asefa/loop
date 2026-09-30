@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
-import { chromium, webkit, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 const evidence = process.env.LOOP_LIFECYCLE_EVIDENCE;
 if (evidence) mkdirSync(evidence, { recursive: true });
-for (const engine of [chromium, webkit]) {
+for (const engine of selectedEngines()) {
   const fixture = await designFixture();
   const browser = await engine.launch();
   try {

@@ -10,7 +10,7 @@
     "ui": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs && node scripts/build-cli.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run test/ --exclude \"test/**/*.node.test.ts\" --maxWorkers 1",
+    "test": "vitest run test/ --exclude \"test/**/*.node.test.ts\"",
     "start": "node --import tsx src/server/serve.ts",
     "serve": "node scripts/serve.mjs",
     "smoke:browser": "node scripts/browser-smoke.mjs",

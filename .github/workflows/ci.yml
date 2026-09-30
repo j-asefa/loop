@@ -3,6 +3,8 @@ on: [pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  # Unit tests, browser smokes and the package smoke run in parallel jobs;
+  # each browser engine gets its own job.
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -15,22 +17,49 @@ jobs:
       - run: npm run setup
       - run: npm run build
       - run: npm run test:all
-      - run: npx playwright install --with-deps chromium webkit
+
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    env:
+      LOOP_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run setup
+      - run: npm run build
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run smoke:workspace
       - run: npm run smoke:html
       - run: npm run smoke:design
       - run: npm run smoke:companion
-      - run: LOOP_BROWSER=webkit npm run smoke:companion
-      - run: npm run smoke:package
       - run: npm run smoke:browser
-      - run: LOOP_BROWSER=webkit npm run smoke:browser
       - run: npm run smoke:journey
-      - run: LOOP_BROWSER=webkit npm run smoke:journey
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: loop-browser-evidence
+          name: loop-browser-evidence-${{ matrix.browser }}
           path: docs/loop-v0/evidence/*.png
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run setup
+      # The smoke builds and packs the tarball itself.
+      - run: npm run smoke:package
 
   containers:
     runs-on: ubuntu-latest
@@ -55,9 +84,9 @@ jobs:
         run: docker compose down -v --remove-orphans
 
   companion-container:
-    # Keep the two deployment builds off the same disk. The guarded runtime
+    # Keep the two deployment builds off the same disk: the guarded runtime
     # build exhausted the hosted runner after the server images were built.
-    needs: containers
+    # Separate jobs get separate runners, so this runs alongside containers.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

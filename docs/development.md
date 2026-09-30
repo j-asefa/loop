@@ -25,6 +25,8 @@ The root build typechecks, builds the Vite UI/service worker and bundles CLI/ser
 
 Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
+Vitest runs files in parallel workers; Node-runner tests run one file at a time. Tests that exercise stop escalation shorten its waits with `LOOP_TEST_STOP_WAIT_MS` and `LOOP_TEST_STOP_GRACE_MS` instead of sleeping through production timeouts.
+
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
 ## Browser checks
@@ -40,11 +42,13 @@ npm run smoke:journey
 LOOP_BROWSER=webkit npm run smoke:journey
 ```
 
+`smoke:design`, `smoke:workspace` and `smoke:html` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium.
+
 Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. CI uploads generated screenshots from `docs/loop-v0/evidence/`; that path remains an output location, not a maintained legacy architecture guide. ACP browser evidence is generated under `docs/validation/evidence/`.
 
 ## Containers and CI
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. It runs root test/build, Chromium/WebKit journeys, package smoke, Docker Compose smoke and native HAPI transport/compatibility checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. Its jobs run in parallel: root test/build (`verify`), one browser-smoke job per engine (`browser`), package smoke, Docker Compose smoke, the companion image and native HAPI transport/compatibility checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
 
 The native image compatibility job also runs `native/check-opencode-discovery.mjs` against the image’s guarded OpenCode executable and shipped runner service, with external networking disabled. It checks execution-guard evidence, native model discovery, credential replacement and provider-specific sign-out using disposable synthetic credentials. Locally, pass the guarded executable as the first argument; an optional second argument selects an already-built runner service. Without it, the fixture builds the service from the checkout. This does not verify real OAuth or inference.
 

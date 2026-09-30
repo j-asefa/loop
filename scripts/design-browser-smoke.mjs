@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { chromium, webkit, expect } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
+import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
@@ -22,7 +23,7 @@ const screenshots =
   (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 try {
-  for (const engine of [chromium, webkit]) {
+  for (const engine of selectedEngines()) {
     const browser = await engine.launch({ headless: true });
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { chromium, webkit } from "@playwright/test";
+import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { htmlPreviewSmoke } from "./helpers/html-preview-smoke.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -12,7 +12,7 @@ const evidence =
   (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 try {
-  for (const engine of [chromium, webkit]) {
+  for (const engine of selectedEngines()) {
     const browser = await engine.launch({ headless: true });
     try {
       const context = await browser.newContext({

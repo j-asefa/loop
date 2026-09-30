@@ -309,7 +309,11 @@ test("a startup failure in the background process reaches the terminal", async (
 
 test("crashed and hung workspaces: status, stop, relaunch and log rotation", async () => {
   // The native harness must be stopped by loop stop, not by its pipes closing.
-  const w = await workspace({ LOOP_TEST_OUTLIVE_STDIN: "1" });
+  const w = await workspace({
+    LOOP_TEST_OUTLIVE_STDIN: "1",
+    // A frozen workspace ignores SIGTERM until SIGKILL; don't wait 5s for it.
+    LOOP_TEST_STOP_GRACE_MS: "1000",
+  });
   let follower: ReturnType<typeof spawn> | undefined;
   const natives: number[] = [];
   try {
@@ -659,6 +663,7 @@ test("a forced stop that leaves survivors fails and keeps the records", async ()
       JSON.stringify([{ pid: child.pid, identity: identity(child.pid!) }]),
     );
     // Signals that never land stand in for a process that survives SIGKILL.
+    process.env.LOOP_TEST_STOP_GRACE_MS = "500";
     await assert.rejects(
       forceStop(dir, undefined, "exited", () => {}),
       new RegExp(`Process\\(es\\) ${child.pid} did not exit`),
@@ -666,6 +671,7 @@ test("a forced stop that leaves survivors fails and keeps the records", async ()
     assert(existsSync(registry), "the record is kept for another attempt");
     assert(alive(child.pid!));
   } finally {
+    delete process.env.LOOP_TEST_STOP_GRACE_MS;
     child.kill("SIGKILL");
     await rm(dir, { recursive: true, force: true });
   }
@@ -682,11 +688,13 @@ test("a workspace that acknowledges stop but never exits is terminated", async (
   );
   const w = await workspace({
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import ${pathToFileURL(preload)}`,
+    LOOP_TEST_STOP_WAIT_MS: "2000",
+    LOOP_TEST_STOP_GRACE_MS: "1000",
   });
   try {
     const { pid } = await w.start();
     const stopped = await w.loop(["stop", "--json"], 60000);
-    assert.match(stopped.stderr, /did not exit within 20s; terminating it/);
+    assert.match(stopped.stderr, /did not exit within 2s; terminating it/);
     assert.equal(JSON.parse(stopped.stdout).stopped, true);
     assert(!alive(pid));
     assert.equal((await w.status()).state, "stopped");

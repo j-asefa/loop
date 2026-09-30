@@ -111,6 +111,7 @@ function invoke(
     key?: string;
     githubToken?: string;
     fastClock?: boolean;
+    fastDiscovery?: boolean;
     effort?: string;
     catalogMode?: string;
     steering?: string;
@@ -126,6 +127,9 @@ function invoke(
     [
       ...(workspace.fastClock
         ? ["--import", resolve("test/helpers/fast-runtime-clock.mjs")]
+        : []),
+      ...(workspace.fastDiscovery
+        ? ["--import", resolve("test/helpers/fast-discovery-clock.mjs")]
         : []),
       "runtime/entry.mjs",
     ],
@@ -276,7 +280,7 @@ it.each([
       false,
       "",
       [],
-      { catalogMode },
+      { catalogMode, fastDiscovery: catalogMode === "timeout" },
     );
     expect(result.code).toBe(0);
     const status = result.events.at(-1).result;
