@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { RichText } from "./components";
+import { Avatar, RichText } from "./components";
 import { AttachmentList } from "./Attachments";
+import type { Agent, Provider } from "../shared/types";
 import type { UploadedFile } from "../shared/uploads";
 
 type Prompt = {
@@ -11,6 +12,8 @@ type Prompt = {
   conversation_id: string;
   conversation_title: string;
   agent_name: string | null;
+  agent_id: string | null;
+  provider: Provider | null;
   project_name: string | null;
   attachments: UploadedFile[];
 };
@@ -18,8 +21,12 @@ type Page = { items: Prompt[]; next: string | null };
 export function PersonalProfile({
   name,
   onConversation,
+  agents,
+  onAgent,
 }: {
   name: string;
+  agents: Agent[];
+  onAgent: (agent: Agent) => void;
   onConversation: (id: string, message: string) => void;
 }) {
   const [page, setPage] = useState<Page>({ items: [], next: null });
@@ -76,30 +83,46 @@ export function PersonalProfile({
   }, [loading, error, page.next]);
   return (
     <section className="feed personal-history" aria-label="Your sent prompts">
-      <p>{name} · Your prompts across all your projects.</p>
-      {page.items.map((item) => (
-        <article className="feed-card" key={item.id}>
+      <header className="profile-head personal-profile-head">
+        <span className="avatar user" role="img" aria-label={name + " avatar"}>
+          {name
+            .trim()
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((part) => Array.from(part)[0])
+            .join("")
+            .toUpperCase()}
+        </span>
+        <h1>{name}</h1>
+        <span className="personal-you">You</span>
+        <p className="muted">Your personal workspace</p>
+        <p>Your messages and work with agents, across all your projects.</p>
+      </header>
+      <h2 className="personal-section-title">Sent messages</h2>
+      {page.items.map((item) => {
+        const agent = agents.find((candidate) => candidate.id === item.agent_id);
+        return (
+        <article className="feed-card personal-message-card" key={item.id}>
           <div className="personal-recipient">
-            <span className="personal-avatar" aria-hidden="true">
-              {(item.agent_name || "?").slice(0, 1)}
-            </span>
-            <strong>{item.agent_name || "Recipient unavailable"}</strong>
+            {agent ? (
+              <button className="personal-agent-avatar" aria-label={`Open ${agent.name} profile`} onClick={() => onAgent(agent)}>
+                <Avatar name={agent.name} provider={agent.provider} />
+              </button>
+            ) : <Avatar name={item.agent_name || "Recipient unavailable"} provider={item.provider || undefined} />}
+            <div>
+              <small className="muted">You sent a message to</small>
+              {agent ? (
+                <button className="text-button personal-agent-name" onClick={() => onAgent(agent)}>{agent.name}</button>
+              ) : <strong>{item.agent_name || "Recipient unavailable"}</strong>}
+            </div>
           </div>
-          <p className="field-hint">
-            {item.project_name || "No project"} · {item.conversation_title}
-          </p>
+          <RichText content={item.content} />
+          <AttachmentList files={item.attachments} />
+          <p className="personal-message-context">{item.project_name || "No project"} · {item.conversation_title}</p>
+          <footer className="personal-message-footer">
           <time dateTime={new Date(item.created_at).toISOString()}>
             {new Date(item.created_at).toLocaleString()}
           </time>
-          {item.content.length > 1200 ? (
-            <details>
-              <summary>{item.content.slice(0, 180)}… — Expand prompt</summary>
-              <RichText content={item.content} />
-            </details>
-          ) : (
-            <RichText content={item.content} />
-          )}
-          <AttachmentList files={item.attachments} />
           <a
             href={`/?conversation=${encodeURIComponent(item.conversation_id)}&message=${encodeURIComponent(item.id)}`}
             onClick={(event) => {
@@ -117,8 +140,10 @@ export function PersonalProfile({
           >
             Open conversation
           </a>
+          </footer>
         </article>
-      ))}
+        );
+      })}
       {loading && <p role="status">Loading prompts…</p>}
       {error && (
         <div role="alert">

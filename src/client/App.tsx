@@ -1511,12 +1511,17 @@ export default function App() {
               <button
                 className="text-button"
                 onClick={() => {
+                  if (tab === "personal" && previousPage()) return;
                   setProfile(null);
                   setView("all");
                 }}
               >
                 <ArrowLeft size={16} />
-                {tab === "projects" ? "Back to project" : "Back to feed"}
+                {tab === "projects"
+                  ? "Back to project"
+                  : tab === "personal"
+                    ? "Back to profile"
+                    : "Back to feed"}
               </button>
               <section className="profile-head">
                 <Avatar name={profile.name} provider={profile.provider} />
@@ -1654,7 +1659,7 @@ export default function App() {
                 ))}
               </div>
             </>
-          ) : (
+          ) : tab !== "personal" ? (
             <div className="page-heading">
               <div>
                 <span className="eyebrow">
@@ -1675,9 +1680,7 @@ export default function App() {
                         ? "Search everything."
                         : tab === "projects"
                           ? "Projects"
-                          : tab === "personal"
-                            ? "Your profile"
-                            : "Saved"}
+                          : "Saved"}
                 </h1>
                 {tab === "feed" && (
                   <p className="page-description">
@@ -1685,7 +1688,7 @@ export default function App() {
                   </p>
                 )}
               </div>
-              {!["feed", "projects", "saved", "personal"].includes(tab) &&
+              {!["feed", "projects", "saved"].includes(tab) &&
                 availableAgents.length > 0 && (
                   <button
                     className="secondary"
@@ -1700,7 +1703,7 @@ export default function App() {
                   </button>
                 )}
             </div>
-          )}
+          ) : null}
           {["feed", "running", "saved"].includes(tab) &&
             !profile &&
             data.agents.length > 0 && (
@@ -2308,8 +2311,8 @@ export default function App() {
               }}
             />
           )}
-          {tab === "personal" && !profile && (
-            <>
+          {tab === "personal" && (
+            <div hidden={Boolean(profile)}>
               <button
                 className="text-button"
                 onClick={() => {
@@ -2320,10 +2323,12 @@ export default function App() {
               </button>
               <PersonalProfile
                 key={session.user.id}
-                name={session.user.name || "You"}
+                name={session.user.name?.trim() || "You"}
+                agents={data.agents}
+                onAgent={setProfile}
                 onConversation={setConversation}
               />
-            </>
+            </div>
           )}
           {dismissNotice && (
             <p className="note" role="status">

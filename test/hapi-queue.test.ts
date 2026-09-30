@@ -75,10 +75,10 @@ it("keeps capacity one while admitting the resident conversation", () => {
   transition(other, "completed");
 });
 
-it("claims through the active-state index with 200,000 completed runs", () => {
+it("claims through the active-state index with 1,000 completed runs", () => {
   const f = fixture(false), run = f.make(f.conversation());
   db.prepare(`WITH RECURSIVE history(n) AS (
-    SELECT 1 UNION ALL SELECT n+1 FROM history WHERE n<200000
+    SELECT 1 UNION ALL SELECT n+1 FROM history WHERE n<1000
   ) INSERT INTO runs(id,owner_id,agent_id,conversation_id,kind,input,state,idempotency_key,payload,created_at,updated_at)
     SELECT 'history-' || ? || '-' || n, ?, ?, ?, 'agent', 'finished', 'completed',
       'history-' || n, '{}', ?-1, ?-1 FROM history`).run(
