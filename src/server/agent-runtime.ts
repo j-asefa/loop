@@ -62,6 +62,7 @@ export function submit(
     replyTo?: ReplyContext;
     // User follow-ups steer active work. Internal delegation/retry creates work.
     steer?: boolean;
+    personal?: boolean;
   },
 ) {
   return db
@@ -269,7 +270,7 @@ export function submit(
             data.idempotencyKey,
             request,
             data.input,
-            { attachments, replyTo },
+            { attachments, replyTo, personal: data.personal === true },
           );
         }
       }
@@ -295,7 +296,7 @@ export function submit(
         run.id,
         "user",
         data.input,
-        JSON.stringify({ attachments, replyTo }),
+        JSON.stringify({ attachments, replyTo, personal: data.personal === true }),
         now(),
       );
       return run;

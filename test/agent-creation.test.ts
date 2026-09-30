@@ -222,6 +222,7 @@ it("delivers uploaded files with the initial prompt and preserves them across re
     .get(run.id) as any;
   expect(message.content).toBe(input.initialPrompt);
   expect(JSON.parse(message.metadata).attachments).toEqual([text, image]);
+  expect(JSON.parse(message.metadata).personal).toBe(true);
   expect(readRunFile(run, text.id, 0, 1000, "utf8").content).toBe(
     "A project brief for the first task.",
   );

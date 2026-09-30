@@ -10,6 +10,14 @@ Teams coordinate manager/worker agents through bounded delegation. Deleting a te
 
 Keyword search works without a provider. Semantic search can use a local embedding model/runtime and reports readiness or failure. Optional OpenAI embeddings require an explicitly selected API connection; subscription connections do not authorize embedding API usage.
 
+## Personal profile
+
+The bottom-right **Profile** button opens `/?page=personal`, a private, newest-first history of prompts sent across the signed-in owner's projects. Entries show their run's receiving agent, project, conversation, attachments, and a link to the original message. Long prompts expand in place; more history loads as you scroll. Search and profile editing are not included.
+
+History uses canonical messages and rechecks owner, conversation and project access on every page. Archived work remains readable under the existing retention rules; deleting underlying messages/conversations removes them from history. Agent renames show the current name, while missing agent records show “Recipient unavailable.” Account changes reset the view.
+
+New interactive submissions carry a server-controlled personal-origin marker; internal submissions are excluded. Older messages are included only when they have the submission attachment metadata and an agent run, without native projection/import markers or delegation ancestry. Legacy retry submissions cannot be distinguished reliably from original submissions and may appear; imported or unlinked records without reliable provenance are omitted. The view does not aggregate other owners or deployments.
+
 ## MCP tools
 
 In Settings → Tools & integrations, choose a catalog integration or add a custom server. Paste `mcpServers` JSON for command or hosted configurations; complete any required OAuth or credential setup. Installation succeeds only after discovery. Catalog definitions are maintained in [catalog-data.ts](../src/server/mcp/catalog-data.ts), not fetched as executable instructions at runtime.

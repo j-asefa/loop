@@ -187,6 +187,9 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
   let server = await launch(dir, { LOOP_AUTH_MODE: "multi-user" });
   expect(await (await server.request(sessionPath)).json()).toBeNull();
   expect((await server.request("/bootstrap")).status).toBe(401);
+  expect((await server.request("/me/prompts?owner=someone-else")).status).toBe(
+    401,
+  );
   const email = "existing@example.com";
   const password = "fixture-password-for-existing-account";
   const signup = await server.request(
@@ -241,6 +244,47 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
     .getSetCookie()
     .map((c) => c.split(";")[0])
     .join("; ");
+  const otherOwner = (await other.json()).user.id as string;
+  const historyDb = new Database(join(dir, "loop.db"));
+  for (const [id, user] of [
+    ["owned-prompt", owner.id],
+    ["foreign-prompt", otherOwner],
+  ]) {
+    historyDb
+      .prepare(
+        "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,1)",
+      )
+      .run(id, user, id);
+    historyDb
+      .prepare(
+        "INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,'prompt','completed',?,1,1)",
+      )
+      .run(id, user, id, id);
+    historyDb
+      .prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,'{\"personal\":true}',1)",
+      )
+      .run(id, user, id, id, id);
+  }
+  historyDb.close();
+  const ownHistory = await server.request(
+    "/me/prompts?owner=" + encodeURIComponent(otherOwner),
+    undefined,
+    { cookie },
+  );
+  expect(ownHistory.status).toBe(200);
+  expect(
+    (await ownHistory.json()).items.map((item: { id: string }) => item.id),
+  ).toEqual(["owned-prompt"]);
+  const foreignHistory = await server.request(
+    "/me/prompts?owner=" + encodeURIComponent(owner.id),
+    undefined,
+    { cookie: otherCookie },
+  );
+  expect(foreignHistory.status).toBe(200);
+  expect(
+    (await foreignHistory.json()).items.map((item: { id: string }) => item.id),
+  ).toEqual(["foreign-prompt"]);
   expect(
     (
       await (

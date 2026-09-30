@@ -12,6 +12,7 @@ import {
   projectFolders,
 } from "./feed.js";
 import { agentTraces } from "./traces.js";
+import { personalHistory } from "./personal-history.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages } from "./conversation-messages.js";
 import { dismissRun } from "./run-attention.js";
@@ -378,6 +379,10 @@ core.get("/agents/:id/traces", (req, res) => {
   const runId = z.string().min(1).max(100).optional().parse(req.query.run);
   res.json(agentTraces(res.locals.owner, req.params.id, before, runId));
 });
+core.get("/me/prompts", (req, res) => {
+  const before = z.string().min(1).max(512).optional().parse(req.query.before);
+  res.json(personalHistory(res.locals.owner, before));
+});
 core.get("/agents/:id/messages", (req, res) => {
   const before = z.string().min(1).max(512).optional().parse(req.query.before);
   res.json(agentMessages(res.locals.owner, req.params.id, before));
@@ -410,7 +415,7 @@ core.post("/runs", (req, res) => {
       folderId: z.string().min(1).nullable().optional(),
     })
     .parse(req.body);
-  res.status(202).json(submit(res.locals.owner, { ...d, steer: true }));
+  res.status(202).json(submit(res.locals.owner, { ...d, steer: true, personal: true }));
 });
 core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);

@@ -71,6 +71,7 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
       const run = data.initialPrompt
         ? submit(owner, {
             agentId: agent.id,
+            personal: true,
             input: data.initialPrompt,
             attachmentIds: files,
             folderId: data.folderId || undefined,

@@ -1,3 +1,4 @@
+import { PersonalProfile } from "./PersonalProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName, runModelName } from "./modelChoices";
 import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
@@ -46,6 +47,7 @@ import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import {
+  UserRound,
   Orbit,
   Rows3,
   Activity,
@@ -114,6 +116,7 @@ const tabs = [
   { id: "projects", label: "Projects", icon: Folder },
   { id: "search", label: "Search", icon: Search },
   { id: "saved", label: "Saved", icon: Bookmark },
+  { id: "personal", label: "Profile", icon: UserRound },
 ];
 export default function App() {
   const [sharedDraft, setSharedDraft] = useState<SharedDraft>(initialShare);
@@ -1065,7 +1068,10 @@ export default function App() {
           key={t.id}
           aria-label={t.label}
           aria-current={tab === t.id ? "page" : undefined}
-          className={tab === t.id ? "current" : ""}
+          className={[
+            tab === t.id ? "current" : "",
+            t.id === "personal" ? "personal-nav" : "",
+          ].join(" ")}
           onClick={() => {
             if (t.id === "feed" || t.id === "running") {
               const now = performance.now();
@@ -1669,7 +1675,9 @@ export default function App() {
                         ? "Search everything."
                         : tab === "projects"
                           ? "Projects"
-                          : "Saved"}
+                          : tab === "personal"
+                            ? "Your profile"
+                            : "Saved"}
                 </h1>
                 {tab === "feed" && (
                   <p className="page-description">
@@ -1677,7 +1685,7 @@ export default function App() {
                   </p>
                 )}
               </div>
-              {!["feed", "projects", "saved"].includes(tab) &&
+              {!["feed", "projects", "saved", "personal"].includes(tab) &&
                 availableAgents.length > 0 && (
                   <button
                     className="secondary"
@@ -2300,6 +2308,23 @@ export default function App() {
               }}
             />
           )}
+          {tab === "personal" && !profile && (
+            <>
+              <button
+                className="text-button"
+                onClick={() => {
+                  if (!previousPage()) setTab("feed");
+                }}
+              >
+                Back
+              </button>
+              <PersonalProfile
+                key={session.user.id}
+                name={session.user.name || "You"}
+                onConversation={setConversation}
+              />
+            </>
+          )}
           {dismissNotice && (
             <p className="note" role="status">
               {dismissNotice}
@@ -2313,7 +2338,7 @@ export default function App() {
             </p>
           )}
         </main>
-        {!conversation && messageComposer}
+        {!conversation && tab !== "personal" && messageComposer}
         <nav className="mobile-nav">{nav}</nav>
       </div>
       {archivedCard && (

@@ -5038,3 +5038,52 @@ select {
   width: 100%;
   margin: 0;
 }
+
+.personal-history {
+  overflow-wrap: anywhere;
+}
+.personal-history time {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.personal-recipient {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.personal-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.personal-history summary {
+  cursor: pointer;
+  white-space: pre-wrap;
+}
+@media (min-width: 651px) {
+  .app-shell > .main-column > .composer-dock {
+    padding-right: 150px;
+  }
+  nav .personal-nav {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    z-index: 30;
+  }
+}
+@media (max-width: 900px) {
+  .mobile-nav button {
+    min-width: 0;
+    flex: 1;
+  }
+}

@@ -97,6 +97,7 @@ sharing.post("/share/send", (req, res) => {
   res.json(
     submit(res.locals.owner, {
       agentId: agent.id,
+      personal: true,
       input,
       folderId: d.folderId,
       idempotencyKey: d.idempotencyKey,
