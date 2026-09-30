@@ -132,6 +132,7 @@ export class WorkspaceHost {
     beforeWorker?: () => Promise<void>,
     managed?: () => Promise<any>,
     runtimeNeutral = false,
+    onListening?: () => Promise<void>,
   ) {
     if (this.closing) throw new Error("Workspace is stopping");
     nativeSignIns.open();
@@ -149,9 +150,16 @@ export class WorkspaceHost {
       await this.gateway.close();
       throw new Error("Workspace is stopping");
     }
-    const account = managed
-      ? await managed()
-      : runtimeNeutral
+    // Pairing and the public gateway can be made available before runner startup.
+    // Register the project first so a paired client can inspect its workspace.
+    nativeSessions.addProject(options.project);
+    await onListening?.();
+    if (this.closing) throw new Error("Workspace is stopping");
+    const account =
+      (await managed?.()) ??
+      // A managed launcher carries placeholder direct options. Failed managed
+      // setup must leave runtime selection to the user, including laptop children.
+      (runtimeNeutral || managed
         ? (nativeSessions.addProject(options.project),
           {
             billing: {
@@ -159,7 +167,7 @@ export class WorkspaceHost {
                 "Execution host ready. Choose and enable an installed runtime in the app; authentication is checked when enabling.",
             },
           })
-        : await nativeSessions.enable(options);
+        : await nativeSessions.enable(options));
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
     this.stopWorker = startWorker();

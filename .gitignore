@@ -18,3 +18,5 @@ deployment/out/
 __pycache__/
 *.pyc
 .local-native/
+
+native/generated/

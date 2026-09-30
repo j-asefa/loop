@@ -19,7 +19,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 
 ## Execution paths
 
-API-provider and server subscription connections use Loop's managed queue and conversation context. Managed work is serialized per agent. Subscription runtimes receive Loop's bounded history and structured tool/answer contract while retaining their native tools.
+API-provider and server subscription connections use Loop's managed queue and conversation context. Managed work is serialized per agent, except HAPI connections, which serialize turns per conversation and allow concurrent conversations bounded by environment capacity. Subscription runtimes receive Loop's bounded history and structured tool/answer contract while retaining their native tools.
 
 Direct companion connections route to durable native sessions before the managed model loop. Independent conversations can run concurrently; each conversation serializes its work and binds an immutable connection, project and native session. Native history owns context; Loop stores a display projection. Idle direct processes may be evicted and resumed using native session IDs. The managed HAPI backend has its own explicit release/resume lifecycle; do not infer its policy from the direct adapter host.
 

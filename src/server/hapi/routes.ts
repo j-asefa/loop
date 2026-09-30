@@ -2,7 +2,14 @@ import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "../db.js";
 import { owned, Problem } from "../domain.js";
-import { billingPolicy, claudePolicy, verifyAuth } from "./contracts.js";
+import {
+  billingPolicy,
+  claudePolicy,
+  piPolicy,
+  verifyAuth,
+  nativeSelection,
+  type NativeSelection,
+} from "./contracts.js";
 import {
   environment,
   workerRequest,
@@ -23,6 +30,11 @@ executionRoutes.get("/environments", (_req, res) =>
       .all(res.locals.owner),
   ),
 );
+executionRoutes.get("/environments/:id/runtimes", async (req, res) => {
+  const e = environment(res.locals.owner, req.params.id);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await workerRequest(e, "/runtimes"));
+});
 executionRoutes.post("/environments/:id/refresh", async (req, res) =>
   res.json(
     await refreshEnvironment(environment(res.locals.owner, req.params.id)),
@@ -83,14 +95,40 @@ executionRoutes.post(
   "/environments/:id/provider/:flavor/:action",
   async (req, res) => {
     const e = environment(res.locals.owner, req.params.id),
-      flavor = z.enum(["codex", "claude"]).parse(req.params.flavor),
+      flavor = nativeSelection.shape.flavor.parse(req.params.flavor),
       action = z
-        .enum(["start", "status", "cancel", "code", "verify"])
+        .enum([
+          "start",
+          "status",
+          "providers",
+          "input",
+          "cancel",
+          "code",
+          "verify",
+        ])
         .parse(req.params.action);
     if (action !== "verify") {
       res.json(
         await workerRequest(e, "/login/" + action, {
           flavor,
+          ...(action === "start"
+            ? z
+                .object({
+                  provider: z.string().min(1).max(200).optional(),
+                  method: z.string().min(1).max(200).optional(),
+                  commandId: z.string().uuid().optional(),
+                })
+                .parse(req.body)
+            : {}),
+          ...(action === "input"
+            ? z
+                .object({
+                  attemptId: z.string().uuid(),
+                  promptId: z.string().uuid(),
+                  value: z.string().max(8192),
+                })
+                .parse(req.body)
+            : {}),
           ...(["code", "cancel"].includes(action)
             ? { attemptId: z.string().uuid().parse(req.body.attemptId) }
             : {}),
@@ -272,9 +310,17 @@ executionRoutes.post("/conversations/:id/release-native", async (req, res) => {
   res.json({ releaseRequested: true });
 });
 
-export async function connectProvider(e: any, flavor: "codex" | "claude") {
+export async function connectProvider(
+  e: any,
+  flavor: NativeSelection["flavor"],
+) {
   const auth = await workerRequest(e, "/auth", { flavor });
   verifyAuth(flavor, auth);
+  // Authentication belongs to the runner generation that performed the check.
+  // Re-read after the await, before any connection is created or refreshed.
+  const current = environment(e.owner_id, e.host_id);
+  if (current.state !== "online" || current.generation !== e.generation)
+    throw new Problem(409, "The execution environment changed. Retry after it is ready.");
   const prior = db
     .prepare(
       "SELECT id FROM connections WHERE owner_id=? AND json_extract(metadata,'$.backend')='hapi' AND json_extract(metadata,'$.environmentId')=? AND json_extract(metadata,'$.flavor')=?",
@@ -287,8 +333,8 @@ export async function connectProvider(e: any, flavor: "codex" | "claude") {
     runtimeHostId: e.host_id,
     runtimeKind: "hapi",
     flavor,
-    authMode: "subscription",
-    billing: flavor === "codex" ? billingPolicy : claudePolicy,
+    authMode: flavor === "pi" ? "existing" : "subscription",
+    billing: flavor === "pi" ? piPolicy : flavor === "claude" ? claudePolicy : billingPolicy,
     environmentName: e.name,
   });
   db.prepare(
@@ -296,8 +342,8 @@ export async function connectProvider(e: any, flavor: "codex" | "claude") {
   ).run(
     connectionId,
     e.owner_id,
-    flavor === "codex" ? "codex" : "anthropic",
-    `${e.name} · ${flavor === "codex" ? "ChatGPT / Codex" : "Claude Code"}`,
+    flavor === "claude" ? "anthropic" : flavor,
+    `${e.name} · ${flavor === "codex" ? "ChatGPT / Codex" : flavor === "opencode" ? "opencode (ChatGPT)" : flavor === "pi" ? "Pi" : "Claude Code"}`,
     JSON.stringify(auth.models || []),
     metadata,
     now(),

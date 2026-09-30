@@ -7,9 +7,15 @@ import type {
   SignIn,
 } from "../shared/native-auth.js";
 import { createAuthDriver } from "../native-auth/drivers.js";
-import { Problem } from "./domain.js";
+import { Problem } from "../shared/problem.js";
 
-export type AuthOptions = { name: string; executable: string; project: string };
+export type AuthOptions = {
+  name: string;
+  executable: string;
+  project: string;
+  /** Complete runner environment; never merge with the host when supplied. */
+  env?: NodeJS.ProcessEnv;
+};
 export type AuthInteraction = {
   signal: AbortSignal;
   link(url: string, code?: string, instructions?: string): void;
@@ -18,6 +24,10 @@ export type AuthInteraction = {
 export type AuthDriver = {
   readonly dead?: boolean;
   providers(): Promise<AuthProvider[]>;
+  /** Optional prompt-free native model catalog; validated by the runner. */
+  models?(): Promise<unknown>;
+  /** Remove a provider credential through its native store API. */
+  logout?(provider: string): Promise<void>;
   login(
     provider: string,
     method: string,
@@ -62,6 +72,11 @@ type Session = {
 };
 const active = (attempt?: SignIn) =>
   !!attempt && ["starting", "waiting"].includes(attempt.state);
+const sameEnvironment = (a?: NodeJS.ProcessEnv, b?: NodeJS.ProcessEnv) =>
+  a === undefined || b === undefined
+    ? a === b
+    : Object.keys(a).length === Object.keys(b).length &&
+      Object.keys(a).every((key) => a[key] === b[key]);
 
 // Only the paired, single-owner workspace exposes this service. Exchanges live
 // in memory and credentials stay in the harness's store, never workspace events.
@@ -99,6 +114,7 @@ export class NativeSignIns {
       if (
         prior.options.executable === options.executable &&
         prior.options.project === options.project &&
+        sameEnvironment(prior.options.env, options.env) &&
         !(restart && prior.disposed) &&
         !prior.driver.dead
       )
@@ -116,6 +132,12 @@ export class NativeSignIns {
       if (prior) await this.dispose(prior);
       let driver: AuthDriver | undefined;
       try {
+        // Snapshot the runner environment so later caller mutation cannot reuse
+        // a driver tied to a different credential home or launch policy.
+        options = {
+          ...options,
+          ...(options.env ? { env: { ...options.env } } : {}),
+        };
         driver = await this.factory(options);
         const providers = providersSchema.parse(await driver.providers());
         if (this.closing) throw new Error("Workspace stopping");

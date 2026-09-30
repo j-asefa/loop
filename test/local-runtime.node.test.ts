@@ -63,6 +63,31 @@ test("provider and location choices form independent combinations", () => {
   assert.throws(() => choices("openai", "cloud", "/project"));
 });
 
+test("managed explicit runtime lists preserve aliases and reject unsupported selections", () => {
+  for (const execution of ["native", "docker", "both"]) {
+    assert.deepEqual(choices("opencode", execution, "/project").providers, [
+      "opencode",
+    ]);
+    assert.deepEqual(
+      choices("codex, opencode,claude,codex", execution, "/project").providers,
+      ["codex", "opencode", "claude"],
+    );
+  }
+  assert.deepEqual(choices("pi", "native", "/project").providers, ["pi"]);
+  assert.deepEqual(choices("codex,claude,opencode,pi,pi", "docker", "/project").providers, ["codex", "claude", "opencode", "pi"]);
+  for (const providers of [
+    "",
+    "codex,",
+    "both,opencode",
+    "toString",
+    "__proto__",
+  ])
+    assert.throws(
+      () => choices(providers, "native", "/project"),
+      /--providers/,
+    );
+});
+
 test("login services preserve argument boundaries and own their child lifetime", () => {
   const linux = serviceDefinition(
     "linux",

@@ -271,10 +271,13 @@ export function normalizeMessage(message: any): {
   content: string;
   body: any;
   origin: string;
+  unrecognized?: boolean;
 } {
-  const c = message.content?.data ?? message.content;
-  const raw = c?.content ?? c?.body ?? {};
-  const body = raw.data && typeof raw.data === "object" ? raw.data : raw;
+  const c = message?.content?.data ?? message?.content;
+  const raw = c?.content ?? c?.body ?? c ?? {};
+  const payload = raw.data && typeof raw.data === "object" ? raw.data : raw;
+  const body =
+    payload && typeof payload === "object" ? payload : { value: payload };
   if (c?.role === "user")
     return {
       role: "user",
@@ -282,7 +285,7 @@ export function normalizeMessage(message: any): {
       body,
       origin: message.localId ? "loop" : "terminal",
     };
-  if (body.type === "message")
+  if (body.type === "message" && typeof body.message === "string")
     return {
       role: "assistant",
       content: body.message || "",
@@ -299,11 +302,28 @@ export function normalizeMessage(message: any): {
       body,
       origin: "native",
     };
+  const recognized = [
+    "reasoning",
+    "token_count",
+    "tool-call",
+    "tool-call-result",
+    "plan",
+    "error",
+    "generated-image",
+    "output",
+    "event",
+    "loop-turn",
+    "loop-delivery-unknown",
+    "loop-interrupted",
+  ].includes(body.type);
   return {
     role: "tool",
-    content: JSON.stringify(body).slice(0, 64000),
+    content:
+      (recognized ? "" : "Unrecognized native activity: ") +
+      JSON.stringify(body).slice(0, 64000),
     body,
     origin: "native",
+    ...(!recognized ? { unrecognized: true } : {}),
   };
 }
 export function projectMessages(
@@ -331,6 +351,9 @@ export function projectMessages(
         continue;
       }
       const n = normalizeMessage(m);
+      // Log no native payload: it can contain private tool output.
+      if (n.unrecognized)
+        console.warn("[hapi] Unrecognized native activity projected");
       const transcriptEcho =
         (m.content?.data ?? m.content)?.meta?.isTranscriptEcho === true;
       const dispatch = db

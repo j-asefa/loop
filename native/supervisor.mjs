@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, unlinkSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 const settings = JSON.parse(
   readFileSync(process.env.LOOP_WORKER_CONFIG, "utf8"),
@@ -25,6 +25,22 @@ Object.assign(process.env, {
   CLAUDE_CODE_USE_BEDROCK: "0",
   CLAUDE_CODE_USE_VERTEX: "0",
 });
+// Pin HAPI launch to the same host-resolved executable used for sign-in/status.
+// Never inherit a caller override or rely on PATH ordering for guarded OpenCode.
+delete process.env.HAPI_OPENCODE_PATH;
+if (settings.providers?.includes("opencode")) {
+  if (!isAbsolute(settings.opencodeBinary || ""))
+    throw new Error("Managed OpenCode requires an absolute executable path");
+  process.env.HAPI_OPENCODE_PATH = settings.opencodeBinary;
+}
+delete process.env.HAPI_PI_PATH;
+delete process.env.LOOP_PI_EXTENSION;
+if (settings.providers?.includes("pi")) {
+  if (!isAbsolute(settings.piBinary || ""))
+    throw new Error("Managed Pi requires an absolute executable path");
+  process.env.HAPI_PI_PATH = settings.piBinary;
+  process.env.LOOP_PI_EXTENSION = fileURLToPath(new URL("./generated/pi-managed-extension.mjs", import.meta.url));
+}
 // One authenticated Codex engine per native worker. HAPI execution processes
 // attach separate threads to it; they never own or terminate this process.
 const codexToken = randomBytes(32).toString("hex");

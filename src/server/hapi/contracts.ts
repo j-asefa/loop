@@ -12,6 +12,11 @@ export const claudePolicy = Object.freeze({
   requiredAuth: "claude",
   allowApiFallback: false,
 });
+export const piPolicy = Object.freeze({
+  mode: "existing",
+  requiredAuth: "pi",
+  allowApiFallback: false,
+});
 export const digest = (s: string) =>
   createHash("sha256").update(s).digest("hex");
 export function matchesSecret(secret: string, hash: string) {
@@ -22,14 +27,19 @@ export function matchesSecret(secret: string, hash: string) {
 }
 export function verifyAuth(flavor: string, evidence: any) {
   if (
+    !["codex", "claude", "opencode", "pi"].includes(flavor) ||
     !evidence ||
     evidence.authenticated !== true ||
     evidence.managed !== true ||
     !Number.isFinite(evidence.checkedAt) ||
     Date.now() - evidence.checkedAt > 30000 ||
     evidence.checkedAt > Date.now() + 5000 ||
-    (flavor === "codex" && evidence.authMethod !== "chatgpt") ||
-    (flavor === "claude" && evidence.authMethod !== "claude")
+    ((flavor === "codex" || flavor === "opencode") &&
+      evidence.authMethod !== "chatgpt") ||
+    (flavor === "opencode" &&
+      evidence.executionGuard !== "loop-subscription-v1") ||
+    (flavor === "claude" && evidence.authMethod !== "claude") ||
+    (flavor === "pi" && evidence.authMethod !== "existing")
   )
     throw new Problem(
       409,
@@ -39,7 +49,7 @@ export function verifyAuth(flavor: string, evidence: any) {
 export const nativeSelection = z.object({
   backend: z.literal("hapi"),
   environmentId: z.string(),
-  flavor: z.enum(["codex", "claude"]),
+  flavor: z.enum(["codex", "claude", "opencode", "pi"]),
   billing: z.object({
     mode: z.string(),
     requiredAuth: z.string(),
@@ -53,7 +63,7 @@ export function connectionSelection(connection: {
   const m = JSON.parse(connection.metadata);
   if (m.backend !== "hapi") return;
   const s = nativeSelection.parse(m);
-  const required = s.flavor === "codex" ? billingPolicy : claudePolicy;
+  const required = s.flavor === "pi" ? piPolicy : s.flavor === "claude" ? claudePolicy : billingPolicy;
   if (JSON.stringify(s.billing) !== JSON.stringify(required))
     throw new Problem(409, "Native billing policy is invalid");
   return s;
@@ -63,7 +73,7 @@ export type NativeSession = {
   owner_id: string;
   environment_id: string;
   generation: number;
-  flavor: "codex" | "claude";
+  flavor: NativeSelection["flavor"];
   billing: string;
   launch_id: string;
   hub_session_id: string | null;

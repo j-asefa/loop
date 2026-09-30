@@ -53,6 +53,23 @@ export async function helper(root: string) {
   } catch {
     /* absent/corrupt owned helper is replaced from pinned release */
   }
+  // The companion image seeds an immutable helper. Verify against the same
+  // release digest before copying into persistent state; never trust its manifest.
+  if (process.platform === "linux" && process.env.LOOP_BAKED_HELPERS) {
+    const bytes = await readFile(
+      join(process.env.LOOP_BAKED_HELPERS, "helpers", RELEASE, "cloudflared"),
+    ).catch(() => undefined);
+    if (bytes && digest(bytes) === build[1]) {
+      await writeFile(binary, bytes, { mode: 0o700 });
+      await chmod(binary, 0o700);
+      atomic(join(dir, "manifest.json"), {
+        assetHash: build[1],
+        binaryHash: build[1],
+        version: RELEASE,
+      });
+      return binary;
+    }
+  }
   const response = await fetch(
     `https://github.com/cloudflare/cloudflared/releases/download/${RELEASE}/${build[0]}`,
     { signal: AbortSignal.timeout(120000) },

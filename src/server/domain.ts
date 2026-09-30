@@ -1,15 +1,8 @@
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import type { Agent, Connection } from "../shared/types.js";
-export class Problem extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public diagnostic?: Record<string, unknown>,
-  ) {
-    super(message);
-  }
-}
+import { Problem } from "../shared/problem.js";
+export { Problem } from "../shared/problem.js";
 export function owned<T>(table: string, recordId: string, owner: string): T {
   const tables = [
     "agents",

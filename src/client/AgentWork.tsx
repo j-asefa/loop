@@ -28,6 +28,11 @@ export function AgentWork({
   onConversation: (id: string) => void;
 }) {
   if (!runs.length) return <p className="field-hint">No active tasks.</p>;
+  const runningChats = new Set(
+    runs
+      .filter((run) => run.state === "running" && run.conversation_id)
+      .map((run) => run.conversation_id),
+  ).size;
   const summary = Object.entries(labels)
     .flatMap(([state, label]) => {
       const count = runs.filter((run) => run.state === state).length;
@@ -56,6 +61,12 @@ export function AgentWork({
         <h2>Current work</h2>
         <span role="status">{summary}</span>
       </header>
+      {runningChats > 1 && (
+        <p className="field-hint" role="status">
+          These chats share the same project folder. Changes made in one chat
+          can affect the others.
+        </p>
+      )}
       <ul>{runs.slice(0, 3).map(task)}</ul>
       {runs.length > 3 && (
         <details>

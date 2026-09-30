@@ -1,0 +1,28 @@
+FROM node:24-bookworm-slim AS build
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends git openssl unzip python3 make g++ ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+RUN node --input-type=module -e 'import { helper } from "./dist/tunnel.js"; await helper("/opt/loop-tunnel")'
+RUN node native/provision-opencode.mjs /opt/loop-opencode
+RUN node scripts/stage-companion-hapi.mjs
+RUN npm ci --prefix deployment/native --omit=dev
+RUN npm prune --omit=dev && rm scripts/build-native-auth.mjs
+
+FROM node:24-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build --chown=node:node /app /app
+COPY --from=build /opt/loop-tunnel /opt/loop-tunnel
+COPY --from=build /opt/loop-opencode /opt/loop-opencode
+COPY --from=build /opt/loop-hapi-artifact /opt/loop-hapi
+RUN chmod -R a+rX /opt/loop-opencode /opt/loop-hapi
+RUN chmod -R a+rX /opt/loop-tunnel && ln -s /app/dist/cli.js /usr/local/bin/loop && mkdir -p /data/loop/provider-home /workspaces && chown -R node:node /data /workspaces
+ENV NODE_ENV=production LOOP_HOME=/data/loop HOME=/data/loop/provider-home LOOP_COMPANION_CONTAINER=1 LOOP_BAKED_HELPERS=/opt/loop-tunnel LOOP_BAKED_OPENCODE=/opt/loop-opencode LOOP_BAKED_HAPI=/opt/loop-hapi
+ENV PATH=/app/deployment/native/node_modules/.bin:$PATH
+USER node
+WORKDIR /workspaces
+VOLUME ["/data/loop", "/workspaces"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD node /app/scripts/companion-health.mjs
+CMD ["loop", "start", "--foreground", "--execution", "native", "--providers", "codex,claude,opencode,pi"]

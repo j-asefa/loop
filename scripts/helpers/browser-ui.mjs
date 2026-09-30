@@ -7,6 +7,7 @@ export async function closeSheets(page) {
     await page
       .locator("dialog")
       .last()
+      .locator(":scope > .sheet-inner > .sheet-head")
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await page.waitForTimeout(100);

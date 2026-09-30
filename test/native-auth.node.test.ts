@@ -213,7 +213,12 @@ for (const name of ["codex", "claude", "pi", "opencode"]) {
       { mode: 0o755 },
     );
     const auth = new NativeSignIns(createAuthDriver);
-    const opts = { name, executable, project };
+    const opts = {
+      name, executable, project,
+      env: { HOME: project, LOOP_TEST_CLEAN_ENV: "1" },
+    };
+    const priorHostOnly = process.env.LOOP_TEST_HOST_ONLY;
+    process.env.LOOP_TEST_HOST_ONLY = "must-not-reach-runner";
     try {
       const catalog = await auth.catalog(opts);
       assert.doesNotMatch(JSON.stringify(catalog), /fixture-private/);
@@ -253,6 +258,8 @@ for (const name of ["codex", "claude", "pi", "opencode"]) {
       assert.doesNotMatch(audit, /\/session|prompt/);
     } finally {
       await auth.close();
+      if (priorHostOnly === undefined) delete process.env.LOOP_TEST_HOST_ONLY;
+      else process.env.LOOP_TEST_HOST_ONLY = priorHostOnly;
     }
   });
 }

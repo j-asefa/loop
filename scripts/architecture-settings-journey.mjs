@@ -8,7 +8,7 @@ export async function architectureSettingsJourney(page) {
   await page.getByRole("button", { name: /Execution environments/ }).click();
   await expect(
     page.getByText(
-      /Run loop on your laptop to set up an execution environment/,
+      /No managed execution environment is connected yet\. Check runtime setup for preparation progress or direct fallback\./,
     ),
   ).toBeVisible();
   for (const width of [320, 390, 1024]) {
@@ -66,7 +66,14 @@ async function nativeLoginFixture(originalPage) {
       serviceWorkers: "block",
     });
   const page = await context.newPage();
-  const states = { codex: { state: "idle" }, claude: { state: "idle" } };
+  const states = {};
+  const providers = (flavor) => [
+    {
+      id: flavor,
+      name: flavor === "codex" ? "ChatGPT" : "Claude",
+      methods: [{ id: "oauth", type: "oauth", label: "Native OAuth" }],
+    },
+  ];
   const submissions = [];
   const environments = "**/api/environments";
   const environment = "**/api/environments/fixture-native/**";
@@ -91,28 +98,48 @@ async function nativeLoginFixture(originalPage) {
     );
     if (!match) return route.fulfill({ json: [] });
     const [, flavor, action] = match;
-    if (action === "start")
+    if (action === "start") {
+      const body = route.request().postDataJSON();
+      assert.equal(body.provider, flavor);
+      assert.equal(body.method, "oauth");
+      assert.ok(body.commandId);
       states[flavor] = {
         id: crypto.randomUUID(),
+        provider: flavor,
+        method: "oauth",
         state: "waiting",
         expiresAt: Date.now() + 60000,
-        login: {
-          url:
-            flavor === "codex"
-              ? "https://auth.openai.com/codex/device"
-              : "https://claude.ai/oauth/authorize",
-          code: flavor === "codex" ? "AB12-CD34" : undefined,
-          acceptsCode: flavor === "claude",
-        },
+        url:
+          flavor === "codex"
+            ? "https://auth.openai.com/codex/device"
+            : "https://claude.ai/oauth/authorize",
+        code: flavor === "codex" ? "AB12-CD34" : undefined,
+        ...(flavor === "claude"
+          ? {
+              prompt: {
+                id: crypto.randomUUID(),
+                type: "manual_code",
+                message: "Enter verification code",
+              },
+            }
+          : {}),
       };
-    if (["cancel", "code"].includes(action)) {
+    }
+    if (["cancel", "input"].includes(action)) {
       const body = route.request().postDataJSON();
       assert.equal(body.attemptId, states[flavor].id);
+      if (action === "input") {
+        assert.equal(body.promptId, states[flavor].prompt.id);
+        assert.equal(body.value, "synthetic-code");
+        delete states[flavor].prompt;
+      }
       submissions.push({ flavor, action, body });
-      if (action === "cancel") states[flavor] = { state: "cancelled" };
-      return route.fulfill({ json: { ok: true } });
+      if (action === "cancel") states[flavor].state = "cancelled";
     }
-    const snapshot = structuredClone(states[flavor]);
+    const snapshot = {
+      providers: providers(flavor),
+      attempt: structuredClone(states[flavor]),
+    };
     if (action === "status")
       await new Promise((resolve) => setTimeout(resolve, 120));
     return route.fulfill({ json: snapshot });
@@ -120,6 +147,9 @@ async function nativeLoginFixture(originalPage) {
   const open = async () => {
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: /Execution environments/ }).click();
+    await page
+      .getByRole("button", { name: "Manage sign-in", exact: true })
+      .click();
   };
   try {
     await page.goto(new URL("/", originalPage.url()).href);
@@ -134,18 +164,21 @@ async function nativeLoginFixture(originalPage) {
     await page
       .getByLabel("Native runtime", { exact: true })
       .selectOption("claude");
+    await page
+      .getByRole("button", { name: "Manage sign-in", exact: true })
+      .click();
     await expect(page.getByText("AB12-CD34", { exact: true })).toHaveCount(0);
     await page
       .getByRole("button", { name: "Start sign-in", exact: true })
       .click();
     await page
-      .getByLabel("Provider verification code", { exact: true })
+      .getByLabel("Provider sign-in response", { exact: true })
       .fill("synthetic-code");
     await page
-      .getByRole("button", { name: "Submit code", exact: true })
+      .getByRole("button", { name: "Continue sign-in", exact: true })
       .click();
     await expect
-      .poll(() => submissions.filter((s) => s.action === "code").length)
+      .poll(() => submissions.filter((s) => s.action === "input").length)
       .toBe(1);
     await page
       .getByRole("button", { name: "Cancel sign-in", exact: true })
@@ -156,11 +189,14 @@ async function nativeLoginFixture(originalPage) {
     await page
       .getByLabel("Native runtime", { exact: true })
       .selectOption("codex");
+    await page
+      .getByRole("button", { name: "Manage sign-in", exact: true })
+      .click();
     await expect(page.getByText("AB12-CD34", { exact: true })).toBeVisible();
     assert.deepEqual(
       submissions.map(({ flavor, action }) => ({ flavor, action })),
       [
-        { flavor: "claude", action: "code" },
+        { flavor: "claude", action: "input" },
         { flavor: "claude", action: "cancel" },
       ],
     );

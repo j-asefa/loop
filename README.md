@@ -58,7 +58,9 @@ loop acp --executable /absolute/path/to/agent --billing existing
 
 These commands share one local workspace, return after startup, and keep it running in the background. `--local-only` skips the tunnel for desktop testing. `--billing existing` uses the harness's account configuration and may incur API charges. See [harnesses and the managed launcher](docs/harnesses.md) for supported versions, billing checks, ACP arguments and native/Docker execution.
 
-`loop start` starts a workspace without requiring a harness. To use the managed HAPI launcher, run `loop start --providers both --execution native` (or choose `docker` or `both`). Bare `loop` is an alias for `loop start`.
+Without explicit flags or saved preferences, `loop start` prepares Codex, Claude Code, OpenCode and Pi through one native HAPI runner, installing missing runtimes privately. Pairing stays available during setup; a preparation failure retains direct runtime access. Use `loop start --direct` to skip managed preparation. Explicit options and saved preferences take precedence. Bare `loop` is an alias for `loop start`.
+
+**First-start change:** Automatic managed setup builds pinned HAPI and guarded OpenCode from source on a laptop and can take several minutes with network access and build tools. This automatic choice is not saved as a preference. Use `loop start --providers codex,claude,pi --execution native` to omit the OpenCode build, or `--direct` to skip managed setup. The companion Docker image prepares these artifacts at image build time.
 
 ## Pair your phone
 
@@ -104,3 +106,7 @@ npm run build
 ```
 
 Run `bash install` from the checkout to build and create the `loop` command. For a portable installation instead, run `npm pack` and install the resulting tarball with `npm install -g /path/to/loop-0.1.0.tgz`. Without linking or installing, invoke the CLI directly as `node dist/cli.js <command>`.
+
+## Run with Docker and pair your phone
+
+Use `docker compose -f compose.companion.yaml up --build -d`, then `docker compose -f compose.companion.yaml exec loop-companion loop pair`. No host Node installation or server `.env` is needed. See [Docker companion pairing](docs/pairing.md#docker-companion) for persistent state, runtime scope and management commands.

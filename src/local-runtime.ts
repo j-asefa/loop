@@ -21,10 +21,15 @@ import {
 import { atomic, privateDir } from "./state.js";
 import { own, killOwned } from "./processes.js";
 import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
+// @ts-expect-error Shipped plain-Node provisioning utility.
+import { provisionOpencode } from "../native/provision-opencode.mjs";
 const exec = promisify(execFile);
+const versions = JSON.parse(
+  readFileSync(new URL("../deployment/versions.json", import.meta.url), "utf8"),
+);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export type LocalChoices = {
-  providers: ("codex" | "claude")[];
+  providers: ("codex" | "claude" | "opencode" | "pi")[];
   execution: "native" | "docker" | "both";
   project: string;
 };
@@ -33,15 +38,26 @@ export function choices(
   execution: string,
   project: string,
 ): LocalChoices {
-  if (!["openai", "anthropic", "both"].includes(providers))
-    throw new Error("--providers must be openai, anthropic or both");
+  const aliases: Record<string, string[]> = {
+    openai: ["codex"],
+    anthropic: ["claude"],
+    both: ["codex", "claude"],
+  };
+  const selected = Object.hasOwn(aliases, providers)
+    ? aliases[providers]
+    : providers.split(",").map((value) => value.trim());
+  if (
+    selected.some(
+      (value) => !["codex", "claude", "opencode", "pi"].includes(value),
+    )
+  )
+    throw new Error(
+      "--providers must be openai, anthropic, both or a comma-separated list of codex, claude, opencode, pi",
+    );
   if (!["native", "docker", "both"].includes(execution))
     throw new Error("--execution must be native, docker or both");
   return {
-    providers:
-      providers === "both"
-        ? ["codex", "claude"]
-        : [providers === "openai" ? "codex" : "claude"],
+    providers: [...new Set(selected)] as LocalChoices["providers"],
     execution: execution as LocalChoices["execution"],
     project,
   };
@@ -72,18 +88,28 @@ async function run(command: string, args: string[], cwd = packageRoot) {
   });
 }
 /** Build the exact already-reviewed HAPI patch on the laptop's architecture. */
-async function hapi(root: string) {
+export async function hapi(root: string) {
+  const baked = process.env.LOOP_BAKED_HAPI;
+  if (baked) root = baked;
   const patchHash = createHash("sha256")
     .update(readFileSync(join(packageRoot, "native/apply-hapi-patch.mjs")))
     .update(readFileSync(join(packageRoot, "native/loopManaged.ts")))
+    .update(readFileSync(join(packageRoot, "native/pi-readiness.ts")))
     .digest("hex")
     .slice(0, 12);
-  const source = join(root, "helpers", "hapi-0239edf3-" + patchHash);
+  const source = join(
+    root,
+    "helpers",
+    `hapi-${versions.hapiCommit.slice(0, 8)}-${patchHash}`,
+  );
   const target = `bun-${process.platform}-${process.arch}${process.platform === "linux" && process.arch === "x64" ? "-baseline" : ""}`;
   const binary = join(source, "cli", "dist-exe", target, "hapi");
   const ready = join(source, "loop-build-ready.json");
   if (existsSync(binary) && existsSync(ready)) return binary;
-  console.log("Preparing HAPI 0.30.7 for this machine (first launch only)…");
+  if (baked) throw new Error("Baked HAPI artifact is missing or incompatible");
+  console.log(
+    `Preparing HAPI ${versions.hapi} for this machine (first launch only)…`,
+  );
   privateDir(dirname(source));
   if (!existsSync(join(source, ".git")))
     await run("git", [
@@ -93,11 +119,7 @@ async function hapi(root: string) {
       "https://github.com/tiann/hapi.git",
       source,
     ]);
-  await run(
-    "git",
-    ["checkout", "0239edf38e2da653d662f31039e24ccea04c7837"],
-    source,
-  );
+  await run("git", ["checkout", versions.hapiCommit], source);
   await run(process.execPath, [
     join(packageRoot, "native/apply-hapi-patch.mjs"),
     source,
@@ -105,12 +127,19 @@ async function hapi(root: string) {
   // npm selects the Bun binary for the host; no Linux-only executable is copied.
   await run(
     "npx",
-    ["--yes", "--package", "bun@1.4.0", "bun", "install", "--frozen-lockfile"],
+    [
+      "--yes",
+      "--package",
+      `bun@${versions.bun}`,
+      "bun",
+      "install",
+      "--frozen-lockfile",
+    ],
     source,
   );
   await run(
     "npx",
-    ["--yes", "--package", "bun@1.4.0", "bun", "run", "build:exe"],
+    ["--yes", "--package", `bun@${versions.bun}`, "bun", "run", "build:exe"],
     join(source, "cli"),
   );
   if (!existsSync(binary))
@@ -143,10 +172,30 @@ export class LocalRuntime {
     private root: string,
     private selection: LocalChoices,
     private buildHapi = hapi,
+    private buildOpencode = provisionOpencode,
   ) {
     this.state = join(root, "managed");
   }
   async prepare() {
+    if (
+      process.env.LOOP_COMPANION_CONTAINER === "1" &&
+      this.selection.execution !== "native"
+    )
+      throw new Error(
+        "Docker companion supports --execution native only; the container is the isolation boundary.",
+      );
+    // Published packages carry this bundle; source checkout startup builds it
+    // before starting the plain-Node runner. Never require tsx in the runner.
+    if (this.selection.execution !== "docker") {
+      const sourceBuild = join(packageRoot, "scripts/build-native-auth.mjs");
+      if (existsSync(sourceBuild)) await run(process.execPath, [sourceBuild]);
+      else if (
+        !existsSync(
+          join(packageRoot, "native/generated/native-auth/service.mjs"),
+        )
+      )
+        throw new Error("Native sign-in artifact is missing; rebuild Loop.");
+    }
     privateDir(this.state);
     await stopManagedContainers(this.root);
     process.env.LOOP_MEMORY_ENABLED ??= process.env.LOOP_MEMORY_URL ? "1" : "0";
@@ -158,7 +207,8 @@ export class LocalRuntime {
     this.hubToken = identity.hubToken;
     this.hubPort = await port();
     this.gatewayPort = await port();
-    let nativeBins: Record<string, string> = {};
+    const nativeBins: Record<string, string> = {};
+    const unavailable = new Set<string>();
     if (this.selection.execution !== "docker") {
       const { discover } = await import("./host-control.js");
       for (const provider of this.selection.providers) {
@@ -166,7 +216,29 @@ export class LocalRuntime {
         if (found.installed && found.executable)
           nativeBins[provider] = found.executable;
       }
-      if (this.selection.providers.some((p) => !nativeBins[p])) {
+      // Managed subscription execution requires the guarded build; keep the
+      // user's PATH installation and native credential home intact.
+      if (this.selection.providers.includes("opencode")) {
+        // Never fall back to an unguarded PATH binary after a build failure.
+        delete nativeBins.opencode;
+        try {
+          nativeBins.opencode = await this.buildOpencode(
+            this.root,
+            undefined,
+            process.env.LOOP_BAKED_OPENCODE,
+          );
+        } catch (error) {
+          unavailable.add("opencode");
+          console.warn(
+            `OpenCode is unavailable: ${error instanceof Error ? error.message : String(error)}.`,
+          );
+        }
+      }
+      if (
+        this.selection.providers.some(
+          (p) => !unavailable.has(p) && !nativeBins[p],
+        )
+      ) {
         const directory = join(this.root, "helpers", "native");
         privateDir(directory);
         for (const file of ["package.json", "package-lock.json"])
@@ -175,7 +247,9 @@ export class LocalRuntime {
             join(directory, file),
           );
         await run("npm", ["ci", "--omit=dev"], directory);
-        for (const provider of this.selection.providers)
+        for (const provider of this.selection.providers.filter(
+          (p) => !unavailable.has(p),
+        ))
           nativeBins[provider] ||= join(
             directory,
             "node_modules/.bin",
@@ -183,6 +257,13 @@ export class LocalRuntime {
           );
       }
     }
+    const nativeProviders = this.selection.providers.filter((p) => !unavailable.has(p));
+    if (this.selection.execution === "native" && nativeProviders.length === 0)
+      throw new Error("No selected managed native runtime is available. Resolve the runtime setup error or select another provider.");
+    // An unavailable native runtime must not disable its baked Docker sibling.
+    const executionKinds = this.selection.execution === "both"
+      ? [...(nativeProviders.length ? ["native"] : []), "docker"]
+      : [this.selection.execution];
     this.hubBinary = await this.buildHapi(this.root);
     const ca = join(this.state, "ca");
     privateDir(ca);
@@ -218,9 +299,7 @@ export class LocalRuntime {
         this.selection.execution === "native" ? "127.0.0.1" : "0.0.0.0",
       LOOP_NATIVE_ADMISSION: "1",
     });
-    for (const kind of this.selection.execution === "both"
-      ? ["native", "docker"]
-      : [this.selection.execution]) {
+    for (const kind of executionKinds) {
       const dir = join(
         this.state,
         kind +
@@ -263,7 +342,9 @@ export class LocalRuntime {
             }
           : {}),
         instanceId: identity.instanceId,
-        providers: this.selection.providers,
+        providers: docker
+          ? this.selection.providers
+          : nativeProviders,
         appCertificateFingerprint: new X509Certificate(
           readFileSync(join(app, "cert.pem")),
         ).fingerprint256,
@@ -277,6 +358,12 @@ export class LocalRuntime {
         claudeBinary: docker
           ? "/opt/native/node_modules/.bin/claude"
           : nativeBins.claude || "claude",
+        opencodeBinary: docker
+          ? "/usr/local/bin/opencode"
+          : nativeBins.opencode || "opencode",
+        piBinary: docker
+          ? "/opt/native/node_modules/.bin/pi"
+          : nativeBins.pi || "pi",
         hapiBinary: docker ? "hapi" : this.hubBinary,
         repositoryHosts: ["github.com"],
         gatewayUrl: `https://${docker ? "host.docker.internal" : "127.0.0.1"}:${this.gatewayPort}/mcp`,
@@ -388,6 +475,7 @@ export class LocalRuntime {
     });
     return child;
   }
+  private unbindWorkspace?: () => void;
   async start() {
     if (this.closed) throw new Error("Runtime startup cancelled");
     const { provisionEnvironment, environment, refreshEnvironment } =
@@ -425,6 +513,11 @@ export class LocalRuntime {
         project.id,
         e.kind === "native" ? this.selection.project : "/workspaces/project",
       );
+      if (e.kind === "native") {
+        const { bindManagedWorkspace } =
+          await import("./server/managed-workspace.js");
+        this.unbindWorkspace = bindManagedWorkspace(OWNER, host);
+      }
       hostIds.push(host);
     }
     const hubHome = join(this.state, "hub");
@@ -461,6 +554,8 @@ export class LocalRuntime {
           dirname(this.hubBinary),
           dirname(e.settings.codexBinary),
           dirname(e.settings.claudeBinary),
+          dirname(e.settings.opencodeBinary),
+          dirname(e.settings.piBinary),
           process.env.PATH,
         ].join(delimiter),
       };
@@ -603,7 +698,8 @@ export class LocalRuntime {
           `${e.name} runner did not become ready. See loop logs.`,
         );
       const { connectProvider } = await import("./server/hapi/routes.js");
-      for (const flavor of this.selection.providers) {
+      for (const flavor of this.envs[hostIds.indexOf(host)].settings
+        .providers) {
         try {
           await connectProvider(e, flavor);
         } catch {
@@ -615,11 +711,12 @@ export class LocalRuntime {
     }
     return {
       billing: {
-        description: `${this.selection.providers.join(" + ")} · ${this.selection.execution} execution. Provider sign-in is scoped to each environment.`,
+        description: `${[...new Set(this.envs.flatMap((e) => e.settings.providers))].join(" + ")} · ${[...new Set(this.envs.map((e) => e.kind))].join(" + ")} execution. Provider sign-in is scoped to each environment.`,
       },
     };
   }
   async close() {
+    this.unbindWorkspace?.();
     this.closed = true;
     const stopped = await stopManagedContainers(this.root).then(
       () => undefined,

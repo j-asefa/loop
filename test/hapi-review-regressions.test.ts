@@ -40,7 +40,8 @@ const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
 const { memoryRoutes, readMemory, captureMemory } =
   await import("../src/server/memory");
-const { executionRoutes } = await import("../src/server/hapi/routes");
+const { executionRoutes, connectProvider } =
+  await import("../src/server/hapi/routes");
 const host = provisionEnvironment("alice", {
   name: "Review fixture",
   url: "https://worker.invalid:3010",
@@ -707,4 +708,74 @@ it("persists attachments and quoted replies in the exact HAPI delivery envelope"
   expect(sent).toEqual({ text: dispatch.envelope, localId: dispatch.local_id });
   expect(JSON.stringify(sent)).toContain(file.id);
   expect(dispatch.state).toBe("accepted");
+});
+
+it("connects OpenCode only with guarded runner evidence and preserves its identity", async () => {
+  const { workerRequest } = await import("../src/server/hapi/environments");
+  db.prepare("UPDATE execution_environments SET state='online' WHERE host_id=?").run(host);
+  const { environment } = await import("../src/server/hapi/environments");
+  const e = { ...environment("alice", host), name: "Fixture" };
+  await expect(connectProvider(e, "opencode")).rejects.toThrow(
+    "must be verified",
+  );
+  vi.mocked(workerRequest).mockResolvedValueOnce({
+    authenticated: true,
+    managed: true,
+    checkedAt: Date.now(),
+    authMethod: "chatgpt",
+    executionGuard: "loop-subscription-v1",
+    models: [{ id: "openai/gpt-5.4" }],
+  });
+  const connection = await connectProvider(e, "opencode");
+  const saved = db
+    .prepare("SELECT * FROM connections WHERE id=? AND owner_id='alice'")
+    .get(connection.id) as any;
+  expect(saved.provider).toBe("opencode");
+  expect(saved.label).toBe("Fixture · opencode (ChatGPT)");
+  expect(JSON.parse(saved.metadata)).toMatchObject({
+    flavor: "opencode",
+    billing: billingPolicy,
+  });
+  expect(JSON.parse(saved.models)).toEqual([{ id: "openai/gpt-5.4" }]);
+});
+
+
+it("connects Pi with existing billing only and rejects subscription evidence", async () => {
+  const { workerRequest } = await import("../src/server/hapi/environments");
+  const { piPolicy, connectionSelection } = await import("../src/server/hapi/contracts");
+  db.prepare("UPDATE execution_environments SET state='online' WHERE host_id=?").run(host);
+  const { environment } = await import("../src/server/hapi/environments");
+  const e = { ...environment("alice", host), name: "Fixture" };
+  const evidence = { authenticated: true, managed: true, checkedAt: Date.now(), authMethod: "existing", models: [{ id: "openai/gpt-5.4" }] };
+  for (const invalid of [{ ...evidence, authMethod: "chatgpt" }, { ...evidence, managed: false }, { ...evidence, checkedAt: 0 }, { ...evidence, authenticated: false }]) {
+    vi.mocked(workerRequest).mockResolvedValueOnce(invalid);
+    await expect(connectProvider(e, "pi")).rejects.toThrow("must be verified");
+  }
+  vi.mocked(workerRequest).mockResolvedValueOnce(evidence);
+  const connection = await connectProvider(e, "pi");
+  const saved = db.prepare("SELECT * FROM connections WHERE id=? AND owner_id='alice'").get(connection.id) as any;
+  expect(saved.provider).toBe("pi");
+  expect(saved.label).toBe("Fixture · Pi");
+  expect(JSON.parse(saved.metadata)).toMatchObject({ flavor: "pi", authMode: "existing", billing: piPolicy });
+  expect(connectionSelection(saved)?.billing).toEqual(piPolicy);
+  for (const billing of [billingPolicy, { ...piPolicy, allowApiFallback: true }]) {
+    expect(() => connectionSelection({ metadata: JSON.stringify({ ...JSON.parse(saved.metadata), billing }) })).toThrow();
+  }
+});
+
+
+it("fences connection registration when the runner changes during authentication", async () => {
+  const { environment, workerRequest } = await import("../src/server/hapi/environments");
+  for (const change of ["generation=generation+1", "state='offline'", "revoked_at='fixture'"]) {
+    db.prepare("UPDATE execution_environments SET state='online',revoked_at=NULL WHERE host_id=?").run(host);
+    const e = environment("alice", host);
+    const before = db.prepare("SELECT * FROM connections ORDER BY id").all();
+    vi.mocked(workerRequest).mockImplementationOnce(async () => {
+      db.prepare(`UPDATE execution_environments SET ${change} WHERE host_id=?`).run(host);
+      return { authenticated: true, managed: true, checkedAt: Date.now(), authMethod: "chatgpt" };
+    });
+    await expect(connectProvider(e, "codex")).rejects.toThrow(/changed|revoked/);
+    expect(db.prepare("SELECT * FROM connections ORDER BY id").all()).toEqual(before);
+  }
+  db.prepare("UPDATE execution_environments SET state='online',revoked_at=NULL WHERE host_id=?").run(host);
 });

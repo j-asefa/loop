@@ -1,3 +1,4 @@
+import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { useState } from "react";
 import { api, parse } from "./api";
@@ -24,16 +25,7 @@ export function NativeConnections({
           <section key={c.id} className="native-decision">
             <h3>{c.label}</h3>
             <Badge provider={c.provider} />
-            <p>{c.status}</p>
-            <p>
-              {metadata.billing?.description ||
-                (metadata.backend === "hapi"
-                  ? "Provider sign-in verified on " + metadata.environmentName
-                  : typeof metadata.billing === "string"
-                    ? metadata.billing
-                    : undefined) ||
-                "Explicit API billing"}
-            </p>
+            <ConnectionDetails connection={c} />
             {metadata.loopHarness && (
               <p className="note">
                 Native tools, project instructions and permissions are

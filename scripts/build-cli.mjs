@@ -18,3 +18,7 @@ await chmod("dist/cli.js", 0o755);
 
 // Install the CLI with the same dependency graph validated by npm ci.
 await cp("package-lock.json", "npm-shrinkwrap.json");
+
+// Ship one shared sign-in implementation for isolated native/Docker runners.
+const { buildNativeAuth } = await import("./build-native-auth.mjs");
+await buildNativeAuth();

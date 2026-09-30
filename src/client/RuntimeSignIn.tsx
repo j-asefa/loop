@@ -3,7 +3,34 @@ import { CircleCheck } from "lucide-react";
 import { api } from "./api";
 import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
-export function RuntimeSignIn({
+type RuntimeSignInProps = {
+  base: string;
+  backend: "direct" | "environment";
+  location: string;
+  name: string;
+  label: string;
+  projectId?: string;
+  signedIn: boolean;
+  enabled: boolean;
+  enabling: boolean;
+  enableAction: ReactNode;
+  onStateChange(name: string, state: SignIn["state"] | undefined): void;
+  onClose(): void;
+};
+
+export function RuntimeSignIn(props: RuntimeSignInProps) {
+  return (
+    <RuntimeSignInSession
+      key={`${props.backend}:${props.base}:${props.projectId || ""}`}
+      {...props}
+    />
+  );
+}
+
+function RuntimeSignInSession({
+  base,
+  backend,
+  location,
   name,
   label,
   projectId,
@@ -13,18 +40,7 @@ export function RuntimeSignIn({
   enableAction,
   onStateChange,
   onClose,
-}: {
-  name: string;
-  label: string;
-  projectId: string;
-  signedIn: boolean;
-  enabled: boolean;
-  enabling: boolean;
-  enableAction: ReactNode;
-  onStateChange(name: string, state: SignIn["state"] | undefined): void;
-  onClose(): void;
-}) {
-  const base = `/workspace/runtimes/${name}/auth`;
+}: RuntimeSignInProps) {
   const [view, setView] = useState<NativeAuthView>();
   const [provider, setProvider] = useState("");
   const [method, setMethod] = useState("");
@@ -73,8 +89,10 @@ export function RuntimeSignIn({
     setError("");
     const controller = new AbortController();
     void api<NativeAuthView>(
-      `${base}?projectId=${encodeURIComponent(projectId)}`,
-      undefined,
+      backend === "environment"
+        ? `${base}/providers`
+        : `${base}?projectId=${encodeURIComponent(projectId || "")}`,
+      backend === "environment" ? {} : undefined,
       undefined,
       controller.signal,
     )
@@ -95,7 +113,7 @@ export function RuntimeSignIn({
       try {
         const next = await api<NativeAuthView>(
           base + "/status",
-          undefined,
+          backend === "environment" ? {} : undefined,
           undefined,
           controller.signal,
         );
@@ -151,9 +169,11 @@ export function RuntimeSignIn({
             <h3>Signed in to {label}</h3>
           </div>
           <p>
-            {enabled
-              ? `Refresh ${label} to update the models available in Loop.`
-              : `Enable ${label} to use its models in Loop.`}
+            {backend === "environment"
+              ? "Verify this account to make its connection available in this environment."
+              : enabled
+                ? `Refresh ${label} to update the models available in Loop.`
+                : `Enable ${label} to use its models in Loop.`}
           </p>
           {enableAction}
         </>
@@ -161,7 +181,7 @@ export function RuntimeSignIn({
         <>
           <h3>Sign in to {label}</h3>
           <p>
-            Your account is saved by {label} on this computer. Complete the
+            Your account is saved by {label} in {location}. Complete the
             provider’s sign-in, then return here.
           </p>
         </>

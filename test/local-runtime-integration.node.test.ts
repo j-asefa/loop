@@ -48,13 +48,26 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
   process.env.LOOP_MEMORY_ENABLED = "0";
   const runtime = new LocalRuntime(
     root,
-    { providers: ["claude"], execution: "native", project },
+    { providers: ["claude", "opencode"], execution: "native", project },
     async () => hapi,
+    async () => {
+      throw new Error("fixture guarded build failed");
+    },
   );
   try {
     await runtime.prepare();
+    const { readdir } = await import("node:fs/promises");
+    const nativeDir = (await readdir(join(root, "managed"))).find((name) =>
+      name.startsWith("native-"),
+    )!;
+    const settings = JSON.parse(
+      await readFile(join(root, "managed", nativeDir, "worker.json"), "utf8"),
+    );
+    assert.deepEqual(settings.providers, ["claude"]);
     const result = await runtime.start();
     assert.match(result.billing.description, /native execution/);
+    assert.match(result.billing.description, /^claude · native execution/);
+    assert.doesNotMatch(result.billing.description, /opencode/);
     assert.ok(Number(await readFile(join(project, "session.pid"), "utf8")) > 0);
     const { db } = await import("../src/server/db.js");
     const environment = db
@@ -105,6 +118,54 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
       if (alive) await new Promise((r) => setTimeout(r, 25));
     }
     assert.equal(alive, false, "managed HAPI session survived shutdown");
+    process.env.PATH = oldPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed sole native runtime rejects preparation before starting HAPI", async () => {
+  const root = await mkdtemp(join(tmpdir(), "loop-unavailable-runtime-"));
+  let hapiBuilds = 0;
+  const runtime = new LocalRuntime(
+    root,
+    { providers: ["opencode"], execution: "native", project: root },
+    async () => { hapiBuilds++; throw new Error("must not build HAPI"); },
+    async () => { throw new Error("fixture guarded build failed"); },
+  );
+  try {
+    await assert.rejects(runtime.prepare(), /No selected managed native runtime is available/);
+    assert.equal(hapiBuilds, 0);
+    const { readdir } = await import("node:fs/promises");
+    assert.equal((await readdir(join(root, "managed"))).some((name) => name.startsWith("native-")), false);
+  } finally {
+    await runtime.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an unavailable native runtime retains Docker execution without an empty native worker", async () => {
+  const root = await mkdtemp(join(tmpdir(), "loop-docker-runtime-"));
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  await writeFile(join(bin, "docker"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const oldPath = process.env.PATH;
+  process.env.PATH = bin + ":" + oldPath;
+  const runtime = new LocalRuntime(
+    root,
+    { providers: ["opencode"], execution: "both", project: root },
+    async () => "/fixture/hapi",
+    async () => { throw new Error("fixture guarded build failed"); },
+  );
+  try {
+    await runtime.prepare();
+    const { readdir } = await import("node:fs/promises");
+    const directories = await readdir(join(root, "managed"));
+    assert.equal(directories.some((name) => name.startsWith("native-")), false);
+    const docker = directories.find((name) => name.startsWith("docker-"))!;
+    const settings = JSON.parse(await readFile(join(root, "managed", docker, "worker.json"), "utf8"));
+    assert.deepEqual(settings.providers, ["opencode"]);
+  } finally {
+    await runtime.close();
     process.env.PATH = oldPath;
     await rm(root, { recursive: true, force: true });
   }

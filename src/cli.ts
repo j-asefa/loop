@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { automaticManagedStart } from "./start-selection.js";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync } from "node:fs";
@@ -263,6 +264,7 @@ async function main() {
       json: { type: "boolean" },
       follow: { type: "boolean", short: "f" },
       foreground: { type: "boolean" },
+      direct: { type: "boolean" },
       "local-only": { type: "boolean" },
       "public-url": { type: "string" },
       providers: { type: "string" },
@@ -281,7 +283,7 @@ async function main() {
 loop start              Start this computer and show a pairing QR code.
                         Choose runtimes in the app; no harness is required.
 loop                    Alias for loop start.
-loop start [--providers openai|anthropic|both]
+loop start [--direct] [--providers openai|anthropic|both|codex,claude,opencode,pi]
      [--execution native|docker|both]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
 loop server             Start the full server in the foreground.
@@ -503,20 +505,31 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
+  if (values.direct && (!neutral || values.providers || values.execution))
+    throw new Error(
+      "Use --direct with loop start without provider or execution options.",
+    );
+  const automatic = automaticManagedStart(action, values, preferences);
   const managed =
-    action === "laptop" ||
-    (neutral &&
-      (!!values.providers ||
-        !!values.execution ||
-        (!!preferences.providers && !!preferences.execution)));
+    !values.direct &&
+    (automatic ||
+      action === "laptop" ||
+      (neutral &&
+        (!!values.providers ||
+          !!values.execution ||
+          (!!preferences.providers && !!preferences.execution))));
   const selected = (managed || neutral ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
   if ((managed || neutral) && !values.project && preferences.project)
     project = await realpath(preferences.project);
   let managedChoices: import("./local-runtime.js").LocalChoices | undefined;
   if (managed) {
-    let providers = values.providers ?? preferences.providers;
-    let execution = values.execution ?? preferences.execution;
+    let providers = automatic
+      ? "codex,claude,opencode,pi"
+      : (values.providers ?? preferences.providers);
+    let execution = automatic
+      ? "native"
+      : (values.execution ?? preferences.execution);
     if ((!providers || !execution) && process.stdin.isTTY && !daemonChild) {
       const input = createInterface({
         input: process.stdin,
@@ -526,7 +539,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         providers ||=
           (
             await input.question(
-              "Providers [openai / anthropic / both] (both): ",
+              "Providers [openai / anthropic / both / codex,claude,opencode,pi] (both): ",
             )
           ).trim() || "both";
         execution ||=
@@ -539,6 +552,14 @@ Uninstall removes the package separately; workspace/native history is retained.`
         input.close();
       }
     }
+    if (
+      process.env.LOOP_COMPANION_CONTAINER === "1" &&
+      execution &&
+      execution !== "native"
+    )
+      throw new Error(
+        "Docker companion supports --execution native only; the container is the isolation boundary.",
+      );
     const { choices } = await import("./local-runtime.js");
     managedChoices = choices(
       providers || "both",
@@ -643,14 +664,14 @@ Uninstall removes the package separately; workspace/native history is retained.`
     atomic(preferencesPath, {
       ...preferences,
       ...(managed || neutral ? { project } : {}),
-      ...(managed
+      ...(managed && !automatic
         ? { providers: values.providers, execution: values.execution }
         : {}),
       publicUrl: values["public-url"],
       tunnelName: values["tunnel-name"],
       tunnelConfig: values["tunnel-config"],
       billing:
-        neutral && !managed
+        neutral && (!managed || automatic)
           ? preferences.billing
           : { ...preferences.billing, [selected]: billing },
     });
@@ -658,6 +679,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     if (managed || neutral) {
       if (
         (managed &&
+          !automatic &&
           (values.providers !== preferences.providers ||
             values.execution !== preferences.execution)) ||
         project !== (running.project ?? preferences.project)
@@ -687,7 +709,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   }
   if (!values.foreground && !daemonChild)
     return daemonize(dir, [
-      ...(managed
+      ...(managed && !automatic
         ? [
             "laptop",
             "--providers",
@@ -698,9 +720,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
         : [neutral ? "start" : selected]),
       "--project",
       project,
-      ...(neutral && !managed
+      ...(neutral && (!managed || automatic)
         ? []
         : ["--executable", probe.executable, "--billing", billing]),
+      ...(values.direct ? ["--direct"] : []),
       ...(values.resume ? ["--resume", values.resume] : []),
       ...(values["local-only"] ? ["--local-only"] : []),
       ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
@@ -739,7 +762,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
     if (managedChoices) {
       const { LocalRuntime } = await import("./local-runtime.js");
       runtime = new LocalRuntime(root, managedChoices);
-      await runtime.prepare();
+      const { setRuntimeSetupState } = await import("./runtime-setup.js");
+      setRuntimeSetupState("preparing");
     }
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
@@ -747,6 +771,59 @@ Uninstall removes the package separately; workspace/native history is retained.`
     host.gateway.onStop = stop;
     const { migrateLegacy, resumeFromDesktop } =
       await import("./server/migration.js");
+    const onListening = async (description: string) => {
+      // Single-use pairing codes are shown on a terminal or sent over IPC, never
+      // written to a log file or a service manager's journal.
+      const interactive = !!process.stdout.isTTY;
+      const gateway = host!;
+      let notice: string | undefined;
+      if (values["public-url"] && !values["tunnel-name"]) {
+        gateway.setOrigin(values["public-url"]);
+        notice = "Point the HTTPS tunnel to http://127.0.0.1:" + gateway.port;
+      } else if (values["local-only"])
+        notice = "Local-only: open this link on the desktop.";
+      else {
+        console.log("Preparing cloudflared tunnel…");
+        tunnel = new TunnelSupervisor(
+          (exited) =>
+            new Tunnel(
+              root,
+              gateway.port,
+              exited,
+              values["tunnel-name"]
+                ? {
+                    name: values["tunnel-name"],
+                    origin: values["public-url"]!,
+                    config: values["tunnel-config"],
+                  }
+                : undefined,
+            ),
+          (origin, reconnected) => {
+            gateway.setOrigin(origin);
+            if (!reconnected) return;
+            console.log(
+              "Quick Tunnel address changed to " +
+                origin +
+                ". Run loop pair and scan the code from the Loop app to reconnect.",
+            );
+            if (interactive) showPair(gateway.pair());
+          },
+        );
+        await tunnel.start();
+      }
+      if (stopping) return;
+      const ready: Ready = {
+        ready: true,
+        description,
+        notice,
+        pair: gateway.pair(),
+      };
+      // Persist the project before returning pairing while preparation continues.
+      // Automatic runtime choices remain ephemeral in remember().
+      if (runtime) remember();
+      showReady(ready, interactive);
+      report(ready);
+    };
     const enabled = await host.start(
       options,
       async () => {
@@ -754,8 +831,20 @@ Uninstall removes the package separately; workspace/native history is retained.`
         if (!stopping && values.resume)
           resumeFromDesktop(options, values.resume);
       },
-      runtime ? () => runtime!.start() : undefined,
-      neutral && !managed,
+      runtime
+        ? async () => {
+            const { prepareManagedRuntime } =
+              await import("./managed-start.js");
+            return prepareManagedRuntime(runtime!, () => stopping);
+          }
+        : undefined,
+      neutral,
+      runtime
+        ? () =>
+            onListening(
+              "Workspace ready; execution is setting up. See loop logs --follow.",
+            )
+        : undefined,
     );
     if (stopping) {
       await host.close();
@@ -763,54 +852,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
     }
     remember();
     if (stopping) return;
-    // Single-use pairing codes are shown on a terminal or sent over IPC, never
-    // written to a log file or a service manager's journal.
-    const interactive = !!process.stdout.isTTY;
-    const gateway = host;
-    let notice: string | undefined;
-    if (values["public-url"] && !values["tunnel-name"]) {
-      host.setOrigin(values["public-url"]);
-      notice = "Point the HTTPS tunnel to http://127.0.0.1:" + host.port;
-    } else if (values["local-only"])
-      notice = "Local-only: open this link on the desktop.";
-    else {
-      console.log("Preparing cloudflared tunnel…");
-      tunnel = new TunnelSupervisor(
-        (exited) =>
-          new Tunnel(
-            root,
-            gateway.port,
-            exited,
-            values["tunnel-name"]
-              ? {
-                  name: values["tunnel-name"],
-                  origin: values["public-url"]!,
-                  config: values["tunnel-config"],
-                }
-              : undefined,
-          ),
-        (origin, reconnected) => {
-          gateway.setOrigin(origin);
-          if (!reconnected) return;
-          console.log(
-            "Quick Tunnel address changed to " +
-              origin +
-              ". Run loop pair and scan the code from the Loop app to reconnect.",
-          );
-          if (interactive) showPair(gateway.pair());
-        },
-      );
-      await tunnel.start();
-    }
-    if (stopping) return;
-    const ready: Ready = {
-      ready: true,
-      description: enabled.billing.description,
-      notice,
-      pair: host.pair(),
-    };
-    showReady(ready, interactive);
-    report(ready);
+    if (runtime) console.log(enabled.billing.description);
+    else await onListening(enabled.billing.description);
   } catch (error) {
     await stop();
     throw error;

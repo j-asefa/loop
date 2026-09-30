@@ -1,10 +1,18 @@
+import {
+  runtimeSetupMessages,
+  type RuntimeSetupState,
+} from "../shared/runtime-setup";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
 type Runtime = {
   name: string;
+  backend?: "hapi" | "direct";
+  environmentId?: string;
+  generation?: number;
   installed: boolean;
   available: boolean;
   enabled: boolean;
@@ -14,13 +22,26 @@ type Runtime = {
   billing?: string;
   project?: string;
 };
-type Discovery = { computer: string; online: boolean; runtimes: Runtime[] };
+type Discovery = {
+  computer: string;
+  online: boolean;
+  setup?: RuntimeSetupState;
+  runtimes: Runtime[];
+};
 const labels: Record<string, string> = {
   codex: "Codex",
   claude: "Claude Code",
   pi: "Pi",
   opencode: "OpenCode",
 };
+function authBase(runtime: Runtime) {
+  return runtime.backend === "hapi"
+    ? `/environments/${encodeURIComponent(runtime.environmentId!)}/provider/${runtime.name}`
+    : `/workspace/runtimes/${runtime.name}/auth`;
+}
+function authStatus(runtime: Runtime) {
+  return api<NativeAuthView>(`${authBase(runtime)}/status`, runtime.backend === "hapi" ? {} : undefined);
+}
 export function RuntimeSetup({
   onEnabled,
 }: {
@@ -67,10 +88,8 @@ export function RuntimeSetup({
     // Read existing attempts without starting a harness or another sign-in.
     const states = await Promise.allSettled(
       host.runtimes.map(async (runtime) => {
-        const auth = await api<NativeAuthView>(
-          `/workspace/runtimes/${runtime.name}/auth/status`,
-        );
-        return [runtime.name, auth.attempt?.state] as const;
+        const auth = await authStatus(runtime);
+        return [runtimeAuthScope(runtime), auth.attempt?.state] as const;
       }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
@@ -89,7 +108,7 @@ export function RuntimeSetup({
     setEnableError(undefined);
     setError("");
     try {
-      const projectId = runtime.enabled
+      const projectId = runtime.enabled && runtime.backend !== "hapi"
         ? projects.find((p) => p.path === runtime.project)?.folder_id
         : project;
       await api(`/workspace/runtimes/${runtime.name}/enable`, {
@@ -114,25 +133,49 @@ export function RuntimeSetup({
   useEffect(() => {
     void refresh().catch((e) => setError(e.message));
   }, []);
-  const authInProgress = Object.values(authStates).some(
-    (state) => state === "starting" || state === "waiting",
+  const settingUp =
+    discovery?.setup === "preparing" || discovery?.setup === "starting";
+  useEffect(() => {
+    if (!settingUp) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const host = await api<Discovery>("/workspace/runtimes");
+        if (!disposed) setDiscovery(host);
+      } catch {
+        // Preserve the last status; the explicit refresh can report errors.
+      } finally {
+        if (!disposed) timer = setTimeout(poll, 2500);
+      }
+    };
+    timer = setTimeout(poll, 2500);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [settingUp]);
+  const authInProgress = discovery?.runtimes.some((runtime) =>
+    ["starting", "waiting"].includes(authStates[runtimeAuthScope(runtime)] || ""),
   );
   useEffect(() => {
     if (!authInProgress) return;
-    const timer = setInterval(() => {
-      void Promise.allSettled(
-        Object.entries(authStates)
-          .filter(([, state]) => state === "starting" || state === "waiting")
-          .map(async ([name]) => {
-            const view = await api<NativeAuthView>(
-              `/workspace/runtimes/${name}/auth/status`,
-            );
-            onAuthState(name, view.attempt?.state);
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await Promise.allSettled(
+        (discovery?.runtimes || [])
+          .filter((runtime) => ["starting", "waiting"].includes(authStates[runtimeAuthScope(runtime)] || ""))
+          .map(async (runtime) => {
+            const view = await authStatus(runtime);
+            if (!disposed) onAuthState(runtimeAuthScope(runtime), view.attempt?.state);
           }),
       );
-    }, 1200);
-    return () => clearInterval(timer);
-  }, [authInProgress, authStates, onAuthState]);
+      if (!disposed) timer = setTimeout(poll, 1200);
+    };
+    timer = setTimeout(poll, 1200);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [authInProgress, authStates, onAuthState, discovery]);
   return (
     <section className="native-decision" aria-label="Runtime setup">
       <h3>
@@ -144,6 +187,9 @@ export function RuntimeSetup({
         Use the accounts already on this computer, or sign in below. Enable a
         harness to make its models available in Loop.
       </p>
+      {discovery?.setup && discovery.setup !== "idle" && (
+        <p role="status">{runtimeSetupMessages[discovery.setup]}</p>
+      )}
       <label>
         Project directory for new runtimes
         <select
@@ -177,18 +223,19 @@ export function RuntimeSetup({
         </select>
       </label>
       <p className="note">
-        No automatic billing fallback. OpenCode and API accounts require
-        explicitly choosing existing configuration. Enabled runtimes keep their
-        saved billing policy.
+        No automatic billing fallback. Managed Codex, Claude Code and OpenCode
+        require native subscription sign-in. Pi uses existing billing and may
+        incur API charges. Direct runtimes use the selected or saved policy.
       </p>
       {discovery?.runtimes.map((runtime) => {
         const label = labels[runtime.name];
+        const scope = runtimeAuthScope(runtime);
         const open = signingIn === runtime.name;
-        const signedIn = authStates[runtime.name] === "complete";
+        const signedIn = authStates[scope] === "complete" || runtime.authentication === "signed_in";
         const authenticating = ["starting", "waiting"].includes(
-          authStates[runtime.name] || "",
+          authStates[scope] || "",
         );
-        const projectId = runtime.enabled
+        const projectId = runtime.enabled && runtime.backend !== "hapi"
           ? projects.find((p) => p.path === runtime.project)?.folder_id
           : project;
         const enableAction = (
@@ -241,15 +288,18 @@ export function RuntimeSetup({
               </span>
             </p>
             {!runtime.available && <p>{runtime.help}</p>}
-            {runtime.enabled && (
+            {(runtime.enabled || runtime.backend === "hapi") && (
               <p className="note">
-                Bound project: {runtime.project || "unknown"}. Billing:{" "}
+                {runtime.backend === "hapi" ? "Managed runner" : `Bound project: ${runtime.project || "unknown"}`}. Billing:{" "}
                 {runtime.billing || "unknown"}.
               </p>
             )}
             {open && (
               <RuntimeSignIn
-                key={runtime.name + projectId}
+                base={authBase(runtime)}
+                backend={runtime.backend === "hapi" ? "environment" : "direct"}
+                location="this computer"
+                key={scope + projectId}
                 name={runtime.name}
                 label={label}
                 projectId={projectId!}
@@ -257,7 +307,7 @@ export function RuntimeSetup({
                 enabled={runtime.enabled}
                 enabling={busy}
                 enableAction={enableAction}
-                onStateChange={onAuthState}
+                onStateChange={(_, state) => onAuthState(scope, state)}
                 onClose={() => {
                   setSigningIn(undefined);
                   void refresh().catch((e) => setError(e.message));

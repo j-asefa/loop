@@ -6,6 +6,7 @@ import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { environmentRuntimeBrowser } from "./helpers/environment-runtime-browser.mjs";
 import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -312,6 +313,7 @@ try {
   } finally {
     await modelContext.close();
   }
+  await environmentRuntimeBrowser({ browser, host });
   await nativeAuthBrowser({ browser, host, dir, db });
   const devices = await control(dir, "devices");
   await control(dir, "revoke", { id: devices[0].id });

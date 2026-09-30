@@ -1,15 +1,18 @@
 import { readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+const versions = JSON.parse(
+  readFileSync(new URL("../deployment/versions.json", import.meta.url), "utf8"),
+);
 const root = process.argv[2];
 if (
   !root ||
   execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: root,
     encoding: "utf8",
-  }).trim() !== "0239edf38e2da653d662f31039e24ccea04c7837"
+  }).trim() !== versions.hapiCommit
 )
-  throw new Error("Requires exact HAPI 0.30.7 source commit");
+  throw new Error(`Requires exact HAPI ${versions.hapi} source commit`);
 const changes = new Map();
 function edit(path, from, to, all = false) {
   const source =
@@ -31,9 +34,27 @@ function imp(path) {
   edit(
     path,
     "import ",
-    "import { managedLaunch, managedBinding, managedCodexArgs, managedThread, managedGuard, managedClaude } from '@/loopManaged';\nimport ",
+    "import { managedLaunch, managedBinding, managedCodexArgs, managedThread, managedGuard, managedClaude, managedAcpPrompt, managedAcpServers, managedAcpInstructions, managedOpencodeHttp, managedOpencodeEnvironment, managedOpencodeConfig } from '@/loopManaged';\nimport ",
   );
 }
+// Keep managed execution on the same guarded binary as runner authentication.
+edit(
+  "cli/src/agent/agentLaunchCommand.ts",
+  "    if (flavor === 'claude') return env.HAPI_CLAUDE_PATH?.trim() || DEFAULT_COMMANDS.claude",
+  `    if (flavor === 'pi' && env.LOOP_MANAGED === '1') {
+        const command = env.HAPI_PI_PATH;
+        if (!command || !(posix.isAbsolute(command) || win32.isAbsolute(command)))
+            throw new Error('Managed Pi requires an absolute executable path');
+        return command;
+    }
+    if (flavor === 'opencode' && env.LOOP_MANAGED === '1') {
+        const command = env.HAPI_OPENCODE_PATH;
+        if (!command || !(posix.isAbsolute(command) || win32.isAbsolute(command)))
+            throw new Error('Managed OpenCode requires an absolute executable path');
+        return command;
+    }
+    if (flavor === 'claude') return env.HAPI_CLAUDE_PATH?.trim() || DEFAULT_COMMANDS.claude`,
+);
 copyFileSync(
   new URL("./loopManaged.ts", import.meta.url),
   join(root, "cli/src/loopManaged.ts"),
@@ -300,6 +321,241 @@ edit(
   "const finalOptions: SpawnOptions = { ...options };",
   "const finalOptions: SpawnOptions = { ...options };\n  if (process.env.LOOP_MANAGED === '1') finalOptions.detached = false;",
 );
+// ACP completion must carry native lifecycle evidence and Loop dispatch identity.
+edit(
+  "cli/src/agent/types.ts",
+  "mcpServers: McpServerStdio[];",
+  "mcpServers: Array<McpServerStdio | { type: 'http'; name: string; url: string; headers: McpEnvVar[] }> ;",
+);
+imp("cli/src/opencode/opencodeRemoteLauncher.ts");
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "const mcpServerList = toAcpMcpServers(mcpServers);",
+  "const mcpServerList = managedAcpServers(toAcpMcpServers(mcpServers));",
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "let messageText = batch.message;",
+  "let messageText = managedAcpInstructions(batch.message);",
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "                logger.warn('[opencode-remote] resume failed, starting new session', error);",
+  "                if (process.env.LOOP_MANAGED === '1') throw new Error('Managed OpenCode resume failed; refusing replacement session');\n                logger.warn('[opencode-remote] resume failed, starting new session', error);",
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  `                await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
+                    this.handleAgentMessage(message);
+                });`,
+  `                await managedAcpPrompt<AgentMessage>({
+                    threadId: acpSessionId,
+                    items: batch.items,
+                    send: (event, key) => session.client.sendAgentMessage(event, key),
+                    prompt: update => backend.prompt(acpSessionId, promptContent, update),
+                    update: message => this.handleAgentMessage(message),
+                });`,
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "                this.reportPromptFailure(error);",
+  "                this.reportPromptFailure(error);\n                if (process.env.LOOP_MANAGED === '1') throw error;",
+);
+// Authenticate every internal HTTP path to the exact managed ACP subprocess.
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "    private baseUrl: string | null = null;",
+  "    private baseUrl: string | null = null;\n    private loopHttp: ReturnType<typeof managedOpencodeHttp>;",
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "        const backend = createOpencodeBackend({",
+  "        this.loopHttp = managedOpencodeHttp();\n        const backend = createOpencodeBackend({\n            serverEnv: this.loopHttp?.env,",
+);
+// Includes event stream and all three compaction requests (snapshot, POST, verification).
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "            baseUrl,",
+  "            baseUrl,\n            headers: this.loopHttp?.headers,",
+  true,
+);
+edit(
+  "cli/src/opencode/utils/opencodeBackend.ts",
+  "    hostname?: string;",
+  "    hostname?: string;\n    serverEnv?: { OPENCODE_SERVER_USERNAME: string; OPENCODE_SERVER_PASSWORD: string };",
+);
+imp("cli/src/opencode/utils/opencodeBackend.ts");
+edit(
+  "cli/src/opencode/utils/opencodeBackend.ts",
+  "    const env = buildOpencodeEnv();",
+  "    const env = { ...managedOpencodeEnvironment(buildOpencodeEnv()), ...opts.serverEnv };\n    if (process.env.LOOP_MANAGED === '1' && !opts.serverEnv?.OPENCODE_SERVER_PASSWORD) throw new Error('Managed OpenCode HTTP authentication required');",
+);
+edit(
+  "cli/src/opencode/utils/opencodeCompactBridge.ts",
+  "    baseUrl: string;",
+  "    baseUrl: string;\n    headers?: Record<string, string>;",
+);
+edit(
+  "cli/src/opencode/utils/opencodeCompactBridge.ts",
+  "headers: { 'content-type': 'application/json' },",
+  "headers: { ...opts.headers, 'content-type': 'application/json' },\n            redirect: 'error',",
+);
+edit(
+  "cli/src/opencode/utils/opencodeCompactBridge.ts",
+  "{ method: 'GET', signal: opts.signal }",
+  "{ method: 'GET', signal: opts.signal, headers: opts.headers, redirect: 'error' }",
+);
+edit(
+  "cli/src/opencode/utils/opencodeEventStream.ts",
+  "    baseUrl: string;",
+  "    baseUrl: string;\n    headers?: Record<string, string>;",
+);
+edit(
+  "cli/src/opencode/utils/opencodeEventStream.ts",
+  "                    headers: {",
+  "                    redirect: 'error',\n                    headers: {\n                        ...options.headers,",
+);
+
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "        await backend.initialize();",
+  "        await backend.initialize();\n        await managedOpencodeConfig(baseUrl, session.path, this.loopHttp?.headers);",
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "                await managedAcpPrompt<AgentMessage>({",
+  "                await managedAcpPrompt<AgentMessage>({\n                    preflight: async () => { await managedOpencodeConfig(this.baseUrl!, session.path, this.loopHttp?.headers); },",
+);
+edit(
+  "cli/src/opencode/opencodeRemoteLauncher.ts",
+  "            const metadata = backend.getSessionModelsMetadata?.(acpSessionId);\n            const split =",
+  "            await managedOpencodeConfig(baseUrl, session.path, this.loopHttp?.headers);\n            const metadata = backend.getSessionModelsMetadata?.(acpSessionId);\n            const split =",
+);
+
+// The managed extension reports discovery over a private descriptor. Keep this
+// opt-in until the launcher supplies the protected extension and binding.
+copyFileSync(new URL("./pi-readiness.ts", import.meta.url), join(root, "cli/src/pi/pi-readiness.ts"));
+edit("cli/src/pi/piTransport.ts", "import { spawn,", "import { waitForPiTools } from './pi-readiness';\nimport { spawn,");
+edit("cli/src/pi/piTransport.ts", "    env?: NodeJS.ProcessEnv;", "    env?: NodeJS.ProcessEnv;\n    managedTools?: boolean;");
+edit("cli/src/pi/piTransport.ts", "    private killed = false;", `    private toolsReady: Promise<void> = Promise.resolve();
+    waitForTools(): Promise<void> { return this.toolsReady; }
+    private killed = false;`);
+edit("cli/src/pi/piTransport.ts", "            stdio: ['pipe', 'pipe', 'pipe'],",
+    "            stdio: this.options.managedTools ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],");
+edit("cli/src/pi/piTransport.ts", "        this.process.stdout.setEncoding('utf8');", `        if (this.options.managedTools) {
+            const pipe = this.process.stdio[3];
+            this.toolsReady = pipe && 'readable' in pipe
+                ? waitForPiTools(pipe as import('node:stream').Readable)
+                : Promise.reject(new Error('Managed Pi workspace tools pipe unavailable'));
+            // Register immediately, even if the launcher has not awaited yet.
+            void this.toolsReady.catch(() => {
+                this.kill();
+                this.errorHandler?.(new Error('Managed Pi workspace tools failed to initialize'));
+            });
+        }
+        this.process.stdout.setEncoding('utf8');`);
+
+// A failed managed write has an uncertain outcome. Notify the lifecycle owner
+// instead of swallowing it and leaving the durable dispatch waiting forever.
+edit(
+  "cli/src/pi/piTransport.ts",
+  "    private killed = false;",
+  `    private managedWriteFailed = false;
+    private reportManagedWriteFailure(): void {
+        if (process.env.LOOP_MANAGED !== '1' || this.managedWriteFailed) return;
+        this.managedWriteFailed = true;
+        this.errorHandler?.(new Error('Managed Pi transport delivery is uncertain'));
+    }
+    private killed = false;`,
+);
+edit(
+  "cli/src/pi/piTransport.ts",
+  "        if (!this.process || this.killed || this.exited || this.process.stdin.destroyed || this.process.stdin.writableEnded) {",
+  "        if ((process.env.LOOP_MANAGED === '1' && this.managedWriteFailed) || !this.process || this.killed || this.exited || this.process.stdin.destroyed || this.process.stdin.writableEnded) {",
+);
+edit(
+  "cli/src/pi/piTransport.ts",
+  "        this.process.stdout.setEncoding('utf8');",
+  `        this.process.stdin.on('error', () => this.reportManagedWriteFailure());
+        this.process.stdout.setEncoding('utf8');`,
+);
+edit(
+  "cli/src/pi/piTransport.ts",
+  "            logger.debug('[pi] Dropping message: transport not running');",
+  "            this.reportManagedWriteFailure();\n            logger.debug('[pi] Dropping message: transport not running');",
+);
+edit(
+  "cli/src/pi/piTransport.ts",
+  "            this.process.stdin.write(JSON.stringify(message) + '\\n');",
+  `            this.process.stdin.write(JSON.stringify(message) + '\\n', (error) => {
+                if (error) this.reportManagedWriteFailure();
+            });`,
+);
+edit(
+  "cli/src/pi/piTransport.ts",
+  "            const nodeErr = err as NodeJS.ErrnoException;\n            if (nodeErr.code === 'EPIPE')",
+  "            this.reportManagedWriteFailure();\n            const nodeErr = err as NodeJS.ErrnoException;\n            if (nodeErr.code === 'EPIPE')",
+);
+
+// Observe native outcomes through the same event consumer that owns settlement.
+edit("cli/src/pi/loop.ts", "    onAgentSettled?: () => void;",
+  "    onAgentSettled?: () => void;\n    onNativeOutcome?: (event: unknown) => void;");
+edit("cli/src/pi/loop.ts", "    transport.onEvent((event) => {",
+  "    transport.onEvent((event) => {\n        options.onNativeOutcome?.(event);");
+edit("cli/src/pi/runPi.ts", "        onStartupFailure: failNativeStartup,",
+  "        onStartupFailure: failNativeStartup,\n        onNativeOutcome: (event) => loopDelivery.observe(event),");
+
+// Record uncertainty before flush/cleanup can erase the active prompt identity.
+edit("cli/src/pi/runPi.ts", "import ", "import { managedPiDelivery, managedPiEnvironment, managedPiInstructions } from '@/loopManaged';\nimport ");
+edit("cli/src/pi/runPi.ts", "    // Pending user-message localIds in FIFO order",
+  "    const loopDelivery = managedPiDelivery((event, key) => apiSession.sendAgentMessage(event, key));\n\n    // Pending user-message localIds in FIFO order");
+edit("cli/src/pi/runPi.ts", "    transport.onError((error) => {",
+  "    transport.onError((error) => {\n        loopDelivery.lost();");
+edit("cli/src/pi/runPi.ts", "    transport.onClose((code, signal) => {",
+  "    transport.onClose((code, signal) => {\n        loopDelivery.lost();");
+edit("cli/src/pi/runPi.ts", "        setPromptCommandInFlight(true);\n        activePromptLocalId = dequeued.localId;",
+  "        let loopMessage: string;\n        try { loopDelivery.begin(dequeued.localId); loopMessage = managedPiInstructions(dequeued.message); } catch {\n            void safeCleanup();\n            return;\n        }\n        setPromptCommandInFlight(true);\n        activePromptLocalId = dequeued.localId;");
+edit("cli/src/pi/runPi.ts", "        onAgentLifecycleStarted: () => {",
+  "        onAgentLifecycleStarted: () => {\n            loopDelivery.started();");
+edit("cli/src/pi/runPi.ts", "        onAgentSettled: markPromptBoundarySettled,",
+  "        onAgentSettled: () => { if (!loopDelivery.settled()) { void safeCleanup(); return; } markPromptBoundarySettled(); },");
+edit("cli/src/pi/runPi.ts", "        onPromptRejected: (localId) => {",
+  "        onPromptRejected: (localId) => {\n            loopDelivery.rejected(localId);");
+edit("cli/src/pi/runPi.ts", "        onPromptLifecycleMissing: (localId) => {",
+  "        onPromptLifecycleMissing: (localId) => {\n            if (process.env.LOOP_MANAGED === '1') {\n                loopDelivery.lost();\n                void safeCleanup();\n                return false;\n            }");
+
+edit("cli/src/pi/runPi.ts", "message: dequeued.message, ...(dequeued.images.length",
+  "message: loopMessage, ...(dequeued.images.length");
+
+edit("cli/src/pi/runPi.ts", "        env: process.env,",
+  "        env: managedPiEnvironment(process.env),");
+
+// Gate every queue entrypoint, including the legacy ready fallback, on tools.
+edit("cli/src/pi/runPi.ts", "import ", "import { isAbsolute } from 'node:path';\nimport ");
+edit("cli/src/pi/runPi.ts", "    const transportArgs = ['--mode', 'rpc', '--extension', titleExtensionPath];", `    const transportArgs = ['--mode', 'rpc', '--extension', titleExtensionPath];
+    const managedTools = process.env.LOOP_MANAGED === '1';
+    let loopToolsReady = !managedTools;
+    if (managedTools) {
+        const extension = process.env.LOOP_PI_EXTENSION;
+        if (!extension || !isAbsolute(extension)) throw new Error('Managed Pi extension is unavailable');
+        transportArgs.push('--extension', extension);
+    }`);
+edit("cli/src/pi/runPi.ts", "        env: managedPiEnvironment(process.env),", `        managedTools,
+        env: {
+            ...managedPiEnvironment(process.env),
+            ...(managedTools ? {
+                LOOP_LAUNCH_FILE: process.env.LOOP_LAUNCH_FILE,
+                LOOP_LAUNCH_ID: process.env.LOOP_LAUNCH_ID,
+                LOOP_ENVIRONMENT_GENERATION: process.env.LOOP_ENVIRONMENT_GENERATION,
+            } : {}),
+        },`);
+edit("cli/src/pi/runPi.ts", "    const pumpPromptQueue = (): void => {", "    const pumpPromptQueue = (): void => {\n        if (!loopToolsReady) return;");
+edit("cli/src/pi/runPi.ts", "        transport.start();", `        transport.start();
+        await transport.waitForTools();
+        if (cleanupInitiated) return;
+        loopToolsReady = true;
+        pumpPromptQueue();`);
+
 for (const [path, source] of changes) writeFileSync(join(root, path), source);
 console.log(
   "Applied Loop managed-launch, auth, lifecycle and namespace seams to pinned HAPI",

@@ -1,6 +1,6 @@
 # Server operation
 
-The server profile runs one shared web application, API and durable worker. Use a persistent Node host or Docker; static hosting alone cannot run it. For QR-based laptop access use [harnesses](harnesses.md) and [pairing](pairing.md).
+The server profile runs one shared web application, API and durable worker. Use a persistent Node host or Docker; static hosting alone cannot run it. For QR-based laptop or Docker companion access use [pairing](pairing.md#docker-companion). The dedicated companion Compose file is separate from the server deployment below.
 
 ## Start from a checkout
 

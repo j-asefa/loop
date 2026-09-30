@@ -1,4 +1,5 @@
 import https from "node:https";
+import { runtimeInventory } from "./runtime-inventory.mjs";
 import http from "node:http";
 import {
   readFileSync,
@@ -17,9 +18,18 @@ import { join, relative, extname, isAbsolute } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import WebSocket from "ws";
-import { nativeLogins } from "./login.mjs";
+import {
+  runnerLoginApi,
+  discoverOpencode,
+  logoutOpencode,
+  discoverPi,
+  logoutPi,
+} from "./generated/native-auth/service.mjs";
 import { inspectCodexAppServer } from "./codex-app-server-status.mjs";
 
+const versions = JSON.parse(
+  readFileSync(new URL("../deployment/versions.json", import.meta.url), "utf8"),
+);
 const settings = JSON.parse(
   readFileSync(process.env.LOOP_WORKER_CONFIG, "utf8"),
 );
@@ -61,8 +71,16 @@ function env() {
   e.CLAUDE_CODE_USE_VERTEX = "0";
   return e;
 }
-const binary = (flavor) =>
-  flavor === "codex" ? settings.codexBinary : settings.claudeBinary;
+const binary = (flavor) => {
+  const path = {
+    codex: settings.codexBinary,
+    claude: settings.claudeBinary,
+    opencode: settings.opencodeBinary,
+    pi: settings.piBinary,
+  }[flavor];
+  if (!path) throw new Error("Runtime executable unavailable");
+  return path;
+};
 async function command(flavor, args) {
   const child = spawn(binary(flavor), args, {
     env: env(),
@@ -86,6 +104,21 @@ async function command(flavor, args) {
   }
 }
 export async function authStatus(flavor) {
+  validFlavor(flavor);
+  if (flavor === "opencode")
+    return discoverOpencode({
+      executable: binary(flavor),
+      project: root,
+      env: env(),
+    });
+  if (flavor === "pi") {
+    const status = await discoverPi({
+      executable: binary(flavor),
+      project: root,
+      env: env(),
+    });
+    return { ...status, managed: true, checkedAt: Date.now() };
+  }
   if (flavor === "claude") {
     const s = JSON.parse(await command("claude", ["auth", "status", "--json"]));
     return {
@@ -112,13 +145,18 @@ export async function authStatus(flavor) {
 }
 const validFlavor = (f) => {
   if (
-    !["codex", "claude"].includes(f) ||
+    !["codex", "claude", "opencode", "pi"].includes(f) ||
     (settings.providers && !settings.providers.includes(f))
   )
     throw new Error("Unsupported provider");
   return f;
 };
-const logins = nativeLogins({ spawn, binary, env });
+const logins = runnerLoginApi((flavor) => ({
+  name: validFlavor(flavor),
+  executable: binary(flavor),
+  project: root,
+  env: env(),
+}));
 function authorized(req) {
   const supplied = String(req.headers.authorization || "").replace(
     /^Bearer /,
@@ -169,35 +207,53 @@ const server = https.createServer(
             gatewayUrl: settings.gatewayUrl,
             generation,
             machineId,
-            versions: { hapi: "0.30.7", codex: "0.157.0", claude: "2.1.280" },
+            versions: {
+              hapi: versions.hapi,
+              codex: versions.codex,
+              claude: versions.claudeCode,
+              opencode: versions.opencode,
+              pi: versions.pi,
+            },
           }),
         );
         return;
       }
-      if (req.url === "/login/start") {
-        res.end(JSON.stringify(logins.start(validFlavor(data.flavor))));
+      if (req.method === "GET" && req.url === "/runtimes") {
+        res.end(
+          JSON.stringify(
+            await runtimeInventory({
+              providers: settings.providers,
+              binary,
+              authStatus,
+            }),
+          ),
+        );
         return;
       }
-      if (req.url === "/login/status") {
-        res.end(JSON.stringify(logins.status(validFlavor(data.flavor))));
-        return;
-      }
-      if (req.url === "/login/cancel") {
-        logins.cancel(validFlavor(data.flavor), data.attemptId);
-        res.end('{"ok":true}');
-        return;
-      }
-      if (req.url === "/login/code") {
-        logins.code(validFlavor(data.flavor), data.attemptId, data.code);
-        res.end('{"ok":true}');
+      if (req.url?.startsWith("/login/")) {
+        if (req.method !== "POST") throw new Error("Sign-in requires POST");
+        res.end(JSON.stringify(await logins.request(req.url.slice(7), data)));
         return;
       }
       if (req.url === "/logout") {
         const flavor = validFlavor(data.flavor);
-        await command(
-          flavor,
-          flavor === "codex" ? ["logout"] : ["auth", "logout"],
-        );
+        if (flavor === "opencode")
+          await logoutOpencode({
+            executable: binary(flavor),
+            project: root,
+            env: env(),
+          });
+        else if (flavor === "pi")
+          await logoutPi({
+            executable: binary(flavor),
+            project: root,
+            env: env(),
+          });
+        else
+          await command(
+            flavor,
+            flavor === "codex" ? ["logout"] : ["auth", "logout"],
+          );
         res.end('{"ok":true}');
         return;
       }

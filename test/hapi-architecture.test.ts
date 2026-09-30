@@ -84,6 +84,31 @@ describe("HAPI architecture safety (deterministic protocol fixtures)", () => {
       authMethod: "chatgpt",
     };
     expect(() => verifyAuth("codex", base)).not.toThrow();
+    expect(() =>
+      verifyAuth("claude", { ...base, authMethod: "claude" }),
+    ).not.toThrow();
+    expect(() => verifyAuth("claude", base)).toThrow();
+    const guarded = { ...base, executionGuard: "loop-subscription-v1" };
+    expect(() => verifyAuth("opencode", guarded)).not.toThrow();
+    for (const invalid of [
+      { ...guarded, executionGuard: "unknown" },
+      { ...guarded, authMethod: "apiKey" },
+      { ...guarded, authenticated: false },
+      { ...guarded, checkedAt: 0 },
+    ])
+      expect(() => verifyAuth("opencode", invalid)).toThrow();
+    expect(
+      connectionSelection({
+        metadata: JSON.stringify({
+          backend: "hapi",
+          environmentId: host,
+          flavor: "opencode",
+          billing: billingPolicy,
+        }),
+      })?.flavor,
+    ).toBe("opencode");
+    for (const flavor of ["opencode", "pi", "unknown", "", "constructor"])
+      expect(() => verifyAuth(flavor, base)).toThrow();
     for (const value of [
       { ...base, authMethod: "apiKey" },
       { ...base, authMethod: "unknown" },
@@ -254,6 +279,127 @@ describe("HAPI architecture safety (deterministic protocol fixtures)", () => {
       ),
     ).not.toContain(source.id);
   });
+  it("projects pinned OpenCode converted messages and preserves unknown activity", () => {
+    const wire = (body: unknown) => ({
+      content: { role: "agent", content: { type: "codex", data: body } },
+    });
+    expect(
+      normalizeMessage(
+        wire({
+          type: "message",
+          message: "OpenCode answer",
+          streamSnapshot: true,
+        }),
+      ),
+    ).toMatchObject({ role: "assistant", content: "OpenCode answer" });
+    const tool = {
+      type: "tool-call",
+      name: "read",
+      callId: "oc-call",
+      input: { path: "README.md" },
+    };
+    expect(normalizeMessage(wire(tool))).toMatchObject({
+      role: "tool",
+      body: tool,
+    });
+    expect(
+      normalizeMessage(
+        wire({
+          type: "tool-call-result",
+          callId: "oc-call",
+          output: "contents",
+        }),
+      ).body.output,
+    ).toBe("contents");
+    expect(
+      normalizeMessage(wire({ type: "future-event", value: "retained" })),
+    ).toMatchObject({
+      unrecognized: true,
+      content:
+        'Unrecognized native activity: {"type":"future-event","value":"retained"}',
+    });
+    expect(normalizeMessage({ content: "unexpected" }).content).toContain(
+      "unexpected",
+    );
+    expect(normalizeMessage(null).unrecognized).toBe(true);
+    expect(
+      normalizeMessage(wire({ type: "message", message: { malformed: true } }))
+        .role,
+    ).toBe("tool");
+  });
+  it("projects pinned Pi text, tool progress, usage and durable outcomes", () => {
+    // Pi wireTransportEvents -> convertAgentMessage -> sendAgentMessage.
+    const wire = (body: unknown) => ({
+      content: {
+        data: { role: "agent", content: { type: "codex", data: body } },
+      },
+    });
+    expect(
+      normalizeMessage(
+        wire({
+          type: "message",
+          message: "Pi answer",
+          id: "pi-text",
+          streamSnapshot: true,
+        }),
+      ),
+    ).toMatchObject({
+      role: "assistant",
+      content: "Pi answer",
+      origin: "native",
+    });
+    const activities = [
+      {
+        type: "reasoning",
+        id: "pi-thought",
+        message: "Inspecting",
+        live: true,
+      },
+      {
+        type: "tool-call",
+        name: "read",
+        callId: "pi-call",
+        input: { path: "README.md" },
+        status: "in_progress",
+        progress: { content: [{ type: "text", text: "partial" }] },
+      },
+      {
+        type: "tool-call-result",
+        callId: "pi-call",
+        output: { content: [{ type: "text", text: "denied" }] },
+        is_error: true,
+      },
+      {
+        type: "token_count",
+        model: "openai/gpt-5",
+        info: {
+          total: { inputTokens: 12, outputTokens: 3 },
+          contextTokens: 15,
+        },
+      },
+      { type: "loop-turn", status: "completed", localId: "pi-dispatch" },
+      { type: "loop-delivery-unknown", localId: "pi-dispatch" },
+    ];
+    for (const body of activities) {
+      const normalized = normalizeMessage(wire(body));
+      expect(normalized).toMatchObject({
+        role: "tool",
+        body,
+        origin: "native",
+      });
+      expect(normalized.unrecognized).toBeUndefined();
+      expect(JSON.parse(normalized.content)).toEqual(body);
+    }
+    expect(
+      normalizeMessage(wire({ type: "pi-future-event", detail: "retained" })),
+    ).toMatchObject({ role: "tool", unrecognized: true });
+    expect(
+      normalizeMessage({
+        localId: "pi-dispatch",
+        content: { role: "user", content: { type: "text", text: "Continue" } },
+      }),
+    ).toMatchObject({ role: "user", content: "Continue", origin: "loop" });
+  });
   it("normalizes pinned Claude output and excludes transcript echoes from capture", () => {
     const message = {
       id: "claude-output",
@@ -338,12 +484,35 @@ describe("HAPI architecture safety (deterministic protocol fixtures)", () => {
       }),
     ).toThrow(/another identity/);
   });
-  it('preserves tombstones and uncertain receipts through a SQLite backup restore',async()=>{
-    const path=join(dir,'restore.db');await db.backup(path);
-    const Database=(await import('better-sqlite3')).default;const restored=new Database(path);
-    expect((restored.prepare('PRAGMA integrity_check').get() as any).integrity_check).toBe('ok');
-    expect((restored.prepare('SELECT count(*) n FROM memory_sources WHERE tombstone=1').get() as any).n).toBeGreaterThan(0);
-    expect(restored.prepare('SELECT local_id,billing FROM native_dispatches WHERE run_id=?').get(run.id)).toEqual(db.prepare('SELECT local_id,billing FROM native_dispatches WHERE run_id=?').get(run.id));restored.close();
+  it("preserves tombstones and uncertain receipts through a SQLite backup restore", async () => {
+    const path = join(dir, "restore.db");
+    await db.backup(path);
+    const Database = (await import("better-sqlite3")).default;
+    const restored = new Database(path);
+    expect(
+      (restored.prepare("PRAGMA integrity_check").get() as any).integrity_check,
+    ).toBe("ok");
+    expect(
+      (
+        restored
+          .prepare("SELECT count(*) n FROM memory_sources WHERE tombstone=1")
+          .get() as any
+      ).n,
+    ).toBeGreaterThan(0);
+    expect(
+      restored
+        .prepare(
+          "SELECT local_id,billing FROM native_dispatches WHERE run_id=?",
+        )
+        .get(run.id),
+    ).toEqual(
+      db
+        .prepare(
+          "SELECT local_id,billing FROM native_dispatches WHERE run_id=?",
+        )
+        .get(run.id),
+    );
+    restored.close();
   });
   it("does not retry a mutation when its acknowledgement is lost; rejects HTTP-200 structured spawn failure", async () => {
     let sent = 0;

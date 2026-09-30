@@ -1,22 +1,45 @@
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS auth-build
+WORKDIR /opt/loop
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY src ./src
+COPY native ./native
+COPY scripts/build-native-auth.mjs ./scripts/build-native-auth.mjs
+RUN node scripts/build-native-auth.mjs
 FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS bun
 FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git unzip && rm -rf /var/lib/apt/lists/*
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-RUN git clone https://github.com/tiann/hapi.git /opt/hapi && cd /opt/hapi && git checkout 0239edf38e2da653d662f31039e24ccea04c7837 && bun install --frozen-lockfile
-COPY native/apply-hapi-patch.mjs native/loopManaged.ts /opt/loop-native/
+COPY deployment/versions.json /opt/deployment/versions.json
+RUN git clone https://github.com/tiann/hapi.git /opt/hapi && cd /opt/hapi && git checkout "$(node -p 'require("/opt/deployment/versions.json").hapiCommit')" && bun install --frozen-lockfile
+COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/pi-readiness.ts /opt/loop-native/
 RUN node /opt/loop-native/apply-hapi-patch.mjs /opt/hapi
 WORKDIR /opt/hapi
 RUN bun run typecheck:cli && bun run typecheck:hub && cd cli && bun run build:exe
 RUN target="bun-linux-$(uname -m)"; case "$(uname -m)" in x86_64) target=bun-linux-x64-baseline ;; aarch64) target=bun-linux-arm64 ;; esac; cp "cli/dist-exe/$target/hapi" /opt/loop-native/hapi
 RUN git diff > /opt/loop-native/hapi.patch && git archive --format=tar HEAD > /opt/loop-native/hapi-source.tar
+# The managed OpenCode guard needs its audited Bun, independently of HAPI.
+FROM build AS opencode-build
+WORKDIR /opt
+COPY native/build-opencode.mjs native/apply-opencode-patch.mjs native/opencode-execution-guard.ts native/opencode-models.json.gz /opt/loop-native/
+RUN opencode_bun="$(node -p 'require("/opt/deployment/versions.json").opencodeBun')" && npm install --prefix /opt/opencode-tools --no-audit --no-fund "bun@$opencode_bun"
+RUN opencode_commit="$(node -p 'require("/opt/deployment/versions.json").opencodeCommit')" && git init /opt/opencode && git -C /opt/opencode remote add origin https://github.com/anomalyco/opencode.git && git -C /opt/opencode fetch --depth=1 origin "$opencode_commit" && git -C /opt/opencode checkout --detach FETCH_HEAD
+RUN node /opt/loop-native/build-opencode.mjs /opt/opencode /opt/opencode-tools/node_modules/.bin/bun
+RUN node -e 'const fs=require("node:fs"); fs.copyFileSync(`/opt/opencode/packages/opencode/dist/opencode-linux-${process.arch}/bin/opencode`, "/opt/loop-native/opencode")'
+RUN git -C /opt/opencode diff > /opt/loop-native/opencode.patch && cp /opt/opencode/packages/opencode/src/loop-execution-guard.ts /opt/loop-native/opencode-guard.ts && git -C /opt/opencode archive --format=tar HEAD > /opt/loop-native/opencode-source.tar
 FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git python3 curl less openssh-client ripgrep tini && rm -rf /var/lib/apt/lists/* && useradd --uid 10000 --create-home --shell /bin/bash agent
 WORKDIR /opt/native
 COPY deployment/native/package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /opt/loop-native/hapi /usr/local/bin/hapi
+COPY --from=opencode-build /opt/loop-native/opencode /usr/local/bin/opencode
+COPY --from=opencode-build /opt/opencode/LICENSE /opt/native/licenses/opencode-LICENSE
+COPY --from=opencode-build /opt/loop-native/opencode.patch /opt/loop-native/opencode-guard.ts /opt/loop-native/opencode-source.tar /opt/loop-native/
 COPY --from=build /opt/hapi/LICENSE /opt/hapi/cli/NOTICE /opt/native/licenses/
+COPY deployment/versions.json /opt/deployment/versions.json
 COPY native /opt/loop-native
+COPY --from=auth-build /opt/loop/native/generated /opt/loop-native/generated
 COPY --from=build /opt/loop-native/hapi.patch /opt/loop-native/hapi-source.tar /opt/loop-native/
 COPY --from=build /opt/hapi/node_modules/.bun/ws@8.18.3/node_modules/ws /opt/loop-native/node_modules/ws
 ENV PATH=/usr/local/bin:/opt/native/node_modules/.bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/agent CODEX_HOME=/home/agent/.codex CLAUDE_CONFIG_DIR=/home/agent/.claude HAPI_HOME=/home/agent/.hapi

@@ -9,6 +9,10 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+if (process.env.LOOP_TEST_CLEAN_ENV === "1" &&
+    (process.env.LOOP_TEST_HOST_ONLY || process.env.HOME !== process.cwd())) {
+  process.exit(91);
+}
 const kind = process.env.LOOP_TEST_HARNESS;
 const path = process.env.LOOP_TEST_AUTH_DIR || process.cwd();
 const credential = path + "/" + kind + "-credential.json";

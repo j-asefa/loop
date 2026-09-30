@@ -804,11 +804,12 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
   }
 });
 
-test("loop start pairs without enabling a harness, reuses the host and survives restart", async () => {
+test("loop start --direct pairs without enabling a harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
     const first = await w.loop([
       "start",
+      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -818,24 +819,25 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
     assert.equal(status.serverReady, true);
     assert.equal(status.executionReady, false);
     assert.deepEqual(status.harnesses, []);
-    const resumed = await w.loop(["start", "--local-only"]);
+    const resumed = await w.loop(["start", "--direct", "--local-only"]);
     assert.match(resumed.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const again = await w.loop([
       "start",
+      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
     ]);
     assert.match(again.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
-    const bare = await w.loop(["--local-only"]);
+    const bare = await w.loop(["--direct", "--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const otherProject = join(w.env.LOOP_HOME, "other-project");
     await mkdir(otherProject);
     await assert.rejects(
-      w.loop(["start", "--local-only", "--project", otherProject]),
+      w.loop(["start", "--direct", "--local-only", "--project", otherProject]),
       /Run loop stop before changing the running workspace/,
     );
     await assert.rejects(
@@ -878,7 +880,7 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
     );
     await w.loop(["stop"]);
     await assert.rejects(w.loop(["pair"]), /loop start/);
-    const restarted = await w.loop(["--local-only"]);
+    const restarted = await w.loop(["--direct", "--local-only"]);
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
@@ -898,7 +900,13 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
 test("bare loop restores a saved managed project from another directory", async () => {
   const w = await workspace();
   try {
-    await w.loop(["start", "--local-only", "--project", w.env.LOOP_HOME]);
+    await w.loop([
+      "start",
+      "--direct",
+      "--local-only",
+      "--project",
+      w.env.LOOP_HOME,
+    ]);
     const running = await w.status();
     const preferencesPath = join(w.dir, "preferences.json");
     const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
@@ -914,6 +922,105 @@ test("bare loop restores a saved managed project from another directory", async 
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, running.pid);
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+for (const explicit of [false, true])
+test(`${explicit ? "explicit managed" : "automatic"} daemon startup retains pairing after preparation fails`, async () => {
+  const w = await workspace();
+  const preload = join(w.env.LOOP_HOME, "managed-fixture.ts");
+  const selected = join(w.env.LOOP_HOME, "selected.json");
+  const release = join(w.env.LOOP_HOME, "release");
+  const closed = join(w.env.LOOP_HOME, "closed");
+  await mkdir(w.env.LOOP_HOME, { recursive: true });
+  // Mock provisioning only; run real CLI forwarding, HTTP pairing and storage.
+  await writeFile(
+    preload,
+    `
+    import { LocalRuntime } from ${JSON.stringify(pathToFileURL(resolve("src/local-runtime.ts")).href)};
+    import { writeFileSync, existsSync } from "node:fs";
+    LocalRuntime.prototype.prepare = async function () {
+      writeFileSync(${JSON.stringify(selected)}, JSON.stringify(this.selection));
+      const deadline = Date.now() + 20000;
+      while (!existsSync(${JSON.stringify(release)})) {
+        if (Date.now() > deadline) throw new Error("fixture preparation timeout");
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      throw new Error("fixture private preparation detail");
+    };
+    LocalRuntime.prototype.start = async function () { throw new Error("unexpected start"); };
+    LocalRuntime.prototype.close = async function () { writeFileSync(${JSON.stringify(closed)}, "closed"); };
+  `,
+  );
+  w.cli.splice(2, 0, "--import", preload);
+  try {
+    const first = await w.loop([
+      "start",
+      "--local-only",
+      "--project",
+      w.env.LOOP_HOME,
+      ...(explicit ? ["--providers", "claude,pi", "--execution", "native"] : []),
+    ]);
+    await until(() => existsSync(selected));
+    assert.deepEqual(JSON.parse(await readFile(selected, "utf8")), {
+      providers: explicit ? ["claude", "pi"] : ["codex", "claude", "opencode", "pi"],
+      execution: "native",
+      project: w.env.LOOP_HOME,
+    });
+    assert(!existsSync(release), "parent returns before preparation finishes");
+    const pendingPreferences = JSON.parse(
+      await readFile(join(w.dir, "preferences.json"), "utf8"),
+    );
+    assert.equal(pendingPreferences.project, w.env.LOOP_HOME);
+    assert.equal(pendingPreferences.providers, explicit ? "claude,pi" : undefined);
+    assert.equal(pendingPreferences.execution, explicit ? "native" : undefined);
+    const repeated = await w.loop(["start", "--local-only"]);
+    assert(
+      !existsSync(release),
+      "repeated start reuses the preparing workspace",
+    );
+    const url = new URL(repeated.stdout.match(PAIR_URL)![0]);
+    const paired = await fetch(url.origin + "/pair", {
+      method: "POST",
+      headers: { Origin: url.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        secret: url.hash.slice(6),
+        credential: "cookie",
+        name: "setup fixture",
+      }),
+    });
+    assert.equal(paired.status, 200);
+    const cookie = paired.headers.get("set-cookie")!.split(";")[0];
+    const inventory = () =>
+      fetch(url.origin + "/api/workspace/runtimes", {
+        headers: { cookie },
+      }).then((r) => r.json()) as Promise<{ setup: string }>;
+    assert.equal((await inventory()).setup, "preparing");
+    await writeFile(release, "continue");
+    await until(() => existsSync(closed));
+    await until(() => existsSync(join(w.dir, "preferences.json")));
+    assert.equal((await inventory()).setup, "fallback");
+    const status = await w.status();
+    assert.equal(status.serverReady, true);
+    assert.deepEqual(status.harnesses, [], "fallback must not enable placeholder Codex");
+    const preferences = JSON.parse(
+      await readFile(join(w.dir, "preferences.json"), "utf8"),
+    );
+    assert.equal(preferences.providers, explicit ? "claude,pi" : undefined);
+    assert.equal(preferences.execution, explicit ? "native" : undefined);
+    const logs = (await w.loop(["logs"])).stdout;
+    assert.equal((logs.match(/preparation failed/g) ?? []).length, 1);
+    assert.doesNotMatch(logs, /fixture private preparation detail/);
+    await w.loop(["stop"]);
+    await rm(selected);
+    await w.loop(["start", "--direct", "--local-only"]);
+    assert(
+      !existsSync(selected),
+      "--direct survives daemon argument forwarding",
+    );
+    assert.equal((await w.status()).serverReady, true);
   } finally {
     await w.cleanup();
   }

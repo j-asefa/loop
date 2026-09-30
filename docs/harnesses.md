@@ -35,9 +35,11 @@ Pass `--project /absolute/path/to/project` to choose a directory. New conversati
 
 Harnesses retain their own tools, permissions, instructions, skills and plugins. Loop tools are supplied through a private per-generation MCP bridge (Pi uses its extension). Catalog support varies by harness. Workflows can bound native steps and elapsed time, but cannot enforce the harness's internal model-call/token counts. Native work can be cancelled, not paused mid-turn.
 
-Saved Codex history supports read/fork and follow-ups to managed conversations. `loop codex --resume NATIVE_ID` is an explicit handoff after stopping the original owner and workspace; it is not takeover of an arbitrary live desktop process.
+Saved Codex desktop history read/fork and `loop codex --resume NATIVE_ID` retain the direct Codex adapter even when HAPI is the default. History discovery and forks require an enabled direct Codex connection; existing direct connections are preserved. The resume command is an explicit handoff after stopping the original owner and workspace; it is not takeover of an arbitrary live desktop process. Arbitrary `loop acp` executables also retain the direct ACP adapter.
 
 ## Provider sign-in
+
+Direct runtime setup and Settings → Execution environments use the same sign-in form. In environment settings, choose the environment and runtime, open **Manage sign-in**, complete the provider flow, then **Verify connection**. The account stays in the selected runner’s native credential store. Closing the form leaves an active attempt available to resume; **Cancel sign-in** cancels it.
 
 In a paired native workspace, open **Settings → Provider connections → Connected harnesses**, or expand the runtime controls in **New agent**. Choose **Sign in** beside an installed, supported harness, select its provider and sign-in method, and start sign-in. Open the provider link in your phone's browser and return to Loop; enter a verification code or API key when requested. After success, the panel shows **Signed in** with an **Enable** (or **Refresh**) button to load the harness's models. **Manage account** lets you change accounts later.
 
@@ -57,13 +59,13 @@ Loop advertises neither ACP filesystem nor terminal host methods. Agents may sti
 
 ## Managed launcher
 
-`loop start` launches the workspace without requiring a harness. To provision the managed laptop environment using HAPI, supply provider and execution options. That setup requires Node 24, Git and OpenSSL; Docker execution also requires Docker. The initial build downloads pinned HAPI/Bun inputs. Missing selected provider CLIs are installed in Loop's private helper directory; existing host installations are retained.
+`loop start` without runtime preferences prepares one native HAPI runner for Codex, Claude Code, OpenCode and Pi. The automatic choice is not saved as a provider or execution preference. Use `loop start --direct` to use installed direct adapters without managed preparation; this also bypasses saved managed choices for that invocation. Explicit provider/execution options and saved choices retain their existing meaning. That setup requires Node 24, Git and OpenSSL; Docker execution also requires Docker. The workspace and pairing are available while managed execution prepares. Runtime setup shows preparation and runner startup progress and refreshes automatically. If preparation or startup fails, Loop reports the failed stage once and retains direct execution after managed resources are cleaned up. The initial build downloads pinned HAPI/Bun inputs. Missing selected provider CLIs are installed in Loop's private helper directory; existing host installations are retained.
 
 ```sh
 loop start --providers both --execution both --project /absolute/path/to/project
 ```
 
-Provider choices are `openai`, `anthropic`, `both`; execution choices are `native`, `docker`, `both`. If you provide only one choice on an interactive terminal, Loop asks for the other; noninteractive startup defaults to both providers and native execution. Preferences persist under `LOOP_HOME`. Stop the workspace before changing execution configuration.
+Provider choices are `openai`, `anthropic`, `both`, or a comma-separated list of `codex`, `claude`, `opencode`, `pi`. The legacy `both` alias keeps selecting Codex and Claude. Execution choices are `native`, `docker`, `both`. If you provide only one choice on an interactive terminal, Loop asks for the other; noninteractive startup defaults to both providers and native execution. Preferences persist under `LOOP_HOME`. Stop the workspace before changing execution configuration.
 
 In Settings → Execution environments, complete sign-in, then create an agent choosing provider, Run on, model and project. Native runners use your OS identity and project access. Docker runners use separate provider homes and mount the selected project at `/workspaces/project`; they receive neither the host Docker socket nor host provider credentials. Model inference still occurs at the provider.
 
@@ -77,3 +79,27 @@ loop pair
 ```
 
 This installs a per-user launchd agent on macOS or systemd service on Linux using the current Node/CLI/PATH and project. Use `loop service uninstall` to stop/remove it while retaining workspace data; a service may restart a workspace stopped with `loop stop`.
+
+Settings → Execution environments and New agent share managed runtime status cards. “Check installation and sign-in” checks the configured executable and native account on that runner; it does not use pinned version numbers as installation evidence. Failed account checks remain unknown. Billing text describes the required launch policy, not proof of an active subscription. Results are timestamped snapshots; launch still validates authentication.
+
+The managed OpenCode execution guard is built against the exact source commit
+and Bun version in `deployment/versions.json`. For a dedicated source checkout,
+run `node native/build-opencode.mjs SOURCE ABSOLUTE_BUN_PATH`. The builder applies
+the guard, installs frozen dependencies without lifecycle scripts, and builds
+one host binary sequentially. `--skip-install` reuses an already prepared checkout.
+It uses the checksum-verified `native/opencode-models.json.gz` catalog (from
+[models.dev](https://models.dev/api.json)), rather than downloading a changing
+catalog during compilation. Updating that catalog requires updating its checksum
+and revalidating native routing. The native runner image builds this guarded binary in a separate stage with
+its audited Bun version, and retains the upstream license, source archive and
+patch. It uses the runner’s native credential home. For a private laptop build, run `node native/provision-opencode.mjs LOOP_HOME`.
+The installer retains source and the license, verifies cached binary integrity,
+and never replaces an installed CLI or redirects its credential home. Managed
+startup selects this guarded build for explicit OpenCode selections. Managed
+OpenCode requires native ChatGPT OAuth and executing-process guard evidence;
+incompatible configuration fails closed before model dispatch.
+The companion image bakes the same private artifact into `/opt/loop-opencode`.
+Startup verifies its package identity and binary checksum using the host-owned
+`LOOP_BAKED_OPENCODE` path, and fails if that configured artifact is missing or
+changed. This avoids compiling OpenCode in the persistent provider home. Cache
+verification does not replace the executing process's policy attestation.

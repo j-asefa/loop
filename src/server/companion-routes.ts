@@ -1,3 +1,5 @@
+import { enableManagedWorkspace, managedWorkspaceInventory } from "./managed-workspace.js";
+import { runtimeSetupState } from "../runtime-setup.js";
 import { discover } from "../host-control.js";
 import { hostname } from "node:os";
 import { nativeHistory } from "./native-history.js";
@@ -118,13 +120,17 @@ companion.get("/workspace", (_req, res) =>
 // Runs on the paired execution computer. Never accepts executable paths from the app.
 companion.get("/workspace/runtimes", async (_req, res) => {
   const registered = nativeSessions.registrations();
+  const managed = await managedWorkspaceInventory(OWNER);
   const runtimes = await Promise.all(
     (["codex", "claude", "pi", "opencode"] as const).map(async (name) => {
+      const served = managed?.find((runtime) => runtime.name === name);
+      if (served) return served;
       const enabled = registered.find((r) => r.name === name);
       const saved = enabled ? nativeSessions.registration(name) : undefined;
       const probe = await discover(name, saved?.executable);
       return {
         name,
+        backend: "direct",
         installed: probe.installed,
         available: !!(probe.installed && probe.supported),
         version: probe.installed ? probe.version : undefined,
@@ -136,7 +142,12 @@ companion.get("/workspace/runtimes", async (_req, res) => {
       };
     }),
   );
-  res.json({ computer: hostname(), online: true, runtimes });
+  res.json({
+    computer: hostname(),
+    online: true,
+    setup: runtimeSetupState(),
+    runtimes,
+  });
 });
 companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
   const name = z
@@ -163,6 +174,13 @@ companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
       422,
       "Choose a project with a directory on this computer. Add one in Projects.",
     );
+  const managed = await enableManagedWorkspace(
+    OWNER, name, input.projectId, project.path, input.billing,
+  );
+  if (managed) {
+    res.json(managed);
+    return;
+  }
   const registered = nativeSessions
     .registrations()
     .some((r) => r.name === name);

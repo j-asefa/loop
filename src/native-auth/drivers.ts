@@ -63,7 +63,7 @@ function cliDriver(options: AuthOptions): AuthDriver {
         {
           cwd: options.project,
           env: {
-            ...globalThis.process.env,
+            ...(options.env ?? globalThis.process.env),
             BROWSER: "false",
             DISABLE_AUTOUPDATER: "1",
           },
@@ -167,12 +167,14 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
       fileURLToPath(new URL("../pi-auth-extension.mjs", import.meta.url)),
     ],
     options.project,
+    options.env,
   );
   const channel = native.child.stdio[3] as Duplex;
   let dead = false;
   let current:
     | { io: AuthInteraction; resolve(): void; reject(error: Error): void }
     | undefined;
+  let logout: { resolve(): void; reject(error: Error): void } | undefined;
   const prompts = new Map<string, AbortController>();
   const providers = await new Promise<AuthProvider[]>((resolve, reject) => {
     const timer = setTimeout(
@@ -181,6 +183,7 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
     );
     native.on("failure", () => {
       dead = true;
+      logout?.reject(new Error("Pi sign-out process exited"));
       clearTimeout(timer);
       reject(new Error("Pi authentication process exited"));
       current?.reject(new Error("Pi authentication process exited"));
@@ -191,6 +194,8 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
         clearTimeout(timer);
         resolve(message.providers);
       }
+      if (message.type === "logout_complete") logout?.resolve();
+      if (message.type === "logout_failed") logout?.reject(new Error("Pi sign-out failed"));
       const login = current;
       if (!login || login.io.signal.aborted) return;
       if (message.type === "link")
@@ -250,6 +255,25 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
     async providers() {
       return providers;
     },
+    async models() {
+      if (dead) throw new Error("Pi authentication process exited");
+      const result = await native.request("get_available_models", {}, false);
+      return result.models;
+    },
+    async logout(provider) {
+      if (dead || current || logout) throw new Error("Pi account process unavailable");
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          logout = { resolve, reject };
+          timer = setTimeout(() => reject(new Error("Pi sign-out timed out")), 20000);
+          channel.write(JSON.stringify({ type: "logout", provider }) + "\n");
+        });
+      } finally {
+        clearTimeout(timer);
+        logout = undefined;
+      }
+    },
     login(provider, method, io) {
       return new Promise<void>((resolve, reject) => {
         if (dead) return reject(new Error("Pi authentication process exited"));
@@ -260,6 +284,7 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
       });
     },
     async dispose() {
+      logout?.reject(new Error("Sign-out cancelled"));
       current?.reject(new Error("Sign-in cancelled"));
       current = undefined;
       for (const prompt of prompts.values()) prompt.abort();
@@ -278,7 +303,7 @@ async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
       detached: true,
       stdio: "pipe",
       env: {
-        ...process.env,
+        ...(options.env ?? process.env),
         OPENCODE_SERVER_USERNAME: "loop",
         OPENCODE_SERVER_PASSWORD: password,
       },

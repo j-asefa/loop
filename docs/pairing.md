@@ -1,6 +1,6 @@
 # Pairing and recovery
 
-Pairing belongs to the laptop companion profile, including the managed launcher. The [server profile](server.md) uses local access, a gateway or accounts instead.
+Pairing belongs to the companion profile, running on a laptop or in Docker. The [server profile](server.md) uses local access, a gateway or accounts instead.
 
 ## Pair a device
 
@@ -43,3 +43,34 @@ Use a dedicated tunnel. Loop generates ingress only for its authenticated gatewa
 Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`. Pairing codes are not logged. Keep the computer awake; phone disconnection does not stop work.
 
 If status reports a crash or unresponsive workspace, inspect logs and use `loop stop`. It checks recorded process identity before signaling, reports processes it cannot confirm and retains unresolved records for another stop attempt. Never assume an uncertain dispatch did not execute: inspect partial work before an explicit follow-up. `loop uninstall` retains workspace/native data and prints package-removal guidance.
+
+## Multiple browser workspaces
+
+Browser and PWA installations are separate per origin. Pair and install the laptop and Docker workspace separately; each origin has its own device cookie and installation. Revoke unused device records on their workspace host.
+
+## Docker companion
+
+With Docker and git installed, use the dedicated Compose file. It requires no host Node installation or `.env` and starts only the companion:
+
+```sh
+git clone https://github.com/J-Asefa/loop.git
+cd loop
+docker compose -f compose.companion.yaml up --build -d
+docker compose -f compose.companion.yaml exec loop-companion loop pair
+```
+
+Scan the terminal QR and tap **Pair and open Loop**. Pairing codes are printed only in the interactive terminal, never in container logs. The pinned tunnel helper is baked into the image and verified against the same release hash used by the laptop launcher.
+
+The separate named volumes preserve workspace/device state, provider homes and managed helpers under `/data/loop`, and projects under `/workspaces`. Native execution runs inside this container; nested Docker execution is rejected. No ports or Docker socket are published. Both desktop and phone use the Quick Tunnel URL. Restarting can change that URL: run `loop pair` again and follow the reconnect instructions above. Device records survive; browser cookies remain bound to their origin.
+
+```sh
+docker compose -f compose.companion.yaml exec loop-companion loop status --json
+docker compose -f compose.companion.yaml exec loop-companion loop devices
+docker compose -f compose.companion.yaml exec loop-companion loop devices revoke DEVICE_ID
+docker compose -f compose.companion.yaml logs -f loop-companion
+docker compose -f compose.companion.yaml stop
+```
+
+Use Compose logs for foreground service output. `loop logs` remains available for any CLI daemon log in the persistent workspace. Stop through Compose to avoid its restart policy restarting an intentionally stopped CLI. Preserve both volumes when upgrading; do not use `down --volumes` for real workspaces. The server's `compose.yaml` and its data volume remain separate.
+
+The companion prepares Codex, Claude Code, guarded OpenCode and Pi using native execution inside the container. Sign in through the app on that runner. Codex, Claude Code and managed OpenCode require subscription authentication; Pi uses its existing billing configuration. Preparation failures retain the direct fallback and report the setup failure.

@@ -1,0 +1,15 @@
+# Deliberately separate from compose.yaml: no server secrets or server services.
+services:
+  loop-companion:
+    build:
+      context: .
+      dockerfile: Dockerfile.companion
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 40s
+    volumes:
+      - loop-companion-data:/data/loop
+      - loop-companion-projects:/workspaces
+volumes:
+  loop-companion-data:
+  loop-companion-projects:

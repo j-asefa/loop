@@ -200,3 +200,44 @@ it("server execution rejects a native harness connection before dispatch", async
   ).toBeUndefined();
   transition(run, "cancelled");
 });
+
+it("serializes mixed legacy and per-conversation work in either order", async () => {
+  const { enqueue } = await import("../src/server/queue");
+  for (const nativeFirst of [false, true]) {
+    const owner = "mixed-" + nativeFirst;
+    const legacy = connection(owner);
+    const native = connection(owner);
+    db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+      JSON.stringify({ loopHarness: "codex" }),
+      native,
+    );
+    const agent = createAgent(owner, {
+      name: owner,
+      connectionId: legacy,
+      model: "fixture-model",
+    });
+    const make = (connectionId: string) => {
+      const cid = id();
+      db.prepare(
+        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'mixed',?)",
+      ).run(cid, owner, agent.id, now());
+      return enqueue(owner, "test", id(), {
+        agent: agent.id,
+        conversation: cid,
+        payload: { connectionId },
+      });
+    };
+    const first = make(nativeFirst ? native : legacy);
+    const second = make(nativeFirst ? legacy : native);
+    expect(claim("mixed-first")?.id).toBe(first.id);
+    expect(claim("mixed-blocked")).toBeUndefined();
+    // An active lease still blocks even if its timestamp is later than the candidate.
+    db.prepare("UPDATE runs SET created_at=created_at+10000 WHERE id=?").run(
+      first.id,
+    );
+    expect(claim("mixed-active-blocked")).toBeUndefined();
+    transition(first, "completed");
+    expect(claim("mixed-second")?.id).toBe(second.id);
+    transition(second, "completed");
+  }
+});

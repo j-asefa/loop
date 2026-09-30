@@ -6,7 +6,9 @@ import { randomUUID } from "node:crypto";
 export default function loopSignIn(pi) {
   pi.on("input", () => ({ action: "handled" }));
   pi.on("session_start", async () => {
-    const runtime = await ModelRuntime.create({ refreshOnCreate: false });
+    // hasConfiguredAuth reads the availability snapshot populated by refresh.
+    // Skipping it makes existing native credentials appear signed out.
+    const runtime = await ModelRuntime.create({ allowModelNetwork: false });
     const channel = new Socket({ fd: 3, readable: true, writable: true });
     const send = (value) => channel.write(JSON.stringify(value) + "\n");
     const pending = new Map();
@@ -31,6 +33,14 @@ export default function loopSignIn(pi) {
           continue;
         }
         if (message.type === "input") pending.get(message.id)?.(message.value);
+        if (message.type === "logout" && !abort) {
+          abort = new AbortController();
+          void runtime.logout(message.provider, { signal: abort.signal }).then(
+            () => send({ type: "logout_complete" }),
+            () => send({ type: "logout_failed" }),
+          ).finally(() => { abort = undefined; });
+          continue;
+        }
         if (message.type !== "login" || abort) continue;
         abort = new AbortController();
         void runtime

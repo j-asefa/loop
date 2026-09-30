@@ -1,3 +1,5 @@
+import { EnvironmentRuntimes } from "./EnvironmentRuntimes";
+import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { EffortSelect } from "./EffortSelect";
 import type { ModelOption } from "../shared/models";
@@ -171,6 +173,7 @@ export function CreateAgent({
           />
         </details>
       )}
+      <EnvironmentRuntimes />
       <form onSubmit={create}>
         <div className="provider-picker">
           {(["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const)
@@ -217,6 +220,7 @@ export function CreateAgent({
                 ))}
               </select>
             </label>
+            <ConnectionDetails connection={selected} />
             <label>
               Model
               <select
@@ -238,14 +242,6 @@ export function CreateAgent({
                   </option>
                 ))}
               </select>
-              <span className="field-hint">
-                {parse<any>(selected.metadata, {}).loopHarness
-                  ? parse<any>(selected.metadata, {}).billing?.description
-                  : parse<any>(selected.metadata, {}).authMode ===
-                      "subscription"
-                    ? "Uses your subscription allowance. Provider model limits apply."
-                    : "Available to this connection. API-billed."}
-              </span>
             </label>
             {nativeConnection && currentCatalog?.error && (
               <div>
