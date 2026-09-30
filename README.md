@@ -1,6 +1,6 @@
 # Loop
 
-Loop is a mobile-first agent platform. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. Agents keep working on your computer after your phone disconnects — reopen Loop anytime to check progress, steer a run or approve the next step. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
+Loop is a phone-first agent web app. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. Agents keep working on your computer after your phone disconnects — reopen Loop anytime to check progress, steer a run or approve the next step. The same workspace UI also runs on desktop, and agents run through provider API connections, server subscription runtimes, or native coding harnesses on your computer.
 
 ## Setup
 
@@ -62,9 +62,9 @@ These commands share one local workspace, return after startup, and keep it runn
 
 ## Pair your phone
 
-1. Start a laptop workspace with `loop start` and scan its QR code with your phone's camera, or use the native Loop app.
+1. Start a laptop workspace with `loop start` and scan its QR code with your phone's camera.
 2. Create an agent with an enabled connection and project. The computer must stay awake; work continues when the phone disconnects.
-3. If the Quick Tunnel address changes, run `loop pair` and scan again in the app. A stable hostname preserves reconnection across restarts.
+3. If the Quick Tunnel address changes, run `loop pair` and scan again with your phone’s camera. A stable hostname preserves reconnection across restarts.
 
 ```sh
 loop status
@@ -77,18 +77,6 @@ To update and restart a manually launched workspace, run `loop stop`, update the
 
 Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).
 
-## Build the optional native phone app
-
-```sh
-cd mobile
-npm ci
-npm run typecheck
-npm run ios       # macOS with Xcode
-# or: npm run android  # Android SDK/emulator or connected device
-```
-
-The Expo shell loads the web app from your paired computer and stores the pairing token securely. [Mobile setup](mobile/README.md) covers bundle exports, EAS builds and installation.
-
 ## Develop and contribute
 
 ```sh
@@ -96,7 +84,7 @@ npm run build
 npm run test:all
 ```
 
-See [development and CI](docs/development.md) for browser, mobile, packaging and container checks. Automated harness fixtures verify Loop's behavior; they do not establish authenticated provider compatibility or physical-phone acceptance.
+See [development and CI](docs/development.md) for browser, packaging and container checks. Automated harness fixtures verify Loop's behavior; they do not establish authenticated provider compatibility or physical-phone acceptance.
 
 Use the [documentation index](docs/README.md) for detailed guides and [AGENTS.md](AGENTS.md) for task-specific contributor context.
 

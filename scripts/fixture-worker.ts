@@ -1,4 +1,4 @@
-await import("../tests/helpers/install");
+await import("../test/helpers/install");
 const { tick, execute } = await import("../src/server/worker");
 const { db, now } = await import("../src/server/db");
 setInterval(

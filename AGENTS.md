@@ -10,7 +10,6 @@ Start with [README.md](README.md) for build and run commands. Load only the guid
 | Runtime routing, persistence, activities or memory   | [Architecture](docs/architecture.md)                                            |
 | MCP, workflows, teams or workspace features          | [Workspace](docs/workspace.md)                                                  |
 | Tests, builds or CI                                  | [Development](docs/development.md)                                              |
-| Expo shell                                           | [mobile/AGENTS.md](mobile/AGENTS.md), then [mobile/README.md](mobile/README.md) |
 
 Keep one canonical explanation per topic and link to it. Verify commands against package scripts and CLI parsing, behavior against production entrypoints, and pins against their source files. Historical plans and validation reports live in Git history; record new execution evidence in the PR rather than presenting it as permanent product behavior.
 

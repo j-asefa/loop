@@ -13,7 +13,7 @@ const { runtimeHosts, runtimeEndpoint } =
 const { subscriptions, runtimeAction, subscriptionStream } =
   await import("../src/server/subscriptions");
 const { codexFixture, fixtureToken } = await import(
-  resolve("tests/helpers/codex-server.mjs")
+  resolve("test/helpers/codex-server.mjs")
 );
 const codex = await codexFixture();
 const { codexStream } = await import("../src/server/codex-app-server");

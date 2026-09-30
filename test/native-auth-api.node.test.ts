@@ -48,12 +48,12 @@ test("paired provider authentication protects credentials, checks project owners
       body: JSON.stringify({
         secret,
         name: "sign-in test",
-        credential: "bearer",
       }),
     });
-    const { token } = (await redemption.json()) as any;
+    assert.equal(redemption.status, 200);
+    const cookie = redemption.headers.get("set-cookie")!.split(";")[0];
     const { csrf } = (await fetch(host.origin + "/session", {
-      headers: { Authorization: "Bearer " + token },
+      headers: { cookie, Origin: host.origin },
     }).then((r) => r.json())) as any;
     const request = (
       path: string,
@@ -65,7 +65,7 @@ test("paired provider authentication protects credentials, checks project owners
         method: body ? "POST" : "GET",
         headers: {
           "Content-Type": "application/json",
-          ...(authenticated ? { Authorization: "Bearer " + token } : {}),
+          ...(authenticated ? { cookie, Origin: host.origin } : {}),
           ...(validCsrf ? { "x-loop-csrf": csrf } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,

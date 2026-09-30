@@ -4,9 +4,9 @@ Pairing belongs to the laptop companion profile, including the managed launcher.
 
 ## Pair a device
 
-Start a workspace with `loop start` or `loop <harness>`, then scan the displayed code with your phone's camera. The link opens Loop in your mobile browser; confirm **Pair and open Loop**, then use **Share → Add to Home Screen**. The [native Loop app](../mobile/README.md) can scan the code instead. Run `loop pair` for a fresh code. Links are single-use and expire after two minutes; anyone holding one can gain control of the workspace.
+Start a workspace with `loop start` or `loop <harness>`, then scan the displayed code with your phone's camera. The link opens Loop in your mobile browser; confirm **Pair and open Loop**, then use **Share → Add to Home Screen**. Run `loop pair` for a fresh code. Links are single-use and expire after two minutes; anyone holding one can gain control of the workspace.
 
-The browser installation uses an HttpOnly session cookie. The optional native phone app stores a bearer credential in secure storage; `/session/open` exchanges it for the web view's HttpOnly cookie without exposing the token to page scripts. Cookie requests use Host/Origin and CSRF checks; bearer writes still require CSRF. Only the paired origin loads inside the native app's web view. Once paired, the native app asks for Face ID, Touch ID or the device passcode on launch and after more than 30 seconds in the background before showing the workspace; a phone with no passcode set skips the prompt. The lock protects a phone left unlocked or handed to someone else; revoke the device on the computer if the phone itself is lost.
+The browser installation uses an HttpOnly session cookie. Pairing issues cookies only; bearer device credentials are no longer issued or accepted. Cookie requests use Host/Origin and CSRF checks. Revoke the device on the computer if the phone is lost.
 
 ```sh
 loop status --json
@@ -18,11 +18,13 @@ loop stop
 
 Device trust survives restart and address changes. It renews on use for up to one year of inactivity, subject to a fixed two-year maximum lifetime. Older records without a maximum retain their existing expiry as that maximum. Revocation persists. Expired or revoked devices must pair again. The implementation is [src/host.ts](../src/host.ts).
 
+Existing Expo app installations must migrate to the browser: run `loop pair`, open the new link in your phone’s browser, and add Loop to the home screen again. The native app’s session hand-off is no longer supported.
+
 ## Tunnels and reconnect
 
 By default Loop starts a pinned, hash-verified cloudflared Quick Tunnel. Cloudflare terminates TLS. Native transports and private administration stay local; public workspace updates use authenticated WebSockets with polling recovery.
 
-A Quick Tunnel address can change after restart or reconnection. For a browser installation, run `loop pair`, scan the new code with your phone's camera, and add the new page to your home screen. Browser storage and home-screen icons are tied to the old origin. In the optional native app, choose **Scan new code** and scan again; it keeps its install and pairing record but cannot discover the new address on its own. A new scan creates a fresh device entry; revoke unused entries.
+A Quick Tunnel address can change after restart or reconnection. For a browser installation, run `loop pair`, scan the new code with your phone's camera, and add the new page to your home screen. Browser storage and home-screen icons are tied to the old origin. A new scan creates a fresh device entry; revoke unused entries.
 
 `--local-only` creates loopback URLs for desktop testing; these cannot be reached from a phone. For your own proxy use `--public-url https://loop.example.com` and forward to the printed loopback port. Never expose private administration or native tool endpoints.
 

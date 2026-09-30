@@ -30,7 +30,7 @@ import { remoteCodexJourney } from "./remote-codex-journey.mjs";
 import { remoteClaudeJourney } from "./remote-claude-journey.mjs";
 import { agentCreationJourney } from "./agent-creation-journey.mjs";
 import { composerJourney, sendCollapseJourney } from "./composer-journey.mjs";
-import { codexFixture } from "../tests/helpers/codex-server.mjs";
+import { codexFixture } from "../test/helpers/codex-server.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -41,7 +41,7 @@ const remoteCodex = await codexFixture();
 execFileSync(
   "node_modules/.bin/esbuild",
   [
-    "tests/fixtures/mcp-app.ts",
+    "test/fixtures/mcp-app.ts",
     "--bundle",
     "--minify",
     "--format=iife",
@@ -70,7 +70,7 @@ const env = {
     }),
   );
 children.push(
-  spawn(process.execPath, ["tests/helpers/subscription-broker.mjs"], {
+  spawn(process.execPath, ["test/helpers/subscription-broker.mjs"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   }),

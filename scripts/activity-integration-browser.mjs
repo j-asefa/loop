@@ -120,7 +120,7 @@ const vite = await createServer({
           const url = new URL(req.url, "http://fixture");
           if (url.pathname === "/activity-integration") {
             res.setHeader("content-type", "text/html");
-            res.end(readFileSync("tests/fixtures/activity-ui/index.html"));
+            res.end(readFileSync("test/fixtures/activity-ui/index.html"));
             return;
           }
           if (!url.pathname.startsWith("/api/") && url.pathname != "/session")

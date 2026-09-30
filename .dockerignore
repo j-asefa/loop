@@ -1,7 +1,4 @@
 node_modules
-mobile
-# Imports mobile/; the image's build typechecks test/ but never runs it.
-test/mobile-connection.test.ts
 dist
 .git
 data

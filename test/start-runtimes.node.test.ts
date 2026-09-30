@@ -46,17 +46,19 @@ test("runtime-neutral paired host enables and dispatches all four fixture runtim
     const redemption = await fetch(host.origin + "/pair", {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: host.origin },
-      body: JSON.stringify({ secret, name: "fixture", credential: "bearer" }),
+      body: JSON.stringify({ secret, name: "fixture" }),
     });
-    const { token } = (await redemption.json()) as any;
+    assert.equal(redemption.status, 200);
+    const cookie = redemption.headers.get("set-cookie")!.split(";")[0];
     const { csrf } = (await fetch(host.origin + "/session", {
-      headers: { Authorization: "Bearer " + token },
+      headers: { cookie, Origin: host.origin },
     }).then((r) => r.json())) as any;
     const api = async (path: string, body?: unknown) => {
       const response = await fetch(host.origin + "/api" + path, {
         method: body ? "POST" : "GET",
         headers: {
-          Authorization: "Bearer " + token,
+          cookie,
+          Origin: host.origin,
           "x-loop-csrf": csrf,
           "Content-Type": "application/json",
         },
@@ -82,7 +84,8 @@ test("runtime-neutral paired host enables and dispatches all four fixture runtim
         {
           method: "POST",
           headers: {
-            Authorization: "Bearer " + token,
+            cookie,
+            Origin: host.origin,
             "x-loop-csrf": csrf,
             "Content-Type": "application/json",
           },

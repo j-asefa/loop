@@ -860,16 +860,18 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
       body: JSON.stringify({
         secret,
         name: "start test",
-        credential: "bearer",
       }),
     });
     assert.equal(paired.status, 200);
-    const credentials = (await paired.json()) as any;
+    const cookie = paired.headers.get("set-cookie")!.split(";")[0];
+    const credentials = (await fetch(origin + "/session", {
+      headers: { cookie },
+    }).then((r) => r.json())) as any;
     await w.loop(["pair"]);
     assert.equal(
       (
         await fetch(origin + "/session", {
-          headers: { Authorization: "Bearer " + credentials.token },
+          headers: { cookie },
         })
       ).status,
       200,
@@ -880,7 +882,7 @@ test("loop start pairs without enabling a harness, reuses the host and survives 
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
-      headers: { Authorization: "Bearer " + credentials.token },
+      headers: { cookie },
     });
     assert.equal(session.status, 200);
     assert.equal(
@@ -902,7 +904,11 @@ test("bare loop restores a saved managed project from another directory", async 
     const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
     await writeFile(
       preferencesPath,
-      JSON.stringify({ ...preferences, providers: "openai", execution: "native" }),
+      JSON.stringify({
+        ...preferences,
+        providers: "openai",
+        execution: "native",
+      }),
     );
     const bare = await w.loop(["--local-only"]);
     assert.match(bare.stdout, PAIR_URL);

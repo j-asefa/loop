@@ -25,8 +25,6 @@ export function RuntimeSignIn({
   onClose(): void;
 }) {
   const base = `/workspace/runtimes/${name}/auth`;
-  const nativeShell = !!(window as { ReactNativeWebView?: unknown })
-    .ReactNativeWebView;
   const [view, setView] = useState<NativeAuthView>();
   const [provider, setProvider] = useState("");
   const [method, setMethod] = useState("");
@@ -246,8 +244,7 @@ export function RuntimeSignIn({
           <a
             className="btn primary"
             href={attempt.url}
-            // Older native shells already intercept external top-frame links.
-            target={nativeShell ? "_self" : "_blank"}
+            target="_blank"
             rel="noreferrer"
           >
             Open provider sign-in

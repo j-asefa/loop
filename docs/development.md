@@ -1,6 +1,6 @@
 # Development and verification
 
-Use Node 24 and lockfile installs. Root and mobile are separate npm packages. [AGENTS.md](../AGENTS.md) routes contributors to the relevant guide.
+Use Node 24 and lockfile installs. [AGENTS.md](../AGENTS.md) routes contributors to the relevant guide.
 
 ## Build and local development
 
@@ -14,14 +14,16 @@ The root build typechecks, builds the Vite UI/service worker and bundles CLI/ser
 
 ## Tests by boundary
 
-| Check                      | Purpose                                                                                      |
-| -------------------------- | -------------------------------------------------------------------------------------------- |
-| `npm run typecheck`        | Root TypeScript                                                                              |
-| `npm test`                 | Vitest server/domain and shared client production logic in `tests/`                          |
-| `npm run test:native`      | Node tests in `test/`: adapter protocols, lifecycle, pairing and mobile connection contracts |
-| `npm run test:all`         | Both root suites                                                                             |
-| `npm run smoke:package`    | Tarball installation and CLI/host lifecycle in an isolated directory                         |
-| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                   |
+| Check                      | Purpose                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `npm run typecheck`        | Root TypeScript                                                               |
+| `npm test`                 | Vitest server/domain and shared client production logic in `test/`            |
+| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing |
+| `npm run test:all`         | Both root suites                                                              |
+| `npm run smoke:package`    | Tarball installation and CLI/host lifecycle in an isolated directory          |
+| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                    |
+
+Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
@@ -40,10 +42,8 @@ LOOP_BROWSER=webkit npm run smoke:journey
 
 Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. CI uploads generated screenshots from `docs/loop-v0/evidence/`; that path remains an output location, not a maintained legacy architecture guide. ACP browser evidence is generated under `docs/validation/evidence/`.
 
-## Mobile, containers and CI
+## Containers and CI
 
-[Mobile setup](../mobile/README.md) lists its typecheck, iOS/Android exports and native builds. Root native tests exercise the mobile connection module, but root builds do not build the Expo app.
-
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. It runs root tests/build, Chromium/WebKit journeys, package smoke, mobile typecheck/exports, Docker Compose smoke and native HAPI transport/compatibility checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. It runs root test/build, Chromium/WebKit journeys, package smoke, Docker Compose smoke and native HAPI transport/compatibility checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
 
 Before a PR, run checks relevant to the change and report exact failures or unavailable dependencies. Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.

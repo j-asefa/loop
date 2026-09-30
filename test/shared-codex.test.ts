@@ -21,7 +21,7 @@ async function fixture({ managed = false, fastIdle = false } = {}) {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   cpSync(resolve("runtime"), join(dir, "runtime"), { recursive: true });
-  cpSync(resolve("tests/helpers/shared-codex-fixture.mjs"), join(bin, "codex"));
+  cpSync(resolve("test/helpers/shared-codex-fixture.mjs"), join(bin, "codex"));
   // cp preserves the executable mode of the checked-in fixture.
   writeFileSync(
     join(dir, "clock.mjs"),

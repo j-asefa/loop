@@ -3021,7 +3021,6 @@ pre {
   color: #1a1a1c;
   background: #f4f4f2;
   font-synthesis: none;
-  /* mobile/src/ui.tsx mirrors the light tokens below; keep them in step. */
   --bg: #f4f4f2;
   --surface: #fff;
   --secondary: #e8e8e5;
@@ -4550,7 +4549,7 @@ h1 {
 @media (max-width: 650px) {
   .topbar {
     border: 0;
-    /* Keep the toolbar below the status bar in the native shell and PWA. */
+    /* Keep the toolbar below the status bar in the installed web app. */
     height: calc(56px + env(safe-area-inset-top, 0px));
     padding: calc(6px + env(safe-area-inset-top, 0px)) 18px 6px;
   }

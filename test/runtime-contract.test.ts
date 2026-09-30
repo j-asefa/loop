@@ -125,7 +125,7 @@ function invoke(
     process.execPath,
     [
       ...(workspace.fastClock
-        ? ["--import", resolve("tests/helpers/fast-runtime-clock.mjs")]
+        ? ["--import", resolve("test/helpers/fast-runtime-clock.mjs")]
         : []),
       "runtime/entry.mjs",
     ],

@@ -279,7 +279,7 @@ const vite = await createServer({
         server.middlewares.use((req, res, next) => {
           if (req.url.startsWith("/activity-integration")) {
             res.setHeader("content-type", "text/html");
-            res.end(readFileSync("tests/fixtures/activity-ui/index.html"));
+            res.end(readFileSync("test/fixtures/activity-ui/index.html"));
             return;
           }
           if (req.url.startsWith("/api/") || req.url === "/session")

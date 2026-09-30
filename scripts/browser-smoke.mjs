@@ -90,7 +90,7 @@ try {
   await page.getByRole("button", { name: /Import conversations/ }).click();
   await page
     .locator("input[type=file]")
-    .setInputFiles("tests/fixtures/chatgpt-export.zip");
+    .setInputFiles("test/fixtures/chatgpt-export.zip");
   await page.getByRole("button", { name: "Preview import" }).click();
   await page
     .getByRole("button", { name: "Import these conversations" })

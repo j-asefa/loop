@@ -72,7 +72,7 @@ async function startHost(fastClock = false) {
     process.execPath,
     [
       ...(fastClock
-        ? ["--import", resolve("tests/helpers/fast-runtime-clock.mjs")]
+        ? ["--import", resolve("test/helpers/fast-runtime-clock.mjs")]
         : []),
       resolve("runtime/host.mjs"),
     ],

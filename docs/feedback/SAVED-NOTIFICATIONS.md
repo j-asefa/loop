@@ -34,7 +34,7 @@ Delivery has a lease, bounded retries and duplicate-replacing notification tags.
 Expired subscriptions are removed when a push service returns 404 or 410. Turning
 notifications off removes this device's server subscription and browser subscription.
 
-Regression coverage: `tests/workspace-lifecycle.test.ts` checks saved pagination and
+Regression coverage: `test/workspace-lifecycle.test.ts` checks saved pagination and
 changes, retirement authorization and persistence, deletion, subscription isolation,
 delivery retries and service-worker notification clicks. `npm run smoke:workspace`
 checks the phone UI in Chromium and WebKit with an isolated database and a browser
