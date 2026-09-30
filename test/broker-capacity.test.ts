@@ -4,10 +4,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
 
-it("the broker runs 32 operations and releases capacity on disconnect", async () => {
+it("the broker enforces capacity and releases it on disconnect", async () => {
+  expect(MAX_CONCURRENT_RUNS).toBe(32);
+  const fixtureCapacity = 2;
   const dir = mkdtempSync(join(tmpdir(), "loop-broker-capacity-"));
   cpSync(resolve("runtime"), dir, { recursive: true });
+  // Keep the production broker path, but bound this process-heavy fixture.
+  writeFileSync(
+    join(dir, "concurrency.mjs"),
+    `export const MAX_CONCURRENT_RUNS = ${fixtureCapacity};\n`,
+  );
   writeFileSync(
     join(dir, "port.mjs"),
     `
@@ -90,21 +98,21 @@ setInterval(() => {}, 1000);
       );
       return ready;
     };
-    for (let n = 1; n <= 32; n++) await hold(n);
-    await expect.poll(() => started, { timeout: 10_000 }).toBe(32);
+    for (let n = 1; n <= fixtureCapacity; n++) await hold(n);
+    await expect.poll(() => started, { timeout: 10_000 }).toBe(fixtureCapacity);
     // Both providers share the same capacity.
-    const overflow = await (await request(33)).text();
+    const overflow = await (await request(fixtureCapacity + 1)).text();
     expect(JSON.parse(overflow)).toHaveProperty("error");
     expect(overflow).not.toContain("holding");
-    const codexOverflow = await request(34, "codex");
+    const codexOverflow = await request(fixtureCapacity + 2, "codex");
     expect(codexOverflow.status).toBe(409);
     expect((await codexOverflow.json()).error).toContain("capacity");
     controllers[0].abort();
     await drains[0];
     // Closing the HTTP stream cancels the child asynchronously.
-    let retry = 35;
+    let retry = fixtureCapacity + 3;
     await expect.poll(() => hold(retry++), { timeout: 5000 }).toBe(true);
-    expect(started).toBe(33);
+    expect(started).toBe(fixtureCapacity + 1);
   } finally {
     controllers.forEach((controller) => controller.abort());
     await Promise.all(drains);
