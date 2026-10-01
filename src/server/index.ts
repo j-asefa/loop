@@ -24,6 +24,7 @@ import { ZodError } from "zod";
 import { executionRoutes } from "./hapi/routes.js";
 import { memoryRoutes } from "./memory.js";
 import { notifications } from "./notifications.js";
+import { mobile } from "./mobile-routes.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
@@ -167,6 +168,7 @@ app.use("/api", memoryRoutes);
 if (capabilities.runtimeHosts) app.use("/api", runtimeHosts);
 app.use("/api", subscriptions);
 app.use("/api", activityRoutes);
+app.use("/api", mobile);
 app.use("/api", core);
 app.use("/api", workspace);
 app.use("/api", workflows);

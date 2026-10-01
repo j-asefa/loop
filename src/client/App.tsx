@@ -12,7 +12,6 @@ import { AgentDirectory } from "./AgentDirectory";
 import { YourAgents } from "./YourAgents";
 import { AgentWork, currentAgentWork } from "./AgentWork";
 import { agentStatusLine } from "./agentStatusLine";
-import { AgentConversations } from "./AgentConversations";
 import { belongsToProject } from "../shared/projects";
 import { ProjectFiles } from "./ProjectFiles";
 import { ProjectActivity } from "./ProjectActivity";
@@ -20,8 +19,11 @@ import { Projects } from "./Projects";
 import { Traces } from "./Traces";
 import { AgentMessages } from "./AgentMessages";
 import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
-import { usePageHistory } from "./usePageHistory";
+import { restoreScroll, usePageHistory } from "./usePageHistory";
+import { cacheView, setViewOwner } from "./viewCache";
+import { planSend, settleFailure, type SendReceipt } from "./sendIntent";
 import { useSwipeBack } from "./useSwipeBack";
+import { usePullToRefresh } from "./usePullToRefresh";
 import type { ComposerContext } from "./composerContext";
 import { FeedPager } from "./feed";
 import {
@@ -45,12 +47,36 @@ import { RetireAgent } from "./RetireAgent";
 import { Tools } from "./Tools";
 import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
+import { Inbox, inboxFilters, type InboxFilter } from "./Inbox";
+import { Later } from "./Later";
+import {
+  ActionSheet,
+  LaterSheet,
+  ScheduledSends,
+  useLongPress,
+} from "./ThreadTools";
+import { VoiceButton } from "./Voice";
+import {
+  GLOBAL_DRAFT,
+  saveThreadDraft,
+  setDraftOwner,
+  threadDraft,
+} from "./drafts";
+import {
+  dayLabel,
+  laterChoices,
+  localInputValue,
+  preview,
+  timeLabel,
+} from "./threadView";
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import {
   UserRound,
   Orbit,
-  Rows3,
-  Activity,
+  Newspaper,
+  RefreshCw,
+  AlarmClock,
+  Clock3,
   Search,
   Bookmark,
   Bell,
@@ -66,7 +92,9 @@ import {
   LogOut,
   MessageSquare,
   ArrowLeft,
+  MoreHorizontal,
   ArrowUpRight,
+  Reply as ReplyIcon,
   Pause,
   Play,
   Square,
@@ -111,13 +139,31 @@ type Bootstrap = {
   folders: FolderType[];
 };
 const tabs = [
-  { id: "feed", label: "Feed", icon: Rows3 },
-  { id: "running", label: "Running", icon: Activity },
+  { id: "inbox", label: "Feed", icon: Newspaper },
   { id: "projects", label: "Projects", icon: Folder },
+  { id: "later", label: "Later", icon: AlarmClock },
   { id: "search", label: "Search", icon: Search },
-  { id: "saved", label: "Saved", icon: Bookmark },
-  { id: "personal", label: "Profile", icon: UserRound },
 ];
+// Links and bookmarks from the earlier six-tab layout keep working.
+const legacyPages: Record<string, { tab: string; filter?: InboxFilter }> = {
+  feed: { tab: "inbox" },
+  running: { tab: "inbox", filter: "working" },
+  saved: { tab: "later" },
+  personal: { tab: "search" },
+};
+function initialPage() {
+  const params = new URLSearchParams(location.search);
+  const page = params.get("page") || "";
+  if (tabs.some((t) => t.id === page)) return { tab: page };
+  if (legacyPages[page]) return legacyPages[page];
+  return { tab: params.has("folder") ? "later" : "inbox" };
+}
+function initialFilter(): InboxFilter {
+  const value = new URLSearchParams(location.search).get("filter");
+  return inboxFilters.some((f) => f.id === value)
+    ? (value as InboxFilter)
+    : initialPage().filter || "all";
+}
 export default function App() {
   const [sharedDraft, setSharedDraft] = useState<SharedDraft>(initialShare);
   const [returnTo, setReturnTo] = useState("");
@@ -131,14 +177,12 @@ export default function App() {
       connections: [],
       folders: [],
     }),
-    [tab, setTab] = useState(
-      tabs.some(
-        (t) => t.id === new URLSearchParams(location.search).get("page"),
-      )
-        ? new URLSearchParams(location.search).get("page")!
-        : new URLSearchParams(location.search).has("folder")
-          ? "saved"
-          : "feed",
+    [tab, setTab] = useState(() => initialPage().tab),
+    [inboxFilter, setInboxFilter] = useState<InboxFilter>(initialFilter),
+    [searchScope, setSearchScope] = useState<"all" | "mine">(
+      new URLSearchParams(location.search).get("page") === "personal"
+        ? "mine"
+        : "all",
     ),
     [sheet, setSheet] = useState(
       new URLSearchParams(location.search).has("memory")
@@ -174,7 +218,6 @@ export default function App() {
       localStorage.getItem("loop-theme") || "system",
     ),
     [query, setQuery] = useState("");
-  const [failureRun, setFailureRun] = useState<Run | null>(null);
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<Artifact | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);
@@ -184,7 +227,6 @@ export default function App() {
       .filter(Boolean),
   );
   const teamKey = [...teamSelection].sort().join(",");
-  const savedFeed = tab === "saved" && !profile;
   const availableAgents = data.agents.filter((a) => !a.retired_at);
   const [messageId, setMessageId] = useState<string | null>(
     new URLSearchParams(location.search).get("message"),
@@ -222,8 +264,10 @@ export default function App() {
   useEffect(() => {
     sessionStorage.setItem("loop-draft-agent", selected);
   }, [selected]);
-  const [dismissing, setDismissing] = useState<string | null>(null);
-  const [dismissNotice, setDismissNotice] = useState("");
+  // A notice, optionally with one follow-up action (e.g. view what was scheduled).
+  const [dismissNotice, setDismissNotice] = useState<
+    string | { text: string; action: string; onAction: () => void }
+  >("");
   const [sendNotice, setSendNotice] = useState<{
     runId: string;
     conversationId: string | null;
@@ -231,9 +275,21 @@ export default function App() {
     agentName: string;
     steering: boolean;
   } | null>(null);
-  const dismissLock = useRef(false);
   const [archivedCard, setArchivedCard] = useState<string | null>(null);
   const composerRef = useRef<HTMLElement>(null);
+  const [sendMenu, setSendMenu] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState<string | null>(null);
+  const [newAgentPrompt, setNewAgentPrompt] = useState("");
+  const [youSheet, setYouSheet] = useState(false);
+  const [laterCard, setLaterCard] = useState<Artifact | null>(null);
+  const [threadNotice, setThreadNotice] = useState("");
+  const sendPress = useLongPress(
+    () => {
+      if (draft.trim()) setSendMenu(true);
+    },
+    true,
+    { onControls: true },
+  );
   function setConversation(id: string | null, message?: string) {
     setConversationTarget(null);
     setMessageId(message || null);
@@ -266,12 +322,56 @@ export default function App() {
       document.querySelector<HTMLTextAreaElement>("#composer")?.focus(),
     );
   }
+  // Focus a thread's composer once its sheet has opened, but only if that
+  // thread is still open; a quick close must not expand the global composer.
+  const openConversation = useRef(conversation);
+  openConversation.current = conversation;
+  function focusThreadComposer(id: string) {
+    setTimeout(() => {
+      if (openConversation.current === id) focusComposer();
+    }, 350);
+  }
   function collapseComposer() {
     document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
     setComposerExpanded(false);
   }
-  function beginReply(context: ComposerContext, text?: string) {
+  // A tapped notification opens its link in this window: a thread at its
+  // message, or a result. Any other link loads normally.
+  const openLink = useRef((_url: URL) => {});
+  openLink.current = (url: URL) => {
+    const target = url.searchParams.get("conversation");
+    const artifact = url.searchParams.get("artifact");
+    if (target) {
+      setProfile(null);
+      setConversation(target, url.searchParams.get("message") || undefined);
+    } else if (artifact)
+      void api<Artifact>("/artifacts/" + artifact)
+        .then((item) => void open(item))
+        .catch((e) => setError(e.message));
+    else location.assign(url.href);
+  };
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const received = (event: MessageEvent) => {
+      if (event.data?.type !== "loop-open") return;
+      const url = new URL(String(event.data.url), location.origin);
+      if (url.origin === location.origin) openLink.current(url);
+    };
+    navigator.serviceWorker.addEventListener("message", received);
+    navigator.serviceWorker.startMessages?.();
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", received);
+  }, []);
+  /** Later → Scheduled, where scheduled messages are edited or cancelled. */
+  function showScheduled() {
+    cacheView("later-section", "scheduled", session?.user?.id);
     setConversation(null);
+    setProfile(null);
+    setTab("later");
+  }
+  // Replies happen inside the thread: open it (at the quoted message) instead
+  // of leaving it, so reading and answering stay in one place.
+  function beginReply(context: ComposerContext, text?: string) {
     setActiveArtifact(null);
     setContextArtifact(null);
     setReplyContext(context);
@@ -281,17 +381,27 @@ export default function App() {
     const url = new URL(location.href);
     url.searchParams.delete("artifact");
     history.replaceState(history.state, "", url.pathname + url.search);
-    if (text !== undefined) setDraft(text);
-    else if (!draft.trim()) {
-      const previous =
-        (context.messageId &&
-          sessionStorage.getItem("loop-message-reply-" + context.messageId)) ||
+    const switching =
+      !!context.conversationId && conversation !== context.conversationId;
+    const previous =
+      text ??
+      ((context.messageId &&
+        sessionStorage.getItem("loop-message-reply-" + context.messageId)) ||
         (context.artifactId &&
-          sessionStorage.getItem("loop-result-reply-" + context.artifactId));
-      if (previous) setDraft(previous);
-    }
+          sessionStorage.getItem("loop-result-reply-" + context.artifactId)) ||
+        undefined);
+    // Opening another thread loads that thread's own draft; seed it first.
+    if (switching) {
+      if (previous !== undefined && !threadDraft(context.conversationId).text)
+        saveThreadDraft(context.conversationId, previous, []);
+    } else if (text !== undefined) setDraft(text);
+    else if (!draft.trim() && previous) setDraft(previous);
     setComposerExpanded(true);
-    afterSheetsClose(focusComposer);
+    if (context.conversationId && conversation !== context.conversationId) {
+      setConversation(context.conversationId, context.messageId);
+      focusThreadComposer(context.conversationId);
+    } else if (context.conversationId) focusComposer();
+    else afterSheetsClose(focusComposer);
   }
   async function replyToArtifact(item: Artifact) {
     try {
@@ -385,19 +495,22 @@ export default function App() {
       setQuery(previous.query);
       setConversation(previous.conversation, previous.messageId || undefined);
       setActiveArtifact(previous.activeArtifact);
-      afterSheetsClose(() =>
-        window.scrollTo({ top: scroll, behavior: "instant" }),
-      );
+      afterSheetsClose(() => restoreScroll(scroll));
     },
   );
+  // Pull down at the top of any page to refresh what it shows.
+  const pullRefresh = usePullToRefresh(Boolean(session?.user), async () => {
+    window.dispatchEvent(new Event("loop-refresh"));
+    await changed();
+  });
   useSwipeBack(Boolean(session?.user), () => {
     if (closeTopSheet() || previousPage()) return true;
     if (profile) {
       setProfile(null);
       setView("all");
     } else if (tab === "projects" && project) setProject("");
-    else if (tab !== "feed") {
-      setTab("feed");
+    else if (tab !== "inbox") {
+      setTab("inbox");
       setView("all");
     } else return false;
     return true;
@@ -421,7 +534,8 @@ export default function App() {
   useEffect(() => {
     const url = new URL(location.href);
     for (const [key, value] of Object.entries({
-      page: tab === "feed" ? "" : tab,
+      page: tab === "inbox" ? "" : tab,
+      filter: tab === "inbox" && inboxFilter !== "all" ? inboxFilter : "",
       project: projectFilter,
       teams: teamKey,
       projectView: project,
@@ -436,26 +550,33 @@ export default function App() {
       "",
       url.pathname + url.search + url.hash,
     );
-  }, [tab, projectFilter, teamKey, project]);
+  }, [tab, projectFilter, teamKey, project, inboxFilter]);
   const [workflowId, setWorkflowId] = useState<string | undefined>(undefined);
   const [workflowSource, setWorkflowSource] = useState<string | undefined>(
     undefined,
   );
   const [filing, setFiling] = useState<Artifact | null>(null),
-    [revision, setRevision] = useState(0),
-    [runFilter, setRunFilter] = useState("all");
+    [revision, setRevision] = useState(0);
   const request = useRef(
-    parse<{ signature: string; key: string }>(
+    parse<SendReceipt>(
       sessionStorage.getItem("loop-draft-receipt") || "",
       { signature: "", key: "" },
     ),
   );
   const ownerRef = useRef<string | undefined>(undefined);
   ownerRef.current = session?.user?.id;
+  // Drafts are read and written only for the signed-in owner.
+  setDraftOwner(session?.user?.id);
+  setViewOwner(session?.user?.id);
   const personalWorkspace = useRef(false);
   const stopEventsPoll = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
   const feed = useRef(new FeedPager<any>());
+  const feedVisible = useRef(true);
+  // Project activity and files also follow feed changes to refresh in place.
+  feedVisible.current =
+    (tab === "projects" && !!project) ||
+    (!!profile && ["all", "files"].includes(view));
   const lastNavTap = useRef<{ tab: string; at: number } | null>(null);
   const feedContext = useRef("");
   feedContext.current = [
@@ -464,7 +585,6 @@ export default function App() {
     view,
     teamKey,
     projectFilter,
-    savedFeed,
   ].join(":");
   const activeAgent =
     selected === "__route__"
@@ -497,22 +617,7 @@ export default function App() {
   );
   const profileWork = currentAgentWork(runs, profile?.id);
   const sentRun = runs.find((run) => run.id === sendNotice?.runId);
-  const visibleRuns = scopedRuns.filter((run) =>
-    runFilter === "all"
-      ? ["running", "pausing"].includes(run.state)
-      : runFilter === "queued"
-        ? run.state === "queued"
-        : [
-            "paused",
-            "awaiting_approval",
-            "interrupted",
-            "failed",
-            "waiting_children",
-          ].includes(run.state),
-  );
-  const working = scopedRuns.filter((r) =>
-    ["running", "pausing", "waiting_children"].includes(r.state),
-  );
+  // The Feed tab's badge: how many agents are working right now.
   const runningAgentCount = new Set(
     scopedRuns
       .filter((r) => ["running", "pausing"].includes(r.state))
@@ -527,27 +632,51 @@ export default function App() {
       "waiting_children",
     ].includes(r.state),
   );
-  async function dismiss(r: Run) {
-    if (dismissLock.current) return;
-    dismissLock.current = true;
-    setDismissing(r.id);
-    setError("");
-    try {
-      await api(`/runs/${r.id}/dismiss`, {});
-      setRuns((old) => old.filter((item) => item.id !== r.id));
-      setDismissNotice(
-        ["failed", "interrupted"].includes(r.state)
-          ? "Dismissed. The task’s history is still in its conversation."
-          : "Dismissed and cancelled. The task’s history is still in its conversation.",
-      );
-      await changed();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setDismissing(null);
-      dismissLock.current = false;
+  // Each thread keeps its own unsent draft (and the global composer keeps its
+  // own), so switching threads never carries text into the wrong one.
+  const draftOwner = useRef<string | null>(conversation);
+  useEffect(() => {
+    const previous = draftOwner.current;
+    if (previous === conversation) return;
+    draftOwner.current = conversation;
+    if (previous) saveThreadDraft(previous, draft, attachments);
+    else saveThreadDraft(GLOBAL_DRAFT, draft, attachments);
+    const next = threadDraft(conversation || GLOBAL_DRAFT);
+    setDraft(next.text);
+    setAttachments(next.files);
+    setComposerExpanded(false);
+    setComposerError("");
+  }, [conversation]);
+  useEffect(() => {
+    if (!conversation) return;
+    // Save for the owner who typed it, even if the session changes meanwhile.
+    const owner = ownerRef.current;
+    const timer = setTimeout(
+      () => saveThreadDraft(conversation, draft, attachments, owner),
+      400,
+    );
+    return () => clearTimeout(timer);
+  }, [draft, attachments, conversation]);
+  // Results are not polled while hidden; catch up when they come back.
+  useEffect(() => {
+    if (session?.user && feedVisible.current) void loadFeed(false, false);
+  }, [tab, inboxFilter, project]);
+  // Inside a project the default recipient is one of that project's agents.
+  useEffect(() => {
+    if (tab !== "projects" || !project || conversation || draft.trim()) return;
+    const current = data.agents.find((a) => a.id === selected);
+    if (current && belongsToProject(current.folder_id, project, data.folders))
+      return;
+    const agent = availableAgents.find(
+      (a) => a.connection_id && belongsToProject(a.folder_id, project, data.folders),
+    );
+    if (agent) {
+      setSelected(agent.id);
+      setReplyContext(null);
+      setFolderChoice(undefined);
+      setFolder(project);
     }
-  }
+  }, [tab, project, data.agents, conversation]);
   async function changed() {
     setRevision((v) => v + 1);
     await refresh();
@@ -601,7 +730,7 @@ export default function App() {
   }
   async function loadFeed(append = false, notify = true) {
     const owner = ownerRef.current,
-      key = [owner, profile?.id, view, teamKey, projectFilter, savedFeed].join(
+      key = [owner, profile?.id, view, teamKey, projectFilter].join(
         ":",
       );
     if (!owner || key !== feedContext.current) return;
@@ -615,8 +744,7 @@ export default function App() {
       const query = () => {
         const q = new URLSearchParams({
           view:
-            savedFeed || ["traces", "messages"].includes(view) ? "all" : view,
-          ...(savedFeed ? { saved: "1" } : {}),
+            ["traces", "messages", "threads"].includes(view) ? "all" : view,
           teams: profile ? "" : teamKey,
         });
         if (profile) q.set("agent", profile.id);
@@ -682,7 +810,6 @@ export default function App() {
         return;
       }
       setSession(null);
-      setFailureRun(null);
       setData({ agents: [], connections: [], folders: [] });
       setItems([]);
       setRuns([]);
@@ -717,7 +844,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (session?.user) void refresh().catch((e) => setError(e.message));
-  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, savedFeed]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
   useEffect(() => {
     if (!session?.user) return;
     const retry = () => {
@@ -743,7 +870,6 @@ export default function App() {
     teamKey,
     projectFilter,
     workspaceLoadError,
-    savedFeed,
   ]);
   useEffect(() => {
     if (!session?.user) return;
@@ -777,7 +903,11 @@ export default function App() {
           // One bounded changes request also catches edits made in another tab
           // and drains change batches even after streaming events stop.
           await Promise.all([
-            loadFeed(false, events.length === 0),
+            // Result cards are only on screen in a project and agent
+            // profiles; skip their poll elsewhere.
+            ...(feedVisible.current
+              ? [loadFeed(false, events.length === 0)]
+              : []),
             ...(events.length ? [loadRuns()] : []),
           ]);
         } catch {
@@ -806,7 +936,7 @@ export default function App() {
       clearInterval(fallback);
       window.removeEventListener("loop-workspace-change", update);
     };
-  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, savedFeed]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
   useEffect(() => {
     localStorage.setItem("loop-theme", theme);
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -820,8 +950,15 @@ export default function App() {
   useEffect(() => {
     sessionStorage.setItem("loop-draft", draft);
   }, [draft]);
-  async function send() {
+  async function send(options: { queue?: boolean; sendAt?: number } = {}) {
     if (busy || uploading || !draft.trim()) return;
+    if (/^@new\b/i.test(draft.trim())) {
+      // "@new …" creates an agent and starts it with the rest of the message.
+      setNewAgentPrompt(draft.trim().replace(/^@new\s*/i, ""));
+      setFolder(projectFilter || project || "");
+      setSheet("create");
+      return;
+    }
     if (
       !replyContext &&
       !conversation &&
@@ -915,9 +1052,9 @@ export default function App() {
         reply?.messageId,
         attachments.map((file) => file.id),
       ]);
-      if (request.current.signature !== signature) {
-        // A conversation draft from the previous composer may be retrying a
-        // response that was saved by the server but never acknowledged.
+      // A conversation draft from the previous composer may be retrying a
+      // response that was saved by the server but never acknowledged.
+      const carriedKey = () => {
         const previous =
           conversationId && !reply?.messageId
             ? parse<{ signature?: string; key?: string }>(
@@ -931,19 +1068,38 @@ export default function App() {
           draft,
           attachments.map((file) => file.id),
         ]);
-        request.current = {
-          signature,
-          key:
-            previous.signature === previousSignature && previous.key
-              ? previous.key
-              : crypto.randomUUID(),
-        };
-      }
+        return previous.signature === previousSignature && previous.key
+          ? previous.key
+          : crypto.randomUUID();
+      };
+      // The send's mode and exact time travel with its key: a retry after a
+      // lost response repeats the same request rather than a changed one.
+      const plan = planSend(
+        request.current,
+        signature,
+        {
+          mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
+          sendAt: options.sendAt ?? null,
+        },
+        carriedKey,
+      );
+      request.current = plan.receipt;
       sessionStorage.setItem(
         "loop-draft-receipt",
         JSON.stringify(request.current),
       );
-      const accepted = await api<Run & { steeringId?: string }>("/runs", {
+      const reconciled = plan.reconciled
+        ? plan.intent.mode === "schedule"
+          ? ` Your earlier request went through as first sent: scheduled for ${dayLabel(plan.intent.sendAt!).toLowerCase()} at ${timeLabel(plan.intent.sendAt!)}. Change it in Later → Scheduled.`
+          : " Your earlier request went through as first sent."
+        : "";
+      options =
+        plan.intent.mode === "schedule"
+          ? { sendAt: plan.intent.sendAt! }
+          : plan.intent.mode === "queue"
+            ? { queue: true }
+            : {};
+      const body = {
         agentId: recipient.id,
         conversationId,
         replyToMessageId: reply?.messageId,
@@ -956,6 +1112,30 @@ export default function App() {
             : conversationId
               ? undefined
               : recipient.folder_id || undefined,
+      };
+      if (options.sendAt) {
+        await api("/scheduled-sends", { ...body, sendAt: options.sendAt });
+        if (owner !== ownerRef.current) return;
+        const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
+        if (conversation) setThreadNotice(`Scheduled for ${when}.${reconciled}`);
+        else
+          setDismissNotice({
+            text: `Message to @${recipient.name} scheduled for ${when}.${reconciled}`,
+            action: "View in Later",
+            onAction: showScheduled,
+          });
+        window.dispatchEvent(new Event("loop-scheduled-change"));
+        setDraft("");
+        setAttachments([]);
+        request.current = { signature: "", key: "" };
+        sessionStorage.removeItem("loop-draft-receipt");
+        setReplyContext(conversation && conversationTarget ? conversationTarget : null);
+        if (!conversation) collapseComposer();
+        return;
+      }
+      const accepted = await api<Run & { steeringId?: string }>("/runs", {
+        ...body,
+        ...(options.queue ? { queue: true } : {}),
       });
       if (owner !== ownerRef.current) return;
       // Publish the confirmed receipt before any background refresh. Discard
@@ -966,7 +1146,8 @@ export default function App() {
           { ...old.find((run) => run.id === accepted.id), ...accepted },
           ...old.filter((run) => run.id !== accepted.id),
         ]);
-      setSendNotice({
+      if (!conversation)
+        setSendNotice({
         runId: accepted.id,
         conversationId: accepted.conversation_id || conversationId || null,
         agentId: recipient.id,
@@ -978,20 +1159,37 @@ export default function App() {
       request.current = { signature: "", key: "" };
       sessionStorage.removeItem("loop-draft-receipt");
       if (conversationId) {
-        sessionStorage.removeItem("loop-conversation-" + conversationId);
-        sessionStorage.removeItem("loop-conversation-files-" + conversationId);
+        saveThreadDraft(conversationId, "", []);
         sessionStorage.removeItem("loop-receipt-" + conversationId);
       }
       if (reply?.messageId)
         sessionStorage.removeItem("loop-message-reply-" + reply.messageId);
       if (reply?.artifactId)
         sessionStorage.removeItem("loop-result-reply-" + reply.artifactId);
-      setReplyContext(null);
+      // Stay in the thread after sending; its reply context returns to the
+      // conversation itself rather than the quoted message.
+      setReplyContext(conversation && conversationTarget ? conversationTarget : null);
       setContextArtifact(null);
-      if (conversation) setConversation(null);
-      collapseComposer();
+      if (options.queue && conversation)
+        setThreadNotice("Queued after the current task." + reconciled);
+      else if (reconciled && conversation) setThreadNotice(reconciled.trim());
+      else if (reconciled) setDismissNotice(reconciled.trim());
+      if (!conversation) collapseComposer();
+      else document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
       void refresh().catch((e) => setError(e.message));
     } catch (e) {
+      // A refusal means nothing was accepted, so a different choice may be
+      // sent next; anything else stays pending and is retried as first sent.
+      if (request.current.signature) {
+        request.current = settleFailure(
+          request.current,
+          (e as { status?: number }).status,
+        );
+        sessionStorage.setItem(
+          "loop-draft-receipt",
+          JSON.stringify(request.current),
+        );
+      }
       if (owner === ownerRef.current) setComposerError((e as Error).message);
     } finally {
       setBusy(false);
@@ -1053,14 +1251,6 @@ export default function App() {
       setFolder(target.folder_id || "");
     }
   }, [projectFilter, teamKey, data.agents, conversation]);
-  async function runAction(r: Run, action: string) {
-    try {
-      await api(`/runs/${r.id}/${action}`, {});
-      await refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
   const nav = (
     <>
       {tabs.map((t) => (
@@ -1068,12 +1258,9 @@ export default function App() {
           key={t.id}
           aria-label={t.label}
           aria-current={tab === t.id ? "page" : undefined}
-          className={[
-            tab === t.id ? "current" : "",
-            t.id === "personal" ? "personal-nav" : "",
-          ].join(" ")}
+          className={tab === t.id ? "current" : ""}
           onClick={() => {
-            if (t.id === "feed" || t.id === "running") {
+            if (t.id === tab) {
               const now = performance.now();
               if (
                 lastNavTap.current?.tab === t.id &&
@@ -1101,12 +1288,12 @@ export default function App() {
         >
           <t.icon size={21} />
           <span>{t.label}</span>
-          {t.id === "running" && runningAgentCount > 0 && (
+          {t.id === "inbox" && runningAgentCount > 0 && (
             <small
               className="running-count"
               aria-label={`${runningAgentCount} ${runningAgentCount === 1 ? "agent" : "agents"} running`}
             >
-              {runningAgentCount}
+              {runningAgentCount > 9 ? "9+" : runningAgentCount}
             </small>
           )}
         </button>
@@ -1122,12 +1309,46 @@ export default function App() {
       </div>
     );
   if (!session?.user) return <Auth onDone={() => void check()} />;
+  const threadMode = Boolean(conversation);
+  const quoted =
+    replyContext?.content &&
+    (replyContext.messageId || replyContext.artifactId || !conversation)
+      ? replyContext
+      : null;
+  const sendButton = (
+    <button
+      className={"send-button" + (threadMode ? " round" : "")}
+      aria-label={
+        selected === "__route__" && !routePreview
+          ? "Preview route"
+          : replyContext || conversation
+            ? "Send reply"
+            : "Send message"
+      }
+      title="Hold for more send options"
+      disabled={
+        busy || uploading || !draft.trim() || !!activeAgent?.retired_at
+      }
+      onClick={() => void send()}
+      {...sendPress}
+    >
+      {!threadMode &&
+        (busy
+          ? "Sending…"
+          : selected === "__route__" && !routePreview
+            ? "Preview"
+            : "Send")}
+      <ArrowUp size={19} />
+    </button>
+  );
   const messageComposer =
     availableAgents.length > 0 ? (
       <section
         ref={composerRef}
         className={
-          "composer-dock " + (composerExpanded ? "expanded" : "collapsed")
+          "composer-dock " +
+          (composerExpanded ? "expanded" : "collapsed") +
+          (threadMode ? " thread-mode" : "")
         }
       >
         {sendNotice && !composerExpanded && !conversation && (
@@ -1165,14 +1386,18 @@ export default function App() {
             </button>
           </div>
         )}
-        {!composerExpanded && (
+        {!composerExpanded && !threadMode && (
           <button
             className="composer-launch"
             onClick={focusComposer}
             aria-label="Compose a message"
             aria-expanded={false}
           >
-            <MessageSquare size={20} />
+            {activeAgent ? (
+              <Avatar name={activeAgent.name} provider={activeAgent.provider} />
+            ) : (
+              <MessageSquare size={20} />
+            )}
             <span>
               {draft
                 ? `Draft to @${activeAgent?.name || "agent"}…`
@@ -1183,56 +1408,53 @@ export default function App() {
             <Plus size={18} />
           </button>
         )}
-        <div className="composer" hidden={!composerExpanded}>
-          <div className="composer-heading">
-            <label className="composer-field">
-              <span className="sr-only">Send to</span>
-              <select
-                aria-label="Agent recipient"
-                disabled={busy || uploading}
-                value={
-                  selected === "__route__" ? "__route__" : activeAgent?.id || ""
-                }
-                onChange={(e) => {
-                  setSelected(e.target.value);
-                  setReplyContext(null);
-                  setContextArtifact(null);
-                  if (
-                    conversation &&
-                    e.target.value !== conversationTarget?.agentId
-                  )
-                    setConversation(null);
-                  setFolderChoice(undefined);
-                  const agent = data.agents.find(
-                    (a) => a.id === e.target.value,
-                  );
-                  if (agent) setFolder(agent.folder_id || "");
-                }}
+        <div className="composer" hidden={!composerExpanded && !threadMode}>
+          {!threadMode && (
+            <div className="composer-heading">
+              <label className="composer-field">
+                <span className="sr-only">Send to</span>
+                <select
+                  aria-label="Agent recipient"
+                  disabled={busy || uploading}
+                  value={
+                    selected === "__route__" ? "__route__" : activeAgent?.id || ""
+                  }
+                  onChange={(e) => {
+                    setSelected(e.target.value);
+                    setReplyContext(null);
+                    setContextArtifact(null);
+                    setFolderChoice(undefined);
+                    const agent = data.agents.find(
+                      (a) => a.id === e.target.value,
+                    );
+                    if (agent) setFolder(agent.folder_id || "");
+                  }}
+                >
+                  {!availableAgents.length && (
+                    <option value="">Choose your first agent</option>
+                  )}
+                  <option value="__route__">Let Loop route this</option>
+                  {activeAgent?.retired_at && (
+                    <option value={activeAgent.id} disabled>
+                      @{activeAgent.name} · Retired
+                    </option>
+                  )}
+                  {availableAgents.map((a) => (
+                    <option value={a.id} key={a.id}>
+                      @{a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="composer-collapse text-button"
+                onClick={collapseComposer}
+                aria-label="Collapse composer"
               >
-                {!availableAgents.length && (
-                  <option value="">Choose your first agent</option>
-                )}
-                <option value="__route__">Let Loop route this</option>
-                {activeAgent?.retired_at && (
-                  <option value={activeAgent.id} disabled>
-                    @{activeAgent.name} · Retired
-                  </option>
-                )}
-                {availableAgents.map((a) => (
-                  <option value={a.id} key={a.id}>
-                    @{a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="composer-collapse text-button"
-              onClick={collapseComposer}
-              aria-label="Collapse composer"
-            >
-              <ChevronDown size={18} /> Minimize
-            </button>
-          </div>
+                <ChevronDown size={18} /> Minimize
+              </button>
+            </div>
+          )}
           {activeAgent?.retired_at && (
             <p className="note">
               This agent is retired. Restore it from its profile to send new
@@ -1247,28 +1469,38 @@ export default function App() {
               {routePreview.reason}
             </p>
           )}
-          {replyContext && (replyContext.content || !conversation) && (
-            <div className="composer-reply-context">
-              <div className="composer-context-heading">
-                <span>Replying to @{activeAgent?.name}</span>
-                <button
-                  className="icon-button"
-                  aria-label="Clear reply context"
-                  onClick={() => setReplyContext(null)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              {replyContext.content && (
+          {quoted && (
+            <div className="composer-reply-chip">
+              <ReplyIcon size={16} aria-hidden="true" />
+              <details className="composer-quote-toggle">
+                <summary>
+                  Replying to{" "}
+                  {quoted.mine
+                    ? "your message"
+                    : "@" + (activeAgent?.name || "agent")}
+                  :{" "}
+                  <span>{preview(quoted.content!, 80)}</span>
+                </summary>
                 <div
                   className="composer-quote"
                   role="region"
                   aria-label="Original message"
                   tabIndex={0}
                 >
-                  <RichText content={replyContext.content} compact />
+                  <RichText content={quoted.content!} compact />
                 </div>
-              )}
+              </details>
+              <button
+                className="icon-button"
+                aria-label="Clear reply context"
+                onClick={() =>
+                  setReplyContext(
+                    conversation && conversationTarget ? conversationTarget : null,
+                  )
+                }
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
           {!replyContext && contextArtifact && (
@@ -1293,6 +1525,9 @@ export default function App() {
               disabled={busy}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onFocus={() => {
+                if (threadMode) setComposerExpanded(true);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setComposerExpanded(false);
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1300,9 +1535,14 @@ export default function App() {
                   void send();
                 }
               }}
-              placeholder="An idea, a question, a ‘what if’…"
-              rows={2}
+              placeholder={
+                threadMode
+                  ? `Reply to @${activeAgent?.name || "agent"}…`
+                  : "An idea, a question, a ‘what if’… (@new creates an agent)"
+              }
+              rows={threadMode ? 1 : 2}
             />
+            {threadMode && sendButton}
           </div>
           <AttachmentList
             files={attachments}
@@ -1322,17 +1562,6 @@ export default function App() {
               </button>
             </div>
           )}
-          <div className="composer-foot">
-            <HarnessPicker
-              conversationId={
-                replyContext?.conversationId || (conversation ?? undefined)
-              }
-              agentId={selected === "__route__" ? undefined : activeAgent?.id}
-              value={draft}
-              onChange={setDraft}
-              focusInput={() => document.getElementById("composer")?.focus()}
-            />
-          </div>
           <div className="composer-actions">
             <UploadButton
               menu
@@ -1346,6 +1575,17 @@ export default function App() {
                 setAttachments(attachmentsRef.current);
               }}
             />
+            <HarnessPicker
+              compact
+              conversationId={
+                replyContext?.conversationId || (conversation ?? undefined)
+              }
+              agentId={selected === "__route__" ? undefined : activeAgent?.id}
+              value={draft}
+              onChange={setDraft}
+              focusInput={() => document.getElementById("composer")?.focus()}
+            />
+            <VoiceButton value={draft} onChange={setDraft} disabled={busy} />
             <button
               type="button"
               className="composer-model"
@@ -1360,9 +1600,11 @@ export default function App() {
                     <span className="composer-model-name">
                       {agentModelName(activeAgent, data.connections)}
                     </span>
-                    <small className="composer-effort">
-                      {effortName(activeAgent.effort)} effort
-                    </small>
+                    {!threadMode && (
+                      <small className="composer-effort">
+                        {effortName(activeAgent.effort)} effort
+                      </small>
+                    )}
                   </span>
                   <ChevronDown size={15} />
                 </>
@@ -1371,37 +1613,142 @@ export default function App() {
               )}
             </button>
             <button
-              className="send-button"
-              aria-label={
-                selected === "__route__" && !routePreview
-                  ? "Preview route"
-                  : replyContext || conversation
-                    ? "Send reply"
-                    : "Send message"
-              }
-              disabled={
-                busy || uploading || !draft.trim() || !!activeAgent?.retired_at
-              }
-              onClick={() => void send()}
+              type="button"
+              className="icon-button composer-later"
+              aria-label="Send later"
+              title="Send later or after the current task"
+              disabled={!draft.trim() || busy}
+              onClick={() => setSendMenu(true)}
             >
-              {busy
-                ? "Sending…"
-                : selected === "__route__" && !routePreview
-                  ? "Preview"
-                  : "Send"}
-              <ArrowUp size={19} />
+              <Clock3 size={18} />
             </button>
+            {!threadMode && sendButton}
           </div>
+          {threadNotice && threadMode && (
+            <p className="field-hint composer-notice" role="status">
+              {threadNotice}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setThreadNotice("")}
+              >
+                OK
+              </button>
+            </p>
+          )}
         </div>
       </section>
     ) : null;
+  // Result cards look and act the same in the feed, projects and Saved.
+  const resultCard = (
+    item: Artifact & { team_id?: string | null },
+    inSaved = false,
+  ) => (
+    <ArtifactCard
+      key={item.id}
+      item={item}
+      connections={data.connections}
+      project={[
+        data.teams?.find((t) => t.id === item.team_id)?.name,
+        data.folders.find((f) => f.id === item.folder_id)?.name ||
+          "Unfiled",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      onOpen={() => openCard(item)}
+      onArtifact={() => void open(item)}
+      onReply={() => void replyToArtifact(item)}
+      onArchive={inSaved ? undefined : () => void archiveCard(item.id)}
+      onLater={() => setLaterCard(item)}
+      onProfile={() =>
+        setProfile(
+          data.agents.find((a) => a.id === item.agent_id) || null,
+        )
+      }
+      onFile={() => setFiling(item)}
+      onPin={async () => {
+        try {
+          await api(
+            "/artifacts/" + item.id,
+            { pinned: !item.pinned, version: item.version },
+            "PATCH",
+          );
+          await changed();
+          window.dispatchEvent(new Event("loop-later-change"));
+        } catch (e) {
+          setError((e as Error).message);
+        }
+      }}
+    />
+  );
+  const feedList = (
+    <div className="feed">
+      {feedError && items.length > 0 && (
+        <div className="error" role="alert">
+          {feedError}
+          <button className="text-button" onClick={() => void loadFeed()}>
+            Try again
+          </button>
+        </div>
+      )}
+      {feedLoading ? (
+        <div className="feed-loading" role="status" aria-label="Loading activity">
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : feedError && !items.length ? (
+        <div className="error" role="alert">
+          {feedError}
+          <button className="text-button" onClick={() => void loadFeed()}>
+            Try again
+          </button>
+        </div>
+      ) : items.length ? (
+        items
+          // Snippets are reusable prompts, not agent output; they live in the
+          // composer's / menu instead of the results list.
+          .filter(
+            (item) =>
+              !item.role && !parse<any>(item.metadata, {}).snippet,
+          )
+          .map((item) => resultCard(item))
+      ) : (
+        <Empty
+          title={
+            profile
+              ? view === "files"
+                ? "No files yet."
+                : "No results yet."
+              : projectFilter || teamSelection.length
+                ? "No results in this view yet."
+                : "No results yet."
+          }
+        >
+          {profile
+            ? profileWork.length
+              ? "Your agent’s work is shown above. Open its thread to follow along."
+              : "Send a message to this agent to get started."
+            : "Finished work from your agents appears here."}
+        </Empty>
+      )}
+      {next && (
+        <button
+          className="secondary load-more"
+          onClick={() => void loadFeed(true)}
+        >
+          Earlier results
+        </button>
+      )}
+    </div>
+  );
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <button
           className="wordmark"
           onClick={() => {
-            setTab("feed");
+            setTab("inbox");
             setProfile(null);
             setTeamSelection([]);
           }}
@@ -1480,15 +1827,46 @@ export default function App() {
               Private workspace
             </span>
             <button
-              className="icon-button"
-              aria-label="Settings"
-              onClick={() => setSheet("settings")}
+              className="avatar-button"
+              aria-label="Account and settings"
+              onClick={() => setYouSheet(true)}
             >
-              <SlidersHorizontal size={20} />
+              <span className="avatar user" aria-hidden="true">
+                {(session.user.name?.trim() || "You")
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((part: string) => Array.from(part)[0])
+                  .join("")
+                  .toUpperCase()}
+              </span>
             </button>
           </div>
         </header>
         <main className="workspace-content">
+          {(pullRefresh.pull > 0 || pullRefresh.refreshing) && (
+            <div
+              className={
+                "pull-refresh" +
+                (pullRefresh.ready ? " ready" : "") +
+                (pullRefresh.refreshing ? " refreshing" : "")
+              }
+              style={
+                pullRefresh.refreshing
+                  ? undefined
+                  : { transform: `translateY(${pullRefresh.pull}px)` }
+              }
+              role="status"
+              aria-label={
+                pullRefresh.refreshing
+                  ? "Refreshing"
+                  : pullRefresh.ready
+                    ? "Release to refresh"
+                    : "Pull to refresh"
+              }
+            >
+              <RefreshCw size={18} aria-hidden="true" />
+            </div>
+          )}
           {workspaceLoadError && (
             <div className="workspace-load-status note" role="status">
               <span>{workspaceLoadError} Retrying…</span>
@@ -1498,32 +1876,27 @@ export default function App() {
             </div>
           )}
           {capabilities.pairedDevices && <WorkspaceConnection />}
-          {capabilities.nativeHarnesses && (
-            <button
-              className="text-button"
-              onClick={() => setSheet("native-history")}
-            >
-              Native conversations
-            </button>
-          )}
           {profile ? (
             <>
               <button
-                className="text-button"
+                className="text-button back-button"
                 onClick={() => {
-                  if (tab === "personal" && previousPage()) return;
+                  if (previousPage()) return;
                   setProfile(null);
                   setView("all");
                 }}
               >
                 <ArrowLeft size={16} />
-                {tab === "projects"
-                  ? "Back to project"
-                  : tab === "personal"
-                    ? "Back to profile"
-                    : "Back to feed"}
+                Back
               </button>
               <section className="profile-head">
+                <button
+                  className="icon-button profile-menu"
+                  aria-label="Agent actions"
+                  onClick={() => setSheet("agent-menu")}
+                >
+                  <MoreHorizontal size={20} />
+                </button>
                 <Avatar name={profile.name} provider={profile.provider} />
                 <h1>@{profile.name}</h1>
                 <Badge provider={profile.provider} />
@@ -1559,7 +1932,7 @@ export default function App() {
                   onMessage={messageTeam}
                   onOpen={(team) => {
                     setProfile(null);
-                    setTab("feed");
+                    setTab("inbox");
                     setView("all");
                     setTeamSelection([team.id]);
                     setProjectFilter("");
@@ -1587,63 +1960,33 @@ export default function App() {
                       setSelected(profile.id);
                       setFolderChoice(undefined);
                       setFolder(profile.folder_id || "");
+                      setReplyContext(null);
                       focusComposer();
                     }}
                   >
                     <MessageSquare size={16} />
                     Message
                   </button>
-                  <AgentConversations
-                    key={session.user.id + ":" + profile.id}
-                    agent={profile}
-                    teams={data.teams || []}
-                    onOpen={(id) => {
-                      setSelected(profile.id);
-                      setConversation(id);
-                    }}
-                  />
-                  <button
-                    className="text-button"
-                    onClick={() => {
-                      setEditError("");
-                      setSheet("edit-agent");
-                    }}
-                  >
-                    Edit agent
-                  </button>
-                  <button
-                    className="text-button"
-                    onClick={() => setSheet("retire-agent")}
-                  >
-                    {profile.retired_at ? "Restore agent" : "Retire agent"}
-                  </button>
                 </div>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    setSearchAgent(profile.id);
-                    setProfile(null);
-                    setTab("search");
-                  }}
-                >
-                  Search this agent
-                </button>
                 <AgentWork
                   runs={profileWork}
                   onConversation={setConversation}
                 />
               </section>
-              <div className="segmented">
+
+              <div className="segmented scroll-tabs" role="tablist">
                 {[
                   ["all", "Results"],
+                  ["threads", "Threads"],
                   ["messages", "Messages"],
                   ["files", "Files"],
                   ["traces", "Traces"],
-                  ["prompts", "Your prompts"],
                 ].map(([v, label]) => (
                   <button
                     className={view === v ? "selected" : ""}
                     key={v}
+                    role="tab"
+                    aria-selected={view === v}
                     aria-pressed={view === v}
                     onClick={() => {
                       setView(v);
@@ -1659,108 +2002,67 @@ export default function App() {
                 ))}
               </div>
             </>
-          ) : tab !== "personal" ? (
-            <div className="page-heading">
-              <div>
-                <span className="eyebrow">
-                  {tab === "feed"
-                    ? "Make something of your ideas"
-                    : tab === "running"
-                      ? "Work in motion"
-                      : tab === "search"
-                        ? "Less scrolling. More finding."
-                        : "A home for your work"}
-                </span>
-                <h1>
-                  {tab === "feed"
-                    ? "Feed"
-                    : tab === "running"
-                      ? "Running"
-                      : tab === "search"
-                        ? "Search everything."
-                        : tab === "projects"
-                          ? "Projects"
-                          : "Saved"}
-                </h1>
-                {tab === "feed" && (
-                  <p className="page-description">
-                    Your agents, their work, and what’s next.
-                  </p>
-                )}
-              </div>
-              {!["feed", "projects", "saved"].includes(tab) &&
-                availableAgents.length > 0 && (
-                  <button
-                    className="secondary"
-                    aria-label="New agent"
-                    onClick={() => {
-                      setFolder(projectFilter);
-                      setSheet("create");
-                    }}
-                  >
-                    <Plus size={18} />
-                    <span>New agent</span>
-                  </button>
+          ) : tab === "projects" && project ? null : (
+            <div className="page-heading compact">
+              <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
+              {["inbox", "later"].includes(tab) &&
+                data.folders.some((f) => f.kind === "project") && (
+                  <label className="scope-chip">
+                    <span className="sr-only">Project</span>
+                    <select
+                      aria-label="Filter by project"
+                      value={projectFilter}
+                      onChange={(e) => setProjectFilter(e.target.value)}
+                    >
+                      <option value="">All projects</option>
+                      {data.folders
+                        .filter((f) => f.kind === "project")
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                 )}
             </div>
-          ) : null}
-          {["feed", "running", "saved"].includes(tab) &&
-            !profile &&
-            data.agents.length > 0 && (
-              <div className="workspace-scope">
-                <TeamFilter
-                  teams={data.teams || []}
-                  selected={teamSelection}
-                  onDeleted={(id) => {
-                    setData((old) => ({
-                      ...old,
-                      teams: old.teams?.filter((team) => team.id !== id),
-                    }));
-                    setTeamSelection((old) =>
-                      old.filter((team) => team !== id),
-                    );
-                    void bootstrap();
-                  }}
-                  onChange={(ids) => {
-                    setTeamSelection(ids);
-                    const team =
-                      ids.length === 1
-                        ? data.teams?.find((t) => t.id === ids[0])
-                        : undefined;
-                    if (team && !draft.trim()) {
-                      setSelected(team.manager_id);
-                      setContextArtifact(null);
-                    }
-                  }}
-                  onCreate={() => setSheet("teams")}
-                  onOpen={messageTeam}
-                />
-                <label className="project-feed-filter">
-                  Project
-                  <select
-                    aria-label="Filter by project"
-                    value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
-                  >
-                    <option value="">All projects</option>
-                    {data.folders
-                      .filter((f) => f.kind === "project")
-                      .map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <TeamManagerShortcut
-                  teams={data.teams || []}
-                  agents={data.agents}
-                  selected={teamSelection}
-                  onOpen={messageTeam}
-                />
-              </div>
-            )}
-          {tab === "feed" && !profile && (
+          )}
+          {tab === "inbox" && !profile && !!data.teams?.length && (
+            <div className="workspace-scope">
+              <TeamFilter
+                teams={data.teams || []}
+                selected={teamSelection}
+                onDeleted={(id) => {
+                  setData((old) => ({
+                    ...old,
+                    teams: old.teams?.filter((team) => team.id !== id),
+                  }));
+                  setTeamSelection((old) => old.filter((team) => team !== id));
+                  void bootstrap();
+                }}
+                onChange={(ids) => {
+                  setTeamSelection(ids);
+                  const team =
+                    ids.length === 1
+                      ? data.teams?.find((t) => t.id === ids[0])
+                      : undefined;
+                  if (team && !draft.trim()) {
+                    setSelected(team.manager_id);
+                    setContextArtifact(null);
+                  }
+                }}
+                onCreate={() => setSheet("teams")}
+                onOpen={messageTeam}
+              />
+              <TeamManagerShortcut
+                teams={data.teams || []}
+                agents={data.agents}
+                selected={teamSelection}
+                onOpen={messageTeam}
+              />
+            </div>
+          )}
+          {tab === "inbox" && !profile && (
             <>
               {data.agents.length > 0 && (
                 <YourAgents
@@ -1774,51 +2076,56 @@ export default function App() {
                   }}
                 />
               )}
-              {attention.length > 0 && (
-                <button
-                  className="attention-banner"
-                  aria-label={`${attention.length} need attention`}
-                  onClick={() => {
-                    setTab("running");
-                    setRunFilter("needs");
-                  }}
-                >
-                  <CircleAlert size={25} />
-                  <span>
-                    <strong>Needs your attention</strong>
-                    <small>Review tasks and approvals</small>
-                  </span>
-                  <b>{attention.length}</b>
-                  <ArrowUpRight size={20} />
-                </button>
-              )}
-              <div className="feed-filters">
-                <div className="segmented">
+              <Inbox
+                filter={inboxFilter}
+                onFilter={setInboxFilter}
+                project={projectFilter || undefined}
+                teams={teamKey || undefined}
+                revision={revision}
+                agents={data.agents}
+                onOpen={(c, m) => setConversation(c, m)}
+                onReply={(c) => {
+                  setConversation(c);
+                  focusThreadComposer(c);
+                }}
+                connections={data.connections}
+                onAgent={setProfile}
+                onChanged={() => void changed()}
+                needsSlot={
+                  <div className="run-list">
+                    {capabilities.nativeHarnesses && (
+                      <NativeDecisions onConversation={setConversation} />
+                    )}
+                    <Approvals
+                      teams={teamKey}
+                      runIds={
+                        projectFilter ? scopedRuns.map((r) => r.id) : undefined
+                      }
+                      revision={revision}
+                      onChange={() => void changed()}
+                      onConversation={setConversation}
+                    />
+                    <ScheduledSends
+                      revision={revision}
+                      failedOnly
+                      onOpen={(c) => setConversation(c)}
+                    />
+                  </div>
+                }
+                emptyAction={
                   <button
-                    aria-pressed={view === "all"}
-                    className={view === "all" ? "selected" : ""}
-                    onClick={() => setView("all")}
+                    className="primary"
+                    onClick={() =>
+                      data.agents.length ? focusComposer() : setSheet("create")
+                    }
                   >
-                    Results
+                    <Plus size={17} />
+                    {data.agents.length
+                      ? "Start a conversation"
+                      : "Create your first agent"}
                   </button>
-                  <button
-                    aria-pressed={view === "prompts"}
-                    className={view === "prompts" ? "selected" : ""}
-                    onClick={() => setView("prompts")}
-                  >
-                    Your messages
-                  </button>
-                </div>
-                <span className="muted">
-                  {working.length
-                    ? `${working.length} in progress`
-                    : scopedRuns.some((r) => r.state === "queued")
-                      ? "Work queued"
-                      : attention.length
-                        ? ""
-                        : "All caught up"}
-                </span>
-              </div>
+                }
+              />
             </>
           )}
           {profile && view === "traces" && (
@@ -1830,6 +2137,29 @@ export default function App() {
               onArtifact={setActiveArtifact}
             />
           )}
+          {profile && view === "threads" && (
+              <Inbox
+              key={"agent-" + profile.id}
+              filter="all"
+              onFilter={() => {}}
+              hideFilters
+              agent={profile.id}
+              revision={revision}
+              agents={data.agents}
+              connections={data.connections}
+              onOpen={(c, m) => {
+                setSelected(profile.id);
+                setConversation(c, m);
+              }}
+              onReply={(c) => {
+                setSelected(profile.id);
+                setConversation(c);
+                focusThreadComposer(c);
+              }}
+              onAgent={setProfile}
+              onChanged={() => void changed()}
+            />
+          )}
           {profile && view === "messages" && (
             <AgentMessages
               key={profile.id}
@@ -1839,400 +2169,37 @@ export default function App() {
               onReply={beginReply}
             />
           )}
-          {(tab === "feed" || savedFeed || profile) &&
-            !(profile && ["traces", "messages"].includes(view)) && (
-              <div className="feed">
-                {feedError && items.length > 0 && (
-                  <div className="error" role="alert">
-                    {feedError}
-                    <button
-                      className="text-button"
-                      onClick={() => void loadFeed()}
-                    >
-                      Try again
-                    </button>
-                  </div>
-                )}
-                {feedLoading ? (
-                  <div
-                    className="feed-loading"
-                    role="status"
-                    aria-label="Loading activity"
-                  >
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                ) : feedError && !items.length ? (
-                  <div className="error" role="alert">
-                    {feedError}
-                    <button
-                      className="text-button"
-                      onClick={() => void loadFeed()}
-                    >
-                      Try again
-                    </button>
-                  </div>
-                ) : items.length ? (
-                  items.map((item) =>
-                    item.role ? (
-                      <article
-                        key={item.id}
-                        className="feed-card prompt-card"
-                        role="button"
-                        tabIndex={0}
-                        onClick={() =>
-                          setConversation(item.conversation_id, item.id)
-                        }
-                        onKeyDown={(e) => {
-                          if (
-                            e.target === e.currentTarget &&
-                            ["Enter", " "].includes(e.key)
-                          ) {
-                            e.preventDefault();
-                            setConversation(item.conversation_id, item.id);
-                          }
-                        }}
-                      >
-                        <span className="eyebrow">
-                          You →{" "}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setProfile(
-                                data.agents.find((a) => a.name === item.name) ||
-                                  null,
-                              );
-                            }}
-                          >
-                            @{item.name}
-                          </button>
-                        </span>
-                        <time className="field-hint">
-                          {new Date(item.created_at).toLocaleString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </time>
-                        <p>{item.content}</p>
-                        <RunStatus
-                          state={item.run_state}
-                          error={item.run_error}
-                        />
-                        <button
-                          className="text-button"
-                          onClick={() => {
-                            setConversation(item.conversation_id, item.id);
-                            setSelected(
-                              data.agents.find((a) => a.name === item.name)
-                                ?.id || "",
-                            );
-                          }}
-                        >
-                          Open conversation
-                          <ArrowUpRight size={15} />
-                        </button>
-                      </article>
-                    ) : (
-                      <ArtifactCard
-                        key={item.id}
-                        item={item}
-                        connections={data.connections}
-                        project={[
-                          data.teams?.find((t) => t.id === item.team_id)?.name,
-                          data.folders.find((f) => f.id === item.folder_id)
-                            ?.name || "Workspace inbox",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        onOpen={() => openCard(item)}
-                        onArtifact={() => void open(item)}
-                        onReply={() => void replyToArtifact(item)}
-                        onArchive={
-                          savedFeed
-                            ? undefined
-                            : () => void archiveCard(item.id)
-                        }
-                        onProfile={() =>
-                          setProfile(
-                            data.agents.find((a) => a.id === item.agent_id) ||
-                              null,
-                          )
-                        }
-                        onFile={() => setFiling(item)}
-                        onPin={async () => {
-                          try {
-                            await api(
-                              "/artifacts/" + item.id,
-                              { pinned: !item.pinned, version: item.version },
-                              "PATCH",
-                            );
-                            await changed();
-                          } catch (e) {
-                            setError((e as Error).message);
-                          }
-                        }}
-                      />
-                    ),
-                  )
-                ) : (
-                  <Empty
-                    title={
-                      savedFeed
-                        ? "No saved cards yet."
-                        : profile
-                          ? view === "prompts"
-                            ? "Your prompts will appear here."
-                            : view === "files"
-                              ? "No files yet."
-                              : "No results yet."
-                          : projectFilter || teamSelection.length
-                            ? "No activity in this view yet."
-                            : view === "prompts"
-                              ? "Your prompts will appear here."
-                              : data.agents.length
-                                ? "Ready for your next task."
-                                : "Create your first agent."
-                    }
-                    action={
-                      savedFeed ? undefined : (
-                        <button
-                          className="primary"
-                          onClick={() =>
-                            data.agents.length
-                              ? focusComposer()
-                              : setSheet("create")
-                          }
-                        >
-                          <Plus size={17} />
-                          {data.agents.length
-                            ? "Start a conversation"
-                            : "Create your first agent"}
-                        </button>
-                      )
-                    }
-                  >
-                    {savedFeed
-                      ? "Save a card with its bookmark button to keep it here. Your team and project filters also apply to Saved."
-                      : profile
-                        ? profileWork.length
-                          ? "Your agent’s work is shown above. Open its conversation to follow along."
-                          : "Send a message to this agent to get started."
-                        : projectFilter || teamSelection.length
-                          ? "Choose another project or team, or start a task here."
-                          : "Choose a provider, give your agent a task, and find its finished work here."}
-                  </Empty>
-                )}
-                {next && (
-                  <button
-                    className="secondary load-more"
-                    onClick={() => void loadFeed(true)}
-                  >
-                    Earlier activity
-                  </button>
-                )}
-              </div>
-            )}
-          {tab === "running" && !profile && (
-            <div className="run-list">
-              {capabilities.nativeHarnesses && (
-                <NativeDecisions onConversation={setConversation} />
-              )}
-              <Approvals
-                teams={teamKey}
-                runIds={projectFilter ? scopedRuns.map((r) => r.id) : undefined}
-                revision={revision}
-                onChange={() => void changed()}
-                onConversation={setConversation}
-              />
-              <div className="segmented">
-                {[
-                  ["all", "Executing"],
-                  ["needs", "Needs you"],
-                  ["queued", "Queued"],
-                ].map(([v, label]) => (
-                  <button
-                    key={v}
-                    aria-pressed={runFilter === v}
-                    className={runFilter === v ? "selected" : ""}
-                    onClick={() => setRunFilter(v)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {visibleRuns.length ? (
-                visibleRuns.map((r) => {
-                  const a = data.agents.find((a) => a.id === r.agent_id),
-                    snapshot = parse<any>(r.payload, {});
-                  return (
-                    <ArtifactCard
-                      key={r.id}
-                      connections={data.connections}
-                      className="run-card"
-                      label={r.state.replaceAll("_", " ")}
-                      model={runModelName(snapshot, data.connections)}
-                      item={{
-                        id: r.id,
-                        owner_id: "",
-                        agent_id: r.agent_id,
-                        conversation_id: r.conversation_id,
-                        run_id: r.id,
-                        title: r.input,
-                        kind: "markdown",
-                        content: (r as any).preview || "",
-                        metadata: r.payload,
-                        folder_id: snapshot.folderId || null,
-                        pinned: 0,
-                        archived: 0,
-                        version: 1,
-                        created_at: r.created_at,
-                        updated_at: r.updated_at,
-                        ...r.preview_artifact,
-                        name: a?.name,
-                        provider: snapshot.provider || a?.provider,
-                        run_state: r.state,
-                        run_error: r.error,
-                      }}
-                      project={
-                        data.folders.find((f) => f.id === snapshot.folderId)
-                          ?.name || "Workspace inbox"
-                      }
-                      onProfile={() => a && setProfile(a)}
-                      onOpen={() =>
-                        r.conversation_id && setConversation(r.conversation_id)
-                      }
-                      headerActions={
-                        !["running", "pausing"].includes(r.state) && (
-                          <button
-                            className={
-                              ["failed", "interrupted"].includes(r.state)
-                                ? "icon-button dismiss-attention"
-                                : "text-button dismiss-attention"
-                            }
-                            aria-label={`${["failed", "interrupted"].includes(r.state) ? "Dismiss" : "Cancel"} task: ${r.input}`}
-                            title={
-                              ["failed", "interrupted"].includes(r.state)
-                                ? "Dismiss from attention"
-                                : "Dismiss and cancel task"
-                            }
-                            disabled={dismissing !== null}
-                            onClick={() => void dismiss(r)}
-                          >
-                            <X size={18} />
-                            {!["failed", "interrupted"].includes(r.state) &&
-                              "Cancel task"}
-                          </button>
-                        )
-                      }
-                      detail={
-                        <p className="field-hint">
-                          {Math.floor((Date.now() - r.created_at) / 60000)} min
-                          since submitted
-                          {r.state === "queued"
-                            ? ` · position ${(r as any).queue_position} in this agent’s queue`
-                            : ""}
-                        </p>
-                      }
-                      footer={
-                        <div className="actions">
-                          {(r.state === "queued" ||
-                            (r.state === "running" &&
-                              !parse<any>(
-                                data.connections.find(
-                                  (c) => c.id === snapshot.connectionId,
-                                )?.metadata,
-                                {},
-                              ).loopHarness)) && (
-                            <button onClick={() => runAction(r, "pause")}>
-                              <Pause size={16} />
-                              Pause
-                            </button>
-                          )}
-                          {r.state === "pausing" && (
-                            <p className="note">
-                              Pausing after the current provider response.
-                            </p>
-                          )}
-                          {r.state === "paused" && (
-                            <button onClick={() => runAction(r, "resume")}>
-                              <Play size={16} />
-                              Resume
-                            </button>
-                          )}
-                          {!["completed", "failed", "cancelled"].includes(
-                            r.state,
-                          ) && (
-                            <button onClick={() => runAction(r, "cancel")}>
-                              <Square size={14} />
-                              Cancel
-                            </button>
-                          )}
-                          {["failed", "interrupted"].includes(r.state) &&
-                            r.agent_id &&
-                            (r as any).kind === "agent" && (
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await api(`/runs/${r.id}/retry`, {
-                                      idempotencyKey: crypto.randomUUID(),
-                                    });
-                                    await refresh();
-                                  } catch (e) {
-                                    setError((e as Error).message);
-                                  }
-                                }}
-                              >
-                                Retry as a new run
-                              </button>
-                            )}
-                          {["failed", "interrupted"].includes(r.state) &&
-                            r.agent_id && (
-                              <button onClick={() => setFailureRun(r)}>
-                                View failure details
-                              </button>
-                            )}
-                          {r.conversation_id && (
-                            <button
-                              onClick={() => {
-                                setConversation(r.conversation_id);
-                                setSelected(r.agent_id || "");
-                              }}
-                            >
-                              <ArrowUpRight size={16} />
-                              Open
-                            </button>
-                          )}
-                        </div>
-                      }
-                    />
-                  );
-                })
-              ) : (
-                <Empty
-                  title="Ready when you are."
-                  action={
-                    <button
-                      className="primary"
-                      onClick={() => setSheet("create")}
-                    >
-                      <Plus size={17} />
-                      New agent
-                    </button>
-                  }
-                >
-                  Your agents keep working when you close Loop. Active tasks and
-                  queued ideas will appear here.
-                </Empty>
-              )}
-            </div>
+          {profile && ["all", "files"].includes(view) && feedList}
+          {tab === "later" && !profile && (
+            <Later
+              revision={revision}
+              onOpen={(c, m) => setConversation(c, m)}
+              onArtifact={(id) =>
+                void api<Artifact>("/artifacts/" + id)
+                  .then((item) => void open(item))
+                  .catch((e) => setError(e.message))
+              }
+              project={projectFilter || undefined}
+              teams={teamKey || undefined}
+              renderResult={(item) => resultCard(item, true)}
+              onReply={(message) =>
+                message.agent_id
+                  ? beginReply({
+                      agentId: message.agent_id,
+                      conversationId: message.conversation_id,
+                      messageId: message.message_id,
+                      content: message.content,
+                      ...(message.role === "user" ? { mine: true } : {}),
+                    })
+                  : setConversation(message.conversation_id, message.message_id)
+              }
+            />
           )}
           {tab === "search" && !profile && (
             <SearchWorkspace
-              key={searchAgent}
-              onSearchSettings={() => setSheet("search-settings")}
+              key={searchAgent + ":" + searchScope}
+              userName={session.user.name?.trim() || "You"}
+              initialScope={searchScope}
               onProfile={setProfile}
               initialAgent={searchAgent}
               agents={data.agents}
@@ -2241,6 +2208,15 @@ export default function App() {
               onConversation={(c, m) => {
                 setConversation(c, m);
               }}
+              onReplyPrompt={(prompt) =>
+                beginReply({
+                  agentId: prompt.agent_id,
+                  conversationId: prompt.conversation_id,
+                  messageId: prompt.id,
+                  content: prompt.content,
+                  mine: true,
+                })
+              }
             />
           )}
           {tab === "projects" && !profile && (
@@ -2309,30 +2285,79 @@ export default function App() {
                 setFolder(project);
                 setSheet("folder-edit");
               }}
+              revision={revision}
+              renderThreads={(id) => (
+                <Inbox
+                  key={id}
+                  filter="all"
+                  onFilter={() => {}}
+                  hideFilters
+                  project={id}
+                  revision={revision}
+                  agents={data.agents}
+                  onOpen={(c, m) => setConversation(c, m)}
+                  onReply={(c) => {
+                    setConversation(c);
+                    focusThreadComposer(c);
+                  }}
+                  connections={data.connections}
+                  onAgent={setProfile}
+                  onChanged={() => void changed()}
+                />
+              )}
+              onNewTask={(id) => {
+                const agent =
+                  data.agents.find(
+                    (a) =>
+                      !a.retired_at &&
+                      a.connection_id &&
+                      a.id === selected &&
+                      belongsToProject(a.folder_id, id, data.folders),
+                  ) ||
+                  data.agents.find(
+                    (a) =>
+                      !a.retired_at &&
+                      a.connection_id &&
+                      belongsToProject(a.folder_id, id, data.folders),
+                  );
+                if (!agent) {
+                  setFolder(id);
+                  setSheet("create");
+                  return;
+                }
+                setSelected(agent.id);
+                setReplyContext(null);
+                setContextArtifact(null);
+                setFolder(id);
+                setFolderChoice(undefined);
+                focusComposer();
+              }}
+              onWorkflows={() => {
+                setWorkflowId(undefined);
+                setWorkflowSource(undefined);
+                setSheet("workflows");
+              }}
+              onTeams={() => setSheet("teams")}
             />
-          )}
-          {tab === "personal" && (
-            <div hidden={Boolean(profile)}>
-              <button
-                className="text-button"
-                onClick={() => {
-                  if (!previousPage()) setTab("feed");
-                }}
-              >
-                Back
-              </button>
-              <PersonalProfile
-                key={session.user.id}
-                name={session.user.name?.trim() || "You"}
-                agents={data.agents}
-                onAgent={setProfile}
-                onConversation={setConversation}
-              />
-            </div>
           )}
           {dismissNotice && (
             <p className="note" role="status">
-              {dismissNotice}
+              {typeof dismissNotice === "string" ? (
+                dismissNotice
+              ) : (
+                <>
+                  {dismissNotice.text}{" "}
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      dismissNotice.onAction();
+                      setDismissNotice("");
+                    }}
+                  >
+                    {dismissNotice.action}
+                  </button>
+                </>
+              )}
               <button
                 className="icon-button"
                 aria-label="Close notice"
@@ -2343,7 +2368,7 @@ export default function App() {
             </p>
           )}
         </main>
-        {!conversation && tab !== "personal" && messageComposer}
+        {!conversation && messageComposer}
         <nav className="mobile-nav">{nav}</nav>
       </div>
       {archivedCard && (
@@ -2374,12 +2399,6 @@ export default function App() {
             setSheet("");
           }}
         >
-          <button
-            className="text-button"
-            onClick={() => openSettingsPage("install")}
-          >
-            Install & share on your phone
-          </button>
           <h3>Appearance</h3>
           <div className="theme-picker">
             {[
@@ -2433,34 +2452,22 @@ export default function App() {
               </span>
               <ArrowUpRight size={18} />
             </button>
-            <button
-              onClick={() => {
-                setWorkflowId(undefined);
-                setWorkflowSource(undefined);
-                openSettingsPage("workflows");
-              }}
-            >
-              <Orbit size={20} />
-              <span>
-                Workflows<small>Connect agents into an executable plan</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
           </div>
           <h3>Workspace</h3>
           <div className="settings-links">
+            <button onClick={() => openSettingsPage("install")}>
+              <Monitor size={20} />
+              <span>
+                Install & share on your phone
+                <small>Add Loop to your home screen</small>
+              </span>
+              <ArrowUpRight size={18} />
+            </button>
             <button onClick={() => openSettingsPage("memory")}>
               <Bookmark size={20} />
               <span>
                 Shared memory
                 <small>Sources, notes and inclusion controls</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => openSettingsPage("teams")}>
-              <Orbit size={20} />
-              <span>
-                Agent teams<small>Create a manager and worker feed</small>
               </span>
               <ArrowUpRight size={18} />
             </button>
@@ -2474,9 +2481,9 @@ export default function App() {
             <button onClick={() => openSettingsPage("notifications")}>
               <Bell size={20} />
               <span>
-                Result notifications
+                Notifications
                 <small>
-                  Know when your agents finish, even with Loop closed
+                  Results, approvals and reminders, even with Loop closed
                 </small>
               </span>
               <ArrowUpRight size={18} />
@@ -2525,8 +2532,7 @@ export default function App() {
                 setDraft("");
                 setFolderChoice(undefined);
                 setConversation(null);
-                setFailureRun(null);
-                setProfile(null);
+                          setProfile(null);
                 setSession(null);
                 setData({ agents: [], connections: [], folders: [] });
                 setItems([]);
@@ -2539,8 +2545,176 @@ export default function App() {
           )}
         </Sheet>
       )}
+      {youSheet && (
+        <ActionSheet
+          title={session.user.name?.trim() || "You"}
+          onClose={() => setYouSheet(false)}
+          actions={[
+            {
+              id: "prompts",
+              label: "Your prompts",
+              hint: "Everything you have asked, across projects",
+              icon: <UserRound size={20} />,
+              onSelect: () => {
+                setProfile(null);
+                setSearchScope("mine");
+                setTab("search");
+              },
+            },
+            ...(capabilities.nativeHarnesses
+              ? [
+                  {
+                    id: "native",
+                    label: "Native conversations",
+                    hint: "Threads started in harnesses on your computer",
+                    icon: <MessageSquare size={20} />,
+                    onSelect: () => setSheet("native-history"),
+                  },
+                ]
+              : []),
+            {
+              id: "notifications",
+              label: "Notifications",
+              icon: <Bell size={20} />,
+              onSelect: () => setSheet("notifications"),
+            },
+            {
+              id: "settings",
+              label: "Settings",
+              hint: "Connections, tools, appearance and more",
+              icon: <Settings size={20} />,
+              onSelect: () => setSheet("settings"),
+            },
+          ]}
+        >
+          <p className="field-hint">Personal workspace</p>
+        </ActionSheet>
+      )}
+      {sheet === "agent-menu" && profile && (
+        <ActionSheet
+          title={"@" + profile.name}
+          onClose={() => setSheet("")}
+          actions={[
+            {
+              id: "edit",
+              label: "Edit agent",
+              hint: "Name, instructions and project",
+              icon: <Settings size={20} />,
+              onSelect: () => {
+                setEditError("");
+                setSheet("edit-agent");
+              },
+            },
+            {
+              id: "model",
+              label: "Model, provider & effort",
+              hint: agentModelName(profile, data.connections),
+              icon: <SlidersHorizontal size={20} />,
+              onSelect: () => setModelAgent(profile),
+            },
+            {
+              id: "search",
+              label: "Search this agent",
+              icon: <Search size={20} />,
+              onSelect: () => {
+                setSearchAgent(profile.id);
+                setSearchScope("all");
+                setProfile(null);
+                setTab("search");
+              },
+            },
+            {
+              id: "retire",
+              label: profile.retired_at ? "Restore agent" : "Retire agent",
+              danger: !profile.retired_at,
+              icon: <X size={20} />,
+              onSelect: () => setSheet("retire-agent"),
+            },
+          ]}
+        />
+      )}
+      {sendMenu && (
+        <ActionSheet
+          title="Send options"
+          onClose={() => setSendMenu(false)}
+          actions={[
+            {
+              id: "now",
+              label: "Send now",
+              icon: <ArrowUp size={20} />,
+              onSelect: () => void send(),
+            },
+            {
+              id: "queue",
+              label: "Send after the current task",
+              hint: "Queues instead of steering a running task",
+              icon: <Clock3 size={20} />,
+              onSelect: () => void send({ queue: true }),
+            },
+            ...laterChoices(Date.now())
+              .filter((choice) => choice.condition === "time" && choice.id !== "hour")
+              .map((choice) => ({
+                id: choice.id,
+                label: `Send ${choice.label.toLowerCase()}`,
+                hint: choice.hint,
+                icon: <AlarmClock size={20} />,
+                onSelect: () => void send({ sendAt: choice.dueAt }),
+              })),
+            {
+              id: "custom",
+              label: "Pick a time…",
+              icon: <AlarmClock size={20} />,
+              onSelect: () =>
+                setScheduleAt(localInputValue(Date.now() + 3600_000)),
+            },
+          ]}
+        />
+      )}
+      {scheduleAt !== null && (
+        <Sheet title="Schedule message" onClose={() => setScheduleAt(null)}>
+          <label>
+            Send at
+            <input
+              type="datetime-local"
+              value={scheduleAt}
+              min={localInputValue(Date.now())}
+              onChange={(e) => setScheduleAt(e.target.value)}
+            />
+          </label>
+          <p className="field-hint">
+            Your computer must be awake at that time for the agent to start.
+          </p>
+          <button
+            className="primary"
+            disabled={!scheduleAt || busy}
+            onClick={() => {
+              const at = new Date(scheduleAt).getTime();
+              if (!(at > Date.now())) {
+                setComposerError("Choose a time in the future.");
+                setScheduleAt(null);
+                return;
+              }
+              setScheduleAt(null);
+              void send({ sendAt: at });
+            }}
+          >
+            <AlarmClock size={17} /> Schedule
+          </button>
+        </Sheet>
+      )}
+      {laterCard && (
+        <LaterSheet
+          kind="artifact"
+          targetId={laterCard.id}
+          title={laterCard.title}
+          onClose={() => setLaterCard(null)}
+          onDone={(label) =>
+            setDismissNotice(`Snoozed until ${label.toLowerCase()}. Find it in Later.`)
+          }
+        />
+      )}
       {sheet === "notifications" && (
-        <Sheet title="Result notifications" onClose={closeSheet}>
+        <Sheet title="Notifications" onClose={closeSheet}>
           <Notifications />
         </Sheet>
       )}
@@ -2615,7 +2789,8 @@ export default function App() {
           }}
           onClose={closeSheet}
           onStarted={() => {
-            setTab("running");
+            setTab("inbox");
+            setInboxFilter("working");
             void changed();
           }}
           onConversation={(c) => {
@@ -2637,6 +2812,7 @@ export default function App() {
       {sheet === "create" && (
         <CreateAgent
           initialFolder={folder}
+          initialPromptText={newAgentPrompt}
           connections={data.connections}
           folders={data.folders}
           onConnectionsChanged={bootstrap}
@@ -2646,6 +2822,10 @@ export default function App() {
             if (!returnTo) setReturnTo("create");
           }}
           onCreated={async (a, f) => {
+            if (newAgentPrompt) {
+              setNewAgentPrompt("");
+              setDraft("");
+            }
             await bootstrap();
             setSelected(a.id);
             setFolder(f);
@@ -2662,7 +2842,7 @@ export default function App() {
             ) {
               setTeamSelection([]);
               setProfile(null);
-              setTab("feed");
+              setTab("inbox");
               setContextArtifact(null);
               setConversation(a.initialRun.conversation_id);
             }
@@ -2696,7 +2876,7 @@ export default function App() {
             setTeamSelection([team.id]);
             setSelected(team.manager_id);
             setContextArtifact(null);
-            setTab("feed");
+            setTab("inbox");
             setConversation(team.conversation_id);
             void bootstrap();
           }}
@@ -2722,33 +2902,6 @@ export default function App() {
             );
           }}
         />
-      )}
-      {failureRun?.agent_id && (
-        <Sheet
-          title="Run failure details"
-          wide
-          swipeToClose
-          onClose={() => setFailureRun(null)}
-        >
-          <RunStatus state={failureRun.state} error={failureRun.error} />
-          <p className="field-hint">
-            Saved progress and tool activity for this attempt.
-          </p>
-          <Traces
-            key={failureRun.id}
-            agentId={failureRun.agent_id}
-            runId={failureRun.id}
-            revision={revision}
-            onConversation={(id) => {
-              setFailureRun(null);
-              setConversation(id);
-            }}
-            onArtifact={(artifact) => {
-              setFailureRun(null);
-              setActiveArtifact(artifact);
-            }}
-          />
-        </Sheet>
       )}
       {modelAgent && (
         <AgentModelSettings
@@ -2908,8 +3061,11 @@ export default function App() {
           agents={data.agents}
           connections={data.connections}
           teams={data.teams || []}
+          folders={data.folders}
+          onNotice={setDismissNotice}
           onClose={() => {
             setConversation(null);
+            setThreadNotice("");
             collapseComposer();
             if (!draft.trim() && !attachments.length) setReplyContext(null);
           }}
@@ -2926,22 +3082,10 @@ export default function App() {
                 ? current
                 : context,
             );
-            setComposerExpanded(true);
-            if (!draft.trim()) {
-              const oldDraft = sessionStorage.getItem(
-                "loop-conversation-" + context.conversationId,
-              );
-              if (oldDraft) setDraft(oldDraft);
-            }
-            if (!attachments.length) {
-              const oldFiles = parse(
-                sessionStorage.getItem(
-                  "loop-conversation-files-" + context.conversationId,
-                ) || "",
-                [],
-              );
-              if (oldFiles.length) setAttachments(oldFiles);
-            }
+            const saved = threadDraft(context.conversationId);
+            if (!draft.trim() && saved.text) setDraft(saved.text);
+            if (!attachments.length && saved.files.length)
+              setAttachments(saved.files);
           }}
           onReply={beginReply}
           onUsePrompt={(text) => {

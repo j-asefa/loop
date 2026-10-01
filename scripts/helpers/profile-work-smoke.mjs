@@ -35,23 +35,26 @@ export async function profileWorkSmoke(page, capture) {
     await page.goto(`${fixture.base}/?teams=${team.id}`, {
       waitUntil: "networkidle",
     });
-    // A direct result is correctly absent from the team feed.
-    await expect(page.locator(".feed-card")).toHaveCount(0);
+    // A direct thread is correctly absent from the team Feed.
+    await expect(
+      page.locator(".inbox-row").filter({ hasText: previous.title }),
+    ).toHaveCount(0);
     await page
       .getByRole("region", { name: "Your agents", exact: true })
       .getByRole("button", { name: new RegExp(`^@${agent.name} ·`) })
       .click();
     await expect(head.locator("h1")).toHaveText("@" + agent.name);
-    // The same agent's profile must include personal results and prompts.
+    // The same agent's profile must include personal results and threads.
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
     await expect(page.locator(".feed-card")).toContainText(previous.title);
-    await page
-      .getByRole("button", { name: "Your prompts", exact: true })
-      .click();
-    await expect(page.locator(".prompt-card")).toContainText(previous.title);
-    await page.getByRole("button", { name: "Results", exact: true }).click();
-    await head
-      .getByRole("button", { name: "Open conversation", exact: true })
-      .click();
+    // "Open conversation" became the profile's Threads tab.
+    const threads = async () => {
+      await page.getByRole("tab", { name: "Threads", exact: true }).click();
+      return page.locator(".inbox-row");
+    };
+    const openThread = async (title) =>
+      (await threads()).filter({ hasText: title }).first().click();
+    await openThread(previous.title);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
       .toBe(previous.id);
@@ -64,6 +67,7 @@ export async function profileWorkSmoke(page, capture) {
         page.locator(`[id="message-${message.id}"] .message-meta time`),
       ).toHaveAttribute("datetime", new Date(message.created_at).toISOString());
     }
+    // Drafts belong to their thread; the global composer keeps its own.
     const savedReply = "A draft for the member, not the team manager.";
     await dialog()
       .getByLabel("Reply to agent", { exact: true })
@@ -71,19 +75,18 @@ export async function profileWorkSmoke(page, capture) {
     await close();
     await page.getByRole("button", { name: "Compose a message" }).click();
     await expect(page.getByLabel("Agent recipient")).toHaveValue(agent.id);
-    await expect(page.locator(".composer textarea")).toHaveValue(savedReply);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            JSON.parse(sessionStorage.getItem("loop-draft-context") || "null")
-              ?.conversationId,
-        ),
-      )
-      .toBe(previous.id);
-    await page.locator(".composer textarea").fill("");
+    await expect(page.locator(".composer textarea")).toHaveValue("");
+    await page.getByLabel("Collapse composer").click();
+    await openThread(previous.title);
+    await expect(
+      dialog().getByLabel("Reply to agent", { exact: true }),
+    ).toHaveValue(savedReply);
+    await dialog().getByLabel("Reply to agent", { exact: true }).fill("");
+    await close();
+    await page.getByRole("button", { name: "Compose a message" }).click();
     await page.getByLabel("Agent recipient").selectOption(team.manager_id);
     await page.getByLabel("Agent recipient").selectOption(agent.id);
+    await page.getByLabel("Collapse composer").click();
 
     // Hold an older read, and every post-send refresh. The POST receipt itself
     // must immediately put the task in Current work and confirm the send.
@@ -91,9 +94,7 @@ export async function profileWorkSmoke(page, capture) {
       const response = await route.fetch();
       pendingReads.push(() => route.fulfill({ response }));
     });
-    await page
-      .getByRole("button", { name: "Your prompts", exact: true })
-      .click();
+    await page.getByRole("tab", { name: "Messages", exact: true }).click();
     await expect.poll(() => pendingReads.length).toBeGreaterThan(0);
     await head.getByRole("button", { name: "Message", exact: true }).click();
     const input = page.locator(".composer textarea");
@@ -155,7 +156,7 @@ export async function profileWorkSmoke(page, capture) {
         "UPDATE runs SET state='running',worker_id='audit-fixture',heartbeat=?,updated_at=? WHERE id=?",
       )
       .run(Date.now() + 99999999, Date.now(), accepted.id);
-    await page.getByRole("button", { name: "Results", exact: true }).click();
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
     await expect(work).toContainText("1 running");
     for (const theme of ["light", "dark"]) {
       await page.evaluate(
@@ -168,16 +169,10 @@ export async function profileWorkSmoke(page, capture) {
         await capture(`profile-current-work-${theme}-${width}`);
       }
     }
-    await head
-      .getByRole("button", { name: "Open conversation", exact: true })
-      .click();
-    await expect(dialog().locator(".agent-conversation")).toHaveCount(2);
-    await expect(dialog().locator(".agent-conversation").first()).toContainText(
-      prompt,
-    );
-    await dialog()
-      .getByRole("button", { name: new RegExp(prompt.replace(/\./g, "\\.")) })
-      .click();
+    const agentThreads = await threads();
+    await expect(agentThreads).toHaveCount(2);
+    await expect(agentThreads.first()).toContainText(prompt);
+    await agentThreads.first().click();
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
       .toBe(accepted.conversation_id);
@@ -206,16 +201,21 @@ export async function profileWorkSmoke(page, capture) {
     await page
       .getByRole("button", { name: "Dismiss send confirmation" })
       .click();
-    await nav("Running").click();
+    // The team-scoped Feed still excludes personal work from Working/Queued.
+    await nav("Feed").click();
     await expect(page.locator(".profile-head")).toHaveCount(0);
-    await expect(page.locator(".run-card")).toHaveCount(0);
-    await page.getByRole("button", { name: "Queued", exact: true }).click();
-    await expect(page.locator(".run-card")).toHaveCount(0);
-    await page.goto(fixture.base + "/?page=running", {
+    for (const filter of [/^Working/, /^Queued/]) {
+      await page.getByRole("tab", { name: filter }).click();
+      await expect(page.locator(".inbox-empty")).toBeVisible();
+      await expect(
+        page.locator(".inbox-row").filter({ hasText: prompt }),
+      ).toHaveCount(0);
+    }
+    await page.goto(fixture.base + "/?filter=working", {
       waitUntil: "networkidle",
     });
     await expect(
-      page.locator(".run-card").filter({ hasText: prompt }),
+      page.locator(".inbox-row").filter({ hasText: prompt }),
     ).toHaveCount(1);
     console.log(
       "Profile scope, conversation access, send receipt and steering passed",

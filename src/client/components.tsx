@@ -1,6 +1,6 @@
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
-import { useEffect, useMemo, useRef, type ReactNode, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   X,
   Orbit,
@@ -10,6 +10,7 @@ import {
   FolderInput,
   MoreHorizontal,
   Archive,
+  AlarmClock,
 } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -19,6 +20,7 @@ import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
 import { registerSheet } from "./sheetHistory";
+import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
 import { FileLink, loopFileUrl } from "./FilePreview";
 import {
   browserPreview,
@@ -468,6 +470,7 @@ export function ArtifactCard({
   onArchive,
   onArtifact,
   onReply,
+  onLater,
   project,
   model,
   className,
@@ -487,6 +490,7 @@ export function ArtifactCard({
   onArchive?: () => void;
   onArtifact?: () => void;
   onReply?: () => void;
+  onLater?: () => void;
   className?: string;
   label?: string;
   headerActions?: ReactNode;
@@ -500,190 +504,250 @@ export function ArtifactCard({
     meta.tool ||
       (item.title.endsWith(" result") ? item.title.slice(0, -7) : undefined),
   );
-  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const origin = useRef({ x: 0, y: 0 });
-  const held = useRef(false);
-  const clearHold = () => {
-    if (hold.current) clearTimeout(hold.current);
-    hold.current = null;
+  const [menu, setMenu] = useState(false);
+  const open = onArtifact || onOpen;
+  // Swipe left archives (with Undo), swipe right saves; long-press opens the
+  // full menu. Nothing destructive happens on a press alone.
+  const swipe = useSwipe({ onLeft: onArchive, onRight: onPin });
+  const press = useLongPress(() => setMenu(true), !footer);
+  const merged = (name: string) => (e: any) => {
+    (swipe.handlers as any)[name]?.(e);
+    (press as any)[name]?.(e);
   };
-  useEffect(() => clearHold, []);
   return (
-    <article
-      className={["feed-card", className].filter(Boolean).join(" ")}
-      onPointerDown={(e) => {
-        clearHold();
-        held.current = false;
-        if (
-          !onArchive ||
-          e.button !== 0 ||
-          (e.target as HTMLElement).closest(
-            ".card-actions,.card-byline,a,button,summary,input",
-          )
-        )
-          return;
-        origin.current = { x: e.clientX, y: e.clientY };
-        hold.current = setTimeout(() => {
-          held.current = true;
-          onArchive();
-        }, 600);
-      }}
-      onPointerMove={(e) => {
-        if (
-          Math.hypot(
-            e.clientX - origin.current.x,
-            e.clientY - origin.current.y,
-          ) > 10
-        )
-          clearHold();
-      }}
-      onPointerUp={clearHold}
-      onPointerCancel={clearHold}
-      onPointerLeave={clearHold}
-      onClickCapture={(e) => {
-        if (held.current) {
-          e.preventDefault();
-          e.stopPropagation();
-          held.current = false;
-        }
-      }}
-      onContextMenu={(e) => {
-        if (onArchive) e.preventDefault();
-      }}
+    <div
+      className={
+        "card-swipe" +
+        (swipe.armed ? " armed-" + swipe.armed : "") +
+        (swipe.offset ? " swiping" : "")
+      }
     >
-      <div className="card-byline">
-        <button className="identity" onClick={onProfile}>
-          <Avatar
-            name={item.name || meta.name}
-            provider={item.provider || meta.provider}
-          />
-          <span>
-            <strong>
-              {item.name || meta.name
-                ? "@" + (item.name || meta.name)
-                : "Your workspace"}
-            </strong>
-            <span className="subline">
-              {modelName && <span className="card-model">{modelName}</span>}
-              <time>
-                {new Date(item.created_at).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}{" "}
-                ·{" "}
-                {new Date(item.created_at).toLocaleTimeString(undefined, {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </time>
-            </span>
-          </span>
-        </button>
-        {headerActions}
-        <button
-          className="icon-button"
-          aria-label="Open output"
-          onClick={onArtifact || onOpen}
-        >
-          <ArrowUpRight size={20} />
-        </button>
-      </div>
-      <div
-        className="card-content"
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          if (!(e.target as HTMLElement).closest("a,button,summary,input"))
-            (onArtifact || onOpen)();
-        }}
-        onKeyDown={(e) => {
-          if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) {
-            e.preventDefault();
-            (onArtifact || onOpen)();
-          }
-        }}
-      >
-        <span className="eyebrow">
-          {label ||
-            (meta.partial
-              ? "Partial output"
-              : meta.origin === "import"
-                ? "Imported history"
-                : web
-                  ? web.search
-                    ? "Web search"
-                    : "Webpage"
-                  : meta.tool
-                    ? "Tool result"
-                    : item.kind === "workflow"
-                      ? "Workflow"
-                      : "Result")}
+      {onPin && (
+        <span className="swipe-under left" aria-hidden="true">
+          <Bookmark size={20} /> {item.pinned ? "Unsave" : "Save"}
         </span>
-        {project && <span className="field-hint">{project}</span>}
-        {className?.includes("run-card") ? (
-          <div className="run-prompt">
-            <RichText content={item.title} compact />
-          </div>
-        ) : (
-          <h2>
-            {web
-              ? web.title
-              : meta.tool && item.title === `${meta.tool} result`
-                ? meta.tool.startsWith("browser_")
-                  ? "Browser result"
-                  : meta.tool.replaceAll("_", " ") + " result"
-                : item.title}
-          </h2>
-        )}
-        <RunStatus
-          state={item.run_state}
-          error={item.run_error}
-          empty={!item.content}
-        />
-        {detail}
-        <div className="preview">
-          <ArtifactPreview item={item} tool={meta.tool} web={web} />
-        </div>
-        {!!item.content && (
-          <button
-            className="text-button preview-open"
-            onClick={onArtifact || onOpen}
-          >
-            View full result <ArrowUpRight size={14} />
-          </button>
-        )}
-      </div>
-      {footer || (
-        <div className="card-actions">
-          <button onClick={onReply || onArtifact || onOpen}>
-            <MessageSquare size={16} />
-            Reply
-          </button>
-          {onFile && (
-            <button onClick={onFile}>
-              <FolderInput size={16} />
-              File
-            </button>
-          )}
-          {onPin && (
-            <button
-              aria-label={item.pinned ? "Unsave" : "Save"}
-              className={item.pinned ? "active" : ""}
-              onClick={onPin}
-            >
-              <Bookmark
-                size={16}
-                fill={item.pinned ? "currentColor" : "none"}
-              />
-            </button>
-          )}
-          {onArchive && (
-            <button aria-label="Archive from feed" onClick={onArchive}>
-              <Archive size={16} />
-            </button>
-          )}
-        </div>
       )}
-    </article>
+      {onArchive && (
+        <span className="swipe-under right" aria-hidden="true">
+          <Archive size={20} /> Archive
+        </span>
+      )}
+      <article
+        className={["feed-card", className].filter(Boolean).join(" ")}
+        style={
+          swipe.offset
+            ? { transform: `translateX(${swipe.offset}px)` }
+            : undefined
+        }
+        onPointerDown={merged("onPointerDown")}
+        onPointerMove={merged("onPointerMove")}
+        onPointerUp={merged("onPointerUp")}
+        onPointerCancel={merged("onPointerCancel")}
+        onPointerLeave={(press as any).onPointerLeave}
+        onContextMenu={(press as any).onContextMenu}
+        onClickCapture={merged("onClickCapture")}
+      >
+        <div className="card-byline">
+          <button className="identity" onClick={onProfile}>
+            <Avatar
+              name={item.name || meta.name}
+              provider={item.provider || meta.provider}
+            />
+            <span>
+              <strong>
+                {item.name || meta.name
+                  ? "@" + (item.name || meta.name)
+                  : "Your workspace"}
+              </strong>
+              <span className="subline">
+                {modelName && <span className="card-model">{modelName}</span>}
+                <time>
+                  {new Date(item.created_at).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}{" "}
+                  ·{" "}
+                  {new Date(item.created_at).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </span>
+            </span>
+          </button>
+          {headerActions}
+          {!footer && (
+            <button
+              className="icon-button"
+              aria-label="More actions"
+              onClick={() => setMenu(true)}
+            >
+              <MoreHorizontal size={20} />
+            </button>
+          )}
+        </div>
+        <div
+          className="card-content"
+          role="button"
+          tabIndex={0}
+          aria-label={"Open " + item.title}
+          onClick={(e) => {
+            if (!(e.target as HTMLElement).closest("a,button,summary,input"))
+              open();
+          }}
+          onKeyDown={(e) => {
+            if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) {
+              e.preventDefault();
+              open();
+            }
+          }}
+        >
+          <span className="eyebrow">
+            {label ||
+              (meta.partial
+                ? "Partial output"
+                : meta.origin === "import"
+                  ? "Imported history"
+                  : web
+                    ? web.search
+                      ? "Web search"
+                      : "Webpage"
+                    : meta.tool
+                      ? "Tool result"
+                      : item.kind === "workflow"
+                        ? "Workflow"
+                        : "Result")}
+            {project && <span className="card-project"> · {project}</span>}
+          </span>
+          {className?.includes("run-card") ? (
+            <div className="run-prompt">
+              <RichText content={item.title} compact />
+            </div>
+          ) : (
+            <h2>
+              {web
+                ? web.title
+                : meta.tool && item.title === `${meta.tool} result`
+                  ? meta.tool.startsWith("browser_")
+                    ? "Browser result"
+                    : meta.tool.replaceAll("_", " ") + " result"
+                  : item.title}
+            </h2>
+          )}
+          <RunStatus
+            state={item.run_state}
+            error={item.run_error}
+            empty={!item.content}
+          />
+          {detail}
+          <div className="preview">
+            <ArtifactPreview item={item} tool={meta.tool} web={web} />
+          </div>
+          {!!item.content && (
+            <button className="text-button preview-open" onClick={open}>
+              View full result <ArrowUpRight size={14} />
+            </button>
+          )}
+        </div>
+        {footer || (
+          <div className="card-actions">
+            <button onClick={onReply || open}>
+              <MessageSquare size={16} />
+              Reply
+            </button>
+            {onPin && (
+              <button
+                aria-label={item.pinned ? "Remove from Saved" : "Save"}
+                className={item.pinned ? "active" : ""}
+                onClick={onPin}
+              >
+                <Bookmark
+                  size={16}
+                  fill={item.pinned ? "currentColor" : "none"}
+                />
+                {item.pinned ? "Saved" : "Save"}
+              </button>
+            )}
+            {onLater && (
+              <button onClick={onLater}>
+                <AlarmClock size={16} />
+                Later
+              </button>
+            )}
+            {onFile && (
+              <button onClick={onFile}>
+                <FolderInput size={16} />
+                File
+              </button>
+            )}
+          </div>
+        )}
+      </article>
+      {menu && (
+        <ActionSheet
+          title={item.title}
+          onClose={() => setMenu(false)}
+          actions={[
+            {
+              id: "open",
+              label: "Open",
+              icon: <ArrowUpRight size={20} />,
+              onSelect: open,
+            },
+            ...(onReply
+              ? [
+                  {
+                    id: "reply",
+                    label: "Reply in thread",
+                    icon: <MessageSquare size={20} />,
+                    onSelect: onReply,
+                  },
+                ]
+              : []),
+            ...(onPin
+              ? [
+                  {
+                    id: "save",
+                    label: item.pinned ? "Remove from Saved" : "Save",
+                    icon: <Bookmark size={20} />,
+                    onSelect: onPin,
+                  },
+                ]
+              : []),
+            ...(onLater
+              ? [
+                  {
+                    id: "later",
+                    label: "Remind me later",
+                    icon: <AlarmClock size={20} />,
+                    onSelect: onLater,
+                  },
+                ]
+              : []),
+            ...(onFile
+              ? [
+                  {
+                    id: "file",
+                    label: "File into a project",
+                    icon: <FolderInput size={20} />,
+                    onSelect: onFile,
+                  },
+                ]
+              : []),
+            ...(onArchive
+              ? [
+                  {
+                    id: "archive",
+                    label: "Archive",
+                    hint: "Stays in history and search",
+                    icon: <Archive size={20} />,
+                    onSelect: onArchive,
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+    </div>
   );
 }

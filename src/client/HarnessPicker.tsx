@@ -20,19 +20,23 @@ type Catalog = {
   commands: Command[];
   message?: string;
 };
+type Snippet = { id: string; title: string; content: string };
 export function HarnessPicker({
   agentId,
   conversationId,
   value,
   onChange,
   focusInput,
+  compact = false,
 }: {
   agentId?: string;
   conversationId?: string;
   value: string;
   onChange: (value: string) => void;
   focusInput: () => void;
+  compact?: boolean;
 }) {
+  const [snippets, setSnippets] = useState<Snippet[] | null>(null);
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState<Catalog | null>(null),
@@ -45,14 +49,27 @@ export function HarnessPicker({
     setError("");
   }, [agentId, conversationId]);
   useEffect(() => {
-    if (agentId && ["/", "$"].includes(value)) {
+    if (!open) return;
+    let active = true;
+    api<{ items: Snippet[] }>("/snippets")
+      .then((result) => active && setSnippets(result.items))
+      .catch(() => active && setSnippets([]));
+    return () => {
+      active = false;
+    };
+  }, [open]);
+  useEffect(() => {
+    if (value === "/" || (agentId && value === "$")) {
       setQuery("");
       setOpen(true);
     }
   }, [value, agentId]);
   useEffect(() => {
     const current = ++generation.current;
-    if (!open || !agentId) return;
+    if (!open || !agentId) {
+      setCatalog(null);
+      return;
+    }
     let request = 0;
     setCatalog(null);
     setError("");
@@ -105,17 +122,48 @@ export function HarnessPicker({
     <>
       <button
         type="button"
-        className="text-button harness-trigger"
-        disabled={!agentId}
+        className={"text-button harness-trigger" + (compact ? " compact" : "")}
+        aria-label="Commands & skills"
+        title="Commands, skills and snippets (type /)"
         onClick={() => {
           setQuery("");
           setOpen(true);
         }}
       >
-        Commands & skills
+        {compact ? "/" : "Commands & skills"}
       </button>
       {open && (
         <Sheet title="Commands & skills" onClose={close}>
+          {!!snippets?.length && (
+            <section className="snippet-options" aria-label="Your snippets">
+              <h3 className="section-title">Your snippets</h3>
+              {snippets
+                .filter((snippet) =>
+                  `${snippet.title} ${snippet.content}`
+                    .toLowerCase()
+                    .includes(query.toLowerCase()),
+                )
+                .slice(0, 8)
+                .map((snippet) => (
+                  <button
+                    type="button"
+                    key={snippet.id}
+                    className="harness-option"
+                    onClick={() => {
+                      const rest = value.replace(/^\s*\/\s*$/, "");
+                      onChange(rest ? `${rest}\n${snippet.content}` : snippet.content);
+                      close();
+                    }}
+                  >
+                    <strong>
+                      {snippet.title.replace(/^(Snippet|Saved prompt): /, "")}{" "}
+                      <small>snippet</small>
+                    </strong>
+                    <span>{snippet.content.slice(0, 140)}</span>
+                  </button>
+                ))}
+            </section>
+          )}
           <p className="note">
             {catalog?.runtime
               ? `Available on this agent’s ${catalog.runtime} machine.`
@@ -132,7 +180,9 @@ export function HarnessPicker({
               placeholder="Search by name or description"
             />
           </label>
-          {error ? (
+          {!agentId ? (
+            <p className="note">Choose an agent to see its commands.</p>
+          ) : error ? (
             <p role="alert" className="error">
               {error}
             </p>

@@ -16,8 +16,10 @@ import {
   Check,
 } from "lucide-react";
 import { api, parse, authorizedFetch } from "./api";
+import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Sheet, Empty, Badge } from "./components";
 import { FileLink } from "./FilePreview";
+import { PersonalProfile, type PromptReply } from "./PersonalProfile";
 import type {
   Artifact,
   Folder as FolderType,
@@ -200,7 +202,7 @@ export function FileSheet({
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
             >
-              <option value="">Workspace inbox</option>
+              <option value="">Unfiled</option>
               {folders.map((f) => (
                 <option key={f.id} value={f.id}>
                   {folderPath(f.id, folders)}
@@ -465,48 +467,111 @@ function SearchIndexStatus() {
     </div>
   );
 }
+const RECENT_SEARCHES = "loop-recent-searches";
+function recentSearches(): string[] {
+  try {
+    return parse<string[]>(localStorage.getItem(RECENT_SEARCHES) || "", []).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+function rememberSearch(query: string) {
+  try {
+    localStorage.setItem(
+      RECENT_SEARCHES,
+      JSON.stringify(
+        [query, ...recentSearches().filter((q) => q !== query)].slice(0, 8),
+      ),
+    );
+  } catch {}
+}
+type SearchScope = "all" | "mine" | "results" | "messages" | "files";
+const searchScopes: { id: SearchScope; label: string }[] = [
+  { id: "all", label: "Everything" },
+  { id: "mine", label: "Your prompts" },
+  { id: "results", label: "Results" },
+  { id: "messages", label: "Messages" },
+  { id: "files", label: "Files" },
+];
 export function SearchWorkspace({
   agents,
   folders,
   onOpen,
   onConversation,
   initialAgent = "",
-  onSearchSettings,
+  initialScope = "all",
+  userName,
   onProfile,
+  onReplyPrompt,
 }: {
+  onReplyPrompt?: (prompt: PromptReply) => void;
   initialAgent?: string;
-  onSearchSettings: () => void;
+  initialScope?: SearchScope;
+  userName: string;
   onProfile: (a: Agent) => void;
   agents: Agent[];
   folders: FolderType[];
   onOpen: (a: Artifact) => void;
   onConversation: (conversation: string, message?: string) => void;
 }) {
-  const [query, setQuery] = useState(""),
-    [scope, setScope] = useState("all"),
-    [kind, setKind] = useState(""),
-    [agent, setAgent] = useState(initialAgent),
-    [folder, setFolder] = useState(""),
-    [from, setFrom] = useState(""),
-    [to, setTo] = useState(""),
-    [result, setResult] = useState<any>(null),
-    [resultQuery, setResultQuery] = useState(""),
+  // Going back to Search shows the same query, filters and results.
+  const shownKey = "search:" + JSON.stringify([initialScope, initialAgent]);
+  const shown = cachedView<{
+    query: string;
+    scope: SearchScope;
+    agent: string;
+    folder: string;
+    from: string;
+    to: string;
+    result: any;
+    resultQuery: string;
+  }>(shownKey);
+  const [query, setQuery] = useState(shown?.query ?? ""),
+    [scope, setScope] = useState<SearchScope>(shown?.scope ?? initialScope),
+    [agent, setAgent] = useState(shown?.agent ?? initialAgent),
+    [folder, setFolder] = useState(shown?.folder ?? ""),
+    [from, setFrom] = useState(shown?.from ?? ""),
+    [to, setTo] = useState(shown?.to ?? ""),
+    [result, setResult] = useState<any>(shown?.result ?? null),
+    [resultQuery, setResultQuery] = useState(shown?.resultQuery ?? ""),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [recent, setRecent] = useState(recentSearches);
   const searchRequest = useRef(0);
-  async function run(append = false) {
-    if (!query.trim()) return;
+  // Search state belongs to the account that searched; it is never cached
+  // for another account that signs in while this view is still mounted.
+  const searchOwner = useRef(viewOwner());
+  useEffect(() => {
+    cacheView(shownKey, {
+      query,
+      scope,
+      agent,
+      folder,
+      from,
+      to,
+      result,
+      resultQuery,
+    }, searchOwner.current);
+  }, [query, scope, agent, folder, from, to, result, resultQuery]);
+  const kind =
+    scope === "results" ? "markdown" : scope === "messages" ? "message" : scope === "files" ? "file" : "";
+  async function run(append = false, text = query) {
+    if (!text.trim() || scope === "mine") return;
     const request = ++searchRequest.current;
     setBusy(true);
     setError("");
     try {
-      const p = new URLSearchParams({ q: query, scope, kind, agent, folder });
+      const p = new URLSearchParams({ q: text, scope: "all", kind, agent, folder });
       if (from) p.set("from", String(Date.parse(from)));
       if (to) p.set("to", String(Date.parse(to) + 86400000 - 1));
       if (append && result?.next) p.set("before", String(result.next));
       const r = await api("/search?" + p);
       if (request !== searchRequest.current) return;
-      setResultQuery(query);
+      setResultQuery(text);
+      if (!append) {
+        rememberSearch(text.trim());
+        setRecent(recentSearches());
+      }
       setResult((previous: any) =>
         append
           ? {
@@ -530,221 +595,217 @@ export function SearchWorkspace({
   }
   useEffect(() => {
     if (result && query.trim()) void run();
-  }, [scope, kind, agent, folder, from, to]);
+  }, [scope, agent, folder, from, to]);
+  // Pull to refresh runs the current search again.
+  const rerun = useRef(() => {});
+  rerun.current = () => {
+    if (resultQuery.trim()) void run(false, resultQuery);
+  };
+  useEffect(() => {
+    const refresh = () => rerun.current();
+    window.addEventListener("loop-refresh", refresh);
+    return () => window.removeEventListener("loop-refresh", refresh);
+  }, []);
+  // One card per thread: a conversation and the results it produced share a card.
+  const groups: { key: string; items: any[] }[] = [];
+  for (const item of result?.items || []) {
+    const key = item.conversation_id || item.id;
+    const group = groups.find((g) => g.key === key);
+    if (group) group.items.push(item);
+    else groups.push({ key, items: [item] });
+  }
+  async function openResult(r: any) {
+    try {
+      if (r.message_id || r.id.startsWith("message:"))
+        onConversation(r.conversation_id, r.message_id || r.id.slice(8));
+      else onOpen(await api("/artifacts/" + r.id.slice(9)));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  const active = [!!agent, !!folder, !!from, !!to].filter(Boolean).length;
   return (
     <>
       <form
         className="search-box"
+        role="search"
         onSubmit={(e) => {
           e.preventDefault();
+          (document.activeElement as HTMLElement | null)?.blur();
           void run();
         }}
       >
-        <Search size={21} />
+        <Search size={20} aria-hidden="true" />
         <input
+          type="search"
+          enterKeyHint="search"
           aria-label="Search everything"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Find that idea, answer, or artifact…"
+          placeholder={
+            scope === "mine" ? "Search your prompts…" : "Search threads, results and files…"
+          }
         />
-        <button className="primary" disabled={busy}>
-          {busy ? "Finding…" : "Search"}
-        </button>
+        {busy && <span className="field-hint">Finding…</span>}
       </form>
-      <details className="search-filter-panel">
-        <summary>
-          Filters
-          {[scope !== "all", !!agent, !!kind, !!folder, !!from, !!to].filter(
-            Boolean,
-          ).length > 0 &&
-            ` · ${[scope !== "all", !!agent, !!kind, !!folder, !!from, !!to].filter(Boolean).length} active`}
-        </summary>
-        <div className="search-filters">
-          <select
-            aria-label="Search scope"
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
+      <div className="chip-row search-scopes" role="tablist" aria-label="Search in">
+        {searchScopes.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            role="tab"
+            className="chip"
+            aria-selected={scope === s.id}
+            onClick={() => setScope(s.id)}
           >
-            <option value="all">All agents</option>
-            <option value="running">Running agents</option>
-            <option value="mine">My messages</option>
-          </select>
-          <select
-            aria-label="Search agent"
-            value={agent}
-            onChange={(e) => setAgent(e.target.value)}
-          >
-            <option value="">Any agent</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                @{a.name}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Artifact type"
-            value={kind}
-            onChange={(e) => setKind(e.target.value)}
-          >
-            <option value="">All types</option>
-            {[
-              "message",
-              "markdown",
-              "table",
-              "diagram",
-              "workflow",
-              "chart",
-              "file",
-            ].map((k) => (
-              <option key={k}>{k}</option>
-            ))}
-          </select>
-          <select
-            aria-label="Search project"
-            value={folder}
-            onChange={(e) => setFolder(e.target.value)}
-          >
-            <option value="">Any folder</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {folderPath(f.id, folders)}
-              </option>
-            ))}
-          </select>
-          <label>
-            From (UTC)
-            <input
-              aria-label="From date"
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </label>
-          <label>
-            Through (UTC)
-            <input
-              aria-label="Through date (UTC)"
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </label>
-        </div>
-        <button
-          className="text-button"
-          onClick={() => {
-            setScope("all");
-            setAgent("");
-            setKind("");
-            setFolder("");
-            setFrom("");
-            setTo("");
-          }}
-        >
-          Clear filters
-        </button>
-      </details>
-      <div className="search-chips" aria-label="Active search filters">
-        {scope !== "all" && (
-          <button onClick={() => setScope("all")}>
-            {scope === "mine" ? "Your messages" : "Running agents"} ×
+            {s.label}
           </button>
-        )}
-        {agent && (
-          <button onClick={() => setAgent("")}>
-            @{agents.find((a) => a.id === agent)?.name || "Agent"} ×
-          </button>
-        )}
-        {kind && <button onClick={() => setKind("")}>{kind} ×</button>}
-        {folder && (
-          <button onClick={() => setFolder("")}>
-            {folders.find((f) => f.id === folder)?.name || "Project"} ×
-          </button>
-        )}
-        {from && <button onClick={() => setFrom("")}>From {from} ×</button>}
-        {to && <button onClick={() => setTo("")}>Through {to} ×</button>}
+        ))}
       </div>
-      <details className="search-settings-summary">
-        <summary>Search options & index status</summary>
-        <SearchIndexStatus />
-        <button className="text-button" onClick={onSearchSettings}>
-          Configure semantic search
-        </button>
-      </details>
+      {scope !== "mine" && (
+        <div className="chip-row search-refine">
+          <label className="chip chip-select">
+            <span className="sr-only">Project</span>
+            <select
+              aria-label="Search project"
+              value={folder}
+              onChange={(e) => setFolder(e.target.value)}
+            >
+              <option value="">Any project</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {folderPath(f.id, folders)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="chip chip-select">
+            <span className="sr-only">Agent</span>
+            <select
+              aria-label="Search agent"
+              value={agent}
+              onChange={(e) => setAgent(e.target.value)}
+            >
+              <option value="">Any agent</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  @{a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <details className="search-dates">
+            <summary className="chip">
+              Dates{from || to ? " ·" : ""}
+            </summary>
+            <div className="search-filters">
+              <label>
+                From (UTC)
+                <input
+                  aria-label="From date"
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                />
+              </label>
+              <label>
+                Through (UTC)
+                <input
+                  aria-label="Through date (UTC)"
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                />
+              </label>
+            </div>
+          </details>
+          {active > 0 && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setAgent("");
+                setFolder("");
+                setFrom("");
+                setTo("");
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
-      {result ? (
+      {scope === "mine" ? (
+        <PersonalProfile
+          embedded
+          query={query}
+          name={userName}
+          agents={agents}
+          onAgent={onProfile}
+          onConversation={onConversation}
+          onReply={onReplyPrompt}
+        />
+      ) : result ? (
         <>
-          <p className="field-hint">
-            {result.detail}
-            {result.mode === "hybrid" &&
-              result.pending > 0 &&
-              ` ${result.pending} items waiting to be indexed.`}
-          </p>
-          {result.items.length ? (
-            result.items.map((r: any) => (
-              <div
-                className="search-result"
-                key={r.id}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (
-                    e.target === e.currentTarget &&
-                    ["Enter", " "].includes(e.key)
-                  ) {
-                    e.preventDefault();
-                    e.currentTarget.click();
-                  }
-                }}
-                onClick={async () => {
-                  try {
-                    if (r.message_id || r.id.startsWith("message:"))
-                      onConversation(
-                        r.conversation_id,
-                        r.message_id || r.id.slice(8),
-                      );
-                    else onOpen(await api("/artifacts/" + r.id.slice(9)));
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
-              >
-                <div className="subline">
-                  <Badge provider={r.provider} />
-                  <button
-                    className="text-button"
-                    disabled={!r.agent_id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const agent = agents.find((a) => a.id === r.agent_id);
-                      if (agent) onProfile(agent);
-                    }}
-                  >
-                    <strong>@{r.name || "workspace"}</strong>
-                  </button>
-                  <span>{new Date(r.created_at).toLocaleDateString()}</span>
-                </div>
-                <h3>{r.title}</h3>
-                <p className="search-snippet">
-                  <SearchExcerpt text={r.snippet} query={resultQuery} />
-                </p>
-                <small>
-                  {r.kind === "message"
-                    ? "Conversation"
-                    : r.kind === "markdown"
-                      ? "Output"
-                      : r.kind}{" "}
-                  ·{" "}
-                  {r.folder_id
-                    ? folderPath(r.folder_id, folders)
-                    : "Workspace inbox"}
-                  <ArrowUpRight size={13} />
-                </small>
-              </div>
-            ))
+          {result.mode === "hybrid" && result.pending > 0 && (
+            <p className="field-hint">
+              {result.pending} items waiting to be indexed.
+            </p>
+          )}
+          {groups.length ? (
+            groups.map(({ key, items }) => {
+              const first = items[0];
+              return (
+                <article className="search-result" key={key}>
+                  <div className="subline">
+                    <Badge provider={first.provider} />
+                    <button
+                      className="text-button"
+                      disabled={!first.agent_id}
+                      onClick={() => {
+                        const agent = agents.find((a) => a.id === first.agent_id);
+                        if (agent) onProfile(agent);
+                      }}
+                    >
+                      <strong>@{first.name || "workspace"}</strong>
+                    </button>
+                    <span>{new Date(first.created_at).toLocaleDateString()}</span>
+                    <small>
+                      {first.folder_id ? folderPath(first.folder_id, folders) : "Unfiled"}
+                    </small>
+                  </div>
+                  <h3>
+                    <button type="button" onClick={() => void openResult(first)}>
+                      {first.title}
+                    </button>
+                  </h3>
+                  {items.slice(0, 3).map((r: any) => (
+                    <button
+                      type="button"
+                      key={r.id}
+                      className="search-hit"
+                      onClick={() => void openResult(r)}
+                    >
+                      <small>
+                        {r.kind === "message" ? "Message" : r.kind === "markdown" ? "Result" : r.kind}
+                      </small>
+                      <span className="search-snippet">
+                        <SearchExcerpt text={r.snippet} query={resultQuery} />
+                      </span>
+                    </button>
+                  ))}
+                  {items.length > 3 && (
+                    <p className="field-hint">
+                      {items.length - 3} more matches in this thread
+                    </p>
+                  )}
+                </article>
+              );
+            })
           ) : (
             <Empty title="Nothing found yet.">
-              Try a shorter phrase or adjust the filters.
+              Try a shorter phrase or another scope.
             </Empty>
           )}
           {result.next && (
@@ -753,11 +814,41 @@ export function SearchWorkspace({
             </button>
           )}
         </>
+      ) : recent.length ? (
+        <section className="recent-searches" aria-label="Recent searches">
+          <h2 className="section-title">Recent</h2>
+          <ul>
+            {recent.map((text) => (
+              <li key={text}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery(text);
+                    void run(false, text);
+                  }}
+                >
+                  <Search size={16} aria-hidden="true" /> {text}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              try {
+                localStorage.removeItem(RECENT_SEARCHES);
+              } catch {}
+              setRecent([]);
+            }}
+          >
+            Clear recent searches
+          </button>
+        </section>
       ) : (
         <Empty title="Your work, within reach.">
-          Search ideas, conversations, and everything your agents have made.
-          Keywords work immediately; turn on semantic search in settings to find
-          related ideas.
+          Search threads, results and files. Choose “Your prompts” to find
+          something you asked for.
         </Empty>
       )}
     </>

@@ -55,6 +55,11 @@ export async function environmentRuntimeBrowser({ browser, host }) {
       .first()
       .click();
     const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
+    // Runtime setup is collapsed under one disclosure once a runtime is
+    // connected; managed environments are nested inside it.
+    await sheet
+      .getByText("Runtimes and execution environments", { exact: true })
+      .click();
     await sheet
       .getByText("Managed execution environments", { exact: true })
       .click();
@@ -83,6 +88,11 @@ export async function environmentRuntimeBrowser({ browser, host }) {
     await page
       .getByRole("button", { name: "New agent", exact: true })
       .first()
+      .click();
+    // Runtime setup is collapsed under one disclosure once a runtime is
+    // connected; managed environments are nested inside it.
+    await sheet
+      .getByText("Runtimes and execution environments", { exact: true })
       .click();
     await sheet
       .getByText("Managed execution environments", { exact: true })

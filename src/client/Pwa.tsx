@@ -63,6 +63,16 @@ export function PwaStatus() {
         "--keyboard-inset",
         (keyboardOpen ? inset : 0) + "px",
       );
+      // Safari can leave the visible area panned after the keyboard closes.
+      // Fixed bars stay on the page's own bottom edge, so they then float in
+      // the middle of the screen. Fold the pan back into the page scroll:
+      // what you see stays put and the bars return to the bottom.
+      const pan = leftoverPan(v, keyboardOpen);
+      if (pan)
+        window.scrollTo({
+          top: window.scrollY + pan,
+          behavior: "instant" as ScrollBehavior,
+        });
     };
     let viewportFrame = 0;
     const scheduleViewport = () => {
@@ -111,4 +121,17 @@ export function PwaStatus() {
       )}
     </div>
   );
+}
+
+/**
+ * How far the visible area is still panned below the page's own viewport
+ * once no keyboard is open (0 when there is nothing to correct). Pinch zoom
+ * pans on purpose, so it is left alone.
+ */
+export function leftoverPan(
+  v: Pick<VisualViewport, "offsetTop" | "scale"> | null | undefined,
+  keyboardOpen: boolean,
+) {
+  if (!v || keyboardOpen || (v.scale || 1) !== 1) return 0;
+  return v.offsetTop >= 1 ? Math.round(v.offsetTop) : 0;
 }

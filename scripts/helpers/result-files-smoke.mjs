@@ -3,6 +3,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
+import { openAgentProfile } from "./browser-ui.mjs";
 
 export async function resultFilesSmoke(page, fixture, capture) {
   const original = fixture.db
@@ -296,55 +297,76 @@ export async function resultFilesSmoke(page, fixture, capture) {
       { id: original.id, draft: replyDraft },
     );
     await dialog().getByRole("button", { name: "Reply", exact: true }).click();
-    const composer = page.locator(".composer");
-    await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await expect(composer.getByLabel("Reply to agent")).toHaveValue(replyDraft);
-    await composer.getByRole("link", { name: "Preview the mockups" }).click();
+    // Replying from a result opens its thread with the result quoted.
+    const thread = () => page.locator("dialog.conversation-sheet[open]");
+    const composer = thread().locator(".composer");
+    const closeThread = () =>
+      thread()
+        .locator(":scope > .sheet-inner > .sheet-head")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
     await expect(page.locator("dialog[open]")).toHaveCount(1);
+    await expect(thread()).toBeVisible();
+    await expect(composer.getByLabel("Reply to agent")).toHaveValue(replyDraft);
+    await composer.locator(".composer-quote-toggle > summary").click();
+    await composer.getByRole("link", { name: "Preview the mockups" }).click();
+    await expect(page.locator("dialog[open]")).toHaveCount(2);
     await expect(
       dialog().getByRole("heading", { name: "mockup.png" }),
     ).toBeVisible();
     await page.goBack();
-    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    await expect(page.locator("dialog[open]")).toHaveCount(1);
     await expect(composer.getByLabel("Reply to agent")).toHaveValue(replyDraft);
     const replyContext = await page.evaluate(() =>
       sessionStorage.getItem("loop-draft-context"),
     );
-    await composer.getByRole("button", { name: "Collapse composer" }).click();
+    await closeThread();
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    // Result cards live on the author's profile.
+    await openAgentProfile(page, agent.name);
     const resultCard = page.locator(".feed-card").filter({
       has: page.getByRole("heading", { name: original.title, exact: true }),
     });
     await resultCard
-      .getByRole("button", { name: "Open output", exact: true })
+      .getByRole("button", { name: "View full result", exact: true })
       .click();
     await dialog().getByLabel("Result options", { exact: true }).click();
     await dialog().getByRole("button", { name: "Source conversation" }).click();
-    await expect(dialog().getByLabel("Reply to agent")).toHaveValue(replyDraft);
+    await expect(thread().getByLabel("Reply to agent")).toHaveValue(replyDraft);
+    await composer.locator(".composer-quote-toggle > summary").click();
     await expect(
-      dialog().getByRole("region", { name: "Original message" }),
+      composer.getByRole("region", { name: "Original message" }),
     ).toContainText("Live plans");
     assert.equal(
       await page.evaluate(() => sessionStorage.getItem("loop-draft-context")),
       replyContext,
     );
-    await dialog().getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("button", { name: "Compose a message" }).click();
     await composer.getByLabel("Reply to agent").fill("");
     await composer.getByRole("button", { name: "Clear reply context" }).click();
-    await composer.getByRole("button", { name: "Collapse composer" }).click();
+    await expect(composer.locator(".composer-reply-chip")).toHaveCount(0);
+    await closeThread();
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
     await page.evaluate(
       (id) => sessionStorage.removeItem("loop-result-reply-" + id),
       original.id,
     );
-    // Real feed entry points start below the fold. Closing the sheet must not
-    // restore that old feed offset after navigating to the author's profile.
-    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    // Real result entry points (here a project's activity) start below the
+    // fold. Closing the sheet must not restore that old offset after
+    // navigating to the author's profile.
+    await page.goto(
+      `${fixture.base}/?page=projects&projectView=${original.folder_id}`,
+      { waitUntil: "networkidle" },
+    );
+    await page
+      .locator(".project-tabs")
+      .getByRole("button", { name: "Activity", exact: true })
+      .click();
     await page
       .locator(".feed-card")
       .filter({
         has: page.getByRole("heading", { name: original.title, exact: true }),
       })
-      .getByRole("button", { name: "Open output", exact: true })
+      .getByRole("button", { name: "View full result", exact: true })
       .click();
     assert(
       await page.evaluate(() => scrollY > 80),
@@ -356,7 +378,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     await expect(page.locator(".profile-head h1")).toHaveText("@" + agent.name);
     await expect(page.locator(".profile-head h1")).toBeInViewport({ ratio: 1 });
-    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await page.getByRole("tab", { name: "Files", exact: true }).click();
     const fileCard = page
       .locator(".feed-card")
       .filter({ hasText: "Design mockup" });
@@ -364,42 +386,39 @@ export async function resultFilesSmoke(page, fixture, capture) {
       fileCard.getByRole("img", { name: "mockup.png", exact: true }),
     ).toBeVisible();
     await fileCard
-      .getByRole("button", { name: "Open output", exact: true })
+      .getByRole("button", { name: "View full result", exact: true })
       .click();
     await expect(
       dialog().getByRole("button", { name: "Preview mockup.png", exact: true }),
     ).toBeVisible();
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("button", { name: "Messages", exact: true }).click();
+    await page.getByRole("tab", { name: "Messages", exact: true }).click();
     await page
       .locator(".agent-message-actions")
       .first()
       .getByRole("button", { name: "Reply", exact: true })
       .click();
-    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    // Replying to an agent message opens that agent's thread in place.
+    await expect(page.locator("dialog[open]")).toHaveCount(1);
     await expect(
-      page
-        .locator(".composer")
-        .getByRole("textbox", { name: "Reply to agent" }),
+      composer.getByRole("textbox", { name: "Reply to agent" }),
     ).toBeVisible();
     await expect(
-      page.locator(".composer").getByLabel("Agent recipient", { exact: true }),
-    ).toHaveValue(agent.id);
-    await expect(
-      page.locator(".composer .composer-model-name"),
-    ).not.toContainText(/ChatGPT|OpenAI/);
-    await page
-      .locator(".composer")
-      .getByRole("button", { name: "Clear reply context" })
-      .click();
-    await page
-      .locator(".composer")
-      .getByRole("button", { name: "Collapse composer" })
-      .click();
+      thread().getByRole("button", {
+        name: `Open @${agent.name} profile`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(composer.locator(".composer-model-name")).not.toContainText(
+      /ChatGPT|OpenAI/,
+    );
+    await composer.getByRole("button", { name: "Clear reply context" }).click();
+    await closeThread();
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
     // Finish profile reads before the next scenario switches fixture origins.
     // WebKit reports a cancelled message refresh as an access-control error
     // when that refresh overlaps the document navigation.
-    await page.getByRole("button", { name: "Back to feed", exact: true }).click();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
     await expect(page.locator(".profile-head")).toHaveCount(0);
     await page.waitForLoadState("networkidle");
   } finally {

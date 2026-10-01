@@ -11,6 +11,8 @@ function ownsHorizontalGesture(target: Element) {
     )
   )
     return true;
+  // Cards have their own swipe actions (Later, read, save, archive).
+  if (target.closest(".card-swipe")) return true;
   // Ordinary buttons and links still allow a page swipe. A completed Back
   // gesture suppresses their click; inputs and horizontal scrollers own theirs.
   for (

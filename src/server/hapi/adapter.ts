@@ -1,3 +1,4 @@
+import { selectedContext } from "../carried-context.js";
 import { randomBytes } from "node:crypto";
 import { db, id, now, emit } from "../db.js";
 import { owned, Problem } from "../domain.js";
@@ -118,7 +119,10 @@ export async function executeHapi(run: Run): Promise<false> {
       directory: mapping.canonical_path,
       flavor: s.flavor,
       billing: JSON.parse(s.billing),
-      instructions: p.instructions,
+      // A new native session starts from copied turns (fork/continue), if any.
+      instructions: s.hub_session_id
+        ? p.instructions
+        : (p.instructions || "") + selectedContext(s.conversation_id),
       gatewayUrl:
         JSON.parse(e.health || "{}").gatewayUrl ||
         process.env.LOOP_NATIVE_GATEWAY_URL,

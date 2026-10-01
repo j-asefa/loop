@@ -122,3 +122,24 @@ export function feedUpdates(
     more: rows.length === 200,
   };
 }
+
+/**
+ * Where a result opens: its thread at the answer that produced it, so a
+ * notification or reminder lands on the message. A result with no thread
+ * opens on its own.
+ */
+export function resultUrl(result: {
+  id: string;
+  conversation_id: string | null;
+  message_id?: string | null;
+}) {
+  if (!result.conversation_id)
+    return "/?artifact=" + encodeURIComponent(result.id);
+  return (
+    "/?conversation=" +
+    encodeURIComponent(result.conversation_id) +
+    (result.message_id
+      ? "&message=" + encodeURIComponent(result.message_id)
+      : "")
+  );
+}

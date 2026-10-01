@@ -21,6 +21,7 @@ import { refreshEnvironment, environment } from "./hapi/environments.js";
 import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
+import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 const workerId = id();
 export async function tick(
@@ -142,6 +143,14 @@ export function startWorker() {
     setInterval(() => {
       if (notifying || stopping) return;
       notifying = true;
+      // Surface Later items and submit due scheduled messages before
+      // delivery, so their pushes go out in the same pass.
+      try {
+        surfaceLater();
+      } catch {}
+      try {
+        deliverScheduledSends();
+      } catch {}
       void deliverNotifications()
         .catch(() => {})
         .finally(() => {

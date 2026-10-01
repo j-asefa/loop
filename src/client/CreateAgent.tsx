@@ -16,6 +16,7 @@ export function CreateAgent({
   connections,
   folders,
   initialFolder = "",
+  initialPromptText = "",
   onClose,
   onConnect,
   onConnectionsChanged,
@@ -24,6 +25,7 @@ export function CreateAgent({
   connections: Connection[];
   folders: Folder[];
   initialFolder?: string;
+  initialPromptText?: string;
   onClose: () => void;
   onConnect: () => void;
   onConnectionsChanged: () => Promise<Connection[]>;
@@ -40,7 +42,7 @@ export function CreateAgent({
     [connection, setConnection] = useState(connected[0]?.id || ""),
     [model, setModel] = useState(""),
     [effort, setEffort] = useState(""),
-    [initialPrompt, setInitialPrompt] = useState(""),
+    [initialPrompt, setInitialPrompt] = useState(initialPromptText),
     [attachments, setAttachments] = useState<UploadedFile[]>([]),
     [uploading, setUploading] = useState(false),
     [folderChoice, setFolderChoice] = useState(
@@ -147,15 +149,13 @@ export function CreateAgent({
       setBusy(false);
     }
   }
-  return (
-    <Sheet title="Meet your next agent" onClose={onClose}>
-      <p className="muted">
-        A name, a model, and a little direction. You can change the details
-        later.
-      </p>
+  // First-time setup leads; once a runtime is connected it moves below the form.
+  const setupBlock = (
+      <details className="runtime-setup-options" open={!connected.length}>
+        <summary>Runtimes and execution environments</summary>
       {capabilities.localProjects && (
-        <details open={!connected.length}>
-          <summary>Choose or enable a runtime on this computer</summary>
+        <div>
+          <p className="field-hint">Choose or enable a runtime on this computer.</p>
           <RuntimeSetup
             onEnabled={async (runtimeName) => {
               const updated = await onConnectionsChanged();
@@ -171,10 +171,40 @@ export function CreateAgent({
               setCatalogRevision((revision) => revision + 1);
             }}
           />
-        </details>
+        </div>
       )}
       <EnvironmentRuntimes />
+      </details>
+  );
+  return (
+    <Sheet title="Meet your next agent" onClose={onClose}>
+      <p className="muted">
+        Pick a project and a model. Everything else is optional and can change
+        later.
+      </p>
+      {!connected.length && setupBlock}
       <form onSubmit={create}>
+        <label>
+          Project
+          <select
+            name="folder"
+            aria-label="Project"
+            disabled={busy}
+            value={folderChoice}
+            onChange={(event) => setFolderChoice(event.target.value)}
+          >
+            <option value="">No project (unfiled)</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">
+            This agent belongs to the project. New conversations save their
+            outputs there.
+          </span>
+        </label>
         <div className="provider-picker">
           {(["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const)
             .filter(
@@ -363,27 +393,7 @@ export function CreateAgent({
             ? "Add a prompt for these files. The agent receives them when its first task starts."
             : "Optional. Your first message to this agent. It starts work when you create the agent. Leave blank to start later."}
         </p>
-        <label>
-          Project
-          <select
-            name="folder"
-            aria-label="Project"
-            disabled={busy}
-            value={folderChoice}
-            onChange={(event) => setFolderChoice(event.target.value)}
-          >
-            <option value="">Workspace inbox</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <span className="field-hint">
-            This agent belongs to the project. New conversations save their
-            outputs there.
-          </span>
-        </label>
+
         <p className="field-hint">
           Connected MCP tools are available to every agent in your workspace.
           Manage tools and approval preferences in Settings → Tools &amp;
@@ -413,6 +423,7 @@ export function CreateAgent({
           <ArrowRight size={18} />
         </button>
       </form>
+      {connected.length > 0 && setupBlock}
     </Sheet>
   );
 }

@@ -159,9 +159,12 @@ try {
       .getByRole("button", { name: "Close", exact: true })
       .click();
   }
+  // The Running tab became the Feed "Needs you" filter, which lists native
+  // decisions above the threads that need attention.
+  await page.getByRole("button", { name: "Feed", exact: true }).last().click();
   await page
-    .getByRole("button", { name: "Running", exact: true })
-    .last()
+    .locator(".inbox")
+    .getByRole("tab", { name: /^Needs you/ })
     .click();
   await page.getByRole("button", { name: "decline", exact: true }).waitFor();
   await mkdir("test-results", { recursive: true });
@@ -174,18 +177,39 @@ try {
     3,
   );
   await page.getByRole("button", { name: "decline", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Native conversations", exact: true })
-    .click();
-  await page.getByRole("button").filter({ hasText: "approve" }).last().click();
+  // Native conversations moved from a page link into the account menu.
+  const nativeConversations = async () => {
+    await page
+      .getByRole("button", { name: "Account and settings", exact: true })
+      .click();
+    await page.getByRole("menuitem", { name: /^Native conversations/ }).click();
+    await page
+      .getByRole("dialog", { name: "Native conversations", exact: true })
+      .getByRole("button")
+      .filter({ hasText: "approve" })
+      .last()
+      .click();
+  };
+  await nativeConversations();
   await page
     .getByLabel("Reply to agent")
     .fill("Follow-up keeps native context");
   await page.getByRole("button", { name: "Send reply", exact: true }).click();
+  // Sending from a thread now keeps it open with the reply in place.
+  await expect(page.getByLabel("Reply to agent")).toHaveValue("");
+  await expect(
+    page
+      .locator("article.message")
+      .filter({ hasText: "Follow-up keeps native context" }),
+  ).toBeVisible();
+  assert(new URL(page.url()).searchParams.has("conversation"));
   await page
-    .getByRole("button", { name: "Native conversations", exact: true })
+    .locator("dialog[open]")
+    .last()
+    .getByRole("button", { name: "Close", exact: true })
     .click();
-  await page.getByRole("button").filter({ hasText: "approve" }).last().click();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await nativeConversations();
   await page.getByLabel("Reply to agent").fill("Draft survives reconnect");
   await context.setOffline(true);
   await context.setOffline(false);
@@ -196,16 +220,8 @@ try {
     .waitFor();
   // A restored conversation loads after the desktop connection. Its composer
   // label can still be loading, so check the route before opening another sheet.
-  if (!new URL(page.url()).searchParams.has("conversation")) {
-    await page
-      .getByRole("button", { name: "Native conversations", exact: true })
-      .click();
-    await page
-      .getByRole("button")
-      .filter({ hasText: "approve" })
-      .last()
-      .click();
-  }
+  if (!new URL(page.url()).searchParams.has("conversation"))
+    await nativeConversations();
   await expect(page.getByLabel("Reply to agent")).toHaveValue(
     "Draft survives reconnect",
   );

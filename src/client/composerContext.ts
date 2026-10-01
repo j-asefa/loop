@@ -5,4 +5,6 @@ export type ComposerContext = {
   artifactId?: string;
   title?: string;
   content?: string;
+  /** Quoting one of your own prompts rather than the agent. */
+  mine?: boolean;
 };

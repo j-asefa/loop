@@ -87,31 +87,37 @@ export async function failureJourney(page, api) {
   await expect
     .poll(async () => (await api("/runs")).find((r) => r.id === run.id)?.state)
     .toBe("failed");
-  await page.reload();
-  const card = page.locator(".feed-card").filter({
-    has: page.getByRole("heading", { name: "failure-visibility-fixture" }),
-  });
-  await expect(card).toHaveCount(0);
-  await page.getByRole("button", { name: /need attention/ }).click();
-  await expect(
-    page.locator(".run-card").filter({ hasText: "failure-visibility-fixture" }),
-  ).toContainText("failed");
+  await page.goto(new URL("/", page.url()).href);
+  // The "needs attention" banner became the Feed's "Needs you" filter.
+  const nav = page.getByRole("navigation").last();
+  await nav.getByRole("button", { name: "Feed", exact: true }).click();
+  await page.getByRole("tab", { name: /^Needs you/ }).click();
+  const failedRow = page
+    .locator(".inbox-row")
+    .filter({ hasText: "failure-visibility-fixture" });
+  await expect(failedRow).toHaveAttribute("aria-label", /, Failed$/);
+  // A failed run leaves no result card on its agent's profile; failure
+  // details moved from the Running card to the agent's Traces tab.
   await page
-    .locator(".run-card")
-    .filter({ hasText: "failure-visibility-fixture" })
-    .getByRole("button", { name: "View failure details", exact: true })
+    .locator(".agent-strip button")
+    .filter({ hasText: "@" + agent.name })
     .click();
-  const failureDetails = page.getByRole("dialog", {
-    name: "Run failure details",
-    exact: true,
-  });
+  await page.getByRole("tab", { name: "Results", exact: true }).click();
+  await page.waitForLoadState("networkidle");
   await expect(
-    failureDetails.locator(".trace-card").filter({ hasText: "Run failure" }),
-  ).toContainText("Tool input schema is unsupported");
-  await expect(failureDetails.locator(".trace-run")).toHaveCount(1);
-  await failureDetails
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
+    page.locator(".feed-card").filter({
+      has: page.getByRole("heading", { name: "failure-visibility-fixture" }),
+    }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Traces", exact: true }).click();
+  await expect(
+    page
+      .locator(".trace-card")
+      .filter({ hasText: "Run failure" })
+      .filter({ hasText: "Tool input schema is unsupported" })
+      .first(),
+  ).toBeVisible();
+  await nav.getByRole("button", { name: "Feed", exact: true }).click();
   const url = new URL(page.url());
   url.search = "?conversation=" + run.conversation_id;
   await page.goto(url.href);
@@ -136,6 +142,6 @@ export async function failureJourney(page, api) {
     .toBe(2);
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   console.log(
-    "PASS: failed empty response kept out of feed and shown in attention and conversation, attention navigation and explicit retry.",
+    "PASS: failed empty response kept out of results and shown in the Needs you badge/filter, agent traces and conversation, and explicit retry.",
   );
 }

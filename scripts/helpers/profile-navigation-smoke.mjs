@@ -42,9 +42,14 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     await page.goto(fixture.base + "/?conversation=" + conversation.id, {
       waitUntil: "networkidle",
     });
-    const header = dialog().locator(".conversation-agent");
-    await expect(header.locator(".avatar")).toBeVisible();
-    const name = (await header.locator("strong").textContent()).trim();
+    // The thread heading keeps the agent's avatar, which opens its profile.
+    const header = dialog().locator(".thread-head");
+    const avatarButton = header.getByRole("button", {
+      name: /^Open @.* profile$/,
+    });
+    await expect(avatarButton.locator(".avatar")).toBeVisible();
+    const name = (await avatarButton.getAttribute("aria-label")).slice(5, -8);
+    await expect(header.locator(".thread-title small")).toContainText(name);
     await dialog()
       .getByLabel("Reply to agent", { exact: true })
       .fill("Keep this draft when opening the profile.");
@@ -67,7 +72,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
         await capture(`visible-conversation-profile-${theme}-${width}`);
       }
     }
-    await header.click();
+    await avatarButton.click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     await expect(page.locator(".profile-head h1")).toHaveText(name);
     await expect(page.locator(".profile-head h1")).toBeInViewport({ ratio: 1 });
@@ -83,11 +88,11 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
 
     for (const reducedMotion of ["no-preference", "reduce"]) {
       await page.emulateMedia({ reducedMotion });
-      for (const tab of ["Feed", "Running"]) {
-        await page.goto(fixture.base, { waitUntil: "networkidle" });
+      // A second tap on Feed scrolls its threads home.
+      for (const [tab, path, item] of [["Feed", "/", ".inbox-row"]]) {
+        await page.goto(fixture.base + path, { waitUntil: "networkidle" });
         await page.setViewportSize({ width: 390, height: 600 });
-        if (tab === "Running") await nav(tab).tap();
-        await page.locator(".feed-card").first().waitFor();
+        await page.locator(item).first().waitFor();
         await page.waitForTimeout(400);
         await page.evaluate(() =>
           window.scrollTo({
@@ -97,7 +102,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
         );
         assert(
           await page.evaluate(() => scrollY > 80),
-          `${tab} must be scrolled before testing`,
+          `${tab} ${path} must be scrolled before testing`,
         );
         await nav(tab).tap();
         assert(

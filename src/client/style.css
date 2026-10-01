@@ -14,6 +14,10 @@
 * {
   box-sizing: border-box;
 }
+html {
+  /* Loop's own pull-to-refresh replaces the browser's page reload. */
+  overscroll-behavior-y: contain;
+}
 body {
   margin: 0;
   color: var(--text);
@@ -2088,7 +2092,7 @@ pre {
 .composer[hidden] {
   display: none;
 }
-.composer-launch span {
+.composer-launch > span {
   flex: 1;
   text-align: left;
 }
@@ -5106,4 +5110,1235 @@ select {
     min-width: 0;
     flex: 1;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile return & defer: Inbox, Later, compact threads and shared controls.
+   Appended last so it takes precedence over the earlier layered rules.
+--------------------------------------------------------------------------- */
+
+/* Chips: filters, scopes and status */
+.chip-row {
+  /* Contain positioned children (e.g. visually hidden labels) so the row's
+     own scrolling clips them instead of widening the page in WebKit. */
+  position: relative;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+  margin: 0 0 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.chip-row::-webkit-scrollbar {
+  display: none;
+}
+.chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 550;
+  white-space: nowrap;
+  list-style: none;
+}
+.chip::-webkit-details-marker {
+  display: none;
+}
+.chip[aria-selected="true"],
+.chip[aria-pressed="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.chip.attention:not([aria-selected="true"]) {
+  border-color: var(--brass);
+}
+.chip-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--brass);
+  color: #1a1a1c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+.chip-select {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+.chip-select select {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background-color: transparent;
+  font-size: 14px;
+  padding: 6px 30px 6px 14px;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 20px;
+  white-space: nowrap;
+  background: var(--secondary);
+  color: var(--muted);
+}
+.status-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status-chip.needs {
+  background: color-mix(in srgb, var(--brass) 18%, var(--surface));
+  color: var(--brass-text);
+}
+.status-chip.working {
+  background: color-mix(in srgb, var(--green) 14%, var(--surface));
+  color: var(--green);
+}
+.status-chip.working::before {
+  animation: loop-pulse 1.4s ease-in-out infinite;
+}
+.status-chip.failed {
+  background: color-mix(in srgb, var(--orange) 14%, var(--surface));
+  color: var(--orange);
+}
+.status-chip.queued {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
+}
+.status-chip.done::before,
+.status-chip.idle::before {
+  display: none;
+}
+@keyframes loop-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-chip.working::before {
+    animation: none;
+  }
+}
+.tone-failed {
+  color: var(--orange);
+}
+.tone-done {
+  color: var(--green);
+}
+.tone-needs {
+  color: var(--brass-text);
+}
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 22px 0 10px;
+}
+.section-empty {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+
+/* Header: compact page titles, project scope and the account button */
+.page-heading.compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+.page-heading.compact h1 {
+  font-size: 28px;
+  margin: 0;
+}
+.scope-chip select {
+  min-height: 36px;
+  border-radius: 999px;
+  font-size: 14px;
+  padding: 6px 30px 6px 14px;
+  max-width: 190px;
+  background-color: var(--surface);
+}
+.avatar-button {
+  display: inline-flex;
+  padding: 0;
+  border-radius: 12px;
+}
+.avatar-button .avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 13px;
+}
+.back-button {
+  margin: 0 0 8px;
+}
+
+/* Inbox: threads as full-size cards (same size as result cards) */
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.inbox-card .inbox-avatar {
+  position: relative;
+  display: inline-flex;
+}
+.inbox-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.inbox-detail {
+  margin: 0 0 8px;
+}
+.inbox-you {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.inbox-draft {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.swipe-under {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px;
+  font-size: 14px;
+  font-weight: 650;
+  color: #fff;
+  opacity: 0;
+}
+.swipe-under.left {
+  justify-content: flex-start;
+  background: var(--blue);
+}
+.swipe-under.right {
+  justify-content: flex-end;
+  background: var(--brass-text);
+}
+.swiping .swipe-under {
+  opacity: 0.75;
+}
+.armed-right .swipe-under.left,
+.armed-left .swipe-under.right {
+  opacity: 1;
+}
+.inbox-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+}
+.inbox-empty strong {
+  color: var(--text);
+}
+.inbox .run-list {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.away-card {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--blue) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--blue) 25%, var(--line));
+}
+.away-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.away-toggle {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 0;
+}
+.away-toggle span {
+  font-size: 14px;
+  color: var(--muted);
+}
+.away-card ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.away-card li button {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: 8px 0;
+  min-height: 44px;
+}
+.away-card li small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Action sheets: the mobile context menu */
+.action-list {
+  display: grid;
+  margin: 4px -6px 0;
+}
+.action-list button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px 8px;
+  border-radius: 12px;
+  text-align: left;
+  font-size: 16px;
+}
+.action-list button:hover,
+.action-list button:focus-visible {
+  background: var(--secondary);
+}
+.action-list button > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.action-list button span {
+  display: grid;
+  gap: 2px;
+}
+.action-list button small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.action-list button.danger,
+.action-list button.danger > svg {
+  color: var(--orange);
+}
+.action-preview {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--secondary);
+  font-size: 14px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.conversation-options-extra {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.conversation-options-extra:empty {
+  display: none;
+}
+.later-target {
+  margin-bottom: 4px;
+}
+.later-custom {
+  margin-top: 14px;
+}
+.later-custom > span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.later-custom input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Conversation: full-width sheet, one-line header, lighter messages */
+@media (max-width: 650px) {
+  .sheet.conversation-sheet,
+  .sheet.wide {
+    max-width: 100vw;
+    width: 100vw;
+  }
+}
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.thread-avatar {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 0;
+}
+.thread-avatar .avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+.thread-title {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  text-align: left;
+  padding: 2px 4px;
+}
+.conversation-sheet .thread-title h2,
+.thread-title h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.thread-title small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+.thread-details {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--secondary);
+  font-weight: 600;
+  font-size: 15px;
+}
+.thread-details small {
+  display: block;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.conversation-sheet > .sheet-inner > .sheet-head {
+  gap: 4px;
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+.message-slot {
+  display: contents;
+}
+.day-separator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+.day-separator::before,
+.day-separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.conversation-sheet .message {
+  position: relative;
+  touch-action: pan-y;
+  transition: transform 0.18s ease;
+}
+.conversation-sheet .message[style] {
+  transition: none;
+}
+.message-meta {
+  align-items: center;
+}
+.message-meta-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.message-meta-end time {
+  margin-right: 4px;
+}
+.message-meta-end .saved-mark {
+  color: var(--brass-text);
+  margin-right: 4px;
+}
+.icon-button.message-icon {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--muted);
+}
+.swipe-reply-hint {
+  position: absolute;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  margin-top: -18px;
+  margin-left: -44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--secondary);
+  color: var(--muted);
+}
+.swipe-reply-hint.armed {
+  background: var(--brass);
+  color: #1a1a1c;
+}
+.message-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.usage-line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.load-earlier {
+  align-self: center;
+}
+details > summary {
+  cursor: pointer;
+}
+.message-foot details > summary,
+.conversation-sheet .message-reply-context > summary,
+.advanced-agent-options > summary,
+.runtime-setup-options > summary,
+.composer-quote-toggle > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.message-foot details > summary::-webkit-details-marker,
+.conversation-sheet .message-reply-context > summary::-webkit-details-marker,
+.advanced-agent-options > summary::-webkit-details-marker,
+.runtime-setup-options > summary::-webkit-details-marker,
+.composer-quote-toggle > summary::-webkit-details-marker {
+  display: none;
+}
+.message-foot details > summary::after,
+.conversation-sheet .message-reply-context > summary::after,
+.advanced-agent-options > summary::after,
+.runtime-setup-options > summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.15s ease;
+}
+.message-foot details[open] > summary::after,
+.conversation-sheet .message-reply-context[open] > summary::after,
+.advanced-agent-options[open] > summary::after,
+.runtime-setup-options[open] > summary::after {
+  transform: rotate(-135deg) translateY(-1px);
+}
+.runtime-setup-options {
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+}
+.runtime-setup-options > summary {
+  font-weight: 600;
+  min-height: 44px;
+}
+
+/* Changes review */
+.changes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin: 8px 0;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+}
+.diff-add-count {
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+.diff-remove-count {
+  color: var(--orange);
+  font-variant-numeric: tabular-nums;
+}
+.changes-total {
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.changes-files {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.changes-files li + li {
+  border-top: 1px solid var(--line);
+}
+.changes-files button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+}
+.changes-files button[aria-current] {
+  background: var(--secondary);
+}
+.changes-files code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.changes-files .operation {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--secondary);
+}
+.changes-files .operation.create {
+  color: var(--green);
+}
+.changes-files .operation.delete {
+  color: var(--orange);
+}
+.changes-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+.changes-sheet pre.activity-scroll {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.secondary.danger {
+  color: var(--orange);
+}
+
+/* Outline */
+.outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.outline-list .day-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0 4px;
+}
+.outline-list button {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 4px;
+  text-align: left;
+  border-radius: 10px;
+}
+.outline-list button:hover {
+  background: var(--secondary);
+}
+.outline-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--secondary);
+  color: var(--muted);
+}
+.outline-list li[data-kind="prompt"] .outline-icon {
+  background: color-mix(in srgb, var(--brass) 18%, var(--surface));
+  color: var(--brass-text);
+}
+.outline-list li[data-kind="failure"] .outline-icon {
+  color: var(--orange);
+}
+.outline-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.outline-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.outline-copy span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 14px;
+}
+
+/* Scheduled messages at the end of a thread */
+.scheduled-sends {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.scheduled-message {
+  border: 1px dashed var(--line);
+}
+.scheduled-message .message-meta-end {
+  gap: 6px;
+  color: var(--muted);
+}
+/* Composer: compact in threads, avatar pill elsewhere */
+.composer-launch .avatar {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+.composer-dock.thread-mode .composer {
+  padding: 8px 10px 6px;
+  gap: 4px;
+  border-radius: 20px;
+}
+.composer-dock.thread-mode .composer-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.composer-dock.thread-mode .composer-main textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 160px;
+  padding: 9px 12px;
+  border-radius: 20px;
+  field-sizing: content;
+  resize: none;
+  line-height: 1.4;
+}
+.composer-main textarea {
+  field-sizing: content;
+  max-height: 40dvh;
+}
+.send-button.round {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brass);
+  color: #1a1a1c;
+}
+.send-button.round:disabled {
+  background: var(--secondary);
+  color: var(--muted);
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.composer-dock.thread-mode .composer-actions {
+  padding: 0;
+  border: 0;
+}
+.composer-actions .composer-model {
+  min-width: 0;
+  flex: 0 1 auto;
+  margin-right: auto;
+  max-width: 170px;
+}
+.composer-dock.thread-mode .composer-model {
+  min-height: 34px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.composer-actions .composer-later,
+.composer-actions .voice-button,
+.harness-trigger.compact {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 17px;
+}
+.voice-button.listening {
+  background: color-mix(in srgb, var(--orange) 16%, var(--surface));
+  color: var(--orange);
+}
+.voice-error {
+  font-size: 12px;
+}
+.composer-dock.thread-mode .upload-control {
+  min-height: 36px;
+}
+.composer-reply-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-left: 3px solid var(--brass);
+  border-radius: 8px;
+  background: var(--secondary);
+  font-size: 13px;
+  color: var(--muted);
+}
+.composer-reply-chip > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.composer-quote-toggle {
+  flex: 1;
+  min-width: 0;
+}
+.composer-quote-toggle > summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  line-height: 22px;
+}
+.composer-quote-toggle > summary span {
+  color: var(--text);
+}
+/* The quote scrolls on its own and shrinks with the keyboard, so the chip
+   and the reply box always stay in the visible viewport. */
+.composer-reply-chip .composer-quote {
+  max-height: max(64px, calc(var(--visual-viewport-height, 100dvh) * 0.2));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: 6px;
+}
+.composer-reply-chip .icon-button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+.composer-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 4px 0;
+}
+
+/* Result cards: swipe actions and a menu; size unchanged */
+.card-swipe {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+}
+.card-swipe .swipe-under {
+  border-radius: 20px;
+}
+.card-swipe .swipe-under.left {
+  background: var(--brass-text);
+}
+.card-swipe .swipe-under.right {
+  background: var(--muted);
+}
+.card-swipe .feed-card {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  touch-action: pan-y;
+  transition: transform 0.18s ease;
+}
+.card-swipe.swiping .feed-card {
+  transition: none;
+}
+.feed > .card-swipe + .card-swipe {
+  margin-top: 12px;
+}
+.feed-card .card-content {
+  cursor: pointer;
+}
+.feed-card .card-project {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.feed-card .card-actions {
+  gap: 4px;
+}
+.feed-card .card-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Approvals: decide inline */
+.approval-card {
+  display: grid;
+  gap: 10px;
+}
+.approval-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.approval-card-actions .primary,
+.approval-card-actions .secondary {
+  min-height: 44px;
+}
+.approval-card .approval-dismiss {
+  position: static;
+  justify-self: start;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0;
+  min-height: 32px;
+  border: 0;
+}
+
+/* Later: full-size cards */
+.later-card.due {
+  border-color: color-mix(in srgb, var(--brass) 45%, var(--line));
+}
+.later-card .later-done {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Projects: original full-size tiles with activity details */
+.project-list-head {
+  display: flex;
+  justify-content: flex-end;
+  margin: -52px 0 16px;
+}
+.project-tile > .project-tile-meta,
+.project-tile > .project-tile-status,
+.project-tile > .project-tile-latest {
+  grid-row: auto;
+  grid-column: 1 / -1;
+}
+.project-tile-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.project-tile > .project-tile-latest {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.project-tabs {
+  overflow-x: auto;
+}
+
+/* Agent profile: actions menu in the heading's corner */
+.profile-head {
+  position: relative;
+}
+.profile-head .profile-menu {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.segmented.scroll-tabs {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+  margin: 16px 0 12px;
+}
+.segmented.scroll-tabs button {
+  flex: 0 0 auto;
+}
+
+/* Search */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px;
+  border-radius: 14px;
+}
+.search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  min-height: 44px;
+  font-size: 16px;
+}
+.search-box input:focus-visible {
+  outline: none;
+}
+.search-box:focus-within {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+.search-scopes {
+  margin-top: 12px;
+}
+.search-refine {
+  align-items: center;
+}
+.search-dates {
+  position: relative;
+}
+.search-dates > summary {
+  cursor: pointer;
+}
+.search-dates[open] .search-filters {
+  margin-top: 8px;
+}
+.search-result h3 button {
+  text-align: left;
+  font: inherit;
+  padding: 0;
+}
+.search-hit {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.search-hit small {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.recent-searches ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.recent-searches li button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  color: var(--text);
+}
+.recent-searches li button svg {
+  color: var(--muted);
+}
+
+/* Snippets inside the command picker */
+.snippet-options {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.snippet-options .section-title {
+  margin-top: 4px;
+}
+
+/* Handoff */
+.handoff-code {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  margin: 8px 0 14px;
+}
+.qr-code {
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+}
+.handoff-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.handoff-notice {
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Settings: keep the appearance picker clear of the next heading */
+.theme-picker {
+  margin: 0 0 24px;
+  align-items: stretch;
+}
+.theme-picker button {
+  height: auto;
+}
+.sheet-body > h3 {
+  margin: 20px 0 10px;
+}
+.draft-label {
+  font-style: normal;
+  font-weight: 650;
+  color: var(--orange);
+}
+.composer-launch > span {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-reply-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+}
+.thread-title small {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.thread-title small .status-chip {
+  flex-shrink: 0;
+}
+.thread-head .icon-button {
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.outline-copy {
+  grid-template-columns: minmax(0, 1fr);
+}
+.inbox-card-wrap .swipe-under.left {
+  background: var(--blue);
+}
+.inbox-card-wrap .swipe-under.right {
+  background: var(--brass-text);
+}
+.queued-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pull-refresh {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) - 28px);
+  left: 50%;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-left: -18px;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+.pull-refresh.ready {
+  color: var(--text);
+}
+.pull-refresh.ready svg {
+  transform: rotate(180deg);
+  transition: transform 160ms ease-out;
+}
+.pull-refresh.refreshing {
+  transform: translateY(56px);
+  color: var(--text);
+}
+.pull-refresh.refreshing svg {
+  animation: spin 800ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pull-refresh.refreshing svg {
+    animation: none;
+  }
+}
+.changes-chip .changes-other,
+.changes-files .change-state {
+  color: var(--muted);
+  font-size: 13px;
+}
+.changes-files li[data-state="failed"] code,
+.changes-files li[data-state="proposed"] code {
+  color: var(--muted);
+}
+.scheduled-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.scheduled-message.not-sent {
+  border-color: color-mix(in srgb, var(--red, #c0392b) 45%, var(--line));
 }

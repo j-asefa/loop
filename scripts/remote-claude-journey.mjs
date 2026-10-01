@@ -1,4 +1,4 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import { harnessJourney } from "./harness-journey.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
@@ -6,7 +6,7 @@ import { expect } from "@playwright/test";
 export async function remoteClaudeJourney(page, api, url) {
   const button = (name) =>
     page.getByRole("button", { name, exact: true }).last();
-  await button("Settings").click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Runtime machines/ }).click();
   await page.getByLabel("Connection type").selectOption("native-host");
   await page.getByLabel("Machine name").fill("Native Claude laptop");
@@ -21,7 +21,7 @@ export async function remoteClaudeJourney(page, api, url) {
   );
   assert.equal(host.kind, "native-host");
   await closeSheets(page);
-  await button("Settings").click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Provider connections/ }).click();
   await button("Add a provider").click();
   await button("Claude").click();

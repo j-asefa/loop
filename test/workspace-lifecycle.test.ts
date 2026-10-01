@@ -283,11 +283,14 @@ it("only new finished results notify, retries survive failures, expired endpoint
     input: "Create a result",
     idempotencyKey: id(),
   });
+  // Shaped like a runtime result: in the run's thread, linked to its answer.
   const artifact = saveArtifact("owner", {
     title: "Completed task",
     content: "Done",
     agent: a.id,
+    conversation: run.conversation_id,
     run: run.id,
+    metadata: { messageId: "answer-1" },
   });
   saveArtifact("owner", {
     title: "Tool output",
@@ -322,9 +325,19 @@ it("only new finished results notify, retries survive failures, expired endpoint
   await Promise.all([deliverNotifications(send), deliverNotifications(send)]);
   expect(send).toHaveBeenCalledTimes(1);
   const payload = JSON.parse((send.mock.calls[0] as any)[1]);
+  // The notification opens the thread at the answer, not a detached result.
+  const saved = db
+    .prepare(
+      "SELECT conversation_id,json_extract(metadata,'$.messageId') message_id FROM artifacts WHERE id=?",
+    )
+    .get(artifact) as { conversation_id: string; message_id: string | null };
+  expect(saved).toEqual({
+    conversation_id: run.conversation_id,
+    message_id: "answer-1",
+  });
   expect(payload).toMatchObject({
     title: `@${a.name} has a new result`,
-    url: `/?artifact=${artifact}`,
+    url: `/?conversation=${run.conversation_id}&message=answer-1`,
   });
   await deliverNotifications(send);
   expect(send).toHaveBeenCalledTimes(1);
@@ -344,10 +357,11 @@ it("only new finished results notify, retries survive failures, expired endpoint
   });
 });
 
-it("a background push displays a notification and opens its result on the same origin", async () => {
+it("a background push displays a notification and opens its link on the same origin", async () => {
   const handlers: Record<string, (event: any) => void> = {};
   const showNotification = vi.fn(async () => {}),
     openWindow = vi.fn(async () => {});
+  let windows: any[] = [];
   runInNewContext(readFileSync("public/push-events.js", "utf8"), {
     URL,
     self: {
@@ -356,7 +370,7 @@ it("a background push displays a notification and opens its result on the same o
         handlers[name] = fn;
       },
       registration: { showNotification },
-      clients: { matchAll: async () => [], openWindow },
+      clients: { matchAll: async () => windows, openWindow },
     },
   });
   let pending: Promise<void> = Promise.resolve();
@@ -389,4 +403,28 @@ it("a background push displays a notification and opens its result on the same o
   expect(openWindow).toHaveBeenCalledExactlyOnceWith(
     "https://loop.example/?artifact=one",
   );
+  // With Loop already open, the window is focused and told to open the
+  // thread in place; nothing depends on navigate(), which may be missing.
+  const focus = vi.fn(async () => {}),
+    postMessage = vi.fn();
+  windows = [
+    { url: "https://unrelated.example/", focus, postMessage },
+    { url: "https://loop.example/?page=later", focus, postMessage },
+  ];
+  handlers.notificationclick({
+    notification: {
+      close() {},
+      data: { url: "/?conversation=c1&message=m1" },
+    },
+    waitUntil: (promise: Promise<void>) => {
+      pending = promise;
+    },
+  });
+  await pending;
+  expect(focus).toHaveBeenCalledTimes(1);
+  expect(postMessage).toHaveBeenCalledExactlyOnceWith({
+    type: "loop-open",
+    url: "https://loop.example/?conversation=c1&message=m1",
+  });
+  expect(openWindow).toHaveBeenCalledTimes(1);
 });

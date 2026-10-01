@@ -14,6 +14,7 @@ export type Run = {
   error: string | null;
   created_at: number;
   updated_at: number;
+  queue_rank?: number | null;
 };
 export function enqueue(
   owner: string,
@@ -93,7 +94,7 @@ export function claim(worker: string): Run | undefined {
 SELECT r.* FROM candidates r WHERE
  ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id))))
  AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.agent_id=r.agent_id AND (busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL)
- AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.agent_id=r.agent_id AND (older.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT older.per_conversation) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.queue_order<r.queue_order))
+ AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.agent_id=r.agent_id AND (older.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT older.per_conversation) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id)))))
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
@@ -101,7 +102,7 @@ SELECT r.* FROM candidates r WHERE
   EXISTS(SELECT 1 FROM execution_environments e WHERE e.host_id=json_extract(r.payload,'$.execution.environmentId') AND e.revoked_at IS NULL AND e.state='online' AND e.last_seen > (unixepoch()*1000-30000)
     AND (EXISTS(SELECT 1 FROM native_sessions s WHERE s.conversation_id=r.conversation_id)
       OR (SELECT count(*) FROM native_sessions s WHERE s.environment_id=e.host_id AND s.state NOT IN ('closed','inactive'))<e.capacity)))))
- ORDER BY r.created_at,r.queue_order LIMIT 1`,
+ ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order LIMIT 1`,
         )
         .get() as Run | undefined;
       if (!run) return;

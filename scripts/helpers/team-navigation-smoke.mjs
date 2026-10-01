@@ -32,7 +32,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
       .toBe(team.conversation_id);
-    await expect(dialog().locator(".conversation-meta")).toContainText(
+    await expect(dialog().locator(".thread-head")).toContainText(
       "@" + manager.name,
     );
     await expect(
@@ -62,6 +62,14 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     // from /feed; finish those reads before a later hard navigation cancels them.
     await page.waitForLoadState("networkidle");
   };
+  // Sending from a thread keeps it open; the draft clears once accepted.
+  const sentInThread = async () => {
+    await expect(
+      dialog().getByLabel("Reply to agent", { exact: true }),
+    ).toHaveValue("");
+    await expect(page.locator("dialog[open]")).toHaveCount(1);
+    await close();
+  };
   const requests = [];
   const send = async (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -79,10 +87,8 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
       page.getByRole("button", { name: "Filter by team: All teams" }),
     ).toBeVisible();
     await expect(shortcut()).toHaveCount(0);
-    await page
-      .locator(".mobile-nav")
-      .getByRole("button", { name: "Running", exact: true })
-      .click();
+    await page.getByRole("tab", { name: /^Working/ }).click();
+    await expect(page).toHaveURL(/filter=working/);
     await expect(shortcut()).toHaveCount(0);
     await page.goto(`${fixture.base}/?teams=${product.id},${second.id}`);
     await shortcut().click();
@@ -115,7 +121,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await dialog()
       .getByRole("button", { name: "Send reply", exact: true })
       .click();
-    await settled();
+    await sentInThread();
     assert.equal(requests.length, 1);
     assert.equal(requests[0].agentId, manager.id);
     assert.equal(requests[0].conversationId, second.conversation_id);
@@ -164,7 +170,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await dialog()
       .getByRole("button", { name: "Send reply", exact: true })
       .click();
-    await settled();
+    await sentInThread();
     assert.equal(requests[1].agentId, manager.id);
     assert.equal(requests[1].conversationId, product.conversation_id);
 

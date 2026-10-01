@@ -1,4 +1,4 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import { harnessJourney } from "./harness-journey.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 export async function remoteCodexJourney(page, api, fixture) {
   const button = (name) =>
     page.getByRole("button", { name, exact: true }).last();
-  await button("Settings").click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Runtime machines/ }).click();
   await page.getByLabel("Connection type").selectOption("codex-app-server");
   await page.getByLabel("Machine name").fill("Existing remote Codex");
@@ -30,7 +30,7 @@ export async function remoteCodexJourney(page, api, fixture) {
   );
   assert.equal(host.kind, "codex-app-server");
   await closeSheets(page);
-  await button("Settings").click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Provider connections/ }).click();
   await button("Add a provider").click();
   await button("Claude").click();
@@ -100,7 +100,7 @@ export async function remoteCodexJourney(page, api, fixture) {
     "$fixture-skill",
     "Remote Codex fixture response.",
   );
-  await button("Settings").click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   await button("Custom").click();
   // App-server speaks the Codex protocol, never the broker's MCP endpoints.

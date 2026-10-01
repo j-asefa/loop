@@ -16,6 +16,7 @@ import { personalHistory } from "./personal-history.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages } from "./conversation-messages.js";
 import { dismissRun } from "./run-attention.js";
+import { conversationReturnState } from "./mobile-return.js";
 import {
   isSubscription,
   runtimeAction,
@@ -381,7 +382,8 @@ core.get("/agents/:id/traces", (req, res) => {
 });
 core.get("/me/prompts", (req, res) => {
   const before = z.string().min(1).max(512).optional().parse(req.query.before);
-  res.json(personalHistory(res.locals.owner, before));
+  const q = z.string().trim().max(200).optional().parse(req.query.q);
+  res.json(personalHistory(res.locals.owner, before, q || undefined));
 });
 core.get("/agents/:id/messages", (req, res) => {
   const before = z.string().min(1).max(512).optional().parse(req.query.before);
@@ -413,9 +415,16 @@ core.post("/runs", (req, res) => {
       attachmentIds,
       idempotencyKey: z.string().min(8).max(150),
       folderId: z.string().min(1).nullable().optional(),
+      // Queue after the current run instead of steering it.
+      queue: z.boolean().optional(),
     })
     .parse(req.body);
-  res.status(202).json(submit(res.locals.owner, { ...d, steer: true, personal: true }));
+  const { queue, ...data } = d;
+  res
+    .status(202)
+    .json(
+      submit(res.locals.owner, { ...data, steer: !queue, personal: true }),
+    );
 });
 core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
@@ -642,6 +651,7 @@ core.get("/conversations/:id", (req, res) => {
   res.json({
     conversation: c,
     ...conversationMessages(res.locals.owner, req.params.id, before, anchor),
+    ...conversationReturnState(res.locals.owner, req.params.id),
   });
 });
 core.get("/messages/:id", (req, res) =>

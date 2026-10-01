@@ -1,3 +1,4 @@
+import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import Database from "better-sqlite3";
@@ -193,13 +194,15 @@ export async function tracesJourney(page, api, base, dir) {
         );
     })();
     await page.goto(base);
-    await page
-      .getByRole("button", { name: "Running", exact: true })
-      .last()
-      .click();
+    // Running cards became Feed thread cards under the "Working" filter.
+    await page.getByRole("tab", { name: /^Working/ }).click();
     const card = page
-      .locator(".run-card")
+      .locator(".inbox-card")
       .filter({ hasText: "Trace browser task" });
+    await expect(card.locator(".inbox-row")).toHaveAttribute(
+      "aria-label",
+      /^Trace browser task.*, Working$/,
+    );
     await expect(card.locator(".preview strong")).toHaveText("public sources");
     await expect(card.locator(".preview li")).toHaveCount(2);
     for (const theme of ["light", "dark"]) {
@@ -221,21 +224,19 @@ export async function tracesJourney(page, api, base, dir) {
         ),
       });
     }
-    await page
-      .getByRole("button", { name: "Feed", exact: true })
-      .last()
-      .click();
-    await expect(
-      page.locator(".feed-card").filter({ hasText: "Trace browser task" }),
-    ).toHaveCount(0);
-    await expect(
-      page.locator(".feed-card").filter({ hasText: "web_fetch_exa" }),
-    ).toHaveCount(0);
+    // The agent's Results only publish final answers.
     await page
       .locator(".agent-strip button")
       .filter({ hasText: "@trace-browser-agent" })
       .click();
-    await page.getByRole("button", { name: "Messages", exact: true }).click();
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
+    await expect(page.locator(".feed .feed-loading")).toHaveCount(0);
+    const results = page.locator(".feed .feed-card:not(.inbox-card)");
+    await expect(results.filter({ hasText: "Trace browser task" })).toHaveCount(
+      0,
+    );
+    await expect(results.filter({ hasText: "web_fetch_exa" })).toHaveCount(0);
+    await page.getByRole("tab", { name: "Messages", exact: true }).click();
     await expect(
       page.getByRole("region", { name: "Agent messages" }),
     ).toContainText("public sources");
@@ -263,14 +264,19 @@ export async function tracesJourney(page, api, base, dir) {
     await updateCard
       .getByRole("button", { name: "Reply", exact: true })
       .click();
-    const replySheet = page.locator(".composer");
-    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    // Replying to a message now opens its thread with the quoted message in
+    // the thread composer, instead of the global composer over the profile.
+    const replySheet = page.locator("dialog.swipe-sheet");
+    const replyInput = replySheet.getByRole("textbox", {
+      name: "Reply to agent",
+      exact: true,
+    });
+    await expect(replyInput).toBeVisible();
+    await replySheet.locator(".composer-reply-chip summary").click();
     await expect(replySheet.locator(".composer-quote")).toContainText(
       "Comparing the next source",
     );
-    await expect(
-      replySheet.getByRole("textbox", { name: "Reply to agent", exact: true }),
-    ).toBeInViewport({ ratio: 1 });
+    await expect(replyInput).toBeInViewport({ ratio: 1 });
     for (const theme of ["light", "dark"]) {
       await page.evaluate(
         (theme) => (document.documentElement.dataset.theme = theme),
@@ -289,28 +295,25 @@ export async function tracesJourney(page, api, base, dir) {
         "Message replies fit the mobile viewport",
       );
     }
-    await replySheet
-      .getByRole("textbox", { name: "Reply to agent", exact: true })
-      .fill("Why is that source reliable?");
+    await replyInput.fill("Why is that source reliable?");
     await replySheet
       .getByRole("button", { name: "Send reply", exact: true })
       .click();
     await expect(replySheet.getByRole("alert")).toContainText(
       "Fixture reply unavailable",
     );
-    await replySheet
-      .getByRole("button", { name: "Collapse composer", exact: true })
-      .click();
+    await closeSheets(page);
     await updateCard
       .getByRole("button", { name: "Reply", exact: true })
       .click();
-    await expect(
-      replySheet.getByRole("textbox", { name: "Reply to agent", exact: true }),
-    ).toHaveValue("Why is that source reliable?");
+    await expect(replyInput).toHaveValue("Why is that source reliable?");
     await replySheet
       .getByRole("button", { name: "Send reply", exact: true })
       .click();
-    await expect(replySheet).not.toBeVisible();
+    // The reply stays in its thread: the thread remains open and clears.
+    await expect(replyInput).toHaveValue("");
+    await expect(replySheet).toBeVisible();
+    await closeSheets(page);
     assert.equal(replies.length, 2);
     assert.equal(replies[0].idempotencyKey, replies[1].idempotencyKey);
     assert.equal(replies[1].replyToMessageId, selectedMessage.id);
@@ -318,7 +321,7 @@ export async function tracesJourney(page, api, base, dir) {
     assert.equal(replies[1].conversationId, conversation);
     assert.equal(replies[1].input, "Why is that source reliable?");
     await page.unroute("**/api/runs", sendReply);
-    await page.getByRole("button", { name: "Traces", exact: true }).click();
+    await page.getByRole("tab", { name: "Traces", exact: true }).click();
     const traces = page.getByRole("region", { name: "Agent traces" });
     await expect(traces).toContainText("public sources");
     const errorTrace = traces
@@ -387,7 +390,7 @@ export async function tracesJourney(page, api, base, dir) {
         ).toHaveCount(0);
       }
     }
-    await page.getByRole("button", { name: "Messages", exact: true }).click();
+    await page.getByRole("tab", { name: "Messages", exact: true }).click();
     const messageList = page.getByRole("region", { name: "Agent messages" });
     const earlierMessages = messageList.getByRole("button", {
       name: "Earlier messages",
@@ -539,9 +542,13 @@ export async function tracesJourney(page, api, base, dir) {
     await expect(conversationDialog.locator(".messages")).not.toContainText(
       "pull_request_review_write",
     );
-    await conversationDialog.getByLabel("Conversation options").click();
+    // Conversation options is now a button opening the "Conversation" menu.
     await conversationDialog
-      .getByRole("button", { name: "Tool activity", exact: true })
+      .getByRole("button", { name: "Conversation options", exact: true })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Conversation", exact: true })
+      .getByRole("menuitem", { name: /^Tool activity/ })
       .click();
     const activityDialog = page.getByRole("dialog", {
       name: "Tool activity",
@@ -589,7 +596,7 @@ export async function tracesJourney(page, api, base, dir) {
     await conversationDialog
       .getByRole("button", { name: "Close", exact: true })
       .click();
-    await page.getByRole("button", { name: "Results", exact: true }).click();
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
     await expect(page.locator(".feed-card")).toHaveCount(1);
     await expect(page.locator(".feed-card")).toContainText(
       "Final heliotrope browser answer",
@@ -597,9 +604,7 @@ export async function tracesJourney(page, api, base, dir) {
     await expect(page.locator(".feed-card")).not.toContainText(
       "Checking public sources",
     );
-    await page
-      .getByRole("button", { name: "Back to feed", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
     // This scenario intentionally opens hundreds of trace/activity records.
     // Its final publication assertions should test projections, not the
     // shared fixture user's per-minute API rate limit.
@@ -613,7 +618,7 @@ export async function tracesJourney(page, api, base, dir) {
     const search = await api("/search?q=heliotrope&agent=" + agent.id);
     assert.equal(search.items.length, 1, "One search result per final answer");
     console.log(
-      "PASS: Running previews, final-only Feed, readable tool errors, live trace pagination, tool-result access, final publication and deduplicated search.",
+      "PASS: Working Feed previews, final-only agent Results, in-thread message reply with retry, readable tool errors, live trace pagination, tool-result access, final publication and deduplicated search.",
     );
   } finally {
     db.prepare(

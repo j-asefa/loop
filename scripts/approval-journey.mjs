@@ -1,3 +1,4 @@
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -311,11 +312,18 @@ export async function semanticStatusJourney(page) {
   await page.route("**/api/search/status", route);
   const nav = page.getByRole("navigation").last();
   try {
+    // Index status moved from the Search page's options disclosure into
+    // Settings → Search preferences; Search itself no longer shows it.
     await nav.getByRole("button", { name: "Search", exact: true }).click();
-    await page
-      .getByText("Search options & index status", { exact: true })
-      .click();
-    const banner = page.locator(".search-index-status");
+    await page.getByRole("heading", { name: "Search", exact: true }).waitFor();
+    await expect(page.locator(".search-index-status")).toHaveCount(0);
+    await openSettings(page);
+    await page.getByRole("button", { name: /Search preferences/ }).click();
+    const preferences = page.getByRole("dialog", {
+      name: "Search preferences",
+      exact: true,
+    });
+    const banner = preferences.locator(".search-index-status");
     await expect(banner).toContainText("0 of 20 items indexed");
     status = {
       ...status,
@@ -332,16 +340,7 @@ export async function semanticStatusJourney(page) {
         "Local semantic indexing failed. Loop will retry automatically; keyword search is available.",
     };
     await expect(banner).toContainText("Semantic search needs attention");
-    await page
-      .getByRole("button", { name: "Configure semantic search" })
-      .click();
-    await expect(
-      page.locator("dialog[open]").last().locator(".search-index-status"),
-    ).toContainText("keyword search is available");
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
+    await expect(banner).toContainText("keyword search is available");
     status = {
       ...status,
       state: "ready",
@@ -352,11 +351,12 @@ export async function semanticStatusJourney(page) {
     await expect(banner).toContainText("Semantic search ready");
     await expect(banner).not.toContainText("waiting");
     await page.screenshot({ path: join(tmpdir(), "loop-semantic-status.png") });
+    await closeSheets(page);
   } finally {
     await page.unroute("**/api/search/status", route);
     await nav.getByRole("button", { name: "Feed", exact: true }).click();
   }
   console.log(
-    "PASS: semantic index preparation, live progress, actionable failure and recovery status in search and preferences (status fixtures).",
+    "PASS: semantic index preparation, live progress, actionable failure and recovery status in Search preferences (status fixtures).",
   );
 }

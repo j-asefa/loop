@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MessageSquare } from "lucide-react";
 import { api } from "./api";
 import { Avatar, RichText } from "./components";
 import { AttachmentList } from "./Attachments";
@@ -18,29 +19,59 @@ type Prompt = {
   attachments: UploadedFile[];
 };
 type Page = { items: Prompt[]; next: string | null };
+export type PromptReply = {
+  id: string;
+  content: string;
+  conversation_id: string;
+  agent_id: string;
+};
 export function PersonalProfile({
   name,
   onConversation,
+  onReply,
   agents,
   onAgent,
+  embedded = false,
+  query = "",
 }: {
   name: string;
+  embedded?: boolean;
+  query?: string;
   agents: Agent[];
   onAgent: (agent: Agent) => void;
   onConversation: (id: string, message: string) => void;
+  /** Quote this prompt in its thread, like replying to any other message. */
+  onReply?: (prompt: PromptReply) => void;
 }) {
   const [page, setPage] = useState<Page>({ items: [], next: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [request, setRequest] = useState<{ before?: string }>({});
+  const [filter, setFilter] = useState(query.trim());
+  useEffect(() => {
+    if (query.trim() === filter) return;
+    const timer = setTimeout(() => {
+      setFilter(query.trim());
+      setRequest({});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  // Pull to refresh reloads the newest prompts.
+  useEffect(() => {
+    const refresh = () => setRequest({});
+    window.addEventListener("loop-refresh", refresh);
+    return () => window.removeEventListener("loop-refresh", refresh);
+  }, []);
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
+    const params = new URLSearchParams();
+    if (request.before) params.set("before", request.before);
+    if (filter) params.set("q", filter);
     api<Page>(
-      "/me/prompts" +
-        (request.before ? "?before=" + encodeURIComponent(request.before) : ""),
+      "/me/prompts" + (params.size ? "?" + params : ""),
       undefined,
       undefined,
       controller.signal,
@@ -68,7 +99,7 @@ export function PersonalProfile({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [request]);
+  }, [request, filter]);
   useEffect(() => {
     if (loading || error || !page.next || !sentinel.current) return;
     const observer = new IntersectionObserver(
@@ -83,6 +114,7 @@ export function PersonalProfile({
   }, [loading, error, page.next]);
   return (
     <section className="feed personal-history" aria-label="Your sent prompts">
+      {!embedded && (
       <header className="profile-head personal-profile-head">
         <span className="avatar user" role="img" aria-label={name + " avatar"}>
           {name
@@ -98,7 +130,8 @@ export function PersonalProfile({
         <p className="muted">Your personal workspace</p>
         <p>Your messages and work with agents, across all your projects.</p>
       </header>
-      <h2 className="personal-section-title">Sent messages</h2>
+      )}
+      {!embedded && <h2 className="personal-section-title">Sent messages</h2>}
       {page.items.map((item) => {
         const agent = agents.find((candidate) => candidate.id === item.agent_id);
         return (
@@ -123,6 +156,22 @@ export function PersonalProfile({
           <time dateTime={new Date(item.created_at).toISOString()}>
             {new Date(item.created_at).toLocaleString()}
           </time>
+          {onReply && item.agent_id && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() =>
+                onReply({
+                  id: item.id,
+                  content: item.content,
+                  conversation_id: item.conversation_id,
+                  agent_id: item.agent_id!,
+                })
+              }
+            >
+              <MessageSquare size={15} /> Reply
+            </button>
+          )}
           <a
             href={`/?conversation=${encodeURIComponent(item.conversation_id)}&message=${encodeURIComponent(item.id)}`}
             onClick={(event) => {
@@ -152,7 +201,7 @@ export function PersonalProfile({
         </div>
       )}
       {!loading && !error && !page.items.length && (
-        <p>You haven’t sent any prompts yet.</p>
+        <p>{filter ? "No prompts match your search." : "You haven’t sent any prompts yet."}</p>
       )}
       {!loading && !error && page.items.length > 0 && !page.next && (
         <p>End of your prompt history.</p>

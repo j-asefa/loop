@@ -41,10 +41,20 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
       if (request.url().endsWith("/runtimes/claude/enable")) enables++;
     });
     page.on("pageerror", (error) => errors.push(error.message));
+    // Settings moved behind the header's "Account and settings" menu.
+    const openProviderConnections = async () => {
+      await page
+        .getByRole("button", { name: "Account and settings", exact: true })
+        .click();
+      await page.getByRole("menuitem", { name: /^Settings/ }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: /Provider connections/ })
+        .click();
+    };
     await page.goto(host.pair().url);
     await page.getByRole("button", { name: "Pair and open Loop" }).click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("button", { name: /Provider connections/ }).click();
+    await openProviderConnections();
     const settings = page.getByRole("dialog", { name: "Connected harnesses" });
     await settings
       .getByRole("button", { name: "Sign in to Claude Code", exact: true })
@@ -141,8 +151,7 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
       .getByRole("dialog", { name: "Settings", exact: true })
       .getByRole("button", { name: "Close", exact: true })
       .click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("button", { name: /Provider connections/ }).click();
+    await openProviderConnections();
     await expect(
       settings.getByRole("button", {
         name: "Manage Claude Code account",

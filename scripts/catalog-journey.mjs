@@ -1,4 +1,4 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 
 export async function catalogJourney(page, api, base) {
   await page.goto(base);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   const catalog = page.getByRole("region", { name: "MCP catalog" });
   const catalogSize = (await api("/mcp/catalog")).entries.filter(
@@ -110,7 +110,7 @@ export async function catalogJourney(page, api, base) {
   });
   await closeSheets(page);
   await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   await catalog.getByLabel("Search tools").fill("deepwiki");
   await expect(

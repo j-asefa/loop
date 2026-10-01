@@ -1,0 +1,1627 @@
+import { z, ZodError } from "zod";
+import { db, emit, id, now } from "./db.js";
+import { owned, Problem } from "./domain.js";
+import {
+  feedOutputSql,
+  fileArtifactSql,
+  projectFolders,
+  resultUrl,
+} from "./feed.js";
+import { submit } from "./agent-runtime.js";
+import { transition, type Run } from "./queue.js";
+import { runPreview } from "./run-attention.js";
+import { attachedFiles, attachmentIds } from "./uploads.js";
+import { messageReplyContext } from "./message-replies.js";
+import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
+import { connectionSelection } from "./hapi/contracts.js";
+import type { Agent, Message } from "../shared/types.js";
+
+// Every function here takes the owner from authentication. Rows are always
+// selected with that owner, so another owner's ids behave as missing.
+
+const collapse = (text: string | null | undefined, max: number) =>
+  (text || "").replace(/\s+/g, " ").trim().slice(0, max);
+const encode = (value: unknown) =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+function decode<T>(value: string, schema: z.ZodType<T>, label: string): T {
+  try {
+    return schema.parse(
+      JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
+    );
+  } catch {
+    throw new Problem(400, `Invalid ${label} cursor`);
+  }
+}
+
+// Top-level project for every folder of the owner (same rule as personal history).
+const FOLDER_PROJECT = `folder_project(id,project_id) AS (
+  SELECT id,id FROM folders WHERE owner_id=@owner AND kind='project' AND parent_id IS NULL
+  UNION ALL
+  SELECT f.id,p.project_id FROM folders f JOIN folder_project p ON f.parent_id=p.id WHERE f.owner_id=@owner
+)`;
+// A conversation's folder: its recorded project, else its latest run's folder.
+const conversationFolder = (c: string) =>
+  `COALESCE(${c}.project_id,(SELECT json_extract(fr.payload,'$.folderId') FROM runs fr WHERE fr.owner_id=${c}.owner_id AND fr.conversation_id=${c}.id ORDER BY fr.created_at DESC,fr.rowid DESC LIMIT 1))`;
+// Delegated and workflow child runs are internal work, not user conversations.
+const internalRun = (r: string) =>
+  `(EXISTS(SELECT 1 FROM delegations dl WHERE dl.child_run_id=${r}.id) OR EXISTS(SELECT 1 FROM workflow_steps ws WHERE ws.child_run_id=${r}.id))`;
+const ACTIVE_STATES = "('queued','running','pausing','paused','awaiting_approval')";
+const publicState = (r: string) =>
+  `CASE WHEN ${r}.state IN ('running','pausing') AND ${r}.worker_id IS NULL THEN 'waiting_children' ELSE ${r}.state END`;
+
+// ---------------------------------------------------------------------------
+// 1. Reading position
+// Where you stopped reading a thread, so reopening it continues from there.
+function readingPosition(owner: string, conversation: string) {
+  return (
+    (
+      db
+        .prepare(
+          "SELECT position_message_id FROM conversation_positions WHERE owner_id=? AND conversation_id=?",
+        )
+        .get(owner, conversation) as
+        | { position_message_id: string | null }
+        | undefined
+    )?.position_message_id ?? null
+  );
+}
+
+export function conversationReturnState(owner: string, conversation: string) {
+  // A reply is saved when it was saved itself or its result card is saved.
+  const saved = (
+    db
+      .prepare(
+        `SELECT b.message_id FROM message_bookmarks b JOIN messages m ON m.id=b.message_id AND m.owner_id=b.owner_id WHERE b.owner_id=@owner AND m.conversation_id=@conversation
+        UNION SELECT json_extract(a.metadata,'$.messageId') FROM artifacts a WHERE a.owner_id=@owner AND a.conversation_id=@conversation AND a.pinned=1 AND a.archived=0 AND json_extract(a.metadata,'$.messageId') IS NOT NULL`,
+      )
+      .all({ owner, conversation }) as { message_id: string }[]
+  ).map((row) => row.message_id);
+  return {
+    position_message_id: readingPosition(owner, conversation),
+    saved,
+  };
+}
+
+function conversationMessage(owner: string, conversation: string, message: string) {
+  return db
+    .prepare(
+      "SELECT id,created_at FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
+    )
+    .get(message, owner, conversation) as
+    | { id: string; created_at: number }
+    | undefined;
+}
+
+export function savePosition(owner: string, conversation: string, body: unknown) {
+  const { positionMessageId } = z
+    .object({ positionMessageId: z.string().min(1).max(150).nullable() })
+    .parse(body ?? {});
+  return db
+    .transaction(() => {
+      const c = owned<{ id: string }>("conversations", conversation, owner);
+      if (positionMessageId) {
+        // Progress updates are shown in the transcript as trace:<id> items.
+        const valid = positionMessageId.startsWith("trace:")
+          ? db
+              .prepare(
+                "SELECT 1 FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id WHERE 'trace:'||t.id=? AND t.owner_id=? AND r.conversation_id=?",
+              )
+              .get(positionMessageId, owner, c.id)
+          : conversationMessage(owner, c.id, positionMessageId);
+        if (!valid)
+          throw new Problem(404, "Message not found in this conversation");
+      }
+      db.prepare(
+        `INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES(?,?,?,?)
+        ON CONFLICT(owner_id,conversation_id) DO UPDATE SET position_message_id=excluded.position_message_id,updated_at=excluded.updated_at`,
+      ).run(owner, c.id, positionMessageId, now());
+      return { position_message_id: positionMessageId };
+    })
+    .immediate();
+}
+
+// ---------------------------------------------------------------------------
+// 2. Inbox
+export const INBOX_FILTERS = [
+  "all",
+  "needs",
+  "working",
+  "queued",
+  "later",
+] as const;
+type InboxRow = {
+  conversation_id: string;
+  title: string;
+  agent_id: string | null;
+  team_id: string | null;
+  origin: string;
+  folder_id: string | null;
+  run_id: string | null;
+  last_activity_at: number;
+  position_message_id: string | null;
+  later_id: string | null;
+  pending_approvals: number;
+};
+
+function inboxSql(teams: boolean, folders: boolean, agent = false) {
+  return `WITH RECURSIVE ${FOLDER_PROJECT},
+base AS (
+  SELECT c.id conversation_id,c.title,c.agent_id,c.team_id,c.origin,
+    ${conversationFolder("c")} folder_id,
+    -- Current run: the newest active one, otherwise the newest run.
+    (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
+      ORDER BY CASE WHEN r.state IN ('running','pausing','paused','awaiting_approval') THEN 0 ELSE 1 END,r.created_at DESC,r.rowid DESC LIMIT 1) run_id,
+    max(c.created_at,
+      COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
+      COALESCE((SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id),0)) last_activity_at,
+    cp.position_message_id,
+    (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
+    EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed
+  FROM conversations c
+  LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id
+  WHERE c.owner_id=@owner
+    ${teams ? "AND c.team_id IN (SELECT value FROM json_each(@teams))" : ""}
+    ${agent ? "AND c.agent_id=@agent" : ""}
+    AND (EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id)
+      OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id))
+    AND (NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id)
+      OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND NOT ${internalRun("r")}))
+),
+scoped AS (SELECT * FROM base ${folders ? "WHERE folder_id IN (SELECT value FROM json_each(@folders))" : ""}),
+inbox AS (
+  SELECT b.*,${publicState("r")} run_state,
+    (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
+      WHERE a.owner_id=@owner AND ar.conversation_id=b.conversation_id AND a.state='pending' AND a.expires_at>@now) pending_approvals,
+    EXISTS(SELECT 1 FROM runs q WHERE q.owner_id=@owner AND q.conversation_id=b.conversation_id AND q.state='queued') has_queued,
+    r.state raw_state,r.attention_dismissed_at
+  FROM scoped b LEFT JOIN runs r ON r.id=b.run_id
+),
+flagged AS (
+  SELECT i.*,
+    (i.run_state IN ('awaiting_approval','paused') OR (i.raw_state IN ('failed','interrupted') AND i.attention_dismissed_at IS NULL) OR i.pending_approvals>0) is_needs,
+    (i.run_state IN ('running','pausing','waiting_children')) is_working
+  FROM inbox i
+)`;
+}
+
+export function inbox(
+  owner: string,
+  options: {
+    filter?: (typeof INBOX_FILTERS)[number];
+    folder?: string;
+    teams?: string[];
+    agent?: string;
+    before?: string;
+  },
+) {
+  if (options.agent) owned("agents", options.agent, owner);
+  const filter = options.filter || "all";
+  const teams = options.teams?.length ? options.teams : undefined;
+  let folders: string[] | undefined;
+  if (options.folder) {
+    owned("folders", options.folder, owner);
+    folders = projectFolders(owner, options.folder);
+  }
+  const cursor = options.before
+    ? decode(
+        options.before,
+        z.tuple([
+          z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+          z.string().min(1).max(150),
+        ]),
+        "inbox",
+      )
+    : undefined;
+  const params = {
+    owner,
+    now: now(),
+    teams: teams ? JSON.stringify(teams) : null,
+    folders: folders ? JSON.stringify(folders) : null,
+    agent: options.agent ?? null,
+    at: cursor?.[0] ?? null,
+    after: cursor?.[1] ?? null,
+  };
+  const sql = inboxSql(!!teams, !!folders, !!options.agent);
+  const where = {
+    all: "NOT snoozed",
+    needs: "is_needs",
+    working: "is_working",
+    queued: "has_queued",
+    later: "snoozed",
+  }[filter];
+  const rows = db
+    .prepare(
+      `${sql} SELECT * FROM flagged WHERE ${where}
+      AND (@at IS NULL OR last_activity_at<@at OR (last_activity_at=@at AND conversation_id<@after))
+      ORDER BY last_activity_at DESC,conversation_id DESC LIMIT 41`,
+    )
+    .all(params) as InboxRow[];
+  const more = rows.length > 40;
+  if (more) rows.pop();
+  const summary = db
+    .prepare(
+      `${sql} SELECT COALESCE(sum(is_needs),0) needs,COALESCE(sum(is_working),0) working,
+      COALESCE(sum(has_queued),0) queued FROM flagged`,
+    )
+    .get(params) as Record<string, number>;
+  const laterDue = db
+    .prepare(
+      "SELECT count(*) n FROM later_items WHERE owner_id=? AND surfaced_at IS NOT NULL AND done_at IS NULL",
+    )
+    .get(owner) as { n: number };
+  const last = rows.at(-1);
+  return {
+    items: rows.map((row) => inboxItem(owner, row)),
+    next:
+      more && last ? encode([last.last_activity_at, last.conversation_id]) : null,
+    summary: {
+      needs: summary.needs,
+      working: summary.working,
+      queued: summary.queued,
+      later_due: laterDue.n,
+    },
+  };
+}
+
+function projectFor(owner: string, folder: string | null | undefined) {
+  if (!folder) return null;
+  return (
+    (db
+      .prepare(
+        `WITH RECURSIVE ${FOLDER_PROJECT} SELECT p.id,p.name FROM folder_project fp JOIN folders p ON p.id=fp.project_id AND p.owner_id=@owner WHERE fp.id=@folder`,
+      )
+      .get({ owner, folder }) as { id: string; name: string } | undefined) ||
+    null
+  );
+}
+
+function queuePosition(runId: string) {
+  return (
+    db
+      .prepare(
+        `SELECT (SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval')
+        AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) position
+        FROM runs r WHERE r.id=?`,
+      )
+      .get(runId) as { position: number }
+  ).position;
+}
+
+// Queued runs a reorder can swap with. Same scope as the queue claim: one
+// agent, and one conversation when both runs use a per-conversation (native or
+// HAPI) connection. Running, paused and approval-waiting work never moves.
+function queuedPeers(owner: string, runId: string) {
+  const run = db
+    .prepare(
+      `SELECT r.agent_id,r.conversation_id,${perConversation("r")} per FROM runs r WHERE r.id=? AND r.owner_id=?`,
+    )
+    .get(runId, owner) as
+    | { agent_id: string | null; conversation_id: string | null; per: number }
+    | undefined;
+  if (!run?.agent_id) return [];
+  const per = run.per;
+  return db
+    .prepare(
+      `SELECT r.id,r.conversation_id,COALESCE(r.queue_rank,r.created_at) queue_key FROM runs r
+      WHERE r.owner_id=@owner AND r.agent_id=@agent AND r.state='queued'
+        AND (r.conversation_id=@conversation OR NOT @per OR NOT ${perConversation("r")})
+      ORDER BY COALESCE(r.queue_rank,r.created_at),r.rowid`,
+    )
+    .all({
+      owner,
+      agent: run.agent_id,
+      conversation: run.conversation_id,
+      per,
+    }) as { id: string; conversation_id: string | null; queue_key: number }[];
+}
+// A swap only crosses threads: each conversation's turns run in the order
+// they were sent, because its model history is built in that order.
+function canSwap(
+  peers: { id: string; conversation_id: string | null }[],
+  index: number,
+  other: number,
+) {
+  return (
+    index >= 0 &&
+    other >= 0 &&
+    other < peers.length &&
+    peers[other].conversation_id !== peers[index].conversation_id
+  );
+}
+function queueMoves(owner: string, runId: string) {
+  const peers = queuedPeers(owner, runId);
+  const index = peers.findIndex((peer) => peer.id === runId);
+  return {
+    can_move_up: canSwap(peers, index, index - 1),
+    can_move_down: canSwap(peers, index, index + 1),
+  };
+}
+
+function inboxItem(owner: string, row: InboxRow) {
+  const agent = row.agent_id
+    ? (db
+        .prepare("SELECT name,provider FROM agents WHERE id=? AND owner_id=?")
+        .get(row.agent_id, owner) as
+        | { name: string; provider: string }
+        | undefined)
+    : undefined;
+  const project = projectFor(owner, row.folder_id);
+  const message = db
+    .prepare(
+      "SELECT id,role,substr(content,1,1000) content,created_at FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+    )
+    .get(owner, row.conversation_id) as
+    | { id: string; role: string; content: string; created_at: number }
+    | undefined;
+  const run = row.run_id
+    ? (db
+        .prepare(
+          `SELECT id,${publicState("runs")} state,error,input,created_at,updated_at FROM runs WHERE id=? AND owner_id=?`,
+        )
+        .get(row.run_id, owner) as
+        | {
+            id: string;
+            state: string;
+            error: string | null;
+            input: string;
+            created_at: number;
+            updated_at: number;
+          }
+        | undefined)
+    : undefined;
+  const later = row.later_id
+    ? (db
+        .prepare(
+          "SELECT id,due_at,condition,surfaced_at FROM later_items WHERE id=? AND owner_id=?",
+        )
+        .get(row.later_id, owner) as object | undefined)
+    : undefined;
+  return {
+    conversation_id: row.conversation_id,
+    title: row.title,
+    agent_id: row.agent_id,
+    agent_name: agent?.name ?? null,
+    provider: agent?.provider ?? null,
+    project_id: project?.id ?? null,
+    project_name: project?.name ?? null,
+    team_id: row.team_id,
+    origin: row.origin,
+    last_activity_at: row.last_activity_at,
+    last_message: message
+      ? {
+          id: message.id,
+          role: message.role,
+          preview: collapse(message.content, 200),
+          // Markdown for full-size inbox cards; the card clips it visually.
+          content: message.content.slice(0, 4000),
+          created_at: message.created_at,
+        }
+      : null,
+    run: run
+      ? {
+          ...run,
+          input: run.input.slice(0, 1000),
+          queue_position: run.state === "queued" ? queuePosition(run.id) : null,
+          ...(run.state === "queued"
+            ? queueMoves(owner, run.id)
+            : { can_move_up: false, can_move_down: false }),
+        }
+      : null,
+    // Queued follow-ups, listed separately so they stay manageable while
+    // the thread's current run is still working.
+    queued_runs: (
+      db
+        .prepare(
+          "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
+        )
+        .all(owner, row.conversation_id) as QueuedRun[]
+    ).map((queued) => ({
+      id: queued.id,
+      // The full text: the editor saves exactly what it shows, so a preview
+      // here would silently truncate a long prompt.
+      input: queued.input,
+      created_at: queued.created_at,
+      queue_position: queuePosition(queued.id),
+      can_edit: editable(queued),
+      ...queueMoves(owner, queued.id),
+    })),
+    // While the agent works, its card shows what it has written so far.
+    live_preview:
+      run &&
+      ["running", "pausing", "paused", "awaiting_approval"].includes(run.state)
+        ? livePreview(owner, run.id)
+        : null,
+    pending_approvals: row.pending_approvals,
+    position_message_id: row.position_message_id,
+    later: later || null,
+  };
+}
+
+function livePreview(owner: string, runId: string) {
+  const { latest, artifact } = runPreview(owner, runId);
+  const text = (latest ?? artifact?.content ?? "").trim();
+  return text ? text.slice(0, 4000) : null;
+}
+
+type Brief = {
+  conversation_id: string;
+  title: string;
+  agent_name: string | null;
+  run_id: string;
+  state: string;
+  updated_at: number;
+};
+export function awaySummary(owner: string, since: number) {
+  const brief = (condition: string, params: unknown[] = []) =>
+    db
+      .prepare(
+        `SELECT r.conversation_id,c.title,a.name agent_name,r.id run_id,${publicState("r")} state,r.updated_at
+        FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
+        LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
+        WHERE r.owner_id=? AND NOT ${internalRun("r")} AND (${condition})
+        ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 20`,
+      )
+      .all(owner, ...params) as Brief[];
+  return {
+    completed: brief("r.state='completed' AND r.updated_at>?", [since]),
+    needs: brief(
+      `r.attention_dismissed_at IS NULL AND (r.state IN ('awaiting_approval','paused')
+      OR EXISTS(SELECT 1 FROM approvals ap WHERE ap.run_id=r.id AND ap.owner_id=r.owner_id AND ap.state='pending' AND ap.expires_at>?)
+      OR (r.state IN ('failed','interrupted') AND NOT EXISTS(SELECT 1 FROM runs newer WHERE newer.owner_id=r.owner_id AND newer.conversation_id=r.conversation_id AND (newer.created_at>r.created_at OR (newer.created_at=r.created_at AND newer.rowid>r.rowid)))))`,
+      [now()],
+    ),
+    failed: brief("r.state IN ('failed','interrupted') AND r.updated_at>?", [
+      since,
+    ]),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3. Saved
+// One list for everything you keep: results and messages alike. A reply that
+// has a result card is saved by pinning that result, so saving either one
+// saves both and the list shows it once.
+function resultFor(owner: string, messageId: string) {
+  return db
+    .prepare(
+      "SELECT a.id FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
+    )
+    .get(messageId, owner) as { id: string } | undefined;
+}
+
+export function setSaved(owner: string, messageId: string, on: boolean) {
+  return db
+    .transaction(() => {
+      if (messageId.startsWith("trace:"))
+        throw new Problem(400, "Only saved messages can be kept");
+      owned<Message>("messages", messageId, owner);
+      const result = resultFor(owner, messageId);
+      if (result)
+        db.prepare(
+          "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
+        ).run(Number(on), now(), result.id, owner, Number(on));
+      if (on && !result)
+        db.prepare(
+          "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
+        ).run(owner, messageId, now());
+      else
+        db.prepare(
+          "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+        ).run(owner, messageId);
+      return { ok: true as const, saved: on };
+    })
+    .immediate();
+}
+
+const savedCursor = z.object({ at: z.number(), key: z.string() });
+export function listSaved(
+  owner: string,
+  options: { before?: string; folder?: string; teams?: string[] } = {},
+) {
+  const cursor = options.before
+    ? decode(options.before, savedCursor, "saved")
+    : null;
+  if (options.folder) owned("folders", options.folder, owner);
+  const page = 30;
+  // The same project and team scope as the results feed.
+  const params = {
+    owner,
+    at: cursor?.at ?? null,
+    key: cursor?.key ?? null,
+    limit: page + 1,
+    folders: options.folder
+      ? JSON.stringify(projectFolders(owner, options.folder))
+      : null,
+    teams: options.teams?.length ? JSON.stringify(options.teams) : null,
+  };
+  const after = (at: string, key: string) =>
+    `(@at IS NULL OR ${at}<@at OR (${at}=@at AND ${key}<@key))`;
+  const messages = db
+    .prepare(
+      `WITH RECURSIVE ${FOLDER_PROJECT}
+      SELECT 'm:'||b.message_id key,b.created_at saved_at,b.message_id,m.conversation_id,
+        c.title conversation_title,m.role,substr(m.content,1,4000) content,m.created_at,
+        a.id agent_id,a.name agent_name,a.provider,project.name project_name
+      FROM message_bookmarks b
+      JOIN messages m ON m.id=b.message_id AND m.owner_id=b.owner_id
+      JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=b.owner_id
+      LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=b.owner_id
+      LEFT JOIN agents a ON a.id=COALESCE(r.agent_id,c.agent_id) AND a.owner_id=b.owner_id
+      LEFT JOIN folder_project fp ON fp.id=COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)
+      LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=b.owner_id
+      WHERE b.owner_id=@owner AND ${after("b.created_at", "'m:'||b.message_id")}
+        AND (@folders IS NULL OR COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) IN (SELECT value FROM json_each(@folders)))
+        AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
+      ORDER BY b.created_at DESC,key DESC LIMIT @limit`,
+    )
+    .all(params) as (Record<string, unknown> & {
+    key: string;
+    saved_at: number;
+    content: string;
+  })[];
+  // The same columns as a saved card in the results feed.
+  const results = db
+    .prepare(
+      `SELECT 'a:'||a.id key,COALESCE(p.saved_at,a.updated_at) saved_at,a.*,r.state run_state,r.error run_error,
+        json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,
+        (SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id
+      FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id
+      LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+      LEFT JOIN agents g ON g.id=a.agent_id
+      WHERE a.owner_id=@owner AND a.archived=0 AND a.pinned=1 AND ${fileArtifactSql}
+        AND json_extract(a.metadata,'$.snippet') IS NULL
+        AND ${after("COALESCE(p.saved_at,a.updated_at)", "'a:'||a.id")}
+        AND (@folders IS NULL OR a.folder_id IN (SELECT value FROM json_each(@folders)))
+        AND (@teams IS NULL OR a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=@owner AND team_id IN (SELECT value FROM json_each(@teams))))
+      ORDER BY COALESCE(p.saved_at,a.updated_at) DESC,key DESC LIMIT @limit`,
+    )
+    .all(params) as (Record<string, unknown> & {
+    key: string;
+    saved_at: number;
+  })[];
+  const merged = [
+    ...messages.map(({ key, saved_at, content, ...row }) => ({
+      kind: "message" as const,
+      key,
+      saved_at,
+      message: {
+        ...row,
+        preview: collapse(content, 280),
+        // Markdown for full-size cards; the client clips it visually.
+        content,
+      },
+    })),
+    ...results.map(({ key, saved_at, ...row }) => ({
+      kind: "result" as const,
+      key,
+      saved_at,
+      result: row,
+    })),
+  ].sort((a, b) => b.saved_at - a.saved_at || (a.key < b.key ? 1 : -1));
+  const more = merged.length > page;
+  const items = merged.slice(0, page);
+  const last = items.at(-1);
+  return {
+    items,
+    next: more && last ? encode({ at: last.saved_at, key: last.key }) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 4. Outline
+type OutlineItem = {
+  message_id: string;
+  kind: "prompt" | "result" | "approval" | "failure" | "saved";
+  preview: string;
+  created_at: number;
+  run_id: string | null;
+};
+export function conversationOutline(owner: string, conversation: string) {
+  owned("conversations", conversation, owner);
+  const messages = db
+    .prepare(
+      "SELECT id,run_id,role,substr(content,1,1000) content,created_at,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at,rowid",
+    )
+    .all(owner, conversation) as {
+    id: string;
+    run_id: string | null;
+    role: string;
+    content: string;
+    created_at: number;
+    seq: number;
+  }[];
+  const runs = db
+    .prepare(
+      "SELECT r.id,r.state,r.error,(SELECT count(*) FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id) approvals FROM runs r WHERE r.owner_id=? AND r.conversation_id=?",
+    )
+    .all(owner, conversation) as {
+    id: string;
+    state: string;
+    error: string | null;
+    approvals: number;
+  }[];
+  const saved = new Set(conversationReturnState(owner, conversation).saved);
+  const order = new Map(messages.map((m) => [m.id, m.seq]));
+  const items: OutlineItem[] = [];
+  const add = (
+    m: (typeof messages)[number],
+    kind: OutlineItem["kind"],
+    preview = collapse(m.content, 200),
+  ) =>
+    items.push({
+      message_id: m.id,
+      kind,
+      preview,
+      created_at: m.created_at,
+      run_id: m.run_id,
+    });
+  for (const m of messages) if (m.role === "user") add(m, "prompt");
+  for (const run of runs) {
+    const own = messages.filter((m) => m.run_id === run.id);
+    const last = own.at(-1);
+    if (!last) continue;
+    const answer = own.filter((m) => m.role !== "user").at(-1);
+    if (run.state === "completed" && answer) add(answer, "result");
+    if (["failed", "interrupted"].includes(run.state))
+      add(
+        last,
+        "failure",
+        collapse(run.error, 200) ||
+          (run.state === "failed" ? "Run failed" : "Run interrupted"),
+      );
+    // Never expose tool arguments here; the approval card holds them.
+    if (run.approvals > 0)
+      add(
+        last,
+        "approval",
+        run.approvals > 1
+          ? `${run.approvals} approvals requested`
+          : "Approval requested",
+      );
+  }
+  for (const m of messages) if (saved.has(m.id)) add(m, "saved");
+  const rank = { prompt: 0, approval: 1, failure: 2, result: 3, saved: 4 };
+  items.sort(
+    (a, b) =>
+      a.created_at - b.created_at ||
+      order.get(a.message_id)! - order.get(b.message_id)! ||
+      rank[a.kind] - rank[b.kind],
+  );
+  return { items };
+}
+
+// ---------------------------------------------------------------------------
+// 5. Later
+type LaterItem = {
+  id: string;
+  owner_id: string;
+  kind: "conversation" | "artifact" | "message";
+  target_id: string;
+  condition: "time" | "run_finished" | "project_open";
+  due_at: number | null;
+  project_id: string | null;
+  created_at: number;
+  surfaced_at: number | null;
+  done_at: number | null;
+};
+const laterInput = z.object({
+  kind: z.enum(["conversation", "artifact", "message"]),
+  targetId: z.string().min(1).max(150),
+  condition: z.enum(["time", "run_finished", "project_open"]),
+  dueAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  projectId: z.string().min(1).max(150).optional(),
+});
+const YEAR = 366 * 24 * 60 * 60 * 1000;
+
+function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
+  if (kind === "conversation") {
+    const c = db
+      .prepare(
+        `SELECT c.id,c.title,${conversationFolder("c")} folder_id,a.name agent_name,a.provider FROM conversations c LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?`,
+      )
+      .get(target, owner) as any;
+    if (!c) return null;
+    const last = db
+      .prepare(
+        "SELECT substr(content,1,4000) content FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+      )
+      .get(owner, c.id) as { content: string } | undefined;
+    return {
+      title: c.title as string,
+      preview: collapse(last?.content, 200),
+      content: last?.content ?? "",
+      conversation_id: c.id as string,
+      message_id: null,
+      agent_name: c.agent_name as string | null,
+      provider: c.provider as string | null,
+      folder_id: c.folder_id as string | null,
+      url: "/?conversation=" + encodeURIComponent(c.id),
+    };
+  }
+  if (kind === "message") {
+    const m = db
+      .prepare(
+        `SELECT m.id,substr(m.content,1,4000) content,m.conversation_id,c.title,a.name agent_name,a.provider,
+        COALESCE((SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.id=m.run_id AND r.owner_id=m.owner_id),c.project_id) folder_id
+        FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
+        LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE m.id=? AND m.owner_id=?`,
+      )
+      .get(target, owner) as any;
+    if (!m) return null;
+    return {
+      title: m.title as string,
+      preview: collapse(m.content, 200),
+      content: m.content as string,
+      conversation_id: m.conversation_id as string,
+      message_id: m.id as string,
+      agent_name: m.agent_name as string | null,
+      provider: m.provider as string | null,
+      folder_id: m.folder_id as string | null,
+      url:
+        "/?conversation=" +
+        encodeURIComponent(m.conversation_id) +
+        "&message=" +
+        encodeURIComponent(m.id),
+    };
+  }
+  const a = db
+    .prepare(
+      "SELECT a.id,a.title,substr(a.content,1,4000) content,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id,a.folder_id,g.name agent_name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id AND g.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=?",
+    )
+    .get(target, owner) as any;
+  if (!a) return null;
+  return {
+    title: a.title as string,
+    preview: collapse(a.content, 200),
+    content: a.content as string,
+    conversation_id: a.conversation_id as string | null,
+    message_id: (a.message_id as string | null) ?? null,
+    agent_name: a.agent_name as string | null,
+    provider: a.provider as string | null,
+    folder_id: a.folder_id as string | null,
+    url: resultUrl(a),
+  };
+}
+
+export function createLater(owner: string, body: unknown) {
+  const d = laterInput.parse(body);
+  const time = now();
+  if (d.condition === "time") {
+    if (d.dueAt === undefined)
+      throw new Problem(400, "Choose when to bring this back");
+    if (d.dueAt <= time || d.dueAt > time + YEAR)
+      throw new Problem(400, "Choose a time within the next year");
+  }
+  if (d.condition === "project_open" && !d.projectId)
+    throw new Problem(400, "Choose a project");
+  return db
+    .transaction(() => {
+      const table = {
+        conversation: "conversations",
+        artifact: "artifacts",
+        message: "messages",
+      }[d.kind];
+      owned(table, d.targetId, owner);
+      if (d.projectId) owned("folders", d.projectId, owner);
+      db.prepare(
+        "UPDATE later_items SET done_at=? WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
+      ).run(time, owner, d.kind, d.targetId);
+      const itemId = id();
+      db.prepare(
+        "INSERT INTO later_items(id,owner_id,kind,target_id,condition,due_at,project_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(
+        itemId,
+        owner,
+        d.kind,
+        d.targetId,
+        d.condition,
+        d.condition === "time" ? d.dueAt : null,
+        d.condition === "project_open" ? d.projectId : null,
+        time,
+      );
+      return laterRow(owner, itemId)!;
+    })
+    .immediate();
+}
+const laterRow = (owner: string, itemId: string) =>
+  db
+    .prepare("SELECT * FROM later_items WHERE id=? AND owner_id=?")
+    .get(itemId, owner) as LaterItem | undefined;
+
+export function listLater(owner: string) {
+  const rows = db
+    .prepare(
+      "SELECT * FROM later_items WHERE owner_id=? AND done_at IS NULL ORDER BY COALESCE(surfaced_at,due_at,created_at),created_at LIMIT 400",
+    )
+    .all(owner) as LaterItem[];
+  const view = (item: LaterItem) => {
+    const target = laterTarget(owner, item.kind, item.target_id);
+    const project =
+      projectFor(owner, item.project_id) ||
+      projectFor(owner, target?.folder_id);
+    return {
+      ...item,
+      title: target?.title ?? "Item unavailable",
+      preview: target?.preview ?? "",
+      content: target?.content ?? "",
+      provider: target?.provider ?? null,
+      conversation_id: target?.conversation_id ?? null,
+      message_id: target?.message_id ?? null,
+      agent_name: target?.agent_name ?? null,
+      project_name: project?.name ?? null,
+    };
+  };
+  return {
+    due: rows
+      .filter((row) => row.surfaced_at !== null)
+      .sort((a, b) => b.surfaced_at! - a.surfaced_at!)
+      .map(view),
+    upcoming: rows.filter((row) => row.surfaced_at === null).map(view),
+  };
+}
+
+export function finishLater(owner: string, itemId: string) {
+  const changed = db
+    .prepare(
+      "UPDATE later_items SET done_at=? WHERE id=? AND owner_id=? AND done_at IS NULL",
+    )
+    .run(now(), itemId, owner).changes;
+  if (!changed && !laterRow(owner, itemId))
+    throw new Problem(404, "Item not found");
+  return { ok: true };
+}
+
+export function projectOpened(owner: string, project: string) {
+  owned("folders", project, owner);
+  return {
+    surfaced: db
+      .prepare(
+        "UPDATE later_items SET surfaced_at=? WHERE owner_id=? AND condition='project_open' AND project_id=? AND surfaced_at IS NULL AND done_at IS NULL",
+      )
+      .run(now(), owner, project).changes,
+  };
+}
+
+// Push to every device of the owner. The key doubles as the notification tag.
+export function enqueuePush(
+  owner: string,
+  key: string,
+  message: { title: string; body: string; url: string },
+) {
+  db.prepare(
+    "INSERT OR IGNORE INTO push_messages(subscription_id,message_key,title,body,url,available_at) SELECT id,?,?,?,?,? FROM push_subscriptions WHERE owner_id=?",
+  ).run(
+    key,
+    message.title.slice(0, 120),
+    message.body.slice(0, 140),
+    message.url,
+    now(),
+    owner,
+  );
+}
+
+// Worker job. Surfacing and its push commit together, exactly once per item.
+export function surfaceLater(time = now()) {
+  return db
+    .transaction(() => {
+      const due = db
+        .prepare(
+          `SELECT l.* FROM later_items l WHERE l.done_at IS NULL AND l.surfaced_at IS NULL AND (
+          (l.condition='time' AND l.due_at<=@now) OR
+          (l.condition='run_finished' AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=l.owner_id AND r.state IN ${ACTIVE_STATES}
+            AND r.conversation_id=(CASE l.kind
+              WHEN 'conversation' THEN l.target_id
+              WHEN 'message' THEN (SELECT m.conversation_id FROM messages m WHERE m.id=l.target_id AND m.owner_id=l.owner_id)
+              ELSE (SELECT COALESCE(a.conversation_id,(SELECT ar.conversation_id FROM runs ar WHERE ar.id=a.run_id)) FROM artifacts a WHERE a.id=l.target_id AND a.owner_id=l.owner_id) END))))
+          ORDER BY l.created_at LIMIT 100`,
+        )
+        .all({ now: time }) as LaterItem[];
+      let surfaced = 0;
+      for (const item of due) {
+        const changed = db
+          .prepare(
+            "UPDATE later_items SET surfaced_at=? WHERE id=? AND surfaced_at IS NULL AND done_at IS NULL",
+          )
+          .run(time, item.id).changes;
+        if (!changed) continue;
+        surfaced++;
+        const target = laterTarget(item.owner_id, item.kind, item.target_id);
+        enqueuePush(item.owner_id, "later-" + item.id, {
+          title: "Back from Later",
+          body: target?.title || "An item you deferred is ready",
+          url: target?.url || "/?page=later",
+        });
+      }
+      return surfaced;
+    })
+    .immediate();
+}
+
+// ---------------------------------------------------------------------------
+// 6. Scheduled sends
+const MONTH = 30 * 24 * 60 * 60 * 1000;
+const scheduleInput = z.object({
+  agentId: z.string().min(1).max(150),
+  conversationId: z.string().min(1).max(150).optional(),
+  folderId: z.string().min(1).max(150).nullable().optional(),
+  input: z.string().trim().min(1).max(30000),
+  attachmentIds,
+  replyToMessageId: z.string().min(1).max(150).optional(),
+  idempotencyKey: z.string().min(8).max(150),
+  sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+});
+type ScheduledSend = {
+  id: string;
+  owner_id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  folder_id: string | null;
+  /** 1 when a project (or explicitly none) was chosen; 0 uses the agent's. */
+  folder_chosen: number;
+  input: string;
+  attachment_ids: string;
+  reply_to_message_id: string | null;
+  idempotency_key: string;
+  send_at: number;
+  state: string;
+  run_id: string | null;
+  error: string | null;
+  created_at: number;
+};
+
+function validSendAt(sendAt: number, time = now()) {
+  if (sendAt <= time || sendAt > time + MONTH)
+    throw new Problem(400, "Choose a send time within the next 30 days");
+}
+
+export function createScheduledSend(owner: string, body: unknown) {
+  const d = scheduleInput.parse(body);
+  return db
+    .transaction(() => {
+      // A retry of accepted work returns its receipt first, before any check
+      // that depends on when it is retried (the time may have passed).
+      const prior = db
+        .prepare(
+          "SELECT * FROM scheduled_sends WHERE owner_id=? AND idempotency_key=?",
+        )
+        .get(owner, d.idempotencyKey) as ScheduledSend | undefined;
+      if (prior) {
+        const same =
+          prior.agent_id === d.agentId &&
+          prior.input === d.input &&
+          prior.conversation_id === (d.conversationId ?? null) &&
+          prior.folder_id === (d.folderId ?? null) &&
+          prior.folder_chosen === Number(d.folderId !== undefined) &&
+          prior.reply_to_message_id === (d.replyToMessageId ?? null) &&
+          prior.attachment_ids === JSON.stringify(d.attachmentIds) &&
+          prior.send_at === d.sendAt;
+        if (!same)
+          throw new Problem(409, "This request key belongs to different work");
+        return { created: false, row: prior };
+      }
+      validSendAt(d.sendAt);
+      if (
+        db
+          .prepare("SELECT 1 FROM runs WHERE owner_id=? AND idempotency_key=?")
+          .get(owner, d.idempotencyKey)
+      )
+        throw new Problem(409, "This request key belongs to different work");
+      const agent = owned<Agent>("agents", d.agentId, owner);
+      if (agent.retired_at)
+        throw new Problem(
+          409,
+          "This agent is retired. Restore it from its profile before sending new work.",
+        );
+      if (!agent.connection_id)
+        throw new Problem(409, "Connect a provider to this agent first");
+      if (d.conversationId) {
+        const c = owned<{ agent_id: string }>(
+          "conversations",
+          d.conversationId,
+          owner,
+        );
+        if (c.agent_id !== agent.id)
+          throw new Problem(400, "This conversation belongs to another agent");
+      }
+      if (d.folderId) owned("folders", d.folderId, owner);
+      const files = attachedFiles(owner, d.attachmentIds);
+      if (d.replyToMessageId)
+        messageReplyContext(
+          owner,
+          agent.id,
+          d.conversationId,
+          d.replyToMessageId,
+        );
+      const pending = db
+        .prepare(
+          "SELECT count(*) n FROM scheduled_sends WHERE owner_id=? AND state='scheduled'",
+        )
+        .get(owner) as { n: number };
+      if (pending.n >= 100)
+        throw new Problem(429, "You have 100 scheduled messages. Cancel some first.");
+      const sendId = id();
+      db.prepare(
+        `INSERT INTO scheduled_sends(id,owner_id,agent_id,conversation_id,folder_id,folder_chosen,input,attachment_ids,reply_to_message_id,idempotency_key,send_at,state,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)`,
+      ).run(
+        sendId,
+        owner,
+        agent.id,
+        d.conversationId ?? null,
+        d.folderId ?? null,
+        Number(d.folderId !== undefined),
+        d.input,
+        JSON.stringify(files.map((file) => file.id)),
+        d.replyToMessageId ?? null,
+        d.idempotencyKey,
+        d.sendAt,
+        now(),
+      );
+      return { created: true, row: scheduledSend(owner, sendId)! };
+    })
+    .immediate();
+}
+
+function scheduledSend(owner: string, sendId: string) {
+  return db
+    .prepare("SELECT * FROM scheduled_sends WHERE id=? AND owner_id=?")
+    .get(sendId, owner) as ScheduledSend | undefined;
+}
+
+/**
+ * Scheduled messages that still need you: waiting to send, or not sent
+ * because Loop refused them when they were due. Owner-wide, or one thread's.
+ */
+const failedCursor = z.object({ at: z.number(), created: z.number(), id: z.string() });
+const FAILED_PAGE = 100;
+export function listScheduledSends(
+  owner: string,
+  conversation?: string,
+  failedBefore?: string,
+) {
+  if (conversation) owned("conversations", conversation, owner);
+  const cursor = failedBefore
+    ? decode(failedBefore, failedCursor, "scheduled")
+    : null;
+  // Waiting and not-sent messages are read separately, so a long history of
+  // failures can never hide work that is still going to be sent. Failures
+  // page newest first, so every one stays reachable to retry or dismiss.
+  const select = `SELECT s.*,a.name agent_name,a.provider,c.title conversation_title,f.name folder_name
+        FROM scheduled_sends s
+        LEFT JOIN agents a ON a.id=s.agent_id AND a.owner_id=s.owner_id
+        LEFT JOIN conversations c ON c.id=s.conversation_id AND c.owner_id=s.owner_id
+        LEFT JOIN folders f ON f.id=COALESCE(s.folder_id,c.project_id) AND f.owner_id=s.owner_id
+        WHERE s.owner_id=@owner AND (@conversation IS NULL OR s.conversation_id=@conversation)`;
+  const failed = db
+    .prepare(
+      `${select} AND s.state='failed'
+        AND (@at IS NULL OR s.send_at<@at OR (s.send_at=@at AND (s.created_at<@created OR (s.created_at=@created AND s.id<@id))))
+        ORDER BY s.send_at DESC,s.created_at DESC,s.id DESC LIMIT @limit`,
+    )
+    .all({
+      owner,
+      conversation: conversation ?? null,
+      at: cursor?.at ?? null,
+      created: cursor?.created ?? null,
+      id: cursor?.id ?? null,
+      limit: FAILED_PAGE + 1,
+    }) as ScheduledSend[];
+  const more = failed.length > FAILED_PAGE;
+  if (more) failed.pop();
+  const last = failed.at(-1);
+  // Pending messages are capped at 100 per owner, so one read holds them all.
+  const pending = cursor
+    ? []
+    : db
+        .prepare(`${select} AND s.state='scheduled' ORDER BY s.send_at,s.created_at`)
+        .all({ owner, conversation: conversation ?? null });
+  return {
+    items: [...failed, ...pending],
+    failed_next:
+      more && last
+        ? encode({ at: last.send_at, created: last.created_at, id: last.id })
+        : null,
+  };
+}
+
+/** Cancel a waiting message, or dismiss one that could not be sent. */
+export function cancelScheduledSend(owner: string, sendId: string) {
+  return db
+    .transaction(() => {
+      const row = scheduledSend(owner, sendId);
+      if (!row) throw new Problem(404, "Item not found");
+      if (!["scheduled", "failed"].includes(row.state))
+        throw new Problem(409, "This message was already sent or cancelled");
+      db.prepare(
+        "UPDATE scheduled_sends SET state='cancelled' WHERE id=? AND owner_id=? AND state IN ('scheduled','failed')",
+      ).run(sendId, owner);
+      return { ok: true };
+    })
+    .immediate();
+}
+
+/** Change the text or time of a message that is still waiting to send. */
+export function editScheduledSend(owner: string, sendId: string, body: unknown) {
+  const d = z
+    .object({
+      input: z.string().trim().min(1).max(30000).optional(),
+      sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    })
+    .parse(body ?? {});
+  return db
+    .transaction(() => {
+      const row = scheduledSend(owner, sendId);
+      if (!row) throw new Problem(404, "Item not found");
+      if (row.state !== "scheduled")
+        throw new Problem(409, "This message was already sent or cancelled");
+      if (d.sendAt !== undefined) validSendAt(d.sendAt);
+      db.prepare(
+        "UPDATE scheduled_sends SET input=?,send_at=? WHERE id=? AND owner_id=? AND state='scheduled'",
+      ).run(d.input ?? row.input, d.sendAt ?? row.send_at, sendId, owner);
+      return scheduledSend(owner, sendId)!;
+    })
+    .immediate();
+}
+
+// Submits a scheduled message with its stored idempotency key, inside the
+// caller's transaction: if it was already accepted, submit() returns that run.
+function submitScheduled(row: ScheduledSend) {
+  const run = submit(row.owner_id, {
+    agentId: row.agent_id,
+    conversationId: row.conversation_id ?? undefined,
+    // "No project" stays null; only an unchosen project uses the agent's.
+    folderId: row.folder_chosen ? row.folder_id : undefined,
+    input: row.input,
+    attachmentIds: JSON.parse(row.attachment_ids),
+    replyToMessageId: row.reply_to_message_id ?? undefined,
+    idempotencyKey: row.idempotency_key,
+    // A deferred message never steers work that started after it was
+    // written; it queues behind the conversation's current run.
+    steer: false,
+    personal: true,
+  });
+  db.prepare(
+    "UPDATE scheduled_sends SET state='submitted',run_id=?,error=NULL WHERE id=?",
+  ).run(run.id, row.id);
+  return run;
+}
+const refusal = (error: unknown) =>
+  error instanceof Problem
+    ? error.message
+    : error instanceof ZodError
+      ? "This scheduled message is no longer valid."
+      : null;
+
+/**
+ * Send a message that could not be sent, now, after you ask to. It was
+ * refused, never accepted, so its stored key cannot duplicate work; if it is
+ * refused again the reason is kept and returned.
+ */
+export function retryScheduledSend(owner: string, sendId: string) {
+  return db
+    .transaction(() => {
+      const row = scheduledSend(owner, sendId);
+      if (!row) throw new Problem(404, "Item not found");
+      if (row.state !== "failed")
+        throw new Problem(409, "Only a message that could not be sent can be retried");
+      try {
+        return { run: submitScheduled(row), row: scheduledSend(owner, sendId)! };
+      } catch (error) {
+        const reason = refusal(error);
+        if (reason === null) throw error;
+        db.prepare("UPDATE scheduled_sends SET error=? WHERE id=?").run(
+          reason,
+          row.id,
+        );
+        return { run: null, row: scheduledSend(owner, sendId)! };
+      }
+    })
+    .immediate();
+}
+
+// Worker job. The row's claim and the run it creates commit in one immediate
+// transaction, and submit() reuses the stored idempotency key: a crash or a
+// second worker can only find the existing run, never create another. Only a
+// definite refusal marks a message failed; any other error rolls back and the
+// message is tried again on the next pass.
+export function deliverScheduledSends(time = now()) {
+  const due = db
+    .prepare(
+      "SELECT id FROM scheduled_sends WHERE state='scheduled' AND send_at<=? ORDER BY send_at,rowid LIMIT 20",
+    )
+    .all(time) as { id: string }[];
+  let submitted = 0;
+  for (const { id: sendId } of due)
+    db.transaction(() => {
+      const row = db
+        .prepare(
+          "SELECT * FROM scheduled_sends WHERE id=? AND state='scheduled'",
+        )
+        .get(sendId) as ScheduledSend | undefined;
+      if (!row) return;
+      try {
+        submitScheduled(row);
+        submitted++;
+      } catch (error) {
+        const reason = refusal(error);
+        if (reason === null) throw error;
+        db.prepare(
+          "UPDATE scheduled_sends SET state='failed',error=? WHERE id=?",
+        ).run(reason, row.id);
+      }
+    }).immediate();
+  return submitted;
+}
+
+// ---------------------------------------------------------------------------
+// 7. Queue management
+type QueuedRun = Run & {
+  worker_id: string | null;
+  active_since?: number | null;
+  rowid?: number;
+};
+const perConversation = (r: string) =>
+  `(json_extract(${r}.payload,'$.execution.backend') IS 'hapi' OR EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${PER_CONVERSATION_CONNECTION_SQL}))`;
+const RANK_STEP = 1 / 1024;
+
+// Only a message that has never started can change. A paused-then-resumed
+// API run is queued again but keeps its checkpointed history (and possibly
+// pending tools), so editing it would change the transcript but not what the
+// model executes.
+function editable(run: QueuedRun) {
+  return (
+    run.state === "queued" &&
+    run.worker_id === null &&
+    !run.active_since &&
+    !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id) &&
+    !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) &&
+    !db.prepare("SELECT 1 FROM native_dispatches WHERE run_id=?").get(run.id)
+  );
+}
+
+export function reorderRun(owner: string, runId: string, body: unknown) {
+  const { direction } = z
+    .object({ direction: z.enum(["up", "down"]) })
+    .parse(body);
+  return db
+    .transaction(() => {
+      const run = owned<QueuedRun>("runs", runId, owner);
+      if (run.state !== "queued" || !run.agent_id)
+        throw new Problem(409, "Only queued work can be reordered");
+      const peers = queuedPeers(owner, run.id);
+      const index = peers.findIndex((peer) => peer.id === run.id);
+      const other = index + (direction === "up" ? -1 : 1);
+      if (index < 0 || other < 0 || other >= peers.length)
+        throw new Problem(409, "There is no queued message to swap with");
+      if (!canSwap(peers, index, other))
+        throw new Problem(
+          409,
+          "Messages in the same thread run in the order they were sent",
+        );
+      const keys = peers.map((peer) => peer.queue_key);
+      const reordered = [...peers];
+      [reordered[index], reordered[other]] = [reordered[other], reordered[index]];
+      // Keep ranks near their original times and strictly increasing, so
+      // equal timestamps cannot fall back to insertion order.
+      let previous = -Infinity;
+      reordered.forEach((peer, position) => {
+        const rank = Math.max(keys[position], previous + RANK_STEP);
+        previous = rank;
+        if (rank !== peer.queue_key)
+          db.prepare(
+            "UPDATE runs SET queue_rank=? WHERE id=? AND owner_id=? AND state='queued'",
+          ).run(rank, peer.id, owner);
+      });
+      emit(owner, run.id, "queue.reordered", { direction });
+      return { ok: true };
+    })
+    .immediate();
+}
+
+export function editQueuedRun(owner: string, runId: string, body: unknown) {
+  const { input } = z
+    .object({ input: z.string().trim().min(1).max(30000) })
+    .parse(body);
+  return db
+    .transaction(() => {
+      const run = owned<QueuedRun>("runs", runId, owner);
+      if (!editable(run))
+        throw new Problem(409, "This message has already started. It can no longer be edited.");
+      db.prepare(
+        "UPDATE runs SET input=?,updated_at=? WHERE id=? AND owner_id=? AND state='queued' AND worker_id IS NULL",
+      ).run(input, now(), run.id, owner);
+      db.prepare(
+        "UPDATE messages SET content=? WHERE run_id=? AND owner_id=? AND role='user'",
+      ).run(input, run.id, owner);
+      emit(owner, run.id, "queue.edited", {});
+      return { ok: true };
+    })
+    .immediate();
+}
+
+export function moveQueuedRun(owner: string, runId: string, body: unknown) {
+  const d = z
+    .object({
+      agentId: z.string().min(1).max(150),
+      idempotencyKey: z.string().min(8).max(150),
+    })
+    .parse(body);
+  return db
+    .transaction(() => {
+      const run = owned<QueuedRun>("runs", runId, owner);
+      const payload = JSON.parse(run.payload);
+      const request = {
+        agentId: d.agentId,
+        input: run.input,
+        idempotencyKey: d.idempotencyKey,
+        attachmentIds: payload.attachmentIds || [],
+        folderId:
+          typeof payload.folderId === "string" ? payload.folderId : undefined,
+        steer: false,
+        personal: true,
+      };
+      // A repeated move returns the run the first attempt created.
+      if (
+        db
+          .prepare("SELECT 1 FROM runs WHERE owner_id=? AND idempotency_key=?")
+          .get(owner, d.idempotencyKey)
+      )
+        return submit(owner, request);
+      if (
+        run.kind !== "agent" ||
+        !editable(run) ||
+        db
+          .prepare(
+            "SELECT 1 FROM delegations WHERE child_run_id=? UNION ALL SELECT 1 FROM workflow_steps WHERE child_run_id=?",
+          )
+          .get(run.id, run.id)
+      )
+        throw new Problem(409, "Only a queued message you sent can be moved");
+      if (!transition(run, "cancelled", { reason: "Moved to another agent" }))
+        throw new Problem(409, "This message has already started");
+      // submit() throwing rolls back the cancellation too.
+      return submit(owner, request);
+    })
+    .immediate();
+}
+
+// ---------------------------------------------------------------------------
+// 9. Fork
+export function forkConversation(
+  owner: string,
+  conversation: string,
+  body: unknown,
+) {
+  const d = z
+    .object({
+      messageId: z.string().min(1).max(150),
+      agentId: z.string().min(1).max(150).optional(),
+    })
+    .parse(body);
+  return db
+    .transaction(() => {
+      const c = owned<{
+        id: string;
+        title: string;
+        agent_id: string | null;
+        project_id: string | null;
+      }>("conversations", conversation, owner);
+      const agentId = d.agentId || c.agent_id;
+      if (!agentId) throw new Problem(400, "Choose an agent for the fork");
+      const agent = owned<Agent>("agents", agentId, owner);
+      if (!agent.connection_id)
+        throw new Problem(409, "Choose an agent with a connected model");
+      const target = db
+        .prepare(
+          "SELECT rowid seq,created_at FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
+        )
+        .get(d.messageId, owner, c.id) as
+        | { seq: number; created_at: number }
+        | undefined;
+      if (!target)
+        throw new Problem(404, "Message not found in this conversation");
+      const messages = db
+        .prepare(
+          `SELECT * FROM messages WHERE owner_id=? AND conversation_id=?
+          AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0
+          AND (created_at<? OR (created_at=? AND rowid<=?)) ORDER BY created_at,rowid`,
+        )
+        .all(
+          owner,
+          c.id,
+          target.created_at,
+          target.created_at,
+          target.seq,
+        ) as Message[];
+      const forkId = id();
+      // Bind the fork to the selected agent's backend now, as a first send to
+      // a new conversation would. HAPI conversations otherwise stay "legacy"
+      // and their first prompt is rejected.
+      const connection = owned<{ id: string; metadata: string }>(
+        "connections",
+        agent.connection_id,
+        owner,
+      );
+      const native = !!connectionSelection(connection);
+      db.prepare(
+        "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_backend,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      ).run(
+        forkId,
+        owner,
+        agent.id,
+        ("Fork: " + c.title).slice(0, 200),
+        "loop-fork",
+        null,
+        now(),
+        c.project_id,
+        native ? "hapi" : "legacy",
+        native ? connection.id : null,
+      );
+      const insert = db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      );
+      for (const m of messages) {
+        const metadata = JSON.parse(m.metadata);
+        insert.run(
+          id(),
+          owner,
+          forkId,
+          null,
+          m.role,
+          m.content,
+          JSON.stringify({
+            sourceConversation: c.id,
+            sourceMessage: m.id,
+            forked: true,
+            // Native backends start fresh sessions from these copied turns.
+            selectedByUser: true,
+            attachments: metadata.attachments || [],
+            original: metadata,
+          }),
+          m.created_at,
+        );
+      }
+      return { id: forkId, agentId: agent.id };
+    })
+    .immediate();
+}
+
+// ---------------------------------------------------------------------------
+// 10. Usage
+type Tokens = { input_tokens: number; output_tokens: number };
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+export function conversationUsage(owner: string, conversation: string) {
+  owned("conversations", conversation, owner);
+  const events = db
+    .prepare(
+      `SELECT e.run_id,e.payload FROM events e JOIN runs r ON r.id=e.run_id AND r.owner_id=e.owner_id
+      WHERE e.owner_id=? AND r.conversation_id=? AND e.type='provider.receipt' ORDER BY e.id`,
+    )
+    .all(owner, conversation) as { run_id: string; payload: string }[];
+  const runs: Record<string, Tokens> = {};
+  // A provider message is one receipt with an externalId, optionally followed
+  // by cumulative deltas (Anthropic message_start + message_delta). Take the
+  // maximum per message so cumulative counts are not added twice.
+  let segment: { run: string; tokens: Tokens } | undefined;
+  const flush = () => {
+    if (!segment) return;
+    const total = (runs[segment.run] ||= { input_tokens: 0, output_tokens: 0 });
+    total.input_tokens += segment.tokens.input_tokens;
+    total.output_tokens += segment.tokens.output_tokens;
+    segment = undefined;
+  };
+  for (const event of events) {
+    let payload: { usage?: Record<string, unknown>; externalId?: unknown };
+    try {
+      payload = JSON.parse(event.payload);
+    } catch {
+      continue;
+    }
+    const usage = payload.usage;
+    if (payload.externalId || !segment || segment.run !== event.run_id) {
+      flush();
+      segment = {
+        run: event.run_id,
+        tokens: { input_tokens: 0, output_tokens: 0 },
+      };
+    }
+    if (!usage || typeof usage !== "object") continue;
+    const input = count(usage.input_tokens) || count(usage.prompt_tokens);
+    const output = count(usage.output_tokens) || count(usage.completion_tokens);
+    segment.tokens.input_tokens = Math.max(segment.tokens.input_tokens, input);
+    segment.tokens.output_tokens = Math.max(
+      segment.tokens.output_tokens,
+      output,
+    );
+  }
+  flush();
+  for (const [run, tokens] of Object.entries(runs))
+    if (!tokens.input_tokens && !tokens.output_tokens) delete runs[run];
+  const total = Object.values(runs).reduce(
+    (sum, tokens) => ({
+      input_tokens: sum.input_tokens + tokens.input_tokens,
+      output_tokens: sum.output_tokens + tokens.output_tokens,
+    }),
+    { input_tokens: 0, output_tokens: 0 },
+  );
+  return { runs, total };
+}
+
+// ---------------------------------------------------------------------------
+// 11. Snippets
+export function listSnippets(owner: string) {
+  return {
+    items: db
+      .prepare(
+        `SELECT id,title,content,created_at FROM artifacts WHERE owner_id=? AND archived=0
+        AND (json_extract(metadata,'$.snippet')=1 OR title LIKE 'Saved prompt:%')
+        ORDER BY created_at DESC,rowid DESC LIMIT 100`,
+      )
+      .all(owner),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 12. Project summaries
+export function projectSummaries(owner: string) {
+  const projects = db
+    .prepare(
+      "SELECT id,name FROM folders WHERE owner_id=? AND kind='project' AND parent_id IS NULL",
+    )
+    .all(owner) as { id: string; name: string }[];
+  const byProject = <T>(sql: string) =>
+    new Map(
+      (
+        db
+          .prepare(`WITH RECURSIVE ${FOLDER_PROJECT} ${sql}`)
+          .all({ owner }) as (T & { project_id: string })[]
+      ).map((row) => [row.project_id, row]),
+    );
+  const agents = byProject<{ n: number }>(
+    "SELECT fp.project_id,count(*) n FROM agents a JOIN folder_project fp ON fp.id=a.folder_id WHERE a.owner_id=@owner AND a.retired_at IS NULL GROUP BY fp.project_id",
+  );
+  const runs = byProject<{ last: number; working: number; needs: number }>(
+    `SELECT fp.project_id,max(r.updated_at) last,
+      sum(r.state IN ('running','pausing')) working,
+      sum(r.attention_dismissed_at IS NULL AND (r.state IN ('awaiting_approval','paused') OR r.state IN ('failed','interrupted'))) needs
+    FROM runs r JOIN folder_project fp ON fp.id=json_extract(r.payload,'$.folderId')
+    WHERE r.owner_id=@owner AND NOT ${internalRun("r")} GROUP BY fp.project_id`,
+  );
+  const artifacts = byProject<{ last: number }>(
+    "SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id=a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id",
+  );
+  const latest = byProject<{ id: string; title: string; created_at: number }>(
+    `SELECT project_id,id,title,created_at FROM (
+      SELECT fp.project_id,a.id,a.title,a.created_at,
+        row_number() OVER (PARTITION BY fp.project_id ORDER BY p.sequence DESC) n
+      FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id
+      JOIN folder_project fp ON fp.id=a.folder_id
+      LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+      WHERE a.owner_id=@owner AND a.archived=0 AND a.feed_hidden=0 AND ${feedOutputSql}
+    ) WHERE n=1`,
+  );
+  const items = projects.map((project) => {
+    const run = runs.get(project.id),
+      artifact = artifacts.get(project.id),
+      result = latest.get(project.id);
+    const activity = Math.max(run?.last ?? 0, artifact?.last ?? 0);
+    return {
+      id: project.id,
+      name: project.name,
+      agents: agents.get(project.id)?.n ?? 0,
+      last_activity_at: activity || null,
+      working: run?.working ?? 0,
+      needs: run?.needs ?? 0,
+      latest_result: result
+        ? { id: result.id, title: result.title, created_at: result.created_at }
+        : null,
+    };
+  });
+  items.sort(
+    (a, b) =>
+      (b.last_activity_at ?? -1) - (a.last_activity_at ?? -1) ||
+      a.name.localeCompare(b.name),
+  );
+  return { items };
+}

@@ -173,7 +173,7 @@ export function Traces({
             {!runId && group[0].run_error && (
               <p className="error">{group[0].run_error}</p>
             )}
-            {[...group].reverse().map((item) => {
+            {group.map((item) => {
               const meta = parse<any>(item.metadata, {});
               const state =
                 meta.state === "running" || meta.state === "waiting"

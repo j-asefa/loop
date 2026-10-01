@@ -1,3 +1,4 @@
+import { openAgentProfile } from "./browser-ui.mjs";
 import { expect } from "@playwright/test";
 
 export async function modelLabelsSmoke(page, fixture, capture) {
@@ -43,13 +44,21 @@ export async function modelLabelsSmoke(page, fixture, capture) {
     page.locator(".feed-card").filter({
       has: page.getByRole("heading", { name: artifact.title, exact: true }),
     });
+  const author = fixture.db
+    .prepare("SELECT name FROM agents WHERE id=?")
+    .get(artifact.agent_id).name;
+  // Result cards live on the author's profile.
+  const results = async () => {
+    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await openAgentProfile(page, author);
+  };
   try {
     // The preceding profile check can leave a Messages read in flight. Let
     // WebKit finish it before replacing the document for this fixture.
     await page.waitForLoadState("networkidle");
-    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await results();
     await expect(card().locator(".card-model")).toHaveText("Claude Opus 5.5");
-    await card().getByRole("button", { name: "Open output" }).click();
+    await card().getByRole("button", { name: "View full result" }).click();
     const result = page.locator(".result-sheet[open]");
     await expect(result.locator(".result-author-details > span")).toHaveText(
       "Claude Opus 5.5",
@@ -58,19 +67,18 @@ export async function modelLabelsSmoke(page, fixture, capture) {
     await result.locator(".result-identity").click();
     // The agent currently uses Sonnet, but the saved result used default/Opus.
     await expect(page.locator(".profile-model")).toHaveText("Claude Sonnet");
-    await page.getByRole("button", { name: "Results", exact: true }).click();
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
     await expect(card().locator(".card-model")).toHaveText("Claude Opus 5.5");
     await capture("resolved-default-profile-result");
     await page.waitForFunction(() => history.state?.loopSheet !== true);
-    await page.goto(fixture.base, { waitUntil: "networkidle" });
-    await page
-      .locator(".mobile-nav")
-      .getByRole("button", { name: "Running", exact: true })
-      .click();
-    const runningCard = page.locator(".run-card").filter({ hasText: run.input });
-    await expect(runningCard.locator(".card-model")).toHaveText(
-      "Claude Opus 5.5",
-    );
+    // Running cards (with a per-run model label) were replaced by Feed rows;
+    // the run on the default model still appears under Working.
+    await page.goto(fixture.base + "/?filter=working", {
+      waitUntil: "networkidle",
+    });
+    await expect(
+      page.locator(".inbox-row").filter({ hasText: run.input }),
+    ).toHaveAttribute("aria-label", /, Working$/);
     await capture("resolved-default-running");
 
     fixture.db
@@ -79,7 +87,7 @@ export async function modelLabelsSmoke(page, fixture, capture) {
         JSON.stringify({ ...metadata, model: "claude-opus-4-8" }),
         artifact.id,
       );
-    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await results();
     await expect(card().locator(".card-model")).toHaveText("Claude Opus 4.8");
   } finally {
     fixture.db

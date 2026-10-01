@@ -1,10 +1,10 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import assert from "node:assert/strict";
 export async function architectureSettingsJourney(page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Execution environments/ }).click();
   await expect(
     page.getByText(
@@ -21,7 +21,7 @@ export async function architectureSettingsJourney(page) {
     );
   }
   await closeSheets(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Shared memory/ }).click();
   await expect(page.getByText(/Lexical fallback/)).toBeVisible();
   await page
@@ -145,7 +145,7 @@ async function nativeLoginFixture(originalPage) {
     return route.fulfill({ json: snapshot });
   });
   const open = async () => {
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettings(page);
     await page.getByRole("button", { name: /Execution environments/ }).click();
     await page
       .getByRole("button", { name: "Manage sign-in", exact: true })

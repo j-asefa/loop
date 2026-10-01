@@ -56,6 +56,16 @@ function describe(a: Approval) {
   return { request, title, args, target };
 }
 
+// One-tap decisions only for requests that need no answers or install review.
+function quickDecision(item: Approval) {
+  const { request, args } = describe(item);
+  return (
+    request.type !== "mcp_install" &&
+    !(request.type === "hapi_native" && (args.questions || []).length) &&
+    item.expires_at > Date.now()
+  );
+}
+
 export function Approvals({
   revision,
   teams = "",
@@ -125,8 +135,14 @@ export function Approvals({
   const active = selected && items.find((item) => item.id === selected.id);
   const expired = !!selected && selected.expires_at <= time;
   const detail = selected && describe(selected);
-  async function decide(decision: "approve" | "reject") {
-    if (!selected || !active || expired || locked.current) return;
+  async function decide(
+    decision: "approve" | "reject",
+    target: Approval | null = selected,
+  ) {
+    const current = target && items.find((item) => item.id === target.id);
+    if (!target || !current || target.expires_at <= Date.now() || locked.current)
+      return;
+    const detail = describe(target);
     locked.current = true;
     setBusy(decision);
     setError("");
@@ -144,14 +160,14 @@ export function Approvals({
           return [key, answer ? [answer] : []];
         }),
       );
-      await api("/approvals/" + selected.id, {
+      await api("/approvals/" + target.id, {
         decision,
         ...(decision === "approve" && questions.length
           ? { answers: normalized }
           : {}),
       });
-      decided.current.add(selected.id);
-      setItems((old) => old.filter((item) => item.id !== selected.id));
+      decided.current.add(target.id);
+      setItems((old) => old.filter((item) => item.id !== target.id));
       setSelected(null);
       setNotice(
         decision === "approve"
@@ -173,6 +189,71 @@ export function Approvals({
         const d = describe(item);
         return (
           <article className="approval-card" key={item.id}>
+            <button
+              className="approval-summary"
+              aria-label={"Review approval: " + d.title}
+              onClick={() => {
+                setSelected(item);
+                setError("");
+                setNotice("");
+              }}
+            >
+              <span className="approval-symbol">
+                <ShieldCheck size={23} />
+              </span>
+              <span className="approval-summary-text">
+                <span className="eyebrow">Your approval is needed</span>
+                <strong>{d.title}</strong>
+                <span className="field-hint">
+                  {item.name ? "@" + item.name : "Workflow"}
+                  {d.request.server ? " · " + d.request.server : ""}
+                </span>
+                {d.target && (
+                  <span className="approval-target-preview">{d.target}</span>
+                )}
+              </span>
+            </button>
+            <div className="approval-card-actions">
+              {quickDecision(item) ? (
+                <>
+                  <button
+                    className="primary"
+                    disabled={!!busy || !!dismissing}
+                    onClick={() => void decide("approve", item)}
+                  >
+                    <Check size={17} /> Approve
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={!!busy || !!dismissing}
+                    onClick={() => void decide("reject", item)}
+                  >
+                    <X size={17} /> Deny
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setSelected(item);
+                      setError("");
+                      setNotice("");
+                    }}
+                  >
+                    Details
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setSelected(item);
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Review request <ArrowUpRight size={15} />
+                </button>
+              )}
+            </div>
             <button
               className="text-button approval-dismiss"
               aria-label={`Cancel task: ${d.title}`}
@@ -200,34 +281,7 @@ export function Approvals({
                 }
               }}
             >
-              <X size={16} /> Cancel task
-            </button>
-            <button
-              className="approval-summary"
-              aria-label={"Review approval: " + d.title}
-              onClick={() => {
-                setSelected(item);
-                setError("");
-                setNotice("");
-              }}
-            >
-              <span className="approval-symbol">
-                <ShieldCheck size={23} />
-              </span>
-              <span className="approval-summary-text">
-                <span className="eyebrow">Your approval is needed</span>
-                <strong>{d.title}</strong>
-                <span className="field-hint">
-                  {item.name ? "@" + item.name : "Workflow"}
-                  {d.request.server ? " · " + d.request.server : ""}
-                </span>
-                {d.target && (
-                  <span className="approval-target-preview">{d.target}</span>
-                )}
-                <span className="approval-review-link">
-                  Review request <ArrowUpRight size={15} />
-                </span>
-              </span>
+              Cancel task instead
             </button>
           </article>
         );

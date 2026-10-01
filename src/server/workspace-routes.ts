@@ -200,6 +200,8 @@ workspace.post("/artifacts", (req, res) => {
         .default("markdown"),
       content: z.string().max(200000),
       folder: z.string().optional(),
+      // Only the reusable-prompt flag is client-settable.
+      metadata: z.object({ snippet: z.literal(true) }).strict().optional(),
     })
     .parse(req.body);
   if (d.folder) owned("folders", d.folder, res.locals.owner);

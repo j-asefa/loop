@@ -27,11 +27,21 @@ self.addEventListener("notificationclick", (event) => {
         type: "window",
         includeUncontrolled: true,
       });
+      // An open Loop window opens the link in place: it is focused, then
+      // asked to show the thread. navigate() is not available everywhere
+      // (and fails for a window this worker does not control), so it is only
+      // a fallback for a window that cannot be messaged.
       for (const client of windows) {
         if (new URL(client.url).origin !== destination.origin) continue;
-        await client.navigate(destination.href);
-        await client.focus();
-        return;
+        await client.focus().catch(() => {});
+        if (typeof client.postMessage === "function") {
+          client.postMessage({ type: "loop-open", url: destination.href });
+          return;
+        }
+        try {
+          await client.navigate(destination.href);
+          return;
+        } catch {}
       }
       await self.clients.openWindow(destination.href);
     })(),

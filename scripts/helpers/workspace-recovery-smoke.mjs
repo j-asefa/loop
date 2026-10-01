@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { openAgentProfile } from "./browser-ui.mjs";
 
 export async function workspaceRecoverySmoke(page, fixture) {
   let bootstrapAttempts = 0;
@@ -38,10 +39,18 @@ export async function workspaceRecoverySmoke(page, fixture) {
           })
         : route.continue();
     await page.route(actionPattern, failedAction);
+    // Result cards live on agent profiles; archive is in the card's
+    // "More actions" menu.
+    await openAgentProfile(page, fixture.agents[0].name);
     await page
-      .locator(".feed-card")
+      .locator(".feed-card:not(.inbox-card)")
       .first()
-      .getByRole("button", { name: "Archive from feed", exact: true })
+      .getByRole("button", { name: "More actions", exact: true })
+      .click();
+    await page
+      .locator("dialog[open]")
+      .last()
+      .getByRole("menuitem", { name: /^Archive/ })
       .click();
     await expect(page.locator(".toast.error")).toContainText(
       "Fixture archive unavailable",

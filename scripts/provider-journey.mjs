@@ -1,4 +1,4 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ function deferred() {
 }
 export async function providerJourney(page, api) {
   const open = async () => {
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettings(page);
     await page.getByRole("button", { name: /Provider connections/ }).click();
   };
   const button = (name) =>

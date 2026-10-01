@@ -1,5 +1,10 @@
 import { architectureSettingsJourney } from "./architecture-settings-journey.mjs";
-import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
+import {
+  closeSheets,
+  isolatedBrowserEnv,
+  openSettings,
+  openTab,
+} from "./helpers/browser-ui.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { createServer as reservePort } from "node:net";
 async function freePort() {
@@ -78,7 +83,7 @@ try {
       errors.push(e.message);
   });
   await page.goto(base);
-  await page.getByRole("heading", { name: "Feed" }).waitFor();
+  await page.getByRole("heading", { name: "Feed", exact: true }).waitFor();
   await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
   assert.equal(
     (await page.context().cookies()).length,
@@ -86,7 +91,7 @@ try {
     "Personal workspace needs no login cookie",
   );
   await page.screenshot({ path: join(dir, "mobile-empty.png") });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Import conversations/ }).click();
   await page
     .locator("input[type=file]")
@@ -99,51 +104,59 @@ try {
     .getByText("1 / 1 conversations · completed")
     .waitFor({ timeout: 15000 });
   await closeSheets(page);
+  // Result cards live on the agent's profile; the imported thread's byline
+  // on the Feed opens it.
+  await page
+    .locator(".inbox-card")
+    .filter({ hasText: "Market research" })
+    .locator(".card-byline .identity")
+    .click();
+  await page.locator(".profile-head h1").waitFor();
+  await page.getByRole("tab", { name: "Results", exact: true }).click();
   await page
     .getByRole("heading", { name: "Market research", exact: true })
     .waitFor();
   await page.screenshot({ path: join(dir, "mobile-feed.png") });
-  const imported = page
-    .locator(".feed-card")
-    .filter({
-      has: page.getByRole("heading", { name: "Market research", exact: true }),
-    });
+  const imported = page.locator(".feed-card").filter({
+    has: page.getByRole("heading", { name: "Market research", exact: true }),
+  });
   await imported.getByRole("button", { name: "Save", exact: true }).click();
-  await page
-    .getByRole("navigation")
-    .last()
-    .getByRole("button", { name: "Saved", exact: true })
-    .click();
+  // Saved results and messages share Later → Saved.
+  await openTab(page, "Later");
+  await page.getByRole("heading", { name: "Later", exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Saved", exact: true }).click();
   await expect(imported).toBeVisible();
   await expect(
-    imported.getByRole("button", { name: "Unsave", exact: true }),
+    imported.getByRole("button", { name: "Remove from Saved", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("navigation")
-    .last()
-    .getByRole("button", { name: "Search", exact: true })
-    .click();
-  await page.getByRole("textbox", { name: "Search everything" }).fill("bids");
-  await page
-    .locator("form.search-box")
-    .getByRole("button", { name: "Search", exact: true })
-    .click();
+  await openTab(page, "Search");
+  // The submit button is gone; Enter submits the search field.
+  const searchField = page.getByRole("searchbox", {
+    name: "Search everything",
+  });
+  await searchField.fill("bids");
+  await searchField.press("Enter");
   await page
     .getByText("Keyword search")
     .first()
     .waitFor({ timeout: 1500 })
     .catch(() => {});
   assert.ok((await page.locator(".search-result").count()) >= 1);
-  await page.locator(".search-result").first().click();
+  await page
+    .locator(".search-result")
+    .first()
+    .locator(".search-hit, h3 button")
+    .first()
+    .click();
   await page.locator("dialog[open]").last().waitFor();
   await closeSheets(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: "dark", exact: true }).click();
   await closeSheets(page);
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.screenshot({ path: join(dir, "mobile-dark.png") });
   await page.reload();
-  await page.getByRole("heading", { name: "Search everything." }).waitFor();
+  await page.getByRole("heading", { name: "Search", exact: true }).waitFor();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
 
   for (const width of [320, 390, 430, 1024]) {
@@ -258,7 +271,7 @@ try {
   }
   await page.context().setOffline(false);
   await page.goto(base);
-  await page.getByRole("heading", { name: "Feed" }).waitFor();
+  await page.getByRole("heading", { name: "Feed", exact: true }).waitFor();
   await page.setViewportSize({ width: 844, height: 390 });
   assert.equal(
     await page.evaluate(
@@ -268,7 +281,7 @@ try {
     "landscape overflow",
   );
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: "light", exact: true }).click();
   await page.getByRole("button", { name: "system", exact: true }).click();
   await page.emulateMedia({ colorScheme: "dark" });
@@ -282,7 +295,7 @@ try {
   await closeSheets(page);
   await page.context().clearCookies();
   await page.reload();
-  await page.getByRole("heading", { name: "Feed" }).waitFor();
+  await page.getByRole("heading", { name: "Feed", exact: true }).waitFor();
   const reopened = await page.evaluate(async () =>
     (await fetch("/api/auth/get-session")).json(),
   );
@@ -292,7 +305,7 @@ try {
   assert.deepEqual(errors, []);
 
   console.log(
-    "PASS: personal workspace without registration or cookies, preserved identity after reload, no redundant sign-out, worker import, feed, folders, exact search, responsive layouts, themes, share routing, no auto-send, back, offline notice/reconnect (cached fallback in Chromium), public-only caches, no page errors",
+    "PASS: personal workspace without registration or cookies, preserved identity after reload, no redundant sign-out, worker import, profile results, later/saved results, folders, exact search, responsive layouts, themes, share routing, no auto-send, back, offline notice/reconnect (cached fallback in Chromium), public-only caches, no page errors",
   );
 } catch (e) {
   console.log("PAGE", await page?.locator("body").innerText());

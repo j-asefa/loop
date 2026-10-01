@@ -72,7 +72,11 @@ export async function api<T = any>(
       clearAuthorization();
       window.dispatchEvent(new Event("loop-auth-expired"));
     }
-    throw new Error(data?.error || data?.message || "Request failed");
+    // The status lets callers tell a refusal (4xx) from an uncertain outcome.
+    throw Object.assign(
+      new Error(data?.error || data?.message || "Request failed"),
+      { status: parsed ? r.status : undefined },
+    );
   }
   return data;
 }

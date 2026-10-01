@@ -43,3 +43,28 @@ export function usePageHistory<T>(
     return true;
   };
 }
+
+/**
+ * Return the page to a saved position. Lists often finish loading after the
+ * page is shown, so keep the position while the page grows, until it is
+ * reached and settled or you touch, scroll or type.
+ */
+export function restoreScroll(top: number) {
+  const inputs = ["touchstart", "wheel", "keydown", "pointerdown"] as const;
+  let settled = 0;
+  const observer = new ResizeObserver(() => attempt());
+  const timer = setTimeout(stop, 3000);
+  function stop() {
+    observer.disconnect();
+    clearTimeout(timer);
+    for (const input of inputs) removeEventListener(input, stop);
+  }
+  function attempt() {
+    window.scrollTo({ top, behavior: "instant" as ScrollBehavior });
+    if (Math.abs(window.scrollY - top) < 2 && ++settled > 2) stop();
+  }
+  for (const input of inputs)
+    addEventListener(input, stop, { passive: true, capture: true });
+  observer.observe(document.body);
+  attempt();
+}

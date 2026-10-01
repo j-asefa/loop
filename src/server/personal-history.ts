@@ -17,7 +17,7 @@ type HistoryRow = {
 
 // The owner is supplied by authentication, never by query parameters. Projects
 // and conversations currently use this same ownership boundary (no memberships).
-export function personalHistory(owner: string, before?: string) {
+export function personalHistory(owner: string, before?: string, q?: string) {
   let cursor: [number, string] = [Number.MAX_SAFE_INTEGER, ""];
   if (before) {
     try {
@@ -58,10 +58,11 @@ export function personalHistory(owner: string, before?: string) {
       AND r.kind='agent'
       AND NOT EXISTS(SELECT 1 FROM delegations d WHERE d.child_run_id=r.id)
     ))
+    AND (? IS NULL OR instr(lower(m.content),lower(?))>0)
     AND (m.created_at,m.id)<(?,?)
     ORDER BY m.created_at DESC,m.id DESC LIMIT 51`,
     )
-    .all(owner, ...cursor) as HistoryRow[];
+    .all(owner, q || null, q || null, ...cursor) as HistoryRow[];
   const more = items.length > 50;
   if (more) items.pop();
   const last = items.at(-1);

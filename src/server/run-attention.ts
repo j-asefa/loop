@@ -65,32 +65,43 @@ export function listRuns(owner: string, teams: string[] = [], active = false) {
     : "";
   return db
     .prepare(
-      `SELECT r.*,CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children') AND (older.created_at<r.created_at OR (older.created_at=r.created_at AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview,(SELECT step_id FROM workflow_steps s WHERE s.run_id=r.id ORDER BY position DESC LIMIT 1) stage FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
+      `SELECT r.*,CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview,(SELECT step_id FROM workflow_steps s WHERE s.run_id=r.id ORDER BY position DESC LIMIT 1) stage FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
     )
     .all(owner, ...teams)
     .map((row) => {
       const run = row as Run;
-      const preview = db
-        .prepare(
-          `SELECT a.*,r.state run_state,r.error run_error,
+      const { latest, artifact } = runPreview(owner, run.id);
+      return {
+        ...run,
+        ...(latest ? { preview: latest } : {}),
+        preview_artifact: artifact,
+      };
+    });
+}
+
+/**
+ * What a run has produced so far: its result artifact, if one exists, and
+ * the newest public update when the artifact has no content yet.
+ */
+export function runPreview(owner: string, runId: string) {
+  const artifact = db
+    .prepare(
+      `SELECT a.*,r.state run_state,r.error run_error,
         json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata
         FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id AND a.owner_id=?
         JOIN runs r ON r.id=cp.run_id WHERE cp.run_id=?`,
-        )
-        .get(owner, run.id);
-      const item = preview as { content: string } | undefined;
-      const latest = !item?.content
-        ? (db
-            .prepare(
-              `SELECT t.content FROM run_traces t WHERE t.owner_id=? AND t.run_id=? AND t.kind='message' AND length(trim(t.content))>0 AND ${publicTraceFilter} ORDER BY t.id DESC LIMIT 1`,
-            )
-            .get(owner, run.id) as { content: string } | undefined)
-        : undefined;
-      if (item && latest) item.content = latest.content;
-      return {
-        ...run,
-        ...(latest ? { preview: latest.content } : {}),
-        preview_artifact: preview || null,
-      };
-    });
+    )
+    .get(owner, runId) as
+    ({ content: string } & Record<string, unknown>) | undefined;
+  const latest = !artifact?.content
+    ? (
+        db
+          .prepare(
+            `SELECT t.content FROM run_traces t WHERE t.owner_id=? AND t.run_id=? AND t.kind='message' AND length(trim(t.content))>0 AND ${publicTraceFilter} ORDER BY t.id DESC LIMIT 1`,
+          )
+          .get(owner, runId) as { content: string } | undefined
+      )?.content
+    : undefined;
+  if (artifact && latest) artifact.content = latest;
+  return { latest, artifact: artifact || null };
 }

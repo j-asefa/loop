@@ -1,4 +1,5 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import Database from "better-sqlite3";
+import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
@@ -61,7 +62,7 @@ export async function composerJourney(page, api) {
       notice.y + notice.height <= header.y,
       "Status notice leaves header controls uncovered",
     );
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettings(page);
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Close", exact: true })
@@ -307,12 +308,14 @@ export async function sendCollapseJourney(page, api) {
         // Recover a lost acknowledgement across the old conversation composer
         // and the shared composer, without creating a second run.
         await page.evaluate(
-          ({ conversationId, agentId, prompt, key }) => {
+          async ({ conversationId, agentId, prompt, key }) => {
             sessionStorage.removeItem("loop-draft");
             sessionStorage.removeItem("loop-draft-context");
             sessionStorage.removeItem("loop-draft-receipt");
-            sessionStorage.setItem(
-              "loop-conversation-" + conversationId,
+            // Thread drafts persist per signed-in owner and thread.
+            const session = await (await fetch("/api/auth/get-session")).json();
+            localStorage.setItem(
+              `loop-draft-text:${session.user.id}:${conversationId}`,
               prompt,
             );
             sessionStorage.setItem(
@@ -345,11 +348,35 @@ export async function sendCollapseJourney(page, api) {
       await page.route("**/api/bootstrap", refresh);
       await send.click();
       await expect.poll(() => refreshing).toBe(true);
-      await expect(page.locator("dialog[open]").last()).toHaveCount(0);
-      await expect(
-        page.getByRole("button", { name: "Compose a message" }),
-      ).toBeVisible();
-      assert.equal(new URL(page.url()).searchParams.has("conversation"), false);
+      if (reply) {
+        // Sending from a thread keeps the thread open with an empty composer.
+        await expect(page.locator("dialog.swipe-sheet")).toBeVisible();
+        await expect(input).toHaveValue("");
+        assert.equal(
+          new URL(page.url()).searchParams.get("conversation"),
+          conversationId,
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(
+              (id) =>
+                Object.keys(localStorage).find(
+                  (k) => k.startsWith("loop-draft-text:") && k.endsWith(":" + id),
+                ) ?? null,
+              conversationId,
+            ),
+          )
+          .toBe(null);
+      } else {
+        await expect(page.locator("dialog[open]").last()).toHaveCount(0);
+        await expect(
+          page.getByRole("button", { name: "Compose a message" }),
+        ).toBeVisible();
+        assert.equal(
+          new URL(page.url()).searchParams.has("conversation"),
+          false,
+        );
+      }
       assert.notEqual(
         await page.evaluate(() => document.activeElement?.tagName),
         "TEXTAREA",
@@ -385,6 +412,194 @@ export async function sendCollapseJourney(page, api) {
   await expect(page.locator(".composer textarea")).toHaveValue("");
   await page.getByRole("button", { name: "Collapse composer" }).click();
   console.log(
-    "PASS: messages and replies collapse before refresh, lost-response retries preserve drafts without duplicate runs, and sent drafts stay cleared when reopened.",
+    "PASS: messages collapse and replies stay in their thread before refresh, lost-response retries preserve drafts without duplicate runs, and sent drafts stay cleared when reopened.",
+  );
+}
+
+export async function scheduledSendJourney(page, api, dir) {
+  const base = new URL(page.url()).origin;
+  // Earlier journeys share this fixture user's per-minute request budget.
+  if (dir) {
+    const limits = new Database(join(dir, "loop.db"));
+    limits.pragma("busy_timeout = 10000");
+    limits.prepare("DELETE FROM request_limits").run();
+    limits.close();
+  }
+  const sent = (await api("/runs")).find(
+    (r) => r.input === "Collapse after this reply",
+  );
+  const conversationId = sent.conversation_id;
+  const scheduled = async () =>
+    (
+      await api(
+        "/scheduled-sends?conversation=" + encodeURIComponent(conversationId),
+      )
+    ).items;
+  await page.goto(base + "/?conversation=" + conversationId);
+  const thread = page.locator("dialog.swipe-sheet");
+  const input = thread.getByLabel("Reply to agent");
+  const later = thread.getByRole("button", { name: "Send later", exact: true });
+  await expect(input).toBeVisible();
+  await expect(later).toBeDisabled();
+
+  // "Pick a time…" schedules a message that waits in the thread until then.
+  await input.fill("Scheduled fixture follow-up");
+  await later.click();
+  const options = page.getByRole("dialog", {
+    name: "Send options",
+    exact: true,
+  });
+  await expect(
+    options.getByRole("menuitem", { name: "Send now" }),
+  ).toBeVisible();
+  await options.getByRole("menuitem", { name: "Pick a time…" }).click();
+  const schedule = page.getByRole("dialog", {
+    name: "Schedule message",
+    exact: true,
+  });
+  const at = await page.evaluate(() => {
+    const d = new Date(Date.now() + 2 * 3600_000);
+    d.setSeconds(0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    return {
+      value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      time: d.getTime(),
+    };
+  });
+  await schedule.getByLabel("Send at").fill(at.value);
+  await schedule.getByRole("button", { name: "Schedule", exact: true }).click();
+  await expect(schedule).toBeHidden();
+  // The thread stays open, the composer clears and the message is listed.
+  await expect(thread).toBeVisible();
+  await expect(input).toHaveValue("");
+  await expect(
+    thread.getByRole("status").filter({ hasText: /^Scheduled for / }),
+  ).toBeVisible();
+  const pending = thread.getByRole("region", { name: "Scheduled messages" });
+  await expect(pending).toContainText("Scheduled fixture follow-up");
+  const items = await scheduled();
+  assert.equal(items.length, 1);
+  assert.equal(items[0].input, "Scheduled fixture follow-up");
+  assert.equal(items[0].send_at, at.time);
+  assert.equal(
+    (await api("/runs")).filter(
+      (r) => r.input === "Scheduled fixture follow-up",
+    ).length,
+    0,
+    "A scheduled message does not start a run early",
+  );
+  // It survives reopening the thread, and cancelling removes it.
+  await page.reload();
+  await expect(pending).toContainText("Scheduled fixture follow-up");
+  await pending
+    .getByRole("button", { name: "Cancel scheduled message", exact: true })
+    .click();
+  await expect(pending).toHaveCount(0);
+  await expect.poll(async () => (await scheduled()).length).toBe(0);
+
+  // "Send after the current task" queues rather than steering.
+  const posted = [];
+  const record = (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/runs"
+    )
+      posted.push(request.postDataJSON());
+  };
+  page.on("request", record);
+  try {
+    await input.fill("Queued fixture follow-up");
+    await later.click();
+    await options
+      .getByRole("menuitem", { name: /^Send after the current task/ })
+      .click();
+    await expect(
+      thread.getByRole("status").filter({
+        hasText: "Queued after the current task.",
+      }),
+    ).toBeVisible();
+    await expect(thread).toBeVisible();
+    await expect(input).toHaveValue("");
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].queue, true);
+    assert.equal(posted[0].conversationId, conversationId);
+    await expect(
+      thread.locator("article.message").filter({
+        hasText: "Queued fixture follow-up",
+      }),
+    ).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          (await api("/runs")).find(
+            (r) => r.input === "Queued fixture follow-up",
+          )?.state,
+      )
+      .toBe("completed");
+  } finally {
+    page.off("request", record);
+  }
+  await closeSheets(page);
+
+  // Scheduled from the Feed's composer (a new thread), the message is found
+  // in Later → Scheduled after a reload, and can be edited and cancelled.
+  await page.goto(base + "/");
+  await page.getByRole("button", { name: "Compose a message" }).click();
+  const message = page.getByLabel("Message your agent");
+  await message.fill("Global scheduled kickoff");
+  await page.getByRole("button", { name: "Send later", exact: true }).click();
+  await options.getByRole("menuitem", { name: "Pick a time…" }).click();
+  await schedule.getByLabel("Send at").fill(at.value);
+  await schedule.getByRole("button", { name: "Schedule", exact: true }).click();
+  const confirmation = page
+    .getByRole("status")
+    .filter({ hasText: /scheduled for/ });
+  await expect(
+    confirmation.getByRole("button", { name: "View in Later", exact: true }),
+  ).toBeVisible();
+  const everywhere = async () =>
+    (await api("/scheduled-sends")).items.filter(
+      (item) => item.input.startsWith("Global scheduled"),
+    );
+  await expect.poll(async () => (await everywhere()).length).toBe(1);
+  await page.reload();
+  await page
+    .locator(".mobile-nav")
+    .getByRole("button", { name: "Later", exact: true })
+    .click();
+  await page
+    .getByRole("region", { name: "Later", exact: true })
+    .getByRole("tab", { name: "Scheduled", exact: true })
+    .click();
+  const outbox = page
+    .getByRole("region", { name: "Later", exact: true })
+    .getByRole("region", { name: "Scheduled messages" });
+  const entry = outbox
+    .locator("article")
+    .filter({ hasText: "Global scheduled kickoff" });
+  await expect(entry).toContainText("To @");
+  await entry
+    .getByRole("button", { name: "Edit scheduled message", exact: true })
+    .click();
+  const editor = page.getByRole("dialog", {
+    name: "Edit scheduled message",
+    exact: true,
+  });
+  await editor.getByLabel("Message").fill("Global scheduled kickoff, edited");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect(outbox).toContainText("Global scheduled kickoff, edited");
+  assert.equal(
+    (await everywhere())[0].input,
+    "Global scheduled kickoff, edited",
+  );
+  await outbox
+    .locator("article")
+    .filter({ hasText: "Global scheduled kickoff, edited" })
+    .getByRole("button", { name: "Cancel scheduled message", exact: true })
+    .click();
+  await expect.poll(async () => (await everywhere()).length).toBe(0);
+  console.log(
+    "PASS: Send later → Pick a time schedules an in-thread message that survives reload and cancels cleanly; a message scheduled from the Feed is edited and cancelled in Later → Scheduled after a reload; Send after the current task queues in the open thread (fixtures).",
   );
 }

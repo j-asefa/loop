@@ -38,15 +38,43 @@ export async function conversationLiveSmoke(page, capture) {
         .get(conversation.run, key).id;
     };
     const message = (id) => page.locator(`[id="message-trace:${id}"]`);
+    // Thread replies have no recipient select; the thread's agent receives them.
+    const agentName = fixture.agents.find((item) => item.id === agent).name;
+    const expectRecipient = async () => {
+      await expect(
+        page
+          .locator(".conversation-sheet .thread-head")
+          .getByRole("button", { name: `Open @${agentName} profile` }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("textbox", { name: "Reply to agent" }),
+      ).toHaveAttribute("placeholder", `Reply to @${agentName}…`);
+      await expect(
+        page.getByRole("combobox", { name: "Agent recipient" }),
+      ).toHaveCount(0);
+    };
     await page.setViewportSize({ width: 390, height: 844 });
+    // A working thread's Feed card shows what the agent has written so far,
+    // as the old Running cards did: its in-progress result.
+    const feedPreview = fixture.db
+      .prepare(
+        "SELECT a.content FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id WHERE cp.run_id=?",
+      )
+      .get(conversation.run).content;
+    assert.ok(feedPreview.trim(), "The running fixture has a result preview");
+    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await expect(
+      page
+        .locator(".inbox-card")
+        .filter({ hasText: conversation.title })
+        .locator(".live-preview"),
+    ).toContainText(feedPreview.replaceAll("**", ""));
     await page.goto(`${fixture.base}/?conversation=${conversation.id}`);
     const transcript = page.locator(".conversation-sheet .messages");
     await expect(
       transcript.getByText("Working…", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("combobox", { name: "Agent recipient" }),
-    ).toHaveValue(agent);
+    await expectRecipient();
     const firstText = "I found the relevant files and am checking the changes.";
     fixture.db
       .prepare("UPDATE messages SET content=? WHERE id=?")
@@ -83,9 +111,7 @@ export async function conversationLiveSmoke(page, capture) {
       ratio: 0.99,
     });
     await expect(message(second)).toHaveCount(1);
-    await expect(
-      page.getByRole("combobox", { name: "Agent recipient" }),
-    ).toHaveValue(agent);
+    await expectRecipient();
     await capture("conversation-live-progress");
 
     // Reading an older update must not be interrupted by a new token/message.
@@ -177,9 +203,7 @@ export async function conversationLiveSmoke(page, capture) {
     );
     await expect(message(first).locator(".markdown")).toHaveText(firstText);
     await expect(message(second)).toHaveCount(1);
-    await expect(
-      page.getByRole("combobox", { name: "Agent recipient" }),
-    ).toHaveValue(agent);
+    await expectRecipient();
     console.log(
       "Live conversation updates, scrolling, final deduplication and tool exclusion passed",
     );

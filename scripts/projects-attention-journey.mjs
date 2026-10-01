@@ -1,4 +1,8 @@
-import { closeSheets } from "./helpers/browser-ui.mjs";
+import {
+  closeSheets,
+  inboxRowAction,
+  openSettings,
+} from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import Database from "better-sqlite3";
@@ -6,6 +10,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 export async function projectsAttentionJourney(page, api, base, dir) {
+  // The fixture runs many independent journeys as one user. Keep this one
+  // from inheriting earlier journeys' per-minute request budget.
+  {
+    const limits = new Database(join(dir, "loop.db"));
+    limits.pragma("busy_timeout = 10000");
+    limits.prepare("DELETE FROM request_limits").run();
+    limits.close();
+  }
   const bootstrap = await api("/bootstrap");
   const connection = bootstrap.connections.find(
     (c) => c.provider === "openai" && c.status === "connected",
@@ -35,7 +47,12 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   const project = (await api("/bootstrap")).folders.find(
     (f) => f.name === "Field notes",
   );
+  // Project agents moved under the project's Agents view.
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
   await expect(page.locator(".project-agents .project-agent")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "New task", exact: true }),
+  ).toBeDisabled();
   await page.getByRole("button", { name: "New agent", exact: true }).click();
   dialog = page.locator("dialog[open]").last();
   await expect(dialog.getByLabel("Project", { exact: true })).toHaveValue(
@@ -55,6 +72,9 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     .getByRole("button", { name: /@project-outsider/ })
     .click();
   await expect(page.locator(".projects-view .project-agent")).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "New task", exact: true }),
+  ).toBeEnabled();
   const fresh = await api("/bootstrap");
   const resident = fresh.agents.find((a) => a.name === "project-resident");
   assert.equal(resident.folder_id, project.id);
@@ -68,10 +88,23 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     page.getByRole("heading", { name: "Field notes", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "All projects", exact: true }).click();
-  await page.getByRole("button", { name: /Field notes.*2 agents/ }).click();
+  await page
+    .locator("button.project-tile")
+    .filter({ hasText: "Field notes" })
+    .filter({ hasText: "2 agents" })
+    .click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
   await expect(page.locator(".projects-view .project-agent")).toHaveCount(2);
   await page.getByRole("button", { name: /@project-resident/ }).click();
-  await page.getByRole("button", { name: "Edit agent", exact: true }).click();
+  // Edit agent moved into the profile's "Agent actions" menu.
+  await page
+    .getByRole("button", { name: "Agent actions", exact: true })
+    .click();
+  await page
+    .locator("dialog[open]")
+    .last()
+    .getByRole("menuitem", { name: /^Edit agent/ })
+    .click();
   await expect(
     page.locator("dialog[open]").last().getByLabel("Project", { exact: true }),
   ).toHaveValue(project.id);
@@ -79,7 +112,10 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     .getByRole("dialog")
     .getByRole("button", { name: "Close", exact: true })
     .click();
-  await page.getByRole("button", { name: "Back to project" }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Field notes", exact: true }),
+  ).toBeVisible();
   for (const theme of ["light", "dark"]) {
     await page.evaluate((theme) => {
       localStorage.setItem("loop-theme", theme);
@@ -106,34 +142,76 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   const failed = crypto.randomUUID(),
     paused = crypto.randomUUID(),
     queued = crypto.randomUUID(),
+    queuedNext = crypto.randomUUID(),
     approvalRun = crypto.randomUUID(),
     approval = crypto.randomUUID(),
     conversation = crypto.randomUUID();
+  // The Feed lists one row per conversation, so each fixture run gets its
+  // own thread (the failed run keeps the "Dismissal fixture history").
+  const threads = {
+    [paused]: crypto.randomUUID(),
+    [queued]: crypto.randomUUID(),
+    [queuedNext]: crypto.randomUUID(),
+    [failed]: conversation,
+    [approvalRun]: crypto.randomUUID(),
+  };
   try {
     db.transaction(() => {
-      db.prepare(
+      const thread = db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-      ).run(
-        conversation,
-        resident.owner_id,
-        resident.id,
-        "Dismissal fixture history",
-        Date.now(),
       );
       const insert = db.prepare(
         "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
       );
-      for (const [id, state, input] of [
-        [paused, "paused", "Fixture queue barrier"],
-        [queued, "queued", "Unwanted queued idea"],
-        [failed, "failed", "Dismissible failure"],
-        [approvalRun, "awaiting_approval", "Unwanted permission request"],
-      ])
+      for (const [id, state, input, title, age] of [
+        [
+          paused,
+          "paused",
+          "Fixture queue barrier",
+          "Fixture queue barrier",
+          5000,
+        ],
+        [
+          approvalRun,
+          "awaiting_approval",
+          "Unwanted permission request",
+          "Unwanted permission request",
+          4000,
+        ],
+        [
+          failed,
+          "failed",
+          "Dismissible failure",
+          "Dismissal fixture history",
+          3000,
+        ],
+        [
+          queued,
+          "queued",
+          "Unwanted queued idea",
+          "Unwanted queued idea",
+          2000,
+        ],
+        [
+          queuedNext,
+          "queued",
+          "Second queued idea",
+          "Second queued idea",
+          1000,
+        ],
+      ]) {
+        thread.run(
+          threads[id],
+          resident.owner_id,
+          resident.id,
+          title,
+          Date.now() - age,
+        );
         insert.run(
           id,
           resident.owner_id,
           resident.id,
-          conversation,
+          threads[id],
           input,
           state,
           id,
@@ -142,9 +220,10 @@ export async function projectsAttentionJourney(page, api, base, dir) {
             provider: resident.provider,
           }),
           state === "failed" ? "Fixture failure" : null,
-          Date.now() - (id === paused ? 5000 : 0),
+          Date.now() - age,
           Date.now(),
         );
+      }
       db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?,?)",
       ).run(
@@ -174,20 +253,22 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       );
     })();
     await page.goto(base);
-    const banner = page.getByRole("button", { name: /need attention/ });
-    await expect(banner).toBeVisible();
-    assert.ok((await banner.boundingBox()).height >= 44);
+    // The "needs attention" banner became a counted "Needs you" filter chip.
+    const needs = page.getByRole("tab", { name: /^Needs you\s*\d+$/ });
+    await expect(needs).toBeVisible();
+    assert.ok((await needs.boundingBox()).height >= 32);
     await page.screenshot({
       path: join(
         tmpdir(),
         `loop-attention-${process.env.LOOP_BROWSER || "chromium"}.png`,
       ),
     });
-    await banner.click();
-    const dismiss = page.getByRole("button", {
-      name: "Dismiss task: Dismissible failure",
-      exact: true,
-    });
+    await needs.click();
+    await expect(needs).toHaveAttribute("aria-selected", "true");
+    const row = (title) =>
+      page.locator(".inbox-row").filter({ hasText: title }).first();
+    // Dismiss moved from a Running card button to the row's action menu.
+    await expect(row("Dismissal fixture history")).toBeVisible();
     await page.route(
       `**/api/runs/${failed}/dismiss`,
       (route) =>
@@ -198,13 +279,23 @@ export async function projectsAttentionJourney(page, api, base, dir) {
         }),
       { times: 1 },
     );
-    await dismiss.click();
+    await inboxRowAction(
+      page,
+      "Dismissal fixture history",
+      "Dismiss from Needs you",
+    );
     await expect(
-      page.getByText("Fixture dismissal unavailable", { exact: true }),
+      page
+        .getByRole("alert")
+        .filter({ hasText: "Fixture dismissal unavailable" }),
     ).toBeVisible();
-    await expect(dismiss).toBeEnabled();
-    await dismiss.click();
-    await expect(dismiss).toBeHidden();
+    await expect(row("Dismissal fixture history")).toBeVisible();
+    await inboxRowAction(
+      page,
+      "Dismissal fixture history",
+      "Dismiss from Needs you",
+    );
+    await expect(row("Dismissal fixture history")).toBeHidden();
     await page
       .getByRole("button", {
         name: "Cancel task: Project attention fixture",
@@ -221,19 +312,80 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       db.prepare("SELECT state FROM approvals WHERE id=?").get(approval).state,
       "rejected",
     );
-    await page.getByRole("button", { name: "Queued", exact: true }).click();
-    await page
-      .getByRole("button", {
-        name: "Cancel task: Unwanted queued idea",
-        exact: true,
-      })
+    // Queue management from the Queued filter's row menu.
+    await page.getByRole("tab", { name: /^Queued/ }).click();
+    await expect(row("Second queued idea")).toContainText("Second queued idea");
+    const position = async (id) =>
+      (await api("/inbox?filter=queued")).items.find((i) => i.run?.id === id)
+        ?.run.queue_position;
+    const before = [await position(queued), await position(queuedNext)];
+    assert.ok(before[0] < before[1], "older queued work runs first");
+    await inboxRowAction(page, "Second queued idea", "Move up in queue");
+    await expect
+      .poll(async () => [await position(queued), await position(queuedNext)])
+      .toEqual([before[1], before[0]]);
+    await expect(row("Second queued idea")).toContainText(
+      `#${before[0]} in queue`,
+    );
+    await inboxRowAction(page, "Second queued idea", "Move down in queue");
+    await expect
+      .poll(async () => [await position(queued), await position(queuedNext)])
+      .toEqual(before);
+    await expect(row("Second queued idea")).toContainText(
+      `#${before[1]} in queue`,
+    );
+    await inboxRowAction(page, "Unwanted queued idea", "Edit queued message");
+    const edit = page.getByRole("dialog", {
+      name: "Edit queued message",
+      exact: true,
+    });
+    await expect(edit.getByLabel("Queued message")).toHaveValue(
+      "Unwanted queued idea",
+    );
+    await edit
+      .getByLabel("Queued message")
+      .fill("Unwanted queued idea, revised");
+    await edit.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(edit).toBeHidden();
+    await expect
+      .poll(
+        async () => (await api("/runs")).find((r) => r.id === queued)?.input,
+      )
+      .toBe("Unwanted queued idea, revised");
+    // Reopening the editor shows the saved input; the Thread actions button
+    // opens the same menu as the context menu.
+    await row("Unwanted queued idea")
+      .locator("xpath=ancestor::article[1]")
+      .getByRole("button", { name: "Thread actions", exact: true })
       .click();
+    await page
+      .locator("dialog[open]")
+      .last()
+      .getByRole("menuitem", { name: "Edit queued message" })
+      .click();
+    await expect(edit.getByLabel("Queued message")).toHaveValue(
+      "Unwanted queued idea, revised",
+    );
+    await closeSheets(page);
+    // Cancel moved from a Running card button to the row menu.
+    for (const title of ["Unwanted queued idea", "Second queued idea"]) {
+      const sheet = await inboxRowAction(page, title);
+      await expect(
+        sheet.getByRole("menuitem", { name: "Pause" }),
+      ).toBeVisible();
+      await sheet.getByRole("menuitem", { name: "Cancel task" }).click();
+      await expect(row(title)).toBeHidden();
+    }
+    // The paused barrier offers Resume (not Pause) in its menu.
+    await page.getByRole("tab", { name: /^Needs you/ }).click();
+    const barrier = await inboxRowAction(page, "Fixture queue barrier");
     await expect(
-      page.getByRole("button", {
-        name: "Cancel task: Unwanted queued idea",
-        exact: true,
-      }),
-    ).toBeHidden();
+      barrier.getByRole("menuitem", { name: "Resume" }),
+    ).toBeVisible();
+    await expect(barrier.getByRole("menuitem", { name: "Pause" })).toHaveCount(
+      0,
+    );
+    await closeSheets(page);
     // Dismissal refreshes bootstrap/feed/runs after removing the card. Let that
     // refresh settle before navigation, then wait for the reloaded app as well.
     await page.waitForLoadState("networkidle");
@@ -241,7 +393,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.waitForLoadState("networkidle");
     assert.ok(
       !(await api("/runs?active=1")).some((r) =>
-        [failed, approvalRun, queued].includes(r.id),
+        [failed, approvalRun, queued, queuedNext].includes(r.id),
       ),
     );
     assert.equal(
@@ -282,7 +434,9 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await api(`/runs/${paused}/dismiss`, {});
+    // Saved into the project so they appear in its Activity view.
     const tool = await api("/artifacts", {
+      folder: project.id,
       title: "browser_run_code_unsafe result",
       content:
         "### Result\n" +
@@ -298,12 +452,14 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     });
     // This manually saved file exercises preview rendering; it is not a run trace.
     await api("/artifacts", {
+      folder: project.id,
       title: "Complete Markdown preview",
       content:
         "Clear context. ".repeat(46) +
         "[Original source](https://example.com/source?first=yes&second=true) and **complete emphasis**.\n\n```js\nconst code = true;\n```\n\nFull original ending.",
     });
     await api("/artifacts", {
+      folder: project.id,
       title: "Native table preview",
       kind: "table",
       content: JSON.stringify({
@@ -312,12 +468,18 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       }),
     });
     const web = await api("/artifacts", {
+      folder: project.id,
       title: "web_fetch_exa result",
       content:
         "# Substrate fixture\nURL: https://github.com/fixture/substrate\n\n# Substrate fixture\n\n- Stars: 1593\n- Forks: 264\n\n## README\n\nA useful system for running agents on shared infrastructure, with suspended sessions that keep their working state.",
     });
     // This manually saved file exercises preview rendering; it is not a run trace.
-    await page.goto(base);
+    // Result cards live on project pages (and agent profiles), not the Feed.
+    await page.goto(`${base}/?page=projects&projectView=${project.id}`);
+    await page
+      .locator(".project-tabs")
+      .getByRole("button", { name: "Activity", exact: true })
+      .click();
     const toolCard = page
       .locator(".feed-card")
       .filter({ hasText: "Archive fixture" });
@@ -389,7 +551,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     db.close();
   }
   await page.goto(base);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   await page.getByRole("button", { name: "Permissions", exact: true }).click();
   const tools = page.getByRole("dialog", {
@@ -415,7 +577,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   });
   await page.waitForLoadState("networkidle");
   await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   await page.getByRole("button", { name: "Permissions", exact: true }).click();
   await expect(tools.getByLabel("Tool approvals", { exact: true })).toHaveValue(
@@ -431,6 +593,6 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await closeSheets(page);
   await page.waitForLoadState("networkidle");
   console.log(
-    "PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, prominent attention, dismiss/retry/persistence, rejected approvals, queued cancellation, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.",
+    "PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, Needs you badge/filter, row-menu dismiss/retry/persistence, rejected approvals, queue reorder/edit/cancel from the row menu, paused Resume, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.",
   );
 }

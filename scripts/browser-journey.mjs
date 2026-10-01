@@ -1,4 +1,10 @@
-import { closeSheets, isolatedBrowserEnv } from "./helpers/browser-ui.mjs";
+import {
+  closeSheets,
+  inboxRowAction,
+  isolatedBrowserEnv,
+  openSettings,
+  openTab,
+} from "./helpers/browser-ui.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { tracesJourney } from "./traces-journey.mjs";
 import { failureJourney } from "./harness-journey.mjs";
@@ -29,7 +35,11 @@ import { providerJourney } from "./provider-journey.mjs";
 import { remoteCodexJourney } from "./remote-codex-journey.mjs";
 import { remoteClaudeJourney } from "./remote-claude-journey.mjs";
 import { agentCreationJourney } from "./agent-creation-journey.mjs";
-import { composerJourney, sendCollapseJourney } from "./composer-journey.mjs";
+import {
+  composerJourney,
+  scheduledSendJourney,
+  sendCollapseJourney,
+} from "./composer-journey.mjs";
 import { codexFixture } from "../test/helpers/codex-server.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -116,8 +126,8 @@ try {
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();
-  await page.getByRole("heading", { name: "Feed" }).waitFor();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("heading", { name: "Feed", exact: true }).waitFor();
+  await openSettings(page);
   await page.getByRole("button", { name: /Provider connections/ }).click();
   await page.getByRole("heading", { name: "Choose a provider" }).waitFor();
   await page.getByRole("button", { name: "ChatGPT", exact: true }).click();
@@ -167,27 +177,48 @@ try {
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
   await expect(page.locator("dialog[open]").last()).toHaveCount(0);
-  const resultReply = page
-    .locator(".feed-card")
-    .filter({
-      has: page.getByRole("heading", {
-        name: "Explain bids precisely",
-        exact: true,
-      }),
-    })
-    .getByRole("button", { name: "Reply", exact: true });
+  // A send from outside a thread still confirms on the Feed.
+  await expect(page.locator(".send-confirmation")).toBeVisible();
+  // Result cards live on the agent's profile, not the Feed.
+  const openAgentResults = async () => {
+    await page
+      .locator(".agent-strip button")
+      .filter({ hasText: "@journey-agent" })
+      .click();
+    await page
+      .getByRole("heading", { name: "@journey-agent", exact: true })
+      .waitFor();
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
+  };
+  await openAgentResults();
+  const resultCard = page.locator(".feed-card").filter({
+    has: page.getByRole("heading", {
+      name: "Explain bids precisely",
+      exact: true,
+    }),
+  });
+  const resultReply = resultCard.getByRole("button", {
+    name: "Reply",
+    exact: true,
+  });
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
-    // A short feed must scroll far enough for Reply to clear both the send
-    // confirmation and the fixed composer. Keep the notice open for this check.
-    await expect(page.locator(".send-confirmation")).toBeVisible();
+    // A short list must scroll far enough for Reply to clear the fixed
+    // composer. Replying now opens the result's thread at that message and
+    // keeps the quoted context in the thread composer.
     await resultReply.click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const thread = page.locator("dialog.swipe-sheet");
+    await expect(thread.getByLabel("Reply to agent")).toBeVisible();
+    await expect(thread.getByLabel("Reply to agent")).toBeFocused();
+    const chip = page.locator(".composer-reply-chip");
+    await expect(chip).toContainText(/^Replying to @/);
+    await chip.locator("summary").click();
     await expect(
       page.getByRole("region", { name: "Original message" }),
     ).toContainText("Fixture response:");
     await page.getByRole("button", { name: "Clear reply context" }).click();
-    await page.getByRole("button", { name: "Collapse composer" }).click();
+    await expect(chip).toHaveCount(0);
+    await closeSheets(page);
   }
   await page
     .getByRole("heading", { name: "Explain bids precisely", exact: true })
@@ -216,6 +247,7 @@ try {
     parentId: folder.id,
   });
   await page.reload();
+  await openAgentResults();
   await page
     .getByRole("heading", { name: "Explain bids precisely", exact: true })
     .waitFor();
@@ -244,7 +276,7 @@ try {
     .getByText("Fixture response:", { exact: false })
     .waitFor();
   await closeSheets(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: /Tools & integrations/ }).click();
   await page.getByRole("button", { name: "Custom", exact: true }).click();
   await page.getByRole("button", { name: "Add server URL" }).click();
@@ -274,11 +306,8 @@ try {
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
   await expect(page.locator("dialog[open]").last()).toHaveCount(0);
-  await page
-    .getByRole("navigation")
-    .last()
-    .getByRole("button", { name: "Running", exact: true })
-    .click();
+  // The Running tab became the Feed "Needs you" filter, which lists approvals.
+  await page.getByRole("tab", { name: /^Needs you/ }).click();
   // Fault-injected requests must reach Playwright rather than a service worker.
   // The main journey keeps its real service worker throughout.
   const reviewContext = await browser.newContext({
@@ -291,11 +320,7 @@ try {
   reviewPage.on("pageerror", recordPageError);
   try {
     await reviewPage.goto(base);
-    await reviewPage
-      .getByRole("navigation")
-      .last()
-      .getByRole("button", { name: "Running", exact: true })
-      .click();
+    await reviewPage.getByRole("tab", { name: /^Needs you/ }).click();
     await approvalJourney(reviewPage, api);
     await chatDismissJourney(reviewPage, api);
     await semanticStatusJourney(reviewPage);
@@ -305,16 +330,12 @@ try {
   } finally {
     await reviewContext.close();
   }
-  await page
-    .getByRole("navigation")
-    .last()
-    .getByRole("button", { name: "Feed", exact: true })
-    .click();
+  await openTab(page, "Feed");
   await page
     .locator(".agent-strip button")
     .filter({ hasText: "@journey-agent" })
     .click();
-  await page.getByRole("button", { name: "Traces", exact: true }).click();
+  await page.getByRole("tab", { name: "Traces", exact: true }).click();
   await page
     .locator(".trace-card")
     .filter({ hasText: "metrics" })
@@ -342,11 +363,8 @@ try {
     .waitFor();
   await page.screenshot({ path: join(dir, "mcp-app-fixture.png") });
   await closeSheets(page);
-  await page
-    .getByRole("navigation")
-    .last()
-    .getByRole("button", { name: "Running", exact: true })
-    .click();
+  await openTab(page, "Feed");
+  await page.getByRole("tab", { name: /^Needs you/ }).click();
   await page
     .getByRole("button", { name: "Review approval: Metrics", exact: true })
     .click();
@@ -415,7 +433,7 @@ try {
   // Subscription-first UI, native auth handoff shapes and actual durable worker/tool broker.
   const subs = [];
   for (const runtime of ["codex", "claude"]) {
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettings(page);
     await page.getByRole("button", { name: /Provider connections/ }).click();
     const providerName = runtime === "codex" ? "ChatGPT" : "Claude";
     await page
@@ -569,7 +587,9 @@ try {
     });
     providerPage.on("pageerror", recordPageError);
     await providerPage.goto(base);
-    await providerPage.getByRole("heading", { name: "Feed" }).waitFor();
+    await providerPage
+      .getByRole("heading", { name: "Feed", exact: true })
+      .waitFor();
     const providerApi = async (path, body, method) =>
       providerPage.evaluate(
         async ({ path, body, method }) => {
@@ -595,6 +615,7 @@ try {
     await failureJourney(providerPage, providerApi);
     await composerJourney(providerPage, providerApi);
     await sendCollapseJourney(providerPage, providerApi);
+    await scheduledSendJourney(providerPage, providerApi, dir);
   } catch (error) {
     console.log("PROVIDER REQUESTS", providerRequests.slice(-25));
     console.log(
@@ -618,11 +639,22 @@ try {
     hasTouch: true,
     serviceWorkers: "block",
   });
+  let feedbackPage;
   try {
-    const feedbackPage = await feedbackContext.newPage();
+    feedbackPage = await feedbackContext.newPage();
     feedbackPage.on("pageerror", recordPageError);
     await projectsAttentionJourney(feedbackPage, api, base, dir);
     await tracesJourney(feedbackPage, api, base, dir);
+  } catch (error) {
+    console.log("FEEDBACK PAGE URL", feedbackPage?.url());
+    console.log(
+      "FEEDBACK PAGE",
+      await feedbackPage
+        ?.locator("body")
+        .innerText()
+        .catch(() => "(closed)"),
+    );
+    throw error;
   } finally {
     await feedbackContext.close();
   }
@@ -630,7 +662,7 @@ try {
   await page
     .getByLabel("Message your agent")
     .fill("Sign out must clear this draft");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettings(page);
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await page
     .getByRole("heading", { name: "Pick up where you left off." })

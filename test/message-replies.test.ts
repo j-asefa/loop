@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import type { Live } from "../src/server/native-sessions";
 import type { Run } from "../src/server/queue";
 import { NativeOutput } from "../src/server/native-output";
+import { replyPrompt } from "../src/shared/replies";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -167,7 +168,7 @@ it.each(["openai", "anthropic"] as const)(
   },
 );
 
-it("rejects tool logs, user prompts, and messages from another owner, agent or conversation", async () => {
+it("quotes your own prompts and rejects tool logs and messages from another owner, agent or conversation", async () => {
   const a = source(),
     other = source(),
     foreign = source("openai", "bob");
@@ -188,9 +189,27 @@ it("rejects tool logs, user prompts, and messages from another owner, agent or c
       .prepare("SELECT id FROM messages WHERE run_id=? AND role='user'")
       .get(a.run.id) as { id: string }
   ).id;
+  // Your own prompt is a valid target, quoted as yours rather than the agent's.
+  const own = await request("/runs", {
+    agentId: a.agent.id,
+    conversationId: a.run.conversation_id,
+    replyToMessageId: prompt,
+    input: "Expand on what I asked",
+    idempotencyKey: id(),
+  });
+  expect(own.status).toBe(202);
+  const quoted = JSON.parse(own.data.payload).replyTo;
+  expect(quoted).toMatchObject({
+    id: prompt,
+    mine: true,
+    content: "Investigate the collision",
+  });
+  expect(replyPrompt("Expand on what I asked", quoted)).toBe(
+    "Replying to my earlier message:\n\n> Investigate the collision\n\nExpand on what I asked",
+  );
+  transition(own.data, "cancelled");
   for (const target of [
     tool,
-    prompt,
     other.message,
     foreign.message,
     otherMessage,

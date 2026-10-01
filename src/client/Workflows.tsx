@@ -397,7 +397,7 @@ export function WorkflowEditor({
                 setSource(JSON.stringify(spec, null, 2));
               }}
             >
-              <option value="">Workspace inbox</option>
+              <option value="">Unfiled</option>
               {folders.map((f) => (
                 <option value={f.id} key={f.id}>
                   {f.name}

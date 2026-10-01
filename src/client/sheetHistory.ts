@@ -5,6 +5,26 @@ type Entry = { close: () => void };
 const sheets: Entry[] = [];
 let ownsEntry = false;
 let pendingBack: string | null = null;
+let backWatchdog: ReturnType<typeof setTimeout> | undefined;
+
+// Leave the sheet's history entry. WebKit can cancel a pending history.back()
+// when the page replaces its URL in the meantime (closing a sheet often does),
+// so popstate never arrives and every later sheet would wait on it forever.
+// If it has not arrived after a second, stop waiting. A sheet entry that is
+// still current becomes an ordinary entry in place; going back again instead
+// could step out of the app if the first back was only slow.
+function leaveSheetEntry() {
+  clearTimeout(backWatchdog);
+  history.back();
+  backWatchdog = setTimeout(() => {
+    if (pendingBack === null) return;
+    const url = pendingBack;
+    pendingBack = null;
+    if (history.state?.loopSheet === true)
+      history.replaceState({ ...history.state, loopSheet: false }, "", url);
+    reconcile();
+  }, 1000);
+}
 let scheduled = false;
 const afterClose: (() => void)[] = [];
 
@@ -24,7 +44,7 @@ function reconcile() {
     } else if (!sheets.length && ownsEntry) {
       ownsEntry = false;
       pendingBack = location.href;
-      history.back();
+      leaveSheetEntry();
     } else if (!sheets.length && afterClose.length) {
       const callbacks = afterClose.splice(0);
       // Popstate's automatic scroll restoration happens after its listeners.
@@ -52,6 +72,7 @@ if (typeof window !== "undefined") {
       // The owning view may have cleared its conversation URL while closing.
       const url = pendingBack;
       pendingBack = null;
+      clearTimeout(backWatchdog);
       history.replaceState(history.state, "", url);
     } else {
       ownsEntry = false;

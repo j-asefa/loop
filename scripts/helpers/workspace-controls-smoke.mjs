@@ -37,16 +37,17 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .run(JSON.stringify(models), connection.id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(fixture.base);
-  const runningNav = page
+  // The Feed tab carries the Running tab's badge: agents working right now.
+  const inboxNav = page
     .locator(".mobile-nav")
-    .getByRole("button", { name: "Running", exact: true });
-  await expect(runningNav.locator("small")).toHaveCount(1);
-  await expect(runningNav.locator("small")).toHaveAttribute(
+    .getByRole("button", { name: "Feed", exact: true });
+  await expect(inboxNav.locator("small")).toHaveCount(1);
+  await expect(inboxNav.locator("small")).toHaveAttribute(
     "aria-label",
     "1 agent running",
   );
-  const icon = await runningNav.locator("svg").boundingBox();
-  const badge = await runningNav.locator("small").boundingBox();
+  const icon = await inboxNav.locator("svg").boundingBox();
+  const badge = await inboxNav.locator("small").boundingBox();
   assert(badge.x > icon.x + icon.width / 2 && badge.y < icon.y);
   const runs = await fixture.api("/runs?active=1");
   const running = runs.find((run) => run.state === "running");
@@ -71,15 +72,32 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await page.route(runPattern, counts);
   try {
     await page.reload();
-    await expect(runningNav.locator("small")).toHaveCount(1);
-    await expect(runningNav.locator("small")).toHaveText("2");
-    await capture("single-running-badge");
-    navRuns = navRuns.filter(
+    // Each agent counts once; running and pausing count, waiting does not.
+    await expect(inboxNav.locator("small")).toHaveCount(1);
+    await expect(inboxNav.locator("small")).toHaveText("2");
+    await capture("feed-running-badge");
+    // More than nine reads "9+".
+    const base = navRuns;
+    navRuns = [
+      ...base,
+      ...Array.from({ length: 9 }, (_, i) => ({
+        ...running,
+        id: "many-" + i,
+        agent_id: "many-agent-" + i,
+      })),
+    ];
+    await page.reload();
+    await expect(inboxNav.locator("small")).toHaveText("9+");
+    await expect(inboxNav.locator("small")).toHaveAttribute(
+      "aria-label",
+      "11 agents running",
+    );
+    navRuns = base.filter(
       (run) => !["running", "pausing"].includes(run.state),
     );
     await page.reload();
-    await expect(page.locator(".attention-banner")).toBeVisible();
-    await expect(runningNav.locator("small")).toHaveCount(0);
+    await expect(page.locator(".inbox-card").first()).toBeVisible();
+    await expect(inboxNav.locator("small")).toHaveCount(0);
   } finally {
     await page.unroute(runPattern, counts);
   }
@@ -321,10 +339,22 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await dialog()
     .getByRole("button", { name: "Send reply", exact: true })
     .click();
-  await settled();
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get("conversation"))
-    .toBe(null);
+  // Sending from a thread keeps it open and shows the reply in place.
+  await expect(
+    dialog().getByLabel("Reply to agent", { exact: true }),
+  ).toHaveValue("");
+  await expect(page.locator("dialog[open]")).toHaveCount(1);
+  await expect(
+    dialog().locator("article.message").filter({ hasText: "Read this too." }),
+  ).toBeVisible();
+  await expect(
+    dialog().locator(".message .attachment-list").last(),
+  ).toContainText("follow-up.txt");
+  assert.equal(
+    new URL(page.url()).searchParams.get("conversation"),
+    sent.conversation_id,
+  );
+  await close();
   const team = await fixture.api("/teams", {
     name: `Disposable ${engine}`,
     managerId: fixture.agents[4].id,
@@ -359,8 +389,14 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .locator(".mobile-nav")
     .getByRole("button", { name: "Projects", exact: true })
     .click();
-  await page.getByRole("button", { name: /^Loop 4 agents/ }).click();
-  await page.getByRole("button", { name: "Files", exact: true }).click();
+  await page
+    .locator(".project-tile")
+    .filter({ has: page.locator("strong", { hasText: /^Loop$/ }) })
+    .click();
+  await page
+    .locator(".project-tabs")
+    .getByRole("button", { name: "Files", exact: true })
+    .click();
   await page.getByLabel("Upload files", { exact: true }).setInputFiles({
     name: `project-${engine}.txt`,
     mimeType: "text/plain",

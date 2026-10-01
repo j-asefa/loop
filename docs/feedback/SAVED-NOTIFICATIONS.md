@@ -1,11 +1,10 @@
 # Saved cards, retirement and phone notifications
 
-Saved is a feed of cards explicitly bookmarked with **Save**. Automatic result
+Saved is now the **Saved** section of Later, holding saved results and saved
+messages together; [Workspace](../workspace.md) describes it. Automatic result
 storage still preserves conversation history, but does not add anything to Saved.
-Saved uses the same cards, reply actions, team filter and project filter as Feed.
-Saving an older card puts it first; **Unsave** removes the bookmark without deleting
-the result. Archiving a card from Feed does not remove its bookmark. Background
-refreshes merge changes into the current list instead of replacing it with a loader.
+**Remove from Saved** keeps the result. Archiving a card from the results feed
+does not remove it from Saved. Refreshes update the loaded list in place.
 
 An agent profile has **Retire agent** and **Restore agent** actions. Retirement
 removes the agent from active pickers and blocks new work, including automatic

@@ -4,6 +4,7 @@ import webpush from "web-push";
 import { db, id, now } from "./db.js";
 import { seal, unseal } from "./secrets.js";
 import { Problem } from "./domain.js";
+import { resultUrl } from "./feed.js";
 
 // Subscriptions are browser-issued URLs, not arbitrary outbound webhooks.
 export function pushEndpoint(value: string) {
@@ -127,67 +128,139 @@ notifications.delete("/notifications/subscriptions", (req, res) => {
 
 type Delivery = {
   subscription_id: string;
-  artifact_id: string;
   subscription: string;
   owner_id: string;
-  name: string;
-  title: string;
   attempts: number;
+  // Result notifications are keyed by artifact, app messages by message key.
+  artifact_id: string | null;
+  message_key: string | null;
+  payload: { title: string; body: string; tag: string; url: string };
 };
+const MAX_ATTEMPTS = 5;
 // Claim with a lease so restart/retry and multiple worker processes cannot send
 // the same result concurrently. A notification tag also replaces duplicates if
 // the push provider accepted a request just before a connection was lost.
 export async function deliverNotifications(send = webpush.sendNotification) {
   const jobs = db
     .transaction(() => {
-      const jobs = db
-        .prepare(
-          `SELECT d.*,s.subscription,s.owner_id,a.title,g.name FROM push_deliveries d
+      const results = (
+        db
+          .prepare(
+            `SELECT d.subscription_id,d.artifact_id,d.attempts,s.subscription,s.owner_id,a.title,g.name,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id FROM push_deliveries d
       JOIN push_subscriptions s ON s.id=d.subscription_id
       JOIN artifacts a ON a.id=d.artifact_id LEFT JOIN agents g ON g.id=a.agent_id
-      WHERE d.delivered_at IS NULL AND d.available_at<=? AND d.attempts<5 ORDER BY d.available_at LIMIT 4`,
-        )
-        .all(now()) as Delivery[];
-      for (const job of jobs)
+      WHERE d.delivered_at IS NULL AND d.available_at<=? AND d.attempts<${MAX_ATTEMPTS} ORDER BY d.available_at LIMIT 4`,
+          )
+          .all(now()) as {
+          subscription_id: string;
+          artifact_id: string;
+          attempts: number;
+          subscription: string;
+          owner_id: string;
+          title: string;
+          name: string | null;
+          conversation_id: string | null;
+          message_id: string | null;
+        }[]
+      ).map(
+        (job): Delivery => ({
+          subscription_id: job.subscription_id,
+          subscription: job.subscription,
+          owner_id: job.owner_id,
+          attempts: job.attempts,
+          artifact_id: job.artifact_id,
+          message_key: null,
+          payload: {
+            title: job.name
+              ? `@${job.name} has a new result`
+              : "New result in Loop",
+            body: job.title.slice(0, 140),
+            tag: `loop-result-${job.artifact_id}`,
+            url: resultUrl({
+              id: job.artifact_id,
+              conversation_id: job.conversation_id,
+              message_id: job.message_id,
+            }),
+          },
+        }),
+      );
+      const messages = (
+        db
+          .prepare(
+            `SELECT m.*,s.subscription,s.owner_id FROM push_messages m
+      JOIN push_subscriptions s ON s.id=m.subscription_id
+      WHERE m.delivered_at IS NULL AND m.available_at<=? AND m.attempts<${MAX_ATTEMPTS} ORDER BY m.available_at LIMIT 4`,
+          )
+          .all(now()) as {
+          subscription_id: string;
+          message_key: string;
+          title: string;
+          body: string;
+          url: string;
+          attempts: number;
+          subscription: string;
+          owner_id: string;
+        }[]
+      ).map(
+        (job): Delivery => ({
+          subscription_id: job.subscription_id,
+          subscription: job.subscription,
+          owner_id: job.owner_id,
+          attempts: job.attempts,
+          artifact_id: null,
+          message_key: job.message_key,
+          // No action buttons: approvals are decided inside the locked app.
+          payload: {
+            title: job.title,
+            body: job.body,
+            tag: job.message_key,
+            url: job.url,
+          },
+        }),
+      );
+      for (const job of results)
         db.prepare(
           "UPDATE push_deliveries SET attempts=attempts+1,available_at=? WHERE subscription_id=? AND artifact_id=?",
         ).run(now() + 60000, job.subscription_id, job.artifact_id);
-      return jobs;
+      for (const job of messages)
+        db.prepare(
+          "UPDATE push_messages SET attempts=attempts+1,available_at=? WHERE subscription_id=? AND message_key=?",
+        ).run(now() + 60000, job.subscription_id, job.message_key);
+      return [...results, ...messages];
     })
     .immediate();
   if (!jobs.length) return;
   const keys = notificationKeys();
+  const settle = (job: Delivery, sql: string, ...values: unknown[]) =>
+    job.artifact_id
+      ? db
+          .prepare(
+            `UPDATE push_deliveries SET ${sql} WHERE subscription_id=? AND artifact_id=?`,
+          )
+          .run(...values, job.subscription_id, job.artifact_id)
+      : db
+          .prepare(
+            `UPDATE push_messages SET ${sql} WHERE subscription_id=? AND message_key=?`,
+          )
+          .run(...values, job.subscription_id, job.message_key);
   await Promise.all(
     jobs.map(async (job) => {
       try {
         const subscription = subscriptionSchema.parse(
           JSON.parse(unseal(job.subscription, job.owner_id)),
         );
-        await send(
-          subscription,
-          JSON.stringify({
-            title: job.name
-              ? `@${job.name} has a new result`
-              : "New result in Loop",
-            body: job.title.slice(0, 140),
-            tag: `loop-result-${job.artifact_id}`,
-            url: `/?artifact=${encodeURIComponent(job.artifact_id)}`,
-          }),
-          {
-            vapidDetails: {
-              subject:
-                process.env.LOOP_PUSH_CONTACT ||
-                "https://github.com/j-asefa/loop",
-              ...keys,
-            },
-            TTL: 86400,
-            urgency: "normal",
-            timeout: 8000,
+        await send(subscription, JSON.stringify(job.payload), {
+          vapidDetails: {
+            subject:
+              process.env.LOOP_PUSH_CONTACT ||
+              "https://github.com/j-asefa/loop",
+            ...keys,
           },
-        );
-        db.prepare(
-          "UPDATE push_deliveries SET delivered_at=? WHERE subscription_id=? AND artifact_id=?",
-        ).run(now(), job.subscription_id, job.artifact_id);
+          TTL: 86400,
+          urgency: "normal",
+          timeout: 8000,
+        });
+        settle(job, "delivered_at=?", now());
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410)
@@ -195,18 +268,17 @@ export async function deliverNotifications(send = webpush.sendNotification) {
             job.subscription_id,
           );
         else
-          db.prepare(
-            "UPDATE push_deliveries SET available_at=? WHERE subscription_id=? AND artifact_id=?",
-          ).run(
+          settle(
+            job,
+            "available_at=?",
             now() + Math.min(3600000, 60000 * 2 ** job.attempts),
-            job.subscription_id,
-            job.artifact_id,
           );
         // Never log endpoint URLs or subscription encryption keys.
       }
     }),
   );
-  db.prepare(
-    "DELETE FROM push_deliveries WHERE delivered_at<? OR (attempts>=5 AND available_at<?)",
-  ).run(now() - 7 * 86400000, now() - 7 * 86400000);
+  for (const table of ["push_deliveries", "push_messages"])
+    db.prepare(
+      `DELETE FROM ${table} WHERE delivered_at<? OR (attempts>=${MAX_ATTEMPTS} AND available_at<?)`,
+    ).run(now() - 7 * 86400000, now() - 7 * 86400000);
 }

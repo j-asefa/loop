@@ -6,8 +6,16 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 export async function feedbackJourney(page, api, base, dir) {
+  // The fixture runs many independent journeys as one user. Keep this one
+  // from inheriting earlier journeys' per-minute request budget.
+  {
+    const limits = new Database(join(dir, "loop.db"));
+    limits.pragma("busy_timeout = 10000");
+    limits.prepare("DELETE FROM request_limits").run();
+    limits.close();
+  }
   await page.goto(base);
-  await page.getByRole("heading", { name: "Feed" }).waitFor();
+  await page.getByRole("heading", { name: "Feed", exact: true }).waitFor();
   assert.equal(await page.getByLabel("Message your agent").isVisible(), false);
   await page.getByRole("button", { name: "Compose a message" }).click();
   await page.getByLabel("Message your agent").fill("Keep this draft");
@@ -44,14 +52,35 @@ export async function feedbackJourney(page, api, base, dir) {
   await page
     .getByRole("button", { name: "Create team & talk to manager" })
     .click();
-  await page
-    .getByLabel("Reply to agent")
-    .fill("Coordinate this work");
+  const thread = page.locator("dialog.swipe-sheet");
+  await thread.getByLabel("Reply to agent").fill("Coordinate this work");
   await page.getByRole("button", { name: "Send reply" }).click();
-  await expect(page.locator("dialog[open]").last()).toHaveCount(0);
+  // Sending from a thread keeps the thread open and shows the new message.
+  await expect(thread).toBeVisible();
+  await expect(thread.getByLabel("Reply to agent")).toHaveValue("");
+  await expect(
+    thread
+      .locator("article.message")
+      .filter({ hasText: "Coordinate this work" }),
+  ).toBeVisible();
+  await closeSheets(page);
   await expect(
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
+  // Result cards live on agent profiles. Replying to one opens its thread
+  // with the quoted result instead of the global composer.
+  const strip = (name) =>
+    page
+      .locator(".agent-strip")
+      .getByRole("button", { name: new RegExp(`^@${name} ·`) });
+  const openProfile = async (name) => {
+    await strip(name).click();
+    await page
+      .getByRole("heading", { name: "@" + name, exact: true })
+      .waitFor();
+    await page.getByRole("tab", { name: "Results", exact: true }).click();
+  };
+  await openProfile("feedback-manager");
   await page
     .locator(".feed-card")
     .filter({
@@ -62,39 +91,38 @@ export async function feedbackJourney(page, api, base, dir) {
     })
     .getByRole("button", { name: "Reply", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(thread.getByLabel("Reply to agent")).toBeVisible();
+  const chip = page.locator(".composer-reply-chip");
+  await chip.locator("summary").click();
   await expect(
     page.getByRole("region", { name: "Original message" }),
   ).toContainText("Fixture response:");
   await page.getByRole("button", { name: "Clear reply context" }).click();
-  await page.getByRole("button", { name: "Collapse composer" }).click();
-  await page
-    .locator(".feed-card")
-    .filter({ hasText: "Collect evidence for the team" })
-    .waitFor();
+  await expect(chip).toHaveCount(0);
+  await closeSheets(page);
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.locator(".profile-head")).toHaveCount(0);
   const team = (await api("/teams")).find((t) => t.name === "Feedback team");
-  assert.equal((await api("/feed?teams=" + team.id)).items.length, 2);
-  await page
-    .locator(".mobile-nav")
-    .getByRole("button", { name: "Running", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Executing", exact: true }).waitFor();
-  assert.equal(
-    await page.locator(".run-card").count(),
-    0,
-    "Completed runs stay out of Running",
-  );
-  await page
-    .locator(".mobile-nav")
-    .getByRole("button", { name: "Feed", exact: true })
-    .click();
+  await expect
+    .poll(async () => (await api("/feed?teams=" + team.id)).items.length)
+    .toBe(2);
+  // Running became the Feed "Working" filter; completed runs stay out of it.
+  await page.getByRole("tab", { name: /^Working/ }).click();
+  await expect(
+    page.getByText("No agents are working right now.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".inbox-row")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^All/ }).click();
+  await openProfile("feedback-worker");
   const card = page.locator(".feed-card").filter({
     has: page.getByRole("heading", {
       name: "Collect evidence for the team",
       exact: true,
     }),
   });
-  await card.getByRole("button", { name: "Open output", exact: true }).click();
+  await card
+    .getByRole("button", { name: "View full result", exact: true })
+    .click();
   await page.locator("dialog[open]").last().waitFor();
   await page.getByLabel("Result options", { exact: true }).click();
   await page
@@ -102,21 +130,25 @@ export async function feedbackJourney(page, api, base, dir) {
     .click();
   await page.locator(".message.anchored").waitFor();
   await closeSheets(page);
-  await card.locator(".identity").click();
-  await page
-    .getByRole("heading", { name: "@feedback-worker", exact: true })
-    .waitFor();
+  // Leaving the profile and opening it again reloads that agent's results.
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.locator(".profile-head")).toHaveCount(0);
   const loadedFeed = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return (
       url.pathname === "/api/feed" &&
-      !url.searchParams.has("agent") &&
+      url.searchParams.get("agent") === worker.id &&
       response.ok()
     );
   });
-  await page.getByRole("button", { name: "Back to feed" }).click();
+  await strip("feedback-worker").click();
   await loadedFeed;
   await card.waitFor();
+  // Long-press now opens the card's action menu (the same one as the
+  // "More actions" button); archiving is an item in that menu.
+  await expect(
+    card.getByRole("button", { name: "More actions", exact: true }),
+  ).toBeVisible();
   await card.locator(".card-content").hover();
   const rect = await card.locator(".card-content").boundingBox();
   assert.ok(rect);
@@ -124,6 +156,11 @@ export async function feedbackJourney(page, api, base, dir) {
   await page.mouse.down();
   await page.waitForTimeout(700);
   await page.mouse.up();
+  await page
+    .locator("dialog[open]")
+    .last()
+    .getByRole("menuitem", { name: "Archive" })
+    .click();
   await page
     .getByRole("status")
     .filter({ hasText: "Archived from feed" })
@@ -148,7 +185,12 @@ export async function feedbackJourney(page, api, base, dir) {
   await page.getByLabel("Feedback team", { exact: true }).check();
   await page.getByLabel("Second team", { exact: true }).check();
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(page.locator(".feed-card")).toHaveCount(2);
+  // The Feed shows threads from both selected teams.
+  const bothTeams = (
+    await api("/inbox?teams=" + [team.id, second.id].sort().join(","))
+  ).items.length;
+  assert.ok(bothTeams > 0);
+  await expect(page.locator(".inbox-card")).toHaveCount(bothTeams);
   await page.screenshot({
     path: join(tmpdir(), "loop-feedback-mobile.png"),
     fullPage: true,
@@ -213,6 +255,6 @@ export async function feedbackJourney(page, api, base, dir) {
   }
   assert.equal((await api("/feed?teams=" + second.id)).items.length, 0);
   console.log(
-    "PASS: composer drafts, Anthropic selection, team delegation and multi-select feeds, executing-only Running, card/profile navigation, long-press archive/search/Undo, older message anchors, native diagrams, responsive layout.",
+    "PASS: composer drafts, Anthropic selection, team delegation and multi-select feeds, completed runs out of Working, in-thread send and result reply, card/profile navigation, long-press menu archive/search/Undo, older message anchors, native diagrams, responsive layout.",
   );
 }

@@ -146,7 +146,7 @@ export function ShareSheet({
           value={draft.folderId}
           onChange={(e) => update({ folderId: e.target.value })}
         >
-          <option value="">Workspace inbox</option>
+          <option value="">Unfiled</option>
           {folders.map((f) => (
             <option value={f.id} key={f.id}>
               {f.name}

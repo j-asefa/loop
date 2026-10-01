@@ -83,12 +83,58 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
   try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(fixture.base, { waitUntil: "networkidle" });
+    // Pulling down at the top of a page refreshes it; the same pull further
+    // down the page, or inside an open sheet, only scrolls.
+    let refreshes = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/bootstrap") refreshes++;
+    });
+    const feedHeading = page.getByRole("heading", { name: "Feed", exact: true });
+    const pulled = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === "/api/bootstrap",
+    );
+    await swipe(feedHeading, 0, 260);
+    await pulled;
+    await expect(nav("Feed")).toHaveAttribute("aria-current", "page");
+    await capture("pull-to-refresh");
+    // Safari can leave the visible area panned after the keyboard closes,
+    // which floats the fixed composer and tabs mid-screen. The app folds
+    // that pan back into the page scroll.
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await page.evaluate(() => {
+      const real = window.visualViewport;
+      const panned = new Proxy(real, {
+        get: (target, key) =>
+          key === "offsetTop"
+            ? 180
+            : typeof target[key] === "function"
+              ? target[key].bind(target)
+              : target[key],
+      });
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        get: () => panned,
+      });
+      document.dispatchEvent(new FocusEvent("focusout"));
+    });
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(180);
+    await page.evaluate(() => {
+      delete window.visualViewport;
+    });
     await page.evaluate(() =>
       window.scrollTo({ top: 240, behavior: "instant" }),
     );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
-    await nav("Running").tap();
-    const heading = page.getByRole("heading", { name: "Running", exact: true });
+    const before = refreshes;
+    await swipe(page.locator(".inbox-card").first(), 0, 260);
+    await page.waitForTimeout(300);
+    assert.equal(refreshes, before, "Only a pull at the top refreshes");
+    await page.evaluate(() =>
+      window.scrollTo({ top: 240, behavior: "instant" }),
+    );
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
+    await nav("Later").tap();
+    const heading = page.getByRole("heading", { name: "Later", exact: true });
     for (const [dx, dy, cancelled, multi] of [
       [-30, 0],
       [100, 0],
@@ -97,22 +143,112 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       [-170, 0, false, true],
     ]) {
       await swipe(heading, dx, dy, cancelled, multi);
-      await expect(nav("Running")).toHaveAttribute("aria-current", "page");
+      await expect(nav("Later")).toHaveAttribute("aria-current", "page");
     }
     await swipe(heading);
     await expect(nav("Feed")).toHaveAttribute("aria-current", "page");
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
-    await capture("swipe-back-feed");
-    // Card headers are large tap targets. Swiping across one must go back,
-    // rather than becoming a dead zone or also opening the agent's profile.
-    await nav("Running").tap();
-    await swipe(page.locator(".run-card .identity").first());
-    await expect(nav("Feed")).toHaveAttribute("aria-current", "page");
-    await expect(page.locator(".profile-head")).toHaveCount(0);
+    await capture("swipe-back-inbox");
+    // Back returns to where you were: closing a thread keeps the Feed at
+    // the same place, and earlier pages keep their query, results and section.
+    // Open a thread that is already on screen, so the tap does not scroll.
+    const visibleRow = await page
+      .locator(".inbox-row")
+      .evaluateAll((rows) =>
+        rows.findIndex((row) => {
+          const box = row.getBoundingClientRect();
+          return box.top > 120 && box.bottom < innerHeight - 120;
+        }),
+      );
+    assert(visibleRow >= 0, "A Feed thread must be on screen");
+    await page.locator(".inbox-row").nth(visibleRow).click();
+    await expect(page.locator("dialog.conversation-sheet[open]")).toBeVisible();
+    await swipe(dialog().locator(".sheet-head h2"));
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
+    await nav("Search").tap();
+    await page.getByLabel("Search everything").fill("review");
+    await page.getByLabel("Search everything").press("Enter");
+    const searchResults = page.locator(".search-result");
+    await searchResults.first().waitFor();
+    const resultCount = await searchResults.count();
+    await searchResults.first().locator(".subline button").first().click();
+    await expect(page.locator(".profile-head h1")).toBeVisible();
+    await swipe(page.locator(".profile-head h1"));
+    await expect(nav("Search")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByLabel("Search everything")).toHaveValue("review");
+    await expect(searchResults).toHaveCount(resultCount);
+    await nav("Later").tap();
+    const laterSection = (name) =>
+      page
+        .getByRole("region", { name: "Later", exact: true })
+        .getByRole("tab", { name, exact: true });
+    await laterSection("Snoozed").tap();
+    await nav("Projects").tap();
+    await swipe(page.getByRole("heading", { name: "Projects", exact: true }));
+    await expect(nav("Later")).toHaveAttribute("aria-current", "page");
+    await expect(laterSection("Snoozed")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await laterSection("Everything").tap();
+    // Result cards (on an agent's profile) own their horizontal gestures: a
+    // left swipe archives the card (with Undo) instead of going back.
+    // Card swipes use pointer events, which only Chromium's touch emulation
+    // produces alongside the touch events that drive page swipes.
+    if (client) {
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      // Open the profile of an agent known to have results.
+      const resultAuthor = fixture.db
+        .prepare(
+          "SELECT g.name FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
+        )
+        .get(fixture.artifacts[0]).name;
+      await page
+        .locator(".your-agents")
+        .getByRole("button", { name: new RegExp(`^@${resultAuthor} · `) })
+        .click();
+      await expect(page.locator(".profile-head h1")).toBeVisible();
+      const cards = page.locator(".feed-card:not(.inbox-card)");
+      await cards.first().waitFor();
+      const cardCount = await cards.count();
+      const archived = await cards.first().locator("h2").first().textContent();
+      await swipe(cards.first().locator(".card-byline .identity"));
+      await expect(page.locator(".profile-head h1")).toBeVisible();
+      const toast = page
+        .getByRole("status")
+        .filter({ hasText: "Archived from feed" });
+      await expect(toast).toBeVisible();
+      await expect(cards).toHaveCount(cardCount - 1);
+      await toast.getByRole("button", { name: "Undo", exact: true }).click();
+      await expect(cards).toHaveCount(cardCount);
+      await expect(cards.first().locator("h2").first()).toHaveText(archived);
+    }
 
-    // The agent row owns its horizontal gestures, even when Feed has a Back
+    // Feed threads own their left swipe too: it opens Remind me later
+    // (which must stay open).
+    if (client) {
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      const row = page.locator(
+        `.inbox-row[aria-label^="${fixture.conversations[0].title}"]`,
+      );
+      await swipe(row);
+      await expect(
+        page.locator("dialog[open]"),
+        "Swiping a Feed thread left keeps Remind me later open",
+      ).toHaveCount(1);
+      await expect(dialog()).toHaveAttribute("aria-label", "Remind me later");
+      await dialog()
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      await page.waitForFunction(() => history.state?.loopSheet !== true);
+    }
+
+    // The agent row owns its horizontal gestures, even when the Feed has a Back
     // destination. Every agent remains reachable by touch and keyboard.
-    await nav("Running").tap();
+    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await nav("Later").tap();
     await nav("Feed").tap();
     const strip = page.locator(".your-agents .agent-strip");
     assert(
@@ -129,6 +265,16 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
         await strip.evaluate((element) => element.scrollLeft > 0),
         "Swiping the agent row must reveal more agents",
       );
+    // Let the swipe's momentum scroll settle before keyboard navigation.
+    let settledLeft;
+    await expect
+      .poll(async () => {
+        const left = await strip.evaluate((element) => element.scrollLeft);
+        const stable = left === settledLeft;
+        settledLeft = left;
+        return stable;
+      })
+      .toBe(true);
     const shortcuts = strip.getByRole("button");
     await shortcuts.first().focus();
     await expect(shortcuts.first()).toBeInViewport({ ratio: 1 });
@@ -163,7 +309,9 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     });
     const draft = "Keep this draft when swiping back from the profile.";
     await dialog().getByLabel("Reply to agent", { exact: true }).fill(draft);
-    await dialog().locator(".conversation-agent").tap();
+    await dialog()
+      .getByRole("button", { name: /^Open @.* profile$/ })
+      .tap();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     const teamLink = page.locator(".profile-team-link").first();
     const teamId = new URL(

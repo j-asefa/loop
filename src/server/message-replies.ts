@@ -11,8 +11,8 @@ export function messageReplyContext(
 ): ReplyContext {
   if (!conversation)
     throw new Problem(400, "Choose the message's conversation to reply");
-  // Only public assistant messages belonging to this owner, agent and
-  // conversation can be quoted. Tool output and user prompts are not targets.
+  // Only public messages belonging to this owner, agent and conversation can
+  // be quoted: the agent's replies and your own prompts. Tool output is not.
   const entry = message.startsWith("trace:")
     ? db
         .prepare(
@@ -26,14 +26,17 @@ export function messageReplyContext(
         .get(owner, agent, conversation, message)
     : db
         .prepare(
-          `SELECT m.content,m.created_at,a.name FROM messages m
+          `SELECT m.content,m.created_at,a.name,m.role='user' AS mine FROM messages m
         JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
         JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id
         WHERE m.owner_id=? AND c.agent_id=? AND m.conversation_id=? AND m.id=?
-          AND m.role='assistant' AND json_extract(m.metadata,'$.partial') IS NOT 1
+          AND m.role IN ('assistant','user') AND json_extract(m.metadata,'$.partial') IS NOT 1
           AND length(trim(m.content))>0`,
         )
         .get(owner, agent, conversation, message);
   if (!entry) throw new Problem(404, "Message not found");
-  return { id: message, ...(entry as Omit<ReplyContext, "id">) };
+  const { mine, ...rest } = entry as Omit<ReplyContext, "id" | "mine"> & {
+    mine?: number;
+  };
+  return { id: message, ...rest, ...(mine ? { mine: true } : {}) };
 }

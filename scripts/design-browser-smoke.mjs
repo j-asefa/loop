@@ -16,6 +16,7 @@ import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
 import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
 import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
+import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
 
 const fixture = await designFixture();
 const screenshots =
@@ -24,7 +25,13 @@ const screenshots =
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 try {
   for (const engine of selectedEngines()) {
-    const browser = await engine.launch({ headless: true });
+    const browser = await engine.launch({
+      headless: true,
+      executablePath:
+        engine === chromium
+          ? process.env.CHROMIUM_PATH || undefined
+          : undefined,
+    });
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       isMobile: true,
@@ -46,6 +53,7 @@ try {
       );
     });
     const dialog = () => page.locator("dialog[open]").last();
+    const thread = () => page.locator("dialog.conversation-sheet[open]");
     const capture = async (name) => {
       if (screenshots)
         await page.screenshot({
@@ -76,36 +84,49 @@ try {
       await dialog()
         .getByRole("button", { name: "Commands & skills", exact: true })
         .waitFor();
-      await expect(dialog().locator(".message").first()).toBeVisible();
+      await expect(thread().locator(".message").first()).toBeVisible();
     };
     try {
       await page.goto(fixture.base);
-      await page.locator(".feed-card").first().waitFor();
+      const inbox = page.getByRole("region", { name: "Feed", exact: true });
+      const inboxRows = inbox.locator(".inbox-row");
+      await inboxRows.first().waitFor();
       await capture("feed");
-      const checkFirstResult = async () => {
-        const author = page.locator(".feed-card .card-byline").first();
-        await expect(author).toBeInViewport({ ratio: 1 });
-        const byline = await author.boundingBox();
-        const composer = await page.locator(".composer-launch").boundingBox();
-        assert(
-          byline.y + byline.height <= composer.y,
-          `First result author must remain above the composer: ${JSON.stringify({ byline, composer })}`,
-        );
-      };
-      await checkFirstResult();
-      // System font metrics differ on Linux and macOS. A two-line subtitle is
-      // valid; verify visible result identity instead of an absolute card offset.
-      await page.locator(".page-description").evaluate((element) => {
-        element.style.maxWidth = "240px";
-      });
-      await capture("feed-wrapped-description");
-      await checkFirstResult();
-      await page.locator(".page-description").evaluate((element) => {
-        element.style.maxWidth = "";
-      });
       await expect(
         page.getByRole("heading", { name: "Feed", exact: true }),
       ).toBeVisible();
+      // The Feed title replaced the old tagline; nothing wraps above threads.
+      await expect(page.locator(".page-description")).toHaveCount(0);
+      const checkAboveComposer = async (target, label) => {
+        await expect(target).toBeInViewport({ ratio: 1 });
+        const box = await target.boundingBox();
+        const composer = await page.locator(".composer-launch").boundingBox();
+        assert(
+          box.y + box.height <= composer.y,
+          `${label} must remain above the composer: ${JSON.stringify({ box, composer })}`,
+        );
+      };
+      await checkAboveComposer(
+        inbox.locator(".inbox-card .card-byline").first(),
+        "First thread author",
+      );
+      const inboxFilters = inbox.getByRole("tablist", { name: "Show" });
+      await expect(inboxFilters.getByRole("tab")).toHaveText([
+        "All",
+        /^Needs you/,
+        /^Working/,
+        /^Queued/,
+      ]);
+      await expect(
+        inboxFilters.getByRole("tab", { name: "All", exact: true }),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(inboxRows).toHaveCount(fixture.conversations.length);
+      // The Results filter is gone; its old links open the whole Feed.
+      await page.goto(fixture.base + "/?filter=results");
+      await expect(
+        inboxFilters.getByRole("tab", { name: "All", exact: true }),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(inboxRows).toHaveCount(fixture.conversations.length);
       const shortcuts = page.getByRole("region", {
         name: "Your agents",
         exact: true,
@@ -140,19 +161,49 @@ try {
         .getByRole("button", { name: "Collapse composer", exact: true })
         .click();
 
-      // Every reply enters the common composer with its original context.
-      const resultCard = page.locator(".feed-card").first();
-      await resultCard
-        .getByRole("button", { name: "Reply", exact: true })
-        .click();
-      const composer = page.locator(".composer");
-      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      // Result cards live on agent profiles (and project pages), not the Feed.
+      const resultsAuthor = fixture.db
+        .prepare(
+          "SELECT g.name FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
+        )
+        .get(fixture.artifacts[0]).name;
+      const results = page.locator(".feed-card:not(.inbox-card)");
+      const openResults = async () => {
+        await shortcuts
+          .getByRole("button", { name: new RegExp(`^@${resultsAuthor} ·`) })
+          .click();
+        await expect(
+          page.getByRole("heading", { name: "@" + resultsAuthor, exact: true }),
+        ).toBeVisible();
+        await page.getByRole("tab", { name: "Results", exact: true }).click();
+        await results.first().waitFor();
+      };
+      await openResults();
+      await capture("agent-results");
+      // Replying to a result opens its thread at that message, with the
+      // result quoted in the thread composer.
+      const resultCard = results.first();
+      const replyToResult = async () => {
+        await resultCard
+          .getByRole("button", { name: "Reply", exact: true })
+          .click();
+        await expect(page.locator("dialog[open]")).toHaveCount(1);
+        await expect(page).toHaveURL(/[?&]message=/);
+        // Results and messages are quoted the same way: by their agent.
+        await expect(dialog().locator(".composer-reply-chip")).toContainText(
+          /^Replying to @/,
+        );
+      };
+      await replyToResult();
+      const composer = dialog().locator(".composer");
       await expect(
         composer.getByRole("textbox", { name: "Reply to agent" }),
       ).toBeInViewport({ ratio: 1 });
+      await composer.locator(".composer-quote-toggle > summary").click();
       await expect(
         composer.getByRole("region", { name: "Original message" }),
       ).toBeVisible();
+      await composer.locator(".composer-quote-toggle > summary").click();
       await expect(
         composer.getByRole("button", { name: "Select model and effort" }),
       ).toBeVisible();
@@ -184,24 +235,32 @@ try {
       await expect(composer.getByRole("alert")).toContainText(
         "Fixture reply unavailable",
       );
-      await composer.getByRole("button", { name: "Collapse composer" }).click();
-      await resultCard
-        .getByRole("button", { name: "Reply", exact: true })
-        .click();
+      // Leaving the thread keeps the failed reply as its draft.
+      await close();
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      await replyToResult();
       await expect(
         composer.getByRole("textbox", { name: "Reply to agent" }),
       ).toHaveValue("Explain the next step");
       await composer
         .getByRole("button", { name: "Send reply", exact: true })
         .click();
-      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      // Sending keeps the thread open and clears the draft.
+      await expect(
+        composer.getByRole("textbox", { name: "Reply to agent" }),
+      ).toHaveValue("");
+      await expect(page.locator("dialog[open]")).toHaveCount(1);
       assert.equal(requests.length, 2);
       assert.equal(requests[0].idempotencyKey, requests[1].idempotencyKey);
+      assert.equal(requests[0].replyToMessageId, requests[1].replyToMessageId);
+      assert(requests[1].replyToMessageId, "Result reply keeps its message");
       const repliedConversation = fixture.db
         .prepare("SELECT agent_id FROM conversations WHERE id=?")
         .get(requests[1].conversationId);
       assert.equal(requests[1].agentId, repliedConversation.agent_id);
       await page.unroute("**/api/runs");
+      await close();
+      await page.getByRole("button", { name: "Back", exact: true }).click();
       await shortcuts
         .getByRole("button", { name: /^@code-reviewer ·/ })
         .click();
@@ -211,9 +270,16 @@ try {
       await expect(page.locator(".composer-launch")).toContainText(
         "@code-reviewer",
       );
+      // The personal "Your prompts" tab moved to Search; the agent's threads
+      // gained their own tab.
       await expect(
-        page.locator(".profile-head + .segmented button"),
-      ).toHaveText(["Results", "Messages", "Files", "Traces", "Your prompts"]);
+        page.locator(".profile-head ~ .segmented button"),
+      ).toHaveText(["Results", "Threads", "Messages", "Files", "Traces"]);
+      await expect(
+        page
+          .locator(".profile-head")
+          .getByRole("button", { name: "Message", exact: true }),
+      ).toBeVisible();
       await page.evaluate(() => scrollTo(0, 0));
       for (const theme of ["light", "dark"]) {
         await page.evaluate(
@@ -233,6 +299,17 @@ try {
             ) < 2,
             "Profile avatar stays centered",
           );
+          // The agent menu sits in the header corner without covering the avatar.
+          const menu = await page
+            .locator(".profile-head")
+            .getByRole("button", { name: "Agent actions", exact: true })
+            .boundingBox();
+          assert(
+            menu.x + menu.width <= header.x + header.width &&
+              menu.y >= header.y &&
+              menu.x >= avatar.x + avatar.width,
+            "Agent actions stay in the profile header corner",
+          );
         }
       }
       await page.setViewportSize({ width: 390, height: 844 });
@@ -249,7 +326,7 @@ try {
       fixture.db
         .prepare("UPDATE runs SET input=? WHERE id=?")
         .run(longPrompt, fixture.conversations[0].run);
-      await page.getByRole("button", { name: "Traces", exact: true }).click();
+      await page.getByRole("tab", { name: "Traces", exact: true }).click();
       await page.locator(".trace-run").first().waitFor();
       const longRun = page.locator(".trace-run").filter({
         hasText: "Review the navigation changes and runtime integration",
@@ -269,8 +346,12 @@ try {
       await expect(longRun.locator(".trace-prompt li")).toHaveCount(2);
       await capture("trace-prompt-expanded");
       await longRun.locator(".trace-prompt summary").click();
-      await longRun.locator(".trace-card summary").first().click();
-      await expect(longRun.locator(".trace-log").first()).toContainText(
+      // Traces are newest first; open the command trace by its title.
+      const command = longRun
+        .locator(".trace-card")
+        .filter({ hasText: "Run command" });
+      await command.locator("summary").first().click();
+      await expect(command.locator(".trace-log").first()).toContainText(
         "npm test\n\n35",
       );
       for (const width of [320, 390]) {
@@ -306,18 +387,19 @@ try {
         "Conversation reading area is too short",
       );
       await page.getByLabel("Conversation options", { exact: true }).click();
+      await expect(dialog()).toHaveAttribute("aria-label", "Conversation");
       await dialog().locator(".native-conversation > summary").click();
       await expect(
         dialog().getByRole("checkbox", { name: "Include in shared memory" }),
       ).toBeVisible();
       assert(
-        (await dialog()
+        (await thread()
           .locator(".messages")
           .evaluate((el) => el.clientHeight)) === dimensions.messages,
         "Conversation controls shrink the reading area",
       );
       await dialog()
-        .getByRole("button", { name: "Change model", exact: true })
+        .getByRole("menuitem", { name: /^Change model/ })
         .click();
       assert(
         (await dialog().getByRole("radio").first().boundingBox()).width > 280,
@@ -331,15 +413,30 @@ try {
       await expect(page.locator("dialog[open]")).toHaveCount(1);
       await page.getByLabel("Conversation options", { exact: true }).click();
       await dialog()
-        .getByRole("button", {
-          name: "Continue with another agent",
-          exact: true,
-        })
+        .getByRole("menuitem", { name: /^Continue with another agent/ })
         .click();
       await expect(
         dialog().locator('input[type="checkbox"]').first(),
       ).toBeVisible();
       await close();
+      await expect(page.locator("dialog[open]")).toHaveCount(1);
+      // Per-message actions moved from a Copy/Link row into one menu.
+      await thread()
+        .getByRole("button", { name: "Message actions", exact: true })
+        .last()
+        .click();
+      await expect(dialog()).toHaveAttribute("aria-label", "Message");
+      await expect(dialog().getByRole("menuitem")).toHaveText([
+        "Reply",
+        /^Save(?! as snippet)/,
+        "Remind me later",
+        /^Fork from here/,
+        "Reuse as new prompt",
+        /^Save as snippet/,
+        "Copy text",
+        /^Share link/,
+      ]);
+      await capture("message-actions");
       await page.route("**/api/artifacts", (route) =>
         route.request().method() === "POST"
           ? route.fulfill({
@@ -350,19 +447,18 @@ try {
           : route.continue(),
       );
       await dialog()
-        .getByRole("button", { name: "Save as prompt", exact: true })
-        .last()
+        .getByRole("menuitem", { name: /^Save as snippet/ })
         .click();
-      await expect(dialog().getByRole("alert")).toContainText(
+      await expect(thread().getByRole("alert")).toContainText(
         "Synthetic save failure",
       );
       await page.unroute("**/api/artifacts");
-      await dialog()
+      await thread()
         .getByRole("button", { name: "Dismiss message", exact: true })
         .click();
       if (engine === chromium) {
         const client = await context.newCDPSession(page);
-        const messages = dialog().locator(".messages");
+        const messages = thread().locator(".messages");
         await messages.evaluate((element) => {
           element.scrollTop = 600;
         });
@@ -389,12 +485,13 @@ try {
         await swipe(grip.x + grip.width / 2, grip.y + grip.height / 2, 160);
         await expect(page.locator("dialog[open]")).toHaveCount(0);
       } else await close();
+      // Tapping a result opens it; closing must not leave extra Back steps.
+      await openResults();
       const historyLength = await page.evaluate(() => history.length);
       for (let i = 0; i < 3; i++) {
-        await page
-          .locator(".feed-card")
+        await results
           .first()
-          .getByRole("button", { name: "Open output", exact: true })
+          .getByRole("button", { name: "View full result", exact: true })
           .click();
         await expect(dialog().locator(".result-author-name")).toBeVisible();
         await close();
@@ -403,12 +500,21 @@ try {
         (await page.evaluate(() => history.length)) <= historyLength + 1,
         "Closing sheets leaves redundant Back steps",
       );
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await expect(page.locator(".profile-head")).toHaveCount(0);
       await page
         .getByLabel("Filter by project")
         .selectOption(fixture.projects[0].id);
       await expect(shortcuts.locator(".agent-strip button")).toHaveCount(5);
-      await expect(page.locator(".attention-banner b")).toHaveText("2");
-      await nav("Running");
+      // The attention banner became the Needs you count on the filter chip.
+      await expect(
+        inboxFilters
+          .getByRole("tab", { name: /^Needs you/ })
+          .locator(".chip-count"),
+      ).toHaveText("2");
+      // The Running tab became the Feed Working filter.
+      await inboxFilters.getByRole("tab", { name: /^Working/ }).click();
+      await expect(page).toHaveURL(/filter=working/);
       await expect(page.getByLabel("Filter by project")).toHaveValue(
         fixture.projects[0].id,
       );
@@ -418,24 +524,41 @@ try {
       );
       await expect(
         page.locator('.mobile-nav [aria-current="page"]'),
-      ).toContainText("Running");
+      ).toContainText("Feed");
+      await expect(
+        inboxFilters.getByRole("tab", { name: /^Working/ }),
+      ).toHaveAttribute("aria-selected", "true");
       await page.getByLabel("Filter by project").selectOption("");
-      await page
-        .getByRole("button", { name: "Needs you", exact: true })
-        .click();
-      await page
-        .locator(".run-card")
-        .filter({ hasText: "Check why the GitHub review could not be posted" })
-        .getByRole("button", { name: "View failure details", exact: true })
-        .click();
-      await expect(dialog()).toHaveAttribute(
-        "aria-label",
-        "Run failure details",
+      await expect(inboxRows).toHaveCount(1);
+      await expect(inboxRows.first()).toHaveAccessibleName(
+        /^Review GitHub pull request #42 .*Working$/,
       );
-      await expect(dialog()).toContainText(
+      // Failed runs need you: the thread row shows the failure and opens it.
+      await inboxFilters.getByRole("tab", { name: /^Needs you/ }).click();
+      const failedRow = inboxRows.filter({
+        hasText: "Check why the GitHub review could not be posted",
+      });
+      await expect(failedRow).toHaveAccessibleName(/, Failed$/);
+      await expect(failedRow).toContainText(
         "The tool could not complete the request",
       );
-      await expect(dialog().locator(".trace-run")).toHaveCount(1);
+      await capture("needs-you");
+      await page
+        .locator(".inbox-card")
+        .filter({ hasText: "Check why the GitHub review could not be posted" })
+        .getByRole("button", { name: "Thread actions", exact: true })
+        .click();
+      await expect(
+        dialog().getByRole("menuitem", {
+          name: "Dismiss from Needs you",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await close();
+      await failedRow.click();
+      await expect(thread()).toContainText(
+        "The tool could not complete the request",
+      );
       await capture("failure-details");
       await close();
       await page.locator(".approval-summary").click();
@@ -453,7 +576,16 @@ try {
       await expect(dialog()).toHaveAttribute("aria-label", "Review approval");
       await close();
       await close();
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      const openSettings = async () => {
+        await page
+          .getByRole("button", { name: "Account and settings", exact: true })
+          .click();
+        await dialog()
+          .getByRole("menuitem", { name: /^Settings/ })
+          .click();
+        await expect(dialog()).toHaveAttribute("aria-label", "Settings");
+      };
+      await openSettings();
       await capture("settings");
       await dialog()
         .getByRole("button", { name: /Tools & integrations/ })
@@ -490,15 +622,32 @@ try {
       await close();
       await close();
       await nav("Projects");
-      await page.getByRole("button", { name: /^Loop 4 agents/ }).click();
-      await page.getByRole("button", { name: "Activity", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { name: "Projects", exact: true }),
+      ).toBeVisible();
+      const projectRow = page
+        .locator(".project-tile")
+        .filter({ has: page.locator("strong", { hasText: /^Loop$/ }) });
+      await expect(projectRow).toContainText("4 agents");
+      await capture("projects");
+      await projectRow.click();
+      const projectTab = (name) =>
+        page
+          .locator(".project-tabs")
+          .getByRole("button", { name, exact: true });
+      await projectTab("Threads").click();
+      await expect(
+        page.locator(".projects-view .inbox-row").first(),
+      ).toBeVisible();
+      await capture("project-threads");
+      await projectTab("Activity").click();
       await page
         .locator('[aria-label="Project activity"] .feed-card')
         .first()
         .waitFor();
       await capture("project");
       // Live updates must not discard older project activity already loaded.
-      await page.getByRole("button", { name: "Agents", exact: true }).click();
+      await projectTab("Agents").click();
       const historyIds = Array.from(
         { length: 45 },
         (_, i) => `design-history-${engine.name()}-${i}`,
@@ -518,7 +667,7 @@ try {
           ),
         );
       })();
-      await page.getByRole("button", { name: "Activity", exact: true }).click();
+      await projectTab("Activity").click();
       const activity = page.getByLabel("Project activity", { exact: true });
       await expect(
         activity.getByRole("heading", {
@@ -549,35 +698,68 @@ try {
           "DELETE FROM artifacts WHERE id IN (SELECT value FROM json_each(?))",
         )
         .run(JSON.stringify(historyIds));
-      await page.getByRole("button", { name: "Files", exact: true }).click();
+      await projectTab("Files").click();
       await expect(
         page.locator('.mobile-nav [aria-current="page"]'),
       ).toHaveText("Projects");
       await page.getByRole("button", { name: /Nested work/ }).click();
       await expect(page.locator(".file-row").first()).toBeVisible();
       await expect(page.locator(".project-heading h2")).toHaveText("Loop");
-      await nav("Saved");
+      // Saved became Later: snoozed threads and one Saved list.
+      await nav("Later");
       await expect(
-        page.getByRole("heading", { name: "Saved", exact: true }),
+        page.getByRole("heading", { name: "Later", exact: true }),
       ).toBeVisible();
+      await expect(
+        page
+          .getByRole("region", { name: "Later", exact: true })
+          .getByRole("tablist", { name: "Show" })
+          .getByRole("tab"),
+      ).toHaveText(["Everything", "Snoozed", "Scheduled", "Saved"]);
       await expect(
         page.getByRole("button", { name: "Recent", exact: true }),
       ).toHaveCount(0);
+      await capture("later");
       await nav("Search");
+      await expect(
+        page.getByRole("heading", { name: "Search", exact: true }),
+      ).toBeVisible();
       await expect(page.getByLabel("From date")).not.toBeVisible();
       await page.getByLabel("Search everything").fill("preserve");
-      await page
-        .locator(".search-box")
-        .getByRole("button", { name: "Search", exact: true })
-        .click();
+      await page.getByLabel("Search everything").press("Enter");
       await page.locator(".search-result").first().waitFor();
       await expect(page.locator(".search-result mark").first()).toContainText(
         /preserve/i,
       );
       await capture("search");
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
-      await dialog()
-        .getByRole("button", { name: /Workflows/ })
+      // The Profile tab's prompt history is the Search "Your prompts" scope.
+      fixture.db
+        .prepare(
+          "UPDATE messages SET metadata='{\"personal\":true}' WHERE run_id=? AND role='user'",
+        )
+        .run(fixture.conversations[5].run);
+      await page
+        .getByRole("tab", { name: "Your prompts", exact: true })
+        .click();
+      await expect(
+        page.getByText("No prompts match your search."),
+      ).toBeVisible();
+      await page.getByLabel("Search everything").fill("release notes");
+      await expect(page.locator(".personal-message-card")).toHaveCount(1);
+      await expect(page.locator(".personal-message-card")).toContainText(
+        "Summarize the release notes and draft a short update",
+      );
+      await capture("search-your-prompts");
+      // Workflows moved from Settings to Projects → Across projects.
+      await nav("Projects");
+      const allProjects = page.getByRole("button", {
+        name: "All projects",
+        exact: true,
+      });
+      if (await allProjects.isVisible()) await allProjects.click();
+      await page
+        .locator(".projects-view")
+        .getByRole("button", { name: /^Workflows/ })
         .click();
       const prompt = dialog()
         .getByRole("textbox", { name: "Prompt", exact: true })
@@ -594,6 +776,7 @@ try {
         .click();
       await capture("workflow");
       await close();
+      await openSettings();
       await dialog().getByRole("button", { name: "dark", exact: true }).click();
       await close();
       await openConversation();
@@ -602,6 +785,8 @@ try {
       await page.setViewportSize({ width: 360, height: 780 });
       await nav("Feed");
       await capture("small-phone");
+      await page.setViewportSize({ width: 390, height: 844 });
+      await inboxFlowsSmoke(page, fixture, capture);
       await page.setViewportSize({ width: 1280, height: 900 });
       await capture("desktop");
       await replyKeyboardSmoke(page, fixture, capture);
