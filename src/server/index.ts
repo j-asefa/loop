@@ -188,10 +188,21 @@ app.get("/{*splat}", (_req, res) =>
 app.use(
   (
     err: Error,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    // The client only sees a generic message, so keep the cause in the log.
+    // Stack only: request content stays out of it (query strings, and the
+    // raw body that body-parser attaches to its client errors, marked expose).
+    if (
+      !(err instanceof Problem) &&
+      !(err instanceof ZodError) &&
+      !(err as { expose?: boolean }).expose
+    )
+      console.error(
+        `Unexpected error on ${req.method} ${req.path}: ${err.stack ?? err}`,
+      );
     res.status(err instanceof Problem ? err.status : 400).json({
       error:
         err instanceof Problem
