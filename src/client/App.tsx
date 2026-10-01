@@ -1422,6 +1422,12 @@ export default function App() {
       </div>
     );
   if (!session?.user) return <Auth onDone={() => void check()} />;
+  const initials = (session.user.name?.trim() || "You")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part: string) => Array.from(part)[0])
+    .join("")
+    .toUpperCase();
   const threadMode = Boolean(conversation);
   const quoted =
     replyContext?.content &&
@@ -2016,12 +2022,7 @@ export default function App() {
               onClick={() => setYouSheet(true)}
             >
               <span className="avatar user" aria-hidden="true">
-                {(session.user.name?.trim() || "You")
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((part: string) => Array.from(part)[0])
-                  .join("")
-                  .toUpperCase()}
+                {initials}
               </span>
             </button>
           </div>
@@ -2593,7 +2594,20 @@ export default function App() {
           )}
         </main>
         {!conversation && messageComposer}
-        <nav className="mobile-nav">{nav}</nav>
+        <nav className="mobile-nav">
+          {nav}
+          {/* On phones the account menu lives here, not in the header. */}
+          <button
+            className={"you-tab" + (youSheet ? " current" : "")}
+            aria-label="Account and settings"
+            onClick={() => setYouSheet(true)}
+          >
+            <span className="avatar user" aria-hidden="true">
+              {initials}
+            </span>
+            <span>You</span>
+          </button>
+        </nav>
       </div>
       <Toasts />
       {archivedCard && (
@@ -2619,6 +2633,7 @@ export default function App() {
       {(sheet === "settings" || settingsParent) && (
         <Sheet
           title="Settings"
+          className="side-panel"
           onClose={() => {
             setSettingsParent(false);
             setSheet("");

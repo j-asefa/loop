@@ -6658,3 +6658,63 @@ details > summary {
     transition: none;
   }
 }
+
+/* Phones: the account menu is the last nav tab, not a header avatar. */
+.mobile-nav .you-tab .avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 9px;
+}
+.mobile-nav .you-tab.current .avatar {
+  box-shadow: 0 0 0 2px var(--brass);
+}
+@media (max-width: 650px) {
+  .topbar-actions .avatar-button {
+    display: none;
+  }
+}
+
+/* Settings slides in as a narrow column on the right instead of a centred
+   or bottom sheet. Sheets opened from it still stack above it. */
+.sheet.side-panel[open] {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  margin: 0;
+  width: min(380px, 86vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: -18px 0 60px #0002;
+  animation: side-panel-in 200ms ease-out;
+}
+.sheet.side-panel .sheet-head {
+  padding-top: calc(18px + env(safe-area-inset-top));
+}
+.sheet.side-panel::backdrop {
+  background: #10101340;
+  backdrop-filter: none;
+}
+@keyframes side-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet.side-panel[open] {
+    animation: none;
+  }
+}
+
+/* Composer notes line up with the agent picker and message box (14px inset). */
+.composer > .composer-destination,
+.composer > .note,
+.composer > .route-preview {
+  margin: 8px 14px 0;
+}
