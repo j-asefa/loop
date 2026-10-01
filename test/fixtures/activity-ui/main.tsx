@@ -46,6 +46,8 @@ createRoot(document.getElementById("root")!).render(
       onReady={noop}
       onReply={noop}
       onUsePrompt={noop}
+      onRestoreDraft={noop}
+      onWithdraw={async () => {}}
       onSubmitted={noop}
       onProfile={noop}
       onNewConversation={noop}

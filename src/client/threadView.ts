@@ -1,3 +1,4 @@
+import { SESSION_KINDS } from "../agent-activities";
 import type { ActivityRecord, FileEntry } from "../agent-activities";
 
 const MINUTE = 60_000;
@@ -35,11 +36,12 @@ function startOfDay(at: number) {
   return date.getTime();
 }
 
-/** Day separator label: "Today", "Yesterday", or a short weekday date. */
+/** Day label: "Today", "Yesterday", "Tomorrow", or a short weekday date. */
 export function dayLabel(at: number, now = Date.now()) {
   const days = Math.round((startOfDay(now) - startOfDay(at)) / DAY);
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
+  if (days === -1) return "Tomorrow";
   return new Date(at).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -121,8 +123,12 @@ export type ChangedFile = {
   edits: ChangeEdit[];
   additions: number;
   deletions: number;
-  /** "applied" if any edit was applied, else "failed" or "proposed". */
-  state: "applied" | "proposed" | "failed";
+  /**
+   * "applied" if any edit was applied; else "proposed" if any was only
+   * proposed; "failed" if every edit failed; otherwise "unavailable": the
+   * tool never reported whether its edits were applied.
+   */
+  state: "applied" | "proposed" | "failed" | "unavailable";
 };
 export type ChangeSummary = {
   files: ChangedFile[];
@@ -132,7 +138,43 @@ export type ChangeSummary = {
   applied: number;
   proposed: number;
   failed: number;
+  unavailable: number;
 };
+
+/** An activity record with the run it was reported in (from trusted context). */
+export type RunActivity = { run: string | null; record: ActivityRecord };
+
+// The record's durable identity, as the server's activityKey(): session kinds
+// live for the whole conversation, every other kind within its own run, so
+// two runs may reuse an activity id for different edits.
+const recordKey = ({ run, record }: RunActivity) =>
+  [
+    record.kind,
+    record.source?.transport,
+    record.source?.origin,
+    SESSION_KINDS.includes(record.kind) ? "session" : run,
+    record.id,
+  ].join(":");
+
+/**
+ * Recorded activity (saved on messages) and live activity for the same runs,
+ * merged in one place so every view counts the same edits. Only copies of
+ * the same record (same run and producer) collapse: a record saved on
+ * several messages appears once, as its latest copy, and a live record
+ * replaces its recorded copy.
+ */
+export function mergeActivityRecords(
+  recorded: RunActivity[],
+  live: RunActivity[],
+) {
+  const merged = new Map<string, ActivityRecord>();
+  for (const item of [...recorded, ...live]) {
+    const key = recordKey(item);
+    merged.delete(key);
+    merged.set(key, item.record);
+  }
+  return [...merged.values()];
+}
 
 function lineCounts(file: FileEntry) {
   if (file.patch != null) {
@@ -179,9 +221,11 @@ export function summarizeChanges(records: ActivityRecord[]): ChangeSummary {
       deletions: applied.reduce((sum, edit) => sum + edit.deletions, 0),
       state: applied.length
         ? "applied"
-        : edits.every((edit) => edit.state === "failed")
-          ? "failed"
-          : "proposed",
+        : edits.some((edit) => edit.state === "proposed")
+          ? "proposed"
+          : edits.every((edit) => edit.state === "failed")
+            ? "failed"
+            : "unavailable",
     };
   });
   const count = (state: ChangedFile["state"]) =>
@@ -193,6 +237,7 @@ export function summarizeChanges(records: ActivityRecord[]): ChangeSummary {
     applied: count("applied"),
     proposed: count("proposed"),
     failed: count("failed"),
+    unavailable: count("unavailable"),
   };
 }
 
@@ -271,3 +316,100 @@ export function localInputValue(at: number) {
   const date = new Date(at - new Date(at).getTimezoneOffset() * MINUTE);
   return date.toISOString().slice(0, 16);
 }
+
+/** Why a reminder is (or will be) back, in words. */
+export function reminderReason(
+  item: {
+    condition: "time" | "run_finished" | "project_open";
+    due_at: number | null;
+    surfaced_at: number | null;
+    project_name: string | null;
+  },
+  now = Date.now(),
+) {
+  const back = item.surfaced_at !== null;
+  if (item.condition === "run_finished")
+    return back ? "The agent finished" : "When the agent finishes";
+  if (item.condition === "project_open")
+    return back
+      ? `You opened ${item.project_name || "the project"}`
+      : `Next time you open ${item.project_name || "the project"}`;
+  if (!item.due_at) return "";
+  const at = `${dayLabel(item.due_at, now)} at ${timeLabel(item.due_at)}`;
+  return back
+    ? `Due ${at.replace(/^(Today|Yesterday|Tomorrow)/, (d) => d.toLowerCase())}`
+    : at;
+}
+
+export type FeedNextAction = {
+  kind: "approve" | "answer" | "result" | "draft";
+  label: string;
+  message_id: string | null;
+};
+/**
+ * The one specific next step a feed card offers, if any: an approval or a
+ * question first, then an unsent draft, then a finished result to review.
+ * The approval label never claims a decision was made.
+ */
+export function feedNextAction(
+  server: { kind: "approve" | "answer" | "result"; message_id: string | null } | null | undefined,
+  draft: string,
+): FeedNextAction | null {
+  const label = {
+    approve: "Approve request",
+    answer: "Answer question",
+    result: "Review result",
+    draft: "Continue draft",
+  };
+  if (server && server.kind !== "result")
+    return { kind: server.kind, label: label[server.kind], message_id: server.message_id };
+  if (draft.trim()) return { kind: "draft", label: label.draft, message_id: null };
+  if (server) return { kind: "result", label: label.result, message_id: server.message_id };
+  return null;
+}
+
+/** What Loop knows about where reported changes were made. */
+export type ChangeContext = {
+  agentName?: string;
+  projectName?: string;
+  /** When the run (or runs) that reported the edits started. */
+  runStartedAt?: number[];
+  /** Commands the agent reported running, with their reported outcome. */
+  commands: {
+    command: string;
+    cwd?: string | null;
+    status?: string;
+    exitCode?: number | null;
+  }[];
+};
+
+const runPhrase = (context?: ChangeContext) => {
+  const starts = context?.runStartedAt || [];
+  if (starts.length === 1)
+    return `the run that started ${dayLabel(starts[0]).toLowerCase()} at ${timeLabel(starts[0])}`;
+  if (starts.length > 1) return `the ${starts.length} runs in this thread`;
+  return "this thread";
+};
+
+/**
+ * Prompts for follow-up actions on reported edits. They ask the agent to
+ * check the full working tree first, because the list holds only what its
+ * tools reported. Each one is an editable draft; nothing here changes files.
+ */
+export function changePrompts(paths: string[], context?: ChangeContext) {
+  const where = [
+    context?.projectName && `in the ${context.projectName} project`,
+    `from ${runPhrase(context)}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const list = paths.map((path) => `- ${path}`).join("\n");
+  const verify =
+    "First run `git status` and `git diff` in the repository and check the full set of changes, including any not in this list: it only has the edits your tools reported. Tell me the repository and branch.";
+  return {
+    commit: `${verify}\nThen commit the changes ${where} with a clear message. Reported applied edits:\n${list}`,
+    pr: `${verify}\nThen push the changes ${where} to a new branch and open a pull request. Send me the branch name and the pull request link. Reported applied edits:\n${list}`,
+    revert: `${verify}\nThen revert only the edits you made ${where} to these files, keeping any other changes. Reported applied edits:\n${list}`,
+  };
+}
+

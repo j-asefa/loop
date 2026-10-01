@@ -3,6 +3,7 @@ import {
   AlarmClock,
   Bookmark,
   BookmarkCheck,
+  ChevronDown,
   CircleAlert,
   Clock3,
   Copy,
@@ -10,8 +11,10 @@ import {
   GitBranch,
   Link as LinkIcon,
   MessageSquareQuote,
+  MoreHorizontal,
   PencilLine,
   Reply,
+  Search,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -22,6 +25,7 @@ import { api } from "./api";
 import { RichText, Sheet } from "./components";
 import { FileChangePanel } from "./ActivityPanels";
 import type { Agent } from "../shared/types";
+import type { UploadedFile } from "../shared/uploads";
 import {
   compactNumber,
   dayLabel,
@@ -29,6 +33,8 @@ import {
   localInputValue,
   preview,
   timeLabel,
+  changePrompts,
+  type ChangeContext,
   type ChangeSummary,
 } from "./threadView";
 
@@ -42,46 +48,91 @@ export type Action = {
   onSelect: () => void;
 };
 
-/** A bottom sheet of large, labelled actions: the mobile context menu. */
+/**
+ * A bottom sheet of large, labelled actions: the mobile context menu.
+ * `primary` actions sit in a row at the top; with `moreLabel` the other
+ * actions stay behind a visible "More" control until it is opened.
+ */
 export function ActionSheet({
   title,
   actions,
+  primary,
+  moreLabel,
   onClose,
   children,
 }: {
   title: string;
   actions: Action[];
+  primary?: Action[];
+  moreLabel?: string;
   onClose: () => void;
   children?: ReactNode;
 }) {
+  const [more, setMore] = useState(!moreLabel);
+  const select = (action: Action) => {
+    onClose();
+    action.onSelect();
+  };
   return (
     <Sheet title={title} onClose={onClose} className="action-sheet">
       {children}
-      <div className="action-list" role="menu">
-        {actions.map((action) => (
-          <button
-            key={action.id}
-            role="menuitem"
-            type="button"
-            className={action.danger ? "danger" : ""}
-            disabled={action.disabled}
-            onClick={() => {
-              onClose();
-              action.onSelect();
-            }}
-          >
-            {action.icon}
-            <span>
-              {action.label}
-              {action.hint && <small>{action.hint}</small>}
-            </span>
-          </button>
-        ))}
-      </div>
+      {!!primary?.length && (
+        <div className="action-primary" role="group" aria-label="Main actions">
+          {primary.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              className={action.danger ? "danger" : ""}
+              disabled={action.disabled}
+              onClick={() => select(action)}
+            >
+              {action.icon}
+              <span>{action.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {moreLabel && (
+        <button
+          type="button"
+          className="action-more-toggle"
+          aria-expanded={more}
+          aria-controls="action-more-list"
+          onClick={() => setMore((open) => !open)}
+        >
+          <MoreHorizontal size={20} aria-hidden="true" />
+          <span>{moreLabel}</span>
+          <ChevronDown size={18} aria-hidden="true" className="toggle-caret" />
+        </button>
+      )}
+      {more && (
+        <div className="action-list" role="menu" id="action-more-list">
+          {actions.map((action) => (
+            <button
+              key={action.id}
+              role="menuitem"
+              type="button"
+              className={action.danger ? "danger" : ""}
+              disabled={action.disabled}
+              onClick={() => select(action)}
+            >
+              {action.icon}
+              <span>
+                {action.label}
+                {action.hint && <small>{action.hint}</small>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </Sheet>
   );
 }
 
+/**
+ * A message's menu. Reply, Save and Remind me are the main actions; the rest
+ * sit under More, each saying at the point of use what it does.
+ */
 export function messageActions({
   saved,
   canReply,
@@ -106,63 +157,75 @@ export function messageActions({
   onReuse: () => void;
   onSnippet: () => void;
   onShare: () => void;
-}): Action[] {
-  return [
-    ...(canReply
-      ? [{ id: "reply", label: "Reply", icon: <Reply size={20} />, onSelect: onReply }]
-      : []),
-    {
-      id: "save",
-      label: saved ? "Remove from Saved" : "Save",
-      hint: saved ? undefined : "Keep it in Later → Saved",
-      icon: saved ? <BookmarkCheck size={20} /> : <Bookmark size={20} />,
-      onSelect: onSave,
-    },
-    {
-      id: "later",
-      label: "Remind me later",
-      icon: <AlarmClock size={20} />,
-      onSelect: onLater,
-    },
-    ...(canFork
-      ? [
-          {
-            id: "fork",
-            label: "Fork from here",
-            hint: "Continue in a new thread from this point",
-            icon: <GitBranch size={20} />,
-            onSelect: onFork,
-          },
-        ]
-      : []),
-    {
-      id: "reuse",
-      label: "Reuse as new prompt",
-      icon: <PencilLine size={20} />,
-      onSelect: onReuse,
-    },
-    {
-      id: "snippet",
-      label: "Save as snippet",
-      hint: "Type / in the composer to insert it",
-      icon: <Sparkles size={20} />,
-      onSelect: onSnippet,
-    },
-    { id: "copy", label: "Copy text", icon: <Copy size={20} />, onSelect: onCopy },
-    {
-      id: "share",
-      label: "Share link",
-      hint: "Opens this exact message on any paired device",
-      icon: <LinkIcon size={20} />,
-      onSelect: onShare,
-    },
-  ];
+}): { primary: Action[]; more: Action[] } {
+  return {
+    primary: [
+      ...(canReply
+        ? [{ id: "reply", label: "Reply", icon: <Reply size={20} />, onSelect: onReply }]
+        : []),
+      {
+        id: "save",
+        label: saved ? "Unsave" : "Save",
+        icon: saved ? <BookmarkCheck size={20} /> : <Bookmark size={20} />,
+        onSelect: onSave,
+      },
+      {
+        id: "later",
+        label: "Remind me",
+        icon: <AlarmClock size={20} />,
+        onSelect: onLater,
+      },
+    ],
+    more: [
+      ...(canFork
+        ? [
+            {
+              id: "fork",
+              label: "Fork from here",
+              hint: "New thread with the conversation up to this message. Files are not rewound.",
+              icon: <GitBranch size={20} />,
+              onSelect: onFork,
+            },
+          ]
+        : []),
+      {
+        id: "reuse",
+        label: "Reuse as prompt",
+        hint: "Puts this text in an editable draft. Nothing is sent until you send it.",
+        icon: <PencilLine size={20} />,
+        onSelect: onReuse,
+      },
+      {
+        id: "snippet",
+        label: "Save as snippet",
+        hint: "Stores it as reusable instructions. Type / in any composer to insert it.",
+        icon: <Sparkles size={20} />,
+        onSelect: onSnippet,
+      },
+      { id: "copy", label: "Copy text", icon: <Copy size={20} />, onSelect: onCopy },
+      {
+        id: "share",
+        label: "Share link",
+        hint: "Opens this exact message on any paired device",
+        icon: <LinkIcon size={20} />,
+        onSelect: onShare,
+      },
+    ],
+  };
 }
 
-/** Snooze or remind: time presets, "when it finishes", "next time I open the project", or a custom time. */
+/** A reminder Loop created, for the confirmation's link and Undo. */
+export type CreatedReminder = { id: string; replaced: string | null };
+
+/**
+ * Remind me: time presets, "when it finishes", "next time I open the
+ * project", or a custom time. A reminder only brings the item back to you;
+ * nothing is sent to an agent. With `itemId` it snoozes that reminder again.
+ */
 export function LaterSheet({
   kind,
   targetId,
+  itemId,
   title,
   running,
   project,
@@ -171,11 +234,13 @@ export function LaterSheet({
 }: {
   kind: "conversation" | "artifact" | "message";
   targetId: string;
+  /** Snooze this existing reminder again instead of creating one. */
+  itemId?: string;
   title: string;
   running?: boolean;
   project?: { id: string; name: string };
   onClose: () => void;
-  onDone: (label: string) => void;
+  onDone: (label: string, created: CreatedReminder) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -191,16 +256,18 @@ export function LaterSheet({
     if (busy) return;
     setBusy(true);
     setError("");
+    const trigger = {
+      condition,
+      dueAt,
+      projectId: condition === "project_open" ? project?.id : undefined,
+    };
     try {
-      await api("/later", {
-        kind,
-        targetId,
-        condition,
-        dueAt,
-        projectId: condition === "project_open" ? project?.id : undefined,
-      });
+      const row = await api<{ id: string; replaced?: string | null }>(
+        itemId ? `/later/${itemId}/snooze` : "/later",
+        itemId ? trigger : { kind, targetId, ...trigger },
+      );
       window.dispatchEvent(new Event("loop-later-change"));
-      onDone(label);
+      onDone(label, { id: row.id, replaced: row.replaced ?? null });
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -209,8 +276,18 @@ export function LaterSheet({
     }
   }
   return (
-    <Sheet title="Remind me later" onClose={onClose} className="action-sheet">
-      <p className="field-hint later-target">{title}</p>
+    <Sheet
+      title={itemId ? "Snooze again" : "Remind me"}
+      onClose={onClose}
+      className="action-sheet"
+    >
+      <p className="later-target">
+        <strong>{title}</strong>
+        <small>
+          Brings this back to you in Later → Reminders. Nothing is sent to an
+          agent.
+        </small>
+      </p>
       <div className="action-list">
         {choices.map((choice) => (
           <button
@@ -268,6 +345,17 @@ export function LaterSheet({
   );
 }
 
+/**
+ * Undo a reminder Loop just created: cancel it, and reopen the reminder it
+ * replaced, if any. Both are true reversals: nothing was sent anywhere.
+ */
+export async function undoReminder(created: CreatedReminder) {
+  await api("/later/" + created.id, undefined, "DELETE");
+  if (created.replaced)
+    await api(`/later/${created.replaced}/reopen`, {}).catch(() => {});
+  window.dispatchEvent(new Event("loop-later-change"));
+}
+
 type OutlineItem = {
   message_id: string;
   kind: "prompt" | "result" | "approval" | "failure" | "saved";
@@ -289,7 +377,40 @@ const outlineLabel = {
   saved: "Saved",
 };
 
-/** Table of contents for a long thread: your prompts plus its decision points. */
+type ThreadMatch = {
+  message_id: string;
+  kind: "prompt" | "response" | "update" | "result" | "failure";
+  saved: boolean;
+  preview: string;
+  created_at: number;
+};
+const matchLabel = {
+  prompt: "You",
+  response: "Agent",
+  update: "Update",
+  result: "Result",
+  failure: "Failed",
+};
+const matchIcon = {
+  prompt: <User size={17} />,
+  response: <MessageSquareQuote size={17} />,
+  update: <MessageSquareQuote size={17} />,
+  result: <MessageSquareQuote size={17} />,
+  failure: <CircleAlert size={17} />,
+};
+const outlineFilters = [
+  ["all", "Everything"],
+  ["prompt", "Your prompts"],
+  ["result", "Results"],
+  ["approval", "Approvals"],
+  ["failure", "Failures"],
+  ["saved", "Saved"],
+] as const;
+
+/**
+ * Table of contents for a long thread: your prompts plus its decision
+ * points, and a search across the text of every message in it.
+ */
 export function OutlineSheet({
   conversationId,
   onJump,
@@ -302,6 +423,9 @@ export function OutlineSheet({
   const [items, setItems] = useState<OutlineItem[] | null>(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | OutlineItem["kind"]>("all");
+  const [query, setQuery] = useState("");
+  const [matches, setMatches] = useState<ThreadMatch[] | null>(null);
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     let active = true;
     api<{ items: OutlineItem[] }>(`/conversations/${conversationId}/outline`)
@@ -311,71 +435,139 @@ export function OutlineSheet({
       active = false;
     };
   }, [conversationId]);
+  // Searching waits for a pause in typing; the newest query wins.
+  useEffect(() => {
+    const text = query.trim();
+    if (!text) {
+      setMatches(null);
+      setSearching(false);
+      return;
+    }
+    let active = true;
+    setSearching(true);
+    const timer = setTimeout(() => {
+      api<{ matches: ThreadMatch[] }>(
+        `/conversations/${conversationId}/outline?q=${encodeURIComponent(text)}`,
+      )
+        .then((result) => active && setMatches(result.matches))
+        .catch((e) => active && setError((e as Error).message))
+        .finally(() => active && setSearching(false));
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [conversationId, query]);
   const visible = (items || []).filter(
     (item) => filter === "all" || item.kind === filter,
   );
+  const filterName =
+    outlineFilters.find(([value]) => value === filter)?.[1] || "Everything";
+  const jump = (messageId: string) => {
+    onClose();
+    onJump(messageId);
+  };
   let previous: number | undefined;
   return (
     <Sheet title="Jump to…" onClose={onClose} className="outline-sheet">
-      <div className="chip-row" role="group" aria-label="Show">
-        {(
-          [
-            ["all", "Everything"],
-            ["prompt", "Your prompts"],
-            ["result", "Results"],
-            ["saved", "Saved"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className="chip"
-            aria-pressed={filter === value}
-            onClick={() => setFilter(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <form
+        className="search-box outline-search"
+        role="search"
+        onSubmit={(e) => e.preventDefault()}
+      >
+        <Search size={18} aria-hidden="true" />
+        <input
+          type="search"
+          enterKeyHint="search"
+          aria-label="Search this thread"
+          placeholder="Search this thread"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </form>
+      {matches || searching ? (
+        <>
+          <p className="outline-status" role="status">
+            {searching && !matches
+              ? "Searching…"
+              : `${plural(matches!.length, "match")} for “${query.trim()}”`}
+          </p>
+          <ol className="outline-list">
+            {(matches || []).map((match) => (
+              <li key={match.kind + match.message_id} data-kind={match.kind}>
+                <button type="button" onClick={() => jump(match.message_id)}>
+                  <span className="outline-icon" aria-hidden="true">
+                    {matchIcon[match.kind]}
+                  </span>
+                  <span className="outline-copy">
+                    <small>
+                      {matchLabel[match.kind]}
+                      {match.saved ? " · Saved" : ""} ·{" "}
+                      {dayLabel(match.created_at)} {timeLabel(match.created_at)}
+                    </small>
+                    <span>{match.preview || "(no text)"}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <>
+          <div className="chip-row" role="group" aria-label="Show">
+            {outlineFilters.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className="chip"
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* The chips can scroll out of view; this line always says what is shown. */}
+          {items && (
+            <p className="outline-status" role="status">
+              Showing {filterName.toLowerCase()} · {visible.length}
+            </p>
+          )}
+          {!items && !error && <p role="status">Loading outline…</p>}
+          {items && !visible.length && (
+            <p className="note">Nothing to show in this view yet.</p>
+          )}
+          <ol className="outline-list">
+            {visible.map((item) => {
+              const day =
+                previous === undefined ||
+                dayLabel(previous) !== dayLabel(item.created_at);
+              previous = item.created_at;
+              return (
+                <li key={item.kind + item.message_id} data-kind={item.kind}>
+                  {day && <h3 className="day-label">{dayLabel(item.created_at)}</h3>}
+                  <button type="button" onClick={() => jump(item.message_id)}>
+                    <span className="outline-icon" aria-hidden="true">
+                      {outlineIcon[item.kind]}
+                    </span>
+                    <span className="outline-copy">
+                      <small>
+                        {outlineLabel[item.kind]} · {timeLabel(item.created_at)}
+                      </small>
+                      <span>{preview(item.preview, 160) || "(no text)"}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      {!items && !error && <p role="status">Loading outline…</p>}
-      {items && !visible.length && (
-        <p className="note">Nothing to show in this view yet.</p>
-      )}
-      <ol className="outline-list">
-        {visible.map((item) => {
-          const day =
-            previous === undefined ||
-            dayLabel(previous) !== dayLabel(item.created_at);
-          previous = item.created_at;
-          return (
-            <li key={item.kind + item.message_id} data-kind={item.kind}>
-              {day && <h3 className="day-label">{dayLabel(item.created_at)}</h3>}
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onJump(item.message_id);
-                }}
-              >
-                <span className="outline-icon" aria-hidden="true">
-                  {outlineIcon[item.kind]}
-                </span>
-                <span className="outline-copy">
-                  <small>
-                    {outlineLabel[item.kind]} · {timeLabel(item.created_at)}
-                  </small>
-                  <span>{preview(item.preview, 160) || "(no text)"}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
     </Sheet>
   );
 }
@@ -383,17 +575,20 @@ export function OutlineSheet({
 const plural = (count: number, word: string) =>
   `${count} ${word}${count === 1 ? "" : "s"}`;
 
-/** What happened besides applied changes, e.g. "1 proposed · 1 failed". */
+/** What happened besides applied changes, e.g. "1 not applied · 1 failed". */
 function otherActivity(summary: ChangeSummary) {
   return [
     summary.proposed && `${summary.proposed} not applied`,
     summary.failed && `${summary.failed} failed`,
+    summary.unavailable && `${summary.unavailable} unconfirmed`,
   ]
     .filter(Boolean)
     .join(" · ");
 }
 
 /** One-line summary of a run's reported file activity. Opens the review. */
+export type { ChangeContext };
+
 export function ChangesChip({
   summary,
   onOpen,
@@ -420,30 +615,34 @@ export function ChangesChip({
   );
 }
 
-const stateLabel = {
-  applied: "Applied",
-  proposed: "Not applied",
-  failed: "Failed",
-} as const;
+const sections = [
+  ["applied", "Applied"],
+  ["proposed", "Proposed, not applied"],
+  ["failed", "Failed"],
+  ["unavailable", "Outcome not reported"],
+] as const;
 const editLabel = {
   applied: "Applied",
   proposed: "Proposed",
   failed: "Failed",
-  unknown: "Unconfirmed",
+  unknown: "Outcome not reported",
 } as const;
 
 /**
- * Phone-sized review of the file activity the agent's tools reported. Follow-
- * up actions are prompts to the agent that made the change: Loop never
- * applies, commits or reverts files itself, so the harness keeps ownership of
- * the working tree. Only applied edits are offered for review actions.
+ * Phone-sized review of the file activity the agent's tools reported. It is
+ * reported activity, not a diff of the repository. Follow-up actions fill in
+ * an editable prompt to the agent that made the change: Loop never applies,
+ * commits or reverts files itself, so the harness keeps ownership of the
+ * working tree. Only applied edits are offered for review actions.
  */
 export function ChangesSheet({
   summary,
+  context,
   onClose,
   onAsk,
 }: {
   summary: ChangeSummary;
+  context?: ChangeContext;
   onClose: () => void;
   onAsk?: (prompt: string) => void;
 }) {
@@ -453,93 +652,160 @@ export function ChangesSheet({
     .filter((file) => file.state === "applied")
     .map((file) => file.path);
   const other = otherActivity(summary);
+  const prompts = changePrompts(paths, context);
   const ask = (prompt: string) => {
     onClose();
     onAsk?.(prompt);
   };
+  const folders = [
+    ...new Set((context?.commands || []).map((c) => c.cwd).filter(Boolean)),
+  ] as string[];
   return (
-    <Sheet title="Changes" wide onClose={onClose} className="changes-sheet">
+    <Sheet
+      title="Reported file activity"
+      wide
+      onClose={onClose}
+      className="changes-sheet"
+    >
       <p className="changes-total">
-        {plural(summary.applied, "file")} changed ·{" "}
+        {plural(summary.applied, "file")} with applied edits ·{" "}
         <span className="diff-add-count">+{summary.additions}</span>{" "}
         <span className="diff-remove-count">−{summary.deletions}</span>
         {other && <> · {other}</>}
       </p>
+      <dl className="changes-context">
+        {context?.agentName && (
+          <>
+            <dt>Agent</dt>
+            <dd>@{context.agentName}</dd>
+          </>
+        )}
+        <dt>Project</dt>
+        <dd>{context?.projectName || "Unfiled"}</dd>
+        <dt>Run</dt>
+        <dd>
+          {context?.runStartedAt?.length === 1
+            ? `Started ${dayLabel(context.runStartedAt[0]).toLowerCase()} at ${timeLabel(context.runStartedAt[0])}`
+            : context?.runStartedAt?.length
+              ? `${context.runStartedAt.length} runs in this thread`
+              : "Not reported"}
+        </dd>
+        <dt>Repository and branch</dt>
+        <dd>
+          {folders.length === 1 ? (
+            <>
+              Not reported · working folder <code>{folders[0]}</code>
+            </>
+          ) : (
+            "Not reported"
+          )}
+        </dd>
+        <dt>Checks</dt>
+        <dd>
+          {context?.commands.length ? (
+            <ul className="changes-commands">
+              {context.commands.slice(-5).map((c, index) => (
+                <li key={index}>
+                  <code>{c.command}</code>{" "}
+                  <span className="field-hint">
+                    {c.status === "running"
+                      ? "still running"
+                      : c.exitCode === 0
+                        ? "exited 0"
+                        : c.exitCode != null
+                          ? `exited ${c.exitCode}`
+                          : c.status === "failed"
+                            ? "failed"
+                            : "outcome not reported"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            "No commands reported"
+          )}
+        </dd>
+        <dt>Pull request</dt>
+        <dd>Not reported</dd>
+      </dl>
       <p className="field-hint">
-        As reported by the agent’s tools while it worked, edit by edit. This is
-        not a diff of the working tree: changes made another way, such as by a
-        shell command, are not included.
+        Each edit as the agent’s tools reported it while working. This is not a
+        diff of the repository: changes made another way, such as by a shell
+        command, are not included. Only applied edits are counted.
       </p>
-      <ul className="changes-files" aria-label="Changed files">
-        {summary.files.map((file) => (
-          <li key={file.path} data-state={file.state}>
-            <button
-              type="button"
-              aria-current={selected === file.path || undefined}
-              onClick={() => {
-                setSelected(file.path);
-                refs.current
-                  .get(file.path)
-                  ?.scrollIntoView({ block: "start", behavior: "smooth" });
-              }}
-            >
-              <span className={"operation " + file.operation}>
-                {file.operation[0].toUpperCase()}
-              </span>
-              <code>{file.path}</code>
-              {file.state === "applied" ? (
-                <>
-                  <span className="diff-add-count">+{file.additions}</span>
-                  <span className="diff-remove-count">−{file.deletions}</span>
-                </>
-              ) : (
-                <span className="change-state">{stateLabel[file.state]}</span>
-              )}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {sections.map(([state, label]) => {
+        const files = summary.files.filter((file) => file.state === state);
+        if (!files.length) return null;
+        return (
+          <section key={state} className="changes-group" data-state={state}>
+            <h3>
+              {label} · {files.length}
+            </h3>
+            <ul className="changes-files" aria-label={label + " files"}>
+              {files.map((file) => (
+                <li key={file.path} data-state={file.state}>
+                  <button
+                    type="button"
+                    aria-current={selected === file.path || undefined}
+                    onClick={() => {
+                      setSelected(file.path);
+                      refs.current
+                        .get(file.path)
+                        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+                    }}
+                  >
+                    <span className={"operation " + file.operation}>
+                      {file.operation[0].toUpperCase()}
+                    </span>
+                    <code>{file.path}</code>
+                    {file.edits.length > 1 && (
+                      <span className="change-state">
+                        {plural(file.edits.length, "edit")}
+                      </span>
+                    )}
+                    {file.state === "applied" && (
+                      <>
+                        <span className="diff-add-count">+{file.additions}</span>
+                        <span className="diff-remove-count">−{file.deletions}</span>
+                      </>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
       {onAsk && paths.length > 0 && (
         <>
           <div className="changes-actions">
             <button
               type="button"
               className="primary"
-              onClick={() =>
-                ask(
-                  "Looks good. Commit these changes with a clear message:\n" +
-                    paths.map((path) => `- ${path}`).join("\n"),
-                )
-              }
+              onClick={() => ask(prompts.commit)}
             >
               Ask to commit
             </button>
             <button
               type="button"
               className="secondary"
-              onClick={() =>
-                ask("Push these changes to a new branch and open a pull request.")
-              }
+              onClick={() => ask(prompts.pr)}
             >
               Ask for a PR
             </button>
             <button
               type="button"
               className="secondary danger"
-              onClick={() =>
-                ask(
-                  "Revert the changes you made to these files:\n" +
-                    paths.map((path) => `- ${path}`).join("\n"),
-                )
-              }
+              onClick={() => ask(prompts.revert)}
             >
               Ask to revert
             </button>
           </div>
           <p className="field-hint">
-            These cover the {plural(paths.length, "file")} with applied edits
-            and fill in the composer so you can edit before sending. Loop never
-            changes files itself.
+            Each fills in an editable prompt for the{" "}
+            {plural(paths.length, "file")} with applied edits, asking the agent
+            to check the full diff first. Nothing is sent until you send it,
+            and Loop never changes files itself.
           </p>
         </>
       )}
@@ -555,10 +821,12 @@ export function ChangesSheet({
             <FileChangePanel
               key={index}
               {...edit}
-              state={`${file.edits.length > 1 ? `Edit ${index + 1} of ${file.edits.length} · ` : ""}${editLabel[edit.state as keyof typeof editLabel] || "Unconfirmed"} · ${edit.operation}`}
+              state={`${file.edits.length > 1 ? `Edit ${index + 1} of ${file.edits.length} · ` : ""}${editLabel[edit.state as keyof typeof editLabel] || "Outcome not reported"} · ${edit.operation}`}
               reason={
                 edit.reason ||
-                (edit.content !== "available" ? edit.content : undefined)
+                (edit.content !== "available"
+                  ? `Content ${edit.content}`
+                  : undefined)
               }
             />
           ))}
@@ -568,10 +836,16 @@ export function ChangesSheet({
   );
 }
 
-/** Fork a thread from one message into a new conversation. */
+/**
+ * Fork a thread from one message into a new conversation. Before it is
+ * created, the sheet shows the message, the agent and the project, and that
+ * only the conversation is copied: files are not rewound.
+ */
 export function ForkSheet({
   conversationId,
   messageId,
+  source,
+  projectName,
   agents,
   defaultAgentId,
   onClose,
@@ -579,6 +853,9 @@ export function ForkSheet({
 }: {
   conversationId: string;
   messageId: string;
+  /** The message the fork copies through. */
+  source: { role: string; content: string; created_at: number };
+  projectName?: string;
   agents: Agent[];
   defaultAgentId?: string;
   onClose: () => void;
@@ -592,10 +869,14 @@ export function ForkSheet({
   const [error, setError] = useState("");
   return (
     <Sheet title="Fork from here" onClose={onClose}>
-      <p className="note">
-        Starts a new thread with every message up to this point. The original
-        thread is not changed.
-      </p>
+      <figure className="fork-source">
+        <figcaption>
+          Copies the conversation through this{" "}
+          {source.role === "user" ? "prompt of yours" : "message"} ·{" "}
+          {dayLabel(source.created_at)} {timeLabel(source.created_at)}
+        </figcaption>
+        <blockquote>{preview(source.content, 220) || "(no text)"}</blockquote>
+      </figure>
       <label>
         Continue with
         <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
@@ -607,10 +888,25 @@ export function ForkSheet({
           ))}
         </select>
       </label>
-      <p className="field-hint">
-        A different agent receives the copied messages as context when you send
-        your next prompt.
+      <p className="fork-project">
+        Project: <strong>{projectName || "Unfiled"}</strong>
       </p>
+      <ul className="fork-notes">
+        <li>
+          The new thread starts with the messages up to this point. The
+          original thread is not changed.
+        </li>
+        <li>
+          <strong>Files are not rewound.</strong> The fork copies conversation
+          context only; the agent works with files as they are now.
+        </li>
+        {agentId !== defaultAgentId && (
+          <li>
+            @{choices.find((a) => a.id === agentId)?.name || "The agent"}{" "}
+            receives the copied messages as context with your next prompt.
+          </li>
+        )}
+      </ul>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -643,8 +939,10 @@ export function ForkSheet({
   );
 }
 
-type ScheduledSend = {
+export type ScheduledSend = {
   id: string;
+  /** The message's files, for putting it back into a draft. */
+  attachments?: UploadedFile[];
   input: string;
   send_at: number;
   agent_id: string;
@@ -656,7 +954,10 @@ type ScheduledSend = {
   folder_name?: string | null;
 };
 
-/** Change the text or time of a message that has not been sent yet. */
+/**
+ * Change the text or time of a message that has not been sent yet. A
+ * message that could not be sent is scheduled again at the new time.
+ */
 function EditScheduled({
   item,
   onClose,
@@ -666,12 +967,23 @@ function EditScheduled({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const failed = item.state === "failed";
   const [text, setText] = useState(item.input);
-  const [at, setAt] = useState(localInputValue(item.send_at));
+  const [at, setAt] = useState(
+    localInputValue(failed ? Date.now() + 3600_000 : item.send_at),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
-    <Sheet title="Edit scheduled message" onClose={onClose}>
+    <Sheet
+      title={failed ? "Edit and schedule again" : "Edit scheduled message"}
+      onClose={onClose}
+    >
+      <p className="field-hint">
+        To {item.agent_name ? "@" + item.agent_name : "the agent"}
+        {item.folder_name ? ` · ${item.folder_name}` : ""} ·{" "}
+        {item.conversation_title || "New thread"}
+      </p>
       <label>
         Message
         <textarea
@@ -689,6 +1001,12 @@ function EditScheduled({
           onChange={(e) => setAt(e.target.value)}
         />
       </label>
+      {failed && (
+        <p className="field-hint">
+          Nothing was sent before. It sends once, at the new time, if Loop
+          accepts it then.
+        </p>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -698,11 +1016,18 @@ function EditScheduled({
         className="primary"
         disabled={busy || !text.trim() || !at}
         onClick={async () => {
+          if (busy) return;
+          const sendAt = new Date(at).getTime();
+          if (!(sendAt > Date.now())) {
+            setError("Choose a time in the future.");
+            return;
+          }
           setBusy(true);
+          setError("");
           try {
             await api(
               "/scheduled-sends/" + item.id,
-              { input: text, sendAt: new Date(at).getTime() },
+              { input: text, sendAt },
               "PATCH",
             );
             onSaved();
@@ -714,7 +1039,7 @@ function EditScheduled({
           }
         }}
       >
-        Save
+        {failed ? "Schedule again" : "Save"}
       </button>
     </Sheet>
   );
@@ -722,19 +1047,25 @@ function EditScheduled({
 
 /**
  * Scheduled messages that still need you: waiting to send (edit or cancel),
- * or not sent because Loop refused them when due (send now or dismiss).
- * In a thread they read like your own messages; owner-wide (Later) each also
- * names its recipient and where it goes.
+ * or not sent because Loop refused them when due (edit, send now, move to a
+ * draft or dismiss). In a thread they read like your own messages;
+ * owner-wide (Later) each also names its recipient and where it goes.
  */
 export function ScheduledSends({
   conversationId,
   revision,
   onOpen,
+  onDraft,
+  focusId,
   failedOnly = false,
 }: {
   conversationId?: string;
   revision: number;
   onOpen?: (conversationId: string) => void;
+  /** Put a message that could not be sent back into a draft. */
+  onDraft?: (item: ScheduledSend) => void;
+  /** Highlight this item: the one a confirmation linked to. */
+  focusId?: string | null;
   /** Only messages that could not be sent (for Needs you). */
   failedOnly?: boolean;
 }) {
@@ -783,7 +1114,15 @@ export function ScheduledSends({
     window.addEventListener("loop-scheduled-change", load);
     return () => window.removeEventListener("loop-scheduled-change", load);
   }, [conversationId, revision]);
+  // Scroll to the item a confirmation linked to, once it is listed.
+  useEffect(() => {
+    if (!focusId || !items.some((item) => item.id === focusId)) return;
+    const node = document.getElementById("scheduled-" + focusId);
+    node?.scrollIntoView({ block: "center" });
+    node?.focus({ preventScroll: true });
+  }, [focusId, items.length]);
   const act = async (item: ScheduledSend, action: "cancel" | "retry") => {
+    if (busy) return;
     setBusy(item.id);
     setError("");
     try {
@@ -812,7 +1151,7 @@ export function ScheduledSends({
     return global ? (
       <p className="section-empty">
         Nothing scheduled. Use “Send later” in the composer to schedule a
-        message.
+        message to an agent.
       </p>
     ) : null;
   return (
@@ -821,21 +1160,25 @@ export function ScheduledSends({
         const failed = item.state === "failed";
         const where = [
           item.agent_name && "To @" + item.agent_name,
-          item.folder_name,
-          item.conversation_title || (global ? "New thread" : ""),
+          item.folder_name || "Unfiled",
+          item.conversation_title || "New thread",
         ]
           .filter(Boolean)
           .join(" · ");
         return (
           <article
             key={item.id}
+            id={"scheduled-" + item.id}
+            tabIndex={-1}
             className={
-              "message user scheduled-message" + (failed ? " not-sent" : "")
+              "message user scheduled-message" +
+              (failed ? " not-sent" : "") +
+              (focusId === item.id ? " anchored" : "")
             }
           >
             <header className="message-meta">
               <span className="eyebrow">
-                {failed ? "Not sent" : "You · Scheduled"}
+                {failed ? "Not sent" : "You · Waiting to send"}
               </span>
               <span className="message-meta-end">
                 {failed ? (
@@ -850,16 +1193,26 @@ export function ScheduledSends({
                 </time>
               </span>
             </header>
-            {global && where && <p className="field-hint">{where}</p>}
+            {global && <p className="field-hint">{where}</p>}
             <RichText content={item.input} />
             {failed && (
               <p className="error" role="status">
                 Loop could not send this: {item.error || "it was refused."} Nothing
-                was sent.
+                was sent, and Loop will not retry it on its own.
               </p>
             )}
             <div className="scheduled-actions">
-              {failed ? (
+              <button
+                type="button"
+                className="text-button"
+                aria-label={
+                  failed ? "Edit and schedule again" : "Edit scheduled message"
+                }
+                onClick={() => setEditing(item)}
+              >
+                <PencilLine size={16} /> Edit
+              </button>
+              {failed && (
                 <button
                   type="button"
                   className="text-button"
@@ -868,14 +1221,14 @@ export function ScheduledSends({
                 >
                   <Reply size={16} /> Send now
                 </button>
-              ) : (
+              )}
+              {failed && onDraft && (
                 <button
                   type="button"
                   className="text-button"
-                  aria-label="Edit scheduled message"
-                  onClick={() => setEditing(item)}
+                  onClick={() => onDraft(item)}
                 >
-                  <PencilLine size={16} /> Edit
+                  <MessageSquareQuote size={16} /> Copy to a draft
                 </button>
               )}
               <button

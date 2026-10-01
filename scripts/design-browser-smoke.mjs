@@ -17,6 +17,7 @@ import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
 import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
 import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
+import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
 
 const fixture = await designFixture();
 const screenshots =
@@ -106,6 +107,16 @@ try {
           `${label} must remain above the composer: ${JSON.stringify({ box, composer })}`,
         );
       };
+      // Minimized, the composer is a plus button in the bottom-right corner.
+      const launch = await page.locator(".composer-launch").boundingBox();
+      const viewport = page.viewportSize();
+      assert(
+        launch.width <= 64 &&
+          launch.height <= 64 &&
+          launch.x + launch.width > viewport.width - 40 &&
+          launch.x > viewport.width / 2,
+        `The minimized composer must be a corner button: ${JSON.stringify({ launch, viewport })}`,
+      );
       await checkAboveComposer(
         inbox.locator(".inbox-card .card-byline").first(),
         "First thread author",
@@ -267,8 +278,9 @@ try {
       await expect(
         page.getByRole("heading", { name: "@code-reviewer", exact: true }),
       ).toBeVisible();
-      await expect(page.locator(".composer-launch")).toContainText(
-        "@code-reviewer",
+      await expect(page.locator(".composer-launch")).toHaveAttribute(
+        "title",
+        /@code-reviewer/,
       );
       // The personal "Your prompts" tab moved to Search; the agent's threads
       // gained their own tab.
@@ -426,13 +438,19 @@ try {
         .last()
         .click();
       await expect(dialog()).toHaveAttribute("aria-label", "Message");
+      // Reply, Save and Remind me lead; the rest wait behind a visible More.
+      await expect(
+        dialog().getByRole("group", { name: "Main actions" }).getByRole("button"),
+      ).toHaveText(["Reply", "Save", "Remind me"]);
+      await expect(dialog().getByRole("menuitem")).toHaveCount(0);
+      const more = dialog().getByRole("button", { name: "More", exact: true });
+      await expect(more).toHaveAttribute("aria-expanded", "false");
+      await more.click();
+      await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(dialog().getByRole("menuitem")).toHaveText([
-        "Reply",
-        /^Save(?! as snippet)/,
-        "Remind me later",
-        /^Fork from here/,
-        "Reuse as new prompt",
-        /^Save as snippet/,
+        /^Fork from here.*Files are not rewound/,
+        /^Reuse as prompt.*editable draft/,
+        /^Save as snippet.*reusable instructions/,
         "Copy text",
         /^Share link/,
       ]);
@@ -705,7 +723,7 @@ try {
       await page.getByRole("button", { name: /Nested work/ }).click();
       await expect(page.locator(".file-row").first()).toBeVisible();
       await expect(page.locator(".project-heading h2")).toHaveText("Loop");
-      // Saved became Later: snoozed threads and one Saved list.
+      // Saved became Later: Saved, Reminders and Scheduled, each named.
       await nav("Later");
       await expect(
         page.getByRole("heading", { name: "Later", exact: true }),
@@ -715,7 +733,7 @@ try {
           .getByRole("region", { name: "Later", exact: true })
           .getByRole("tablist", { name: "Show" })
           .getByRole("tab"),
-      ).toHaveText(["Everything", "Snoozed", "Scheduled", "Saved"]);
+      ).toHaveText([/^Saved/, /^Reminders/, /^Scheduled/, /^Everything/]);
       await expect(
         page.getByRole("button", { name: "Recent", exact: true }),
       ).toHaveCount(0);
@@ -787,6 +805,11 @@ try {
       await capture("small-phone");
       await page.setViewportSize({ width: 390, height: 844 });
       await inboxFlowsSmoke(page, fixture, capture);
+      // Resume, defer and find again, on the smallest and a common phone.
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await continuitySmoke(page, fixture, (name) => capture(`${name}-${width}`));
+      }
       await page.setViewportSize({ width: 1280, height: 900 });
       await capture("desktop");
       await replyKeyboardSmoke(page, fixture, capture);

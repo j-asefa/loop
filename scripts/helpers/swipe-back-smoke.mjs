@@ -182,12 +182,12 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     const laterSection = (name) =>
       page
         .getByRole("region", { name: "Later", exact: true })
-        .getByRole("tab", { name, exact: true });
-    await laterSection("Snoozed").tap();
+        .getByRole("tab", { name: new RegExp("^" + name) });
+    await laterSection("Reminders").tap();
     await nav("Projects").tap();
     await swipe(page.getByRole("heading", { name: "Projects", exact: true }));
     await expect(nav("Later")).toHaveAttribute("aria-current", "page");
-    await expect(laterSection("Snoozed")).toHaveAttribute(
+    await expect(laterSection("Reminders")).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -225,7 +225,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       await expect(cards.first().locator("h2").first()).toHaveText(archived);
     }
 
-    // Feed threads own their left swipe too: it opens Remind me later
+    // Feed threads own their left swipe too: it opens Remind me
     // (which must stay open).
     if (client) {
       await page.goto(fixture.base, { waitUntil: "networkidle" });
@@ -235,9 +235,9 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       await swipe(row);
       await expect(
         page.locator("dialog[open]"),
-        "Swiping a Feed thread left keeps Remind me later open",
+        "Swiping a Feed thread left keeps Remind me open",
       ).toHaveCount(1);
-      await expect(dialog()).toHaveAttribute("aria-label", "Remind me later");
+      await expect(dialog()).toHaveAttribute("aria-label", "Remind me");
       await dialog()
         .getByRole("button", { name: "Close", exact: true })
         .click();

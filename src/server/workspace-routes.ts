@@ -5,6 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
+import { projectFolders } from "./feed.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
 import { uploadFile } from "./uploads.js";
@@ -281,6 +282,11 @@ workspace.get("/search", async (req, res) => {
       agent: typeof req.query.agent === "string" ? req.query.agent : undefined,
       folder:
         typeof req.query.folder === "string" ? req.query.folder : undefined,
+      folders:
+        typeof req.query.project === "string"
+          ? (owned("folders", req.query.project, res.locals.owner),
+            projectFolders(res.locals.owner, req.query.project))
+          : undefined,
       kind: typeof req.query.kind === "string" ? req.query.kind : undefined,
       scope: typeof req.query.scope === "string" ? req.query.scope : undefined,
       from: Number(req.query.from) || undefined,

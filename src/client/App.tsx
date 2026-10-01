@@ -2,7 +2,7 @@ import { PersonalProfile } from "./PersonalProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName, runModelName } from "./modelChoices";
 import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
-import { MAX_MESSAGE_FILES } from "../shared/uploads";
+import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 import { capabilities } from "./capabilities";
 import { NativeHistory } from "./NativeHistory";
 import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
@@ -15,7 +15,7 @@ import { agentStatusLine } from "./agentStatusLine";
 import { belongsToProject } from "../shared/projects";
 import { ProjectFiles } from "./ProjectFiles";
 import { ProjectActivity } from "./ProjectActivity";
-import { Projects } from "./Projects";
+import { ProjectSearchResults, Projects } from "./Projects";
 import { Traces } from "./Traces";
 import { AgentMessages } from "./AgentMessages";
 import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
@@ -48,13 +48,16 @@ import { Tools } from "./Tools";
 import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
 import { Inbox, inboxFilters, type InboxFilter } from "./Inbox";
-import { Later } from "./Later";
+import { Later, SavedList, showLater, type SavedMessage } from "./Later";
 import {
   ActionSheet,
   LaterSheet,
   ScheduledSends,
+  undoReminder,
   useLongPress,
+  type ScheduledSend,
 } from "./ThreadTools";
+import { Toasts, notify } from "./toast";
 import { VoiceButton } from "./Voice";
 import {
   GLOBAL_DRAFT,
@@ -114,7 +117,7 @@ import {
   SearchSettings,
 } from "./Workspace";
 import { ArtifactViewer } from "./ArtifactViewer";
-import { Conversation } from "./Conversation";
+import { Conversation, type ThreadWork } from "./Conversation";
 import {
   Avatar,
   Badge,
@@ -259,6 +262,8 @@ export default function App() {
   const [attachments, setAttachments] = useAttachments("loop-draft-files");
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState("");
   useEffect(() => {
@@ -283,6 +288,8 @@ export default function App() {
   const [youSheet, setYouSheet] = useState(false);
   const [laterCard, setLaterCard] = useState<Artifact | null>(null);
   const [threadNotice, setThreadNotice] = useState("");
+  // The open thread's current work, so a send can say what it will do.
+  const [threadWork, setThreadWork] = useState<ThreadWork | null>(null);
   const sendPress = useLongPress(
     () => {
       if (draft.trim()) setSendMenu(true);
@@ -362,13 +369,104 @@ export default function App() {
     return () =>
       navigator.serviceWorker.removeEventListener("message", received);
   }, []);
-  /** Later → Scheduled, where scheduled messages are edited or cancelled. */
-  function showScheduled() {
-    cacheView("later-section", "scheduled", session?.user?.id);
+  /** Later at a section (Scheduled, Reminders), highlighting one item. */
+  function openLater(section: "scheduled" | "reminders", focusId?: string) {
+    showLater(section, focusId);
     setConversation(null);
     setProfile(null);
     setTab("later");
   }
+  const showScheduled = (focusId?: string) => openLater("scheduled", focusId);
+  /**
+   * A message's text and files added to a draft. Nothing already in the draft
+   * is replaced: the text follows it, and files not already attached are
+   * added (up to the per-message limit, which the caller is told about).
+   */
+  function mergeDraft(
+    current: { text: string; files: UploadedFile[] },
+    text: string,
+    files: UploadedFile[],
+  ) {
+    const added = files.filter((file) => !current.files.some((f) => f.id === file.id));
+    const merged = [...current.files, ...added].slice(0, MAX_MESSAGE_FILES);
+    return {
+      text: current.text.trim() ? `${current.text.trimEnd()}\n\n${text}` : text,
+      files: merged,
+      dropped: current.files.length + added.length - merged.length,
+    };
+  }
+  /**
+   * Put a message back into the open composer, with its files. It reads the
+   * live draft: an Undo can call this long after the render that made it.
+   */
+  function restoreToComposer(text: string, files: UploadedFile[]) {
+    const next = mergeDraft(
+      { text: draftRef.current, files: attachmentsRef.current },
+      text,
+      files,
+    );
+    draftRef.current = next.text;
+    setDraft(next.text);
+    attachmentsRef.current = next.files;
+    setAttachments(next.files);
+    if (next.dropped) notifyDropped(next.dropped);
+    focusComposer();
+  }
+  // Only a copy (a scheduled message, which stays where it is) can overflow:
+  // a queued message is left queued when its files would not fit.
+  const notifyDropped = (count: number) =>
+    notify({
+      text: `${count} file${count === 1 ? "" : "s"} did not fit in the draft (a message holds ${MAX_MESSAGE_FILES}). The original still has ${count === 1 ? "it" : "them"}.`,
+      tone: "error",
+    });
+  /**
+   * Take a queued message back into the open composer. The server cancels it
+   * only if its files fit beside the draft's, so nothing is lost either way.
+   */
+  async function withdrawToComposer(runId: string) {
+    const held = await api<{ input: string; attachments: UploadedFile[] }>(
+      `/runs/${runId}/withdraw`,
+      { draftAttachmentIds: attachmentsRef.current.map((file) => file.id) },
+    );
+    restoreToComposer(held.input, held.attachments);
+  }
+  /**
+   * Put a message back into a draft for its agent, text and files: a
+   * scheduled message that could not be sent, or one taken back from the
+   * queue. Nothing is sent.
+   */
+  function restoreDraft(item: {
+    agentId: string;
+    conversationId: string | null;
+    text: string;
+    files: UploadedFile[];
+  }) {
+    if (item.conversationId && item.conversationId === conversation)
+      return restoreToComposer(item.text, item.files);
+    if (item.conversationId) {
+      const saved = threadDraft(item.conversationId);
+      const next = mergeDraft(saved, item.text, item.files);
+      saveThreadDraft(item.conversationId, next.text, next.files);
+      if (next.dropped) notifyDropped(next.dropped);
+      setSelected(item.agentId);
+      setConversation(item.conversationId);
+      focusThreadComposer(item.conversationId);
+      return;
+    }
+    setConversation(null);
+    setReplyContext(null);
+    setContextArtifact(null);
+    setSelected(item.agentId);
+    setFolderChoice(undefined);
+    afterSheetsClose(() => restoreToComposer(item.text, item.files));
+  }
+  const draftFromScheduled = (item: ScheduledSend) =>
+    restoreDraft({
+      agentId: item.agent_id,
+      conversationId: item.conversation_id,
+      text: item.input,
+      files: item.attachments || [],
+    });
   // Replies happen inside the thread: open it (at the quoted message) instead
   // of leaving it, so reading and answering stay in one place.
   function beginReply(context: ComposerContext, text?: string) {
@@ -1114,16 +1212,24 @@ export default function App() {
               : recipient.folder_id || undefined,
       };
       if (options.sendAt) {
-        await api("/scheduled-sends", { ...body, sendAt: options.sendAt });
+        const row = await api<{ id: string }>("/scheduled-sends", {
+          ...body,
+          sendAt: options.sendAt,
+        });
         if (owner !== ownerRef.current) return;
         const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
-        if (conversation) setThreadNotice(`Scheduled for ${when}.${reconciled}`);
-        else
-          setDismissNotice({
-            text: `Message to @${recipient.name} scheduled for ${when}.${reconciled}`,
-            action: "View in Later",
-            onAction: showScheduled,
-          });
+        const text = draft;
+        // Undo cancels it while it is still waiting; once it has been sent,
+        // the server refuses and says so.
+        notify({
+          text: `Scheduled for @${recipient.name}, ${when}.${reconciled}`,
+          link: { label: "View", onSelect: () => showScheduled(row.id) },
+          undo: async () => {
+            await api("/scheduled-sends/" + row.id, undefined, "DELETE");
+            window.dispatchEvent(new Event("loop-scheduled-change"));
+            setDraft((current) => (current.trim() ? current : text));
+          },
+        });
         window.dispatchEvent(new Event("loop-scheduled-change"));
         setDraft("");
         setAttachments([]);
@@ -1171,7 +1277,14 @@ export default function App() {
       setReplyContext(conversation && conversationTarget ? conversationTarget : null);
       setContextArtifact(null);
       if (options.queue && conversation)
-        setThreadNotice("Queued after the current task." + reconciled);
+        notify({
+          text: "Queued after the current task." + reconciled,
+          // Undo takes it back to a draft, only while it has not started.
+          undo: async () => {
+            await withdrawToComposer(accepted.id);
+            void refresh();
+          },
+        });
       else if (reconciled && conversation) setThreadNotice(reconciled.trim());
       else if (reconciled) setDismissNotice(reconciled.trim());
       if (!conversation) collapseComposer();
@@ -1315,6 +1428,41 @@ export default function App() {
     (replyContext.messageId || replyContext.artifactId || !conversation)
       ? replyContext
       : null;
+  // Who and where a send goes, said before it is sent.
+  const topProject = (folderId?: string | null) => {
+    let folder = data.folders.find((f) => f.id === folderId);
+    while (folder?.parent_id)
+      folder = data.folders.find((f) => f.id === folder!.parent_id);
+    return folder?.name;
+  };
+  // Outside a thread, sending now to an agent with a running task steers
+  // that task (the server joins its active conversation).
+  const steersActive =
+    !threadMode &&
+    !replyContext?.conversationId &&
+    runs.some(
+      (run) =>
+        run.agent_id === activeAgent?.id &&
+        ["running", "awaiting_approval"].includes(run.state),
+    );
+  const destination = {
+    agent: activeAgent?.name || "agent",
+    project:
+      (threadMode
+        ? conversationTarget?.projectName
+        : topProject(
+            folderChoice !== undefined
+              ? folderChoice
+              : contextArtifact?.agent_id === activeAgent?.id
+                ? contextArtifact?.folder_id
+                : activeAgent?.folder_id,
+          )) || "Unfiled",
+    thread: threadMode
+      ? conversationTarget?.title || "This thread"
+      : replyContext?.conversationId
+        ? replyContext.title || "Its thread"
+        : "New thread",
+  };
   const sendButton = (
     <button
       className={"send-button" + (threadMode ? " round" : "")}
@@ -1388,24 +1536,20 @@ export default function App() {
         )}
         {!composerExpanded && !threadMode && (
           <button
-            className="composer-launch"
+            className={"composer-launch" + (draft ? " has-draft" : "")}
             onClick={focusComposer}
             aria-label="Compose a message"
             aria-expanded={false}
-          >
-            {activeAgent ? (
-              <Avatar name={activeAgent.name} provider={activeAgent.provider} />
-            ) : (
-              <MessageSquare size={20} />
-            )}
-            <span>
-              {draft
-                ? `Draft to @${activeAgent?.name || "agent"}…`
+            title={
+              (draft
+                ? `Continue draft to @${activeAgent?.name || "agent"}`
                 : activeAgent
-                  ? "Message @" + activeAgent.name + "…"
-                  : "Message an agent…"}
-            </span>
-            <Plus size={18} />
+                  ? `New task for @${activeAgent.name}`
+                  : "New task") +
+              (activeAgent ? ` · ${destination.project}` : "")
+            }
+          >
+            <Plus size={26} aria-hidden="true" />
           </button>
         )}
         <div className="composer" hidden={!composerExpanded && !threadMode}>
@@ -1454,6 +1598,15 @@ export default function App() {
                 <ChevronDown size={18} /> Minimize
               </button>
             </div>
+          )}
+          {!threadMode && activeAgent && selected !== "__route__" && (
+            <p className="composer-destination">
+              To <strong>@{destination.agent}</strong> · Project{" "}
+              <strong>{destination.project}</strong> ·{" "}
+              {steersActive
+                ? "Sending now steers its current task"
+                : destination.thread}
+            </p>
           )}
           {activeAgent?.retired_at && (
             <p className="note">
@@ -1624,6 +1777,15 @@ export default function App() {
             </button>
             {!threadMode && sendButton}
           </div>
+          {threadMode && threadWork && draft.trim() && (
+            <p className="field-hint composer-intent">
+              {threadWork.steerable
+                ? `Send steers @${destination.agent}’s current task.`
+                : `Send waits for @${destination.agent}’s current task.`}{" "}
+              Tap the clock to {threadWork.steerable ? "queue it or " : ""}send
+              later.
+            </p>
+          )}
           {threadNotice && threadMode && (
             <p className="field-hint composer-notice" role="status">
               {threadNotice}
@@ -1639,10 +1801,30 @@ export default function App() {
         </div>
       </section>
     ) : null;
+  async function unsaveResult(item: Artifact) {
+    const current = await api<Artifact>("/artifacts/" + item.id);
+    await api(
+      "/artifacts/" + item.id,
+      { pinned: false, version: current.version },
+      "PATCH",
+    );
+    void changed();
+  }
+  const replySaved = (message: SavedMessage) =>
+    message.agent_id
+      ? beginReply({
+          agentId: message.agent_id,
+          conversationId: message.conversation_id,
+          messageId: message.message_id,
+          content: message.content,
+          ...(message.role === "user" ? { mine: true } : {}),
+        })
+      : setConversation(message.conversation_id, message.message_id);
   // Result cards look and act the same in the feed, projects and Saved.
   const resultCard = (
     item: Artifact & { team_id?: string | null },
     inSaved = false,
+    onUnsave?: () => void,
   ) => (
     <ArtifactCard
       key={item.id}
@@ -1667,6 +1849,8 @@ export default function App() {
       }
       onFile={() => setFiling(item)}
       onPin={async () => {
+        // In Saved, unsaving waits for its Undo (see SavedList).
+        if (onUnsave && item.pinned) return onUnsave();
         try {
           await api(
             "/artifacts/" + item.id,
@@ -2091,6 +2275,8 @@ export default function App() {
                 connections={data.connections}
                 onAgent={setProfile}
                 onChanged={() => void changed()}
+                onScheduled={() => showScheduled()}
+                onShowReminder={(id) => openLater("reminders", id)}
                 needsSlot={
                   <div className="run-list">
                     {capabilities.nativeHarnesses && (
@@ -2109,6 +2295,7 @@ export default function App() {
                       revision={revision}
                       failedOnly
                       onOpen={(c) => setConversation(c)}
+                      onDraft={draftFromScheduled}
                     />
                   </div>
                 }
@@ -2181,18 +2368,10 @@ export default function App() {
               }
               project={projectFilter || undefined}
               teams={teamKey || undefined}
-              renderResult={(item) => resultCard(item, true)}
-              onReply={(message) =>
-                message.agent_id
-                  ? beginReply({
-                      agentId: message.agent_id,
-                      conversationId: message.conversation_id,
-                      messageId: message.message_id,
-                      content: message.content,
-                      ...(message.role === "user" ? { mine: true } : {}),
-                    })
-                  : setConversation(message.conversation_id, message.message_id)
-              }
+              renderResult={(item, options) => resultCard(item, true, options.onUnsave)}
+              onUnsaveResult={unsaveResult}
+              onDraft={draftFromScheduled}
+              onReply={replySaved}
             />
           )}
           {tab === "search" && !profile && (
@@ -2305,6 +2484,51 @@ export default function App() {
                   onChanged={() => void changed()}
                 />
               )}
+              renderHistory={(id, view, text) =>
+                view === "search" ? (
+                  <ProjectSearchResults
+                    project={id}
+                    query={text}
+                    onConversation={(c, m) => setConversation(c, m)}
+                    onArtifact={(artifact) =>
+                      void api<Artifact>("/artifacts/" + artifact)
+                        .then((item) => void open(item))
+                        .catch((e) => setError(e.message))
+                    }
+                  />
+                ) : view === "saved" ? (
+                  <SavedList
+                    key={id}
+                    revision={revision}
+                    project={id}
+                    searchLabel="Search saved decisions"
+                    onOpen={(c, m) => setConversation(c, m)}
+                    onReply={replySaved}
+                    renderResult={(item, options) =>
+                      resultCard(item, true, options.onUnsave)
+                    }
+                    onUnsaveResult={unsaveResult}
+                  />
+                ) : (
+                  <Inbox
+                    key={id + view}
+                    filter={view}
+                    onFilter={() => {}}
+                    hideFilters
+                    project={id}
+                    revision={revision}
+                    agents={data.agents}
+                    onOpen={(c, m) => setConversation(c, m)}
+                    onReply={(c) => {
+                      setConversation(c);
+                      focusThreadComposer(c);
+                    }}
+                    connections={data.connections}
+                    onAgent={setProfile}
+                    onChanged={() => void changed()}
+                  />
+                )
+              }
               onNewTask={(id) => {
                 const agent =
                   data.agents.find(
@@ -2371,6 +2595,7 @@ export default function App() {
         {!conversation && messageComposer}
         <nav className="mobile-nav">{nav}</nav>
       </div>
+      <Toasts />
       {archivedCard && (
         <div className="toast" role="status">
           <span>Archived from feed. Still in history and search.</span>
@@ -2638,42 +2863,82 @@ export default function App() {
           title="Send options"
           onClose={() => setSendMenu(false)}
           actions={[
-            {
-              id: "now",
-              label: "Send now",
-              icon: <ArrowUp size={20} />,
-              onSelect: () => void send(),
-            },
+            threadMode && threadWork?.steerable
+              ? {
+                  id: "steer",
+                  label: "Steer current task",
+                  hint: `Delivered to @${destination.agent} now, while it works`,
+                  icon: <ArrowUp size={20} />,
+                  onSelect: () => void send(),
+                }
+              : {
+                  id: "now",
+                  label: "Send now",
+                  hint:
+                    threadMode && threadWork
+                      ? `@${destination.agent} can’t take messages mid-task, so this waits for the current task`
+                      : steersActive
+                        ? `Goes to @${destination.agent}’s current task, which it steers`
+                        : undefined,
+                  icon: <ArrowUp size={20} />,
+                  onSelect: () => void send(),
+                },
             {
               id: "queue",
-              label: "Send after the current task",
-              hint: "Queues instead of steering a running task",
+              label: threadMode && threadWork ? "Queue after this task" : "Queue after current work",
+              hint: "Held until the agent’s earlier work ends, and while it is paused. Edit, cancel or move it back to a draft until it starts.",
               icon: <Clock3 size={20} />,
               onSelect: () => void send({ queue: true }),
             },
-            ...laterChoices(Date.now())
-              .filter((choice) => choice.condition === "time" && choice.id !== "hour")
-              .map((choice) => ({
-                id: choice.id,
-                label: `Send ${choice.label.toLowerCase()}`,
-                hint: choice.hint,
-                icon: <AlarmClock size={20} />,
-                onSelect: () => void send({ sendAt: choice.dueAt }),
-              })),
             {
-              id: "custom",
-              label: "Pick a time…",
+              id: "later",
+              label: "Send later at a time…",
+              hint: "Choose when. Edit or cancel it in Later → Scheduled.",
               icon: <AlarmClock size={20} />,
               onSelect: () =>
                 setScheduleAt(localInputValue(Date.now() + 3600_000)),
             },
           ]}
-        />
+        >
+          <p className="send-destination">
+            To <strong>@{destination.agent}</strong> ·{" "}
+            <strong>{destination.project}</strong> · {destination.thread}
+          </p>
+        </ActionSheet>
       )}
       {scheduleAt !== null && (
-        <Sheet title="Schedule message" onClose={() => setScheduleAt(null)}>
+        <Sheet title="Send later" onClose={() => setScheduleAt(null)}>
+          <dl className="send-summary">
+            <dt>To</dt>
+            <dd>@{destination.agent}</dd>
+            <dt>Project</dt>
+            <dd>{destination.project}</dd>
+            <dt>Thread</dt>
+            <dd>{destination.thread}</dd>
+            <dt>Message</dt>
+            <dd className="send-summary-text">{preview(draft, 140)}</dd>
+          </dl>
+          <div className="chip-row" role="group" aria-label="Quick times">
+            {laterChoices(Date.now())
+              .filter((choice) => choice.condition === "time")
+              .map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className="chip"
+                  aria-pressed={
+                    !!choice.dueAt &&
+                    scheduleAt === localInputValue(choice.dueAt)
+                  }
+                  onClick={() => setScheduleAt(localInputValue(choice.dueAt!))}
+                >
+                  {choice.label}
+                </button>
+              ))}
+          </div>
           <label>
-            Send at
+            Send at (your time,{" "}
+            {Intl.DateTimeFormat().resolvedOptions().timeZone})
             <input
               type="datetime-local"
               value={scheduleAt}
@@ -2682,7 +2947,10 @@ export default function App() {
             />
           </label>
           <p className="field-hint">
-            Your computer must be awake at that time for the agent to start.
+            Loop sends it once, at that time, to the agent above. If it can’t be
+            sent then, it stays in Needs you and Later → Scheduled with the
+            reason, and is never retried on its own. This is not a reminder:
+            use Remind me to bring something back to yourself.
           </p>
           <button
             className="primary"
@@ -2698,7 +2966,10 @@ export default function App() {
               void send({ sendAt: at });
             }}
           >
-            <AlarmClock size={17} /> Schedule
+            <AlarmClock size={17} /> Schedule for{" "}
+            {scheduleAt && new Date(scheduleAt).getTime() > 0
+              ? `${dayLabel(new Date(scheduleAt).getTime()).toLowerCase()} at ${timeLabel(new Date(scheduleAt).getTime())}`
+              : "…"}
           </button>
         </Sheet>
       )}
@@ -2708,8 +2979,15 @@ export default function App() {
           targetId={laterCard.id}
           title={laterCard.title}
           onClose={() => setLaterCard(null)}
-          onDone={(label) =>
-            setDismissNotice(`Snoozed until ${label.toLowerCase()}. Find it in Later.`)
+          onDone={(label, created) =>
+            notify({
+              text: `Reminder set: ${label.toLowerCase()}.`,
+              link: {
+                label: "View",
+                onSelect: () => openLater("reminders", created.id),
+              },
+              undo: () => undoReminder(created),
+            })
           }
         />
       )}
@@ -3063,6 +3341,8 @@ export default function App() {
           teams={data.teams || []}
           folders={data.folders}
           onNotice={setDismissNotice}
+          onShowLater={openLater}
+          onWork={setThreadWork}
           onClose={() => {
             setConversation(null);
             setThreadNotice("");
@@ -3092,6 +3372,8 @@ export default function App() {
             setDraft(text);
             focusComposer();
           }}
+          onRestoreDraft={restoreToComposer}
+          onWithdraw={withdrawToComposer}
           onSubmitted={refresh}
         />
       )}

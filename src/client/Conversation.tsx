@@ -15,6 +15,7 @@ import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName } from "./modelChoices";
 import { AttachmentList } from "./Attachments";
 import type { ComposerContext } from "./composerContext";
+import type { UploadedFile } from "../shared/uploads";
 import { NativeDecisions } from "./NativeControls";
 import { Approvals } from "./Approvals";
 import {
@@ -27,6 +28,7 @@ import {
 import {
   AlarmClock,
   ArrowDown,
+  CornerUpLeft,
   Bookmark,
   Cpu,
   FileDiff,
@@ -55,14 +57,18 @@ import {
   ScheduledSends,
   UsageLine,
   messageActions,
+  undoReminder,
   useLongPress,
   useSwipe,
+  type ChangeContext,
 } from "./ThreadTools";
+import { notify } from "./toast";
 import { HandoffSheet, shareLink } from "./Handoff";
 import { EditQueued, type QueuedMessage } from "./Inbox";
 import {
   compactNumber,
   dayLabel,
+  mergeActivityRecords,
   preview,
   runStatus,
   startsNewDay,
@@ -80,6 +86,11 @@ const conversationActivity = (record: ActivityRecord) =>
   record.kind !== "file_change";
 
 type Usage = { input_tokens: number; output_tokens: number };
+export type ThreadWork = {
+  state: string;
+  /** A reply now is delivered to the running task (steering). */
+  steerable: boolean;
+};
 
 /** One message with swipe-right to reply and long-press for its menu. */
 function MessageShell({
@@ -152,11 +163,15 @@ export function Conversation({
   onReady,
   onReply,
   onUsePrompt,
+  onRestoreDraft,
+  onWithdraw,
   onSubmitted,
   onProfile,
   onAgentChanged,
   onNewConversation,
   onNotice,
+  onShowLater,
+  onWork,
 }: {
   id: string;
   messageId?: string | null;
@@ -171,11 +186,22 @@ export function Conversation({
   onReady: (context: ComposerContext) => void;
   onReply: (context: ComposerContext) => void;
   onUsePrompt: (text: string) => void;
+  /** Put a message back into the composer with its files (nothing is sent). */
+  onRestoreDraft: (text: string, files: UploadedFile[]) => void;
+  /** Take a queued message that has not started back into the composer. */
+  onWithdraw: (runId: string) => Promise<void>;
   onSubmitted: () => void;
   onProfile: (agent: Agent) => void;
   onAgentChanged?: () => void;
   onNewConversation: (agent: Agent) => void;
   onNotice?: (text: string) => void;
+  /** Open Later at a section, highlighting one item. */
+  onShowLater?: (section: "reminders" | "scheduled", focusId?: string) => void;
+  /**
+   * The thread's current work, so the composer can say what a send does:
+   * steer it, queue after it, or send later.
+   */
+  onWork?: (work: ThreadWork | null) => void;
 }) {
   const activityItems = useConversationActivities(id);
   const allActivities = visibleActivities(activityItems);
@@ -212,18 +238,33 @@ export function Conversation({
       id: string;
       title: string;
     } | null>(null),
-    [forkFrom, setForkFrom] = useState<string | null>(null),
-    [changes, setChanges] = useState<ChangeSummary | null>(null),
+    [forkFrom, setForkFrom] = useState<ConversationMessage | null>(null),
+    [changes, setChanges] = useState<{
+      summary: ChangeSummary;
+      context: ChangeContext;
+    } | null>(null),
     [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
     [usage, setUsage] = useState<{
       runs: Record<string, Usage>;
       total: Usage;
     } | null>(null),
     [jump, setJump] = useState<string | null>(null),
+    // How the current jump started: reopening at the reading position, or
+    // going to a specific message (which is highlighted).
+    [jumpKind, setJumpKind] = useState<"resume" | "jump">("jump"),
+    // Where you were before going to a specific message, kept apart from
+    // the saved reading position. null messageId: the latest messages.
+    [origin, setOrigin] = useState<{ messageId: string | null } | null>(null),
+    [resumed, setResumed] = useState(false),
     [editQueued, setEditQueued] = useState<QueuedMessage | null>(null);
   const [newProvider, setNewProvider] = useState<Agent | null>(null);
   // The link target, a jump from the outline, or where you left off.
   const anchor = jump || messageId;
+  // A link target or a jump is highlighted; resuming is not.
+  const highlight =
+    anchor && (anchor === messageId || jumpKind === "jump") ? anchor : null;
+  const originRef = useRef(origin);
+  originRef.current = origin;
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
   const generation = useRef(0);
@@ -261,6 +302,21 @@ export function Conversation({
     };
     messages.scrollTop = messages.scrollHeight;
   }
+  /**
+   * Scroll the message list, and only it, to one message. scrollIntoView
+   * would also scroll the sheet and the page behind it.
+   */
+  function scrollToMessage(message: HTMLElement, block: "center" | "start") {
+    const messages = messagesRef.current;
+    if (!messages) return;
+    const offset =
+      message.getBoundingClientRect().top -
+      messages.getBoundingClientRect().top;
+    messages.scrollTop +=
+      block === "center"
+        ? offset - (messages.clientHeight - message.offsetHeight) / 2
+        : offset;
+  }
   /** Messages currently inside the scroll viewport, top to bottom. */
   function visibleMessageIds() {
     const box = messagesRef.current?.getBoundingClientRect();
@@ -280,6 +336,9 @@ export function Conversation({
   function saveReadingPosition() {
     const current = dataRef.current;
     if (!current?.messages.length || current.conversation.id !== id) return;
+    // Inspecting a linked or searched-for message is not where you stopped
+    // reading: the saved position stays until you go back or reach the end.
+    if (originRef.current) return;
     const visible = visibleMessageIds();
     // At the latest output there is no position to keep: the thread opens
     // at its latest messages anyway.
@@ -322,12 +381,18 @@ export function Conversation({
             );
           if (fresh.messages.some((m: Message) => m.id === target)) {
             followLatest.current = false;
+            setJumpKind("resume");
+            setResumed(true);
             setJump(target);
           }
         }
       }
       if (current !== generation.current || ticket !== loadRequest.current)
         return;
+      // Opened at a specific message (Saved, Search, a notification, the
+      // Feed): remember the reading position to go back to.
+      if (initial && messageId && anchor === messageId)
+        setOrigin({ messageId: fresh.position_message_id || null });
       setLoadError("");
       if (fresh.saved) setSavedIds(new Set(fresh.saved));
       setData((old) =>
@@ -368,6 +433,9 @@ export function Conversation({
   }
   useEffect(() => {
     setJump(null);
+    setJumpKind("jump");
+    setOrigin(null);
+    setResumed(false);
     positionSent.current = "";
   }, [id, messageId]);
   useEffect(() => {
@@ -412,8 +480,9 @@ export function Conversation({
         agentId: agent.id,
         conversationId: id,
         title: data.conversation.title,
+        projectName: project?.name,
       });
-  }, [id, agent?.id, data?.conversation.title, imported]);
+  }, [id, agent?.id, data?.conversation.title, imported, project?.name]);
   useLayoutEffect(() => {
     if (data?.conversation.id !== id) return;
     const messages = messagesRef.current;
@@ -463,18 +532,17 @@ export function Conversation({
     let focused = false;
     // Links and outline jumps centre their message; resuming starts at the
     // top of the saved reading position so it reads naturally.
-    const block = anchor === messageId ? "center" : "start";
+    const block = highlight ? "center" : "start";
     const align = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         if (!anchoring.current) return;
-        message.scrollIntoView({ block });
+        scrollToMessage(message, block);
         setAwayFromLatest(
           messages.scrollHeight - messages.clientHeight - messages.scrollTop >= 48,
         );
-        // Only an explicit link focuses (and outlines) its message.
-        if (!focused && anchor === messageId)
-          message.focus({ preventScroll: true });
+        // Only a link or a jump focuses (and outlines) its message.
+        if (!focused && highlight) message.focus({ preventScroll: true });
         focused = true;
       });
     };
@@ -494,74 +562,195 @@ export function Conversation({
       messages.addEventListener(input, stop, { passive: true });
     align();
     return stop;
-  }, [data?.conversation.id, id, anchor]);
+  }, [data?.conversation.id, id, anchor, highlight]);
 
+  /** Go to one message from Jump to, remembering where you were. */
   function jumpTo(target: string) {
+    if (!originRef.current)
+      setOrigin({
+        messageId: followLatest.current ? null : visibleMessageIds()[0] || null,
+      });
+    setResumed(false);
+    goTo(target, "jump");
+  }
+  function goTo(target: string, kind: "resume" | "jump") {
+    setJumpKind(kind);
     if (target === anchor) {
-      document
-        .getElementById("message-" + target)
-        ?.scrollIntoView({ block: "center" });
+      const message = document.getElementById("message-" + target);
+      if (message)
+        scrollToMessage(message, kind === "jump" ? "center" : "start");
       return;
     }
     followLatest.current = false;
     setJump(target);
   }
-  async function toggleSaved(message: Message) {
-    const saved = savedIds.has(message.id);
+  function goLatest() {
+    anchoring.current = false;
+    followLatest.current = true;
+    setAwayFromLatest(false);
+    setOrigin(null);
+    setResumed(false);
+    pinLatest();
+    saveReadingPosition();
+  }
+  /** Back to where you were before following a link or a jump. */
+  function goBack() {
+    const back = originRef.current;
+    setOrigin(null);
+    if (!back?.messageId) goLatest();
+    else goTo(back.messageId, "resume");
+  }
+  function markSaved(messageId: string, saved: boolean) {
     setSavedIds((old) => {
       const next = new Set(old);
-      if (saved) next.delete(message.id);
-      else next.add(message.id);
+      if (saved) next.add(messageId);
+      else next.delete(messageId);
       return next;
     });
-    try {
-      await api(
-        `/messages/${message.id}/saved`,
-        saved ? undefined : {},
-        saved ? "DELETE" : "POST",
-      );
-      setNotice(saved ? "Removed from Saved." : "Saved. Find it in Later.");
-      window.dispatchEvent(new Event("loop-later-change"));
-    } catch (e) {
-      setSavedIds((old) => {
-        const next = new Set(old);
-        if (saved) next.add(message.id);
-        else next.delete(message.id);
-        return next;
+  }
+  async function setSavedOnServer(messageId: string, saved: boolean) {
+    await api(
+      `/messages/${messageId}/saved`,
+      saved ? {} : undefined,
+      saved ? "POST" : "DELETE",
+    );
+    window.dispatchEvent(new Event("loop-later-change"));
+  }
+  /**
+   * Save at once, with Undo removing that save. Unsaving waits for the
+   * toast to end, so Undo keeps the original save (and its place in Saved).
+   */
+  async function toggleSaved(message: Message) {
+    const saved = savedIds.has(message.id);
+    markSaved(message.id, !saved);
+    if (saved) {
+      notify({
+        text: "Removed from Saved.",
+        undo: () => markSaved(message.id, true),
+        onExpire: () =>
+          void setSavedOnServer(message.id, false).catch((e) => {
+            markSaved(message.id, true);
+            setError((e as Error).message);
+          }),
       });
+      return;
+    }
+    try {
+      await setSavedOnServer(message.id, true);
+      notify({
+        text: "Saved. Find it in Later → Saved.",
+        undo: async () => {
+          await setSavedOnServer(message.id, false);
+          markSaved(message.id, false);
+        },
+      });
+    } catch (e) {
+      markSaved(message.id, false);
       setError((e as Error).message);
     }
   }
   const latestRun = [...(data?.messages || [])]
     .reverse()
     .find((m) => m.run_id && m.run_state);
-  const status = runStatus(latestRun?.run_state);
+  // The thread's current work: a task in progress, else one waiting in the
+  // queue, else its latest run. A newer cancelled or withdrawn follow-up
+  // does not hide a task that is still running.
+  const runOf = (states: string[]) =>
+    [...(data?.messages || [])]
+      .reverse()
+      .find((m) => m.run_id && states.includes(m.run_state || ""));
+  const currentRun =
+    runOf(["running", "pausing", "paused", "awaiting_approval", "waiting_children"]) ||
+    runOf(["queued"]) ||
+    latestRun;
+  const status = runStatus(currentRun?.run_state);
+  const workState = currentRun?.run_state || "";
+  // Only the API runtime takes a message mid-task; native (HAPI) sessions
+  // queue every follow-up.
+  const steerable =
+    ["running", "awaiting_approval"].includes(workState) &&
+    data?.conversation.execution_backend !== "hapi";
+  const workRef = useRef(onWork);
+  workRef.current = onWork;
+  useEffect(() => {
+    const active = [
+      "queued",
+      "running",
+      "pausing",
+      "paused",
+      "awaiting_approval",
+      "waiting_children",
+    ].includes(workState);
+    workRef.current?.(active ? { state: workState, steerable } : null);
+  }, [workState, steerable]);
+  useEffect(() => () => workRef.current?.(null), []);
   // All file changes for a run, from live activities and saved history.
-  function runChanges(runId: string) {
-    const saved = (data?.messages || [])
-      .filter((m) => m.run_id === runId)
+  // Every view of file changes merges recorded and live activity the same
+  // way, so the run chip and the thread review count the same edits.
+  function changeRecords(runId?: string) {
+    // Each record keeps the run it belongs to: runs may reuse activity ids.
+    const recorded = (data?.messages || [])
+      .filter((m) => !runId || m.run_id === runId)
       .flatMap((m) => {
         const meta = parse<any>(m.metadata, {});
-        return (meta.activities ||
-          (meta.activity ? [meta.activity] : [])) as ActivityRecord[];
+        return (
+          (meta.activities ||
+            (meta.activity ? [meta.activity] : [])) as ActivityRecord[]
+        ).map((record) => ({ run: m.run_id ?? null, record }));
       });
     const live = allActivities
-      .filter((a) => a.run === runId)
-      .map((a) => a.record);
-    const keys = new Set(live.map((r) => r.kind + ":" + r.id));
-    return summarizeChanges([
-      ...saved.filter((r) => !keys.has(r.kind + ":" + r.id)),
-      ...live,
-    ]);
+      .filter((a) => !runId || a.run === runId)
+      .map((a) => ({ run: a.run, record: a.record }));
+    return mergeActivityRecords(recorded, live);
   }
-  const threadChanges = summarizeChanges(
-    allActivities.map((a) => a.record).concat(
-      (data?.messages || []).flatMap((m) => {
-        const meta = parse<any>(m.metadata, {});
-        return (meta.activities || []) as ActivityRecord[];
-      }),
-    ),
-  );
+  /** Where reported changes were made, as far as Loop knows. */
+  function changeContext(runId?: string): ChangeContext {
+    // The run asked about, or every run in the thread that reported edits.
+    const runs = runId
+      ? [runId]
+      : [
+          ...new Set(
+            (data?.messages || []).map((m) => m.run_id).filter(Boolean) as string[],
+          ),
+        ].filter(
+          (run) =>
+            summarizeChanges(changeRecords(run)).files.length > 0,
+        );
+    const starts = runs
+      .map((run) =>
+        Math.min(
+          ...(data?.messages || [])
+            .filter((m) => m.run_id === run)
+            .map((m) => m.created_at),
+        ),
+      )
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    return {
+      agentName: agent?.name,
+      projectName: project?.name,
+      runStartedAt: starts,
+      commands: changeRecords(runId)
+        .filter((r) => r.kind === "output")
+        .map((r) => {
+          const output = r.data as {
+            command?: string | null;
+            cwd?: string | null;
+            status?: string;
+            exitCode?: number | null;
+          };
+          return {
+            command: output.command || "",
+            cwd: output.cwd,
+            status: output.status,
+            exitCode: output.exitCode,
+          };
+        })
+        .filter((c) => c.command),
+    };
+  }
+  const runChanges = (runId: string) => summarizeChanges(changeRecords(runId));
+  const threadChanges = summarizeChanges(changeRecords());
   const title = data?.conversation.title || "Conversation";
   let previousAt: number | undefined;
   const heading = (
@@ -643,7 +832,7 @@ export function Conversation({
             },
             {
               id: "later",
-              label: "Remind me later",
+              label: "Remind me",
               icon: <AlarmClock size={20} />,
               onSelect: () =>
                 setLaterFor({ kind: "conversation", id, title }),
@@ -652,10 +841,14 @@ export function Conversation({
               ? [
                   {
                     id: "changes",
-                    label: "Review changes",
-                    hint: `${threadChanges.files.length} files · +${threadChanges.additions} −${threadChanges.deletions}`,
+                    label: "Review reported changes",
+                    hint: `${threadChanges.applied} files with applied edits · +${threadChanges.additions} −${threadChanges.deletions}`,
                     icon: <FileDiff size={20} />,
-                    onSelect: () => setChanges(threadChanges),
+                    onSelect: () =>
+                      setChanges({
+                        summary: threadChanges,
+                        context: changeContext(),
+                      }),
                   },
                 ]
               : []),
@@ -748,25 +941,25 @@ export function Conversation({
           targetId={laterFor.id}
           title={laterFor.title}
           running={["queued", "running", "pausing", "waiting_children"].includes(
-            latestRun?.run_state || "",
+            currentRun?.run_state || "",
           )}
           project={project ? { id: project.id, name: project.name } : undefined}
           onClose={() => setLaterFor(null)}
-          onDone={(label) => {
-            const text = `Snoozed: ${label.toLowerCase()}.`;
-            setNotice(text);
-            if (laterFor.kind === "conversation") {
-              onNotice?.(text);
-              onClose();
-            }
+          onDone={(label, created) => {
+            notify({
+              text: `Reminder set: ${label.toLowerCase()}.`,
+              link: onShowLater && {
+                label: "View",
+                onSelect: () => onShowLater("reminders", created.id),
+              },
+              undo: () => undoReminder(created),
+            });
+            if (laterFor.kind === "conversation") onClose();
           }}
         />
       )}
-      {menuFor && (
-        <ActionSheet
-          title={menuFor.role === "user" ? "Your message" : "Message"}
-          onClose={() => setMenuFor(null)}
-          actions={messageActions({
+      {menuFor && (() => {
+        const menu = messageActions({
             saved: savedIds.has(menuFor.id),
             canReply: Boolean(
               agent && !imported && menuFor.content.trim() !== "",
@@ -796,7 +989,7 @@ export function Conversation({
                 id: menuFor.id,
                 title: preview(menuFor.content, 90),
               }),
-            onFork: () => setForkFrom(menuFor.id),
+            onFork: () => setForkFrom(menuFor),
             onReuse: () => onUsePrompt(menuFor.content),
             onSnippet: async () => {
               try {
@@ -807,7 +1000,9 @@ export function Conversation({
                   metadata: { snippet: true },
                 });
                 onSubmitted();
-                setNotice("Saved as a snippet. Type / in the composer to use it.");
+                notify({
+                  text: "Saved as a snippet. Type / in any composer to insert it.",
+                });
               } catch (e) {
                 setError((e as Error).message);
               }
@@ -817,17 +1012,27 @@ export function Conversation({
                 `/?conversation=${id}&message=${menuFor.id}`,
                 title,
               ).then((text) => text && setNotice(text)),
-          })}
-        >
-          <div className="action-preview">
-            {preview(menuFor.content, 160) || "(no text)"}
-          </div>
-        </ActionSheet>
-      )}
+          });
+        return (
+          <ActionSheet
+            title={menuFor.role === "user" ? "Your message" : "Message"}
+            onClose={() => setMenuFor(null)}
+            primary={menu.primary}
+            actions={menu.more}
+            moreLabel="More"
+          >
+            <div className="action-preview">
+              {preview(menuFor.content, 160) || "(no text)"}
+            </div>
+          </ActionSheet>
+        );
+      })()}
       {forkFrom && (
         <ForkSheet
           conversationId={id}
-          messageId={forkFrom}
+          messageId={forkFrom.id}
+          source={forkFrom}
+          projectName={project?.name}
           agents={agents}
           defaultAgentId={agent?.id}
           onClose={() => setForkFrom(null)}
@@ -851,7 +1056,8 @@ export function Conversation({
       )}
       {changes && (
         <ChangesSheet
-          summary={changes}
+          summary={changes.summary}
+          context={changes.context}
           onClose={() => setChanges(null)}
           onAsk={agent && !imported ? onUsePrompt : undefined}
         />
@@ -901,6 +1107,13 @@ export function Conversation({
               el.scrollHeight - el.clientHeight - el.scrollTop < 48;
             followLatest.current = following;
             setAwayFromLatest(!following);
+            // Reading on to the latest messages ends the detour: there is
+            // nothing to go back to, and the position may be saved again.
+            if (following && originRef.current) {
+              originRef.current = null;
+              setOrigin(null);
+            }
+            if (following) setResumed(false);
             if (scrollSave.current) clearTimeout(scrollSave.current);
             scrollSave.current = setTimeout(saveReadingPosition, following ? 0 : 800);
           }}
@@ -1032,7 +1245,7 @@ export function Conversation({
                 )}
                 <MessageShell
                   id={m.id}
-                  anchored={messageId === m.id}
+                  anchored={highlight === m.id}
                   onReply={reply}
                   onMenu={
                     !meta.progress && !pendingAnswer
@@ -1123,6 +1336,23 @@ export function Conversation({
                         className="text-button"
                         onClick={async () => {
                           try {
+                            // Only a message that has never started is taken back.
+                            await onWithdraw(m.run_id!);
+                            onSubmitted();
+                            notify({ text: "Moved back to your draft. Nothing was sent." });
+                            await load();
+                          } catch (e) {
+                            setError((e as Error).message);
+                          }
+                        }}
+                      >
+                        Move to draft
+                      </button>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={async () => {
+                          try {
                             await api(`/runs/${m.run_id}/cancel`, {});
                             onSubmitted();
                             setNotice("Queued message cancelled.");
@@ -1134,6 +1364,12 @@ export function Conversation({
                       >
                         Cancel
                       </button>
+                      <p className="field-hint queued-hint">
+                        Starts after @{agent?.name || "the agent"}’s earlier
+                        work. If that work pauses or waits for approval, this
+                        stays held; if it fails or is cancelled, this starts
+                        next. You can change it until it starts.
+                      </p>
                     </div>
                   )}
                   <ActivityRecords
@@ -1178,7 +1414,12 @@ export function Conversation({
                       {changed && (
                         <ChangesChip
                           summary={changed}
-                          onOpen={() => setChanges(changed)}
+                          onOpen={() =>
+                            setChanges({
+                              summary: changed,
+                              context: changeContext(m.run_id!),
+                            })
+                          }
                         />
                       )}
                       <RunStatus
@@ -1257,22 +1498,36 @@ export function Conversation({
               </div>
             );
           })}
-          <ScheduledSends conversationId={id} revision={revision} />
+          <ScheduledSends
+            conversationId={id}
+            revision={revision}
+            onDraft={(item) =>
+              onRestoreDraft(item.input, item.attachments || [])
+            }
+          />
         </div>
-        {awayFromLatest && (
-          <button
-            className="text-button conversation-latest"
-            aria-label="Jump to latest messages"
-            onClick={() => {
-              anchoring.current = false;
-              followLatest.current = true;
-              setAwayFromLatest(false);
-              pinLatest();
-              saveReadingPosition();
-            }}
-          >
-            <ArrowDown size={16} aria-hidden="true" /> Latest messages
-          </button>
+        {(origin || resumed || awayFromLatest) && (
+          <div className="thread-return" role="group" aria-label="Thread position">
+            {origin ? (
+              <button type="button" className="text-button" onClick={goBack}>
+                <CornerUpLeft size={16} aria-hidden="true" /> Back to where I was
+              </button>
+            ) : resumed ? (
+              <span className="thread-return-note" role="status">
+                Resumed where you left off
+              </span>
+            ) : null}
+            {(awayFromLatest || resumed || origin) && (
+              <button
+                type="button"
+                className="text-button conversation-latest"
+                aria-label="Jump to latest messages"
+                onClick={goLatest}
+              >
+                <ArrowDown size={16} aria-hidden="true" /> Latest
+              </button>
+            )}
+          </div>
         )}
       </div>
       {transfer && (

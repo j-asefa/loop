@@ -239,6 +239,14 @@ function filterSql(owner: string, filters: SearchFilters) {
       params.push(filters[key]);
     }
   }
+  // A project and its subfolders. Messages are indexed without a folder, so
+  // theirs comes from the conversation: its project, else its latest run's.
+  if (filters.folders) {
+    clauses.push(
+      `COALESCE(d.folder_id,(SELECT COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) FROM conversations c WHERE c.id=d.conversation_id AND c.owner_id=d.owner_id)) IN (SELECT value FROM json_each(?))`,
+    );
+    params.push(JSON.stringify(filters.folders));
+  }
   if (filters.from) {
     clauses.push("d.created_at>=?");
     params.push(filters.from);
@@ -274,6 +282,8 @@ export function lexical(owner: string, q: string, filters: SearchFilters = {}) {
 export type SearchFilters = {
   agent?: string;
   folder?: string;
+  /** Folders of one project (see projectFolders). */
+  folders?: string[];
   kind?: string;
   from?: number;
   to?: number;

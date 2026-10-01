@@ -442,7 +442,8 @@ export async function scheduledSendJourney(page, api, dir) {
   await expect(input).toBeVisible();
   await expect(later).toBeDisabled();
 
-  // "Pick a time…" schedules a message that waits in the thread until then.
+  // "Send later at a time…" confirms recipient, project, thread and time,
+  // then schedules a message that waits in the thread until then.
   await input.fill("Scheduled fixture follow-up");
   await later.click();
   const options = page.getByRole("dialog", {
@@ -450,13 +451,18 @@ export async function scheduledSendJourney(page, api, dir) {
     exact: true,
   });
   await expect(
-    options.getByRole("menuitem", { name: "Send now" }),
+    options.getByRole("menuitem", { name: /^(Send now|Steer current task)/ }),
   ).toBeVisible();
-  await options.getByRole("menuitem", { name: "Pick a time…" }).click();
+  await options
+    .getByRole("menuitem", { name: /^Send later at a time/ })
+    .click();
   const schedule = page.getByRole("dialog", {
-    name: "Schedule message",
+    name: "Send later",
     exact: true,
   });
+  await expect(schedule.locator(".send-summary")).toContainText(
+    "Scheduled fixture follow-up",
+  );
   const at = await page.evaluate(() => {
     const d = new Date(Date.now() + 2 * 3600_000);
     d.setSeconds(0, 0);
@@ -466,15 +472,13 @@ export async function scheduledSendJourney(page, api, dir) {
       time: d.getTime(),
     };
   });
-  await schedule.getByLabel("Send at").fill(at.value);
-  await schedule.getByRole("button", { name: "Schedule", exact: true }).click();
+  await schedule.getByLabel(/^Send at/).fill(at.value);
+  await schedule.getByRole("button", { name: /^Schedule for/ }).click();
   await expect(schedule).toBeHidden();
   // The thread stays open, the composer clears and the message is listed.
   await expect(thread).toBeVisible();
   await expect(input).toHaveValue("");
-  await expect(
-    thread.getByRole("status").filter({ hasText: /^Scheduled for / }),
-  ).toBeVisible();
+  await expect(page.locator(".action-toast")).toContainText("Scheduled for @");
   const pending = thread.getByRole("region", { name: "Scheduled messages" });
   await expect(pending).toContainText("Scheduled fixture follow-up");
   const items = await scheduled();
@@ -497,7 +501,7 @@ export async function scheduledSendJourney(page, api, dir) {
   await expect(pending).toHaveCount(0);
   await expect.poll(async () => (await scheduled()).length).toBe(0);
 
-  // "Send after the current task" queues rather than steering.
+  // "Queue after …" queues rather than steering.
   const posted = [];
   const record = (request) => {
     if (
@@ -511,13 +515,11 @@ export async function scheduledSendJourney(page, api, dir) {
     await input.fill("Queued fixture follow-up");
     await later.click();
     await options
-      .getByRole("menuitem", { name: /^Send after the current task/ })
+      .getByRole("menuitem", { name: /^Queue after (this task|current work)/ })
       .click();
-    await expect(
-      thread.getByRole("status").filter({
-        hasText: "Queued after the current task.",
-      }),
-    ).toBeVisible();
+    await expect(page.locator(".action-toast")).toContainText(
+      "Queued after the current task.",
+    );
     await expect(thread).toBeVisible();
     await expect(input).toHaveValue("");
     assert.equal(posted.length, 1);
@@ -548,14 +550,16 @@ export async function scheduledSendJourney(page, api, dir) {
   const message = page.getByLabel("Message your agent");
   await message.fill("Global scheduled kickoff");
   await page.getByRole("button", { name: "Send later", exact: true }).click();
-  await options.getByRole("menuitem", { name: "Pick a time…" }).click();
-  await schedule.getByLabel("Send at").fill(at.value);
-  await schedule.getByRole("button", { name: "Schedule", exact: true }).click();
-  const confirmation = page
-    .getByRole("status")
-    .filter({ hasText: /scheduled for/ });
+  await options
+    .getByRole("menuitem", { name: /^Send later at a time/ })
+    .click();
+  await expect(schedule.locator(".send-summary")).toContainText("New thread");
+  await schedule.getByLabel(/^Send at/).fill(at.value);
+  await schedule.getByRole("button", { name: /^Schedule for/ }).click();
+  const confirmation = page.locator(".action-toast");
+  await expect(confirmation).toContainText("Scheduled for @");
   await expect(
-    confirmation.getByRole("button", { name: "View in Later", exact: true }),
+    confirmation.getByRole("button", { name: "View", exact: true }),
   ).toBeVisible();
   const everywhere = async () =>
     (await api("/scheduled-sends")).items.filter(
@@ -569,7 +573,7 @@ export async function scheduledSendJourney(page, api, dir) {
     .click();
   await page
     .getByRole("region", { name: "Later", exact: true })
-    .getByRole("tab", { name: "Scheduled", exact: true })
+    .getByRole("tab", { name: /^Scheduled/ })
     .click();
   const outbox = page
     .getByRole("region", { name: "Later", exact: true })
@@ -600,6 +604,6 @@ export async function scheduledSendJourney(page, api, dir) {
     .click();
   await expect.poll(async () => (await everywhere()).length).toBe(0);
   console.log(
-    "PASS: Send later → Pick a time schedules an in-thread message that survives reload and cancels cleanly; a message scheduled from the Feed is edited and cancelled in Later → Scheduled after a reload; Send after the current task queues in the open thread (fixtures).",
+    "PASS: Send later at a time… confirms and schedules an in-thread message that survives reload and cancels cleanly; a message scheduled from the Feed is edited and cancelled in Later → Scheduled after a reload; Queue after this task queues in the open thread (fixtures).",
   );
 }

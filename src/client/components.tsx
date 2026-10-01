@@ -119,6 +119,12 @@ export function Empty({
     </section>
   );
 }
+// Open sheets in the order they opened: the last one is on top (the most
+// recent modal dialog), whatever its place in the document.
+const openSheets: HTMLDialogElement[] = [];
+/** The topmost open sheet: the only part of the page not made inert. */
+export const topSheet = () => openSheets.at(-1) || null;
+
 export function Sheet({
   title,
   heading,
@@ -144,11 +150,25 @@ export function Sheet({
   useSheetDrag(ref, swipeToClose, closeRef);
   useEffect(() => {
     const d = ref.current!;
+    // Return focus to what opened the sheet when it closes. The dialog is
+    // removed with the component, so the browser cannot restore it.
+    const opener = document.activeElement as HTMLElement | null;
     d.showModal();
+    openSheets.push(d);
     const unregister = registerSheet(() => closeRef.current());
     return () => {
       d.close();
+      const index = openSheets.indexOf(d);
+      if (index >= 0) openSheets.splice(index, 1);
       unregister();
+      // Only when nothing else took over: no other sheet, or the opener is
+      // inside the sheet still open beneath this one.
+      if (
+        opener?.isConnected &&
+        (!document.querySelector("dialog[open]") ||
+          opener.closest("dialog[open]"))
+      )
+        opener.focus({ preventScroll: true });
     };
   }, []);
   return (
@@ -162,6 +182,9 @@ export function Sheet({
         className
       }
       onCancel={(e) => {
+        // React passes a nested sheet's Escape up to the sheets around it;
+        // only the sheet that was cancelled closes.
+        if (e.target !== e.currentTarget) return;
         e.preventDefault();
         onClose();
       }}
@@ -671,7 +694,7 @@ export function ArtifactCard({
             {onLater && (
               <button onClick={onLater}>
                 <AlarmClock size={16} />
-                Later
+                Remind me
               </button>
             )}
             {onFile && (
@@ -718,7 +741,7 @@ export function ArtifactCard({
               ? [
                   {
                     id: "later",
-                    label: "Remind me later",
+                    label: "Remind me",
                     icon: <AlarmClock size={20} />,
                     onSelect: onLater,
                   },

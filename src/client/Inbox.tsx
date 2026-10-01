@@ -5,7 +5,10 @@ import {
   ArrowUpRight,
   MoreHorizontal,
   ArrowUp,
+  FileText,
+  MessageCircleQuestion,
   MessageSquare,
+  ShieldCheck,
   Pause,
   PencilLine,
   Play,
@@ -24,15 +27,31 @@ import {
   ActionSheet,
   Chip,
   LaterSheet,
+  undoReminder,
   useLongPress,
   useSwipe,
   type Action,
 } from "./ThreadTools";
 import { shareLink } from "./Handoff";
 import { threadDraft } from "./drafts";
-import { preview, relativeTime, runStatus, runTiming } from "./threadView";
+import {
+  feedNextAction,
+  preview,
+  relativeTime,
+  runStatus,
+  runTiming,
+  type FeedNextAction,
+} from "./threadView";
+import { notify } from "./toast";
 
-export type InboxFilter = "all" | "needs" | "working" | "queued";
+export type InboxFilter =
+  | "all"
+  | "needs"
+  | "working"
+  | "queued"
+  // Project history views (no chip of their own).
+  | "outcomes"
+  | "unfinished";
 
 export type InboxItem = {
   conversation_id: string;
@@ -82,12 +101,20 @@ export type InboxItem = {
     condition: string;
     surfaced_at: number | null;
   } | null;
+  /** The specific thing this thread waits for, and the message holding it. */
+  next_action?: {
+    kind: "approve" | "answer" | "result";
+    message_id: string | null;
+    run_id: string;
+  } | null;
 };
 type Summary = {
   needs: number;
   working: number;
   queued: number;
   later_due: number;
+  scheduled_failed?: number;
+  scheduled_pending?: number;
 };
 type Brief = {
   conversation_id: string;
@@ -118,6 +145,7 @@ function InboxCard({
   model,
   onOpen,
   onReply,
+  onNext,
   onAgent,
   onMenu,
   onLater,
@@ -127,6 +155,8 @@ function InboxCard({
   model?: string;
   onOpen: () => void;
   onReply: () => void;
+  /** Open exactly where the next action is. */
+  onNext: (action: FeedNextAction) => void;
   onAgent?: () => void;
   onMenu: () => void;
   onLater: () => void;
@@ -139,6 +169,7 @@ function InboxCard({
     (press as any)[name]?.(e);
   };
   const draft = threadDraft(item.conversation_id).text;
+  const next = feedNextAction(item.next_action, draft);
   const detail =
     status.tone === "working" && item.run
       ? runTiming(item.run)
@@ -157,7 +188,7 @@ function InboxCard({
       }
     >
       <span className="swipe-under right" aria-hidden="true">
-        <AlarmClock size={20} /> Later
+        <AlarmClock size={20} /> Remind me
       </span>
       <article
         className="feed-card inbox-card"
@@ -268,19 +299,38 @@ function InboxCard({
           )}
         </div>
         <div className="card-actions">
-          <button onClick={onReply}>
-            <MessageSquare size={16} />
-            Reply
-          </button>
+          {next && (
+            <button
+              className="next-action"
+              data-kind={next.kind}
+              onClick={() => onNext(next)}
+            >
+              {nextIcon[next.kind]}
+              {next.label}
+            </button>
+          )}
+          {next?.kind !== "draft" && (
+            <button onClick={onReply}>
+              <MessageSquare size={16} />
+              Reply
+            </button>
+          )}
           <button onClick={onLater}>
             <AlarmClock size={16} />
-            Later
+            Remind me
           </button>
         </div>
       </article>
     </li>
   );
 }
+
+const nextIcon = {
+  approve: <ShieldCheck size={16} />,
+  answer: <MessageCircleQuestion size={16} />,
+  result: <FileText size={16} />,
+  draft: <PencilLine size={16} />,
+};
 
 /** "While you were away": what finished, failed or needs you since the last visit. */
 function AwaySummary({
@@ -495,6 +545,8 @@ export function Inbox({
   connections,
   onReply,
   agent,
+  onScheduled,
+  onShowReminder,
 }: {
   filter: InboxFilter;
   onFilter: (filter: InboxFilter) => void;
@@ -512,6 +564,10 @@ export function Inbox({
   connections?: Connection[];
   onReply?: (conversation: string) => void;
   agent?: string;
+  /** Open Later → Scheduled. */
+  onScheduled?: () => void;
+  /** Open Later → Reminders at one reminder. */
+  onShowReminder?: (id: string) => void;
 }) {
   type Shown = { items: InboxItem[]; next: string | null; summary: Summary };
   const shownKey = () =>
@@ -627,7 +683,7 @@ export function Inbox({
     const actions: Action[] = [
       {
         id: "later",
-        label: "Remind me later",
+        label: "Remind me",
         icon: <AlarmClock size={20} />,
         onSelect: () => setLater(item),
       },
@@ -736,7 +792,8 @@ export function Inbox({
   }
   const counts: Partial<Record<InboxFilter, number>> = summary
     ? {
-        needs: summary.needs,
+        // Messages that could not be sent need you too.
+        needs: summary.needs + (summary.scheduled_failed || 0),
         working: summary.working,
         queued: summary.queued,
       }
@@ -769,6 +826,22 @@ export function Inbox({
             </button>
           ))}
         </div>
+      )}
+      {filter === "needs" && !!summary?.scheduled_failed && (
+        <p className="scheduled-summary" role="status">
+          <strong>
+            {summary.scheduled_failed} scheduled{" "}
+            {summary.scheduled_failed === 1 ? "message" : "messages"} not sent
+          </strong>
+          {!!summary.scheduled_pending && (
+            <span> · {summary.scheduled_pending} still waiting to send</span>
+          )}
+          {onScheduled && (
+            <button type="button" className="text-button" onClick={onScheduled}>
+              Open Scheduled
+            </button>
+          )}
+        </p>
       )}
       {filter === "needs" && needsSlot}
       <>
@@ -807,6 +880,11 @@ export function Inbox({
                   }
                   onOpen={() => onOpen(item.conversation_id)}
                   onReply={() => (onReply || onOpen)(item.conversation_id)}
+                  onNext={(action) =>
+                    action.kind === "draft"
+                      ? (onReply || onOpen)(item.conversation_id)
+                      : onOpen(item.conversation_id, action.message_id || undefined)
+                  }
                   onAgent={agent ? () => onAgent(agent) : undefined}
                   onMenu={() => setMenu(item)}
                   onLater={() => setLater(item)}
@@ -825,7 +903,11 @@ export function Inbox({
                       ? "Nothing needs you right now."
                       : filter === "working"
                         ? "No agents are working right now."
-                        : "Nothing is queued."}
+                        : filter === "outcomes"
+                          ? "No finished work here yet."
+                          : filter === "unfinished"
+                            ? "Nothing unfinished here."
+                            : "Nothing is queued."}
                 </strong>
               </p>
               {filter === "all" && emptyAction}
@@ -872,10 +954,18 @@ export function Inbox({
               : undefined
           }
           onClose={() => setLater(null)}
-          onDone={(label) => {
-            setNotice(
-              `Snoozed until ${label.toLowerCase()}. Find it in Later.`,
-            );
+          onDone={(label, created) => {
+            notify({
+              text: `Reminder set: ${label.toLowerCase()}.`,
+              link: onShowReminder && {
+                label: "View",
+                onSelect: () => onShowReminder(created.id),
+              },
+              undo: async () => {
+                await undoReminder(created);
+                void load();
+              },
+            });
             void load();
           }}
         />

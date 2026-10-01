@@ -23,8 +23,12 @@ import {
   moveQueuedRun,
   projectOpened,
   projectSummaries,
+  reopenLater,
   reorderRun,
   setSaved,
+  setSavedLabel,
+  snoozeLater,
+  withdrawQueuedRun,
 } from "./mobile-return.js";
 
 // Return and defer routes for the phone workspace. Mounted before `core` so
@@ -73,11 +77,21 @@ mobile.get("/saved", (req, res) =>
       before: z.string().max(500).optional().parse(req.query.before),
       folder: z.string().max(150).optional().parse(req.query.folder),
       teams: teamFilter(req.query.teams, res.locals.owner),
+      q: z.string().max(200).optional().parse(req.query.q),
     }),
   ),
 );
+mobile.put("/saved/label", (req, res) =>
+  res.json(setSavedLabel(res.locals.owner, req.body)),
+);
 mobile.get("/conversations/:id/outline", (req, res) =>
-  res.json(conversationOutline(res.locals.owner, req.params.id)),
+  res.json(
+    conversationOutline(
+      res.locals.owner,
+      req.params.id,
+      z.string().max(200).optional().parse(req.query.q),
+    ),
+  ),
 );
 mobile.post("/later", (req, res) =>
   res.status(201).json(createLater(res.locals.owner, req.body)),
@@ -85,6 +99,12 @@ mobile.post("/later", (req, res) =>
 mobile.get("/later", (_req, res) => res.json(listLater(res.locals.owner)));
 mobile.delete("/later/:id", (req, res) =>
   res.json(finishLater(res.locals.owner, req.params.id)),
+);
+mobile.post("/later/:id/snooze", (req, res) =>
+  res.json(snoozeLater(res.locals.owner, req.params.id, req.body)),
+);
+mobile.post("/later/:id/reopen", (req, res) =>
+  res.json(reopenLater(res.locals.owner, req.params.id)),
 );
 mobile.post("/projects/:id/opened", (req, res) =>
   res.json(projectOpened(res.locals.owner, req.params.id)),
@@ -119,6 +139,9 @@ mobile.post("/runs/:id/reorder", (req, res) =>
 );
 mobile.patch("/runs/:id", (req, res) =>
   res.json(editQueuedRun(res.locals.owner, req.params.id, req.body)),
+);
+mobile.post("/runs/:id/withdraw", (req, res) =>
+  res.json(withdrawQueuedRun(res.locals.owner, req.params.id, req.body)),
 );
 mobile.post("/runs/:id/move", (req, res) =>
   res.status(202).json(moveQueuedRun(res.locals.owner, req.params.id, req.body)),

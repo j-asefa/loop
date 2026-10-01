@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  changePrompts,
   compactNumber,
   dayLabel,
   duration,
+  feedNextAction,
   laterChoices,
+  mergeActivityRecords,
+  reminderReason,
   preview,
   relativeTime,
   runStatus,
@@ -33,6 +37,7 @@ describe("relative time and durations", () => {
     expect(dayLabel(now - HOUR, now)).toBe("Today");
     expect(dayLabel(now - DAY, now)).toBe("Yesterday");
     expect(dayLabel(now - 3 * DAY, now)).not.toMatch(/Today|Yesterday/);
+    expect(dayLabel(now + DAY, now)).toBe("Tomorrow");
     expect(startsNewDay(now)).toBe(true);
     expect(startsNewDay(now, now - HOUR)).toBe(false);
     expect(startsNewDay(now, now - DAY)).toBe(true);
@@ -136,7 +141,138 @@ describe("change summaries", () => {
       applied: 0,
       proposed: 0,
       failed: 0,
+      unavailable: 0,
     });
+  });
+  it("keeps edits whose outcome was never reported apart from proposed ones", () => {
+    const summary = summarizeChanges([
+      change("1", [{ path: "a.ts", operation: "modify", patch: "+x" }], "unknown"),
+      change("2", [{ path: "b.ts", operation: "modify", patch: "+y" }], "unknown"),
+      change("3", [{ path: "b.ts", operation: "modify", patch: "+z" }], "proposed"),
+    ]);
+    expect(summary.files.map((f) => [f.path, f.state])).toEqual([
+      ["a.ts", "unavailable"],
+      ["b.ts", "proposed"],
+    ]);
+    expect(summary).toMatchObject({ applied: 0, additions: 0, proposed: 1, unavailable: 1 });
+  });
+});
+
+describe("merging recorded and live activity", () => {
+  const source = { transport: "acp", harness: "codex", origin: "acp" };
+  const record = (id: string, files: string[], state = "applied") =>
+    ({
+      kind: "file_change",
+      id,
+      source,
+      data: {
+        state,
+        files: files.map((path) => ({ path, operation: "modify", patch: "+1", content: "available" })),
+      },
+    }) as unknown as ActivityRecord;
+  const inRun = (run: string | null, item: ActivityRecord) => ({ run, record: item });
+  it("counts an edit once whether it is recorded, live or both", () => {
+    // The same record saved on two messages and also streaming live.
+    const recorded = [
+      inRun("r1", record("e1", ["a.ts"], "proposed")),
+      inRun("r1", record("e1", ["a.ts"])),
+      inRun("r1", record("e2", ["b.ts"])),
+    ];
+    const live = [inRun("r1", record("e2", ["b.ts"])), inRun("r1", record("e3", ["c.ts"], "failed"))];
+    const merged = mergeActivityRecords(recorded, live);
+    expect(merged.map((r) => r.id)).toEqual(["e1", "e2", "e3"]);
+    // The latest copy wins: e1 was applied after being proposed.
+    expect((merged[0].data as any).state).toBe("applied");
+    const summary = summarizeChanges(merged);
+    expect(summary).toMatchObject({ applied: 2, failed: 1, additions: 2 });
+  });
+  it("keeps edits from different runs that reuse an activity id", () => {
+    // Turn-scoped ids such as item_1:0 restart in every run.
+    const merged = mergeActivityRecords(
+      [inRun("r1", record("item_1:0", ["first.ts"])), inRun("r2", record("item_1:0", ["second.ts"]))],
+      [],
+    );
+    const summary = summarizeChanges(merged);
+    expect(summary.files.map((f) => f.path)).toEqual(["first.ts", "second.ts"]);
+    expect(summary.applied).toBe(2);
+  });
+  it("keeps records with the same id from different producers apart", () => {
+    const other = {
+      ...record("e1", ["z.ts"]),
+      source: { transport: "acp", harness: "claude", origin: "other" },
+    } as ActivityRecord;
+    expect(mergeActivityRecords([inRun("r1", record("e1", ["a.ts"]))], [inRun("r1", other)])).toHaveLength(2);
+  });
+  it("treats session activity as one record across runs", () => {
+    const settings = (run: string) =>
+      inRun(run, { kind: "settings", id: "s", source, data: {} } as unknown as ActivityRecord);
+    expect(mergeActivityRecords([settings("r1")], [settings("r2")])).toHaveLength(1);
+  });
+});
+
+describe("feed next actions", () => {
+  it("prefers a pending decision, then a draft, then a result", () => {
+    const result = { kind: "result" as const, message_id: "m1" };
+    const approve = { kind: "approve" as const, message_id: "m2" };
+    expect(feedNextAction(approve, "half written")).toEqual({
+      kind: "approve",
+      label: "Approve request",
+      message_id: "m2",
+    });
+    expect(feedNextAction({ kind: "answer", message_id: null }, "")?.label).toBe(
+      "Answer question",
+    );
+    expect(feedNextAction(result, "  ")).toEqual({
+      kind: "result",
+      label: "Review result",
+      message_id: "m1",
+    });
+    expect(feedNextAction(result, "half written")?.label).toBe("Continue draft");
+    expect(feedNextAction(null, "")).toBeNull();
+    // Never claims a decision was made.
+    expect(JSON.stringify(feedNextAction(approve, ""))).not.toMatch(/approved/i);
+  });
+});
+
+describe("reminder reasons", () => {
+  const base = { due_at: null, surfaced_at: null, project_name: "Site" };
+  it("says why a reminder is or will be back", () => {
+    expect(reminderReason({ ...base, condition: "run_finished" }, now)).toBe(
+      "When the agent finishes",
+    );
+    expect(
+      reminderReason({ ...base, condition: "run_finished", surfaced_at: now }, now),
+    ).toBe("The agent finished");
+    expect(
+      reminderReason({ ...base, condition: "project_open", surfaced_at: now }, now),
+    ).toBe("You opened Site");
+    const nine = new Date(2026, 8, 30, 9, 0).getTime();
+    expect(
+      reminderReason({ ...base, condition: "time", due_at: nine, surfaced_at: now }, now),
+    ).toMatch(/^Due today at /);
+    expect(
+      reminderReason({ ...base, condition: "time", due_at: nine + DAY }, now),
+    ).toMatch(/^Tomorrow at /);
+  });
+});
+
+describe("change follow-up prompts", () => {
+  it("ask for verification of the full diff and name the run and project", () => {
+    const start = new Date(2026, 8, 30, 10, 42).getTime();
+    const prompts = changePrompts(["src/a.ts", "src/b.ts"], {
+      projectName: "Site",
+      runStartedAt: [start],
+      commands: [],
+    });
+    for (const prompt of Object.values(prompts)) {
+      expect(prompt).toContain("git diff");
+      expect(prompt).toContain("only has the edits your tools reported");
+      expect(prompt).toContain("in the Site project");
+      expect(prompt).toContain("- src/a.ts\n- src/b.ts");
+    }
+    expect(prompts.commit).toMatch(/from the run that started \w+ at /);
+    expect(prompts.revert).toContain("keeping any other changes");
+    expect(prompts.pr).toContain("pull request link");
   });
 });
 

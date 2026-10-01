@@ -224,6 +224,26 @@ export function Memory({
     </Sheet>
   );
 }
+export type MemoryReceipt = { mode: string; sources: string; tokens: number };
+/**
+ * What saved memory was added to a run's prompt. The token figure is only
+ * the added memory text (about four characters a token), not the run's usage.
+ */
+export function memoryReceiptText(receipt: MemoryReceipt) {
+  const count = parse<unknown[]>(receipt.sources, []).length;
+  if (receipt.mode === "not-used")
+    return "No saved memory was added to this message.";
+  if (receipt.mode === "disabled")
+    return "Memory is turned off here, so none was added.";
+  if (!count) return "No saved memory matched this message.";
+  return (
+    `Added ${count} saved source${count === 1 ? "" : "s"}, about ` +
+    `${receipt.tokens.toLocaleString()} token${receipt.tokens === 1 ? "" : "s"} of context.` +
+    (receipt.mode === "lexical-degraded"
+      ? " Matched by keyword only: memory search was unavailable."
+      : "")
+  );
+}
 export function MemoryUsed({ runId }: { runId: string }) {
   const [receipt, setReceipt] = useState<any>(null),
     [opened, setOpened] = useState(false);
@@ -235,9 +255,7 @@ export function MemoryUsed({ runId }: { runId: string }) {
       <summary>Memory used</summary>
       {receipt && (
         <>
-          <p>
-            {receipt.mode} · {receipt.tokens} estimated tokens
-          </p>
+          <p>{memoryReceiptText(receipt)}</p>
           {parse<any[]>(receipt.sources, []).map((s) => (
             <p key={s.id}>
               <a href={s.link}>{s.title}</a> · {s.role} · revision {s.revision}

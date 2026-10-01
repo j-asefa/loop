@@ -22,10 +22,18 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await settled();
   };
   const later = page.getByRole("region", { name: "Later", exact: true });
+  // Confirmations sit over the page for a few seconds, like any snackbar.
+  const dismissToast = async () => {
+    const toast = page.locator(".action-toast");
+    if (await toast.count())
+      await toast.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await expect(toast).toHaveCount(0);
+  };
   const laterTab = (name) =>
     later
       .getByRole("tablist", { name: "Show" })
-      .getByRole("tab", { name, exact: true });
+      // A tab's name can end with its count ("Reminders 1 back now").
+      .getByRole("tab", { name: new RegExp("^" + name) });
   const target = fixture.conversations[1];
   const agent = fixture.db
     .prepare(
@@ -150,9 +158,25 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       .click();
     await expect(dialog()).toHaveAttribute("aria-label", "Message");
     await dialog()
-      .getByRole("menuitem", { name: /^Save(?! as snippet)/ })
+      .getByRole("group", { name: "Main actions" })
+      .getByRole("button", { name: "Save", exact: true })
       .click();
     await expect(answer.locator(".saved-mark")).toBeVisible();
+    // Saving confirms with Undo, which removes exactly that save.
+    const toast = page.locator(".action-toast");
+    await expect(toast).toContainText("Saved.");
+    await toast.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(answer.locator(".saved-mark")).toHaveCount(0);
+    await expect(toast).toContainText("Undone.");
+    await answer
+      .getByRole("button", { name: "Message actions", exact: true })
+      .click();
+    await dialog()
+      .getByRole("group", { name: "Main actions" })
+      .getByRole("button", { name: "Save", exact: true })
+      .click();
+    await expect(answer.locator(".saved-mark")).toBeVisible();
+    await dismissToast();
     await closeThread();
     await nav("Later").click();
     await laterTab("Saved").click();
@@ -185,10 +209,31 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       "Replying to your message",
     );
     await closeThread();
+    // Unsaving waits for its Undo: Undo keeps the card where it was.
     await kept
       .getByRole("button", { name: "Remove from Saved", exact: true })
       .click();
     await expect(kept).toHaveCount(0);
+    await page
+      .locator(".action-toast")
+      .getByRole("button", { name: "Undo", exact: true })
+      .click();
+    await expect(kept).toHaveCount(1);
+    await kept
+      .getByRole("button", { name: "Remove from Saved", exact: true })
+      .click();
+    await expect(kept).toHaveCount(0);
+    await page
+      .locator(".action-toast")
+      .getByRole("button", { name: "Dismiss", exact: true })
+      .click();
+    await expect
+      .poll(async () =>
+        (await fixture.api("/saved")).items.some(
+          (item) => item.key === "m:" + answers[0],
+        ),
+      )
+      .toBe(false);
 
     // A tapped notification hands its link to the open app (via the service
     // worker), which opens the thread at that message in place.
@@ -229,25 +274,27 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       .click();
     await expect(dialog()).toHaveAttribute("aria-label", snoozed.title);
     await dialog()
-      .getByRole("menuitem", { name: "Remind me later", exact: true })
+      .getByRole("menuitem", { name: "Remind me", exact: true })
       .click();
-    await expect(dialog()).toHaveAttribute("aria-label", "Remind me later");
+    await expect(dialog()).toHaveAttribute("aria-label", "Remind me");
+    await expect(dialog()).toContainText("Nothing is sent to an agent.");
     await dialog()
       .getByRole("button", { name: /^Tomorrow morning/ })
       .click();
     await settled();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Snoozed until tomorrow" }),
-    ).toBeVisible();
+    await expect(page.locator(".action-toast")).toContainText(
+      "Reminder set: tomorrow morning.",
+    );
     await expect(row(snoozed.title)).toHaveCount(0);
     await expect(row(target.title)).toHaveCount(1);
     await nav("Later").click();
-    await laterTab("Snoozed").click();
+    await laterTab("Reminders").click();
     const reminder = later
       .locator(".later-card")
       .filter({ hasText: snoozed.title });
     await expect(reminder).toHaveCount(1);
-    await expect(reminder.locator(".eyebrow")).toContainText("Snoozed");
+    await expect(reminder.locator(".eyebrow")).toContainText("Reminder");
+    await expect(reminder.locator(".subline")).toContainText("Tomorrow at");
     await capture("later-snoozed");
     await reminder
       .getByRole("button", {
@@ -266,7 +313,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await row(target.title).waitFor();
     await capture("overflow-inbox-320");
     await nav("Later").click();
-    for (const tab of ["Everything", "Snoozed", "Scheduled", "Saved"]) {
+    for (const tab of ["Saved", "Reminders", "Scheduled", "Everything"]) {
       await laterTab(tab).click();
       await capture(
         `overflow-later-${tab.toLowerCase().replace(" ", "-")}-320`,

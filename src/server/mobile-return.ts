@@ -15,6 +15,24 @@ import { messageReplyContext } from "./message-replies.js";
 import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
 import { connectionSelection } from "./hapi/contracts.js";
 import type { Agent, Message } from "../shared/types.js";
+import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads.js";
+
+/**
+ * Composer descriptors for files attached to a stored message, in order, read
+ * without loading their bytes. Files that no longer exist are left out; the
+ * caller compares counts when a missing file must not go unnoticed.
+ */
+function attachmentDescriptors(owner: string, ids: string[]): UploadedFile[] {
+  if (!ids.length) return [];
+  const rows = db
+    .prepare(
+      `SELECT a.id,o.id objectId,o.name,o.mime,length(o.bytes) size FROM artifacts a
+      JOIN objects o ON o.id=json_extract(a.metadata,'$.objectId') AND o.owner_id=a.owner_id
+      WHERE a.owner_id=? AND json_extract(a.metadata,'$.upload') IS NOT NULL AND a.id IN (SELECT value FROM json_each(?))`,
+    )
+    .all(owner, JSON.stringify(ids)) as UploadedFile[];
+  return ids.flatMap((fileId) => rows.filter((row) => row.id === fileId));
+}
 
 // Every function here takes the owner from authentication. Rows are always
 // selected with that owner, so another owner's ids behave as missing.
@@ -128,6 +146,10 @@ export const INBOX_FILTERS = [
   "working",
   "queued",
   "later",
+  // Project history: threads whose latest run finished, and threads with
+  // work still open (needs you, working or queued).
+  "outcomes",
+  "unfinished",
 ] as const;
 type InboxRow = {
   conversation_id: string;
@@ -179,7 +201,8 @@ inbox AS (
 flagged AS (
   SELECT i.*,
     (i.run_state IN ('awaiting_approval','paused') OR (i.raw_state IN ('failed','interrupted') AND i.attention_dismissed_at IS NULL) OR i.pending_approvals>0) is_needs,
-    (i.run_state IN ('running','pausing','waiting_children')) is_working
+    (i.run_state IN ('running','pausing','waiting_children')) is_working,
+    (i.raw_state='completed') is_done
   FROM inbox i
 )`;
 }
@@ -228,6 +251,8 @@ export function inbox(
     working: "is_working",
     queued: "has_queued",
     later: "snoozed",
+    outcomes: "is_done AND NOT snoozed",
+    unfinished: "(is_needs OR is_working OR has_queued) AND NOT snoozed",
   }[filter];
   const rows = db
     .prepare(
@@ -249,6 +274,12 @@ export function inbox(
       "SELECT count(*) n FROM later_items WHERE owner_id=? AND surfaced_at IS NOT NULL AND done_at IS NULL",
     )
     .get(owner) as { n: number };
+  // Scheduled messages, owner-wide: not sent (needs you) apart from waiting.
+  const scheduled = db
+    .prepare(
+      "SELECT COALESCE(sum(state='failed'),0) failed,COALESCE(sum(state='scheduled'),0) pending FROM scheduled_sends WHERE owner_id=?",
+    )
+    .get(owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
     items: rows.map((row) => inboxItem(owner, row)),
@@ -259,6 +290,8 @@ export function inbox(
       working: summary.working,
       queued: summary.queued,
       later_due: laterDue.n,
+      scheduled_failed: scheduled.failed,
+      scheduled_pending: scheduled.pending,
     },
   };
 }
@@ -434,7 +467,89 @@ function inboxItem(owner: string, row: InboxRow) {
     pending_approvals: row.pending_approvals,
     position_message_id: row.position_message_id,
     later: later || null,
+    next_action: nextAction(owner, row.conversation_id, run),
   };
+}
+
+/**
+ * The one specific thing a thread is waiting for, and the message that holds
+ * it, so the Feed can open exactly there. An approval appears on its run's
+ * last message; a structured question from a native harness is answered at
+ * the end of the thread; a finished run opens at its answer. A local draft
+ * ("Continue draft") is added by the client. null: only Reply applies.
+ */
+export type NextAction = {
+  kind: "approve" | "answer" | "result";
+  message_id: string | null;
+  run_id: string;
+};
+function nextAction(
+  owner: string,
+  conversation: string,
+  run: { id: string; state: string } | undefined,
+): NextAction | null {
+  const approval = db
+    .prepare(
+      `SELECT a.run_id FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+      WHERE a.owner_id=? AND r.conversation_id=? AND a.state='pending' AND a.expires_at>?
+      ORDER BY a.created_at,a.rowid LIMIT 1`,
+    )
+    .get(owner, conversation, now()) as { run_id: string } | undefined;
+  // "final": the run's last answer message, even while it is still empty
+  // (where the thread shows the run's status and approvals); "answer": the
+  // last one with text.
+  const lastMessage = (runId: string, which: "final" | "answer") =>
+    (
+      db
+        .prepare(
+          `SELECT id FROM messages WHERE owner_id=? AND conversation_id=? AND run_id=?
+          AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0
+          ${which === "answer" ? "AND length(trim(content))>0" : ""}
+          ORDER BY created_at DESC,rowid DESC LIMIT 1`,
+        )
+        .get(owner, conversation, runId) as { id: string } | undefined
+    )?.id ?? null;
+  const firstMessage = (runId: string) =>
+    (
+      db
+        .prepare(
+          `SELECT id FROM messages WHERE owner_id=? AND conversation_id=? AND run_id=?
+          AND COALESCE(json_extract(metadata,'$.progress'),0)=0 ORDER BY created_at,rowid LIMIT 1`,
+        )
+        .get(owner, conversation, runId) as { id: string } | undefined
+    )?.id ?? null;
+  // The approval card sits on the run's answer, or on its prompt before
+  // there is an answer (as the thread renders it).
+  if (approval)
+    return {
+      kind: "approve",
+      run_id: approval.run_id,
+      message_id: lastMessage(approval.run_id, "final") ?? firstMessage(approval.run_id),
+    };
+  const decision = db
+    .prepare(
+      `SELECT d.run_id,d.request FROM native_decisions d JOIN runs r ON r.id=d.run_id AND r.owner_id=?
+      WHERE d.conversation_id=? AND d.state='pending' ORDER BY d.created_at LIMIT 1`,
+    )
+    .get(owner, conversation) as { run_id: string; request: string } | undefined;
+  if (decision) {
+    let questions = false;
+    try {
+      const request = JSON.parse(decision.request);
+      questions = Array.isArray(request?.questions) && request.questions.length > 0;
+    } catch {}
+    // Native decisions are answered at the end of the thread.
+    return {
+      kind: questions ? "answer" : "approve",
+      run_id: decision.run_id,
+      message_id: null,
+    };
+  }
+  if (run?.state === "completed") {
+    const answer = lastMessage(run.id, "answer");
+    if (answer) return { kind: "result", run_id: run.id, message_id: answer };
+  }
+  return null;
 }
 
 function livePreview(owner: string, runId: string) {
@@ -514,9 +629,18 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
 }
 
 const savedCursor = z.object({ at: z.number(), key: z.string() });
+// A LIKE pattern that matches the text literally.
+const contains = (text: string) =>
+  "%" + text.replace(/[\\%_]/g, (c) => "\\" + c) + "%";
 export function listSaved(
   owner: string,
-  options: { before?: string; folder?: string; teams?: string[] } = {},
+  options: {
+    before?: string;
+    folder?: string;
+    teams?: string[];
+    /** Text in a saved item, its thread title or its label. */
+    q?: string;
+  } = {},
 ) {
   const cursor = options.before
     ? decode(options.before, savedCursor, "saved")
@@ -533,6 +657,7 @@ export function listSaved(
       ? JSON.stringify(projectFolders(owner, options.folder))
       : null,
     teams: options.teams?.length ? JSON.stringify(options.teams) : null,
+    q: options.q?.trim() ? contains(options.q.trim()) : null,
   };
   const after = (at: string, key: string) =>
     `(@at IS NULL OR ${at}<@at OR (${at}=@at AND ${key}<@key))`;
@@ -541,8 +666,9 @@ export function listSaved(
       `WITH RECURSIVE ${FOLDER_PROJECT}
       SELECT 'm:'||b.message_id key,b.created_at saved_at,b.message_id,m.conversation_id,
         c.title conversation_title,m.role,substr(m.content,1,4000) content,m.created_at,
-        a.id agent_id,a.name agent_name,a.provider,project.name project_name
+        a.id agent_id,a.name agent_name,a.provider,project.name project_name,l.label
       FROM message_bookmarks b
+      LEFT JOIN saved_labels l ON l.owner_id=b.owner_id AND l.item_key='m:'||b.message_id
       JOIN messages m ON m.id=b.message_id AND m.owner_id=b.owner_id
       JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=b.owner_id
       LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=b.owner_id
@@ -552,6 +678,7 @@ export function listSaved(
       WHERE b.owner_id=@owner AND ${after("b.created_at", "'m:'||b.message_id")}
         AND (@folders IS NULL OR COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) IN (SELECT value FROM json_each(@folders)))
         AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
+        AND (@q IS NULL OR m.content LIKE @q ESCAPE '\\' OR c.title LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
       ORDER BY b.created_at DESC,key DESC LIMIT @limit`,
     )
     .all(params) as (Record<string, unknown> & {
@@ -564,8 +691,9 @@ export function listSaved(
     .prepare(
       `SELECT 'a:'||a.id key,COALESCE(p.saved_at,a.updated_at) saved_at,a.*,r.state run_state,r.error run_error,
         json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,
-        (SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id
+        (SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id,l.label saved_label
       FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id
+      LEFT JOIN saved_labels l ON l.owner_id=a.owner_id AND l.item_key='a:'||a.id
       LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
       LEFT JOIN agents g ON g.id=a.agent_id
       WHERE a.owner_id=@owner AND a.archived=0 AND a.pinned=1 AND ${fileArtifactSql}
@@ -573,6 +701,7 @@ export function listSaved(
         AND ${after("COALESCE(p.saved_at,a.updated_at)", "'a:'||a.id")}
         AND (@folders IS NULL OR a.folder_id IN (SELECT value FROM json_each(@folders)))
         AND (@teams IS NULL OR a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=@owner AND team_id IN (SELECT value FROM json_each(@teams))))
+        AND (@q IS NULL OR a.title LIKE @q ESCAPE '\\' OR a.content LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
       ORDER BY COALESCE(p.saved_at,a.updated_at) DESC,key DESC LIMIT @limit`,
     )
     .all(params) as (Record<string, unknown> & {
@@ -580,10 +709,11 @@ export function listSaved(
     saved_at: number;
   })[];
   const merged = [
-    ...messages.map(({ key, saved_at, content, ...row }) => ({
+    ...messages.map(({ key, saved_at, content, label, ...row }) => ({
       kind: "message" as const,
       key,
       saved_at,
+      label: (label as string | null) ?? null,
       message: {
         ...row,
         preview: collapse(content, 280),
@@ -591,10 +721,11 @@ export function listSaved(
         content,
       },
     })),
-    ...results.map(({ key, saved_at, ...row }) => ({
+    ...results.map(({ key, saved_at, saved_label, ...row }) => ({
       kind: "result" as const,
       key,
       saved_at,
+      label: (saved_label as string | null) ?? null,
       result: row,
     })),
   ].sort((a, b) => b.saved_at - a.saved_at || (a.key < b.key ? 1 : -1));
@@ -607,6 +738,46 @@ export function listSaved(
   };
 }
 
+/**
+ * Set or clear the short label of a saved item ("Chosen approach"). Only an
+ * item the owner currently has saved can be labelled.
+ */
+export function setSavedLabel(owner: string, body: unknown) {
+  const d = z
+    .object({
+      key: z.string().regex(/^[ma]:/).min(3).max(160),
+      label: z.string().trim().max(40),
+    })
+    .parse(body);
+  return db
+    .transaction(() => {
+      const target = d.key.slice(2);
+      const saved = d.key.startsWith("m:")
+        ? db
+            .prepare(
+              "SELECT 1 FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+            )
+            .get(owner, target)
+        : db
+            .prepare(
+              "SELECT 1 FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id WHERE a.id=? AND a.owner_id=? AND a.pinned=1 AND a.archived=0",
+            )
+            .get(target, owner);
+      if (!saved) throw new Problem(404, "Saved item not found");
+      if (d.label)
+        db.prepare(
+          `INSERT INTO saved_labels(owner_id,item_key,label,updated_at) VALUES(?,?,?,?)
+          ON CONFLICT(owner_id,item_key) DO UPDATE SET label=excluded.label,updated_at=excluded.updated_at`,
+        ).run(owner, d.key, d.label, now());
+      else
+        db.prepare(
+          "DELETE FROM saved_labels WHERE owner_id=? AND item_key=?",
+        ).run(owner, d.key);
+      return { key: d.key, label: d.label || null };
+    })
+    .immediate();
+}
+
 // ---------------------------------------------------------------------------
 // 4. Outline
 type OutlineItem = {
@@ -616,8 +787,13 @@ type OutlineItem = {
   created_at: number;
   run_id: string | null;
 };
-export function conversationOutline(owner: string, conversation: string) {
+export function conversationOutline(
+  owner: string,
+  conversation: string,
+  q?: string,
+) {
   owned("conversations", conversation, owner);
+  if (q?.trim()) return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
   const messages = db
     .prepare(
       "SELECT id,run_id,role,substr(content,1,1000) content,created_at,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at,rowid",
@@ -690,6 +866,90 @@ export function conversationOutline(owner: string, conversation: string) {
   return { items };
 }
 
+/**
+ * Text search inside one thread, across every kind of message: your prompts,
+ * the agent's answers and progress updates, results, failures and saved
+ * messages. Each match says what it is, so no filter has to be guessed first.
+ * Approval requests are not searched: their arguments stay on the card.
+ */
+type ThreadMatch = {
+  message_id: string;
+  kind: "prompt" | "response" | "update" | "result" | "failure";
+  saved: boolean;
+  preview: string;
+  created_at: number;
+};
+function threadMatches(owner: string, conversation: string, q: string) {
+  const pattern = contains(q);
+  const rows = db
+    .prepare(
+      `SELECT m.id,m.role,m.run_id,m.content,m.created_at,
+        COALESCE(json_extract(m.metadata,'$.progress'),0) progress,r.state run_state,r.error run_error,
+        m.id=(SELECT f.id FROM messages f WHERE f.owner_id=m.owner_id AND f.conversation_id=m.conversation_id AND f.run_id=m.run_id
+          AND f.role='assistant' AND COALESCE(json_extract(f.metadata,'$.progress'),0)=0 AND length(trim(f.content))>0
+          ORDER BY f.created_at DESC,f.rowid DESC LIMIT 1) final,
+        m.id=(SELECT l.id FROM messages l WHERE l.owner_id=m.owner_id AND l.conversation_id=m.conversation_id AND l.run_id=m.run_id
+          ORDER BY l.created_at DESC,l.rowid DESC LIMIT 1) last
+      FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
+      WHERE m.owner_id=@owner AND m.conversation_id=@conversation
+        AND (m.content LIKE @q ESCAPE '\\' OR (r.state IN ('failed','interrupted') AND r.error LIKE @q ESCAPE '\\'))
+      ORDER BY m.created_at DESC,m.rowid DESC LIMIT 100`,
+    )
+    .all({ owner, conversation, q: pattern }) as {
+    id: string;
+    role: string;
+    run_id: string | null;
+    content: string;
+    created_at: number;
+    progress: number;
+    run_state: string | null;
+    run_error: string | null;
+    final: number;
+    last: number;
+  }[];
+  const saved = new Set(conversationReturnState(owner, conversation).saved);
+  const needle = q.toLowerCase();
+  const matches: ThreadMatch[] = [];
+  for (const row of rows) {
+    const failed =
+      ["failed", "interrupted"].includes(row.run_state || "") && row.last;
+    const inError = failed && (row.run_error || "").toLowerCase().includes(needle);
+    const inText = row.content.toLowerCase().includes(needle);
+    if (inText)
+      matches.push({
+        message_id: row.id,
+        kind:
+          row.role === "user"
+            ? "prompt"
+            : row.progress
+              ? "update"
+              : row.final && row.run_state === "completed"
+                ? "result"
+                : "response",
+        saved: saved.has(row.id),
+        preview: excerpt(row.content, needle),
+        created_at: row.created_at,
+      });
+    if (inError)
+      matches.push({
+        message_id: row.id,
+        kind: "failure",
+        saved: saved.has(row.id),
+        preview: excerpt(row.run_error!, needle),
+        created_at: row.created_at,
+      });
+  }
+  return matches;
+}
+/** About 160 characters around the first match, on one line. */
+function excerpt(text: string, needle: string) {
+  const flat = collapse(text, 30000);
+  const at = flat.toLowerCase().indexOf(needle);
+  if (at < 0) return flat.slice(0, 160);
+  const start = Math.max(0, at - 60);
+  return (start ? "…" : "") + flat.slice(start, start + 160) + (start + 160 < flat.length ? "…" : "");
+}
+
 // ---------------------------------------------------------------------------
 // 5. Later
 type LaterItem = {
@@ -703,6 +963,7 @@ type LaterItem = {
   created_at: number;
   surfaced_at: number | null;
   done_at: number | null;
+  snoozes: number;
 };
 const laterInput = z.object({
   kind: z.enum(["conversation", "artifact", "message"]),
@@ -783,9 +1044,10 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
   };
 }
 
-export function createLater(owner: string, body: unknown) {
-  const d = laterInput.parse(body);
-  const time = now();
+function validTrigger(
+  d: { condition: LaterItem["condition"]; dueAt?: number; projectId?: string },
+  time: number,
+) {
   if (d.condition === "time") {
     if (d.dueAt === undefined)
       throw new Problem(400, "Choose when to bring this back");
@@ -794,6 +1056,16 @@ export function createLater(owner: string, body: unknown) {
   }
   if (d.condition === "project_open" && !d.projectId)
     throw new Problem(400, "Choose a project");
+}
+
+/**
+ * Remind me about a thread, result or message. An open reminder for the same
+ * item is replaced; its id is returned as `replaced` so Undo can reopen it.
+ */
+export function createLater(owner: string, body: unknown) {
+  const d = laterInput.parse(body);
+  const time = now();
+  validTrigger(d, time);
   return db
     .transaction(() => {
       const table = {
@@ -803,6 +1075,11 @@ export function createLater(owner: string, body: unknown) {
       }[d.kind];
       owned(table, d.targetId, owner);
       if (d.projectId) owned("folders", d.projectId, owner);
+      const replaced = db
+        .prepare(
+          "SELECT id FROM later_items WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
+        )
+        .get(owner, d.kind, d.targetId) as { id: string } | undefined;
       db.prepare(
         "UPDATE later_items SET done_at=? WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
       ).run(time, owner, d.kind, d.targetId);
@@ -819,6 +1096,62 @@ export function createLater(owner: string, body: unknown) {
         d.condition === "project_open" ? d.projectId : null,
         time,
       );
+      return { ...laterRow(owner, itemId)!, replaced: replaced?.id ?? null };
+    })
+    .immediate();
+}
+
+/**
+ * Snooze a reminder again: the same item gets a new trigger in place, so its
+ * target and history stay, and it leaves "Back now" until the new trigger.
+ */
+export function snoozeLater(owner: string, itemId: string, body: unknown) {
+  const d = laterInput
+    .pick({ condition: true, dueAt: true, projectId: true })
+    .parse(body);
+  const time = now();
+  validTrigger(d, time);
+  return db
+    .transaction(() => {
+      const item = laterRow(owner, itemId);
+      if (!item) throw new Problem(404, "Item not found");
+      if (item.done_at !== null)
+        throw new Problem(409, "This reminder is already done");
+      if (d.projectId) owned("folders", d.projectId, owner);
+      db.prepare(
+        "UPDATE later_items SET condition=?,due_at=?,project_id=?,surfaced_at=NULL,snoozes=snoozes+1 WHERE id=? AND owner_id=? AND done_at IS NULL",
+      ).run(
+        d.condition,
+        d.condition === "time" ? d.dueAt : null,
+        d.condition === "project_open" ? d.projectId : null,
+        itemId,
+        owner,
+      );
+      return laterRow(owner, itemId)!;
+    })
+    .immediate();
+}
+
+/**
+ * Undo "Done" or a replacement: reopen a reminder, unless the item already
+ * has another open reminder (that newer one wins).
+ */
+export function reopenLater(owner: string, itemId: string) {
+  return db
+    .transaction(() => {
+      const item = laterRow(owner, itemId);
+      if (!item) throw new Problem(404, "Item not found");
+      if (item.done_at === null) return item;
+      const open = db
+        .prepare(
+          "SELECT 1 FROM later_items WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
+        )
+        .get(owner, item.kind, item.target_id);
+      if (open)
+        throw new Problem(409, "This item already has another reminder");
+      db.prepare(
+        "UPDATE later_items SET done_at=NULL WHERE id=? AND owner_id=?",
+      ).run(itemId, owner);
       return laterRow(owner, itemId)!;
     })
     .immediate();
@@ -1115,8 +1448,13 @@ export function listScheduledSends(
     : db
         .prepare(`${select} AND s.state='scheduled' ORDER BY s.send_at,s.created_at`)
         .all({ owner, conversation: conversation ?? null });
+  // Descriptors let "Copy to a draft" bring the files back with the text.
+  const withFiles = (row: ScheduledSend) => ({
+    ...row,
+    attachments: attachmentDescriptors(owner, JSON.parse(row.attachment_ids)),
+  });
   return {
-    items: [...failed, ...pending],
+    items: [...failed, ...(pending as ScheduledSend[])].map(withFiles),
     failed_next:
       more && last
         ? encode({ at: last.send_at, created: last.created_at, id: last.id })
@@ -1140,7 +1478,12 @@ export function cancelScheduledSend(owner: string, sendId: string) {
     .immediate();
 }
 
-/** Change the text or time of a message that is still waiting to send. */
+/**
+ * Change the text or time of a message that is still waiting to send. A
+ * message that could not be sent can also be edited; that schedules it again
+ * at the chosen time. It was refused, never accepted, so its stored key has
+ * no run and cannot duplicate work.
+ */
 export function editScheduledSend(owner: string, sendId: string, body: unknown) {
   const d = z
     .object({
@@ -1152,11 +1495,24 @@ export function editScheduledSend(owner: string, sendId: string, body: unknown) 
     .transaction(() => {
       const row = scheduledSend(owner, sendId);
       if (!row) throw new Problem(404, "Item not found");
-      if (row.state !== "scheduled")
+      if (!["scheduled", "failed"].includes(row.state))
         throw new Problem(409, "This message was already sent or cancelled");
+      if (row.state === "failed") {
+        if (d.sendAt === undefined)
+          throw new Problem(400, "Choose a new time to send it");
+        if (row.run_id)
+          throw new Problem(409, "This message was already sent");
+        const pending = db
+          .prepare(
+            "SELECT count(*) n FROM scheduled_sends WHERE owner_id=? AND state='scheduled'",
+          )
+          .get(owner) as { n: number };
+        if (pending.n >= 100)
+          throw new Problem(429, "You have 100 scheduled messages. Cancel some first.");
+      }
       if (d.sendAt !== undefined) validSendAt(d.sendAt);
       db.prepare(
-        "UPDATE scheduled_sends SET input=?,send_at=? WHERE id=? AND owner_id=? AND state='scheduled'",
+        "UPDATE scheduled_sends SET input=?,send_at=?,state='scheduled',error=NULL WHERE id=? AND owner_id=? AND state IN ('scheduled','failed')",
       ).run(d.input ?? row.input, d.sendAt ?? row.send_at, sendId, owner);
       return scheduledSend(owner, sendId)!;
     })
@@ -1335,6 +1691,69 @@ export function editQueuedRun(owner: string, runId: string, body: unknown) {
       ).run(input, run.id, owner);
       emit(owner, run.id, "queue.edited", {});
       return { ok: true };
+    })
+    .immediate();
+}
+
+/**
+ * Take a queued message back into a draft: cancels it only if it has never
+ * started, and returns its text so nothing is lost. A message the agent has
+ * already started is never cancelled from here.
+ */
+export function withdrawQueuedRun(
+  owner: string,
+  runId: string,
+  body: unknown = {},
+) {
+  // The files already in the draft it goes back to: the run is only
+  // cancelled if its own files fit beside them.
+  const { draftAttachmentIds } = z
+    .object({
+      draftAttachmentIds: z
+        .array(z.string().min(1).max(150))
+        .max(MAX_MESSAGE_FILES)
+        .default([]),
+    })
+    .parse(body ?? {});
+  return db
+    .transaction(() => {
+      const run = owned<QueuedRun>("runs", runId, owner);
+      if (
+        run.kind !== "agent" ||
+        !editable(run) ||
+        db
+          .prepare(
+            "SELECT 1 FROM delegations WHERE child_run_id=? UNION ALL SELECT 1 FROM workflow_steps WHERE child_run_id=?",
+          )
+          .get(run.id, run.id)
+      )
+        throw new Problem(
+          409,
+          "This message has already started, so it can no longer be moved back to a draft.",
+        );
+      // The draft gets the message's files back too; if one is gone, the
+      // message stays queued rather than come back without it.
+      const ids = (JSON.parse(run.payload).attachmentIds || []) as string[];
+      const attachments = attachmentDescriptors(owner, ids);
+      if (attachments.length !== ids.length)
+        throw new Problem(
+          409,
+          "A file attached to this message is no longer available, so it was left queued.",
+        );
+      if (new Set([...draftAttachmentIds, ...ids]).size > MAX_MESSAGE_FILES)
+        throw new Problem(
+          409,
+          `Your draft's files and this message's would be more than ${MAX_MESSAGE_FILES}, so it was left queued. Send or remove some files from the draft first.`,
+        );
+      if (!transition(run, "cancelled", { reason: "Moved back to a draft" }))
+        throw new Problem(409, "This message has already started");
+      return {
+        input: run.input,
+        agent_id: run.agent_id,
+        conversation_id: run.conversation_id,
+        attachment_ids: ids,
+        attachments,
+      };
     })
     .immediate();
 }

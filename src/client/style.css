@@ -2092,10 +2092,6 @@ pre {
 .composer[hidden] {
   display: none;
 }
-.composer-launch > span {
-  flex: 1;
-  text-align: left;
-}
 .composer-collapse {
   margin-left: auto;
 }
@@ -2248,24 +2244,43 @@ pre {
   scroll-margin: 80px;
 }
 
+/* Minimized, the composer is a round plus button in the corner. */
+.composer-dock.collapsed {
+  background: none;
+}
 .composer-launch {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 48px;
-  padding: 12px 18px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--surface);
-  color: inherit;
-  box-shadow: 0 4px 20px #0000000a;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--brass);
+  color: #1a1a1c;
+  box-shadow: 0 4px 16px #0003;
   pointer-events: auto;
-  max-width: 800px;
-  margin: auto;
+}
+.composer-launch:focus-visible {
+  outline: 2px solid var(--brass-text);
+  outline-offset: 3px;
+}
+/* An unsent draft is waiting. */
+.composer-launch.has-draft::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--orange);
 }
 .app-shell:has(.composer-dock.collapsed) .workspace-content {
-  padding-bottom: calc(165px + env(safe-area-inset-bottom) * 2);
+  padding-bottom: calc(96px + env(safe-area-inset-bottom) * 2);
 }
 
 /* Tool catalog: touch-friendly filters and cards that fit a phone-sized sheet. */
@@ -4663,9 +4678,6 @@ h1 {
     font-size: 12px;
     padding: 8px;
   }
-  .composer-launch span {
-    font-size: 15px;
-  }
 }
 .tools-views button[aria-pressed="true"] {
   background: var(--secondary);
@@ -5038,10 +5050,6 @@ select {
   margin: 0;
   max-width: none;
 }
-.conversation-composer .composer-launch {
-  width: 100%;
-  margin: 0;
-}
 
 .personal-history {
   overflow-wrap: anywhere;
@@ -5093,6 +5101,10 @@ select {
 @media (min-width: 651px) {
   .app-shell > .main-column > .composer-dock {
     padding-right: 150px;
+  }
+  /* The minimized composer sits in the corner. */
+  .app-shell > .main-column > .composer-dock.collapsed {
+    padding-right: 32px;
   }
   nav .personal-nav {
     position: fixed;
@@ -5850,13 +5862,6 @@ details > summary {
   color: var(--muted);
 }
 /* Composer: compact in threads, avatar pill elsewhere */
-.composer-launch .avatar {
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  font-size: 12px;
-}
 .composer-dock.thread-mode .composer {
   padding: 8px 10px 6px;
   gap: 4px;
@@ -6245,14 +6250,6 @@ details > summary {
   font-weight: 650;
   color: var(--orange);
 }
-.composer-launch > span {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .composer-reply-chip {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -6341,4 +6338,323 @@ details > summary {
 }
 .scheduled-message.not-sent {
   border-color: color-mix(in srgb, var(--red, #c0392b) 45%, var(--line));
+}
+
+/* Continuity: resuming, deferring and finding work again ------------------ */
+
+/* Message menu: the three main actions in a row, the rest under More. */
+.action-primary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.action-primary button {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-height: 72px;
+  padding: 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+.action-primary button > svg {
+  color: var(--brass-text);
+}
+.action-primary button:hover,
+.action-primary button:focus-visible {
+  background: var(--secondary);
+}
+.action-more-toggle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+.action-more-toggle > svg:first-child {
+  color: var(--muted);
+}
+.action-more-toggle span {
+  flex: 1;
+  text-align: left;
+}
+.action-more-toggle[aria-expanded="true"] .toggle-caret {
+  transform: rotate(180deg);
+}
+
+/* Reminder sheet */
+.later-target {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+.later-target small,
+.section-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+.section-hint {
+  margin: -6px 0 12px;
+}
+.section-subtitle {
+  font-size: 14px;
+  margin: 14px 0 8px;
+}
+
+/* Toasts with a link and Undo, above the composer and tab bar. */
+.action-toast {
+  bottom: calc(150px + env(safe-area-inset-bottom));
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+  gap: 4px 10px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 14px;
+  background: var(--text);
+  color: var(--bg);
+  flex-wrap: wrap;
+}
+.action-toast .toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Link, Undo and Dismiss stay together, at the end of the line. */
+.action-toast .toast-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.action-toast button {
+  min-height: 40px;
+  padding: 0 8px;
+  color: inherit;
+  font-weight: 650;
+}
+.action-toast .icon-button {
+  text-decoration: none;
+}
+
+/* Jump to: search and what is shown. */
+.outline-search {
+  margin-bottom: 12px;
+}
+.outline-status {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Thread position: back to where I was, resumed, latest. */
+.thread-return {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px #0002;
+  font-size: 13px;
+}
+.thread-return .text-button {
+  min-height: 40px;
+  padding: 6px 10px;
+  gap: 6px;
+  white-space: nowrap;
+}
+.thread-return .conversation-latest {
+  position: static;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  min-height: 40px;
+}
+.thread-return-note {
+  padding: 0 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.queued-controls {
+  flex-wrap: wrap;
+}
+.queued-hint {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+}
+
+/* Feed: the one specific next action. */
+.card-actions .next-action {
+  padding: 0 14px;
+  border: 1px solid var(--brass);
+  border-radius: 999px;
+  color: var(--text);
+  font-weight: 650;
+}
+.card-actions .next-action > svg {
+  color: var(--brass-text);
+}
+.scheduled-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--brass);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+/* Later and Saved */
+.later-card.focused,
+.scheduled-message.anchored {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+.saved-search {
+  margin-bottom: 14px;
+}
+.saved-item {
+  display: grid;
+  gap: 6px;
+}
+.saved-label-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.saved-label-row .text-button {
+  min-height: 36px;
+  font-size: 13px;
+}
+.saved-label {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--text);
+  font-weight: 650;
+}
+.saved-when {
+  margin-left: auto;
+}
+
+/* Composer: who and where a message goes. */
+.composer-destination,
+.send-destination {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.composer-destination strong,
+.send-destination strong {
+  color: var(--text);
+}
+.composer-intent {
+  margin: 6px 0 0;
+}
+.send-summary,
+.changes-context {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.send-summary dt,
+.changes-context dt {
+  color: var(--muted);
+}
+.send-summary dd,
+.changes-context dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.send-summary-text {
+  color: var(--muted);
+}
+
+/* Change review */
+.changes-commands {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.changes-group h3 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+}
+.changes-group[data-state="failed"] h3 {
+  color: var(--orange);
+}
+
+/* Fork confirmation */
+.fork-source {
+  margin: 0 0 12px;
+}
+.fork-source figcaption {
+  font-size: 13px;
+  color: var(--muted);
+}
+.fork-source blockquote {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--brass);
+  border-radius: 8px;
+  background: var(--secondary);
+}
+.fork-project {
+  margin: 8px 0;
+}
+.fork-notes {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+/* Project history */
+.project-search {
+  margin: 12px 0 8px;
+}
+.project-history {
+  margin-bottom: 12px;
+}
+.project-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 12px 0;
+}
+.project-history-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-more-toggle .toggle-caret {
+    transition: none;
+  }
 }

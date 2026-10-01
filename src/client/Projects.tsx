@@ -2,7 +2,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
+  Bookmark,
+  CircleDashed,
+  FileText,
   Folder,
+  Search,
   MessageSquarePlus,
   Plus,
   UserPlus,
@@ -11,11 +15,21 @@ import {
   Workflow,
 } from "lucide-react";
 import { api } from "./api";
+import { SearchExcerpt } from "./SearchExcerpt";
+import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Chip } from "./ThreadTools";
 import { relativeTime } from "./threadView";
 import { Avatar, Badge, Empty, Sheet } from "./components";
 import { belongsToProject } from "../shared/projects";
 import type { Agent, Folder as Project } from "../shared/types";
+
+/** Ways into a project's history, alongside its Threads. */
+export type ProjectHistory = "search" | "outcomes" | "saved" | "unfinished";
+const historyRoutes: [Exclude<ProjectHistory, "search">, string, ReactNode][] = [
+  ["outcomes", "Recent outcomes", <FileText size={16} key="o" />],
+  ["saved", "Saved decisions", <Bookmark size={16} key="s" />],
+  ["unfinished", "Unfinished work", <CircleDashed size={16} key="u" />],
+];
 
 type Summary = {
   id: string;
@@ -39,6 +53,7 @@ export function Projects({
   renderFiles,
   renderActivity,
   renderThreads,
+  renderHistory,
   onEdit,
   onNewTask,
   onWorkflows,
@@ -56,6 +71,7 @@ export function Projects({
   renderFiles: (id: string) => ReactNode;
   renderActivity: (id: string) => ReactNode;
   renderThreads: (id: string) => ReactNode;
+  renderHistory: (id: string, view: ProjectHistory, query: string) => ReactNode;
   onEdit: () => void;
   onNewTask: (id: string) => void;
   onWorkflows: () => void;
@@ -70,6 +86,30 @@ export function Projects({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const current = folders.find((f) => f.id === selected);
+  // A history view replaces the tab content until you go back to Threads.
+  // It is kept per project, so returning from a thread keeps it.
+  const historyKey = "project-history:" + selected;
+  const [history, setHistoryState] = useState<ProjectHistory | null>(
+    () => cachedView<ProjectHistory>(historyKey) || null,
+  );
+  const [query, setQueryState] = useState(
+    () => cachedView<string>(historyKey + ":q") || "",
+  );
+  const [submitted, setSubmitted] = useState(query);
+  useEffect(() => {
+    setHistoryState(cachedView<ProjectHistory>(historyKey) || null);
+    const q = cachedView<string>(historyKey + ":q") || "";
+    setQueryState(q);
+    setSubmitted(q);
+  }, [selected]);
+  const setHistory = (value: ProjectHistory | null) => {
+    setHistoryState(value);
+    cacheView(historyKey, value, viewOwner());
+  };
+  const setQuery = (value: string) => {
+    setQueryState(value);
+    cacheView(historyKey + ":q", value, viewOwner());
+  };
   const members = (id: string) =>
     agents.filter(
       (a) => !a.retired_at && belongsToProject(a.folder_id, id, folders),
@@ -147,13 +187,53 @@ export function Projects({
               <Plus size={18} /> New agent
             </button>
           </div>
+          <form
+            className="search-box project-search"
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              (document.activeElement as HTMLElement | null)?.blur();
+              if (!query.trim()) return;
+              setSubmitted(query.trim());
+              setHistory("search");
+            }}
+          >
+            <Search size={18} aria-hidden="true" />
+            <input
+              type="search"
+              enterKeyHint="search"
+              aria-label={`Search ${current.name}`}
+              placeholder={`Search ${current.name}`}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (!e.target.value.trim() && history === "search")
+                  setHistory(null);
+              }}
+            />
+          </form>
+          <div className="chip-row project-history" aria-label="Project history">
+            {historyRoutes.map(([value, label, icon]) => (
+              <button
+                key={value}
+                type="button"
+                className="chip"
+                aria-pressed={history === value}
+                onClick={() => setHistory(history === value ? null : value)}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="segmented project-tabs" aria-label="Project view">
             {["threads", "agents", "activity", "files"].map((value) => (
               <button
                 key={value}
-                className={page === value ? "selected" : ""}
-                aria-pressed={page === value}
+                className={!history && page === value ? "selected" : ""}
+                aria-pressed={!history && page === value}
                 onClick={() => {
+                  setHistory(null);
                   setPage(value);
                   sessionStorage.setItem("loop-project-tab", value);
                 }}
@@ -162,10 +242,27 @@ export function Projects({
               </button>
             ))}
           </div>
-          {page === "threads" && renderThreads(current.id)}
-          {page === "activity" && renderActivity(current.id)}
-          {page === "files" && renderFiles(current.id)}
-          {page === "agents" && (
+          {history && (
+            <div className="project-history-head">
+              <h3>
+                {history === "search"
+                  ? `Results for “${submitted}” in ${current.name}`
+                  : `${historyRoutes.find(([value]) => value === history)?.[1]} in ${current.name}`}
+              </h3>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setHistory(null)}
+              >
+                <ArrowLeft size={16} /> Back to {page[0].toUpperCase() + page.slice(1)}
+              </button>
+            </div>
+          )}
+          {history && renderHistory(current.id, history, submitted)}
+          {!history && page === "threads" && renderThreads(current.id)}
+          {!history && page === "activity" && renderActivity(current.id)}
+          {!history && page === "files" && renderFiles(current.id)}
+          {!history && page === "agents" && (
             <>
               {projectAgents.length ? (
                 <div className="project-agents">
@@ -331,5 +428,85 @@ export function Projects({
         </Sheet>
       )}
     </section>
+  );
+}
+
+/** Search results inside one project, one card per thread. */
+export function ProjectSearchResults({
+  project,
+  query,
+  onConversation,
+  onArtifact,
+}: {
+  project: string;
+  query: string;
+  onConversation: (conversation: string, message?: string) => void;
+  onArtifact: (id: string) => void;
+}) {
+  const [result, setResult] = useState<{ items: any[] } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!query.trim()) return;
+    let active = true;
+    setResult(null);
+    setError("");
+    api<{ items: any[] }>(
+      "/search?" + new URLSearchParams({ q: query, scope: "all", project }),
+    )
+      .then((r) => active && setResult(r))
+      .catch((e) => active && setError((e as Error).message));
+    return () => {
+      active = false;
+    };
+  }, [project, query]);
+  const groups: { key: string; items: any[] }[] = [];
+  for (const item of result?.items || []) {
+    const key = item.conversation_id || item.id;
+    const group = groups.find((g) => g.key === key);
+    if (group) group.items.push(item);
+    else groups.push({ key, items: [item] });
+  }
+  const open = (r: any) =>
+    r.id.startsWith("message:")
+      ? onConversation(r.conversation_id, r.id.slice(8))
+      : onArtifact(r.id.slice(9));
+  if (error)
+    return (
+      <p className="error" role="alert">
+        {error}
+      </p>
+    );
+  if (!result) return <p role="status">Searching…</p>;
+  if (!groups.length)
+    return <Empty title="Nothing found in this project.">Try a shorter phrase.</Empty>;
+  return (
+    <div className="project-search-results">
+      {groups.map(({ key, items }) => (
+        <article className="search-result" key={key}>
+          <div className="subline">
+            <strong>@{items[0].name || "workspace"}</strong>
+            <span>{relativeTime(items[0].created_at)}</span>
+          </div>
+          <h3>
+            <button type="button" onClick={() => open(items[0])}>
+              {items[0].title}
+            </button>
+          </h3>
+          {items.slice(0, 3).map((r) => (
+            <button
+              type="button"
+              key={r.id}
+              className="search-hit"
+              onClick={() => open(r)}
+            >
+              <small>{r.kind === "message" ? "Message" : "Result"}</small>
+              <span className="search-snippet">
+                <SearchExcerpt text={r.snippet} query={query} />
+              </span>
+            </button>
+          ))}
+        </article>
+      ))}
+    </div>
   );
 }

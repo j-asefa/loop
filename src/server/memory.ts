@@ -472,7 +472,9 @@ memoryRoutes.get("/runs/:id/memory", (req, res) => {
   res.json(
     db
       .prepare("SELECT * FROM memory_receipts WHERE run_id=?")
-      .get(req.params.id) || { mode: "none", sources: "[]", tokens: 0 },
+      // Only runtimes that recall memory record a receipt; no receipt means
+      // nothing was looked up or added, not an empty search.
+      .get(req.params.id) || { mode: "not-used", sources: "[]", tokens: 0 },
   );
 });
 
