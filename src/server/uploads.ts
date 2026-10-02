@@ -172,12 +172,13 @@ export function localAttachmentPrompt(
     writeFileSync(path, object.bytes, { mode: 0o600 });
     return { name: object.name, path };
   });
-  return (
-    attachmentPrompt(content, files) +
-    "\nThese uploaded files are also available on this machine at the following paths. Use native file tools to inspect them:\n" +
-    JSON.stringify(local)
-  );
+  return attachmentPrompt(content, files) + localPathsPrompt(local);
 }
+export const localPathsPrompt = (local: { name: string; path: string }[]) =>
+  local.length
+    ? "\nThese uploaded files are also available on this machine at the following paths. Use native file tools to inspect them:\n" +
+      JSON.stringify(local)
+    : "";
 export function readRunFile(
   run: { id: string; owner_id: string; conversation_id: string | null },
   fileId: string,

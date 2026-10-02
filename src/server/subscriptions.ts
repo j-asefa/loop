@@ -6,10 +6,15 @@ import {
 } from "../../runtime/diagnostics.mjs";
 import { IDLE_TIMEOUT_MESSAGE } from "../../runtime/idle-deadline.mjs";
 import { isNativeConnection } from "./native-connections.js";
-import { inlineAttachments } from "./uploads.js";
+import {
+  inlineAttachments,
+  localPathsPrompt,
+  uploadedFile,
+} from "./uploads.js";
+import { UPLOAD_CHUNK_BYTES, safeUploadName } from "../../runtime/uploads.mjs";
 import { nativeSessions } from "./native-sessions.js";
 import { companionMode } from "./profile.js";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { HarnessError } from "../../runtime/harness.mjs";
 import { Router } from "express";
 import { z } from "zod";
@@ -118,6 +123,122 @@ export async function runtimeAction(
     );
   }
 }
+// Workspace copies already made by this process. Uploads are immutable, but
+// a runtime restart or recreated workspace can remove the copy, so each use
+// confirms it is still there before reusing it.
+type StagedUpload = {
+  name: string;
+  path: string;
+  file: string;
+  size: number;
+  sha256: string;
+};
+const stagedUploads = new Map<string, StagedUpload>();
+async function stageUpload(
+  c: Connection,
+  input: ChatInput,
+  fileId: string,
+): Promise<{ name: string; path: string }> {
+  // Check the cache before loading the file's bytes from the database.
+  const cacheKey = [runtimeKey(c), input.workspaceKey ?? "", fileId].join(":");
+  const cached = stagedUploads.get(cacheKey);
+  if (cached) {
+    owned("artifacts", fileId, c.owner_id);
+    const present = await runtimeAction(
+      c,
+      "write-upload",
+      {
+        workspaceKey: input.workspaceKey,
+        fileId,
+        transferId: randomBytes(16).toString("hex"),
+        name: cached.file,
+        size: cached.size,
+        sha256: cached.sha256,
+        check: true,
+      },
+      AbortSignal.any([input.signal, AbortSignal.timeout(60000)]),
+    ).catch(() => null);
+    if (present?.complete === true && present.path === cached.path)
+      return { name: cached.name, path: cached.path };
+    stagedUploads.delete(cacheKey);
+  }
+  const { object } = uploadedFile(c.owner_id, fileId);
+  const name = safeUploadName(object.name);
+  const sha256 = createHash("sha256").update(object.bytes).digest("hex");
+  const transferId = randomBytes(16).toString("hex");
+  let offset = 0;
+  for (;;) {
+    const data = object.bytes
+      .subarray(offset, offset + UPLOAD_CHUNK_BYTES)
+      .toString("base64");
+    const result = await runtimeAction(
+      c,
+      "write-upload",
+      {
+        workspaceKey: input.workspaceKey,
+        fileId,
+        transferId,
+        name,
+        size: object.bytes.length,
+        sha256,
+        offset,
+        data,
+      },
+      AbortSignal.any([input.signal, AbortSignal.timeout(60000)]),
+    );
+    if (typeof result?.path !== "string" || result.size !== object.bytes.length)
+      throw new Error("Runtime did not confirm the upload");
+    if (result.complete === true) {
+      if (stagedUploads.size >= 1000)
+        stagedUploads.delete(stagedUploads.keys().next().value!);
+      stagedUploads.set(cacheKey, {
+        name: object.name,
+        path: result.path,
+        file: name,
+        size: object.bytes.length,
+        sha256,
+      });
+      return { name: object.name, path: result.path };
+    }
+    if (!Number.isSafeInteger(result.nextOffset) || result.nextOffset <= offset)
+      throw new Error("Runtime did not confirm the upload");
+    offset = result.nextOffset;
+  }
+}
+// Copy the current turn's uploads into the runtime's file system so native
+// tools (including image and PDF viewers) open them directly, as companion
+// sessions do. Earlier turns keep their file references.
+async function stageAttachments(
+  c: Connection,
+  input: ChatInput,
+): Promise<ChatInput> {
+  const current = input.messages.findLastIndex((m) => m.role === "user");
+  const files = input.messages[current]?.attachments ?? [];
+  if (!files.length) return input;
+  const local: { name: string; path: string }[] = [];
+  const failed: string[] = [];
+  for (const file of files) {
+    try {
+      local.push(await stageUpload(c, input, file.id));
+    } catch (error) {
+      if (input.signal.aborted) throw error;
+      failed.push(file.id);
+    }
+  }
+  const messages = [...input.messages];
+  messages[current] = {
+    ...messages[current],
+    content:
+      messages[current].content +
+      localPathsPrompt(local) +
+      (failed.length
+        ? "\nThese files could not be copied to this machine: " +
+          JSON.stringify(failed) +
+          ". Use loop_read_file to retrieve their original contents."
+        : ""),
+  };
+  return { ...input, messages };
+}
 export async function* subscriptionStream(
   c: Connection,
   input: ChatInput,
@@ -137,6 +258,7 @@ export async function* subscriptionStream(
     endpoint.kind === "broker"
       ? runtimeGithubCredential(c.owner_id)
       : undefined;
+  input = await stageAttachments(c, input);
   const controlId = id();
   const r = await request(
     c,

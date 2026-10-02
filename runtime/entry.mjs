@@ -12,7 +12,9 @@ import { ClaudeSteering } from "./claude-steering.mjs";
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { homedir } from "node:os";
 import { readPublishedChunk } from "./published-files.mjs";
+import { writeUploadChunk } from "./uploads.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import {
   cleanupWorkspaces,
@@ -393,7 +395,11 @@ try {
   const request = JSON.parse(first.value);
   if (request.action !== "turn") timeout = setTimeout(stop, 30 * 60 * 1000);
   if (!hostMode) {
-    if (["turn", "capabilities", "read-file"].includes(request.action))
+    if (
+      ["turn", "capabilities", "read-file", "write-upload"].includes(
+        request.action,
+      )
+    )
       workdir = managedWorkspace(
         env.HOME,
         request.input?.workspaceKey ?? request.workspaceKey,
@@ -439,6 +445,15 @@ try {
         request.path,
         request.offset,
         request.version,
+      ),
+    });
+  } else if (request.action === "write-upload") {
+    // Managed uploads stay with the agent's workspace. A native host keeps
+    // them out of the user's project directory.
+    emit({
+      result: writeUploadChunk(
+        join(hostMode ? homedir() : workdir, ".loop", "uploads"),
+        request,
       ),
     });
   } else if (

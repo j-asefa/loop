@@ -45,6 +45,8 @@ Workspace MCP connections belong to the owner and are shared by that owner's age
 
 Search supports keyword and optional semantic indexing. Managed native recall uses [memory.ts](../src/server/memory.ts) and the optional MemSearch service; laptop startup can run without it. Scope, inclusion, revision and tombstone checks apply again before returning indexed candidates. Recall is untrusted historical evidence, never current authorization. Versioned notes and an outbox preserve update ordering.
 
+Message attachments reach the model as file references read through `loop_read_file`. API-key connections also receive the current turn's images and PDFs inline. Before a broker turn, the current turn's uploads are copied into the runtime in checksummed chunks: under `.loop/uploads/` in the agent workspace on managed containers, or under the host user's `~/.loop/uploads/` on a native host. The prompt then lists their paths so native tools open them directly. If a copy fails, the turn continues with `loop_read_file` only. Codex app-server hosts do not receive copies yet.
+
 File publication validates the selected file/path, size and digest, then stores private content under the workspace data directory. Downloads require owner access. A worker path alone is not a published file. Credentials remain in encrypted server storage or their native provider homes; neither belongs in public projections.
 
 ## Dependencies and boundaries

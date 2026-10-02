@@ -595,6 +595,30 @@ const server = createServer(async (req, res) => {
       json(res, result);
       return;
     }
+    if (action === "write-upload") {
+      const result = await serial(key, () =>
+        execute(
+          key,
+          {
+            // Like reads, upload copies are provider-independent one-shots.
+            provider: "file",
+            action,
+            workspaceKey: data.workspaceKey,
+            fileId: data.fileId,
+            transferId: data.transferId,
+            name: data.name,
+            size: data.size,
+            sha256: data.sha256,
+            offset: data.offset,
+            data: data.data,
+            check: data.check === true,
+          },
+          () => {},
+        ),
+      );
+      json(res, result);
+      return;
+    }
     if (action === "capabilities") {
       if (pending.has(key)) {
         json(
