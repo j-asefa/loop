@@ -1,6 +1,134 @@
-import { ArrowUpRight, GitPullRequest } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowUpRight, Eye, GitPullRequest } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
-import { parse } from "./api";
+import { api, parse } from "./api";
+
+type Watch = {
+  id: string;
+  repo_owner: string;
+  repo_name: string;
+  number: number;
+  state: "watching" | "paused" | "stopped";
+  ended_reason: string | null;
+  error: string | null;
+};
+const WATCH_CHANGE = "loop-pr-watch-change";
+
+// The thread's watches, kept current while a card shows them.
+function useWatches(conversation: string | null | undefined) {
+  const [watches, setWatches] = useState<Watch[]>([]);
+  useEffect(() => {
+    if (!conversation) return;
+    let live = true;
+    const load = () =>
+      api<{ watches: Watch[] }>(
+        "/pr-watches?conversation=" + encodeURIComponent(conversation),
+      )
+        .then((r) => live && setWatches(r.watches))
+        .catch(() => {});
+    void load();
+    window.addEventListener(WATCH_CHANGE, load);
+    const timer = setInterval(load, 60_000);
+    return () => {
+      live = false;
+      window.removeEventListener(WATCH_CHANGE, load);
+      clearInterval(timer);
+    };
+  }, [conversation]);
+  return watches;
+}
+
+/**
+ * Watch: CI results, reviews and comments on this pull request come back to
+ * the thread as follow-ups. Only you start it; it ends on merge or close.
+ */
+function WatchControl({
+  pr,
+  artifactId,
+  watch,
+}: {
+  pr: PullRequestSummary;
+  artifactId: string;
+  watch?: Watch;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await work();
+      window.dispatchEvent(new Event(WATCH_CHANGE));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const start = () =>
+    act(() =>
+      api("/pr-watches", {
+        artifactId,
+        owner: pr.owner,
+        repo: pr.repo,
+        number: pr.number,
+      }),
+    );
+  const stop = () =>
+    act(() => api(`/pr-watches/${watch!.id}`, undefined, "DELETE"));
+  const open = pr.state === "open" || pr.state === "draft";
+  const active = watch && watch.state !== "stopped";
+  if (!active && !open && !watch) return null;
+  return (
+    <div className="pr-watch" role="group" aria-label="Watch pull request">
+      {watch?.state === "watching" ? (
+        <>
+          <p className="pr-watch-status">
+            <Eye size={14} aria-hidden="true" /> Watching. CI results, reviews
+            and comments come back to this thread.
+          </p>
+          <button className="text-button" disabled={busy} onClick={stop}>
+            Stop watching
+          </button>
+        </>
+      ) : watch?.state === "paused" ? (
+        <>
+          <p className="pr-watch-status paused">{watch.error}</p>
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() =>
+              act(() => api(`/pr-watches/${watch.id}/resume`, {}))
+            }
+          >
+            Resume
+          </button>
+          <button className="text-button" disabled={busy} onClick={stop}>
+            Stop watching
+          </button>
+        </>
+      ) : (
+        <>
+          {watch?.ended_reason && (
+            <p className="pr-watch-status">
+              Stopped watching: {watch.ended_reason}
+            </p>
+          )}
+          {open && (
+            <button className="secondary" disabled={busy} onClick={start}>
+              <Eye size={15} aria-hidden="true" /> Watch
+            </button>
+          )}
+        </>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const STATE_LABEL: Record<PullRequestSummary["state"], string> = {
   draft: "Draft",
@@ -18,7 +146,15 @@ export function pullRequestCardData(content: string) {
     : undefined;
 }
 
-function PullRequestRow({ pr }: { pr: PullRequestSummary }) {
+function PullRequestRow({
+  pr,
+  artifactId,
+  watch,
+}: {
+  pr: PullRequestSummary;
+  artifactId?: string;
+  watch?: Watch;
+}) {
   const changes =
     pr.additions !== undefined && pr.deletions !== undefined
       ? `+${pr.additions} −${pr.deletions}`
@@ -92,6 +228,9 @@ function PullRequestRow({ pr }: { pr: PullRequestSummary }) {
           </div>
         )}
       </dl>
+      {artifactId && (
+        <WatchControl pr={pr} artifactId={artifactId} watch={watch} />
+      )}
     </li>
   );
 }
@@ -101,17 +240,39 @@ function PullRequestRow({ pr }: { pr: PullRequestSummary }) {
 export function PullRequestCards({
   card,
   compact,
+  artifactId,
+  conversationId,
 }: {
   card: PullRequestCard;
   compact?: boolean;
+  /** The card's saved result in a thread; enables Watch. */
+  artifactId?: string;
+  conversationId?: string | null;
 }) {
+  const watchable = !!artifactId && !!conversationId;
+  const watches = useWatches(watchable ? conversationId : null);
   const shown = compact ? card.pulls.slice(0, 3) : card.pulls;
+  const watchFor = (pr: PullRequestSummary) => {
+    const matching = watches.filter(
+      (w) =>
+        w.repo_owner.toLowerCase() === pr.owner.toLowerCase() &&
+        w.repo_name.toLowerCase() === pr.repo.toLowerCase() &&
+        w.number === pr.number,
+    );
+    // An active watch wins over earlier stopped ones (newest first).
+    return matching.find((w) => w.state !== "stopped") || matching[0];
+  };
   const total = card.total ?? card.pulls.length;
   return (
     <div className="pr-cards">
       <ul>
         {shown.map((pr) => (
-          <PullRequestRow key={pr.url} pr={pr} />
+          <PullRequestRow
+            key={pr.url}
+            pr={pr}
+            artifactId={watchable ? artifactId : undefined}
+            watch={watchFor(pr)}
+          />
         ))}
       </ul>
       <p className="pr-card-note">

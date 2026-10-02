@@ -39,6 +39,8 @@ export async function designFixture() {
         LOOP_SINGLE_USER_EMAIL: "",
         LOOP_GATEWAY_TOKEN: "",
         LOOP_RUNTIME_URL: "",
+        // Watched pull requests poll here and fail fast: no real GitHub.
+        LOOP_GITHUB_API_URL: "http://127.0.0.1:9",
         LOOP_RUNTIME_TOKEN: "",
       },
     },

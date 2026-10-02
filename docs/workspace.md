@@ -56,6 +56,16 @@ API-provider agents with GitHub tools receive guidance on Loop's rules, plus the
 
 GitHub writes (comments, reviews, edits, pushes) follow the workspace approval preference, and the approval names the target pull request and the action. Merges always wait for an explicit decision: with tool approvals set to Allow, a `merge_pull_request` call still requests approval, and switching to Allow does not approve merges that are already waiting. Loop refuses a `merge_pull_request` call without a full 40-character `expectedHeadSha` before requesting approval, so nothing is sent. An approved merge therefore applies only to the head commit shown in the approval: if new commits arrive, GitHub rejects the merge and the agent must ask again. Code changes use Git in the agent's workspace; see [harnesses](harnesses.md).
 
+**Watch** on an open PR card in a thread sends what happens next on GitHub back to that thread ([pr-watches.ts](../src/server/pr-watches.ts)). Watching starts only when you tap it. About once a minute the worker reads the pull request with your GitHub connection's token, which stays on the server. When something new arrives, it queues one follow-up in the thread, labelled **GitHub update**, behind the agent's current work. A follow-up never steers a running task. New items include:
+
+- CI failing on the latest commit, once every check has finished.
+- CI turning green after a failure. A first green result is only recorded.
+- Reviews, review comments and comments that other people posted after you started watching. Comments from the connected GitHub account (the agent's own) are skipped.
+
+Quoted comment text is marked as untrusted. Updates wait while the agent is still on the previous one and are then sent together. Each follow-up's idempotency key comes from what it reports, so a restart cannot send the same update twice. The agent's pushes, comments and merges still follow the approval preference, and the follow-up tells it never to merge on its own.
+
+Watching stops when the pull request is merged or closed, or when you choose **Stop watching**. It pauses after 5 follow-ups in an hour, so an agent cannot loop on its own pushes, and when GitHub rejects the connection. Nothing is lost while paused; **Resume** continues from where it stopped. One thread watches a pull request at a time. CI results come from GitHub check runs; legacy commit statuses are not read.
+
 ## Workflows
 
 The editor uses the bounded JSON `loop.workflow/v1` format implemented in [server/workflows](../src/server/workflows). A workflow defines inputs, agent roles, sequential agent/approval/save steps, outputs and limits. References may use named inputs or earlier steps; forward references and invalid schemas are rejected. Saved versions and runs retain their selected connection/settings snapshots.

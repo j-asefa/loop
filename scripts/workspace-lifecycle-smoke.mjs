@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { chromium, expect } from "@playwright/test";
@@ -370,6 +371,77 @@ for (const engine of selectedEngines()) {
       "Permission must be requested directly from a tap",
     );
     await page.reload();
+    // Watch a pull request from its card in a thread, then stop watching.
+    const github = await fixture.api("/mcp", {
+      name: "GitHub",
+      url: "https://api.githubcopilot.com/mcp/",
+      auth: { type: "bearer", token: "fixture-token" },
+    });
+    fixture.db
+      .prepare("UPDATE mcp_connections SET status='connected' WHERE id=?")
+      .run(github.id);
+    const thread = fixture.db
+      .prepare(
+        "SELECT c.id,c.agent_id FROM conversations c WHERE c.owner_id=? AND c.agent_id IS NOT NULL ORDER BY c.created_at DESC LIMIT 1",
+      )
+      .get(fixture.owner);
+    const prCard = randomUUID();
+    fixture.db
+      .prepare(
+        "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        prCard,
+        fixture.owner,
+        thread.agent_id,
+        thread.id,
+        "acme/api #42",
+        "github_pr",
+        JSON.stringify({
+          type: "github_pull_requests",
+          tool: "pull_request_read",
+          fetchedAt: Date.now(),
+          pulls: [
+            {
+              owner: "acme",
+              repo: "api",
+              number: 42,
+              title: "Add rate limiting",
+              url: "https://github.com/acme/api/pull/42",
+              state: "open",
+              headSha: "a".repeat(40),
+            },
+          ],
+        }),
+        Date.now(),
+        Date.now(),
+      );
+    await page.goto(fixture.base + "/?artifact=" + prCard);
+    const watch = page.getByRole("group", { name: "Watch pull request" });
+    await watch.getByRole("button", { name: "Watch", exact: true }).click();
+    await expect(watch).toContainText("Watching. CI results, reviews");
+    assert.equal(
+      fixture.db
+        .prepare(
+          "SELECT state FROM pr_watches WHERE conversation_id=? AND number=42",
+        )
+        .get(thread.id).state,
+      "watching",
+    );
+    if (evidence)
+      await page.screenshot({
+        path: `${evidence}/${engine.name()}-pr-watch.png`,
+      });
+    await watch
+      .getByRole("button", { name: "Stop watching", exact: true })
+      .click();
+    await expect(watch).toContainText(
+      "Stopped watching: You stopped watching.",
+    );
+    await expect(
+      watch.getByRole("button", { name: "Watch", exact: true }),
+    ).toBeVisible();
+    await page.goto(fixture.base);
     await accountMenu("Notifications");
     await expect(
       page.getByRole("dialog", { name: "Notifications", exact: true }),

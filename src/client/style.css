@@ -7061,6 +7061,29 @@ html:has(.sheet.side-panel[open]) {
 .pr-card-facts dd {
   margin: 0;
 }
+.pr-watch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+.pr-watch button.secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pr-watch-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.pr-watch-status.paused {
+  color: var(--orange);
+}
 .pr-card-note {
   margin: 8px 0 0;
   color: var(--muted);

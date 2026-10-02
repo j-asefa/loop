@@ -443,7 +443,15 @@ function ArtifactPreview({
   if (item.kind === "chart") return <Chart content={item.content} compact />;
   if (item.kind === "github_pr") {
     const card = pullRequestCardData(item.content);
-    if (card) return <PullRequestCards card={card} compact />;
+    if (card)
+      return (
+        <PullRequestCards
+          card={card}
+          compact
+          artifactId={item.id}
+          conversationId={item.conversation_id}
+        />
+      );
   }
   if (item.kind === "code")
     return (

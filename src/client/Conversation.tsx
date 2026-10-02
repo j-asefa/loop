@@ -1286,7 +1286,11 @@ export function Conversation({
                   {(!pendingAnswer || showContent) && (
                     <header className="message-meta">
                       <span className="eyebrow">
-                        {m.role === "user" ? "You" : `@${agent?.name || "agent"}`}
+                        {m.role === "user"
+                          ? meta.automation?.kind === "github_watch"
+                            ? "GitHub update"
+                            : "You"
+                          : `@${agent?.name || "agent"}`}
                         {meta.progress ? " · Update" : ""}
                         {meta.activeBranch === false ? " · alternate branch" : ""}
                       </span>

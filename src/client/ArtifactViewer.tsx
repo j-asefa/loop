@@ -46,7 +46,14 @@ export function ArtifactContent({ item }: { item: Artifact }) {
   if (item.kind === "chart") return <Chart content={item.content} />;
   if (item.kind === "github_pr") {
     const card = pullRequestCardData(item.content);
-    if (card) return <PullRequestCards card={card} />;
+    if (card)
+      return (
+        <PullRequestCards
+          card={card}
+          artifactId={item.id}
+          conversationId={item.conversation_id}
+        />
+      );
   }
   if (item.kind === "diagram") return <Diagram source={item.content} />;
   if (item.kind === "code")

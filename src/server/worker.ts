@@ -23,6 +23,7 @@ import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
+import { pollWatches } from "./pr-watches.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -159,6 +160,16 @@ export function startWorker() {
     }, 3000),
   );
   hapiTimers.push(setInterval(() => void reconcileNative(), 2500));
+  // Watched pull requests; each one is read about once a minute.
+  hapiTimers.push(
+    setInterval(() => {
+      if (stopping) return;
+      const promise = pollWatches()
+        .catch(() => {})
+        .finally(() => inflight.delete(promise));
+      inflight.add(promise);
+    }, 15_000),
+  );
   hapiTimers.push(
     setInterval(() => {
       try {

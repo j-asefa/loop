@@ -70,6 +70,8 @@ export function submit(
     // User follow-ups steer active work. Internal delegation/retry creates work.
     steer?: boolean;
     personal?: boolean;
+    // Sent by Loop on your behalf (a watched pull request), not typed by you.
+    automation?: { kind: "github_watch"; watchId: string };
   },
 ) {
   return db
@@ -308,7 +310,12 @@ export function submit(
         run.id,
         "user",
         data.input,
-        JSON.stringify({ attachments, replyTo, personal: data.personal === true }),
+        JSON.stringify({
+          attachments,
+          replyTo,
+          personal: data.personal === true,
+          ...(data.automation ? { automation: data.automation } : {}),
+        }),
         now(),
       );
       return run;
