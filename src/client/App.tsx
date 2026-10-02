@@ -1829,16 +1829,19 @@ export default function App() {
                 "Select an agent"
               )}
             </button>
-            <button
-              type="button"
-              className="icon-button composer-later"
-              aria-label="Send later"
-              title="Send later or after the current task"
-              disabled={!draft.trim() || busy}
-              onClick={() => setSendMenu(true)}
-            >
-              <Clock3 size={18} />
-            </button>
+            {/* In a thread the clock appears with a draft, like send. */}
+            {(!threadMode || draft.trim()) && (
+              <button
+                type="button"
+                className="icon-button composer-later"
+                aria-label="Send later"
+                title="Send later or after the current task"
+                disabled={!draft.trim() || busy}
+                onClick={() => setSendMenu(true)}
+              >
+                <Clock3 size={18} />
+              </button>
+            )}
             {!threadMode && sendButton}
           </div>
           {threadMode && threadWork && draft.trim() && (

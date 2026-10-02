@@ -488,7 +488,8 @@ export async function scheduledSendJourney(page, api, dir) {
   const input = thread.getByLabel("Reply to agent");
   const later = thread.getByRole("button", { name: "Send later", exact: true });
   await expect(input).toBeVisible();
-  await expect(later).toBeDisabled();
+  // Nothing to schedule yet, so the thread composer leaves the clock out.
+  await expect(later).toHaveCount(0);
 
   // "Send later at a time…" confirms recipient, project, thread and time,
   // then schedules a message that waits in the thread until then.

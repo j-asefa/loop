@@ -2024,7 +2024,17 @@ export function conversationUsage(owner: string, conversation: string) {
     }),
     { input_tokens: 0, output_tokens: 0 },
   );
-  return { runs, total };
+  // Only runtimes that recall memory record a receipt, so the thread offers
+  // "Memory used" on these runs alone.
+  const memory = (
+    db
+      .prepare(
+        `SELECT m.run_id FROM memory_receipts m JOIN runs r ON r.id=m.run_id
+        WHERE r.owner_id=? AND r.conversation_id=?`,
+      )
+      .all(owner, conversation) as { run_id: string }[]
+  ).map((row) => row.run_id);
+  return { runs, total, memory };
 }
 
 // ---------------------------------------------------------------------------

@@ -250,6 +250,7 @@ export function Conversation({
     [usage, setUsage] = useState<{
       runs: Record<string, Usage>;
       total: Usage;
+      memory?: string[];
     } | null>(null),
     [jump, setJump] = useState<string | null>(null),
     // How the current jump started: reopening at the reading position, or
@@ -1509,9 +1510,13 @@ export function Conversation({
                   {m.role === "assistant" &&
                     m.run_id &&
                     !meta.progress &&
-                    !pendingAnswer && (
+                    !pendingAnswer &&
+                    (usage?.memory?.includes(m.run_id) ||
+                      (finalForRun && usage?.runs[m.run_id])) && (
                       <footer className="message-foot">
-                        <MemoryUsed runId={m.run_id} />
+                        {usage?.memory?.includes(m.run_id) && (
+                          <MemoryUsed runId={m.run_id} />
+                        )}
                         {finalForRun && (
                           <UsageLine usage={usage?.runs[m.run_id]} />
                         )}

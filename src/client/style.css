@@ -1418,6 +1418,13 @@ small,
   .sheet.wide {
     max-width: 100%;
   }
+  /* The sheet rides on the keyboard. Paint the strip beneath it too, so the
+     page doesn't show through around a floating keyboard or its form bar. */
+  :root[data-keyboard="open"] .sheet {
+    box-shadow:
+      0 var(--keyboard-inset, 0px) 0 0 var(--surface),
+      0 30px 100px #0003;
+  }
   .sheet-inner {
     padding: 20px 20px calc(24px + env(safe-area-inset-bottom));
   }
@@ -3676,7 +3683,6 @@ fieldset {
   flex: 1;
 }
 .conversation-composer {
-  border-top: 1px solid var(--line);
   padding-top: 0;
 }
 .conversation-composer .harness-trigger {
@@ -5880,16 +5886,34 @@ details > summary {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  padding: 0 0 0 6px;
 }
+/* One outline: the card. The reply field sits flush inside it, and focus
+   tints the card instead of ringing the field. */
 .composer-dock.thread-mode .composer-main textarea {
   flex: 1;
   min-height: 40px;
   max-height: 160px;
-  padding: 9px 12px;
-  border-radius: 20px;
+  padding: 9px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   field-sizing: content;
   resize: none;
   line-height: 1.4;
+}
+.composer-dock.thread-mode .composer-main textarea:focus-visible {
+  outline: none;
+}
+.composer-dock.thread-mode .composer:focus-within {
+  border-color: var(--brass);
+}
+.composer-dock.thread-mode .attachment-trigger.icon-button {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  background: transparent;
+  color: var(--muted);
 }
 .composer-main textarea {
   field-sizing: content;

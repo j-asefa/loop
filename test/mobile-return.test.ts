@@ -1165,6 +1165,15 @@ it("sums provider receipts per run without double counting cumulative deltas", a
   emit(w.owner, anthropic, "provider.receipt", { usage: { output_tokens: 40 } });
   emit(w.owner, chat, "provider.receipt", { usage: { prompt_tokens: 7, completion_tokens: 3 } });
   emit(w.owner, none, "progress", {});
+  // Only runs with a memory receipt are listed, so "Memory used" is not shown
+  // on every reply.
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    chat,
+    "semantic",
+    "[]",
+    12,
+    now(),
+  );
   const usage = await api(w.owner, `/conversations/${cid}/usage`);
   expect(usage.data).toEqual({
     runs: {
@@ -1173,6 +1182,7 @@ it("sums provider receipts per run without double counting cumulative deltas", a
       [chat]: { input_tokens: 7, output_tokens: 3 },
     },
     total: { input_tokens: 307, output_tokens: 93 },
+    memory: [chat],
   });
   expect((await api("intruder", `/conversations/${cid}/usage`)).status).toBe(404);
 });
