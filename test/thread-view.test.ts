@@ -258,7 +258,11 @@ describe("reminder reasons", () => {
 
 describe("change follow-up prompts", () => {
   it("ask for verification of the full diff and name the run and project", () => {
-    const start = new Date(2026, 8, 30, 10, 42).getTime();
+    // Started today: a fixed date reads as a weekday or a date once it is
+    // more than a day old, so the phrase is checked against the clock.
+    const today = new Date();
+    today.setHours(10, 42, 0, 0);
+    const start = today.getTime();
     const prompts = changePrompts(["src/a.ts", "src/b.ts"], {
       projectName: "Site",
       runStartedAt: [start],
@@ -270,7 +274,7 @@ describe("change follow-up prompts", () => {
       expect(prompt).toContain("in the Site project");
       expect(prompt).toContain("- src/a.ts\n- src/b.ts");
     }
-    expect(prompts.commit).toMatch(/from the run that started \w+ at /);
+    expect(prompts.commit).toMatch(/from the run that started today at /);
     expect(prompts.revert).toContain("keeping any other changes");
     expect(prompts.pr).toContain("pull request link");
   });

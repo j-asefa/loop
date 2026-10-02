@@ -18,10 +18,12 @@ export async function continuitySmoke(page, fixture, capture) {
       has: page.locator(`.inbox-row[aria-label^="${title}"]`),
     });
   const later = page.getByRole("region", { name: "Later", exact: true });
+  // Later's sections are tabs on your profile.
   const laterTab = (name) =>
-    later.getByRole("tablist", { name: "Show" }).getByRole("tab", {
-      name: new RegExp("^" + name),
-    });
+    page
+      .getByRole("region", { name: "Your profile", exact: true })
+      .getByRole("tablist", { name: "Show" })
+      .getByRole("tab", { name: new RegExp("^" + name) });
   const toast = page.locator(".action-toast");
   // Every caller expects a confirmation, which may arrive after a request.
   const dismissToast = async () => {
@@ -343,7 +345,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(page.locator("#composer")).toHaveValue("Post the release notes");
     await page.locator("#composer").fill("");
     await page.getByRole("button", { name: "Collapse composer" }).click();
-    await nav("Later").click();
+    await nav("You").click();
     await laterTab("Scheduled").click();
     await later
       .locator(".scheduled-message.not-sent")
@@ -379,7 +381,7 @@ export async function continuitySmoke(page, fixture, capture) {
     db.prepare(
       "UPDATE later_items SET surfaced_at=?,due_at=? WHERE owner_id=? AND done_at IS NULL AND target_id IN (?,?)",
     ).run(Date.now(), Date.now() - 1000, owner, longIds[30], done.id);
-    await nav("Later").click();
+    await nav("You").click();
     await laterTab("Reminders").click();
     const messageReminder = later
       .locator(".later-card.due")
@@ -421,7 +423,7 @@ export async function continuitySmoke(page, fixture, capture) {
       .click();
     await dismissToast();
     await closeThread();
-    await nav("Later").click();
+    await nav("You").click();
     await laterTab("Saved").click();
     const savedItem = later
       .locator(".saved-item")

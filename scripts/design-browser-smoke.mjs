@@ -596,10 +596,7 @@ try {
       await close();
       const openSettings = async () => {
         await page
-          .getByRole("button", { name: "Account and settings", exact: true })
-          .click();
-        await dialog()
-          .getByRole("menuitem", { name: /^Settings/ })
+          .getByRole("button", { name: "Open settings", exact: true })
           .click();
         await expect(dialog()).toHaveAttribute("aria-label", "Settings");
       };
@@ -723,17 +720,17 @@ try {
       await page.getByRole("button", { name: /Nested work/ }).click();
       await expect(page.locator(".file-row").first()).toBeVisible();
       await expect(page.locator(".project-heading h2")).toHaveText("Loop");
-      // Saved became Later: Saved, Reminders and Scheduled, each named.
-      await nav("Later");
+      // Later lives on your profile: your messages, then Saved, Reminders
+      // and Scheduled as tabs.
+      await nav("You");
+      const yourProfile = page.getByRole("region", {
+        name: "Your profile",
+        exact: true,
+      });
+      await expect(yourProfile).toBeVisible();
       await expect(
-        page.getByRole("heading", { name: "Later", exact: true }),
-      ).toBeVisible();
-      await expect(
-        page
-          .getByRole("region", { name: "Later", exact: true })
-          .getByRole("tablist", { name: "Show" })
-          .getByRole("tab"),
-      ).toHaveText([/^Saved/, /^Reminders/, /^Scheduled/, /^Everything/]);
+        yourProfile.getByRole("tablist", { name: "Show" }).getByRole("tab"),
+      ).toHaveText(["Messages", "Saved", "Reminders", "Scheduled"]);
       await expect(
         page.getByRole("button", { name: "Recent", exact: true }),
       ).toHaveCount(0);
@@ -795,7 +792,7 @@ try {
       await capture("workflow");
       await close();
       await openSettings();
-      await dialog().getByRole("button", { name: "dark", exact: true }).click();
+      await dialog().getByRole("button", { name: "Dark", exact: true }).click();
       await close();
       await openConversation();
       await capture("conversation-dark");

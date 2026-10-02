@@ -1262,7 +1262,7 @@ export function surfaceLater(time = now()) {
         enqueuePush(item.owner_id, "later-" + item.id, {
           title: "Back from Later",
           body: target?.title || "An item you deferred is ready",
-          url: target?.url || "/?page=later",
+          url: target?.url || "/?page=profile",
         });
       }
       return surfaced;

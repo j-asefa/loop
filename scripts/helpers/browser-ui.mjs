@@ -37,15 +37,10 @@ export async function isolatedBrowserEnv() {
   };
 }
 
-// The header avatar opens the account sheet; Settings lives behind it.
+// The header gear opens the settings drawer.
 export async function openSettings(page) {
   await page
-    .getByRole("button", { name: "Account and settings", exact: true })
-    .click();
-  await page
-    .locator("dialog[open]")
-    .last()
-    .getByRole("menuitem", { name: /^Settings/ })
+    .getByRole("button", { name: "Open settings", exact: true })
     .click();
   await page
     .locator("dialog[open]")

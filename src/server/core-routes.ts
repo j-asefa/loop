@@ -13,6 +13,7 @@ import {
 } from "./feed.js";
 import { agentTraces } from "./traces.js";
 import { personalHistory } from "./personal-history.js";
+import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages } from "./conversation-messages.js";
 import { dismissRun } from "./run-attention.js";
@@ -379,6 +380,12 @@ core.get("/agents/:id/traces", (req, res) => {
     .parse(req.query.before);
   const runId = z.string().min(1).max(100).optional().parse(req.query.run);
   res.json(agentTraces(res.locals.owner, req.params.id, before, runId));
+});
+core.get("/me/profile", (_req, res) => {
+  res.json(readProfile(res.locals.owner));
+});
+core.put("/me/profile", (req, res) => {
+  res.json(saveProfile(res.locals.owner, req.body));
 });
 core.get("/me/prompts", (req, res) => {
   const before = z.string().min(1).max(512).optional().parse(req.query.before);

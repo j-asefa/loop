@@ -1,4 +1,5 @@
 import { PersonalProfile } from "./PersonalProfile";
+import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName, runModelName } from "./modelChoices";
 import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
@@ -75,6 +76,10 @@ import {
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import {
   UserRound,
+  Server,
+  Plug,
+  Download,
+  Smartphone,
   Orbit,
   Newspaper,
   RefreshCw,
@@ -89,8 +94,6 @@ import {
   ChevronDown,
   Folder,
   Settings,
-  Sun,
-  Moon,
   Monitor,
   LogOut,
   MessageSquare,
@@ -144,22 +147,24 @@ type Bootstrap = {
 const tabs = [
   { id: "inbox", label: "Feed", icon: Newspaper },
   { id: "projects", label: "Projects", icon: Folder },
-  { id: "later", label: "Later", icon: AlarmClock },
   { id: "search", label: "Search", icon: Search },
+  { id: "profile", label: "You", icon: UserRound },
 ];
-// Links and bookmarks from the earlier six-tab layout keep working.
+// Links and bookmarks from earlier layouts keep working. Later (Saved,
+// Reminders, Scheduled) now lives on your profile.
 const legacyPages: Record<string, { tab: string; filter?: InboxFilter }> = {
   feed: { tab: "inbox" },
   running: { tab: "inbox", filter: "working" },
-  saved: { tab: "later" },
-  personal: { tab: "search" },
+  saved: { tab: "profile" },
+  later: { tab: "profile" },
+  personal: { tab: "profile" },
 };
 function initialPage() {
   const params = new URLSearchParams(location.search);
   const page = params.get("page") || "";
   if (tabs.some((t) => t.id === page)) return { tab: page };
   if (legacyPages[page]) return legacyPages[page];
-  return { tab: params.has("folder") ? "later" : "inbox" };
+  return { tab: params.has("folder") ? "profile" : "inbox" };
 }
 function initialFilter(): InboxFilter {
   const value = new URLSearchParams(location.search).get("filter");
@@ -285,7 +290,7 @@ export default function App() {
   const [sendMenu, setSendMenu] = useState(false);
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
-  const [youSheet, setYouSheet] = useState(false);
+  const [myProfile, setMyProfile] = useState<MyProfileData | null>(null);
   const [laterCard, setLaterCard] = useState<Artifact | null>(null);
   const [threadNotice, setThreadNotice] = useState("");
   // The open thread's current work, so a send can say what it will do.
@@ -374,7 +379,7 @@ export default function App() {
     showLater(section, focusId);
     setConversation(null);
     setProfile(null);
-    setTab("later");
+    setTab("profile");
   }
   const showScheduled = (focusId?: string) => openLater("scheduled", focusId);
   /**
@@ -655,6 +660,20 @@ export default function App() {
   );
   const [filing, setFiling] = useState<Artifact | null>(null),
     [revision, setRevision] = useState(0);
+  // Your profile and its counts; refreshed while the profile is open.
+  const signedIn: string | undefined = session?.user?.id;
+  useEffect(() => {
+    if (!signedIn) return setMyProfile(null);
+    const controller = new AbortController();
+    api<MyProfileData>("/me/profile", undefined, undefined, controller.signal)
+      .then(setMyProfile)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [signedIn, tab === "profile" ? revision : -1]);
+  // The name shown for you: your profile's, else the account's.
+  const accountName: string = session?.user?.name?.trim() || "You";
+  const displayName = myProfile?.display_name || accountName;
+  const initials = initialsOf(displayName);
   const request = useRef(
     parse<SendReceipt>(
       sessionStorage.getItem("loop-draft-receipt") || "",
@@ -1399,7 +1418,13 @@ export default function App() {
             setView("all");
           }}
         >
-          <t.icon size={21} />
+          {t.id === "profile" ? (
+            <span className="avatar user nav-avatar" aria-hidden="true">
+              {initials}
+            </span>
+          ) : (
+            <t.icon size={21} />
+          )}
           <span>{t.label}</span>
           {t.id === "inbox" && runningAgentCount > 0 && (
             <small
@@ -1422,13 +1447,27 @@ export default function App() {
       </div>
     );
   if (!session?.user) return <Auth onDone={() => void check()} />;
-  const initials = (session.user.name?.trim() || "You")
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part: string) => Array.from(part)[0])
-    .join("")
-    .toUpperCase();
   const threadMode = Boolean(conversation);
+  // The project filter shared by the Feed and your Saved list.
+  const projectScope = data.folders.some((f) => f.kind === "project") && (
+    <label className="scope-chip">
+      <span className="sr-only">Project</span>
+      <select
+        aria-label="Filter by project"
+        value={projectFilter}
+        onChange={(e) => setProjectFilter(e.target.value)}
+      >
+        <option value="">All projects</option>
+        {data.folders
+          .filter((f) => f.kind === "project")
+          .map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
+          ))}
+      </select>
+    </label>
+  );
   const quoted =
     replyContext?.content &&
     (replyContext.messageId || replyContext.artifactId || !conversation)
@@ -1982,20 +2021,6 @@ export default function App() {
         {!data.folders.length && (
           <p className="field-hint">Projects give your work a home.</p>
         )}
-        <button
-          className="sidebar-settings"
-          onClick={() => setSheet("settings")}
-        >
-          <Settings size={19} />
-          Settings & connections
-        </button>
-        <div className="user-row">
-          <span className="avatar user">{session.user.name?.[0] || "J"}</span>
-          <span>
-            <strong>{session.user.name}</strong>
-            <small>Personal workspace</small>
-          </span>
-        </div>
       </aside>
       <div className="main-column">
         <PwaStatus />
@@ -2017,13 +2042,12 @@ export default function App() {
               Private workspace
             </span>
             <button
-              className="avatar-button"
-              aria-label="Account and settings"
-              onClick={() => setYouSheet(true)}
+              className="settings-button"
+              aria-label="Open settings"
+              aria-expanded={sheet === "settings"}
+              onClick={() => setSheet("settings")}
             >
-              <span className="avatar user" aria-hidden="true">
-                {initials}
-              </span>
+              <Settings size={20} aria-hidden="true" />
             </button>
           </div>
         </header>
@@ -2187,29 +2211,10 @@ export default function App() {
                 ))}
               </div>
             </>
-          ) : tab === "projects" && project ? null : (
+          ) : (tab === "projects" && project) || tab === "profile" ? null : (
             <div className="page-heading compact">
               <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
-              {["inbox", "later"].includes(tab) &&
-                data.folders.some((f) => f.kind === "project") && (
-                  <label className="scope-chip">
-                    <span className="sr-only">Project</span>
-                    <select
-                      aria-label="Filter by project"
-                      value={projectFilter}
-                      onChange={(e) => setProjectFilter(e.target.value)}
-                    >
-                      <option value="">All projects</option>
-                      {data.folders
-                        .filter((f) => f.kind === "project")
-                        .map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                )}
+              {tab === "inbox" && projectScope}
             </div>
           )}
           {tab === "inbox" && !profile && !!data.teams?.length && (
@@ -2358,21 +2363,58 @@ export default function App() {
             />
           )}
           {profile && ["all", "files"].includes(view) && feedList}
-          {tab === "later" && !profile && (
-            <Later
-              revision={revision}
-              onOpen={(c, m) => setConversation(c, m)}
-              onArtifact={(id) =>
-                void api<Artifact>("/artifacts/" + id)
-                  .then((item) => void open(item))
-                  .catch((e) => setError(e.message))
+          {tab === "profile" && !profile && (
+            <MyProfile
+              name={displayName}
+              accountName={accountName}
+              profile={myProfile}
+              onSaved={setMyProfile}
+              messages={
+                <PersonalProfile
+                  embedded
+                  name={displayName}
+                  agents={data.agents}
+                  onAgent={setProfile}
+                  onConversation={(c, m) => setConversation(c, m)}
+                  onReply={(prompt) =>
+                    beginReply({
+                      agentId: prompt.agent_id,
+                      conversationId: prompt.conversation_id,
+                      messageId: prompt.id,
+                      content: prompt.content,
+                      mine: true,
+                    })
+                  }
+                />
               }
-              project={projectFilter || undefined}
-              teams={teamKey || undefined}
-              renderResult={(item, options) => resultCard(item, true, options.onUnsave)}
-              onUnsaveResult={unsaveResult}
-              onDraft={draftFromScheduled}
-              onReply={replySaved}
+              later={(section) => (
+                <>
+                  {section === "saved" && projectScope && (
+                    <div className="later-scope">{projectScope}</div>
+                  )}
+                <Later
+                  key={section}
+                  only={section}
+                  project={
+                    section === "saved" ? projectFilter || undefined : undefined
+                  }
+                  revision={revision}
+                  onOpen={(c, m) => setConversation(c, m)}
+                  onArtifact={(id) =>
+                    void api<Artifact>("/artifacts/" + id)
+                      .then((item) => void open(item))
+                      .catch((e) => setError(e.message))
+                  }
+                  teams={teamKey || undefined}
+                  renderResult={(item, options) =>
+                    resultCard(item, true, options.onUnsave)
+                  }
+                  onUnsaveResult={unsaveResult}
+                  onDraft={draftFromScheduled}
+                  onReply={replySaved}
+                />
+                </>
+              )}
             />
           )}
           {tab === "search" && !profile && (
@@ -2594,20 +2636,7 @@ export default function App() {
           )}
         </main>
         {!conversation && messageComposer}
-        <nav className="mobile-nav">
-          {nav}
-          {/* On phones the account menu lives here, not in the header. */}
-          <button
-            className={"you-tab" + (youSheet ? " current" : "")}
-            aria-label="Account and settings"
-            onClick={() => setYouSheet(true)}
-          >
-            <span className="avatar user" aria-hidden="true">
-              {initials}
-            </span>
-            <span>You</span>
-          </button>
-        </nav>
+        <nav className="mobile-nav">{nav}</nav>
       </div>
       <Toasts />
       {archivedCard && (
@@ -2633,118 +2662,88 @@ export default function App() {
       {(sheet === "settings" || settingsParent) && (
         <Sheet
           title="Settings"
-          className="side-panel"
+          className="side-panel settings-drawer"
           onClose={() => {
             setSettingsParent(false);
             setSheet("");
           }}
         >
-          <h3>Appearance</h3>
-          <div className="theme-picker">
-            {[
-              ["system", Monitor],
-              ["light", Sun],
-              ["dark", Moon],
-            ].map(([v, I]: any) => (
-              <button
-                key={v}
-                aria-pressed={theme === v}
-                className={theme === v ? "selected" : ""}
-                onClick={() => setTheme(v)}
-              >
-                <I size={20} />
-                {v}
-              </button>
-            ))}
+          <div className="drawer-appearance">
+            <span id="appearance-label">Appearance</span>
+            <div
+              className="drawer-segmented"
+              role="group"
+              aria-labelledby="appearance-label"
+            >
+              {(["system", "light", "dark"] as const).map((v) => (
+                <button
+                  key={v}
+                  aria-pressed={theme === v}
+                  onClick={() => setTheme(v)}
+                >
+                  {v[0].toUpperCase() + v.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
-          <h3>Connections</h3>
-          <div className="settings-links">
+          <nav className="drawer-links" aria-label="Settings pages">
+            <h3>Connections</h3>
             <button onClick={() => openSettingsPage("connections")}>
-              <LinkIcon size={20} />
-              <span>
-                Provider connections
-                <small>ChatGPT, Claude, and your API accounts</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <LinkIcon size={20} aria-hidden="true" />
+              Provider connections
             </button>
             <button onClick={() => openSettingsPage("environments")}>
-              <Monitor size={20} />
-              <span>
-                Execution environments<small>Native and Docker execution</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Monitor size={20} aria-hidden="true" />
+              Execution environments
             </button>
             <button onClick={() => openSettingsPage("runtime-hosts")}>
-              <Monitor size={20} />
-              <span>
-                Runtime machines<small>Run agents on your remote machine</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Server size={20} aria-hidden="true" />
+              Runtime machines
             </button>
-          </div>
-          <h3>Tools</h3>
-          <div className="settings-links">
             <button onClick={() => openSettingsPage("mcp")}>
-              <Plus size={20} />
-              <span>
-                Tools & integrations
-                <small>Connect your agents to your workspace</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Plug size={20} aria-hidden="true" />
+              Tools & integrations
             </button>
-          </div>
-          <h3>Workspace</h3>
-          <div className="settings-links">
-            <button onClick={() => openSettingsPage("install")}>
-              <Monitor size={20} />
-              <span>
-                Install & share on your phone
-                <small>Add Loop to your home screen</small>
-              </span>
-              <ArrowUpRight size={18} />
+            <h3>Workspace</h3>
+            <button onClick={() => openSettingsPage("agents")}>
+              <Orbit size={20} aria-hidden="true" />
+              Manage agents
             </button>
             <button onClick={() => openSettingsPage("memory")}>
-              <Bookmark size={20} />
-              <span>
-                Shared memory
-                <small>Sources, notes and inclusion controls</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
-            <button onClick={() => openSettingsPage("agents")}>
-              <Orbit size={20} />
-              <span>
-                Manage agents<small>Active and retired agents</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Bookmark size={20} aria-hidden="true" />
+              Shared memory
             </button>
             <button onClick={() => openSettingsPage("notifications")}>
-              <Bell size={20} />
-              <span>
-                Notifications
-                <small>
-                  Results, approvals and reminders, even with Loop closed
-                </small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Bell size={20} aria-hidden="true" />
+              Notifications
             </button>
+            {capabilities.nativeHarnesses && (
+              <button onClick={() => openSettingsPage("native-history")}>
+                <MessageSquare size={20} aria-hidden="true" />
+                Native conversations
+              </button>
+            )}
             <button onClick={() => openSettingsPage("search-settings")}>
-              <Search size={20} />
-              <span>
-                Search preferences
-                <small>Control semantic indexing and data flow</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Search size={20} aria-hidden="true" />
+              Search preferences
             </button>
             <button onClick={() => openSettingsPage("import")}>
-              <MessageSquare size={20} />
-              <span>
-                Import conversations
-                <small>Bring your past work into Loop</small>
-              </span>
-              <ArrowUpRight size={18} />
+              <Download size={20} aria-hidden="true" />
+              Import conversations
             </button>
-          </div>
+            <button onClick={() => openSettingsPage("install")}>
+              <Smartphone size={20} aria-hidden="true" />
+              Install on your phone
+            </button>
+          </nav>
+          <footer className="drawer-account">
+            <span className="avatar user" aria-hidden="true">
+              {initials}
+            </span>
+            <span>
+              <strong>{displayName}</strong>
+              <small>Personal workspace</small>
+            </span>
           {session.mode === "multi-user" && (
             <button
               className="text-button"
@@ -2783,52 +2782,8 @@ export default function App() {
               Sign out
             </button>
           )}
+          </footer>
         </Sheet>
-      )}
-      {youSheet && (
-        <ActionSheet
-          title={session.user.name?.trim() || "You"}
-          onClose={() => setYouSheet(false)}
-          actions={[
-            {
-              id: "prompts",
-              label: "Your prompts",
-              hint: "Everything you have asked, across projects",
-              icon: <UserRound size={20} />,
-              onSelect: () => {
-                setProfile(null);
-                setSearchScope("mine");
-                setTab("search");
-              },
-            },
-            ...(capabilities.nativeHarnesses
-              ? [
-                  {
-                    id: "native",
-                    label: "Native conversations",
-                    hint: "Threads started in harnesses on your computer",
-                    icon: <MessageSquare size={20} />,
-                    onSelect: () => setSheet("native-history"),
-                  },
-                ]
-              : []),
-            {
-              id: "notifications",
-              label: "Notifications",
-              icon: <Bell size={20} />,
-              onSelect: () => setSheet("notifications"),
-            },
-            {
-              id: "settings",
-              label: "Settings",
-              hint: "Connections, tools, appearance and more",
-              icon: <Settings size={20} />,
-              onSelect: () => setSheet("settings"),
-            },
-          ]}
-        >
-          <p className="field-hint">Personal workspace</p>
-        </ActionSheet>
       )}
       {sheet === "agent-menu" && profile && (
         <ActionSheet
@@ -3322,6 +3277,8 @@ export default function App() {
         <NativeHistory
           onClose={closeSheet}
           onOpen={(id) => {
+            // Opening a thread leaves Settings, which this can be opened from.
+            setSettingsParent(false);
             setSheet("");
             setConversation(id);
             void bootstrap();

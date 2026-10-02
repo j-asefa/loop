@@ -121,9 +121,9 @@ try {
     has: page.getByRole("heading", { name: "Market research", exact: true }),
   });
   await imported.getByRole("button", { name: "Save", exact: true }).click();
-  // Saved results and messages share Later → Saved.
-  await openTab(page, "Later");
-  await page.getByRole("heading", { name: "Later", exact: true }).waitFor();
+  // Saved results and messages share the Saved tab on your profile.
+  await openTab(page, "You");
+  await page.getByRole("region", { name: "Your profile", exact: true }).waitFor();
   await page.getByRole("tab", { name: "Saved", exact: true }).click();
   await expect(imported).toBeVisible();
   await expect(
@@ -151,7 +151,7 @@ try {
   await page.locator("dialog[open]").last().waitFor();
   await closeSheets(page);
   await openSettings(page);
-  await page.getByRole("button", { name: "dark", exact: true }).click();
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
   await closeSheets(page);
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.screenshot({ path: join(dir, "mobile-dark.png") });
@@ -282,8 +282,8 @@ try {
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await openSettings(page);
-  await page.getByRole("button", { name: "light", exact: true }).click();
-  await page.getByRole("button", { name: "system", exact: true }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page.getByRole("button", { name: "System", exact: true }).click();
   await page.emulateMedia({ colorScheme: "dark" });
   await page.waitForFunction(
     () => document.documentElement.dataset.theme === "dark",

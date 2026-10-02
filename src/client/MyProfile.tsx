@@ -1,0 +1,226 @@
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { api } from "./api";
+import { Sheet } from "./components";
+import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { SHOW_LATER, type LaterSection, type ShowLater } from "./Later";
+
+export type MyProfileData = {
+  display_name: string | null;
+  handle: string | null;
+  bio: string | null;
+  counts: { messages: number; agents: number; projects: number };
+};
+export type ProfileTab = "messages" | Exclude<LaterSection, "all">;
+const profileTabs: [ProfileTab, string][] = [
+  ["messages", "Messages"],
+  ["saved", "Saved"],
+  ["reminders", "Reminders"],
+  ["scheduled", "Scheduled"],
+];
+
+export function initialsOf(name: string) {
+  return (name.trim() || "You")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => Array.from(part)[0])
+    .join("")
+    .toUpperCase();
+}
+
+/**
+ * Your own profile: who you are, then your sent messages and what Later
+ * holds (Saved, Reminders, Scheduled) as tabs. It opens on the tab Later
+ * was last asked for, so links to a reminder or scheduled send land there.
+ */
+export function MyProfile({
+  name,
+  accountName,
+  profile,
+  onSaved,
+  messages,
+  later,
+}: {
+  /** The name shown: your profile's, else the account's. */
+  name: string;
+  accountName: string;
+  profile: MyProfileData | null;
+  onSaved: (profile: MyProfileData) => void;
+  messages: ReactNode;
+  later: (section: Exclude<LaterSection, "all">) => ReactNode;
+}) {
+  const [tab, setTabState] = useState<ProfileTab>(() => {
+    const value = cachedView<string>("later-section");
+    return profileTabs.some(([id]) => id === value)
+      ? (value as ProfileTab)
+      : "messages";
+  });
+  const setTab = (value: ProfileTab) => {
+    setTabState(value);
+    cacheView("later-section", value, viewOwner());
+  };
+  // "Show in Later" while your profile is already open switches the tab.
+  useEffect(() => {
+    const shown = (event: Event) => {
+      const { section } = (event as CustomEvent<ShowLater>).detail;
+      if (section !== "all") setTabState(section);
+    };
+    window.addEventListener(SHOW_LATER, shown);
+    return () => window.removeEventListener(SHOW_LATER, shown);
+  }, []);
+  const [editing, setEditing] = useState(false);
+  const counts = profile?.counts;
+  return (
+    <section className="my-profile" aria-label="Your profile">
+      <header className="my-profile-card">
+        <div className="my-profile-top">
+          <span className="my-profile-avatar" aria-hidden="true">
+            {initialsOf(name)}
+          </span>
+          <button
+            type="button"
+            className="secondary my-profile-edit"
+            onClick={() => setEditing(true)}
+          >
+            Edit profile
+          </button>
+        </div>
+        <div className="my-profile-name">
+          <h1>{name}</h1>
+          <span className="personal-you">You</span>
+        </div>
+        <p className="my-profile-handle">
+          {profile?.handle ? "@" + profile.handle + " · " : ""}Personal
+          workspace
+        </p>
+        {profile?.bio && <p className="my-profile-bio">{profile.bio}</p>}
+        <dl className="my-profile-counts">
+          {(
+            [
+              ["messages", "Messages"],
+              ["agents", "Agents"],
+              ["projects", "Projects"],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key}>
+              <dt>{label}</dt>
+              <dd>{counts ? counts[key] : "–"}</dd>
+            </div>
+          ))}
+        </dl>
+      </header>
+      <div className="my-profile-tabs" role="tablist" aria-label="Show">
+        {profileTabs.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        role="tabpanel"
+        aria-label={profileTabs.find(([id]) => id === tab)?.[1]}
+      >
+        {tab === "messages" ? messages : later(tab)}
+      </div>
+      {editing && (
+        <EditProfile
+          profile={profile}
+          accountName={accountName}
+          onClose={() => setEditing(false)}
+          onSaved={(saved) => {
+            onSaved(saved);
+            setEditing(false);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function EditProfile({
+  profile,
+  accountName,
+  onClose,
+  onSaved,
+}: {
+  profile: MyProfileData | null;
+  accountName: string;
+  onClose: () => void;
+  onSaved: (profile: MyProfileData) => void;
+}) {
+  const [displayName, setDisplayName] = useState(profile?.display_name || "");
+  const [handle, setHandle] = useState(profile?.handle || "");
+  const [bio, setBio] = useState(profile?.bio || "");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setError(""), [displayName, handle, bio]);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      onSaved(
+        await api<MyProfileData>(
+          "/me/profile",
+          { display_name: displayName, handle, bio },
+          "PUT",
+        ),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Sheet title="Edit profile" onClose={onClose}>
+      <form onSubmit={save}>
+        <label>
+          Name
+          <input
+            value={displayName}
+            maxLength={80}
+            placeholder={accountName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </label>
+        <p className="field-hint">Leave empty to use your account name.</p>
+        <label>
+          Handle
+          <input
+            value={handle}
+            maxLength={31}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="@handle"
+            onChange={(e) => setHandle(e.target.value)}
+          />
+        </label>
+        <p className="field-hint">2–30 letters, numbers or underscores.</p>
+        <label>
+          Bio
+          <textarea
+            value={bio}
+            maxLength={200}
+            rows={3}
+            placeholder="A line about you"
+            onChange={(e) => setBio(e.target.value)}
+          />
+        </label>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary" disabled={busy}>
+          {busy ? "Saving…" : "Save profile"}
+        </button>
+      </form>
+    </Sheet>
+  );
+}

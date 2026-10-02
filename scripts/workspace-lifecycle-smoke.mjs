@@ -38,14 +38,13 @@ for (const engine of selectedEngines()) {
         .locator(".inbox")
         .getByRole("tablist", { name: "Show" })
         .getByRole("tab", { name, exact: true });
-    // The header Settings button became the "Account and settings" menu.
+    // The header gear opens the settings drawer; its pages open from there.
     const accountMenu = async (item) => {
       await page
-        .getByRole("button", { name: "Account and settings", exact: true })
+        .getByRole("button", { name: "Open settings", exact: true })
         .click();
-      await dialog()
-        .getByRole("menuitem", { name: new RegExp(`^${item}`) })
-        .click();
+      if (item !== "Settings")
+        await dialog().getByRole("button", { name: item, exact: true }).click();
     };
     const openSettings = async () => {
       await accountMenu("Settings");
@@ -80,14 +79,14 @@ for (const engine of selectedEngines()) {
     await expect(
       card.getByRole("button", { name: "Remove from Saved", exact: true }),
     ).toBeVisible();
-    // Saved results and saved messages share Later → Saved.
-    await nav("Later");
-    await expect(
-      page.getByRole("heading", { name: "Later", level: 1, exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Saved", exact: true }),
-    ).toBeVisible();
+    // Saved results and saved messages share the Saved tab on your profile.
+    const savedTab = () =>
+      page
+        .getByRole("region", { name: "Your profile", exact: true })
+        .getByRole("tab", { name: "Saved", exact: true });
+    await nav("You");
+    await savedTab().click();
+    await expect(savedTab()).toHaveAttribute("aria-selected", "true");
     await expect(card).toBeVisible();
     await expect(page.locator(".feed-card")).toHaveCount(1);
     await expect(card.locator(".preview")).toContainText("Review complete");
@@ -160,7 +159,7 @@ for (const engine of selectedEngines()) {
       .run(team.id, saved.conversation_id);
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "Later", level: 1, exact: true }),
+      page.getByRole("region", { name: "Your profile", exact: true }),
     ).toBeVisible();
     // The team filter lives on the Feed; its selection also scopes Later.
     await nav("Feed");
@@ -173,7 +172,8 @@ for (const engine of selectedEngines()) {
         exact: true,
       }),
     ).toBeVisible();
-    await nav("Later");
+    await nav("You");
+    await savedTab().click();
     await expect(card).toBeVisible();
     if (evidence)
       await page.screenshot({ path: `${evidence}/${engine.name()}-saved.png` });

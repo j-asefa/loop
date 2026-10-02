@@ -41,12 +41,11 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
       if (request.url().endsWith("/runtimes/claude/enable")) enables++;
     });
     page.on("pageerror", (error) => errors.push(error.message));
-    // Settings moved behind the header's "Account and settings" menu.
+    // The header gear opens the settings drawer.
     const openProviderConnections = async () => {
       await page
-        .getByRole("button", { name: "Account and settings", exact: true })
+        .getByRole("button", { name: "Open settings", exact: true })
         .click();
-      await page.getByRole("menuitem", { name: /^Settings/ }).click();
       await page
         .getByRole("dialog", { name: "Settings", exact: true })
         .getByRole("button", { name: /Provider connections/ })

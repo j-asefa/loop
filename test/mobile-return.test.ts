@@ -1172,3 +1172,52 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   expect(summary[1]).toMatchObject({ agents: 0, last_activity_at: null });
   expect((await api("intruder", "/projects/summary")).data.items).toEqual([]);
 });
+
+it("keeps your profile per owner, with counts matching your prompt history", async () => {
+  const w = workspaceFor(),
+    a = w.agent();
+  w.agent();
+  const blank = (await api(w.owner, "/me/profile")).data;
+  expect(blank).toMatchObject({ display_name: null, handle: null, bio: null });
+  expect(blank.counts).toEqual({ messages: 0, agents: 2, projects: 0 });
+
+  const project = id();
+  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Alpha',1)").run(project, w.owner);
+  db.prepare("INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,?,'folder','Inner',1)").run(id(), w.owner, project);
+  db.prepare("UPDATE agents SET retired_at=1 WHERE id=?").run(a.id);
+  const live = w.agent();
+  const cid = conversation(w.owner, live.id);
+  for (const input of ["first", "second"])
+    await api(w.owner, "/runs", "POST", {
+      agentId: live.id,
+      conversationId: cid,
+      input,
+      idempotencyKey: "pp-" + randomBytes(6).toString("hex"),
+      queue: true,
+    });
+  const prompts = (await api(w.owner, "/me/prompts")).data.items.length;
+  expect((await api(w.owner, "/me/profile")).data.counts).toEqual({
+    messages: prompts,
+    agents: 2,
+    projects: 1,
+  });
+  expect(prompts).toBe(2);
+
+  const saved = await api(w.owner, "/me/profile", "PUT", {
+    display_name: "  Jamie A  ",
+    handle: "@Jamie_A",
+    bio: "Building with agents.",
+  });
+  expect(saved.status).toBe(200);
+  expect(saved.data).toMatchObject({ display_name: "Jamie A", handle: "jamie_a", bio: "Building with agents." });
+  // Empty text clears a field.
+  expect((await api(w.owner, "/me/profile", "PUT", { display_name: "", handle: "jamie_a", bio: "" })).data)
+    .toMatchObject({ display_name: null, handle: "jamie_a", bio: null });
+  expect((await api(w.owner, "/me/profile", "PUT", { display_name: null, handle: "bad handle!", bio: null })).status).toBe(400);
+  expect((await api(w.owner, "/me/profile", "PUT", { display_name: null, handle: null, bio: "x".repeat(201) })).status).toBe(400);
+
+  // Handles are unique across owners, ignoring case; others' profiles stay private.
+  const other = workspaceFor();
+  expect((await api(other.owner, "/me/profile", "PUT", { display_name: null, handle: "JAMIE_A", bio: null })).status).toBe(409);
+  expect((await api(other.owner, "/me/profile")).data).toMatchObject({ handle: null, counts: { messages: 0, agents: 0, projects: 0 } });
+});

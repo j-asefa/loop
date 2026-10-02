@@ -6659,20 +6659,28 @@ details > summary {
   }
 }
 
-/* Phones: the account menu is the last nav tab, not a header avatar. */
-.mobile-nav .you-tab .avatar {
+/* The You tab shows your initials in place of an icon. */
+.nav-avatar.avatar {
   width: 22px;
   height: 22px;
   border-radius: 50%;
   font-size: 9px;
 }
-.mobile-nav .you-tab.current .avatar {
+.current .nav-avatar.avatar {
   box-shadow: 0 0 0 2px var(--brass);
 }
-@media (max-width: 650px) {
-  .topbar-actions .avatar-button {
-    display: none;
-  }
+.settings-button {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
 }
 
 /* Settings slides in as a narrow column on the right instead of a centred
@@ -6684,7 +6692,7 @@ details > summary {
   right: 0;
   left: auto;
   margin: 0;
-  width: min(380px, 86vw);
+  width: min(380px, 80vw);
   max-width: none;
   height: 100dvh;
   max-height: none;
@@ -6717,4 +6725,229 @@ details > summary {
 .composer > .note,
 .composer > .route-preview {
   margin: 8px 14px 0;
+}
+
+/* Settings drawer: one list of every setting, your account at the foot. */
+.settings-drawer .sheet-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 0;
+}
+.drawer-appearance {
+  padding: 0 10px 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.drawer-segmented {
+  display: flex;
+  margin-top: 6px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg);
+}
+.drawer-segmented button {
+  flex: 1;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+}
+.drawer-segmented button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px #00000014;
+}
+.drawer-links {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.drawer-links h3 {
+  margin: 14px 10px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.drawer-links button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font-size: 16px;
+  text-align: left;
+}
+.drawer-links button:hover,
+.drawer-links button:focus-visible {
+  background: var(--bg);
+}
+.drawer-account {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px -12px 0;
+  padding: 14px 16px calc(16px + env(safe-area-inset-bottom)) 22px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.drawer-account .avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 13px;
+}
+.drawer-account > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.drawer-account small {
+  color: var(--muted);
+}
+.drawer-account .text-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  min-height: 40px;
+  color: var(--text);
+}
+
+/* Your profile: a tinted card for who you are, then tabs for your work. */
+.my-profile {
+  max-width: 760px;
+}
+.my-profile-card {
+  padding: 18px 18px 16px;
+  border: 1px solid #e6dcb8;
+  border-radius: 20px;
+  background: #f3eedb;
+}
+.my-profile-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.my-profile-avatar {
+  width: 68px;
+  height: 68px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: #6b5517;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 600;
+}
+.my-profile-edit.secondary {
+  border-radius: 999px;
+  min-height: 40px;
+  padding: 8px 16px;
+  background: #faf6e9;
+  border-color: #e0d4a8;
+}
+.my-profile-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.my-profile-name h1 {
+  margin: 0;
+  font-size: 27px;
+  letter-spacing: -0.5px;
+  overflow-wrap: anywhere;
+}
+.my-profile-handle {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #5b5c61;
+}
+.my-profile-bio {
+  margin: 8px 0 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.my-profile-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #e0d4a8;
+  font-size: 13px;
+  color: #5b5c61;
+}
+.my-profile-counts div {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: baseline;
+  gap: 5px;
+}
+.my-profile-counts dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+.my-profile .personal-message-card {
+  border-left: 3px solid var(--brass);
+}
+.later-scope {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.my-profile-tabs {
+  display: flex;
+  gap: 22px;
+  margin: 10px 0 14px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.my-profile-tabs button {
+  min-height: 44px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.my-profile-tabs button[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--brass);
+}
+[data-theme="dark"] .my-profile-card {
+  background: #2a2619;
+  border-color: #433b22;
+}
+[data-theme="dark"] .my-profile-avatar {
+  background: #d6c478;
+  color: #1a1a1c;
+}
+[data-theme="dark"] .my-profile-edit.secondary {
+  background: #332d1d;
+  border-color: #4d4428;
+}
+[data-theme="dark"] .my-profile-handle,
+[data-theme="dark"] .my-profile-counts {
+  color: var(--muted);
+}
+[data-theme="dark"] .my-profile-counts {
+  border-top-color: #433b22;
 }

@@ -133,8 +133,8 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       window.scrollTo({ top: 240, behavior: "instant" }),
     );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
-    await nav("Later").tap();
-    const heading = page.getByRole("heading", { name: "Later", exact: true });
+    await nav("You").tap();
+    const heading = page.locator(".my-profile-name h1");
     for (const [dx, dy, cancelled, multi] of [
       [-30, 0],
       [100, 0],
@@ -143,7 +143,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       [-170, 0, false, true],
     ]) {
       await swipe(heading, dx, dy, cancelled, multi);
-      await expect(nav("Later")).toHaveAttribute("aria-current", "page");
+      await expect(nav("You")).toHaveAttribute("aria-current", "page");
     }
     await swipe(heading);
     await expect(nav("Feed")).toHaveAttribute("aria-current", "page");
@@ -178,20 +178,21 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await expect(nav("Search")).toHaveAttribute("aria-current", "page");
     await expect(page.getByLabel("Search everything")).toHaveValue("review");
     await expect(searchResults).toHaveCount(resultCount);
-    await nav("Later").tap();
+    await nav("You").tap();
+    // Later's sections are tabs on your profile.
     const laterSection = (name) =>
       page
-        .getByRole("region", { name: "Later", exact: true })
+        .getByRole("region", { name: "Your profile", exact: true })
         .getByRole("tab", { name: new RegExp("^" + name) });
     await laterSection("Reminders").tap();
     await nav("Projects").tap();
     await swipe(page.getByRole("heading", { name: "Projects", exact: true }));
-    await expect(nav("Later")).toHaveAttribute("aria-current", "page");
+    await expect(nav("You")).toHaveAttribute("aria-current", "page");
     await expect(laterSection("Reminders")).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    await laterSection("Everything").tap();
+    await laterSection("Messages").tap();
     // Result cards (on an agent's profile) own their horizontal gestures: a
     // left swipe archives the card (with Undo) instead of going back.
     // Card swipes use pointer events, which only Chromium's touch emulation
@@ -248,7 +249,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     // The agent row owns its horizontal gestures, even when the Feed has a Back
     // destination. Every agent remains reachable by touch and keyboard.
     await page.goto(fixture.base, { waitUntil: "networkidle" });
-    await nav("Later").tap();
+    await nav("You").tap();
     await nav("Feed").tap();
     const strip = page.locator(".your-agents .agent-strip");
     assert(

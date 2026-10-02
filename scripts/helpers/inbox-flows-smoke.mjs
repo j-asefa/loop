@@ -29,10 +29,11 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       await toast.getByRole("button", { name: "Dismiss", exact: true }).click();
     await expect(toast).toHaveCount(0);
   };
+  // Later's sections are tabs on your profile.
   const laterTab = (name) =>
-    later
+    page
+      .getByRole("region", { name: "Your profile", exact: true })
       .getByRole("tablist", { name: "Show" })
-      // A tab's name can end with its count ("Reminders 1 back now").
       .getByRole("tab", { name: new RegExp("^" + name) });
   const target = fixture.conversations[1];
   const agent = fixture.db
@@ -178,7 +179,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(answer.locator(".saved-mark")).toBeVisible();
     await dismissToast();
     await closeThread();
-    await nav("Later").click();
+    await nav("You").click();
     await laterTab("Saved").click();
     await expect(laterTab("Saved")).toHaveAttribute("aria-selected", "true");
     const kept = later
@@ -237,7 +238,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
 
     // A tapped notification hands its link to the open app (via the service
     // worker), which opens the thread at that message in place.
-    await nav("Later").click();
+    await nav("You").click();
     await page.evaluate(
       ({ conversation, message }) =>
         navigator.serviceWorker.dispatchEvent(
@@ -287,7 +288,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     );
     await expect(row(snoozed.title)).toHaveCount(0);
     await expect(row(target.title)).toHaveCount(1);
-    await nav("Later").click();
+    await nav("You").click();
     await laterTab("Reminders").click();
     const reminder = later
       .locator(".later-card")
@@ -312,8 +313,8 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await nav("Feed").click();
     await row(target.title).waitFor();
     await capture("overflow-inbox-320");
-    await nav("Later").click();
-    for (const tab of ["Saved", "Reminders", "Scheduled", "Everything"]) {
+    await nav("You").click();
+    for (const tab of ["Messages", "Saved", "Reminders", "Scheduled"]) {
       await laterTab(tab).click();
       await capture(
         `overflow-later-${tab.toLowerCase().replace(" ", "-")}-320`,

@@ -177,12 +177,15 @@ try {
     3,
   );
   await page.getByRole("button", { name: "decline", exact: true }).click();
-  // Native conversations moved from a page link into the account menu.
+  // Native conversations open from the settings drawer.
   const nativeConversations = async () => {
     await page
-      .getByRole("button", { name: "Account and settings", exact: true })
+      .getByRole("button", { name: "Open settings", exact: true })
       .click();
-    await page.getByRole("menuitem", { name: /^Native conversations/ }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Native conversations", exact: true })
+      .click();
     await page
       .getByRole("dialog", { name: "Native conversations", exact: true })
       .getByRole("button")

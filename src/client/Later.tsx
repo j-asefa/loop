@@ -61,10 +61,21 @@ type SavedItem = { key: string; saved_at: number; label?: string | null } & (
 type SavedPage = { items: SavedItem[]; next: string | null };
 export type LaterSection = "all" | "saved" | "reminders" | "scheduled";
 
-/** Ask Later to open at a section, optionally highlighting one item. */
+export type ShowLater = { section: LaterSection; focusId: string | null };
+export const SHOW_LATER = "loop-show-later";
+/**
+ * Ask Later to open at a section, optionally highlighting one item. A page
+ * that mounts reads the request from the view cache; one already open (your
+ * profile, its Later list) hears it as an event.
+ */
 export function showLater(section: LaterSection, focusId?: string) {
   cacheView("later-section", section, viewOwner());
   cacheView("later-focus", focusId || null, viewOwner());
+  window.dispatchEvent(
+    new CustomEvent<ShowLater>(SHOW_LATER, {
+      detail: { section, focusId: focusId || null },
+    }),
+  );
 }
 
 // Every Later item is a full-size card, matching result and inbox cards.
@@ -465,8 +476,11 @@ export function Later({
   onUnsaveResult,
   project,
   teams,
+  only,
 }: {
   revision: number;
+  /** Show just this section, chosen by the page around it (no chip row). */
+  only?: Exclude<LaterSection, "all">;
   /** The same project and team scope as the results feed. */
   project?: string;
   teams?: string;
@@ -495,6 +509,19 @@ export function Later({
     () => cachedView<string | null>("later-focus") || null,
   );
   useEffect(() => cacheView("later-focus", null, viewOwner()), []);
+  useEffect(() => {
+    const shown = (event: Event) => {
+      const { section, focusId } = (event as CustomEvent<ShowLater>).detail;
+      // A list for another section is about to be replaced; the one that
+      // mounts reads the focus from the cache.
+      if (only && only !== section) return;
+      setSectionState(section);
+      setFocus(focusId);
+      cacheView("later-focus", null, viewOwner());
+    };
+    window.addEventListener(SHOW_LATER, shown);
+    return () => window.removeEventListener(SHOW_LATER, shown);
+  }, [only]);
   const setSection = (value: LaterSection) => {
     setSectionState(value);
     setFocus(null);
@@ -605,13 +632,15 @@ export function Later({
       />
     );
   };
-  const show = (value: LaterSection) => section === "all" || section === value;
+  const visible = only || section;
+  const show = (value: LaterSection) => visible === "all" || visible === value;
   const counts: Partial<Record<LaterSection, number>> = {
     reminders: later?.due.length || 0,
     scheduled: failed,
   };
   return (
     <section className="later-page" aria-label="Later">
+      {!only && (
       <div className="chip-row later-sections" role="tablist" aria-label="Show">
         {(
           [
@@ -645,6 +674,7 @@ export function Later({
           </button>
         ))}
       </div>
+      )}
       {error && (
         <div className="error" role="alert">
           {error}
@@ -655,7 +685,7 @@ export function Later({
       )}
       {show("reminders") && (
         <>
-          <h2 className="section-title">Reminders</h2>
+          {!only && <h2 className="section-title">Reminders</h2>}
           <p className="section-hint">
             Items brought back to you. Nothing is sent to an agent.
           </p>
@@ -685,7 +715,7 @@ export function Later({
       )}
       {show("scheduled") && (
         <>
-          <h2 className="section-title">Scheduled</h2>
+          {!only && <h2 className="section-title">Scheduled</h2>}
           <p className="section-hint">
             Messages you asked Loop to send to an agent later.
           </p>
@@ -699,7 +729,7 @@ export function Later({
       )}
       {show("saved") && (
         <>
-          <h2 className="section-title">Saved</h2>
+          {!only && <h2 className="section-title">Saved</h2>}
           <SavedList
             revision={revision}
             project={project}

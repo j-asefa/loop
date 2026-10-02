@@ -569,10 +569,10 @@ export async function scheduledSendJourney(page, api, dir) {
   await page.reload();
   await page
     .locator(".mobile-nav")
-    .getByRole("button", { name: "Later", exact: true })
+    .getByRole("button", { name: "You", exact: true })
     .click();
   await page
-    .getByRole("region", { name: "Later", exact: true })
+    .getByRole("region", { name: "Your profile", exact: true })
     .getByRole("tab", { name: /^Scheduled/ })
     .click();
   const outbox = page
@@ -603,7 +603,30 @@ export async function scheduledSendJourney(page, api, dir) {
     .getByRole("button", { name: "Cancel scheduled message", exact: true })
     .click();
   await expect.poll(async () => (await everywhere()).length).toBe(0);
+  // With your profile already open on another tab, View on a new scheduled
+  // message switches it to Scheduled and highlights that message.
+  const profile = page.getByRole("region", { name: "Your profile", exact: true });
+  await profile.getByRole("tab", { name: "Messages", exact: true }).click();
+  await page.getByRole("button", { name: "Compose a message" }).click();
+  await message.fill("Global scheduled from the profile");
+  await page.getByRole("button", { name: "Send later", exact: true }).click();
+  await options
+    .getByRole("menuitem", { name: /^Send later at a time/ })
+    .click();
+  await schedule.getByLabel(/^Send at/).fill(at.value);
+  await schedule.getByRole("button", { name: /^Schedule for/ }).click();
+  await confirmation.getByRole("button", { name: "View", exact: true }).click();
+  await expect(
+    profile.getByRole("tab", { name: /^Scheduled/ }),
+  ).toHaveAttribute("aria-selected", "true");
+  const anchored = outbox.locator(".scheduled-message.anchored");
+  await expect(anchored).toHaveCount(1);
+  await expect(anchored).toContainText("Global scheduled from the profile");
+  await anchored
+    .getByRole("button", { name: "Cancel scheduled message", exact: true })
+    .click();
+  await expect.poll(async () => (await everywhere()).length).toBe(0);
   console.log(
-    "PASS: Send later at a time… confirms and schedules an in-thread message that survives reload and cancels cleanly; a message scheduled from the Feed is edited and cancelled in Later → Scheduled after a reload; Queue after this task queues in the open thread (fixtures).",
+    "PASS: Send later at a time… confirms and schedules an in-thread message that survives reload and cancels cleanly; a message scheduled from the Feed is edited and cancelled in Later → Scheduled after a reload; View on a message scheduled with the profile open switches it to Scheduled at that message; Queue after this task queues in the open thread (fixtures).",
   );
 }
