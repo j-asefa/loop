@@ -339,10 +339,20 @@ export async function sendCollapseJourney(page, api) {
           },
         );
       }
+      // A slow thread load must not let the empty composer overwrite the
+      // saved draft before it is restored.
+      const threadLoad = new RegExp(`/api/conversations/${conversationId}(\\?|$)`);
+      const slow = async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // A later navigation may have cancelled the request meanwhile.
+        await route.continue().catch(() => {});
+      };
+      if (reply) await page.route(threadLoad, slow);
       await page.reload();
       if (!reply)
         await page.getByRole("button", { name: "Compose a message" }).click();
       await expect(input).toHaveValue(prompt);
+      if (reply) await page.unroute(threadLoad, slow);
 
       // Keep the post-send refresh pending: dismissal must not wait for it.
       await page.route("**/api/bootstrap", refresh);

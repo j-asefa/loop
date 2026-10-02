@@ -191,7 +191,8 @@ export async function continuitySmoke(page, fixture, capture) {
       name: "Approve request",
       exact: true,
     });
-    await expect(approve).toBeVisible();
+    // Done holds finished threads; a request waiting on you is in Needs you.
+    await expect(approve).toHaveCount(0);
     await capture("continuity-feed-actions");
     await card(done.title)
       .getByRole("button", { name: "Review result", exact: true })
@@ -205,6 +206,11 @@ export async function continuitySmoke(page, fixture, capture) {
       thread().getByRole("button", { name: "Back to where I was" }),
     ).toBeVisible();
     await closeThread();
+    const feedTab = (name) =>
+      page.getByRole("tab", { name: new RegExp("^" + name) });
+    await feedTab("Needs you").click();
+    await expect(approve).toBeVisible();
+    await capture("continuity-feed-needs-you");
     await approve.click();
     await expect(thread()).toHaveAttribute("aria-label", asking.title);
     await expect(
@@ -213,6 +219,7 @@ export async function continuitySmoke(page, fixture, capture) {
     // The approval is never described as made until it is.
     await expect(thread()).not.toContainText(/approved/i);
     await closeThread();
+    await feedTab("Done").click();
     // An unsent draft (per signed-in owner) becomes Continue draft.
     await page.evaluate(
       ({ owner, id }) =>

@@ -123,21 +123,27 @@ try {
       );
       const inboxFilters = inbox.getByRole("tablist", { name: "Show" });
       await expect(inboxFilters.getByRole("tab")).toHaveText([
-        "All",
+        "Done",
         /^Needs you/,
         /^Working/,
         /^Queued/,
       ]);
       await expect(
-        inboxFilters.getByRole("tab", { name: "All", exact: true }),
+        inboxFilters.getByRole("tab", { name: "Done", exact: true }),
       ).toHaveAttribute("aria-selected", "true");
-      await expect(inboxRows).toHaveCount(fixture.conversations.length);
-      // The Results filter is gone; its old links open the whole Feed.
-      await page.goto(fixture.base + "/?filter=results");
-      await expect(
-        inboxFilters.getByRole("tab", { name: "All", exact: true }),
-      ).toHaveAttribute("aria-selected", "true");
-      await expect(inboxRows).toHaveCount(fixture.conversations.length);
+      // Done holds only finished threads: none working, queued or needing you.
+      const finished = fixture.conversations.filter(
+        (c) => c.state === "completed",
+      ).length;
+      await expect(inboxRows).toHaveCount(finished);
+      // The Results and All filters are gone; their old links open Done.
+      for (const old of ["results", "all"]) {
+        await page.goto(fixture.base + "/?filter=" + old);
+        await expect(
+          inboxFilters.getByRole("tab", { name: "Done", exact: true }),
+        ).toHaveAttribute("aria-selected", "true");
+        await expect(inboxRows).toHaveCount(finished);
+      }
       const shortcuts = page.getByRole("region", {
         name: "Your agents",
         exact: true,

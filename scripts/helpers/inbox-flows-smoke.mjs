@@ -41,7 +41,8 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       "SELECT a.name FROM agents a JOIN conversations c ON c.agent_id=a.id WHERE c.id=?",
     )
     .get(target.id);
-  const snoozed = fixture.conversations[6];
+  // A finished thread, so it is in Done until it is snoozed.
+  const snoozed = fixture.conversations[0];
   // Three more prompts with long answers give the outline somewhere to jump.
   const start = fixture.db
     .prepare("SELECT max(created_at) at FROM messages WHERE conversation_id=?")
@@ -258,10 +259,10 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(answer).toBeInViewport();
     await closeThread();
 
-    // Snoozing from the row menu moves a thread from Feed "All" to Later.
+    // Snoozing from the row menu moves a thread from Feed "Done" to Later.
     await nav("Feed").click();
     await expect(
-      page.getByRole("tab", { name: "All", exact: true }),
+      page.getByRole("tab", { name: "Done", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await row(snoozed.title).focus();
     await page.keyboard.press("Shift+F10");

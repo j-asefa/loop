@@ -142,6 +142,9 @@ export function savePosition(owner: string, conversation: string, body: unknown)
 // 2. Inbox
 export const INBOX_FILTERS = [
   "all",
+  // The Feed's default: threads with nothing open (not needing you,
+  // working or queued), so open work only shows under its own filter.
+  "done",
   "needs",
   "working",
   "queued",
@@ -247,6 +250,8 @@ export function inbox(
   const sql = inboxSql(!!teams, !!folders, !!options.agent);
   const where = {
     all: "NOT snoozed",
+    // A thread with no runs (imported history) has NULL flags: it is done.
+    done: "NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed",
     needs: "is_needs",
     working: "is_working",
     queued: "has_queued",

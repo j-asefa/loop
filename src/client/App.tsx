@@ -170,7 +170,7 @@ function initialFilter(): InboxFilter {
   const value = new URLSearchParams(location.search).get("filter");
   return inboxFilters.some((f) => f.id === value)
     ? (value as InboxFilter)
-    : initialPage().filter || "all";
+    : initialPage().filter || "done";
 }
 export default function App() {
   const [sharedDraft, setSharedDraft] = useState<SharedDraft>(initialShare);
@@ -638,7 +638,7 @@ export default function App() {
     const url = new URL(location.href);
     for (const [key, value] of Object.entries({
       page: tab === "inbox" ? "" : tab,
-      filter: tab === "inbox" && inboxFilter !== "all" ? inboxFilter : "",
+      filter: tab === "inbox" && inboxFilter !== "done" ? inboxFilter : "",
       project: projectFilter,
       teams: teamKey,
       projectView: project,
@@ -752,6 +752,9 @@ export default function App() {
   // Each thread keeps its own unsent draft (and the global composer keeps its
   // own), so switching threads never carries text into the wrong one.
   const draftOwner = useRef<string | null>(conversation);
+  // The thread whose saved draft is in the composer. Until it is, nothing is
+  // saved for it: the empty composer would overwrite the saved draft.
+  const draftLoadedFor = useRef<string | null>(null);
   useEffect(() => {
     const previous = draftOwner.current;
     if (previous === conversation) return;
@@ -763,9 +766,21 @@ export default function App() {
     setAttachments(next.files);
     setComposerExpanded(false);
     setComposerError("");
+    draftLoadedFor.current = conversation;
   }, [conversation]);
+  // A thread opened from the address (a reload, a link) loads its saved
+  // draft once the account is known, not when the thread's data arrives.
   useEffect(() => {
-    if (!conversation) return;
+    if (!session?.user?.id || !conversation) return;
+    if (draftLoadedFor.current === conversation) return;
+    const saved = threadDraft(conversation);
+    if (!draftRef.current.trim() && saved.text) setDraft(saved.text);
+    if (!attachmentsRef.current.length && saved.files.length)
+      setAttachments(saved.files);
+    draftLoadedFor.current = conversation;
+  }, [session?.user?.id, conversation]);
+  useEffect(() => {
+    if (!conversation || draftLoadedFor.current !== conversation) return;
     // Save for the owner who typed it, even if the session changes meanwhile.
     const owner = ownerRef.current;
     const timer = setTimeout(

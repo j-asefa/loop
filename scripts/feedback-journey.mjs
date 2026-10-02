@@ -112,7 +112,7 @@ export async function feedbackJourney(page, api, base, dir) {
     page.getByText("No agents are working right now.", { exact: true }),
   ).toBeVisible();
   await expect(page.locator(".inbox-row")).toHaveCount(0);
-  await page.getByRole("tab", { name: /^All/ }).click();
+  await page.getByRole("tab", { name: /^Done/ }).click();
   await openProfile("feedback-worker");
   const card = page.locator(".feed-card").filter({
     has: page.getByRole("heading", {

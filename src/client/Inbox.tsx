@@ -46,6 +46,7 @@ import { notify } from "./toast";
 
 export type InboxFilter =
   | "all"
+  | "done"
   | "needs"
   | "working"
   | "queued"
@@ -126,7 +127,8 @@ type Brief = {
 };
 
 export const inboxFilters: { id: InboxFilter; label: string }[] = [
-  { id: "all", label: "All" },
+  // Done holds only threads with nothing open; open work has its own chip.
+  { id: "done", label: "Done" },
   { id: "needs", label: "Needs you" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
@@ -388,7 +390,7 @@ function AwaySummary({
         <button
           type="button"
           className="away-toggle"
-          onClick={() => onFilter(away.needs.length ? "needs" : "all")}
+          onClick={() => onFilter(away.needs.length ? "needs" : "done")}
         >
           <strong>While you were away</strong>
           <span>{parts.join(" · ")}</span>
@@ -899,18 +901,20 @@ export function Inbox({
                 <strong>
                   {filter === "all"
                     ? "Nothing here yet."
-                    : filter === "needs"
-                      ? "Nothing needs you right now."
-                      : filter === "working"
-                        ? "No agents are working right now."
-                        : filter === "outcomes"
-                          ? "No finished work here yet."
-                          : filter === "unfinished"
-                            ? "Nothing unfinished here."
-                            : "Nothing is queued."}
+                    : filter === "done"
+                      ? "Nothing finished yet."
+                      : filter === "needs"
+                        ? "Nothing needs you right now."
+                        : filter === "working"
+                          ? "No agents are working right now."
+                          : filter === "outcomes"
+                            ? "No finished work here yet."
+                            : filter === "unfinished"
+                              ? "Nothing unfinished here."
+                              : "Nothing is queued."}
                 </strong>
               </p>
-              {filter === "all" && emptyAction}
+              {(filter === "all" || filter === "done") && emptyAction}
             </div>
           )
         )}

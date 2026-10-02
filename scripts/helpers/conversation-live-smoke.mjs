@@ -62,7 +62,10 @@ export async function conversationLiveSmoke(page, capture) {
       )
       .get(conversation.run).content;
     assert.ok(feedPreview.trim(), "The running fixture has a result preview");
-    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    // A running thread is under Working, not Done.
+    await page.goto(fixture.base + "/?filter=working", {
+      waitUntil: "networkidle",
+    });
     await expect(
       page
         .locator(".inbox-card")

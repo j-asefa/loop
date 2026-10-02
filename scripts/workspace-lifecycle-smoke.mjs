@@ -182,7 +182,7 @@ for (const engine of selectedEngines()) {
       .click();
     await expect(page.getByText("Tap Save on any result or message")).toBeVisible();
     await nav("Feed");
-    await expect(inboxFilter("All")).toHaveAttribute("aria-selected", "true");
+    await expect(inboxFilter("Done")).toHaveAttribute("aria-selected", "true");
     // The saved result's thread is in the selected team's Feed.
     await expect(
       page.locator(`.inbox-row[aria-label^="${saved.title}"]`),

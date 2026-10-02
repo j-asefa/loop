@@ -258,6 +258,19 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect(await filter("working")).toEqual([working]);
   expect(await filter("queued")).toEqual([working]);
   expect(await filter("later")).toEqual([snoozed]);
+  // Done leaves out everything open: needs you, working, queued or snoozed.
+  expect(await filter("done")).toEqual([done]);
+  // A finished thread with a queued follow-up is queued, not done.
+  const followUp = conversation(w.owner, a.id, "Follow-up");
+  message(w.owner, followUp, "user", "First", run(w.owner, a.id, followUp, "completed"));
+  run(w.owner, a.id, followUp, "queued");
+  expect(await filter("done")).toEqual([done]);
+  expect(await filter("queued")).toContain(followUp);
+  // Imported history has messages but no runs, and is done.
+  const imported = conversation(w.owner, a.id, "Imported");
+  message(w.owner, imported, "user", "From an export");
+  expect(await filter("done")).toEqual(expect.arrayContaining([done, imported]));
+  expect(await filter("done")).toHaveLength(2);
   // An agent profile lists only that agent's threads; foreign agents are rejected.
   const b = w.agent();
   const other = conversation(w.owner, b.id, "Other agent");
@@ -272,6 +285,11 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   // Dismissing the failure removes it from needs.
   db.prepare("UPDATE runs SET attention_dismissed_at=1 WHERE id=?").run(nr);
   expect(await filter("needs")).toEqual([]);
+  // ...and, with nothing else open, it is done.
+  const doneNow = await filter("done");
+  expect(doneNow).toEqual(expect.arrayContaining([done, needs, other]));
+  expect(doneNow).not.toContain(working);
+  expect(doneNow).not.toContain(followUp);
   expect(queued).toBeTruthy();
   // Surfacing brings the snoozed conversation back to "all".
   surfaceLater(now() + 7200000);
