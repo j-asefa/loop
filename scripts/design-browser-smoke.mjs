@@ -454,6 +454,7 @@ try {
       await more.click();
       await expect(more).toHaveAttribute("aria-expanded", "true");
       await expect(dialog().getByRole("menuitem")).toHaveText([
+        /^Reply to part.*Only those are quoted/,
         /^Fork from here.*Files are not rewound/,
         /^Reuse as prompt.*editable draft/,
         /^Save as snippet.*reusable instructions/,

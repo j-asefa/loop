@@ -1182,6 +1182,7 @@ export default function App() {
         folderChoice,
         conversationId,
         reply?.messageId,
+        reply?.excerpt ? reply.content : null,
         attachments.map((file) => file.id),
       ]);
       // A conversation draft from the previous composer may be retrying a
@@ -1235,6 +1236,8 @@ export default function App() {
         agentId: recipient.id,
         conversationId,
         replyToMessageId: reply?.messageId,
+        replyExcerpt:
+          reply?.messageId && reply.excerpt ? reply.content : undefined,
         input: draft,
         idempotencyKey: request.current.key,
         attachmentIds: attachments.map((file) => file.id),
@@ -1687,10 +1690,11 @@ export default function App() {
               <ReplyIcon size={16} aria-hidden="true" />
               <details className="composer-quote-toggle">
                 <summary>
-                  Replying to{" "}
+                  Replying to {quoted.excerpt ? "part of " : ""}
                   {quoted.mine
                     ? "your message"
-                    : "@" + (activeAgent?.name || "agent")}
+                    : "@" + (activeAgent?.name || "agent") +
+                      (quoted.excerpt ? "'s message" : "")}
                   :{" "}
                   <span>{preview(quoted.content!, 80)}</span>
                 </summary>

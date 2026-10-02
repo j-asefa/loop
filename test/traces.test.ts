@@ -813,3 +813,181 @@ it("scopes failure details to the requested run and preserves owner/agent isolat
   ).toBeDefined();
   for (const run of [first, second, secret]) transition(run, "cancelled");
 });
+
+it("filters traces by every term, including linked tool results, within the owner's agent", async () => {
+  const a = agent(),
+    other = agent(),
+    foreign = agent("bob");
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "Search traces",
+    idempotencyKey: id(),
+  });
+  const sibling = submit("alice", {
+    agentId: other.id,
+    input: "Sibling agent",
+    idempotencyKey: id(),
+  });
+  const secret = submit("bob", {
+    agentId: foreign.id,
+    input: "Private",
+    idempotencyKey: id(),
+  });
+  recordTrace(run, "tool:npm", {
+    kind: "tool",
+    title: "Command",
+    content: "npm test -- --grep zeppelin",
+  });
+  recordTrace(run, "tool:git", {
+    kind: "tool",
+    title: "Command",
+    content: "git log zeppelin",
+  });
+  recordTrace(run, "turn:final", {
+    kind: "message",
+    title: "Final answer",
+    content: "Zeppelin summary",
+    metadata: { final: true },
+  });
+  const result = saveArtifact("alice", {
+    title: "web_search",
+    content: "Marmalade harbour result",
+    agent: a.id,
+    conversation: run.conversation_id,
+    run: run.id,
+    metadata: { tool: "web_search" },
+  });
+  recordTrace(run, "tool:search", {
+    kind: "tool",
+    title: "web_search",
+    artifactId: result,
+  });
+  for (const r of [sibling, secret])
+    recordTrace(r, "tool:npm", {
+      kind: "tool",
+      title: "Command",
+      content: "npm test zeppelin",
+    });
+  const keys = (q: string, agentId = a.id, owner = "alice") =>
+    agentTraces(owner, agentId, undefined, undefined, q).items.map(
+      (t: any) => t.trace_key,
+    );
+  expect(keys("zeppelin")).toEqual(["tool:git", "tool:npm"]);
+  expect(keys("npm zep")).toEqual(["tool:npm"]);
+  expect(keys("harbour")).toEqual(["tool:search"]);
+  expect(keys("zeppelin", foreign.id, "bob")).toEqual(["tool:npm"]);
+  expect(() => keys("zeppelin", a.id, "bob")).toThrow("Item not found");
+  expect(keys("!!")).toEqual([]);
+  expect(
+    agentTraces("alice", a.id, undefined, undefined, "").items,
+  ).toHaveLength(3);
+  // Workspace search stays conversation-first.
+  expect((await search("alice", "harbour")).items).toEqual([]);
+
+  recordTrace(run, "tool:git", {
+    kind: "tool",
+    title: "Command",
+    content: "git status",
+  });
+  expect(keys("zeppelin")).toEqual(["tool:npm"]);
+  expect(keys("status")).toEqual(["tool:git"]);
+  expect(
+    (await get(`/agents/${a.id}/traces?q=${encodeURIComponent("git status")}`))
+      .items,
+  ).toMatchObject([{ trace_key: "tool:git" }]);
+  for (const r of [run, sibling, secret]) transition(r, "cancelled");
+});
+
+it("exports a whole run's public traces, including its final answer", async () => {
+  const a = agent(),
+    foreign = agent("bob");
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "Export me",
+    idempotencyKey: id(),
+  });
+  const other = submit("alice", {
+    agentId: a.id,
+    input: "Other run",
+    idempotencyKey: id(),
+  });
+  recordTrace(run, "turn:1", {
+    kind: "message",
+    title: "Agent update",
+    content: "Looking",
+  });
+  recordTrace(run, "tool:1", {
+    kind: "tool",
+    title: "Command",
+    content: "ls",
+    metadata: { state: "completed" },
+  });
+  recordTrace(run, "empty", { kind: "message", title: "Agent update" });
+  recordTrace(run, "turn:2", {
+    kind: "message",
+    title: "Final answer",
+    content: "Done",
+    metadata: { final: true },
+  });
+  recordTrace(other, "tool:1", {
+    kind: "tool",
+    title: "Command",
+    content: "pwd",
+  });
+  const response = await fetch(
+    `${base}/agents/${a.id}/traces/export?run=${run.id}`,
+    { headers: { "x-owner": "alice" } },
+  );
+  expect(response.headers.get("content-disposition")).toContain(
+    `loop-run-${run.id}-traces.json`,
+  );
+  const data = await response.json();
+  expect(data).toMatchObject({
+    agent: { id: a.id },
+    run: { id: run.id, input: "Export me" },
+    truncated: false,
+  });
+  expect(data.traces.map((t: any) => [t.trace_key, t.content])).toEqual([
+    ["turn:1", "Looking"],
+    ["tool:1", "ls"],
+    ["turn:2", "Done"],
+  ]);
+  expect(data.traces[1].metadata).toEqual({ state: "completed" });
+  const denied = [
+    [`/agents/${a.id}/traces/export?run=${run.id}`, "bob"],
+    [`/agents/${foreign.id}/traces/export?run=${run.id}`, "bob"],
+    [`/agents/${a.id}/traces/export?run=missing`, "alice"],
+  ] as const;
+  for (const [path, owner] of denied) {
+    const r = await fetch(base + path, { headers: { "x-owner": owner } });
+    expect(r.status).toBe(404);
+  }
+  for (const r of [run, other]) transition(r, "cancelled");
+});
+
+it("indexes traces saved before the search migration", () => {
+  const legacy = new Database(":memory:");
+  legacy.exec(
+    "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL);" +
+      "CREATE TABLE run_traces(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,content TEXT NOT NULL DEFAULT '');" +
+      "INSERT INTO run_traces(title,content) VALUES('Command','cargo build'),('Command','cargo test');",
+  );
+  legacy.exec(
+    readFileSync(
+      join(
+        import.meta.dirname,
+        "../migrations",
+        readdirSync(join(import.meta.dirname, "../migrations")).find((f) =>
+          f.endsWith("-trace-search.sql"),
+        )!,
+      ),
+      "utf8",
+    ),
+  );
+  expect(
+    legacy
+      .prepare("SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'test'")
+      .all(),
+  ).toEqual([{ rowid: 2 }]);
+  legacy.close();
+});

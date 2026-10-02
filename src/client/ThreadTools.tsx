@@ -17,6 +17,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  TextQuote,
   Trash2,
   User,
   X,
@@ -138,6 +139,7 @@ export function messageActions({
   canReply,
   canFork,
   onReply,
+  onQuotePart,
   onCopy,
   onSave,
   onLater,
@@ -150,6 +152,7 @@ export function messageActions({
   canReply: boolean;
   canFork: boolean;
   onReply: () => void;
+  onQuotePart: () => void;
   onCopy: () => void;
   onSave: () => void;
   onLater: () => void;
@@ -177,6 +180,17 @@ export function messageActions({
       },
     ],
     more: [
+      ...(canReply
+        ? [
+            {
+              id: "quote-part",
+              label: "Reply to part",
+              hint: "Highlight the lines you mean. Only those are quoted to the agent.",
+              icon: <TextQuote size={20} />,
+              onSelect: onQuotePart,
+            },
+          ]
+        : []),
       ...(canFork
         ? [
             {
@@ -212,6 +226,48 @@ export function messageActions({
       },
     ],
   };
+}
+
+/**
+ * Reply to part of a message: the text is selectable as written, so the
+ * excerpt is exactly what the message contains and the server can verify it.
+ */
+export function QuotePartSheet({
+  content,
+  onClose,
+  onQuote,
+}: {
+  content: string;
+  onClose: () => void;
+  onQuote: (excerpt: string) => void;
+}) {
+  const [excerpt, setExcerpt] = useState("");
+  const pick = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const t = e.currentTarget;
+    setExcerpt(content.slice(t.selectionStart, t.selectionEnd).trim());
+  };
+  return (
+    <Sheet title="Reply to part" onClose={onClose}>
+      <p className="field-hint">
+        Highlight the lines you mean. Only those are quoted to the agent.
+      </p>
+      <textarea
+        className="quote-part-text"
+        aria-label="Message text"
+        readOnly
+        rows={10}
+        value={content}
+        onSelect={pick}
+      />
+      <button
+        className="primary"
+        disabled={!excerpt}
+        onClick={() => onQuote(excerpt)}
+      >
+        <TextQuote size={18} /> Reply to selection
+      </button>
+    </Sheet>
+  );
 }
 
 /** A reminder Loop created, for the confirmation's link and Undo. */

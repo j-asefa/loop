@@ -310,3 +310,68 @@ it("supports saved final messages and carries their quote into native harness pr
     session.mockRestore();
   }
 });
+
+it("quotes only a highlighted part of the message, verified against its text", async () => {
+  const { agent, run, message } = source();
+  const body = {
+    agentId: agent.id,
+    conversationId: run.conversation_id,
+    replyToMessageId: message,
+    replyExcerpt: "  Both backends will retain their history. ",
+    input: "Including deleted sessions?",
+    idempotencyKey: id(),
+  };
+  const accepted = await request("/runs", body);
+  expect(accepted.status).toBe(202);
+  const quote = JSON.parse(accepted.data.payload).replyTo;
+  expect(quote).toMatchObject({
+    id: message,
+    excerpt: true,
+    content: "Both backends will retain their history.",
+  });
+  expect(replyPrompt(body.input, quote)).toBe(
+    `Replying to part of this earlier message from @${agent.name}:\n\n> Both backends will retain their history.\n\nIncluding deleted sessions?`,
+  );
+  // The same key repeats the same work; a different excerpt is different work.
+  expect((await request("/runs", body)).data.id).toBe(accepted.data.id);
+  expect(
+    (await request("/runs", { ...body, replyExcerpt: "session tables" }))
+      .status,
+  ).toBe(409);
+  transition(accepted.data, "cancelled");
+  // Highlighting the whole message is an ordinary quote.
+  const whole = await request("/runs", {
+    ...body,
+    replyExcerpt:
+      "I am separating the session tables.\n\nBoth backends will retain their history.",
+    idempotencyKey: id(),
+  });
+  expect(JSON.parse(whole.data.payload).replyTo.excerpt).toBeUndefined();
+  transition(whole.data, "cancelled");
+  for (const invalid of [
+    { replyExcerpt: "Text the agent never wrote" },
+    { replyToMessageId: undefined },
+  ]) {
+    const response = await request("/runs", {
+      ...body,
+      ...invalid,
+      idempotencyKey: id(),
+    });
+    expect(response.status).toBe(400);
+  }
+});
+
+it("bounds a long whole-message quote to its start and end", () => {
+  const content = "start\n" + "x".repeat(20000) + "\nfinish";
+  const prompt = replyPrompt("Summarise", {
+    id: "m",
+    name: "agent",
+    content,
+    created_at: 0,
+  });
+  expect(prompt.length).toBeLessThan(7000);
+  expect(prompt).toContain("> start");
+  expect(prompt).toContain("> finish");
+  expect(prompt).toMatch(/characters omitted/);
+  expect(prompt.endsWith("\n\nSummarise")).toBe(true);
+});

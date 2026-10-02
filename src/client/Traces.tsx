@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Download, ListTree, MessageSquare } from "lucide-react";
+import {
+  ArrowUpRight,
+  Download,
+  ListTree,
+  MessageSquare,
+  Search,
+} from "lucide-react";
 import { api, parse } from "./api";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
@@ -22,19 +28,62 @@ type Trace = {
   invocation_state?: string | null;
 };
 type Page = { items: Trace[]; next: number | null };
-export function Traces({
-  agentId,
-  runId,
-  revision,
-  onConversation,
-  onArtifact,
-}: {
+type Props = {
   agentId: string;
   runId?: string;
   revision: number;
   onConversation: (id: string) => void;
   onArtifact: (item: Artifact) => void;
-}) {
+};
+function saveJson(name: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export function Traces(props: Props) {
+  const [query, setQuery] = useState("");
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQ(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  return (
+    <section className="trace-list" aria-label="Agent traces">
+      {!props.runId && (
+        <p className="field-hint">
+          Updates and tool activity from this agent. Final answers appear in
+          Results.
+        </p>
+      )}
+      <label className="directory-search">
+        <Search size={18} aria-hidden="true" />
+        <input
+          type="search"
+          aria-label="Search traces"
+          placeholder="Search commands, tools and updates…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </label>
+      {/* A new query starts a fresh page cursor. */}
+      <TraceList key={q} {...props} query={q} />
+    </section>
+  );
+}
+function TraceList({
+  agentId,
+  runId,
+  revision,
+  onConversation,
+  onArtifact,
+  query,
+}: Props & { query: string }) {
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -59,6 +108,9 @@ export function Traces({
           : page.next,
       };
     });
+  const filter =
+    (runId ? "&run=" + encodeURIComponent(runId) : "") +
+    (query ? "&q=" + encodeURIComponent(query) : "");
   useEffect(() => {
     // Finish paging before refreshing so an older response cannot overwrite
     // the cursor for a newly discovered gap.
@@ -66,7 +118,7 @@ export function Traces({
     let current = true;
     const request = new AbortController();
     void api<Page>(
-      `/agents/${agentId}/traces${runId ? "?run=" + encodeURIComponent(runId) : ""}`,
+      `/agents/${agentId}/traces${filter.replace("&", "?")}`,
       undefined,
       undefined,
       request.signal,
@@ -86,13 +138,13 @@ export function Traces({
       current = false;
       request.abort();
     };
-  }, [agentId, runId, revision, moreBusy]);
+  }, [agentId, filter, revision, moreBusy]);
   const earlier = async () => {
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
       const page = await api<Page>(
-        `/agents/${agentId}/traces?before=${next}${runId ? "&run=" + encodeURIComponent(runId) : ""}`,
+        `/agents/${agentId}/traces?before=${next}${filter}`,
       );
       merge(page);
       setError("");
@@ -102,32 +154,34 @@ export function Traces({
       setMoreBusy(false);
     }
   };
-  const download = (trace: Trace) => {
-    const blob = new Blob([JSON.stringify(trace, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `loop-trace-${trace.run_id}-${trace.id}.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const download = (trace: Trace) =>
+    saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
+  const downloadRun = async (id: string) => {
+    try {
+      saveJson(
+        `loop-run-${id}-traces.json`,
+        await api(
+          `/agents/${agentId}/traces/export?run=${encodeURIComponent(id)}`,
+        ),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
   return (
-    <section className="trace-list" aria-label="Agent traces">
-      {!runId && (
-        <p className="field-hint">
-          Updates and tool activity from this agent. Final answers appear in
-          Results.
-        </p>
-      )}
+    <>
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {loading && <p role="status">Loading traces…</p>}
-      {!loading && !items.length && (
+      {!loading && !items.length && query && (
+        <Empty title="No matching traces.">
+          Try a command, tool name or a word from an update.
+        </Empty>
+      )}
+      {!loading && !items.length && !query && (
         <Empty title="No traces yet.">
           {runId
             ? "This run has no saved activity. Its runtime did not record more failure details."
@@ -159,6 +213,12 @@ export function Traces({
                     Open conversation <ArrowUpRight size={15} />
                   </button>
                 )}
+                <button
+                  className="text-button"
+                  onClick={() => void downloadRun(groupRunId)}
+                >
+                  <Download size={15} /> Download run
+                </button>
               </div>
               <h3>
                 {title.length > 140
@@ -285,6 +345,6 @@ export function Traces({
           {moreBusy ? "Loading…" : "Earlier traces"}
         </button>
       )}
-    </section>
+    </>
   );
 }

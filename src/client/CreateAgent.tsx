@@ -51,20 +51,25 @@ export function CreateAgent({
           ? folders.find((f) => f.kind === "project")?.id || ""
           : ""),
     ),
-    [name, setName] = useState(""),
+    [suggestedName, setSuggestedName] = useState(""),
+    [typedName, setTypedName] = useState(""),
+    [nameTouched, setNameTouched] = useState(false),
     [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const instructionsHint = useId(),
     promptHint = useId();
   const locked = useRef(false),
-    request = useRef({ signature: "", key: "" }),
-    nameEdited = useRef(false);
+    request = useRef({ signature: "", key: "" });
+  // The suggestion arrives asynchronously. Once the person enters the field it
+  // must not change underneath them: a late suggestion would land between
+  // their caret placement and first keystroke and merge into what they type.
+  const name = nameTouched ? typedName : suggestedName;
   useEffect(() => {
     let cancelled = false;
     api<{ name: string }>("/agents/suggest-name")
       .then((suggestion) => {
-        if (!cancelled && !nameEdited.current) setName(suggestion.name);
+        if (!cancelled) setSuggestedName(suggestion.name);
       })
       .catch(() => {
         // Manual naming remains available if suggestions cannot be loaded.
@@ -151,11 +156,13 @@ export function CreateAgent({
   }
   // First-time setup leads; once a runtime is connected it moves below the form.
   const setupBlock = (
-      <details className="runtime-setup-options" open={!connected.length}>
-        <summary>Runtimes and execution environments</summary>
+    <details className="runtime-setup-options" open={!connected.length}>
+      <summary>Runtimes and execution environments</summary>
       {capabilities.localProjects && (
         <div>
-          <p className="field-hint">Choose or enable a runtime on this computer.</p>
+          <p className="field-hint">
+            Choose or enable a runtime on this computer.
+          </p>
           <RuntimeSetup
             onEnabled={async (runtimeName) => {
               const updated = await onConnectionsChanged();
@@ -174,7 +181,7 @@ export function CreateAgent({
         </div>
       )}
       <EnvironmentRuntimes />
-      </details>
+    </details>
   );
   return (
     <Sheet title="Meet your next agent" onClose={onClose}>
@@ -319,9 +326,14 @@ export function CreateAgent({
               name="name"
               required
               value={name}
+              onFocus={(e) => {
+                if (nameTouched) return;
+                setTypedName(e.currentTarget.value);
+                setNameTouched(true);
+              }}
               onChange={(e) => {
-                nameEdited.current = true;
-                setName(e.target.value);
+                setNameTouched(true);
+                setTypedName(e.target.value);
               }}
               placeholder={loadingName ? "Choosing a name…" : "Choose a name"}
               pattern="[a-zA-Z][a-zA-Z0-9-]{2,31}"

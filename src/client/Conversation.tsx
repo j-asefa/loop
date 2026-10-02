@@ -54,6 +54,7 @@ import {
   ForkSheet,
   LaterSheet,
   OutlineSheet,
+  QuotePartSheet,
   ScheduledSends,
   UsageLine,
   messageActions,
@@ -217,6 +218,7 @@ export function Conversation({
       next: string | null;
       position_message_id?: string | null;
       saved?: string[];
+      steerable_run_id?: string | null;
     } | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -239,6 +241,7 @@ export function Conversation({
       title: string;
     } | null>(null),
     [forkFrom, setForkFrom] = useState<ConversationMessage | null>(null),
+    [quoteFrom, setQuoteFrom] = useState<ConversationMessage | null>(null),
     [changes, setChanges] = useState<{
       summary: ChangeSummary;
       context: ChangeContext;
@@ -665,11 +668,13 @@ export function Conversation({
     latestRun;
   const status = runStatus(currentRun?.run_state);
   const workState = currentRun?.run_state || "";
-  // Only the API runtime takes a message mid-task; native (HAPI) sessions
-  // queue every follow-up.
+  // API, subscription, Codex and Claude turns take a message mid-task. HAPI
+  // sessions and Pi, OpenCode and ACP turns queue every follow-up. The
+  // server decides from the connection the current run started with.
   const steerable =
     ["running", "awaiting_approval"].includes(workState) &&
-    data?.conversation.execution_backend !== "hapi";
+    !!currentRun?.run_id &&
+    data?.steerable_run_id === currentRun.run_id;
   const workRef = useRef(onWork);
   workRef.current = onWork;
   useEffect(() => {
@@ -974,6 +979,7 @@ export function Conversation({
                 content: menuFor.content,
                 ...(menuFor.role === "user" ? { mine: true } : {}),
               }),
+            onQuotePart: () => setQuoteFrom(menuFor),
             onCopy: async () => {
               try {
                 await navigator.clipboard.writeText(menuFor.content);
@@ -1027,6 +1033,23 @@ export function Conversation({
           </ActionSheet>
         );
       })()}
+      {quoteFrom && agent && (
+        <QuotePartSheet
+          content={quoteFrom.content}
+          onClose={() => setQuoteFrom(null)}
+          onQuote={(excerpt) => {
+            setQuoteFrom(null);
+            onReply({
+              agentId: agent.id,
+              conversationId: id,
+              messageId: quoteFrom.id,
+              content: excerpt,
+              excerpt: true,
+              ...(quoteFrom.role === "user" ? { mine: true } : {}),
+            });
+          }}
+        />
+      )}
       {forkFrom && (
         <ForkSheet
           conversationId={id}

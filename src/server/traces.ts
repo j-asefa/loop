@@ -1,5 +1,5 @@
 import { db, now } from "./db.js";
-import { owned } from "./domain.js";
+import { owned, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
 
 // Older runtimes saved Claude's internal JSON-envelope tool and its receipt.
@@ -39,13 +39,28 @@ export function recordTrace(
   );
 }
 
+// Every term must match, as a prefix, in the trace or its linked tool result.
+// Linked results live in artifacts, which the workspace index already covers.
+function traceMatch(q: string) {
+  const terms = q.match(/[\p{L}\p{N}]+/gu) || [];
+  return terms.length
+    ? terms
+        .slice(0, 20)
+        .map((t) => '"' + t + '"*')
+        .join(" ")
+    : null;
+}
+
 export function agentTraces(
   owner: string,
   agent: string,
   before = Number.MAX_SAFE_INTEGER,
   runId?: string,
+  q?: string,
 ) {
   owned("agents", agent, owner);
+  const match = q ? traceMatch(q) : null;
+  if (q && !match) return { items: [], next: null };
   const items = db
     .prepare(
       `SELECT t.*,r.input,r.state run_state,r.error run_error,r.conversation_id, c.name server,inv.state invocation_state
@@ -54,11 +69,53 @@ export function agentTraces(
     LEFT JOIN mcp_connections c ON c.id=inv.connection_id AND c.owner_id=t.owner_id
     WHERE t.owner_id=? AND r.agent_id=? AND t.id<? AND (? IS NULL OR r.id=?)
       AND (t.kind!='message' OR (json_extract(t.metadata,'$.final') IS NOT 1 AND length(trim(t.content))>0))
+      AND (? IS NULL OR t.id IN (SELECT rowid FROM trace_fts WHERE trace_fts MATCH ?)
+        OR 'artifact:'||t.artifact_id IN (SELECT id FROM search_fts WHERE search_fts MATCH ? AND owner_id=t.owner_id))
       AND ${publicTraceFilter}
     ORDER BY t.id DESC LIMIT 40`,
     )
-    .all(owner, agent, before, runId || null, runId || null) as {
+    .all(
+      owner,
+      agent,
+      before,
+      runId || null,
+      runId || null,
+      match,
+      match,
+      match,
+    ) as {
     id: number;
   }[];
   return { items, next: items.length === 40 ? items.at(-1)!.id : null };
+}
+
+const exportLimit = 5000;
+// A complete public record of one run, final answer included, for download.
+export function runTraceExport(owner: string, agent: string, runId: string) {
+  const a = owned<{ id: string; name: string }>("agents", agent, owner);
+  const run = db
+    .prepare(
+      "SELECT id,input,state,error,conversation_id,created_at,updated_at FROM runs WHERE id=? AND owner_id=? AND agent_id=?",
+    )
+    .get(runId, owner, agent);
+  if (!run) throw new Problem(404, "Run not found");
+  const rows = db
+    .prepare(
+      `SELECT t.id,t.trace_key,t.kind,t.title,t.content,t.metadata,t.artifact_id,t.created_at
+    FROM run_traces t WHERE t.owner_id=? AND t.run_id=?
+      AND (t.kind!='message' OR length(trim(t.content))>0)
+      AND ${publicTraceFilter}
+    ORDER BY t.id LIMIT ?`,
+    )
+    .all(owner, runId, exportLimit + 1) as { metadata: string }[];
+  return {
+    exported_at: now(),
+    agent: { id: a.id, name: a.name },
+    run,
+    truncated: rows.length > exportLimit,
+    traces: rows.slice(0, exportLimit).map((row) => ({
+      ...row,
+      metadata: JSON.parse(row.metadata),
+    })),
+  };
 }

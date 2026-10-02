@@ -398,3 +398,119 @@ async function executeWithDeadline(work: Promise<boolean>) {
     clearTimeout(timer!);
   }
 }
+
+it.each(["pi", "opencode", "acp"])(
+  "queues a mid-run reply to a %s turn, which cannot take live input",
+  async (harness) => {
+    const connection = id();
+    db.prepare(
+      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
+    ).run(
+      connection,
+      seal("fixture", "alice"),
+      JSON.stringify([{ id: "fixture" }]),
+      JSON.stringify({ loopHarness: harness }),
+      now(),
+    );
+    const agent = createAgent("alice", {
+      name: "queue-" + id().slice(0, 8),
+      connectionId: connection,
+      model: "fixture",
+    });
+    const active = submit("alice", {
+      agentId: agent.id,
+      input: "Investigate",
+      idempotencyKey: id(),
+    });
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(active.id);
+    const reply = await send({
+      agentId: agent.id,
+      conversationId: active.conversation_id,
+      input: "Also check the tests",
+      idempotencyKey: id(),
+    });
+    expect(reply.status).toBe(202);
+    expect(reply.data.id).not.toBe(active.id);
+    expect(reply.data.steeringId).toBeUndefined();
+    expect(reply.data).toMatchObject({
+      state: "queued",
+      conversation_id: active.conversation_id,
+    });
+    for (const r of [active, reply.data])
+      db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(r.id);
+  },
+);
+
+function harnessConnection(harness: string | null) {
+  const connection = id();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
+  ).run(
+    connection,
+    seal("fixture", "alice"),
+    JSON.stringify([{ id: "fixture" }]),
+    JSON.stringify(harness ? { loopHarness: harness } : {}),
+    now(),
+  );
+  return connection;
+}
+async function steerableRun(conversation: string) {
+  const response = await fetch(
+    `http://127.0.0.1:${(server.address() as any).port}/conversations/${conversation}`,
+    { headers: { "x-owner": "alice" } },
+  );
+  return (await response.json()).steerable_run_id;
+}
+
+it("queues a reply to an active Pi run after the agent switches to an API connection", async () => {
+  const agent = createAgent("alice", {
+    name: "switch-" + id().slice(0, 8),
+    connectionId: harnessConnection("pi"),
+    model: "fixture",
+  });
+  const active = submit("alice", {
+    agentId: agent.id,
+    input: "Investigate",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(active.id);
+  // The run keeps the Pi connection it started with.
+  db.prepare("UPDATE agents SET connection_id=? WHERE id=?").run(
+    harnessConnection(null),
+    agent.id,
+  );
+  expect(await steerableRun(active.conversation_id!)).toBeNull();
+  const reply = await send({
+    agentId: agent.id,
+    conversationId: active.conversation_id,
+    input: "Also check the tests",
+    idempotencyKey: id(),
+  });
+  expect(reply.status).toBe(202);
+  expect(reply.data.id).not.toBe(active.id);
+  expect(reply.data.steeringId).toBeUndefined();
+  expect(reply.data.state).toBe("queued");
+  for (const r of [active, reply.data])
+    db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(r.id);
+});
+
+it("steers an active API run after the agent switches to a Pi connection", async () => {
+  const { agent, run } = start();
+  db.prepare("UPDATE agents SET connection_id=? WHERE id=?").run(
+    harnessConnection("pi"),
+    agent.id,
+  );
+  expect(await steerableRun(run.conversation_id!)).toBe(run.id);
+  const reply = await send({
+    agentId: agent.id,
+    conversationId: run.conversation_id,
+    input: "Focus here first",
+    idempotencyKey: id(),
+  });
+  expect(reply.status).toBe(202);
+  expect(reply.data.id).toBe(run.id);
+  expect(reply.data.steeringId).toBeTruthy();
+  transition(run, "cancelled");
+  // With nothing running, nothing is steerable.
+  expect(await steerableRun(run.conversation_id!)).toBeNull();
+});

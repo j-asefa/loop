@@ -8,6 +8,7 @@ export function messageReplyContext(
   agent: string,
   conversation: string | undefined,
   message: string,
+  excerpt?: string,
 ): ReplyContext {
   if (!conversation)
     throw new Problem(400, "Choose the message's conversation to reply");
@@ -38,5 +39,20 @@ export function messageReplyContext(
   const { mine, ...rest } = entry as Omit<ReplyContext, "id" | "mine"> & {
     mine?: number;
   };
-  return { id: message, ...rest, ...(mine ? { mine: true } : {}) };
+  // A highlighted excerpt must be text the message actually contains, so the
+  // quote's attribution stays true.
+  const part = excerpt?.trim();
+  if (part && !rest.content.includes(part))
+    throw new Problem(
+      400,
+      "Highlight text from the message you are replying to",
+    );
+  return {
+    id: message,
+    ...rest,
+    ...(part && part !== rest.content.trim()
+      ? { content: part, excerpt: true }
+      : {}),
+    ...(mine ? { mine: true } : {}),
+  };
 }

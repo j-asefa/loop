@@ -806,6 +806,45 @@ it("returns the receipt for a matching retry of a scheduled send, even after it 
   ).toEqual({ n: 1 });
 });
 
+it("keeps a highlighted excerpt with a scheduled reply", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id);
+  const answer = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'assistant',?,'{}',?)",
+  ).run(answer, w.owner, cid, "First finding.\nSecond finding.", now());
+  const body = {
+    agentId: a.id,
+    conversationId: cid,
+    input: "Check this again",
+    attachmentIds: [],
+    replyToMessageId: answer,
+    replyExcerpt: "Second finding.",
+    idempotencyKey: "excerpt-" + randomBytes(6).toString("hex"),
+    sendAt: now() + 60000,
+  };
+  expect(
+    (await api(w.owner, "/scheduled-sends", "POST", { ...body, replyExcerpt: "Third" })).status,
+  ).toBe(400);
+  const created = await api(w.owner, "/scheduled-sends", "POST", body);
+  expect(created.status).toBe(201);
+  expect((await api(w.owner, "/scheduled-sends", "POST", body)).data.id).toBe(created.data.id);
+  expect(
+    (await api(w.owner, "/scheduled-sends", "POST", { ...body, replyExcerpt: "First finding." })).status,
+  ).toBe(409);
+  // Other tests' scheduled messages may also be due.
+  deliverScheduledSends(now() + 120000);
+  const runId = (
+    db.prepare("SELECT run_id FROM scheduled_sends WHERE id=?").get(created.data.id) as { run_id: string }
+  ).run_id;
+  const payload = JSON.parse(
+    (db.prepare("SELECT payload FROM runs WHERE id=?").get(runId) as { payload: string }).payload,
+  );
+  expect(payload.replyTo).toMatchObject({ id: answer, content: "Second finding.", excerpt: true });
+  transition(owned("runs", runId, w.owner), "cancelled");
+});
+
 it("delivers a scheduled message to its chosen project, to no project, or to the agent's", async () => {
   const w = workspaceFor();
   const project = id();
@@ -891,7 +930,10 @@ it("queues a follow-up instead of steering when POST /runs asks to queue", async
   const w = workspaceFor(),
     a = w.agent(),
     cid = conversation(w.owner, a.id);
-  const active = run(w.owner, a.id, cid, "running");
+  // Steering depends on the connection the run started with.
+  const active = run(w.owner, a.id, cid, "running", {
+    payload: { connectionId: a.connection_id },
+  });
   const queued = await api(w.owner, "/runs", "POST", {
     agentId: a.id,
     conversationId: cid,

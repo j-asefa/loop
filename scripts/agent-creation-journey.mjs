@@ -18,8 +18,32 @@ export async function agentCreationJourney(page, api) {
       .getByRole("combobox", { name: /^Model/ })
       .selectOption("openai-fixture");
   };
+  // A name suggestion that arrives after the person has entered the field
+  // must not merge into what they type (it once produced "otterproject-…").
+  let releaseSuggestion;
+  const suggestionDone = page.waitForResponse((response) =>
+    response.url().endsWith("/api/agents/suggest-name"),
+  );
+  await page.route(
+    "**/api/agents/suggest-name",
+    async (route) => {
+      await new Promise((resolve) => {
+        releaseSuggestion = resolve;
+      });
+      await route.continue();
+    },
+    { times: 1 },
+  );
   await open();
+  await expect.poll(() => typeof releaseSuggestion).toBe("function");
   await page.getByLabel("Unique name").fill("creation-idle");
+  releaseSuggestion();
+  await suggestionDone;
+  await expect(page.getByLabel("Unique name")).toHaveAttribute(
+    "placeholder",
+    "Choose a name",
+  );
+  await expect(page.getByLabel("Unique name")).toHaveValue("creation-idle");
   await page
     .getByText("Instructions & advanced options", { exact: true })
     .click();

@@ -59,6 +59,9 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     project.id,
   );
   await dialog.getByLabel("Unique name").fill("project-resident");
+  await expect(dialog.getByLabel("Unique name")).toHaveValue(
+    "project-resident",
+  );
   await dialog
     .getByRole("button", { name: "Create agent", exact: true })
     .click();

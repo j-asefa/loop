@@ -12,6 +12,7 @@ import { transition, type Run } from "./queue.js";
 import { runPreview } from "./run-attention.js";
 import { attachedFiles, attachmentIds } from "./uploads.js";
 import { messageReplyContext } from "./message-replies.js";
+import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
 import { connectionSelection } from "./hapi/contracts.js";
 import type { Agent, Message } from "../shared/types.js";
@@ -1330,8 +1331,12 @@ const scheduleInput = z.object({
   input: z.string().trim().min(1).max(30000),
   attachmentIds,
   replyToMessageId: z.string().min(1).max(150).optional(),
+  replyExcerpt: z.string().trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
   idempotencyKey: z.string().min(8).max(150),
   sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+}).refine((d) => !d.replyExcerpt || d.replyToMessageId, {
+  message: "Choose the message the excerpt comes from",
+  path: ["replyExcerpt"],
 });
 type ScheduledSend = {
   id: string;
@@ -1344,6 +1349,7 @@ type ScheduledSend = {
   input: string;
   attachment_ids: string;
   reply_to_message_id: string | null;
+  reply_excerpt: string | null;
   idempotency_key: string;
   send_at: number;
   state: string;
@@ -1376,6 +1382,7 @@ export function createScheduledSend(owner: string, body: unknown) {
           prior.folder_id === (d.folderId ?? null) &&
           prior.folder_chosen === Number(d.folderId !== undefined) &&
           prior.reply_to_message_id === (d.replyToMessageId ?? null) &&
+          prior.reply_excerpt === (d.replyExcerpt ?? null) &&
           prior.attachment_ids === JSON.stringify(d.attachmentIds) &&
           prior.send_at === d.sendAt;
         if (!same)
@@ -1414,6 +1421,7 @@ export function createScheduledSend(owner: string, body: unknown) {
           agent.id,
           d.conversationId,
           d.replyToMessageId,
+          d.replyExcerpt,
         );
       const pending = db
         .prepare(
@@ -1424,8 +1432,8 @@ export function createScheduledSend(owner: string, body: unknown) {
         throw new Problem(429, "You have 100 scheduled messages. Cancel some first.");
       const sendId = id();
       db.prepare(
-        `INSERT INTO scheduled_sends(id,owner_id,agent_id,conversation_id,folder_id,folder_chosen,input,attachment_ids,reply_to_message_id,idempotency_key,send_at,state,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)`,
+        `INSERT INTO scheduled_sends(id,owner_id,agent_id,conversation_id,folder_id,folder_chosen,input,attachment_ids,reply_to_message_id,reply_excerpt,idempotency_key,send_at,state,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)`,
       ).run(
         sendId,
         owner,
@@ -1436,6 +1444,7 @@ export function createScheduledSend(owner: string, body: unknown) {
         d.input,
         JSON.stringify(files.map((file) => file.id)),
         d.replyToMessageId ?? null,
+        d.replyToMessageId ? (d.replyExcerpt ?? null) : null,
         d.idempotencyKey,
         d.sendAt,
         now(),
@@ -1580,6 +1589,7 @@ function submitScheduled(row: ScheduledSend) {
     input: row.input,
     attachmentIds: JSON.parse(row.attachment_ids),
     replyToMessageId: row.reply_to_message_id ?? undefined,
+    replyExcerpt: row.reply_excerpt ?? undefined,
     idempotencyKey: row.idempotency_key,
     // A deferred message never steers work that started after it was
     // written; it queues behind the conversation's current run.

@@ -25,7 +25,12 @@ import { attachedFiles, attachmentPrompt } from "./uploads.js";
 import { toolErrorMessage } from "./mcp/results.js";
 import { messageReplyContext } from "./message-replies.js";
 import { replyPrompt, type ReplyContext } from "../shared/replies.js";
-import { saveSteering, steeringReceipt, SteeringInbox } from "./steering.js";
+import {
+  activeRun,
+  saveSteering,
+  steeringReceipt,
+  SteeringInbox,
+} from "./steering.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import { connectionSelection, type NativeSelection } from "./hapi/contracts.js";
 import { executeHapi } from "./hapi/adapter.js";
@@ -58,6 +63,8 @@ export function submit(
     teamId?: string;
     attachmentIds?: string[];
     replyToMessageId?: string;
+    /** The highlighted part of the replied-to message to quote. */
+    replyExcerpt?: string;
     // Internal retries preserve the original quote, even if the source changed.
     replyTo?: ReplyContext;
     // User follow-ups steer active work. Internal delegation/retry creates work.
@@ -74,6 +81,7 @@ export function submit(
         folderId: data.folderId,
         attachmentIds: data.attachmentIds || [],
         replyToMessageId: data.replyToMessageId,
+        replyExcerpt: data.replyExcerpt,
       });
       const steered = steeringReceipt(owner, data.idempotencyKey, request);
       if (steered) return steered;
@@ -128,7 +136,11 @@ export function submit(
           JSON.stringify(JSON.parse(prior.payload).attachmentIds || []) !==
             JSON.stringify(attachments.map((file) => file.id)) ||
           JSON.parse(prior.payload).replyTo?.id !==
-            (data.replyToMessageId || data.replyTo?.id)
+            (data.replyToMessageId || data.replyTo?.id) ||
+          (!data.replyTo &&
+            data.replyExcerpt?.trim() &&
+            JSON.parse(prior.payload).replyTo?.content?.trim() !==
+              data.replyExcerpt.trim())
         )
           throw new Problem(409, "This request key belongs to different work");
         return prior;
@@ -141,6 +153,7 @@ export function submit(
               agent.id,
               data.conversationId,
               data.replyToMessageId,
+              data.replyExcerpt,
             )
           : undefined);
       if (agent.retired_at)
@@ -249,13 +262,12 @@ export function submit(
         attachmentIds: attachments.map((file) => file.id),
         replyTo,
       };
-      // HAPI has no SteeringInbox consumer; preserve durable queued follow-ups.
+      // HAPI has no SteeringInbox consumer, and Pi, OpenCode and ACP turns
+      // cannot take live input; preserve durable queued follow-ups for both.
+      // The active run's own connection decides, not the agent's current one.
       if (data.steer && !execution) {
-        const active = db
-          .prepare(
-            "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND conversation_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC LIMIT 1",
-          )
-          .get(owner, agent.id, conversation) as Run | undefined;
+        const found = activeRun(owner, conversation, agent.id);
+        const active = found?.liveInput ? found.run : undefined;
         if (active) {
           if (
             data.folderId !== undefined &&

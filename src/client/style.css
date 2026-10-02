@@ -4811,6 +4811,9 @@ mark {
   gap: 4px;
   padding: 6px 0;
 }
+.trace-run-meta .text-button + .text-button {
+  margin-left: 0;
+}
 .trace-run-meta .status[data-state="running"],
 .trace-run-meta .status[data-state="awaiting_approval"] {
   color: var(--brass-text);
@@ -6962,4 +6965,11 @@ html:has(.sheet.side-panel[open]) {
 }
 [data-theme="dark"] .my-profile-counts {
   border-top-color: #433b22;
+}
+
+.quote-part-text {
+  width: 100%;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
 }

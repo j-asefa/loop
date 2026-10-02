@@ -11,7 +11,7 @@ import {
   fileArtifactSql,
   projectFolders,
 } from "./feed.js";
-import { agentTraces } from "./traces.js";
+import { agentTraces, runTraceExport } from "./traces.js";
 import { personalHistory } from "./personal-history.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
@@ -39,10 +39,12 @@ import { suggestAgentName } from "./agent-names.js";
 import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
 import { submit } from "./agent-runtime.js";
+import { activeRun } from "./steering.js";
 import { attachmentIds } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import { listTeams, teamFilter } from "./teams.js";
+import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { nativeCancel, dispatchFor } from "./hapi/adapter.js";
 export const core = Router();
 core.get("/bootstrap", (_req, res) =>
@@ -379,7 +381,13 @@ core.get("/agents/:id/traces", (req, res) => {
     .optional()
     .parse(req.query.before);
   const runId = z.string().min(1).max(100).optional().parse(req.query.run);
-  res.json(agentTraces(res.locals.owner, req.params.id, before, runId));
+  const q = z.string().max(500).optional().parse(req.query.q);
+  res.json(agentTraces(res.locals.owner, req.params.id, before, runId, q));
+});
+core.get("/agents/:id/traces/export", (req, res) => {
+  const runId = z.string().min(1).max(100).parse(req.query.run);
+  const data = runTraceExport(res.locals.owner, req.params.id, runId);
+  res.attachment(`loop-run-${runId}-traces.json`).json(data);
 });
 core.get("/me/profile", (_req, res) => {
   res.json(readProfile(res.locals.owner));
@@ -418,12 +426,17 @@ core.post("/runs", (req, res) => {
       agentId: z.string(),
       conversationId: z.string().optional(),
       replyToMessageId: z.string().min(1).max(150).optional(),
+      replyExcerpt: z.string().trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
       input: z.string().trim().min(1).max(30000),
       attachmentIds,
       idempotencyKey: z.string().min(8).max(150),
       folderId: z.string().min(1).nullable().optional(),
       // Queue after the current run instead of steering it.
       queue: z.boolean().optional(),
+    })
+    .refine((d) => !d.replyExcerpt || d.replyToMessageId, {
+      message: "Choose the message the excerpt comes from",
+      path: ["replyExcerpt"],
     })
     .parse(req.body);
   const { queue, ...data } = d;
@@ -655,8 +668,15 @@ core.get("/conversations/:id", (req, res) => {
   const c = owned("conversations", req.params.id, res.locals.owner);
   const before = z.string().max(512).optional().parse(req.query.before);
   const anchor = z.string().max(150).optional().parse(req.query.message);
+  const active = activeRun(
+    res.locals.owner,
+    req.params.id,
+    (c as { agent_id: string | null }).agent_id ?? undefined,
+  );
   res.json({
     conversation: c,
+    // The run a reply would steer now; null means a reply queues.
+    steerable_run_id: active?.liveInput ? active.run.id : null,
     ...conversationMessages(res.locals.owner, req.params.id, before, anchor),
     ...conversationReturnState(res.locals.owner, req.params.id),
   });
