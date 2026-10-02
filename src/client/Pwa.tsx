@@ -63,40 +63,54 @@ export function PwaStatus() {
         "--keyboard-inset",
         (keyboardOpen ? inset : 0) + "px",
       );
-      // Safari can leave the visible area panned after the keyboard closes.
-      // Fixed bars stay on the page's own bottom edge, so they then float in
-      // the middle of the screen. Fold the pan back into the page scroll:
-      // what you see stays put and the bars return to the bottom.
-      const pan = leftoverPan(v, keyboardOpen);
-      if (pan)
-        window.scrollTo({
-          top: window.scrollY + pan,
-          behavior: "instant" as ScrollBehavior,
-        });
+      fold(keyboardOpen);
     };
+    // Safari can leave the visible area panned after the keyboard closes.
+    // Fixed bars stay on the page's own bottom edge, so they then float in
+    // the middle of the screen. Fold the pan back into the page scroll: what
+    // you see stays put and the bars return to the bottom. After a scroll or
+    // touch only this runs; the keyboard state is left as it is.
+    const fold = (
+      keyboardOpen = document.documentElement.dataset.keyboard === "open",
+    ) => {
+      const pan = leftoverPan(window.visualViewport, keyboardOpen);
+      const top = foldTarget(pan, touching, window.scrollY, foldedTo);
+      // Forget the last fold once the pan is gone.
+      foldedTo = top ?? (pan ? foldedTo : null);
+      if (top !== null)
+        window.scrollTo({ top, behavior: "instant" as ScrollBehavior });
+    };
+    // Where the last fold scrolled the page, so a fold that already worked
+    // is not repeated while Safari catches up (each fold scrolls, which
+    // checks again).
+    let foldedTo: number | null = null;
     let viewportFrame = 0;
     const scheduleViewport = () => {
       cancelAnimationFrame(viewportFrame);
       // Let focus settle first, including showModal() and dialog restoration.
       viewportFrame = requestAnimationFrame(viewport);
     };
+    let touching = false;
+    const touched = (event: Event) => {
+      touching = event.type === "touchstart";
+    };
+    const touchEvents = ["touchstart", "touchend", "touchcancel"];
+    for (const type of touchEvents)
+      window.addEventListener(type, touched, { passive: true });
     viewport();
-    window.visualViewport?.addEventListener("resize", scheduleViewport);
-    window.visualViewport?.addEventListener("scroll", scheduleViewport);
-    window.addEventListener("resize", scheduleViewport);
-    window.addEventListener("pageshow", scheduleViewport);
-    document.addEventListener("focusin", scheduleViewport);
-    document.addEventListener("focusout", scheduleViewport);
+    const stopWatching = watchViewport(
+      window,
+      document,
+      scheduleViewport,
+      () => fold(),
+    );
     return () => {
       window.removeEventListener("online", changed);
       window.removeEventListener("offline", changed);
       cancelAnimationFrame(viewportFrame);
-      window.visualViewport?.removeEventListener("resize", scheduleViewport);
-      window.visualViewport?.removeEventListener("scroll", scheduleViewport);
-      window.removeEventListener("resize", scheduleViewport);
-      window.removeEventListener("pageshow", scheduleViewport);
-      document.removeEventListener("focusin", scheduleViewport);
-      document.removeEventListener("focusout", scheduleViewport);
+      stopWatching();
+      for (const type of touchEvents)
+        window.removeEventListener(type, touched);
     };
   }, []);
   if (online && !update) return null;
@@ -121,6 +135,76 @@ export function PwaStatus() {
       )}
     </div>
   );
+}
+
+type Events = Pick<EventTarget, "addEventListener" | "removeEventListener">;
+/**
+ * Calls `check` (keyboard state and fold) on viewport, focus and page-show
+ * changes, and `refold` (the fold alone) once a scroll or touch ends: Safari
+ * can leave the view panned mid-scroll (the fixed tab bar then floats above
+ * the bottom) and ignores a fold made during the scroll, so only one after
+ * it can fold that back. Returns a function that stops watching.
+ */
+export function watchViewport(
+  win: Events & {
+    visualViewport?: Events | null;
+    setTimeout: (run: () => void, ms: number) => unknown;
+    clearTimeout: (timer: any) => void;
+  },
+  doc: Events,
+  check: () => void,
+  refold: () => void,
+  settleMs = 150,
+) {
+  let settle: unknown;
+  // Scroll events arrive throughout a scroll; fold once it has stopped.
+  const scrolled = () => {
+    win.clearTimeout(settle);
+    settle = win.setTimeout(refold, settleMs);
+  };
+  const viewport = win.visualViewport;
+  const checks: [Events | null | undefined, string][] = [
+    [viewport, "resize"],
+    [viewport, "scroll"],
+    [win, "resize"],
+    [win, "pageshow"],
+    [doc, "focusin"],
+    [doc, "focusout"],
+  ];
+  const refolds: [Events, string][] = [
+    [win, "scrollend"],
+    [win, "touchend"],
+    [win, "touchcancel"],
+  ];
+  for (const [target, type] of checks) target?.addEventListener(type, check);
+  for (const [target, type] of refolds) target.addEventListener(type, refold);
+  win.addEventListener("scroll", scrolled, { passive: true });
+  return () => {
+    win.clearTimeout(settle);
+    for (const [target, type] of checks)
+      target?.removeEventListener(type, check);
+    for (const [target, type] of refolds)
+      target.removeEventListener(type, refold);
+    win.removeEventListener("scroll", scrolled);
+  };
+}
+
+/**
+ * Where to scroll the page to fold a leftover pan back in, or null to leave
+ * it. Safari ignores a programmatic scroll while a finger is down or the page
+ * is still coasting, so nothing is tried during a touch, and a fold that was
+ * ignored (the page is not where it was sent) is tried again. A fold that
+ * landed is not repeated: Safari may report the old pan for a moment.
+ */
+export function foldTarget(
+  pan: number,
+  touching: boolean,
+  scrollY: number,
+  foldedTo: number | null,
+) {
+  if (!pan || touching) return null;
+  if (foldedTo !== null && Math.abs(scrollY - foldedTo) < 1) return null;
+  return scrollY + pan;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { leftoverPan } from "../src/client/Pwa";
 
 it("folds a pan Safari leaves after the keyboard closes back into the page", () => {
@@ -13,4 +13,67 @@ it("folds a pan Safari leaves after the keyboard closes back into the page", () 
   // Pinch zoom pans on purpose; leave it.
   expect(leftoverPan({ offsetTop: 240, scale: 2 }, false)).toBe(0);
   expect(leftoverPan(undefined, false)).toBe(0);
+});
+
+it("folds again once a scroll or touch ends, leaving the keyboard state alone", async () => {
+  const { watchViewport } = await import("../src/client/Pwa");
+  vi.useFakeTimers();
+  try {
+    const win = Object.assign(new EventTarget(), {
+      visualViewport: new EventTarget(),
+      setTimeout: (run: () => void, ms: number) => setTimeout(run, ms),
+      clearTimeout: (timer: any) => clearTimeout(timer),
+    });
+    const doc = new EventTarget();
+    const check = vi.fn();
+    const refold = vi.fn();
+    const stop = watchViewport(win, doc, check, refold, 150);
+    // Safari can leave the view panned mid-scroll, when a fold would be
+    // ignored: it is tried once the scroll has settled, not per event.
+    for (let i = 0; i < 5; i++) {
+      win.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(50);
+    }
+    expect(refold).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(150);
+    expect(refold).toHaveBeenCalledTimes(1);
+    for (const type of ["touchend", "touchcancel", "scrollend"])
+      win.dispatchEvent(new Event(type));
+    expect(refold).toHaveBeenCalledTimes(4);
+    // Scrolls and touches never recompute the keyboard state.
+    expect(check).not.toHaveBeenCalled();
+    for (const type of ["pageshow", "resize"])
+      win.dispatchEvent(new Event(type));
+    win.visualViewport.dispatchEvent(new Event("scroll"));
+    win.visualViewport.dispatchEvent(new Event("resize"));
+    doc.dispatchEvent(new Event("focusin"));
+    doc.dispatchEvent(new Event("focusout"));
+    expect(check).toHaveBeenCalledTimes(6);
+    expect(refold).toHaveBeenCalledTimes(4);
+    // Stopping removes every listener and any pending settle.
+    win.dispatchEvent(new Event("scroll"));
+    stop();
+    vi.advanceTimersByTime(500);
+    win.dispatchEvent(new Event("touchend"));
+    doc.dispatchEvent(new Event("focusin"));
+    expect(refold).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(6);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("folds once, retries a fold Safari ignored, and never folds mid-touch", async () => {
+  const { foldTarget } = await import("../src/client/Pwa");
+  expect(foldTarget(0, false, 500, null)).toBe(null);
+  expect(foldTarget(240, false, 500, null)).toBe(740);
+  // During a touch Safari ignores the scroll; wait for the touch to end.
+  expect(foldTarget(240, true, 500, null)).toBe(null);
+  // The fold landed but Safari still reports the pan: do not fold again,
+  // or each fold's scroll would trigger another and run down the page.
+  expect(foldTarget(240, false, 740, 740)).toBe(null);
+  // The fold was ignored (the page did not move): try again.
+  expect(foldTarget(240, false, 500, 740)).toBe(740);
+  // The person scrolled elsewhere since: fold from there.
+  expect(foldTarget(240, false, 1200, 740)).toBe(1440);
 });
