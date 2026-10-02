@@ -24,6 +24,30 @@ type Approval = {
   provider: Provider;
   input: string;
 };
+// GitHub writes from the official GitHub connection. The approval shows the
+// exact target and arguments; the broker refuses merges without a head SHA.
+const GITHUB_TITLES: Record<string, string> = {
+  pull_request_review_write: "Write a pull request review",
+  merge_pull_request: "Merge a pull request",
+  create_pull_request: "Open a pull request",
+  update_pull_request: "Edit a pull request",
+  update_pull_request_branch: "Update a pull request branch",
+  add_issue_comment: "Comment on GitHub",
+  add_reply_to_pull_request_comment: "Reply to a review comment",
+  add_comment_to_pending_review: "Add a review comment",
+  push_files: "Push commits to GitHub",
+  create_or_update_file: "Commit a file to GitHub",
+  delete_file: "Delete a file on GitHub",
+  create_branch: "Create a GitHub branch",
+};
+const ARGUMENT_LABELS: Record<string, string> = {
+  body: "Review text",
+  event: "Action",
+  expectedHeadSha: "Head commit",
+  merge_method: "Merge method",
+  commit_title: "Commit title",
+  commit_message: "Commit message",
+};
 const label = (value: string) =>
   value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -40,8 +64,8 @@ function describe(a: Approval) {
       ? "Install workspace tools"
       : request.type === "workflow_review"
         ? "Review workflow output"
-        : request.tool === "pull_request_review_write"
-          ? "Write a pull request review"
+        : request.tool && GITHUB_TITLES[request.tool]
+          ? GITHUB_TITLES[request.tool]
           : request.tool === "browser_navigate"
             ? "Open a webpage"
             : request.tool
@@ -50,9 +74,13 @@ function describe(a: Approval) {
   const target =
     args.owner && args.repo && (args.pullNumber || args.pull_number)
       ? `${args.owner}/${args.repo} #${args.pullNumber || args.pull_number}`
-      : [args.url, args.path, args.command, args.query].find(
-          (v) => typeof v === "string",
-        );
+      : args.owner && args.repo && args.issue_number
+        ? `${args.owner}/${args.repo} #${args.issue_number}`
+        : request.tool === "create_pull_request" && args.owner && args.repo
+          ? `${args.owner}/${args.repo}: ${args.head} → ${args.base}`
+          : [args.url, args.path, args.command, args.query].find(
+              (v) => typeof v === "string",
+            );
   return { request, title, args, target };
 }
 
@@ -140,7 +168,12 @@ export function Approvals({
     target: Approval | null = selected,
   ) {
     const current = target && items.find((item) => item.id === target.id);
-    if (!target || !current || target.expires_at <= Date.now() || locked.current)
+    if (
+      !target ||
+      !current ||
+      target.expires_at <= Date.now() ||
+      locked.current
+    )
       return;
     const detail = describe(target);
     locked.current = true;
@@ -342,13 +375,11 @@ export function Approvals({
                   .map(([key, value]) => (
                     <div key={key}>
                       <dt>
-                        {key === "body"
-                          ? "Review text"
-                          : key === "event"
-                            ? "Action"
-                            : key.toLowerCase() === "url"
-                              ? "URL"
-                              : label(key)}
+                        {key === "body" &&
+                        detail.request.tool !== "pull_request_review_write"
+                          ? "Text"
+                          : ARGUMENT_LABELS[key] ||
+                            (key.toLowerCase() === "url" ? "URL" : label(key))}
                       </dt>
                       <dd>
                         <pre>
@@ -419,9 +450,12 @@ export function Approvals({
               </div>
             )}
             <p className="field-hint approval-scope">
-              {detail.request.type === "mcp_tool"
-                ? "Approves this tool call once. The agent will continue with its result."
-                : "The run will continue only after you approve this request."}
+              {detail.request.tool === "merge_pull_request" &&
+              typeof detail.args.expectedHeadSha === "string"
+                ? `Approves this merge once. GitHub merges only if the pull request head is still ${detail.args.expectedHeadSha.slice(0, 7)}; newer commits need a new approval.`
+                : detail.request.type === "mcp_tool"
+                  ? "Approves this tool call once. The agent will continue with its result."
+                  : "The run will continue only after you approve this request."}
             </p>
             {detail.request.type === "mcp_tool" && (
               <button

@@ -5,6 +5,7 @@ import {
   type AuthSecret,
   type MCPConnection,
 } from "./mcp/client.js";
+import { isGithubMcpUrl } from "../shared/github.js";
 
 // Only an explicitly allowed, connected official GitHub integration can supply
 // native Git/gh credentials. Never infer trust from a connection's display name.
@@ -17,21 +18,7 @@ export function runtimeGithubCredential(owner: string): AuthSecret | undefined {
     )
     .all(owner) as MCPConnection[];
   for (const connection of connections) {
-    let url: URL;
-    try {
-      url = new URL(connection.url);
-    } catch {
-      continue;
-    }
-    if (
-      url.protocol !== "https:" ||
-      url.hostname !== "api.githubcopilot.com" ||
-      url.port ||
-      url.username ||
-      url.password ||
-      !/^\/mcp(?:\/|$)/.test(url.pathname)
-    )
-      continue;
+    if (!isGithubMcpUrl(connection.url)) continue;
     const secret = readSecret(connection);
     if (secret.stdio) continue;
     const authorization = Object.entries(secret.headers || {}).find(

@@ -1,5 +1,6 @@
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
+import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   X,
@@ -440,6 +441,10 @@ function ArtifactPreview({
     );
   if (item.kind === "diagram") return <Diagram source={item.content} compact />;
   if (item.kind === "chart") return <Chart content={item.content} compact />;
+  if (item.kind === "github_pr") {
+    const card = pullRequestCardData(item.content);
+    if (card) return <PullRequestCards card={card} compact />;
+  }
   if (item.kind === "code")
     return (
       <pre className="code-preview">

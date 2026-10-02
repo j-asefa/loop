@@ -136,7 +136,7 @@ export function Tools({
           </label>
           <p className="field-hint">
             {approvalMode === "allow"
-              ? "All your agents can use connected MCP tools without stopping for approval. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
+              ? "All your agents can use connected MCP tools without stopping for approval. GitHub pull request merges still ask every time. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
               : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
           </p>
           <p className="field-hint">

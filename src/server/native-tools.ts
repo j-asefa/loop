@@ -13,6 +13,11 @@ import { readRunFile } from "./uploads.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { applyActivity } from "./activities.js";
 import { ACTIVITY_LIMITS } from "../agent-activities.js";
+import {
+  GITHUB_GUIDANCE,
+  githubContext,
+  parsePullRequestUrls,
+} from "../shared/github.js";
 
 const diagram = z.object({
   title: z.string().min(1).max(180),
@@ -59,16 +64,24 @@ export const PLAN_GUIDANCE =
 export function runtimeInstructions(
   instructions: string,
   bindings: Pick<ToolBinding, "tool" | "connectionId">[],
+  latestMessage = "",
 ) {
-  if (
-    !bindings.some(
-      (b) => b.tool === "loop_plan" && b.connectionId === "__loop__",
-    )
-  )
-    return instructions;
-  return instructions.trim()
-    ? instructions + "\n\n" + PLAN_GUIDANCE
-    : PLAN_GUIDANCE;
+  const plans = bindings.some(
+    (b) => b.tool === "loop_plan" && b.connectionId === "__loop__",
+  );
+  // Tool names only select guidance; the broker enforces GitHub rules.
+  const github = bindings.some(
+    (b) => b.connectionId !== "__loop__" && b.tool === "pull_request_read",
+  );
+  const added = [
+    plans ? PLAN_GUIDANCE : "",
+    github ? GITHUB_GUIDANCE : "",
+    github ? githubContext(parsePullRequestUrls(latestMessage)) : "",
+  ].filter(Boolean);
+  if (!added.length) return instructions;
+  return [instructions.trim() ? instructions : "", ...added]
+    .filter(Boolean)
+    .join("\n\n");
 }
 const schemas = {
   loop_publish_file: publishFileSchema,

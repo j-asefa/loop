@@ -6966,6 +6966,82 @@ html:has(.sheet.side-panel[open]) {
 [data-theme="dark"] .my-profile-counts {
   border-top-color: #433b22;
 }
+/* GitHub pull request cards (tool results from the GitHub connection). */
+.pr-cards ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pr-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.pr-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.pr-card-repo {
+  flex: 1;
+  min-width: 0;
+}
+.pr-state {
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pr-state.open {
+  color: var(--green);
+}
+.pr-state.merged {
+  color: var(--blue);
+}
+.pr-state.closed {
+  color: var(--orange);
+}
+.pr-state.draft {
+  color: var(--muted);
+}
+.pr-card-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pr-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.pr-card-facts div {
+  display: flex;
+  gap: 4px;
+}
+.pr-card-facts dt {
+  color: var(--muted);
+}
+.pr-card-facts dd {
+  margin: 0;
+}
+.pr-card-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
 
 .quote-part-text {
   width: 100%;

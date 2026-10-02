@@ -1,5 +1,6 @@
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
+import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 const McpApp = lazy(() =>
   import("./McpApp").then((m) => ({ default: m.McpApp })),
 );
@@ -43,6 +44,10 @@ export function ArtifactContent({ item }: { item: Artifact }) {
     return <p>Image source is available by download.</p>;
   }
   if (item.kind === "chart") return <Chart content={item.content} />;
+  if (item.kind === "github_pr") {
+    const card = pullRequestCardData(item.content);
+    if (card) return <PullRequestCards card={card} />;
+  }
   if (item.kind === "diagram") return <Diagram source={item.content} />;
   if (item.kind === "code")
     return (

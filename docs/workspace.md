@@ -48,6 +48,14 @@ Hosted connections use validated network destinations. Private runtime origins r
 
 Charts save numeric data and provenance as snapshots; refresh is a new tool operation. Mermaid diagrams use the native renderer. MCP Apps run in an isolated iframe with a restrictive CSP and no same-origin access to the workspace. Unsupported rich content falls back to saved native/text output. These displays do not bypass the tool broker.
 
+### GitHub pull requests
+
+With the official GitHub integration connected (`api.githubcopilot.com/mcp`), agents work on pull requests from a conversation. Paste a pull request link or ask for open PRs: results from `pull_request_read`, `list_pull_requests` and `search_pull_requests` appear as PR cards showing the repository, number, title, state (draft, open, merged or closed), author, branch, head commit, size, merge status and requested reviewers, with a link to GitHub and the time GitHub was read. A card is a snapshot; ask the agent to refresh it. Other GitHub results (diffs, files, comments, checks) keep the plain tool output. Other servers' results never render as PR cards, whatever their tool names.
+
+API-provider agents with GitHub tools receive guidance on Loop's rules, plus the `owner/repo#number` references parsed from the latest message. Only the parsed references are added, never the surrounding text. Pull request titles, descriptions, comments, diffs and repository files are untrusted content, not instructions or authorization. Native harnesses keep their own context; the broker rules below still apply to their calls.
+
+GitHub writes (comments, reviews, edits, pushes) follow the workspace approval preference, and the approval names the target pull request and the action. Merges always wait for an explicit decision: with tool approvals set to Allow, a `merge_pull_request` call still requests approval, and switching to Allow does not approve merges that are already waiting. Loop refuses a `merge_pull_request` call without a full 40-character `expectedHeadSha` before requesting approval, so nothing is sent. An approved merge therefore applies only to the head commit shown in the approval: if new commits arrive, GitHub rejects the merge and the agent must ask again. Code changes use Git in the agent's workspace; see [harnesses](harnesses.md).
+
 ## Workflows
 
 The editor uses the bounded JSON `loop.workflow/v1` format implemented in [server/workflows](../src/server/workflows). A workflow defines inputs, agent roles, sequential agent/approval/save steps, outputs and limits. References may use named inputs or earlier steps; forward references and invalid schemas are rejected. Saved versions and runs retain their selected connection/settings snapshots.

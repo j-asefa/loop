@@ -20,6 +20,11 @@ import { redactCredentials } from "./redaction.js";
 import { workspaceToolBindings, type ToolBinding } from "./tool-budget.js";
 import { mcpApprovalMode } from "./approval-policy.js";
 import { recordTrace } from "../traces.js";
+import {
+  isGithubMcpUrl,
+  mergeHeadProblem,
+  requiresExplicitApproval,
+} from "../../shared/github.js";
 export type { ToolBinding } from "./tool-budget.js";
 const options = {
   strict: false,
@@ -70,6 +75,8 @@ export function authorizeTool(
   }
   if (!valid)
     throw new Problem(422, "Tool arguments do not match the discovered schema");
+  const merge = isGithubMcpUrl(c.url) && mergeHeadProblem(toolName, args);
+  if (merge) throw new Problem(422, merge);
   return { connection: c, tool };
 }
 export async function invokeTool(
@@ -80,6 +87,20 @@ export async function invokeTool(
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
   if (!run.agent_id) throw new Problem(400, "Tool calls require an agent");
   const agentId = run.agent_id;
+  // An unpinned merge is refused before approval and never sent. Returning a
+  // tool error lets the agent re-read the PR and retry with the head SHA.
+  const target = owned<MCPConnection>(
+    "mcp_connections",
+    binding.connectionId,
+    run.owner_id,
+  );
+  const unpinned =
+    isGithubMcpUrl(target.url) && mergeHeadProblem(binding.tool, args);
+  if (unpinned)
+    return {
+      result: { isError: true, content: [{ type: "text", text: unpinned }] },
+      artifactId: "",
+    };
   const { connection, tool } = authorizeTool(
     run.owner_id,
     run.agent_id,
@@ -112,7 +133,9 @@ export async function invokeTool(
   const approval = db
     .transaction(() => {
       // Permission comes from the owner's saved policy, never server-provided hints.
-      const automaticallyAllowed = mcpApprovalMode(run.owner_id) === "allow";
+      const automaticallyAllowed =
+        mcpApprovalMode(run.owner_id) === "allow" &&
+        !requiresExplicitApproval(connection.url, binding.tool);
       let approval = invocation?.approval_id
         ? owned<any>("approvals", invocation.approval_id, run.owner_id)
         : null;
@@ -256,6 +279,7 @@ export async function invokeTool(
       tool: binding.tool,
       fetchedAt: now(),
       fixture: metadata.fixture === true,
+      github: isGithubMcpUrl(connection.url),
     });
     const resourceUri =
       tool._meta?.ui?.resourceUri || tool._meta?.["ui/resourceUri"];

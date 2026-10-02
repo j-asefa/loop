@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pullRequestCard } from "../../shared/github.js";
 const timestamp = z
   .number()
   .finite()
@@ -59,6 +60,7 @@ export function normalizeResult(
     tool: string;
     fetchedAt: number;
     fixture?: boolean;
+    github?: boolean;
   },
 ) {
   let data = result.structuredContent;
@@ -71,7 +73,8 @@ export function normalizeResult(
       data = JSON.parse(text);
     } catch {}
   }
-  const source = { ...provenance, fixture: !!provenance.fixture };
+  const { github, ...rest } = provenance;
+  const source = { ...rest, fixture: !!provenance.fixture };
   if (result.isError === true)
     return {
       kind: "markdown",
@@ -100,6 +103,20 @@ export function normalizeResult(
         data: bitmap.data,
         source,
       }),
+    };
+  // Pull requests from the official GitHub server render as PR cards; the
+  // complete response stays in the artifact's toolResult metadata.
+  const pulls = github
+    ? pullRequestCard(provenance.tool, data, provenance.fetchedAt)
+    : undefined;
+  if (pulls)
+    return {
+      kind: "github_pr",
+      title:
+        pulls.pulls.length === 1
+          ? `${pulls.pulls[0].owner}/${pulls.pulls[0].repo} #${pulls.pulls[0].number}`
+          : `${pulls.total ?? pulls.pulls.length} pull requests`,
+      content: JSON.stringify(pulls),
     };
   // Datadog v1 metric-query shape: preserve millisecond timestamps, gaps and source units.
   const candidate = data?.series ? data : data?.data?.series ? data.data : null;

@@ -850,7 +850,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
           workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
           model: snapshot.model,
           effort: snapshot.effort || undefined,
-          instructions: runtimeInstructions(snapshot.instructions, bindings),
+          instructions: runtimeInstructions(
+            snapshot.instructions,
+            bindings,
+            history.findLast((m) => m.role === "user")?.content,
+          ),
           messages: structuredClone(history),
           signal: AbortSignal.any([controller.signal, generation.signal]),
           steering,
