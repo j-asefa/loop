@@ -6705,6 +6705,12 @@ details > summary {
 .sheet.side-panel .sheet-head {
   padding-top: calc(18px + env(safe-area-inset-top));
 }
+/* The page behind an open settings drawer holds still: swipes and wheel
+   scrolls over the drawer's header, its foot or the dimmed page must not
+   scroll the Feed. The drawer's own list still scrolls. */
+html:has(.sheet.side-panel[open]) {
+  overflow: hidden;
+}
 .sheet.side-panel::backdrop {
   background: #10101340;
   backdrop-filter: none;

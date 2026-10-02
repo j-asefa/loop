@@ -606,7 +606,57 @@ try {
           .click();
         await expect(dialog()).toHaveAttribute("aria-label", "Settings");
       };
+      // The page behind the open drawer holds still; the drawer's list scrolls.
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight > innerHeight + 200,
+        ),
+        "The page must be long enough to scroll",
+      );
       await openSettings();
+      const pageOverflow = () =>
+        page.evaluate(() => getComputedStyle(document.documentElement).overflow);
+      assert.equal(await pageOverflow(), "hidden", "The open drawer locks the page");
+      const list = dialog().locator(".sheet-body");
+      assert.match(
+        await list.evaluate((el) => getComputedStyle(el).overflowY),
+        /auto|scroll/,
+        "The drawer's list scrolls",
+      );
+      // Mobile WebKit has no wheel input in Playwright; Chromium checks the
+      // gestures themselves.
+      if (engine.name() === "chromium") {
+        // The gear sits at the top of the page; scroll the page under the
+        // open drawer, as when it was opened partway down.
+        await page.evaluate(() => window.scrollTo({ top: 150, behavior: "instant" }));
+        const pageTop = await page.evaluate(() => scrollY);
+        assert.equal(pageTop, 150);
+        const drawer = await dialog().boundingBox();
+        for (const [x, y] of [
+          [drawer.x + drawer.width / 2, drawer.y + 30],
+          [drawer.x / 2, drawer.height / 2],
+        ]) {
+          await page.mouse.move(x, y);
+          await page.mouse.wheel(0, 400);
+          await page.waitForTimeout(150);
+          assert.equal(
+            await page.evaluate(() => scrollY),
+            pageTop,
+            "Scrolling over the settings drawer must not scroll the page",
+          );
+        }
+        const listBox = await list.boundingBox();
+        await page.mouse.move(
+          listBox.x + listBox.width / 2,
+          listBox.y + listBox.height / 2,
+        );
+        await page.mouse.wheel(0, 200);
+        if (await list.evaluate((el) => el.scrollHeight > el.clientHeight))
+          await expect
+            .poll(() => list.evaluate((el) => el.scrollTop))
+            .toBeGreaterThan(0);
+        await list.evaluate((el) => (el.scrollTop = 0));
+      }
       await capture("settings");
       await dialog()
         .getByRole("button", { name: /Tools & integrations/ })
@@ -800,6 +850,8 @@ try {
       await openSettings();
       await dialog().getByRole("button", { name: "Dark", exact: true }).click();
       await close();
+      // Closing the drawer releases the page again.
+      assert.notEqual(await pageOverflow(), "hidden");
       await openConversation();
       await capture("conversation-dark");
       await close();
