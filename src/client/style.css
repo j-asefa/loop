@@ -2231,6 +2231,12 @@ pre {
   :root[data-keyboard="open"] .mobile-nav {
     display: none;
   }
+  /* Keep the bottom bars on the screen's bottom edge when Safari's layout
+     viewport ends above it (see viewportDrop in Pwa.tsx). */
+  .mobile-nav,
+  .composer-dock {
+    translate: 0 var(--viewport-drop, 0px);
+  }
 }
 .mcp-import {
   margin: 20px 0;

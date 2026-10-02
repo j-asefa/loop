@@ -162,7 +162,9 @@ type InboxRow = {
   origin: string;
   folder_id: string | null;
   run_id: string | null;
+  done_run_id: string | null;
   last_activity_at: number;
+  sort_at: number;
   position_message_id: string | null;
   later_id: string | null;
   pending_approvals: number;
@@ -176,6 +178,10 @@ base AS (
     -- Current run: the newest active one, otherwise the newest run.
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
       ORDER BY CASE WHEN r.state IN ('running','pausing','paused','awaiting_approval') THEN 0 ELSE 1 END,r.created_at DESC,r.rowid DESC LIMIT 1) run_id,
+    -- Latest finished output: it stays in Done while a follow-up runs.
+    (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${internalRun("r")}
+      ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) done_run_id,
+    (SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${internalRun("r")}) done_at,
     max(c.created_at,
       COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
       COALESCE((SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id),0)) last_activity_at,
@@ -250,8 +256,10 @@ export function inbox(
   const sql = inboxSql(!!teams, !!folders, !!options.agent);
   const where = {
     all: "NOT snoozed",
-    // A thread with no runs (imported history) has NULL flags: it is done.
-    done: "NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed",
+    // Every finished output stays done, even while a follow-up works, queues
+    // or needs you; so does a thread with nothing open (imported history has
+    // no runs, so NULL flags).
+    done: "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed",
     needs: "is_needs",
     working: "is_working",
     queued: "has_queued",
@@ -259,11 +267,14 @@ export function inbox(
     outcomes: "is_done AND NOT snoozed",
     unfinished: "(is_needs OR is_working OR has_queued) AND NOT snoozed",
   }[filter];
+  // Done lists outputs by when they finished, so a follow-up does not move them.
+  const sortAt =
+    filter === "done" ? "COALESCE(done_at,last_activity_at)" : "last_activity_at";
   const rows = db
     .prepare(
-      `${sql} SELECT * FROM flagged WHERE ${where}
-      AND (@at IS NULL OR last_activity_at<@at OR (last_activity_at=@at AND conversation_id<@after))
-      ORDER BY last_activity_at DESC,conversation_id DESC LIMIT 41`,
+      `${sql} SELECT *,${sortAt} sort_at FROM flagged WHERE ${where}
+      AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND conversation_id<@after))
+      ORDER BY sort_at DESC,conversation_id DESC LIMIT 41`,
     )
     .all(params) as InboxRow[];
   const more = rows.length > 40;
@@ -287,9 +298,14 @@ export function inbox(
     .get(owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
-    items: rows.map((row) => inboxItem(owner, row)),
-    next:
-      more && last ? encode([last.last_activity_at, last.conversation_id]) : null,
+    items: rows.map((row) =>
+      inboxItem(
+        owner,
+        row,
+        filter === "done" ? "done" : filter === "working" ? "working" : "thread",
+      ),
+    ),
+    next: more && last ? encode([last.sort_at, last.conversation_id]) : null,
     summary: {
       needs: summary.needs,
       working: summary.working,
@@ -375,7 +391,16 @@ function queueMoves(owner: string, runId: string) {
   };
 }
 
-function inboxItem(owner: string, row: InboxRow) {
+/**
+ * "done" shows the thread's latest finished output, not the work after it;
+ * "working" shows only what the current run has produced; "thread" shows
+ * the thread as it is now.
+ */
+function inboxItem(
+  owner: string,
+  row: InboxRow,
+  mode: "thread" | "done" | "working" = "thread",
+) {
   const agent = row.agent_id
     ? (db
         .prepare("SELECT name,provider FROM agents WHERE id=? AND owner_id=?")
@@ -384,19 +409,30 @@ function inboxItem(owner: string, row: InboxRow) {
         | undefined)
     : undefined;
   const project = projectFor(owner, row.folder_id);
-  const message = db
-    .prepare(
-      "SELECT id,role,substr(content,1,1000) content,created_at FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-    )
-    .get(owner, row.conversation_id) as
-    | { id: string; role: string; content: string; created_at: number }
-    | undefined;
-  const run = row.run_id
+  const runId = mode === "done" ? row.done_run_id : row.run_id;
+  const latest = (condition: string, ...params: unknown[]) =>
+    db
+      .prepare(
+        `SELECT id,role,substr(content,1,1000) content,created_at FROM messages WHERE owner_id=? AND conversation_id=? ${condition} ORDER BY created_at DESC,rowid DESC LIMIT 1`,
+      )
+      .get(owner, row.conversation_id, ...params) as
+      | { id: string; role: string; content: string; created_at: number }
+      | undefined;
+  const message =
+    mode === "done" && runId
+      ? (latest(
+          "AND run_id=? AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0",
+          runId,
+        ) ?? latest("AND run_id=?", runId))
+      : mode === "working" && runId
+        ? latest("AND run_id=?", runId)
+        : latest("");
+  const run = runId
     ? (db
         .prepare(
           `SELECT id,${publicState("runs")} state,error,input,created_at,updated_at FROM runs WHERE id=? AND owner_id=?`,
         )
-        .get(row.run_id, owner) as
+        .get(runId, owner) as
         | {
             id: string;
             state: string;
@@ -424,7 +460,7 @@ function inboxItem(owner: string, row: InboxRow) {
     project_name: project?.name ?? null,
     team_id: row.team_id,
     origin: row.origin,
-    last_activity_at: row.last_activity_at,
+    last_activity_at: mode === "done" ? row.sort_at : row.last_activity_at,
     last_message: message
       ? {
           id: message.id,
@@ -447,12 +483,13 @@ function inboxItem(owner: string, row: InboxRow) {
       : null,
     // Queued follow-ups, listed separately so they stay manageable while
     // the thread's current run is still working.
-    queued_runs: (
-      db
-        .prepare(
-          "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
-        )
-        .all(owner, row.conversation_id) as QueuedRun[]
+    queued_runs: (mode === "done"
+      ? []
+      : (db
+          .prepare(
+            "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
+          )
+          .all(owner, row.conversation_id) as QueuedRun[])
     ).map((queued) => ({
       id: queued.id,
       // The full text: the editor saves exactly what it shows, so a preview
@@ -469,10 +506,10 @@ function inboxItem(owner: string, row: InboxRow) {
       ["running", "pausing", "paused", "awaiting_approval"].includes(run.state)
         ? livePreview(owner, run.id)
         : null,
-    pending_approvals: row.pending_approvals,
+    pending_approvals: mode === "done" ? 0 : row.pending_approvals,
     position_message_id: row.position_message_id,
     later: later || null,
-    next_action: nextAction(owner, row.conversation_id, run),
+    next_action: nextAction(owner, row.conversation_id, run, mode === "done"),
   };
 }
 
@@ -492,14 +529,18 @@ function nextAction(
   owner: string,
   conversation: string,
   run: { id: string; state: string } | undefined,
+  // A Done card opens at its answer, whatever the thread waits on now.
+  resultOnly = false,
 ): NextAction | null {
-  const approval = db
-    .prepare(
-      `SELECT a.run_id FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-      WHERE a.owner_id=? AND r.conversation_id=? AND a.state='pending' AND a.expires_at>?
-      ORDER BY a.created_at,a.rowid LIMIT 1`,
-    )
-    .get(owner, conversation, now()) as { run_id: string } | undefined;
+  const approval = resultOnly
+    ? undefined
+    : (db
+        .prepare(
+          `SELECT a.run_id FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+          WHERE a.owner_id=? AND r.conversation_id=? AND a.state='pending' AND a.expires_at>?
+          ORDER BY a.created_at,a.rowid LIMIT 1`,
+        )
+        .get(owner, conversation, now()) as { run_id: string } | undefined);
   // "final": the run's last answer message, even while it is still empty
   // (where the thread shows the run's status and approvals); "answer": the
   // last one with text.
@@ -531,12 +572,16 @@ function nextAction(
       run_id: approval.run_id,
       message_id: lastMessage(approval.run_id, "final") ?? firstMessage(approval.run_id),
     };
-  const decision = db
-    .prepare(
-      `SELECT d.run_id,d.request FROM native_decisions d JOIN runs r ON r.id=d.run_id AND r.owner_id=?
-      WHERE d.conversation_id=? AND d.state='pending' ORDER BY d.created_at LIMIT 1`,
-    )
-    .get(owner, conversation) as { run_id: string; request: string } | undefined;
+  const decision = resultOnly
+    ? undefined
+    : (db
+        .prepare(
+          `SELECT d.run_id,d.request FROM native_decisions d JOIN runs r ON r.id=d.run_id AND r.owner_id=?
+          WHERE d.conversation_id=? AND d.state='pending' ORDER BY d.created_at LIMIT 1`,
+        )
+        .get(owner, conversation) as
+        | { run_id: string; request: string }
+        | undefined);
   if (decision) {
     let questions = false;
     try {

@@ -206,7 +206,15 @@ export async function composerJourney(page, api) {
         "The picker is anchored to the screen, not the dismissed keyboard",
       );
       await sheet.getByRole("button", { name: "Close", exact: true }).click();
-      await page.getByRole("button", { name: "Collapse composer" }).click();
+      // Closing the picker returns focus to the composer, which can move the
+      // dock as WebKit settles; tap Minimize again if that tap was lost.
+      await expect(async () => {
+        if (!(await openComposer.isVisible()))
+          await page
+            .getByRole("button", { name: "Collapse composer" })
+            .click({ timeout: 2000 });
+        await expect(openComposer).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 15000 });
       await expect(page.locator(".mobile-nav")).toBeVisible();
     }
     // Zooming shrinks the visual viewport too, but must not raise the composer.
@@ -233,6 +241,36 @@ export async function composerJourney(page, api) {
       window.visualViewport.dispatchEvent(new Event("resize"));
     });
     await page.getByRole("button", { name: "Collapse composer" }).click();
+    // After the keyboard or an app switch, Safari can leave what you see
+    // below the layout viewport the bars are fixed to. Coming back to the
+    // app, the tab bar and composer button follow the visible bottom edge.
+    const navBottom = async () => {
+      const box = await page.locator(".mobile-nav").boundingBox();
+      return box.y + box.height;
+    };
+    const restingBottom = await navBottom();
+    await page.evaluate(() => {
+      document.activeElement?.blur?.();
+      Object.defineProperty(window.visualViewport, "offsetTop", {
+        configurable: true,
+        get: () => 300,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect
+      .poll(navBottom, { message: "The tab bar follows the visible bottom" })
+      .toBeCloseTo(restingBottom + 300, 0);
+    const droppedDock = await page.locator(".composer-dock").boundingBox();
+    const droppedNav = await page.locator(".mobile-nav").boundingBox();
+    assert.ok(
+      Math.abs(droppedDock.y + droppedDock.height - droppedNav.y) < 2,
+      "The composer button moves down with the tab bar",
+    );
+    await page.evaluate(() => {
+      delete window.visualViewport.offsetTop;
+      window.visualViewport.dispatchEvent(new Event("resize"));
+    });
+    await expect.poll(navBottom).toBeCloseTo(restingBottom, 0);
     await picker.click();
     await closeSheets(page);
     await expect(picker).toBeFocused();

@@ -48,7 +48,9 @@ it("folds again once a scroll or touch ends, leaving the keyboard state alone", 
     win.visualViewport.dispatchEvent(new Event("resize"));
     doc.dispatchEvent(new Event("focusin"));
     doc.dispatchEvent(new Event("focusout"));
-    expect(check).toHaveBeenCalledTimes(6);
+    // Returning from another app rechecks too.
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(check).toHaveBeenCalledTimes(7);
     expect(refold).toHaveBeenCalledTimes(4);
     // Stopping removes every listener and any pending settle.
     win.dispatchEvent(new Event("scroll"));
@@ -57,7 +59,7 @@ it("folds again once a scroll or touch ends, leaving the keyboard state alone", 
     win.dispatchEvent(new Event("touchend"));
     doc.dispatchEvent(new Event("focusin"));
     expect(refold).toHaveBeenCalledTimes(4);
-    expect(check).toHaveBeenCalledTimes(6);
+    expect(check).toHaveBeenCalledTimes(7);
   } finally {
     vi.useRealTimers();
   }
@@ -76,4 +78,21 @@ it("folds once, retries a fold Safari ignored, and never folds mid-touch", async
   expect(foldTarget(240, false, 500, 740)).toBe(740);
   // The person scrolled elsewhere since: fold from there.
   expect(foldTarget(240, false, 1200, 740)).toBe(1440);
+});
+
+it("moves the bottom bars down to what you see when Safari's layout viewport ends above it", async () => {
+  const { viewportDrop } = await import("../src/client/Pwa");
+  // Panned 372px after the keyboard closed: bars move down 372px.
+  expect(viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, false)).toBe(372);
+  // Layout viewport left at the keyboard's height (after an app switch).
+  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 560, false)).toBe(372);
+  // Nothing to correct when they line up.
+  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 932, false)).toBe(0);
+  // A stale keyboard height after blur leaves the bars where they are.
+  expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 932, false)).toBe(0);
+  // While typing or pinch-zoomed, never.
+  expect(viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, true)).toBe(0);
+  expect(viewportDrop({ offsetTop: 372, height: 466, scale: 2 }, 932, false)).toBe(0);
+  expect(viewportDrop(undefined, 932, false)).toBe(0);
+  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 0, false)).toBe(0);
 });

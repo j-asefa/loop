@@ -63,7 +63,31 @@ export function PwaStatus() {
         "--keyboard-inset",
         (keyboardOpen ? inset : 0) + "px",
       );
+      place(keyboardOpen);
       fold(keyboardOpen);
+    };
+    // Fixed bars sit on the bottom of Safari's layout viewport, which after
+    // the keyboard or an app switch can end above the bottom of what you
+    // see. Move them down by that gap, so they stay on the screen's bottom
+    // edge even when Safari ignores the fold below. The probe is a fixed,
+    // empty element whose top is the layout viewport's bottom.
+    const probe = document.createElement("div");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "position:fixed;left:0;bottom:0;width:0;height:0;visibility:hidden;pointer-events:none";
+    document.body.append(probe);
+    let dropped = 0;
+    const place = (
+      keyboardOpen = document.documentElement.dataset.keyboard === "open",
+    ) => {
+      const drop = viewportDrop(
+        window.visualViewport,
+        probe.getBoundingClientRect().top,
+        keyboardOpen,
+      );
+      if (drop === dropped) return;
+      dropped = drop;
+      document.documentElement.style.setProperty("--viewport-drop", drop + "px");
     };
     // Safari can leave the visible area panned after the keyboard closes.
     // Fixed bars stay on the page's own bottom edge, so they then float in
@@ -73,6 +97,7 @@ export function PwaStatus() {
     const fold = (
       keyboardOpen = document.documentElement.dataset.keyboard === "open",
     ) => {
+      place(keyboardOpen);
       const pan = leftoverPan(window.visualViewport, keyboardOpen);
       const top = foldTarget(pan, touching, window.scrollY, foldedTo);
       // Forget the last fold once the pan is gone.
@@ -109,6 +134,8 @@ export function PwaStatus() {
       window.removeEventListener("offline", changed);
       cancelAnimationFrame(viewportFrame);
       stopWatching();
+      probe.remove();
+      document.documentElement.style.removeProperty("--viewport-drop");
       for (const type of touchEvents)
         window.removeEventListener(type, touched);
     };
@@ -168,6 +195,8 @@ export function watchViewport(
     [viewport, "scroll"],
     [win, "resize"],
     [win, "pageshow"],
+    // Coming back from another app, which can leave the viewport stale.
+    [doc, "visibilitychange"],
     [doc, "focusin"],
     [doc, "focusout"],
   ];
@@ -218,4 +247,21 @@ export function leftoverPan(
 ) {
   if (!v || keyboardOpen || (v.scale || 1) !== 1) return 0;
   return v.offsetTop >= 1 ? Math.round(v.offsetTop) : 0;
+}
+
+/**
+ * How far the bottom of what you see sits below the bottom of the layout
+ * viewport (where fixed bars rest), once no keyboard is open: the distance
+ * to move those bars down. 0 while typing (the keyboard owns the bottom) and
+ * while pinch-zoomed.
+ */
+export function viewportDrop(
+  v: Pick<VisualViewport, "offsetTop" | "height" | "scale"> | null | undefined,
+  layoutBottom: number,
+  keyboardOpen: boolean,
+) {
+  if (!v || keyboardOpen || (v.scale || 1) !== 1 || !(layoutBottom > 0))
+    return 0;
+  const drop = Math.round(v.offsetTop + v.height - layoutBottom);
+  return drop >= 1 ? drop : 0;
 }

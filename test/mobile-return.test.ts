@@ -258,19 +258,53 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect(await filter("working")).toEqual([working]);
   expect(await filter("queued")).toEqual([working]);
   expect(await filter("later")).toEqual([snoozed]);
-  // Done leaves out everything open: needs you, working, queued or snoozed.
+  // Done leaves out open work with no finished output: needs you, working,
+  // queued or snoozed.
   expect(await filter("done")).toEqual([done]);
-  // A finished thread with a queued follow-up is queued, not done.
+  // A finished output stays in Done when a follow-up is queued.
   const followUp = conversation(w.owner, a.id, "Follow-up");
-  message(w.owner, followUp, "user", "First", run(w.owner, a.id, followUp, "completed"));
-  run(w.owner, a.id, followUp, "queued");
-  expect(await filter("done")).toEqual([done]);
+  const first = run(w.owner, a.id, followUp, "completed");
+  message(w.owner, followUp, "user", "First", first);
+  message(w.owner, followUp, "assistant", "First answer", first);
+  const second = run(w.owner, a.id, followUp, "queued");
+  message(w.owner, followUp, "user", "Second", second);
+  expect(await filter("done")).toEqual(expect.arrayContaining([done, followUp]));
   expect(await filter("queued")).toContain(followUp);
+  // ...and while it works: Done keeps the finished answer, Working shows
+  // only what the new run has produced.
+  db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(second);
+  const items = async (name: string) =>
+    (await api(w.owner, "/inbox?filter=" + name)).data.items;
+  const doneCard = (await items("done")).find(
+    (i: any) => i.conversation_id === followUp,
+  );
+  expect(doneCard).toMatchObject({
+    last_message: { role: "assistant", content: "First answer" },
+    run: { id: first, state: "completed" },
+    live_preview: null,
+    queued_runs: [],
+    pending_approvals: 0,
+    next_action: { kind: "result", run_id: first },
+  });
+  const workingCard = (await items("working")).find(
+    (i: any) => i.conversation_id === followUp,
+  );
+  expect(workingCard).toMatchObject({
+    last_message: { role: "user", content: "Second" },
+    run: { id: second, state: "running" },
+  });
+  // A failed follow-up needs you, and the earlier answer is still done.
+  db.prepare("UPDATE runs SET state='failed',worker_id=NULL WHERE id=?").run(second);
+  expect(await filter("needs")).toContain(followUp);
+  expect(await filter("done")).toContain(followUp);
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(second);
   // Imported history has messages but no runs, and is done.
   const imported = conversation(w.owner, a.id, "Imported");
   message(w.owner, imported, "user", "From an export");
-  expect(await filter("done")).toEqual(expect.arrayContaining([done, imported]));
-  expect(await filter("done")).toHaveLength(2);
+  expect(await filter("done")).toEqual(
+    expect.arrayContaining([done, followUp, imported]),
+  );
+  expect(await filter("done")).toHaveLength(3);
   // An agent profile lists only that agent's threads; foreign agents are rejected.
   const b = w.agent();
   const other = conversation(w.owner, b.id, "Other agent");
@@ -289,7 +323,6 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   const doneNow = await filter("done");
   expect(doneNow).toEqual(expect.arrayContaining([done, needs, other]));
   expect(doneNow).not.toContain(working);
-  expect(doneNow).not.toContain(followUp);
   expect(queued).toBeTruthy();
   // Surfacing brings the snoozed conversation back to "all".
   surfaceLater(now() + 7200000);
@@ -308,6 +341,14 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect(
     new Set([...page.data.items, ...rest.data.items].map((i: any) => i.conversation_id)).size,
   ).toBe(45);
+  // Done pages by when each output finished.
+  const donePage = await api(p.owner, "/inbox?filter=done");
+  expect(donePage.data.items).toHaveLength(40);
+  const doneRest = await api(
+    p.owner,
+    "/inbox?filter=done&before=" + donePage.data.next,
+  );
+  expect(doneRest.data.items).toHaveLength(5);
   expect((await api("intruder", "/inbox")).data.items).toEqual([]);
   expect((await api(w.owner, "/inbox?filter=bogus")).status).toBe(400);
   expect((await api(w.owner, "/inbox?filter=unread")).status).toBe(400);
