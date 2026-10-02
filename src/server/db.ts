@@ -64,6 +64,28 @@ db.transaction(() => {
         "INSERT OR IGNORE INTO schema_version VALUES(28,unixepoch()*1000); DELETE FROM schema_version WHERE version=21",
       );
   }
+  // The Pi customization branch used 40/41, then 42/43, before settling on
+  // 43/44: main took 40/41 (trace search, reply excerpts) and 42 belongs to
+  // PR watches. Move databases opened on that branch to the final numbers so
+  // the migrations that own the old numbers still run.
+  const version = (n: number) =>
+    db.prepare("SELECT 1 FROM schema_version WHERE version=?").get(n);
+  const table = (name: string) =>
+    db.prepare("SELECT 1 FROM sqlite_master WHERE name=?").get(name);
+  if (version(42) && version(43) && !version(44) && table("pi_package_recovery"))
+    db.exec(
+      "UPDATE schema_version SET version=44 WHERE version=43; UPDATE schema_version SET version=43 WHERE version=42",
+    );
+  if (version(40) && table("pi_project_trust") && !table("trace_fts"))
+    db.exec("UPDATE schema_version SET version=43 WHERE version=40");
+  if (
+    version(41) &&
+    table("pi_package_recovery") &&
+    !(db.pragma("table_info(scheduled_sends)") as { name: string }[]).some(
+      (column) => column.name === "reply_excerpt",
+    )
+  )
+    db.exec("UPDATE schema_version SET version=44 WHERE version=41");
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

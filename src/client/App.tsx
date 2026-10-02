@@ -46,6 +46,7 @@ import { PwaStatus } from "./Pwa";
 import { Notifications } from "./Notifications";
 import { RetireAgent } from "./RetireAgent";
 import { Tools } from "./Tools";
+import { PiCustomizations } from "./PiCustomizations";
 import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
 import { Inbox, inboxFilters, type InboxFilter } from "./Inbox";
@@ -1802,6 +1803,15 @@ export default function App() {
               onChange={setDraft}
               focusInput={() => document.getElementById("composer")?.focus()}
             />
+            {activeAgent?.provider === "pi" && (
+              <button
+                type="button"
+                className="text-button pi-active-trigger"
+                onClick={() => setSheet("pi-active")}
+              >
+                Active in this chat
+              </button>
+            )}
             <VoiceButton value={draft} onChange={setDraft} disabled={busy} />
             <button
               type="button"
@@ -2726,6 +2736,10 @@ export default function App() {
               <Plug size={20} aria-hidden="true" />
               Tools & integrations
             </button>
+            <button onClick={() => openSettingsPage("pi-customizations")}>
+              <Orbit size={20} aria-hidden="true" />
+              Pi customizations
+            </button>
             <h3>Workspace</h3>
             <button onClick={() => openSettingsPage("agents")}>
               <Orbit size={20} aria-hidden="true" />
@@ -3153,6 +3167,23 @@ export default function App() {
         />
       )}
       {sheet === "mcp" && <Tools onClose={closeSheet} />}
+      {(sheet === "pi-customizations" || sheet === "pi-active") && (
+        <PiCustomizations
+          agents={data.agents}
+          agentId={activeAgent?.provider === "pi" ? activeAgent.id : undefined}
+          conversationId={conversation ?? undefined}
+          mode={sheet === "pi-active" ? "active" : "library"}
+          onClose={closeSheet}
+          onUse={(agentId, token) => {
+            if (agentId !== activeAgent?.id) setConversation(null);
+            setSelected(agentId);
+            setDraft(token + " ");
+            setSettingsParent(false);
+            setSheet("");
+            requestAnimationFrame(() => document.getElementById("composer")?.focus());
+          }}
+        />
+      )}
       {sheet === "agents" && (
         <AgentDirectory
           agents={data.agents}

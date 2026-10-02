@@ -5080,10 +5080,23 @@ select {
   font-size: 12px;
   color: var(--muted);
 }
-.personal-section-title { font-size: 16px; margin: 22px 0 16px; }
-.personal-recipient { display: flex; gap: 12px; align-items: center; }
-.personal-recipient > div { min-width: 0; }
-.personal-recipient small { display: block; font-size: 12px; margin-bottom: 4px; }
+.personal-section-title {
+  font-size: 16px;
+  margin: 22px 0 16px;
+}
+.personal-recipient {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.personal-recipient > div {
+  min-width: 0;
+}
+.personal-recipient small {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
 .personal-agent-avatar {
   display: inline-flex;
   flex-shrink: 0;
@@ -5093,9 +5106,20 @@ select {
   background: none;
   cursor: pointer;
 }
-.personal-agent-name.text-button { display: block; padding: 0; text-align: left; font-weight: 650; }
-.personal-message-card { min-width: 0; }
-.personal-message-card .personal-message-context { color: var(--muted); font-size: 12px; margin: 16px 0; }
+.personal-agent-name.text-button {
+  display: block;
+  padding: 0;
+  text-align: left;
+  font-weight: 650;
+}
+.personal-message-card {
+  min-width: 0;
+}
+.personal-message-card .personal-message-context {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 16px 0;
+}
 .personal-message-footer {
   display: flex;
   flex-wrap: wrap;
@@ -5107,9 +5131,14 @@ select {
   margin-top: 16px;
   font-size: 12px;
 }
-.personal-message-footer time { color: var(--muted); }
-.personal-message-footer a { color: var(--ink); }
-.personal-agent-avatar:focus-visible, .personal-agent-name:focus-visible {
+.personal-message-footer time {
+  color: var(--muted);
+}
+.personal-message-footer a {
+  color: var(--ink);
+}
+.personal-agent-avatar:focus-visible,
+.personal-agent-name:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
@@ -7090,6 +7119,58 @@ html:has(.sheet.side-panel[open]) {
   font-size: 12px;
 }
 
+.pi-inventory-summary {
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem;
+  margin: 0.75rem 0;
+  border: 1px solid var(--border, #dedee3);
+  border-radius: 14px;
+}
+.pi-inventory-summary span,
+.pi-inventory-summary small,
+.pi-resource small {
+  color: var(--muted, #666);
+}
+.pi-package-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+.pi-resource {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border, #dedee3);
+}
+.pi-resource p {
+  margin: 0.35rem 0;
+}
+.pi-resource .text-button {
+  display: block;
+  margin-top: 0.35rem;
+}
+.pi-resource ul {
+  padding-left: 1.2rem;
+  overflow-wrap: anywhere;
+  color: var(--muted, #666);
+  font-size: 0.83rem;
+}
+.pi-resource textarea {
+  width: 100%;
+  min-height: 5rem;
+}
+.pi-prompt-preview {
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.8rem;
+  border: 1px solid var(--border, #dedee3);
+  border-radius: 12px;
+}
+.pi-active-trigger {
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
 .quote-part-text {
   width: 100%;
   font: inherit;

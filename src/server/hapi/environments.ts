@@ -34,6 +34,7 @@ export async function workerRequest(
   e: any,
   path: string,
   body?: unknown,
+  timeoutMs = 35000,
 ): Promise<any> {
   if (!dispatcher) {
     const cert = process.env.LOOP_CONTROL_CERT,
@@ -59,7 +60,7 @@ export async function workerRequest(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     dispatcher,
-    signal: AbortSignal.timeout(35000),
+    signal: AbortSignal.timeout(timeoutMs),
     redirect: "error",
   });
   const data: any = await r.json();

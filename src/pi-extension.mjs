@@ -8,6 +8,18 @@ export default function loopMetadata(pi) {
     const provider = model && ctx.modelRegistry.getProvider(model.provider);
     return {
       toolsReady,
+      projectTrusted: ctx.isProjectTrusted(),
+      toolsTruncated: pi.getAllTools().length > 150,
+      // Send display metadata only. Schemas and settings may contain secrets.
+      tools: pi
+        .getAllTools()
+        .slice(0, 150)
+        .map((tool) => ({
+          name: tool.name,
+          description: String(tool.description || "").slice(0, 160),
+          sourceInfo: tool.sourceInfo,
+          active: pi.getActiveTools().includes(tool.name),
+        })),
       provider: model?.provider,
       model: model?.id,
       modelEfforts: ctx.modelRegistry.getAvailable().map((available) => ({

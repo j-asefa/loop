@@ -33,6 +33,15 @@ export async function buildNativeAuth(
     format: "esm",
     target: "node22",
   });
+  await build({
+    absWorkingDir: root,
+    entryPoints: ["src/native-auth/pi-customizations.ts"],
+    outfile: join(outdir, "pi-customizations.mjs"),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node22",
+  });
   return result.metafile;
 }
 if (

@@ -22,6 +22,7 @@ export type Options = {
   effort?: string;
   instructions?: string;
   probeOnly?: boolean;
+  projectTrust?: boolean;
   workspaceTools?: { url: string; token: string };
   args?: string[];
 };
@@ -32,6 +33,13 @@ export type NativeCommand = {
   description: string;
   argumentHint?: string;
   disabledReason?: string;
+  sourceInfo?: {
+    source?: string;
+    scope?: string;
+    origin?: string;
+    baseDir?: string;
+    path?: string;
+  };
 };
 export type Emit = (event: AdapterEvent) => void;
 export interface Adapter {
@@ -39,6 +47,7 @@ export interface Adapter {
   models?: ModelOption[];
   defaultModelOption?: ModelOption;
   commands?: NativeCommand[];
+  customizationInventory?: unknown;
   activityCapabilities?: ActivityCapabilities;
   settings?: SettingsData;
   commandCatalog?: CommandsData;

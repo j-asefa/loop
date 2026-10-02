@@ -59,3 +59,56 @@ for (const branch of ["main", "hapi"] as const)
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+// Earlier Pi branch layouts: [trust, recovery] versions and the main
+// migrations that had already run alongside them.
+for (const [label, [trust, recovery], before] of [
+  ["40/41", [40, 41], 39],
+  ["42/43", [42, 43], 41],
+] as const)
+  it(`upgrades databases created by the Pi branch's ${label} migration numbers`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "loop-pi-schema-"));
+    try {
+      const db = new Database(join(dir, "loop.db"));
+      db.exec(
+        "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
+      );
+      for (const file of readdirSync("migrations").filter((name) => name.endsWith(".sql")).sort()) {
+        const version = Number(file.split("-")[0]);
+        if (version > before) continue;
+        db.exec(readFileSync(join("migrations", file), "utf8"));
+      }
+      db.exec(readFileSync("migrations/043-pi-project-trust.sql", "utf8").replace("VALUES(43,", `VALUES(${trust},`));
+      db.exec(readFileSync("migrations/044-pi-package-recovery.sql", "utf8").replace("VALUES(44,", `VALUES(${recovery},`));
+      db.close();
+
+      const result = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "-e",
+          `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version WHERE version>=40 ORDER BY version').all(),trace:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='trace_fts'").get(),excerpt:db.pragma('table_info(scheduled_sends)').some(c=>c.name==='reply_excerpt')}));db.close();`,
+        ],
+        {
+          cwd: resolve("."),
+          env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+          encoding: "utf8",
+        },
+      );
+      // Every migration from 40 runs, including whichever one owns 42.
+      expect(JSON.parse(result)).toEqual({
+        versions: readdirSync("migrations")
+          .filter((name) => name.endsWith(".sql"))
+          .map((name) => Number(name.split("-")[0]))
+          .filter((version) => version >= 40)
+          .sort((a, b) => a - b)
+          .map((version) => ({ version })),
+        trace: true,
+        excerpt: true,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });

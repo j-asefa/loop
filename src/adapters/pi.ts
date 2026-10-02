@@ -15,6 +15,7 @@ import {
 import type { Billing } from "../protocol.js";
 import type { ModelOption } from "../shared/models.js";
 import { NativeSetupError } from "./setup-error.js";
+import { piInventory } from "./pi-inventory.js";
 
 export class Pi implements Adapter {
   private controlState?: DirectControls;
@@ -36,10 +37,12 @@ export class Pi implements Adapter {
               token: "/" + c.name,
               kind: c.source || "command",
               description: c.description || "",
+              sourceInfo: c.sourceInfo,
             }));
         },
         (commands) => {
           this.commands = commands;
+          this.refreshInventory();
         },
       );
     }
@@ -53,6 +56,22 @@ export class Pi implements Adapter {
   models: ModelOption[] = [];
   defaultModelOption?: ModelOption;
   commands: NativeCommand[] = [];
+  customizationInventory: ReturnType<typeof piInventory> & {
+    toolsTruncated?: boolean;
+    projectTrusted?: boolean;
+    diagnostics?: Array<{ kind: string; path?: string; event?: string }>;
+  } = piInventory([]);
+  private diagnostics: Array<{ kind: string; path?: string; event?: string }> =
+    [];
+  private state: any;
+  private refreshInventory() {
+    this.customizationInventory = {
+      ...piInventory(this.commands, this.info?.tools, this.state),
+      toolsTruncated: this.info?.toolsTruncated === true,
+      projectTrusted: this.info?.projectTrusted === true,
+      diagnostics: this.diagnostics,
+    };
+  }
   private native!: Native;
   private info: any;
   private infoWait?: {
@@ -72,6 +91,7 @@ export class Pi implements Adapter {
   }
   private async readSettings(): Promise<Setting[]> {
     const state = await this.native.request("get_state", {}, false);
+    this.state = state;
     const thinking = await this.native
       .request("get_available_thinking_levels", {}, false)
       .catch(() => ({ levels: [] }));
@@ -104,12 +124,56 @@ export class Pi implements Adapter {
           : undefined,
         provenance: "Pi get_state / get_available_thinking_levels",
       },
+      {
+        id: "auto-compaction",
+        label: "Automatic compaction",
+        type: "boolean",
+        confirmed: state.autoCompactionEnabled === true,
+        application: "live",
+        mutable: true,
+        provenance: "Pi get_state",
+      },
+      {
+        id: "steering-mode",
+        label: "Steering messages",
+        type: "select",
+        choices: [
+          { value: "all", label: "All" },
+          { value: "one-at-a-time", label: "One at a time" },
+        ],
+        confirmed: state.steeringMode,
+        application: "live",
+        mutable: true,
+        provenance: "Pi get_state",
+      },
+      {
+        id: "follow-up-mode",
+        label: "Follow-up messages",
+        type: "select",
+        choices: [
+          { value: "all", label: "All" },
+          { value: "one-at-a-time", label: "One at a time" },
+        ],
+        confirmed: state.followUpMode,
+        application: "live",
+        mutable: true,
+        provenance: "Pi get_state",
+      },
     ];
   }
   async setSetting(id: string, value: SettingValue, revision: number) {
     return this.displayControls.change(id, value, revision, async () => {
-      if (typeof value !== "string") throw new Error("Invalid setting value.");
-      if (id === "model") {
+      if (id === "auto-compaction") {
+        if (typeof value !== "boolean")
+          throw new Error("Invalid setting value.");
+        await this.native.request(
+          "set_auto_compaction",
+          { enabled: value },
+          false,
+        );
+      } else if (typeof value !== "string")
+        throw new Error("Invalid setting value.");
+      else if (id === "model") {
         const slash = value.indexOf("/");
         await this.native.request(
           "set_model",
@@ -122,7 +186,15 @@ export class Pi implements Adapter {
           { level: value },
           false,
         );
-      else throw new Error("Unknown setting.");
+      else if (id === "steering-mode" || id === "follow-up-mode") {
+        if (value !== "all" && value !== "one-at-a-time")
+          throw new Error("Invalid queue mode.");
+        await this.native.request(
+          id === "steering-mode" ? "set_steering_mode" : "set_follow_up_mode",
+          { mode: value },
+          false,
+        );
+      } else throw new Error("Unknown setting.");
       return this.readSettings();
     });
   }
@@ -136,6 +208,11 @@ export class Pi implements Adapter {
       [
         "--mode",
         "rpc",
+        ...(this.options.projectTrust === true
+          ? ["--approve"]
+          : this.options.projectTrust === false
+            ? ["--no-approve"]
+            : []),
         "--extension",
         extension,
         ...(this.options.model ? ["--model", this.options.model] : []),
@@ -158,6 +235,7 @@ export class Pi implements Adapter {
     );
     this.native.on("metadata", (info) => {
       this.info = info;
+      this.refreshInventory();
       if (this.infoWait) {
         clearTimeout(this.infoWait.timer);
         this.infoWait.resolve(info);
@@ -256,7 +334,9 @@ export class Pi implements Adapter {
         token: "/" + c.name,
         kind: c.source || "command",
         description: c.description || "",
+        sourceInfo: c.sourceInfo,
       }));
+    this.refreshInventory();
     this.displayControls.publish(settings, this.commands);
     const billing = this.billing();
     this.emit({
@@ -354,6 +434,18 @@ export class Pi implements Adapter {
   }
   private activityInputs = new Map<string, { toolName: string; args: any }>();
   private message(m: any) {
+    if (m.type === "extension_error") {
+      this.diagnostics = [
+        ...this.diagnostics.slice(-29),
+        {
+          kind: "extension-error",
+          path:
+            typeof m.extensionPath === "string" ? m.extensionPath : undefined,
+          event: typeof m.event === "string" ? m.event : undefined,
+        },
+      ];
+      this.refreshInventory();
+    }
     if (m.type === "tool_execution_start")
       this.activityInputs.set(m.toolCallId, {
         toolName: m.toolName,

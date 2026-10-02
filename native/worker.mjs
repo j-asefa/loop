@@ -26,6 +26,7 @@ import {
   logoutPi,
 } from "./generated/native-auth/service.mjs";
 import { inspectCodexAppServer } from "./codex-app-server-status.mjs";
+import { piCustomization } from "./generated/pi-customizations.mjs";
 
 const versions = JSON.parse(
   readFileSync(new URL("../deployment/versions.json", import.meta.url), "utf8"),
@@ -307,6 +308,33 @@ const server = https.createServer(
         res.end(JSON.stringify({ path: realpathSync(target) }));
         return;
       }
+      if (req.url === "/pi/customizations") {
+        if (req.method !== "POST" || data.flavor !== "pi")
+          throw new Error("Pi customization requires a Pi request");
+        validFlavor("pi");
+        const project = realpathSync(data.project);
+        const sub = relative(root, project);
+        if (
+          sub.startsWith("..") ||
+          isAbsolute(sub) ||
+          !statSync(project).isDirectory()
+        )
+          throw new Error("Project escaped environment root");
+        const processEnv = env();
+        res.end(
+          JSON.stringify(
+            await piCustomization(data, {
+              project,
+              agentDir:
+                processEnv.PI_CODING_AGENT_DIR ||
+                join(processEnv.HOME, ".pi", "agent"),
+              executable: binary("pi"),
+              environment: processEnv,
+            }),
+          ),
+        );
+        return;
+      }
       if (!/^[a-f0-9-]{36}$/.test(data.launchId))
         throw new Error("Invalid launch identity");
       const file = join(launchDir, data.launchId + ".json");
@@ -316,6 +344,20 @@ const server = https.createServer(
           sub = relative(root, directory);
         if (sub.startsWith("..") || sub.startsWith("/"))
           throw new Error("Directory is outside approved project root");
+        if (data.flavor === "pi") {
+          const processEnv = env();
+          await piCustomization(
+            { action: "guard-trust" },
+            {
+              project: directory,
+              agentDir:
+                processEnv.PI_CODING_AGENT_DIR ||
+                join(processEnv.HOME, ".pi", "agent"),
+              executable: binary("pi"),
+              environment: processEnv,
+            },
+          );
+        }
         if (
           data.gatewayUrl !== settings.gatewayUrl ||
           data.gatewayToken?.length < 40 ||

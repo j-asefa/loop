@@ -95,6 +95,9 @@ export async function hapi(root: string) {
     .update(readFileSync(join(packageRoot, "native/apply-hapi-patch.mjs")))
     .update(readFileSync(join(packageRoot, "native/loopManaged.ts")))
     .update(readFileSync(join(packageRoot, "native/pi-readiness.ts")))
+    .update(
+      readFileSync(join(packageRoot, "src/native-auth/pi-customizations.ts")),
+    )
     .digest("hex")
     .slice(0, 12);
   const source = join(
@@ -257,13 +260,18 @@ export class LocalRuntime {
           );
       }
     }
-    const nativeProviders = this.selection.providers.filter((p) => !unavailable.has(p));
+    const nativeProviders = this.selection.providers.filter(
+      (p) => !unavailable.has(p),
+    );
     if (this.selection.execution === "native" && nativeProviders.length === 0)
-      throw new Error("No selected managed native runtime is available. Resolve the runtime setup error or select another provider.");
+      throw new Error(
+        "No selected managed native runtime is available. Resolve the runtime setup error or select another provider.",
+      );
     // An unavailable native runtime must not disable its baked Docker sibling.
-    const executionKinds = this.selection.execution === "both"
-      ? [...(nativeProviders.length ? ["native"] : []), "docker"]
-      : [this.selection.execution];
+    const executionKinds =
+      this.selection.execution === "both"
+        ? [...(nativeProviders.length ? ["native"] : []), "docker"]
+        : [this.selection.execution];
     this.hubBinary = await this.buildHapi(this.root);
     const ca = join(this.state, "ca");
     privateDir(ca);
@@ -342,9 +350,7 @@ export class LocalRuntime {
             }
           : {}),
         instanceId: identity.instanceId,
-        providers: docker
-          ? this.selection.providers
-          : nativeProviders,
+        providers: docker ? this.selection.providers : nativeProviders,
         appCertificateFingerprint: new X509Certificate(
           readFileSync(join(app, "cert.pem")),
         ).fingerprint256,

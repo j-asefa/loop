@@ -46,6 +46,7 @@ import type { Agent, Connection, Message } from "../shared/types.js";
 import { listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { nativeCancel, dispatchFor } from "./hapi/adapter.js";
+import { piInventory } from "../adapters/pi-inventory.js";
 export const core = Router();
 core.get("/bootstrap", (_req, res) =>
   res.json({
@@ -320,9 +321,40 @@ core.get("/agents/:id/harness", async (req, res) => {
   if (native.backend === "hapi") {
     const session = db
       .prepare(
-        "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
+        "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.environment_id=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
       )
-      .get(agent.id, res.locals.owner) as any;
+      .get(agent.id, res.locals.owner, native.environmentId) as any;
+    // Before the first session, a probe that can't reach the worker or pick a
+    // project falls back to the start-a-conversation message below.
+    const catalog =
+      !session && native.flavor === "pi"
+        ? await managedPiRequest(agent, res.locals.owner, {
+            action: "catalog",
+          }).catch(() => null)
+        : null;
+    if (catalog) {
+      const mapped = (catalog.commands || []).map((c: any) => ({
+        name: c.name,
+        description: c.description || "",
+        token: "/" + c.name,
+        kind:
+          c.source === "skill"
+            ? "skill"
+            : c.source === "prompt"
+              ? "prompt"
+              : "command",
+        sourceInfo: c.sourceInfo,
+      }));
+      res.json({
+        available: true,
+        runtime: "pi",
+        commands: mapped,
+        inventory: piInventory(mapped, [], catalog.state),
+        message:
+          "Pi resources in this environment. Start a conversation to confirm the active session catalog.",
+      });
+      return;
+    }
     if (!session) {
       res.json({
         available: false,
@@ -333,26 +365,56 @@ core.get("/agents/:id/harness", async (req, res) => {
       return;
     }
     const client = hub(environment(res.locals.owner, session.environment_id));
-    const [commands, skills] = await Promise.all([
+    const [commands, skills, probe] = await Promise.all([
       client.request(
         "/api/sessions/" + session.hub_session_id + "/slash-commands",
       ),
       client.request("/api/sessions/" + session.hub_session_id + "/skills"),
+      native.flavor === "pi"
+        ? managedPiRequest(agent, res.locals.owner, {
+            action: "catalog",
+          }).catch(() => null)
+        : null,
     ]);
+    const sourceByName = new Map(
+      (probe?.commands || []).map((c: any) => [c.name, c]),
+    );
+    const mappedCommands = [
+      ...(commands.commands || []).map((c: any) => ({
+        ...c,
+        token: "/" + c.name.replace(/^\//, ""),
+        kind:
+          c.source === "prompt" ||
+          (sourceByName.get(c.name) as any)?.source === "prompt"
+            ? "prompt"
+            : "command",
+        sourceInfo:
+          c.sourceInfo || (sourceByName.get(c.name) as any)?.sourceInfo,
+      })),
+      ...(skills.skills || []).map((c: any) => ({
+        ...c,
+        token:
+          native.flavor === "codex"
+            ? "$" + c.name
+            : native.flavor === "pi"
+              ? "/skill:" + c.name
+              : "/" + c.name,
+        kind: "skill",
+        sourceInfo:
+          c.sourceInfo ||
+          (sourceByName.get("skill:" + c.name) as any)?.sourceInfo,
+      })),
+    ];
     res.json({
       available: true,
-      commands: [
-        ...(commands.commands || []).map((c: any) => ({
-          ...c,
-          token: "/" + c.name.replace(/^\//, ""),
-          kind: "command",
-        })),
-        ...(skills.skills || []).map((c: any) => ({
-          ...c,
-          token: (native.flavor === "codex" ? "$" : "/") + c.name,
-          kind: "skill",
-        })),
-      ],
+      commands: mappedCommands,
+      ...(native.flavor === "pi"
+        ? {
+            inventory: piInventory(mappedCommands, [], probe?.state),
+            message:
+              "Commands and skills reported by this HAPI Pi session. Tool metadata is not reported by HAPI.",
+          }
+        : {}),
       runtime: native.flavor,
     });
     return;
@@ -371,6 +433,238 @@ core.get("/agents/:id/harness", async (req, res) => {
       "This runtime does not support command discovery. Update the runtime on that machine and try again.",
     );
   res.json(catalog);
+});
+function managedPi(agent: Agent, owner: string) {
+  if (!agent.connection_id)
+    throw new Problem(409, "Connect a Pi runtime to this agent first.");
+  const connection = owned<Connection>(
+    "connections",
+    agent.connection_id,
+    owner,
+  );
+  const metadata = JSON.parse(connection.metadata);
+  if (metadata.backend !== "hapi") return null;
+  if (metadata.flavor !== "pi") throw new Problem(422, "Choose a Pi agent.");
+  const e = environment(owner, metadata.environmentId);
+  const latest = db
+    .prepare(
+      "SELECT c.project_id FROM conversations c JOIN native_sessions s ON s.conversation_id=c.id WHERE c.agent_id=? AND s.environment_id=? ORDER BY c.created_at DESC LIMIT 1",
+    )
+    .get(agent.id, e.host_id) as { project_id: string | null } | undefined;
+  const mapping =
+    agent.folder_id || latest?.project_id
+      ? (db
+          .prepare(
+            "SELECT canonical_path FROM environment_projects WHERE environment_id=? AND project_id=?",
+          )
+          .get(e.host_id, agent.folder_id || latest?.project_id) as
+          { canonical_path: string } | undefined)
+      : (() => {
+          const mappings = db
+            .prepare(
+              "SELECT canonical_path FROM environment_projects WHERE environment_id=? LIMIT 2",
+            )
+            .all(e.host_id) as { canonical_path: string }[];
+          return mappings.length === 1 ? mappings[0] : undefined;
+        })();
+  if (!mapping)
+    throw new Problem(
+      409,
+      "Map this project to the Pi execution environment first.",
+    );
+  return { e, project: mapping.canonical_path };
+}
+async function managedPiRequest(
+  agent: Agent,
+  owner: string,
+  input: Record<string, unknown>,
+) {
+  const target = managedPi(agent, owner);
+  if (!target) return null;
+  return workerRequest(
+    target.e,
+    "/pi/customizations",
+    {
+      ...input,
+      flavor: "pi",
+      project: target.project,
+      generation: target.e.generation,
+    },
+    input.action === "package" || input.action === "rollback" ? 130000 : 35000,
+  );
+}
+core.get("/agents/:id/pi-packages", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  res.json(
+    (await managedPiRequest(agent, res.locals.owner, {
+      action: "configuration",
+    })) ?? nativeSessions.piConfiguration(agent),
+  );
+});
+core.post("/agents/:id/pi-trust", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const { trusted, fingerprint } = z
+    .object({
+      trusted: z.boolean(),
+      fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    (await managedPiRequest(agent, res.locals.owner, {
+      action: "trust",
+      trusted,
+      fingerprint,
+    })) ?? (await nativeSessions.piTrustDecision(agent, trusted, fingerprint)),
+  );
+});
+core.post("/agents/:id/pi-package-filters", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const { source, scope, filters, settingsHash } = z
+    .object({
+      source: z.string().min(1).max(512),
+      scope: z.enum(["user", "project"]),
+      settingsHash: z.string().regex(/^[a-f0-9]{64}$/),
+      filters: z
+        .object({
+          extensions: z.array(z.string().max(300)).max(100).optional(),
+          skills: z.array(z.string().max(300)).max(100).optional(),
+          prompts: z.array(z.string().max(300)).max(100).optional(),
+          themes: z.array(z.string().max(300)).max(100).optional(),
+        })
+        .strict(),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    (await managedPiRequest(agent, res.locals.owner, {
+      action: "filters",
+      source,
+      scope,
+      filters,
+      settingsHash,
+    })) ??
+      nativeSessions.piPackageFilters(
+        agent,
+        source,
+        scope,
+        filters,
+        settingsHash,
+      ),
+  );
+});
+core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const input = z
+    .object({
+      name: z.string().min(1).max(100),
+      args: z.string().max(2000),
+      conversation: z.string().uuid().optional(),
+    })
+    .strict()
+    .parse(req.body);
+  const target = managedPi(agent, res.locals.owner);
+  if (target) {
+    const session = db
+      .prepare(
+        "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.environment_id=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
+      )
+      .get(agent.id, res.locals.owner, target.e.host_id) as any;
+    if (!session)
+      throw new Problem(
+        409,
+        "Start a Pi conversation before previewing a prompt.",
+      );
+    const commands = await hub(target.e).request(
+      `/api/sessions/${session.hub_session_id}/slash-commands`,
+    );
+    const probe = await managedPiRequest(agent, res.locals.owner, {
+      action: "catalog",
+    });
+    const prompt = (commands.commands || []).some(
+      (c: any) => c.name === input.name,
+    )
+      ? (probe.commands || []).find(
+          (c: any) => c.name === input.name && c.source === "prompt",
+        )
+      : null;
+    if (!prompt?.sourceInfo?.path)
+      throw new Problem(
+        409,
+        "This managed Pi session did not report a loaded prompt path.",
+      );
+    res.json(
+      await managedPiRequest(agent, res.locals.owner, {
+        action: "preview",
+        name: input.name,
+        args: input.args,
+        path: prompt.sourceInfo.path,
+      }),
+    );
+  } else
+    res.json(
+      await nativeSessions.piPromptPreview(
+        agent,
+        input.name,
+        input.args,
+        input.conversation,
+      ),
+    );
+});
+core.post("/agents/:id/pi-package-inspect", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const { source } = z
+    .object({ source: z.string().min(1).max(512) })
+    .strict()
+    .parse(req.body);
+  res.json(
+    (await managedPiRequest(agent, res.locals.owner, {
+      action: "inspect",
+      source,
+    })) ?? (await nativeSessions.piInspectPackage(agent, source)),
+  );
+});
+core.post("/agents/:id/pi-package-rollback", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const { source, scope } = z
+    .object({
+      source: z.string().min(1).max(512),
+      scope: z.enum(["user", "project"]),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    (await managedPiRequest(agent, res.locals.owner, {
+      action: "rollback",
+      source,
+      scope,
+    })) ?? (await nativeSessions.piRollbackPackage(agent, source, scope)),
+  );
+});
+core.post("/agents/:id/pi-packages", async (req, res) => {
+  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const input = z
+    .object({
+      action: z.enum(["install", "remove", "update"]),
+      source: z.string().min(1).max(512),
+      scope: z.enum(["user", "project"]),
+    })
+    .strict()
+    .parse(req.body);
+  res.json(
+    (await managedPiRequest(agent, res.locals.owner, {
+      action: "package",
+      operation: input.action,
+      source: input.source,
+      scope: input.scope,
+    })) ??
+      (await nativeSessions.piPackageAction(
+        agent,
+        input.action,
+        input.source,
+        input.scope,
+      )),
+  );
 });
 core.get("/agents/:id/traces", (req, res) => {
   const before = z.coerce
@@ -442,9 +736,7 @@ core.post("/runs", (req, res) => {
   const { queue, ...data } = d;
   res
     .status(202)
-    .json(
-      submit(res.locals.owner, { ...data, steer: !queue, personal: true }),
-    );
+    .json(submit(res.locals.owner, { ...data, steer: !queue, personal: true }));
 });
 core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
