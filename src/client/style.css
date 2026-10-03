@@ -2238,11 +2238,17 @@ pre {
   :root[data-keyboard="open"] .mobile-nav {
     display: none;
   }
-  /* Keep the bottom bars on the screen's bottom edge when Safari's layout
-     viewport ends above it (see viewportDrop in Pwa.tsx). */
+  /* Keep the bottom bars and sheets on the screen's bottom edge when
+     Safari's layout viewport ends above it (see viewportDrop in Pwa.tsx).
+     A bottom sheet left there shows the page beneath it, under its
+     backdrop. The settings side panel spans the full height already. */
   .mobile-nav,
-  .composer-dock {
+  .composer-dock,
+  .sheet:not(.side-panel) {
     translate: 0 var(--viewport-drop, 0px);
+  }
+  .sheet:not(.side-panel)::backdrop {
+    bottom: calc(-1 * var(--viewport-drop, 0px));
   }
 }
 .mcp-import {

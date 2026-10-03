@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
-import { openAgentProfile } from "./browser-ui.mjs";
+import { openAgentProfile, openSettings } from "./browser-ui.mjs";
 
 export async function replyKeyboardSmoke(page, fixture, capture) {
   const sheet = () => page.locator("dialog[open]").last();
@@ -148,6 +148,29 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       await expect(page.locator(".mobile-nav")).toBeVisible();
       await resetViewport();
       await expect(input).toHaveValue(draft);
+      // After the keyboard, Safari can leave the layout viewport ending
+      // above the screen's bottom. The thread follows the visible bottom
+      // instead of leaving the Feed showing beneath it.
+      const threadBottom = async () => {
+        const box = await thread().boundingBox();
+        return box.y + box.height;
+      };
+      const resting = await threadBottom();
+      await page.evaluate(() => {
+        Object.defineProperty(window.visualViewport, "offsetTop", {
+          configurable: true,
+          get: () => 300,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect
+        .poll(threadBottom, {
+          message: "The thread follows the visible bottom",
+        })
+        .toBeCloseTo(resting + 300, 0);
+      await capture(`reply-${kind}-dropped-viewport`);
+      await resetViewport();
+      await expect.poll(threadBottom).toBeCloseTo(resting, 0);
       await input.fill("");
       await composer()
         .getByRole("button", { name: "Clear reply context" })
@@ -158,6 +181,38 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       if (kind === "message")
         await page.getByRole("tab", { name: "Results", exact: true }).click();
     }
+    // The settings side panel already spans the full height: the drop
+    // leaves it in place instead of opening a gap at the top.
+    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await openSettings(page);
+    const panel = page.locator("dialog.side-panel[open]");
+    // Measure once it has slid in.
+    await panel.evaluate((el) =>
+      Promise.all(el.getAnimations().map((a) => a.finished)),
+    );
+    const before = await panel.boundingBox();
+    await page.evaluate(() => {
+      Object.defineProperty(window.visualViewport, "offsetTop", {
+        configurable: true,
+        get: () => 300,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          document.documentElement.style.getPropertyValue("--viewport-drop"),
+        ),
+      )
+      .toBe("300px");
+    assert.deepEqual(
+      await panel.boundingBox(),
+      before,
+      "The settings panel stays put when the viewport drops",
+    );
+    await resetViewport();
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
   } finally {
     await resetViewport();
     await page.setViewportSize({ width: 390, height: 844 });
