@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   changePrompts,
+  commandOutcome,
   compactNumber,
+  displayCommand,
   dayLabel,
   duration,
   feedNextAction,
@@ -300,5 +302,29 @@ describe("later choices", () => {
   it("skips this evening once it is too close", () => {
     const late = new Date(2026, 8, 30, 18, 30).getTime();
     expect(laterChoices(late).some((c) => c.id === "tonight")).toBe(false);
+  });
+});
+
+describe("reported commands", () => {
+  it("drops the login-shell wrapper harnesses add", () => {
+    expect(displayCommand("/bin/bash -lc 'gh pr checks 57 | tail -5'")).toBe(
+      "gh pr checks 57 | tail -5",
+    );
+    expect(displayCommand(String.raw`bash -lc 'echo '\''hi'\'''`)).toBe("echo 'hi'");
+    expect(displayCommand('/usr/bin/zsh -c "echo \\"$HOME\\""')).toBe(
+      'echo "$HOME"',
+    );
+    expect(displayCommand("  npm test  ")).toBe("npm test");
+    // Not a whole-command wrapper: left alone.
+    expect(displayCommand("bash -lc 'a' && b")).toBe("bash -lc 'a' && b");
+  });
+  it("labels outcomes and flags failures", () => {
+    const c = (status: string, exitCode?: number | null) =>
+      commandOutcome({ command: "x", status, exitCode });
+    expect(c("running")).toEqual({ label: "running", failed: false });
+    expect(c("exited", 0)).toEqual({ label: "exit 0", failed: false });
+    expect(c("exited", 130)).toEqual({ label: "exit 130", failed: true });
+    expect(c("failed", null)).toEqual({ label: "failed", failed: true });
+    expect(c("unknown")).toEqual({ label: "no exit code", failed: false });
   });
 });

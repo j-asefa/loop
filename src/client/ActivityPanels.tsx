@@ -50,6 +50,8 @@ export function FileChangePanel({
   state,
   reason,
   truncated,
+  label = "File change",
+  showPath = true,
 }: {
   path: string;
   oldPath?: string | null;
@@ -59,6 +61,9 @@ export function FileChangePanel({
   state: string;
   reason?: string | null;
   truncated?: boolean;
+  /** Heading, e.g. "Edit 1 of 2" where a file heading already names the path. */
+  label?: string;
+  showPath?: boolean;
 }) {
   const oversized = [patch, before, after].some(
     (value) => (value?.length || 0) > DISPLAY_LIMIT,
@@ -66,9 +71,9 @@ export function FileChangePanel({
   return (
     <details className="activity-panel activity-file" open>
       <summary>
-        <strong>File change</strong>
+        <strong>{label}</strong>
         <span className="activity-state">{state.replaceAll("_", " ")}</span>
-        <code>{oldPath ? `${oldPath} → ${path}` : path}</code>
+        {showPath && <code>{oldPath ? `${oldPath} → ${path}` : path}</code>}
       </summary>
       {reason && <p className="note">{reason}</p>}
       {patch != null ? (
@@ -84,11 +89,15 @@ export function FileChangePanel({
               <span
                 key={index}
                 className={
-                  line.startsWith("+")
-                    ? "diff-add"
-                    : line.startsWith("-")
-                      ? "diff-remove"
-                      : "diff-context"
+                  line.startsWith("@@") ||
+                  line.startsWith("+++ ") ||
+                  line.startsWith("--- ")
+                    ? "diff-hunk"
+                    : line.startsWith("+")
+                      ? "diff-add"
+                      : line.startsWith("-")
+                        ? "diff-remove"
+                        : "diff-context"
                 }
               >
                 {line}

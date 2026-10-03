@@ -383,6 +383,30 @@ export type ChangeContext = {
   }[];
 };
 
+/**
+ * A reported command as a person would have typed it: harnesses often wrap
+ * commands in a login shell (`/bin/bash -lc '…'`), which only adds noise.
+ */
+export function displayCommand(command: string) {
+  const wrapped = command
+    .trim()
+    .match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/);
+  if (!wrapped) return command.trim();
+  return wrapped[1] === "'"
+    ? wrapped[2].replaceAll(`'\\''`, "'")
+    : wrapped[2].replace(/\\(["\\$`])/g, "$1");
+}
+
+/** Short outcome of a reported command, and whether it went wrong. */
+export function commandOutcome(command: ChangeContext["commands"][number]) {
+  if (command.status === "running") return { label: "running", failed: false };
+  if (command.exitCode === 0) return { label: "exit 0", failed: false };
+  if (command.exitCode != null)
+    return { label: `exit ${command.exitCode}`, failed: true };
+  if (command.status === "failed") return { label: "failed", failed: true };
+  return { label: "no exit code", failed: false };
+}
+
 const runPhrase = (context?: ChangeContext) => {
   const starts = context?.runStartedAt || [];
   if (starts.length === 1)

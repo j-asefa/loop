@@ -35,6 +35,8 @@ import {
   preview,
   timeLabel,
   changePrompts,
+  commandOutcome,
+  displayCommand,
   type ChangeContext,
   type ChangeSummary,
 } from "./threadView";
@@ -702,8 +704,6 @@ export function ChangesSheet({
   onClose: () => void;
   onAsk?: (prompt: string) => void;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
-  const refs = useRef(new Map<string, HTMLDivElement>());
   const paths = summary.files
     .filter((file) => file.state === "applied")
     .map((file) => file.path);
@@ -713,9 +713,21 @@ export function ChangesSheet({
     onClose();
     onAsk?.(prompt);
   };
+  const commands = context?.commands || [];
   const folders = [
-    ...new Set((context?.commands || []).map((c) => c.cwd).filter(Boolean)),
+    ...new Set(commands.map((c) => c.cwd).filter(Boolean)),
   ] as string[];
+  const failedCommands = commands.filter((c) => commandOutcome(c).failed).length;
+  const starts = context?.runStartedAt || [];
+  const meta = [
+    context?.agentName && `@${context.agentName}`,
+    context?.projectName || "Unfiled",
+    starts.length === 1
+      ? `started ${dayLabel(starts[0]).toLowerCase()} at ${timeLabel(starts[0])}`
+      : starts.length > 1 && `${starts.length} runs`,
+  ].filter(Boolean);
+  // A few files read best expanded; a long list starts collapsed.
+  const expanded = summary.files.length <= 3;
   return (
     <Sheet
       title="Reported file activity"
@@ -723,112 +735,89 @@ export function ChangesSheet({
       onClose={onClose}
       className="changes-sheet"
     >
-      <p className="changes-total">
-        {plural(summary.applied, "file")} with applied edits ·{" "}
-        <span className="diff-add-count">+{summary.additions}</span>{" "}
-        <span className="diff-remove-count">−{summary.deletions}</span>
-        {other && <> · {other}</>}
-      </p>
-      <dl className="changes-context">
-        {context?.agentName && (
-          <>
-            <dt>Agent</dt>
-            <dd>@{context.agentName}</dd>
-          </>
-        )}
-        <dt>Project</dt>
-        <dd>{context?.projectName || "Unfiled"}</dd>
-        <dt>Run</dt>
-        <dd>
-          {context?.runStartedAt?.length === 1
-            ? `Started ${dayLabel(context.runStartedAt[0]).toLowerCase()} at ${timeLabel(context.runStartedAt[0])}`
-            : context?.runStartedAt?.length
-              ? `${context.runStartedAt.length} runs in this thread`
-              : "Not reported"}
-        </dd>
-        <dt>Repository and branch</dt>
-        <dd>
-          {folders.length === 1 ? (
+      <div className="changes-head">
+        <p className="changes-total">
+          {summary.applied
+            ? `${plural(summary.applied, "file")} with applied edits`
+            : "No applied edits"}{" "}
+          <span className="diff-add-count">+{summary.additions}</span>{" "}
+          <span className="diff-remove-count">−{summary.deletions}</span>
+          {other && <span className="changes-other"> · {other}</span>}
+        </p>
+        <p className="changes-meta">
+          {meta.join(" · ")}
+          {folders.length === 1 && (
             <>
-              Not reported · working folder <code>{folders[0]}</code>
+              {" · in "}
+              <code>{folders[0]}</code>
             </>
-          ) : (
-            "Not reported"
           )}
-        </dd>
-        <dt>Checks</dt>
-        <dd>
-          {context?.commands.length ? (
-            <ul className="changes-commands">
-              {context.commands.slice(-5).map((c, index) => (
-                <li key={index}>
-                  <code>{c.command}</code>{" "}
-                  <span className="field-hint">
-                    {c.status === "running"
-                      ? "still running"
-                      : c.exitCode === 0
-                        ? "exited 0"
-                        : c.exitCode != null
-                          ? `exited ${c.exitCode}`
-                          : c.status === "failed"
-                            ? "failed"
-                            : "outcome not reported"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            "No commands reported"
-          )}
-        </dd>
-        <dt>Pull request</dt>
-        <dd>Not reported</dd>
-      </dl>
-      <p className="field-hint">
-        Each edit as the agent’s tools reported it while working. This is not a
-        diff of the repository: changes made another way, such as by a shell
-        command, are not included. Only applied edits are counted.
-      </p>
+        </p>
+      </div>
       {sections.map(([state, label]) => {
         const files = summary.files.filter((file) => file.state === state);
         if (!files.length) return null;
         return (
-          <section key={state} className="changes-group" data-state={state}>
+          <section
+            key={state}
+            className="changes-group"
+            data-state={state}
+            aria-label={label + " files"}
+          >
             <h3>
               {label} · {files.length}
             </h3>
-            <ul className="changes-files" aria-label={label + " files"}>
-              {files.map((file) => (
-                <li key={file.path} data-state={file.state}>
-                  <button
-                    type="button"
-                    aria-current={selected === file.path || undefined}
-                    onClick={() => {
-                      setSelected(file.path);
-                      refs.current
-                        .get(file.path)
-                        ?.scrollIntoView({ block: "start", behavior: "smooth" });
-                    }}
+            {files.map((file) => (
+              <details
+                key={file.path}
+                className="changes-diff"
+                data-state={file.state}
+                open={expanded || undefined}
+              >
+                <summary>
+                  <ChevronDown
+                    size={16}
+                    aria-hidden="true"
+                    className="changes-toggle"
+                  />
+                  <span
+                    className={"operation " + file.operation}
+                    title={file.operation}
                   >
-                    <span className={"operation " + file.operation}>
-                      {file.operation[0].toUpperCase()}
+                    {file.operation[0].toUpperCase()}
+                  </span>
+                  <FilePath path={file.path} />
+                  {file.edits.length > 1 && (
+                    <span className="change-state">×{file.edits.length}</span>
+                  )}
+                  {file.state === "applied" && (
+                    <span className="changes-counts">
+                      <span className="diff-add-count">+{file.additions}</span>
+                      <span className="diff-remove-count">−{file.deletions}</span>
                     </span>
-                    <code>{file.path}</code>
-                    {file.edits.length > 1 && (
-                      <span className="change-state">
-                        {plural(file.edits.length, "edit")}
-                      </span>
-                    )}
-                    {file.state === "applied" && (
-                      <>
-                        <span className="diff-add-count">+{file.additions}</span>
-                        <span className="diff-remove-count">−{file.deletions}</span>
-                      </>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
+                  )}
+                </summary>
+                {file.edits.map((edit, index) => (
+                  <FileChangePanel
+                    key={index}
+                    {...edit}
+                    showPath={!!edit.oldPath}
+                    label={
+                      file.edits.length > 1
+                        ? `Edit ${index + 1} of ${file.edits.length}`
+                        : "Edit"
+                    }
+                    state={`${editLabel[edit.state as keyof typeof editLabel] || "Outcome not reported"} · ${edit.operation}`}
+                    reason={
+                      edit.reason ||
+                      (edit.content !== "available"
+                        ? `Content ${edit.content}`
+                        : undefined)
+                    }
+                  />
+                ))}
+              </details>
+            ))}
           </section>
         );
       })}
@@ -858,37 +847,67 @@ export function ChangesSheet({
             </button>
           </div>
           <p className="field-hint">
-            Each fills in an editable prompt for the{" "}
-            {plural(paths.length, "file")} with applied edits, asking the agent
-            to check the full diff first. Nothing is sent until you send it,
-            and Loop never changes files itself.
+            Fills in an editable prompt asking @
+            {context?.agentName || "the agent"} to check the full diff first.
+            Nothing is sent until you send it.
           </p>
         </>
       )}
-      {summary.files.map((file) => (
-        <div
-          key={file.path}
-          ref={(node) => {
-            if (node) refs.current.set(file.path, node);
-            else refs.current.delete(file.path);
-          }}
-        >
-          {file.edits.map((edit, index) => (
-            <FileChangePanel
-              key={index}
-              {...edit}
-              state={`${file.edits.length > 1 ? `Edit ${index + 1} of ${file.edits.length} · ` : ""}${editLabel[edit.state as keyof typeof editLabel] || "Outcome not reported"} · ${edit.operation}`}
-              reason={
-                edit.reason ||
-                (edit.content !== "available"
-                  ? `Content ${edit.content}`
-                  : undefined)
-              }
-            />
-          ))}
-        </div>
-      ))}
+      {commands.length > 0 && (
+        <details className="changes-commands">
+          <summary>
+            Commands run · {commands.length}
+            {failedCommands > 0 && (
+              <span className="changes-failed"> · {failedCommands} failed</span>
+            )}
+          </summary>
+          <ul>
+            {commands.slice(-COMMAND_LIMIT).map((c, index) => {
+              const outcome = commandOutcome(c);
+              return (
+                <li key={index}>
+                  <code title={c.command}>{displayCommand(c.command)}</code>
+                  <span
+                    className="command-outcome"
+                    data-failed={outcome.failed || undefined}
+                  >
+                    {outcome.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {commands.length > COMMAND_LIMIT && (
+            <p className="field-hint">
+              Latest {COMMAND_LIMIT} of {commands.length}.
+            </p>
+          )}
+        </details>
+      )}
+      <p className="field-hint changes-note">
+        Edits as the agent’s tools reported them while working, not a diff of
+        the repository: changes made another way, such as by a shell command,
+        are not included.
+      </p>
     </Sheet>
+  );
+}
+
+const COMMAND_LIMIT = 8;
+
+/** A path with its folder muted, so the file name stays readable. */
+function FilePath({ path }: { path: string }) {
+  const cut = path.lastIndexOf("/") + 1;
+  return (
+    <code className="file-path">
+      {/* Truncates from the left; bdi keeps the folder's slashes in order. */}
+      {cut > 0 && (
+        <span className="file-dir">
+          <bdi>{path.slice(0, cut)}</bdi>
+        </span>
+      )}
+      <span className="file-name">{path.slice(cut)}</span>
+    </code>
   );
 }
 

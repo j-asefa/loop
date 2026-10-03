@@ -84,6 +84,9 @@
 .activity-scroll .diff-remove {
   background: #da363322;
 }
+.activity-scroll .diff-hunk {
+  opacity: 0.6;
+}
 .activity-command {
   display: block;
   white-space: pre-wrap;

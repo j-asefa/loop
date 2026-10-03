@@ -5796,44 +5796,57 @@ details > summary {
   color: var(--orange);
   font-variant-numeric: tabular-nums;
 }
+.changes-head {
+  margin: 0 0 4px;
+}
 .changes-total {
+  margin: 0;
+  font-size: 16px;
   font-weight: 650;
-  margin-bottom: 8px;
 }
-.changes-files {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
+.changes-total .changes-other {
+  color: var(--muted);
+  font-weight: 500;
 }
-.changes-files li + li {
-  border-top: 1px solid var(--line);
-}
-.changes-files button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 44px;
-  padding: 8px 12px;
-  text-align: left;
+.changes-meta {
+  margin: 2px 0 0;
+  color: var(--muted);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
-.changes-files button[aria-current] {
-  background: var(--secondary);
+.changes-meta code {
+  font-size: 12px;
 }
-.changes-files code {
+/* A path whose folder gives way first, so the file name stays readable. */
+.file-path {
+  display: flex;
   flex: 1;
   min-width: 0;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.file-path .file-dir {
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   direction: rtl;
-  text-align: left;
+  color: var(--muted);
 }
-.changes-files .operation {
+.file-path .file-name {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 650;
+}
+.changes-counts {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+  font-size: 13px;
+}
+.changes-diff .operation {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
@@ -5844,21 +5857,129 @@ details > summary {
   font-weight: 800;
   background: var(--secondary);
 }
-.changes-files .operation.create {
+.changes-diff .operation.create {
   color: var(--green);
 }
-.changes-files .operation.delete {
+.changes-diff .operation.delete {
   color: var(--orange);
 }
 .changes-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 4px 0 6px;
+}
+.changes-actions button {
+  padding-inline: 8px;
+  text-align: center;
 }
 .changes-sheet pre.activity-scroll {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  /* The sheet scrolls; a second scroll area inside it is hard to use. */
+  max-height: none;
+}
+.changes-commands {
+  margin: 12px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.changes-commands summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.changes-commands .changes-failed {
+  color: var(--orange);
+  white-space: pre;
+}
+.changes-commands ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 8px;
+  display: grid;
+  gap: 6px;
+}
+.changes-commands li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.changes-commands li code {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.command-outcome {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.command-outcome[data-failed] {
+  color: var(--orange);
+  font-weight: 600;
+}
+.changes-commands .field-hint {
+  padding: 0 12px 8px;
+  margin: 0;
+}
+.changes-diff {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 8px;
+}
+.changes-diff > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.changes-diff > summary::-webkit-details-marker {
+  display: none;
+}
+.changes-toggle {
+  flex-shrink: 0;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+.changes-diff[open] .changes-toggle {
+  transform: none;
+}
+.changes-diff > summary .change-state {
+  flex-shrink: 0;
+}
+/* Each edit sits under its file's heading: no second card around it. */
+.changes-diff .activity-panel {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+}
+.changes-diff .activity-file > summary {
+  min-height: 0;
+  padding: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.changes-diff .activity-file > summary strong {
+  font-weight: 600;
+}
+.changes-note {
+  margin-top: 12px;
 }
 .secondary.danger {
   color: var(--orange);
@@ -6417,12 +6538,12 @@ details > summary {
   }
 }
 .changes-chip .changes-other,
-.changes-files .change-state {
+.changes-diff .change-state {
   color: var(--muted);
   font-size: 13px;
 }
-.changes-files li[data-state="failed"] code,
-.changes-files li[data-state="proposed"] code {
+.changes-diff[data-state="failed"] .file-name,
+.changes-diff[data-state="proposed"] .file-name {
   color: var(--muted);
 }
 .scheduled-actions {
@@ -6664,20 +6785,17 @@ details > summary {
 .composer-intent {
   margin: 6px 0 0;
 }
-.send-summary,
-.changes-context {
+.send-summary {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 6px 12px;
   margin: 0 0 12px;
   font-size: 14px;
 }
-.send-summary dt,
-.changes-context dt {
+.send-summary dt {
   color: var(--muted);
 }
-.send-summary dd,
-.changes-context dd {
+.send-summary dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -6686,13 +6804,6 @@ details > summary {
 }
 
 /* Change review */
-.changes-commands {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 4px;
-}
 .changes-group h3 {
   margin: 14px 0 6px;
   font-size: 14px;

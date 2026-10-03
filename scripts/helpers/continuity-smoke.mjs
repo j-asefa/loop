@@ -90,6 +90,28 @@ export async function continuitySmoke(page, fixture, capture) {
       files: [{ path, operation: "modify", patch, content: "available" }],
     },
   });
+  // Commands the run reported, wrapped in a login shell as Codex reports them.
+  const outputRecord = (id, command, exitCode) => ({
+    v: 1,
+    kind: "output",
+    id,
+    source,
+    revision: 1,
+    fieldSeq: {},
+    partial: false,
+    replayed: false,
+    data: {
+      command,
+      cwd: "/work/site",
+      chunks: [],
+      streams: "combined",
+      status: "exited",
+      exitCode,
+      truncated: { droppedBytes: 0, droppedChunks: 0, floor: 0 },
+      nextIndex: 0,
+      pending: [],
+    },
+  });
   const changeRun = randomUUID(),
     changeConversation = randomUUID(),
     changeAnswer = randomUUID();
@@ -126,6 +148,8 @@ export async function continuitySmoke(page, fixture, capture) {
         fileRecord("e1", "src/settings.tsx", "+a\n+b\n-c", "applied"),
         fileRecord("e2", "src/settings.tsx", "+d", "applied"),
         fileRecord("e3", "src/theme.css", "+broken", "failed"),
+        outputRecord("o1", "/bin/bash -lc 'npm test -- settings'", 0),
+        outputRecord("o2", "/bin/bash -lc 'npm run lint | tail -5'", 1),
       ],
     }),
     now - 4000,
@@ -617,6 +641,16 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(dialog().locator(".changes-total")).toContainText(
       "1 file with applied edits",
     );
+    await expect(dialog().locator(".changes-meta")).toContainText("/work/site");
+    // Commands start collapsed, without the login-shell wrapper.
+    const commands = dialog().locator(".changes-commands");
+    await expect(commands.locator("summary")).toHaveText("Commands run · 2 · 1 failed");
+    await commands.locator("summary").click();
+    await expect(commands.locator("li code")).toHaveText([
+      "npm test -- settings",
+      "npm run lint | tail -5",
+    ]);
+    await expect(commands.locator(".command-outcome")).toHaveText(["exit 0", "exit 1"]);
     await capture("continuity-change-review");
     await dialog().getByRole("button", { name: "Ask to commit" }).click();
     const prompt = await page.locator("#composer").inputValue();
