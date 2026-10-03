@@ -3141,6 +3141,20 @@ pre {
 .upload-control .error {
   font-size: 13px;
 }
+.upload-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.upload-error span {
+  flex: 1;
+  min-width: 0;
+}
+.upload-error .icon-button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+}
 .initial-prompt-attachments {
   display: flex;
   align-items: center;
@@ -3507,6 +3521,14 @@ fieldset {
   box-shadow:
     0 -8px 0 var(--surface),
     0 8px 0 var(--surface);
+}
+/* While typing, the sheet shrinks to the space above the keyboard: a pinned
+   button would sit over the field being edited (the Create agent prompt), so
+   it goes back to its place in the form. */
+:root[data-keyboard="open"] .sheet form:not(.reply-box) > .primary:last-child,
+:root[data-keyboard="open"] .sheet-submit {
+  position: static;
+  box-shadow: none;
 }
 .sheet label {
   font-size: var(--control-size);

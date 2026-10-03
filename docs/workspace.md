@@ -28,7 +28,7 @@ An agent profile's **Traces** tab lists its public intermediate updates, command
 
 The composer's dictation button appears only where the browser offers speech recognition; that browser feature may send audio to the browser vendor's service.
 
-Pending approvals also send a push notification. The notification carries only the agent name and a link to the conversation, never the request's arguments, and approval always happens inside the app so the device lock still applies. Tapping a notification opens its thread at the message it is about: a new result opens at the answer that produced it. If Loop is already open, the service worker focuses it and opens the thread in place.
+A new result's push notification is headed by the agent and the thread's title, and its text is the start of the answer as plain text (for a chart, image or pull request card, what kind of result it is). Pending approvals also send a push notification. The notification carries only the agent name and a link to the conversation, never the request's arguments, and approval always happens inside the app so the device lock still applies. Tapping a notification opens its thread at the message it is about: a new result opens at the answer that produced it. If Loop is already open, the service worker focuses it and opens the thread in place.
 
 ## Personal prompt history
 

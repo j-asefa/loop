@@ -3,6 +3,7 @@ import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
 import { FilePreview } from "./FilePreview";
 import { authorizedFetch, parse } from "./api";
+import { prepareImage, shouldPrepare } from "./imageUpload";
 import {
   MAX_MESSAGE_FILES,
   MAX_UPLOAD_BYTES,
@@ -22,6 +23,9 @@ export function useAttachments(key: string) {
   };
   return [files, change] as const;
 }
+// Generous for a slow phone connection; a hung request otherwise spins forever.
+const UPLOAD_TIMEOUT_MS = 120_000;
+const ERROR_MS = 8000;
 const size = (bytes: number) =>
   bytes < 1024
     ? `${bytes} B`
@@ -102,6 +106,13 @@ export function UploadButton({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [open, setOpen] = useState(false);
+  // An upload error wraps under the composer's controls, so it never stays
+  // in the way: it can be dismissed and clears itself.
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(""), ERROR_MS);
+    return () => clearTimeout(timer);
+  }, [error]);
   async function upload(element: HTMLInputElement) {
     const files = [...(element.files || [])];
     element.value = "";
@@ -111,7 +122,13 @@ export function UploadButton({
       setError(`Attach up to ${MAX_MESSAGE_FILES} files per message.`);
       return;
     }
-    if (files.some((file) => file.size > MAX_UPLOAD_BYTES)) {
+    // Images are checked after they are prepared: most shrink well below
+    // the limit.
+    if (
+      files.some(
+        (file) => !shouldPrepare(file) && file.size > MAX_UPLOAD_BYTES,
+      )
+    ) {
       setError("Files can be up to 25 MB each.");
       return;
     }
@@ -120,20 +137,36 @@ export function UploadButton({
     onBusy?.(true);
     setError("");
     try {
-      for (const file of files) {
+      for (const original of files) {
+        const file = await prepareImage(original);
+        if (file.size > MAX_UPLOAD_BYTES)
+          throw new Error("Files can be up to 25 MB each.");
         const form = new FormData();
         form.append("file", file);
         if (folderId) form.append("folderId", folderId);
         if (agentId) form.append("agentId", agentId);
-        const response = await authorizedFetch("/api/uploads", {
-          method: "POST",
-          body: form,
-        });
-        const result = await response
-          .json()
-          .catch(() => ({ error: "Upload failed. Try again." }));
-        if (!response.ok)
-          throw new Error(result.error || "Upload failed. Try again.");
+        let response: Response;
+        try {
+          response = await authorizedFetch("/api/uploads", {
+            method: "POST",
+            body: form,
+            signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+          });
+        } catch (error) {
+          throw new Error(
+            (error as Error).name === "TimeoutError"
+              ? `Uploading ${file.name} timed out. Check the connection and try again.`
+              : `Uploading ${file.name} failed: the connection dropped. Try again.`,
+          );
+        }
+        const result = await response.json().catch(() => null);
+        // Loop always answers with JSON; anything else came from the network
+        // in between (a tunnel or proxy error page), so name its status.
+        if (!response.ok || !result)
+          throw new Error(
+            result?.error ||
+              `Upload failed (HTTP ${response.status}${response.statusText ? " " + response.statusText : ""}). Try again.`,
+          );
         onUploaded(result);
       }
     } catch (error) {
@@ -231,8 +264,16 @@ export function UploadButton({
         </Sheet>
       )}
       {error && (
-        <p role="alert" className="error">
-          {error}
+        <p role="alert" className="error upload-error">
+          <span>{error}</span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Dismiss upload error"
+            onClick={() => setError("")}
+          >
+            <X size={16} />
+          </button>
         </p>
       )}
     </div>

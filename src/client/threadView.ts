@@ -1,3 +1,4 @@
+import { plainPreview } from "../shared/text";
 import { SESSION_KINDS } from "../agent-activities";
 import type { ActivityRecord, FileEntry } from "../agent-activities";
 
@@ -250,19 +251,7 @@ export function compactNumber(value: number) {
 }
 
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
-export function preview(text: string, length = 140) {
-  const flat = text
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(^|\s)#{1,6}\s+/g, "$1")
-    .replace(/(\*\*|__|`)/g, "")
-    .replace(/^\s*\|?[-:| ]+\|?\s*$/gm, " ")
-    .replace(/\|/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return flat.length > length ? flat.slice(0, length - 1).trimEnd() + "…" : flat;
-}
+export const preview = plainPreview;
 
 export type LaterChoice = {
   id: string;

@@ -13,8 +13,13 @@ const { createAgent } = await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams, createTeam } = await import("../src/server/teams");
-const { notifications, notificationKeys, deliverNotifications, pushEndpoint } =
-  await import("../src/server/notifications");
+const {
+  notifications,
+  notificationKeys,
+  deliverNotifications,
+  pushEndpoint,
+  resultNotification,
+} = await import("../src/server/notifications");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { feedRevision, feedUpdates } = await import("../src/server/feed");
 const { submit } = await import("../src/server/agent-runtime");
@@ -335,8 +340,10 @@ it("only new finished results notify, retries survive failures, expired endpoint
     conversation_id: run.conversation_id,
     message_id: "answer-1",
   });
+  // It names the thread and leads with the answer, not the prompt.
   expect(payload).toMatchObject({
-    title: `@${a.name} has a new result`,
+    title: `@${a.name} · Create a result`,
+    body: "Done",
     url: `/?conversation=${run.conversation_id}&message=answer-1`,
   });
   await deliverNotifications(send);
@@ -427,4 +434,35 @@ it("a background push displays a notification and opens its link on the same ori
     url: "https://loop.example/?conversation=c1&message=m1",
   });
   expect(openWindow).toHaveBeenCalledTimes(1);
+});
+
+it("result notifications name the thread and lead with the answer as plain text", () => {
+  expect(
+    resultNotification({
+      name: "swift",
+      thread: "Is there a way to surface subscription usage for codex & Claude code into Loop?",
+      title: "Is there a way to surface subscription usage",
+      kind: "markdown",
+      content:
+        "## Yes\n\nA **button** is feasible: read [the usage API](https://example.com) and show it in `Settings`.\n\n- Codex reports tokens\n- Claude reports limits",
+    }),
+  ).toEqual({
+    title: "@swift · Is there a way to surface subscription usage for codex & Cl…",
+    body: "Yes A button is feasible: read the usage API and show it in Settings. Codex reports tokens Claude reports limits",
+  });
+  // A long answer is cut to a lock-screen length.
+  const long = resultNotification({ name: "orbit", thread: "Render", title: "Render", kind: "markdown", content: "word ".repeat(100) });
+  expect(long.body.length).toBeLessThanOrEqual(180);
+  expect(long.body.endsWith("…")).toBe(true);
+  // Non-text results say what they are.
+  expect(
+    resultNotification({ name: "dahlia", thread: "Review PR 58", title: "j-asefa/loop #58", kind: "github_pr", content: "{}" }),
+  ).toEqual({ title: "@dahlia · Review PR 58", body: "Read a pull request: j-asefa/loop #58" });
+  expect(
+    resultNotification({ name: null, thread: null, title: "Chart of usage", kind: "chart", content: "{}" }),
+  ).toEqual({ title: "Chart of usage", body: "Made a chart: Chart of usage" });
+  // An empty answer falls back to the result's title.
+  expect(
+    resultNotification({ name: "forest", thread: null, title: "Summary", kind: "markdown", content: "   " }),
+  ).toEqual({ title: "@forest · Summary", body: "Summary" });
 });

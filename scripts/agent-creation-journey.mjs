@@ -165,6 +165,38 @@ export async function agentCreationJourney(page, api) {
       path: join(tmpdir(), `loop-agent-creation-${width}.png`),
     });
   }
+  // Typing the prompt on a phone: the keyboard shrinks the sheet, and the
+  // field sits just above it. The Create button must not cover the field.
+  const promptField = page.getByLabel("Initial prompt", { exact: true });
+  await promptField.focus();
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, "height", {
+      configurable: true,
+      get: () => innerHeight - 350,
+    });
+    Object.defineProperty(window.visualViewport, "offsetTop", {
+      configurable: true,
+      get: () => 0,
+    });
+    window.visualViewport.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-keyboard", "open");
+  await promptField.evaluate((el) => el.scrollIntoView({ block: "end" }));
+  const field = await promptField.boundingBox();
+  const create = await button("Create & start").boundingBox();
+  assert.ok(
+    create.y >= field.y + field.height || create.y + create.height <= field.y,
+    "The Create button does not cover the prompt while typing",
+  );
+  await page.screenshot({
+    path: join(tmpdir(), "loop-agent-creation-keyboard.png"),
+  });
+  await page.evaluate(() => {
+    delete window.visualViewport.height;
+    delete window.visualViewport.offsetTop;
+    window.visualViewport.dispatchEvent(new Event("resize"));
+  });
+  await promptField.blur();
   // Lose the response after the real server commits. The retry must reuse both
   // the new agent and its first run, preserving the entered prompt and project.
   let first;

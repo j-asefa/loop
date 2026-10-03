@@ -1,5 +1,42 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { deflateSync } from "node:zlib";
 import { expect } from "@playwright/test";
+
+// A noisy RGB PNG: noise does not compress, so it is large like a photo.
+function noisePng(width, height) {
+  const table = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (bytes) => {
+    let c = 0xffffffff;
+    for (const b of bytes) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), body.length + 4);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const rows = randomBytes((width * 3 + 1) * height);
+  // Each row starts with its filter type: none.
+  for (let row = 0; row < height; row++) rows[row * (width * 3 + 1)] = 0;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   const dialog = () => page.locator("dialog[open]").last();
@@ -333,6 +370,46 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await expect(
     dialog().locator(".conversation-composer .attachment-list"),
   ).toContainText("follow-up.txt");
+  // A photo-sized image is scaled down and re-encoded as JPEG before upload.
+  const photo = noisePng(2600, 900);
+  assert.ok(photo.length > 1_500_000);
+  await dialog()
+    .getByLabel("Attach files", { exact: true })
+    .setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: photo });
+  await expect(
+    dialog().locator(".conversation-composer .attachment-list"),
+  ).toContainText("photo.jpg");
+  const uploaded = fixture.db
+    .prepare(
+      "SELECT json_extract(metadata,'$.mime') mime,json_extract(metadata,'$.size') size FROM artifacts WHERE title='photo.jpg' ORDER BY created_at DESC LIMIT 1",
+    )
+    .get();
+  assert.equal(uploaded?.mime, "image/jpeg");
+  assert.ok(uploaded.size < photo.length, "The photo was made smaller");
+  // A tunnel or proxy error page is not JSON: the message names its status.
+  await page.route("**/api/uploads", (route) =>
+    route.fulfill({
+      status: 502,
+      contentType: "text/html",
+      body: "<html><body>Bad gateway</body></html>",
+    }),
+  );
+  await dialog()
+    .getByLabel("Attach files", { exact: true })
+    .setInputFiles({
+      name: "lost.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Lost"),
+    });
+  await expect(dialog().getByRole("alert")).toContainText(
+    "Upload failed (HTTP 502",
+  );
+  await page.unroute("**/api/uploads");
+  // The error never stays in the composer's way: it can be dismissed.
+  await dialog()
+    .getByRole("button", { name: "Dismiss upload error", exact: true })
+    .click();
+  await expect(dialog().getByRole("alert")).toHaveCount(0);
   await dialog()
     .getByLabel("Reply to agent", { exact: true })
     .fill("Read this too.");

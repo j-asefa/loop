@@ -1,3 +1,4 @@
+import { plainPreview } from "../shared/text.js";
 import { Router } from "express";
 import { z } from "zod";
 import webpush from "web-push";
@@ -137,6 +138,44 @@ type Delivery = {
   payload: { title: string; body: string; tag: string; url: string };
 };
 const MAX_ATTEMPTS = 5;
+
+// What a result notification says. Lock screens show a line or two of the
+// body, so it leads with the answer itself rather than repeating the prompt:
+// the heading names the agent and the thread, the body is the start of the
+// result as plain text (no Markdown), or what kind of result it is.
+const MADE: Record<string, string> = {
+  image: "Made an image",
+  chart: "Made a chart",
+  diagram: "Made a diagram",
+  table: "Made a table",
+  html: "Made a page",
+  code: "Wrote code",
+  github_pr: "Read a pull request",
+};
+const TEXT_KINDS = new Set(["markdown", "text", "message"]);
+export function resultNotification(result: {
+  name: string | null;
+  thread: string | null;
+  title: string;
+  kind: string;
+  content: string;
+}) {
+  const topic = plainPreview(result.thread || result.title, 60);
+  const title = result.name
+    ? `@${result.name}${topic ? " · " + topic : " has a new result"}`
+    : topic || "New result in Loop";
+  const answer = TEXT_KINDS.has(result.kind)
+    ? plainPreview(result.content, 180)
+    : "";
+  const made = MADE[result.kind];
+  const body =
+    answer ||
+    (made
+      ? `${made}: ${plainPreview(result.title, 120)}`
+      : plainPreview(result.title, 140)) ||
+    "Your agent has finished some work.";
+  return { title, body };
+}
 // Claim with a lease so restart/retry and multiple worker processes cannot send
 // the same result concurrently. A notification tag also replaces duplicates if
 // the push provider accepted a request just before a connection was lost.
@@ -146,9 +185,10 @@ export async function deliverNotifications(send = webpush.sendNotification) {
       const results = (
         db
           .prepare(
-            `SELECT d.subscription_id,d.artifact_id,d.attempts,s.subscription,s.owner_id,a.title,g.name,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id FROM push_deliveries d
+            `SELECT d.subscription_id,d.artifact_id,d.attempts,s.subscription,s.owner_id,a.title,a.kind,substr(a.content,1,4000) content,c.title thread,g.name,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id FROM push_deliveries d
       JOIN push_subscriptions s ON s.id=d.subscription_id
       JOIN artifacts a ON a.id=d.artifact_id LEFT JOIN agents g ON g.id=a.agent_id
+      LEFT JOIN conversations c ON c.id=a.conversation_id AND c.owner_id=a.owner_id
       WHERE d.delivered_at IS NULL AND d.available_at<=? AND d.attempts<${MAX_ATTEMPTS} ORDER BY d.available_at LIMIT 4`,
           )
           .all(now()) as {
@@ -158,6 +198,9 @@ export async function deliverNotifications(send = webpush.sendNotification) {
           subscription: string;
           owner_id: string;
           title: string;
+          kind: string;
+          content: string;
+          thread: string | null;
           name: string | null;
           conversation_id: string | null;
           message_id: string | null;
@@ -171,10 +214,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
           artifact_id: job.artifact_id,
           message_key: null,
           payload: {
-            title: job.name
-              ? `@${job.name} has a new result`
-              : "New result in Loop",
-            body: job.title.slice(0, 140),
+            ...resultNotification(job),
             tag: `loop-result-${job.artifact_id}`,
             url: resultUrl({
               id: job.artifact_id,
