@@ -40,8 +40,16 @@ const fixtureMcp = async () => {
       annotations: { readOnlyHint: true },
       _meta: { ui: { resourceUri: "ui://fixture/chart" } },
     },
-    async () => {
+    async ({ query }) => {
       externalCalls++;
+      if (query === "submission form")
+        return {
+          isError: true,
+          structuredContent: { status: "awaiting_user_submission" },
+          content: [
+            { type: "text", text: "Review the form before submitting." },
+          ],
+        };
       return {
         content: [{ type: "text", text: "Fixture query result" }],
         structuredContent: {
@@ -580,4 +588,42 @@ it("serializes a preference update with the worker's policy read and waiting tra
     writer.close();
     setMcpApprovalMode("alice", "ask");
   }
+});
+
+it("retains an app form on a received error without claiming success or replaying the operation", async () => {
+  setMcpApprovalMode("alice", "allow");
+  const before = externalCalls;
+  const run = queueTool("alice", {
+    agentId: agent.id,
+    connectionId: c,
+    tool: "metrics",
+    arguments: { query: "submission form" },
+    idempotencyKey: id(),
+  });
+  await tick(execute);
+  const invocation = db
+    .prepare("SELECT * FROM tool_invocations WHERE run_id=?")
+    .get(run.id) as any;
+  const artifact = db
+    .prepare("SELECT * FROM artifacts WHERE id=?")
+    .get(invocation.artifact_id) as any;
+  const meta = JSON.parse(artifact.metadata);
+  expect(meta.appResource.html).toContain("Fixture app");
+  expect(meta.toolResult).toMatchObject({
+    isError: true,
+    structuredContent: { status: "awaiting_user_submission" },
+  });
+  expect(meta.isError).toBe(true);
+  expect(invocation.state).toBe("failed");
+  const cached = await invokeTool(
+    run,
+    toolBindings("alice", agent.id)[0],
+    "manual-call",
+    { query: "submission form" },
+  );
+  expect(cached).toMatchObject({
+    artifactId: artifact.id,
+    result: { isError: true },
+  });
+  expect(externalCalls).toBe(before + 1);
 });

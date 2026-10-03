@@ -357,34 +357,8 @@ export async function search(
     }
   }
   const offset = Math.max(0, Math.min(filters.before || 0, 10000));
-  let result = [...docs.values()].filter(
-    (d) =>
-      (!filters.agent || d.agent_id === filters.agent) &&
-      (!filters.folder || d.folder_id === filters.folder) &&
-      (!filters.kind || d.kind === filters.kind) &&
-      (!filters.from || d.created_at >= filters.from) &&
-      (!filters.to || d.created_at <= filters.to),
-  );
-  if (filters.scope === "mine")
-    result = result.filter(
-      (d) =>
-        d.id.startsWith("message:") &&
-        db
-          .prepare(
-            "SELECT 1 FROM messages WHERE id=? AND owner_id=? AND role='user'",
-          )
-          .get(d.id.slice(8), owner),
-    );
-  if (filters.scope === "running")
-    result = result.filter(
-      (d) =>
-        d.agent_id &&
-        db
-          .prepare(
-            "SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND state IN ('running','pausing') AND worker_id IS NOT NULL",
-          )
-          .get(owner, d.agent_id),
-    );
+  // Both retrieval paths apply filterSql before ranking.
+  let result = [...docs.values()];
   result.sort(
     (a, b) =>
       (scores.get(b.id) || 0) - (scores.get(a.id) || 0) ||

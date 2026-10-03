@@ -1,14 +1,13 @@
 import { PersonalProfile } from "./PersonalProfile";
 import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
-import { agentModelName, effortName, runModelName } from "./modelChoices";
+import { agentModelName, effortName } from "./modelChoices";
 import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 import { capabilities } from "./capabilities";
 import { NativeHistory } from "./NativeHistory";
 import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
-import { RunStatus } from "./RunStatus";
 import { AgentDirectory } from "./AgentDirectory";
 import { YourAgents } from "./YourAgents";
 import { AgentWork, currentAgentWork } from "./AgentWork";
@@ -21,7 +20,7 @@ import { Traces } from "./Traces";
 import { AgentMessages } from "./AgentMessages";
 import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
 import { restoreScroll, usePageHistory } from "./usePageHistory";
-import { cacheView, setViewOwner } from "./viewCache";
+import { setViewOwner } from "./viewCache";
 import { planSend, settleFailure, type SendReceipt } from "./sendIntent";
 import { useSwipeBack } from "./useSwipeBack";
 import { usePullToRefresh } from "./usePullToRefresh";
@@ -74,7 +73,7 @@ import {
   preview,
   timeLabel,
 } from "./threadView";
-import { useEffect, useState, useRef, type ReactNode } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   UserRound,
   Server,
@@ -102,11 +101,7 @@ import {
   MoreHorizontal,
   ArrowUpRight,
   Reply as ReplyIcon,
-  Pause,
-  Play,
-  Square,
   Link as LinkIcon,
-  CircleAlert,
   X,
 } from "lucide-react";
 import { api, parse } from "./api";
@@ -741,15 +736,6 @@ export default function App() {
       .filter((r) => ["running", "pausing"].includes(r.state))
       .map((r) => r.agent_id),
   ).size;
-  const attention = scopedRuns.filter((r) =>
-    [
-      "failed",
-      "interrupted",
-      "awaiting_approval",
-      "paused",
-      "waiting_children",
-    ].includes(r.state),
-  );
   // Each thread keeps its own unsent draft (and the global composer keeps its
   // own), so switching threads never carries text into the wrong one.
   const draftOwner = useRef<string | null>(conversation);

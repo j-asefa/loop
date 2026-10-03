@@ -11,7 +11,6 @@ import {
   FolderInput,
   ArrowUpRight,
   Undo2,
-  Download,
   Upload,
   Check,
 } from "lucide-react";

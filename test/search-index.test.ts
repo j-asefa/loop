@@ -159,3 +159,50 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
     vi.useRealTimers();
   }
 });
+
+it("applies the same folder, kind, date and owner filters to keyword and semantic retrieval", async () => {
+  const owner = id(),
+    folder = id(),
+    otherFolder = id();
+  for (const folderId of [folder, otherFolder])
+    db.prepare("INSERT INTO folders VALUES(?,?,?,?,?,?)").run(
+      folderId,
+      owner,
+      null,
+      "project",
+      folderId,
+      now(),
+    );
+  const matching = saveArtifact(owner, {
+    title: "Travel",
+    content: "A car",
+    folder,
+    kind: "markdown",
+  });
+  saveArtifact(owner, {
+    title: "Travel",
+    content: "A car",
+    folder: otherFolder,
+    kind: "markdown",
+  });
+  saveArtifact(owner, {
+    title: "Travel",
+    content: "A car",
+    folder,
+    kind: "text",
+  });
+  saveArtifact(id(), { title: "Travel", content: "A car", kind: "markdown" });
+  const filters = { folder, kind: "markdown", from: now() - 1, to: now() + 1 };
+  expect(
+    (await search(owner, "Travel", filters)).items.map((x) => x.id),
+  ).toEqual(["artifact:" + matching]);
+  enable(owner);
+  advance();
+  await indexPending();
+  const semantic = await search(owner, "automobile", filters);
+  expect(semantic.mode).toBe("hybrid");
+  expect(semantic.items.map((x) => x.id)).toEqual(["artifact:" + matching]);
+  expect(
+    (await search(owner, "Travel", { ...filters, from: now() + 1 })).items,
+  ).toHaveLength(0);
+});

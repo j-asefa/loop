@@ -1,7 +1,7 @@
 import { ActivityRecords } from "./ActivityRecords";
 import type { ActivityRecord } from "../agent-activities";
 import { useEffect, useRef, useState } from "react";
-import { api, parse } from "./api";
+import { api } from "./api";
 import { Sheet, RichText } from "./components";
 export function NativeHistory({
   onClose,

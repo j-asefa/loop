@@ -66,9 +66,9 @@ export function parseConversations(
       413,
       "This export exceeds 20,000 conversations. Split it into smaller JSON files.",
     );
-  const provider = list.some((c: any) => c.mapping)
+  const provider = list.some((c: any) => c?.mapping)
     ? "openai"
-    : list.some((c: any) => Array.isArray(c.chat_messages))
+    : list.some((c: any) => Array.isArray(c?.chat_messages))
       ? "anthropic"
       : null;
   if (!provider)

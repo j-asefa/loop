@@ -5,7 +5,6 @@ import {
   existsSync,
   readFileSync,
   writeFileSync,
-  mkdirSync,
   copyFileSync,
 } from "node:fs";
 import { join, resolve, dirname, delimiter } from "node:path";
@@ -486,7 +485,7 @@ export class LocalRuntime {
     if (this.closed) throw new Error("Runtime startup cancelled");
     const { provisionEnvironment, environment, refreshEnvironment } =
       await import("./server/hapi/environments.js");
-    const { db, id, now } = await import("./server/db.js");
+    const { db } = await import("./server/db.js");
     const { OWNER, nativeSessions } =
       await import("./server/native-sessions.js");
     const project = nativeSessions.addProject(this.selection.project) as any;

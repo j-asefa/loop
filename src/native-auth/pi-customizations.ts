@@ -1,7 +1,6 @@
 /** Pi customization operations executed beside the managed Pi binary. */
 import { spawn } from "node:child_process";
 import {
-  existsSync,
   readFileSync,
   realpathSync,
   statSync,

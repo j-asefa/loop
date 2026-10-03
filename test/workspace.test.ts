@@ -183,3 +183,17 @@ it("applies project and type filters before the lexical candidate cap", () => {
     lexical("other-user", "routine", { folder, kind: "workflow" }),
   ).toHaveLength(0);
 });
+
+it("skips null conversations before detecting an export provider", () => {
+  for (const provider of ["chatgpt", "claude"]) {
+    const conversations = JSON.parse(
+      readFileSync(`test/fixtures/${provider}-export.json`, "utf8"),
+    );
+    const result = parseConversations([null, ...conversations]);
+    expect(result.conversations.length).toBeGreaterThan(0);
+    expect(result.warnings).toContain("Skipped a non-object conversation");
+  }
+  expect(() => parseConversations([null])).toThrow(
+    "Unrecognized export format",
+  );
+});

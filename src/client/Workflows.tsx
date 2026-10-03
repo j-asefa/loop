@@ -3,14 +3,12 @@ import {
   Play,
   Plus,
   Check,
-  ArrowDown,
   FileCode,
   MessageSquare,
-  GitBranch,
 } from "lucide-react";
 import { reorderSteps } from "./workflowOrder";
 import { api, parse } from "./api";
-import { Sheet, Badge, RichText, Empty } from "./components";
+import { Sheet, RichText } from "./components";
 import type { Agent, Folder } from "../shared/types";
 export function starter(agents: Agent[], folder: string) {
   const available = agents.filter((a) => a.connection_id);

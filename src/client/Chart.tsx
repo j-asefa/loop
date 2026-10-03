@@ -1,5 +1,5 @@
 import { parse } from "./api";
-import { chartSchema, type ChartData } from "../server/mcp/results";
+import { chartSchema } from "../server/mcp/results";
 export function Chart({
   content,
   compact = false,

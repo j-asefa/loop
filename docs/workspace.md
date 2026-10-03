@@ -46,7 +46,7 @@ Connections are workspace-wide for that owner, including future agents and teams
 
 Hosted connections use validated network destinations. Private runtime origins require explicit operator configuration. Command MCPs run locally in companion mode and through runtime infrastructure in server mode. Native host configuration is distinct from workspace MCP configuration.
 
-Charts save numeric data and provenance as snapshots; refresh is a new tool operation. Mermaid diagrams use the native renderer. MCP Apps run in an isolated iframe with a restrictive CSP and no same-origin access to the workspace. Unsupported rich content falls back to saved native/text output. These displays do not bypass the tool broker.
+Charts save numeric data and provenance as snapshots; refresh is a new tool operation. Mermaid diagrams use the native renderer. MCP Apps run in an isolated iframe with a restrictive CSP and no same-origin access to the workspace. App resources are retained even when a tool reports an error, since a server may use an error result to request form submission. Open the saved tool result to view its app. A displayed form does not mean the operation succeeded; app tool requests still pass through the broker. Unsupported rich content falls back to saved native/text output. These displays do not bypass the tool broker.
 
 ### GitHub pull requests
 

@@ -1,4 +1,4 @@
-import { db, now } from "../db.js";
+import { db } from "../db.js";
 import { environment, hub } from "./environments.js";
 import { reconcile } from "./adapter.js";
 import type { NativeSession } from "./contracts.js";

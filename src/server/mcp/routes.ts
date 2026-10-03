@@ -9,7 +9,6 @@ import {
   discover,
   readSecret,
   type MCPConnection,
-  type AuthSecret,
 } from "./client.js";
 import { authorizeTool, invokeTool, toolBindings } from "./broker.js";
 import { privateMcpUrl } from "./credentials.js";

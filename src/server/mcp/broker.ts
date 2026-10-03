@@ -284,11 +284,9 @@ export async function invokeTool(
     const resourceUri =
       tool._meta?.ui?.resourceUri || tool._meta?.["ui/resourceUri"];
     let appResource: any;
-    if (
-      !toolFailed &&
-      typeof resourceUri === "string" &&
-      resourceUri.startsWith("ui://")
-    ) {
+    // Error results can carry an interactive correction or submission form.
+    // Preserve that UI without treating the underlying operation as successful.
+    if (typeof resourceUri === "string" && resourceUri.startsWith("ui://")) {
       try {
         const resource = await client.readResource(
           { uri: resourceUri },

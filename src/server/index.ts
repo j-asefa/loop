@@ -20,7 +20,7 @@ import { workspace } from "./workspace-routes.js";
 import { core } from "./core-routes.js";
 import { activityRoutes } from "./activities.js";
 import { Problem } from "./domain.js";
-import { ZodError } from "zod";
+import { errorHandler } from "./error-handler.js";
 import { executionRoutes } from "./hapi/routes.js";
 import { memoryRoutes } from "./memory.js";
 import { notifications } from "./notifications.js";
@@ -187,31 +187,4 @@ app.use(express.static(clientRoot));
 app.get("/{*splat}", (_req, res) =>
   res.sendFile("index.html", { root: clientRoot }),
 );
-app.use(
-  (
-    err: Error,
-    req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction,
-  ) => {
-    // The client only sees a generic message, so keep the cause in the log.
-    // Stack only: request content stays out of it (query strings, and the
-    // raw body that body-parser attaches to its client errors, marked expose).
-    if (
-      !(err instanceof Problem) &&
-      !(err instanceof ZodError) &&
-      !(err as { expose?: boolean }).expose
-    )
-      console.error(
-        `Unexpected error on ${req.method} ${req.path}: ${err.stack ?? err}`,
-      );
-    res.status(err instanceof Problem ? err.status : 400).json({
-      error:
-        err instanceof Problem
-          ? err.message
-          : err instanceof ZodError
-            ? err.issues.map((x) => x.message).join("; ")
-            : "Request could not be completed. Please try again.",
-    });
-  },
-);
+app.use(errorHandler);

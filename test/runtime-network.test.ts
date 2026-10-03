@@ -103,3 +103,43 @@ it("gives long MCP calls their configured timeout without losing caller cancella
   caller.abort(new Error("Explicit cancellation"));
   await stopped;
 });
+
+it.each([safeFetch, safeRuntimeFetch])(
+  "preserves cancellation carried by a Request object",
+  async (fetcher) => {
+    const caller = new AbortController();
+    remoteFetch.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          if (init.signal.aborted) reject(init.signal.reason);
+          else
+            init.signal.addEventListener(
+              "abort",
+              () => reject(init.signal.reason),
+              { once: true },
+            );
+        }),
+    );
+    const pending = fetcher(
+      new Request("https://tools.example/mcp", { signal: caller.signal }),
+    );
+    const stopped = expect(pending).rejects.toThrow("Request cancelled");
+    caller.abort(new Error("Request cancelled"));
+    await stopped;
+  },
+);
+
+it("lets an explicit init signal override a Request signal", async () => {
+  const original = new AbortController();
+  original.abort();
+  const replacement = new AbortController();
+  remoteFetch.mockImplementation(async (_url, init) => {
+    expect(init.signal.aborted).toBe(false);
+    return new Response("ok");
+  });
+  const response = await safeFetch(
+    new Request("https://tools.example/mcp", { signal: original.signal }),
+    { signal: replacement.signal },
+  );
+  expect(await response.text()).toBe("ok");
+});

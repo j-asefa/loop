@@ -65,11 +65,18 @@ const guardedFetch =
     const original =
         typeof input === "string" || input instanceof URL ? input : input.url,
       url = safeUrl(original);
+    // Request objects carry cancellation too; an explicit init signal overrides it.
+    const callerSignal =
+      init?.signal !== undefined
+        ? init.signal
+        : input instanceof Request
+          ? input.signal
+          : undefined;
     const signal = streaming
-      ? init?.signal
+      ? callerSignal
       : AbortSignal.any([
           AbortSignal.timeout(timeout),
-          ...(init?.signal ? [init.signal] : []),
+          ...(callerSignal ? [callerSignal] : []),
         ]);
     const base =
       input instanceof Request
