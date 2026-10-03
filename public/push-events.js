@@ -18,28 +18,29 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil(
     (async () => {
-      const destination = new URL(
-        event.notification.data?.url || "/",
-        self.location.origin,
-      );
+      let destination;
+      try {
+        destination = new URL(
+          event.notification.data?.url || "/",
+          self.location.origin,
+        );
+      } catch {
+        return;
+      }
       if (destination.origin !== self.location.origin) return;
       const windows = await self.clients.matchAll({
         type: "window",
         includeUncontrolled: true,
       });
-      // An open Loop window opens the link in place: it is focused, then
-      // asked to show the thread. navigate() is not available everywhere
-      // (and fails for a window this worker does not control), so it is only
-      // a fallback for a window that cannot be messaged.
+      // Keep the destination in the URL so startup and sign-in can restore
+      // it even if the app has no message listener yet. postMessage alone
+      // can silently lose a click in a suspended or still-loading window.
       for (const client of windows) {
         if (new URL(client.url).origin !== destination.origin) continue;
-        await client.focus().catch(() => {});
-        if (typeof client.postMessage === "function") {
-          client.postMessage({ type: "loop-open", url: destination.href });
-          return;
-        }
         try {
-          await client.navigate(destination.href);
+          const opened = await client.navigate(destination.href);
+          if (!opened) continue;
+          await opened.focus().catch(() => {});
           return;
         } catch {}
       }

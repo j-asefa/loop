@@ -330,7 +330,7 @@ it("only new finished results notify, retries survive failures, expired endpoint
   await Promise.all([deliverNotifications(send), deliverNotifications(send)]);
   expect(send).toHaveBeenCalledTimes(1);
   const payload = JSON.parse((send.mock.calls[0] as any)[1]);
-  // The notification opens the thread at the answer, not a detached result.
+  // Result notifications point to the exact card, including threaded results.
   const saved = db
     .prepare(
       "SELECT conversation_id,json_extract(metadata,'$.messageId') message_id FROM artifacts WHERE id=?",
@@ -344,7 +344,7 @@ it("only new finished results notify, retries survive failures, expired endpoint
   expect(payload).toMatchObject({
     title: `@${a.name} · Create a result`,
     body: "Done",
-    url: `/?conversation=${run.conversation_id}&message=answer-1`,
+    url: `/?artifact=${artifact}`,
   });
   await deliverNotifications(send);
   expect(send).toHaveBeenCalledTimes(1);
@@ -410,30 +410,47 @@ it("a background push displays a notification and opens its link on the same ori
   expect(openWindow).toHaveBeenCalledExactlyOnceWith(
     "https://loop.example/?artifact=one",
   );
-  // With Loop already open, the window is focused and told to open the
-  // thread in place; nothing depends on navigate(), which may be missing.
-  const focus = vi.fn(async () => {}),
-    postMessage = vi.fn();
+  // A loading app has no message listener: navigate before focusing it.
+  const focus = vi.fn(async () => {});
+  const navigate = vi.fn(async () => ({ focus }));
   windows = [
-    { url: "https://unrelated.example/", focus, postMessage },
-    { url: "https://loop.example/?page=later", focus, postMessage },
+    { url: "https://unrelated.example/", navigate },
+    { url: "https://loop.example/?page=later", navigate },
   ];
-  handlers.notificationclick({
-    notification: {
-      close() {},
-      data: { url: "/?conversation=c1&message=m1" },
-    },
-    waitUntil: (promise: Promise<void>) => {
-      pending = promise;
-    },
-  });
-  await pending;
+  const click = async (url = "/?artifact=one") => {
+    handlers.notificationclick({
+      notification: { close() {}, data: { url } },
+      waitUntil: (promise: Promise<void>) => { pending = promise; },
+    });
+    await pending;
+  };
+  await click();
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(
+    "https://loop.example/?artifact=one",
+  );
   expect(focus).toHaveBeenCalledTimes(1);
-  expect(postMessage).toHaveBeenCalledExactlyOnceWith({
-    type: "loop-open",
-    url: "https://loop.example/?conversation=c1&message=m1",
-  });
   expect(openWindow).toHaveBeenCalledTimes(1);
+
+  // Uncontrolled, closed and unsupported windows must not swallow the click.
+  for (const navigate of [
+    undefined,
+    async () => { throw new Error("uncontrolled"); },
+    async () => null,
+  ]) {
+    windows = [{ url: "https://loop.example/", navigate }];
+    await click();
+  }
+  expect(openWindow).toHaveBeenCalledTimes(4);
+  await click("http://[");
+  await click("https://unrelated.example/");
+  expect(openWindow).toHaveBeenCalledTimes(4);
+
+  // Focus failure does not undo successful navigation or open duplicates.
+  windows = [{ url: "https://loop.example/", navigate: async () => ({
+    focus: async () => { throw new Error("cannot focus"); },
+  }) }];
+  await click("/?conversation=c1&message=m1");
+  expect(openWindow).toHaveBeenCalledTimes(4);
 });
 
 it("result notifications name the thread and lead with the answer as plain text", () => {

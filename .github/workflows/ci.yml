@@ -2,6 +2,9 @@ name: Loop checks
 on: [pull_request, workflow_dispatch]
 permissions:
   contents: read
+env:
+  # Hosted runners use CPU inference; optional CUDA downloads add a flaky NuGet dependency.
+  ONNXRUNTIME_NODE_INSTALL: skip
 jobs:
   # Docs-only PRs skip the jobs below. A job skipped by its condition reports
   # success, so this stays mergeable if these checks become required.

@@ -61,20 +61,18 @@ for (const engine of selectedEngines()) {
       page.locator(".page-heading .feed-compose-button"),
     ).toHaveCount(0);
     // Finished results live on their agent's profile.
-    const author = fixture.db
+    const result = fixture.db
       .prepare(
-        "SELECT g.name FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
+        "SELECT g.name AS author, a.title FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
       )
-      .get(fixture.artifacts[0]).name;
+      .get(fixture.artifacts[0]);
     await page
       .locator(".agent-strip")
-      .getByRole("button", { name: new RegExp(`^@${author} ·`) })
+      .getByRole("button", { name: new RegExp(`^@${result.author} ·`) })
       .click();
-    const results = page.locator(".feed-card:not(.inbox-card)");
-    await expect(results.first()).toBeVisible();
-    const firstTitle = await results.locator("h2").first().innerText();
+    // Wait for this agent’s fixture result, not a stale card from the previous feed.
     const card = page.locator(".feed-card").filter({
-      has: page.getByRole("heading", { name: firstTitle, exact: true }),
+      has: page.getByRole("heading", { name: result.title, exact: true }),
     });
     await card.getByRole("button", { name: "Save", exact: true }).click();
     await expect(

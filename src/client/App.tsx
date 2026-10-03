@@ -347,6 +347,10 @@ export default function App() {
   // message, or a result. Any other link loads normally.
   const openLink = useRef((_url: URL) => {});
   openLink.current = (url: URL) => {
+    if (!session?.user) {
+      location.assign(url.href);
+      return;
+    }
     const target = url.searchParams.get("conversation");
     const artifact = url.searchParams.get("artifact");
     if (target) {
@@ -1365,7 +1369,7 @@ export default function App() {
     const artifact = new URLSearchParams(location.search).get("artifact");
     if (session?.user && artifact)
       void api<Artifact>("/artifacts/" + artifact)
-        .then(setActiveArtifact)
+        .then((item) => void open(item))
         .catch((e) => setError(e.message));
   }, [session?.user?.id]);
   useEffect(() => {

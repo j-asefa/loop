@@ -5,7 +5,6 @@ import webpush from "web-push";
 import { db, id, now } from "./db.js";
 import { seal, unseal } from "./secrets.js";
 import { Problem } from "./domain.js";
-import { resultUrl } from "./feed.js";
 
 // Subscriptions are browser-issued URLs, not arbitrary outbound webhooks.
 export function pushEndpoint(value: string) {
@@ -216,11 +215,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
           payload: {
             ...resultNotification(job),
             tag: `loop-result-${job.artifact_id}`,
-            url: resultUrl({
-              id: job.artifact_id,
-              conversation_id: job.conversation_id,
-              message_id: job.message_id,
-            }),
+            url: `/?artifact=${encodeURIComponent(job.artifact_id)}`,
           },
         }),
       );
