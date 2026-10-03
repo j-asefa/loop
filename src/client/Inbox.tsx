@@ -71,6 +71,7 @@ export type InboxItem = {
     preview: string;
     content?: string;
     created_at: number;
+    automation?: string;
   } | null;
   run: {
     id: string;
@@ -278,7 +279,11 @@ function InboxCard({
             )?.trim() && (
               <div className="preview">
                 {item.last_message!.role === "user" && (
-                  <span className="inbox-you">You</span>
+                  <span className="inbox-you">
+                    {item.last_message!.automation === "github_watch"
+                      ? "GitHub update"
+                      : "You"}
+                  </span>
                 )}
                 <RichText
                   content={

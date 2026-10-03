@@ -58,11 +58,11 @@ GitHub writes (comments, reviews, edits, pushes) follow the workspace approval p
 
 **Watch** on an open PR card in a thread sends what happens next on GitHub back to that thread ([pr-watches.ts](../src/server/pr-watches.ts)). Watching starts only when you tap it. About once a minute the worker reads the pull request with your GitHub connection's token, which stays on the server. When something new arrives, it queues one follow-up in the thread, labelled **GitHub update**, behind the agent's current work. A follow-up never steers a running task. New items include:
 
-- CI failing on the latest commit, once every check has finished.
+- CI failing on the latest commit, once every check run and every check suite with runs has finished.
 - CI turning green after a failure. A first green result is only recorded.
-- Reviews, review comments and comments that other people posted after you started watching. Comments from the connected GitHub account (the agent's own) are skipped.
+- Reviews, review comments and comments posted since the agent read the card. A review counts from when it is submitted, not when its draft was started. Comments from the connected GitHub account (the agent's own) are skipped.
 
-Quoted comment text is marked as untrusted. Updates wait while the agent is still on the previous one and are then sent together. Each follow-up's idempotency key comes from what it reports, so a restart cannot send the same update twice. The agent's pushes, comments and merges still follow the approval preference, and the follow-up tells it never to merge on its own.
+Only accounts with a role in the repository (owner, member or collaborator) are quoted, bots included: any GitHub App can comment as a bot, so a bot account alone does not show the repository trusts it. Comments from anyone else are counted in an update but never quoted, and never start a turn on their own. Quoted comment text is marked as untrusted. Updates wait while the agent is still on the previous one and are then sent together. Each follow-up's idempotency key comes from what it reports (the CI result and the items it covers), and delivered items are tracked by id, so a restart cannot send the same update twice. The Feed labels these follow-ups **GitHub update** too. The agent's pushes, comments and merges still follow the approval preference, and the follow-up tells it never to merge on its own.
 
 Watching stops when the pull request is merged or closed, or when you choose **Stop watching**. It pauses after 5 follow-ups in an hour, so an agent cannot loop on its own pushes, and when GitHub rejects the connection. Nothing is lost while paused; **Resume** continues from where it stopped. One thread watches a pull request at a time. CI results come from GitHub check runs; legacy commit statuses are not read.
 
