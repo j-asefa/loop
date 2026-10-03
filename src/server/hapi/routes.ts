@@ -35,6 +35,11 @@ executionRoutes.get("/environments/:id/runtimes", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(await workerRequest(e, "/runtimes"));
 });
+executionRoutes.get("/environments/:id/subscription-usage", async (req, res) => {
+  const e = environment(res.locals.owner, req.params.id);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await workerRequest(e, "/subscription-usage"));
+});
 executionRoutes.post("/environments/:id/refresh", async (req, res) =>
   res.json(
     await refreshEnvironment(environment(res.locals.owner, req.params.id)),

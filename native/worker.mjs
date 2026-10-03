@@ -27,6 +27,7 @@ import {
 } from "./generated/native-auth/service.mjs";
 import { inspectCodexAppServer } from "./codex-app-server-status.mjs";
 import { piCustomization } from "./generated/pi-customizations.mjs";
+import { claudeUsageFile, readClaudeUsage, readCodexUsage } from "./subscription-usage.mjs";
 
 const versions = JSON.parse(
   readFileSync(new URL("../deployment/versions.json", import.meta.url), "utf8"),
@@ -229,6 +230,23 @@ const server = https.createServer(
             }),
           ),
         );
+        return;
+      }
+      if (req.method === "GET" && req.url === "/subscription-usage") {
+        const configDir = settings.claudeHome || env().CLAUDE_CONFIG_DIR || join(settings.nativeHome, ".claude");
+        const [codex, claude] = await Promise.all([
+          (!settings.providers || settings.providers.includes("codex"))
+            ? readCodexUsage({
+                endpoint: process.env.LOOP_CODEX_APP_SERVER_ENDPOINT,
+                token: process.env.LOOP_CODEX_APP_SERVER_TOKEN,
+                WebSocketCtor: WebSocket,
+              })
+            : { status: "unavailable" },
+          (!settings.providers || settings.providers.includes("claude"))
+            ? readClaudeUsage(claudeUsageFile(configDir))
+            : { status: "unavailable" },
+        ]);
+        res.end(JSON.stringify({ collectedAt: new Date().toISOString(), codex, claude }));
         return;
       }
       if (req.url?.startsWith("/login/")) {

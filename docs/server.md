@@ -88,6 +88,12 @@ Open the workspace and connect the **This laptop** environment in Settings → P
 
 Stop with `docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml down`. Omit `-v` to preserve declared volumes. This is separate from the CLI's [managed laptop launcher](harnesses.md#managed-launcher).
 
+### Subscription usage on a managed HAPI runner
+
+In Settings → Execution environments, open a managed environment and select **Read subscription usage**. Loop asks that environment's authenticated worker for a fresh Codex rate-limit reading and its latest Claude Code rate-limit sample. The read stays scoped to the environment owner; the browser receives percentages and reset times, never provider credentials. Codex uses the worker's existing shared app-server and does not start another Codex process.
+
+When the managed runner starts, it adds a Claude Code status-line command to its user settings if there is no existing status line. Claude Code supplies five-hour and seven-day percentages to that command after a supported session update; the worker stores only those values and their observation time. An existing status line is preserved, so it must invoke `native/claude-usage-hook.mjs` itself to collect samples. Claude samples can be absent or stale, especially if a headless HAPI session does not invoke status-line commands. The UI shows the sample time and reports missing samples instead of treating them as a live account query. Rebuild the native image and app together to enable this feature.
+
 ## Backups and upgrades
 
 Preserve `BETTER_AUTH_SECRET`, `LOOP_ENCRYPTION_KEY`, the runtime token, application databases and runtime credential volumes. Rotating encryption keys without migration makes stored secrets unreadable. Back up with `npm run backup -- /absolute/backup/loop.db` in a checkout configured for the actual server data directory, or use a consistent SQLite backup inside the deployment. Copying an active WAL database alone is not a valid backup. Back up runtime volumes and project files separately; they are not included in the database backup.

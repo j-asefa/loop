@@ -68,14 +68,20 @@ export async function environmentRuntimeBrowser({ browser, host }) {
     await expect(
       laptop.getByText("Installation and sign-in have not been checked."),
     ).toBeVisible();
-    await expect(docker.getByRole("button")).toBeDisabled();
+    await expect(
+      docker.getByRole("button", { name: "Check installation and sign-in" }),
+    ).toBeDisabled();
     assert.equal(checks, 0);
-    await laptop.getByRole("button").click();
+    await laptop
+      .getByRole("button", { name: "Check installation and sign-in" })
+      .click();
     await expect(laptop.getByRole("status")).toHaveText(
       "Runtime check unavailable. Installation and sign-in are unknown.",
     );
     await expect(sheet.getByText("private runner diagnostic")).toHaveCount(0);
-    await laptop.getByRole("button").click();
+    await laptop
+      .getByRole("button", { name: "Check installation and sign-in" })
+      .click();
     await expect(
       laptop.getByText("Executable available · Sign-in unknown"),
     ).toBeVisible();

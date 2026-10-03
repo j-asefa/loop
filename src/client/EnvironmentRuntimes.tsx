@@ -28,6 +28,21 @@ type Runtime = {
   billing: string;
   checkedAt: number;
 };
+type UsageWindow = { usedPercent: number; resetsAt: string | null };
+type SubscriptionUsage = {
+  codex: {
+    status: string;
+    observedAt?: string;
+    rateLimits?: { primary?: UsageWindow; secondary?: UsageWindow };
+    rateLimitsByLimitId?: Record<string, { limitName?: string; primary?: UsageWindow; secondary?: UsageWindow }>;
+  };
+  claude: { status: string; observedAt?: string; fiveHour?: UsageWindow; sevenDay?: UsageWindow };
+};
+
+function WindowUsage({ label, value }: { label: string; value?: UsageWindow | null }) {
+  if (!value) return null;
+  return <p>{label}: {Math.round(value.usedPercent)}% used{value.resetsAt ? ` · resets ${new Date(value.resetsAt).toLocaleString()}` : ""}</p>;
+}
 
 export function EnvironmentRuntimeCard({
   environment,
@@ -45,6 +60,9 @@ function RuntimeCard({ environment }: { environment: Environment }) {
   const [runtimes, setRuntimes] = useState<Runtime[]>();
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const [usage, setUsage] = useState<SubscriptionUsage>();
+  const [usageBusy, setUsageBusy] = useState(false);
+  const [usageError, setUsageError] = useState("");
   // Checking is explicit: inspecting a native account can launch a CLI.
   useEffect(() => {
     if (!checking) return;
@@ -104,6 +122,39 @@ function RuntimeCard({ environment }: { environment: Environment }) {
       {runtimes?.length === 0 && (
         <p>No supported runtimes configured on this environment.</p>
       )}
+      {usage && <div aria-label="Subscription usage">
+        <h4>Subscription usage</h4>
+        <strong>Codex</strong>
+        {usage.codex.status === "live" ? <>
+          <WindowUsage label="Primary window" value={usage.codex.rateLimits?.primary} />
+          <WindowUsage label="Secondary window" value={usage.codex.rateLimits?.secondary} />
+          {Object.entries(usage.codex.rateLimitsByLimitId || {}).map(([id, limit]) =>
+            <div key={id}>
+              <span>{limit.limitName || id}</span>
+              <WindowUsage label="Primary window" value={limit.primary} />
+              <WindowUsage label="Secondary window" value={limit.secondary} />
+            </div>
+          )}
+        </> : <p>Unavailable from the signed-in Codex app-server.</p>}
+        <strong>Claude Code</strong>
+        {usage.claude.status === "cached" ? <>
+          <WindowUsage label="Five hours" value={usage.claude.fiveHour} />
+          <WindowUsage label="Seven days" value={usage.claude.sevenDay} />
+          <small>Last sampled {usage.claude.observedAt ? new Date(usage.claude.observedAt).toLocaleString() : "at an unknown time"} by Claude Code.</small>
+        </> : <p>No Claude Code rate-limit sample is available yet.</p>}
+      </div>}
+      <button
+        type="button"
+        disabled={usageBusy || environment.state !== "online" || !!environment.revoked_at}
+        onClick={() => {
+          setUsageBusy(true);
+          setUsageError("");
+          api<SubscriptionUsage>(`/environments/${environment.id}/subscription-usage`)
+            .then(setUsage, () => setUsageError("Subscription usage could not be read."))
+            .finally(() => setUsageBusy(false));
+        }}
+      >{usageBusy ? "Reading usage…" : "Read subscription usage"}</button>
+      {usageError && <p role="status">{usageError}</p>}
       <button
         type="button"
         disabled={

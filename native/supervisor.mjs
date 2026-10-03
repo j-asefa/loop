@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, unlinkSync, readFileSync } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { configureClaudeUsage } from "./subscription-usage.mjs";
 const settings = JSON.parse(
   readFileSync(process.env.LOOP_WORKER_CONFIG, "utf8"),
 );
@@ -63,6 +64,10 @@ for (const file of container
 // /home/agent hides the directory baked into the image.
 if (process.env.CODEX_HOME)
   mkdirSync(process.env.CODEX_HOME, { recursive: true, mode: 0o700 });
+if (!settings.providers || settings.providers.includes("claude")) {
+  const claudeHome = settings.claudeHome || process.env.CLAUDE_CONFIG_DIR || join(settings.nativeHome, ".claude");
+  configureClaudeUsage(claudeHome, fileURLToPath(new URL("./claude-usage-hook.mjs", import.meta.url)));
+}
 const children = [];
 let stopping = false;
 const stop = () => {
