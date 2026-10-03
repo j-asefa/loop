@@ -2401,6 +2401,20 @@ export default function App() {
               accountName={accountName}
               profile={myProfile}
               onSaved={setMyProfile}
+              onAgents={() => {
+                // Closing it comes back here, not to Settings.
+                setSettingsParent(false);
+                setSheet("agents");
+              }}
+              onProjects={() => {
+                setTab("projects");
+                setProject("");
+                setProfile(null);
+                setView("all");
+                afterSheetsClose(() =>
+                  window.scrollTo({ top: 0, behavior: "instant" }),
+                );
+              }}
               messages={
                 <PersonalProfile
                   embedded

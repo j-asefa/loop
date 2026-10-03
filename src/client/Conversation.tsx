@@ -28,7 +28,6 @@ import {
 import {
   AlarmClock,
   ArrowDown,
-  CornerUpLeft,
   Bookmark,
   Cpu,
   FileDiff,
@@ -596,13 +595,6 @@ export function Conversation({
     setResumed(false);
     pinLatest();
     saveReadingPosition();
-  }
-  /** Back to where you were before following a link or a jump. */
-  function goBack() {
-    const back = originRef.current;
-    setOrigin(null);
-    if (!back?.messageId) goLatest();
-    else goTo(back.messageId, "resume");
   }
   function markSaved(messageId: string, saved: boolean) {
     setSavedIds((old) => {
@@ -1540,15 +1532,11 @@ export function Conversation({
         </div>
         {(origin || resumed || awayFromLatest) && (
           <div className="thread-return" role="group" aria-label="Thread position">
-            {origin ? (
-              <button type="button" className="text-button" onClick={goBack}>
-                <CornerUpLeft size={16} aria-hidden="true" /> Back to where I was
-              </button>
-            ) : resumed ? (
+            {resumed && !origin && (
               <span className="thread-return-note" role="status">
                 Resumed where you left off
               </span>
-            ) : null}
+            )}
             {(awayFromLatest || resumed || origin) && (
               <button
                 type="button"

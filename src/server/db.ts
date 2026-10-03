@@ -86,6 +86,10 @@ db.transaction(() => {
     )
   )
     db.exec("UPDATE schema_version SET version=44 WHERE version=41");
+  // The trace-envelope cleanup was 45 on its branch before main gave 45 to
+  // PR watch history. A 45 without that table was the cleanup: it is 46.
+  if (version(45) && !version(46) && !table("pr_watch_seen"))
+    db.exec("UPDATE schema_version SET version=46 WHERE version=45");
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

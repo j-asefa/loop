@@ -8,6 +8,7 @@ export function claudeTraces(
   internalToolIds?: Set<string>,
 ): NonNullable<Chunk["trace"]>[];
 export function codexActivity(message: any): Chunk["activity"];
+export function loopEnvelope(value: unknown): string | undefined;
 export function claudeActivities(
   message: any,
   pending?: Set<string>,

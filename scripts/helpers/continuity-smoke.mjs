@@ -202,9 +202,11 @@ export async function continuitySmoke(page, fixture, capture) {
       .poll(() => new URL(page.url()).searchParams.get("message"))
       .toBe(doneAnswer);
     await expect(messageIn(doneAnswer)).toHaveClass(/anchored/);
+    // Only a small Latest pill, no "Back to where I was".
     await expect(
-      thread().getByRole("button", { name: "Back to where I was" }),
+      thread().getByRole("button", { name: "Jump to latest messages" }),
     ).toBeVisible();
+    await expect(thread().getByText("Back to where I was")).toHaveCount(0);
     await closeThread();
     const feedTab = (name) =>
       page.getByRole("tab", { name: new RegExp("^" + name) });
@@ -236,8 +238,8 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.locator("#composer").fill("");
     await closeThread();
 
-    // 2. Resume reading, jump to a search match, go back, then Latest. The
-    // detour never replaces the saved reading position.
+    // 2. Resume reading, jump to a search match, then Latest. The detour
+    // never replaces the saved reading position.
     db.prepare(
       "INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES(?,?,?,?)",
     ).run(owner, long, longIds[10], now);
@@ -264,10 +266,6 @@ export async function continuitySmoke(page, fixture, capture) {
         )
         .get(owner, long).position_message_id;
     assert.equal(position(), longIds[10], "A jump replaced the reading position");
-    await thread()
-      .getByRole("button", { name: "Back to where I was" })
-      .click();
-    await expect(messageIn(longIds[10])).toBeInViewport();
     await thread()
       .getByRole("button", { name: "Jump to latest messages" })
       .click();

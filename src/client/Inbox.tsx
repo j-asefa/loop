@@ -17,6 +17,7 @@ import {
   UserRound,
   Users,
   X,
+  ChevronRight,
 } from "lucide-react";
 import { api } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
@@ -342,8 +343,10 @@ const nextIcon = {
 /** "While you were away": what finished, failed or needs you since the last visit. */
 function AwaySummary({
   onFilter,
+  onOpen,
 }: {
   onFilter: (filter: InboxFilter) => void;
+  onOpen: (conversation: string) => void;
 }) {
   const [away, setAway] = useState<{
     completed: Brief[];
@@ -388,19 +391,52 @@ function AwaySummary({
     away.needs.length && `${away.needs.length} need you`,
     away.failed.length && `${away.failed.length} failed`,
   ].filter(Boolean);
-  // A summary only: the threads themselves are the full cards below.
+  // A summary only: the threads themselves are the full cards below. One
+  // thread opens directly; several show the filter that holds them. Failed
+  // runs wait in Needs you.
+  const threads = [
+    ...new Set(
+      [...away.needs, ...away.failed, ...away.completed].map(
+        (item) => item.conversation_id,
+      ),
+    ),
+  ];
+  const attention = away.needs.length + away.failed.length > 0;
+  const single =
+    threads.length === 1
+      ? [...away.needs, ...away.failed, ...away.completed][0]
+      : undefined;
+  const show = () => {
+    setAway(null);
+    if (single) {
+      onOpen(single.conversation_id);
+      return;
+    }
+    onFilter(attention ? "needs" : "done");
+    // The card leaves, so bring the threads it summarized into view.
+    requestAnimationFrame(() =>
+      document
+        .querySelector(".inbox-filters")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  };
   return (
     <section className="away-card" aria-label="While you were away">
       <div className="away-head">
-        <button
-          type="button"
-          className="away-toggle"
-          onClick={() => onFilter(away.needs.length ? "needs" : "done")}
-        >
+        <button type="button" className="away-toggle" onClick={show}>
           <strong>While you were away</strong>
           <span>{parts.join(" · ")}</span>
           <span className="away-link">
-            {away.needs.length ? "Review what needs you" : "Show the feed"}
+            {single
+              ? `Open “${
+                  single.title.length > 40
+                    ? single.title.slice(0, 39).trimEnd() + "…"
+                    : single.title
+                }”`
+              : attention
+                ? "Review what needs you"
+                : "Show what finished"}
+            <ChevronRight size={16} aria-hidden="true" />
           </span>
         </button>
         <button
@@ -807,7 +843,9 @@ export function Inbox({
     : {};
   return (
     <section className="inbox" aria-label="Feed">
-      {!hideFilters && <AwaySummary onFilter={onFilter} />}
+      {!hideFilters && (
+        <AwaySummary onFilter={onFilter} onOpen={(id) => onOpen(id)} />
+      )}
       {header}
       {!hideFilters && (
         <div

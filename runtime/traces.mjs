@@ -9,7 +9,7 @@ export function codexTrace(message, messages = new Map()) {
     const item = messages.get(id) || { id, type: "agentMessage", text: "" };
     item.text = (item.text + message.params.delta).slice(0, 200000);
     messages.set(id, item);
-    return publicMessage(item);
+    return publicMessage(item, true);
   }
   if (!["item/started", "item/completed"].includes(message.method)) return;
   const item = message.params?.item;
@@ -37,22 +37,44 @@ export function codexTrace(message, messages = new Map()) {
         : item.status || "completed",
   };
 }
-function publicMessage(item) {
-  // Some older hosts omit phase. Loop's JSON answer envelope is never a
-  // progress message; only the public text between native actions belongs here.
-  if (
-    item.phase === "final_answer" ||
-    (!item.phase &&
-      String(item.text || "")
-        .trimStart()
-        .startsWith("{"))
-  )
+/**
+ * Loop's structured reply ({"kind":"answer"|"tool","text",...}): the answer
+ * text, "" for a tool request, or undefined when the text isn't one.
+ */
+export function loopEnvelope(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      ["answer", "tool"].includes(parsed.kind) &&
+      typeof parsed.text === "string"
+    )
+      return parsed.kind === "answer" ? parsed.text : "";
+  } catch {}
+  return undefined;
+}
+function publicMessage(item, streaming = false) {
+  const raw = String(item.text || "");
+  // The final answer arrives separately. Some older hosts omit phase; there
+  // Loop's JSON envelope is the final answer, never progress.
+  if (item.phase === "final_answer") return;
+  const envelope = loopEnvelope(raw);
+  if (!item.phase && (envelope !== undefined || raw.trimStart().startsWith("{")))
     return;
+  // Codex can wrap commentary in the same envelope: show only its text. One
+  // still streaming waits until it is complete; a tool request has none.
+  if (streaming && envelope === undefined && raw.trimStart().startsWith("{"))
+    return;
+  const content = envelope ?? raw;
+  if (!content.trim()) return;
   return {
     id: item.id,
     kind: "message",
     title: "Agent update",
-    content: String(item.text || "").slice(0, 200000),
+    content: content.slice(0, 200000),
   };
 }
 export function claudeTraces(message, internalToolIds = new Set()) {
@@ -68,16 +90,21 @@ export function claudeTraces(message, internalToolIds = new Set()) {
     }
     if (block.type === "tool_result" && internalToolIds.has(block.tool_use_id))
       return [];
-    if (block.type === "text" && message.type === "assistant")
+    if (block.type === "text" && message.type === "assistant") {
+      // A model that writes Loop's envelope as text instead of through
+      // StructuredOutput: show only its text, as for Codex.
+      const raw = typeof block.text === "string" ? block.text : "";
+      const content = loopEnvelope(raw) ?? raw;
+      if (!content.trim()) return [];
       return [
         {
           id: `${message.message.id || message.uuid}:text:${index}`,
           kind: "message",
           title: "Agent update",
-          content:
-            typeof block.text === "string" ? block.text.slice(0, 200000) : "",
+          content: content.slice(0, 200000),
         },
       ];
+    }
     if (block.type === "tool_use")
       return [
         {

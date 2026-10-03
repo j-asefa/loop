@@ -246,6 +246,23 @@ try {
     kind: "folder",
     parentId: folder.id,
   });
+  // Back after a while: the away summary opens the one thread that finished,
+  // then leaves.
+  await page.goto(base);
+  await page.evaluate(() =>
+    localStorage.setItem("loop-last-visit", String(Date.now() - 2 * 3600_000)),
+  );
+  await page.reload();
+  const away = page.getByRole("region", { name: "While you were away" });
+  await expect(away).toContainText("1 finished");
+  await away
+    .getByRole("button", { name: /Open “Explain bids precisely”/ })
+    .click();
+  await expect(
+    page.locator("dialog.swipe-sheet").getByLabel("Reply to agent"),
+  ).toBeVisible();
+  await expect(away).toHaveCount(0);
+  await closeSheets(page);
   await page.reload();
   await openAgentResults();
   await page

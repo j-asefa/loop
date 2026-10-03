@@ -2048,12 +2048,21 @@ export function conversationUsage(owner: string, conversation: string) {
 // ---------------------------------------------------------------------------
 // 11. Snippets
 export function listSnippets(owner: string) {
+  // Saving the same text twice makes two artifacts; offer it once, newest.
+  // Duplicates collapse before the limit, so a run of repeated saves can't
+  // push older, different snippets out of the list.
   return {
     items: db
       .prepare(
-        `SELECT id,title,content,created_at FROM artifacts WHERE owner_id=? AND archived=0
-        AND (json_extract(metadata,'$.snippet')=1 OR title LIKE 'Saved prompt:%')
-        ORDER BY created_at DESC,rowid DESC LIMIT 100`,
+        `SELECT id,title,content,created_at FROM (
+          SELECT id,title,content,created_at,rowid AS row,
+            row_number() OVER (
+              PARTITION BY trim(content,' '||char(9)||char(10)||char(13))
+              ORDER BY created_at DESC,rowid DESC
+            ) copy
+          FROM artifacts WHERE owner_id=? AND archived=0
+            AND (json_extract(metadata,'$.snippet')=1 OR title LIKE 'Saved prompt:%')
+        ) WHERE copy=1 ORDER BY created_at DESC,row DESC LIMIT 100`,
       )
       .all(owner),
   };

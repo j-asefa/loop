@@ -112,3 +112,44 @@ for (const [label, [trust, recovery], before] of [
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+it("upgrades databases that ran the trace-envelope cleanup as migration 45", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-envelope-schema-"));
+  try {
+    const db = new Database(join(dir, "loop.db"));
+    db.exec(
+      "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
+    );
+    for (const file of readdirSync("migrations").filter((name) => name.endsWith(".sql")).sort()) {
+      if (Number(file.split("-")[0]) > 44) continue;
+      db.exec(readFileSync(join("migrations", file), "utf8"));
+    }
+    db.exec(
+      readFileSync("migrations/046-unwrap-trace-envelopes.sql", "utf8").replace("VALUES(46,", "VALUES(45,"),
+    );
+    db.close();
+
+    const result = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version WHERE version>=45 ORDER BY version').all(),seen:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pr_watch_seen'").get()}));db.close();`,
+      ],
+      {
+        cwd: resolve("."),
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        encoding: "utf8",
+      },
+    );
+    // PR watch history (45) still runs, and the cleanup counts as 46.
+    expect(JSON.parse(result)).toEqual({
+      versions: [{ version: 45 }, { version: 46 }],
+      seen: true,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

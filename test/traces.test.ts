@@ -991,3 +991,100 @@ it("indexes traces saved before the search migration", () => {
   ).toEqual([{ rowid: 2 }]);
   legacy.close();
 });
+
+it("shows Codex commentary wrapped in Loop's reply envelope as its text", () => {
+  const messages = new Map();
+  const envelope = (kind: string, text: string) =>
+    JSON.stringify({ kind, text, tool: kind === "tool" ? "x" : null, arguments: "{}" });
+  const update = envelope("answer", "Checking the PR heads.");
+  expect(
+    codexTrace(
+      { method: "item/started", params: { item: { id: "m", type: "agentMessage", phase: "commentary", text: "" } } },
+      messages,
+    ),
+  ).toBeUndefined();
+  // Half an envelope is not shown while it streams.
+  expect(
+    codexTrace(
+      { method: "item/agentMessage/delta", params: { itemId: "m", delta: update.slice(0, 30) } },
+      messages,
+    ),
+  ).toBeUndefined();
+  expect(
+    codexTrace(
+      { method: "item/completed", params: { item: { id: "m", type: "agentMessage", phase: "commentary", text: update } } },
+      messages,
+    ),
+  ).toMatchObject({ kind: "message", title: "Agent update", content: "Checking the PR heads." });
+  // A tool request, the final answer, and a phaseless envelope (the final
+  // answer on older hosts) are not updates.
+  for (const item of [
+    { phase: "commentary", text: envelope("tool", "") },
+    { phase: "final_answer", text: update },
+    { text: update },
+  ])
+    expect(
+      codexTrace({ method: "item/completed", params: { item: { id: "n", type: "agentMessage", ...item } } }),
+    ).toBeUndefined();
+  expect(
+    codexTrace({
+      method: "item/completed",
+      params: { item: { id: "p", type: "agentMessage", phase: "commentary", text: "Reading the diff." } },
+    }),
+  ).toMatchObject({ content: "Reading the diff." });
+  // Commentary that merely starts with "{" is shown once complete.
+  expect(
+    codexTrace({
+      method: "item/completed",
+      params: { item: { id: "q", type: "agentMessage", phase: "commentary", text: "{a, b} are both set." } },
+    }),
+  ).toMatchObject({ content: "{a, b} are both set." });
+  // Claude writing the envelope as text gets the same treatment.
+  expect(
+    claudeTraces({
+      type: "assistant",
+      message: { id: "c", content: [{ type: "text", text: update }, { type: "text", text: envelope("tool", "") }] },
+    }),
+  ).toEqual([
+    { id: "c:text:0", kind: "message", title: "Agent update", content: "Checking the PR heads." },
+  ]);
+});
+
+it("unwraps updates saved as Loop's reply envelope", () => {
+  const legacy = new Database(":memory:");
+  try {
+    for (const file of readdirSync("migrations")
+      .filter((f) => f.endsWith(".sql") && Number(f.split("-")[0]) < 46)
+      .sort())
+      legacy.exec(readFileSync(join("migrations", file), "utf8"));
+    // The traces only need a run id here.
+    legacy.pragma("foreign_keys = OFF");
+    const insert = legacy.prepare(
+      "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,created_at) VALUES('o','r',?,?,'Agent update',?,1)",
+    );
+    insert.run("a", "message", JSON.stringify({ kind: "answer", text: "Verifying each finding.", tool: null, arguments: "{}" }));
+    insert.run("b", "message", JSON.stringify({ kind: "tool", text: "", tool: "loop_read_file", arguments: "{}" }));
+    insert.run("c", "message", "Plain update.");
+    insert.run("d", "message", '{"other":"json"}');
+    insert.run("e", "tool", JSON.stringify({ kind: "answer", text: "tool output" }));
+    legacy.exec(readFileSync("migrations/046-unwrap-trace-envelopes.sql", "utf8"));
+    expect(
+      legacy.prepare("SELECT trace_key,content FROM run_traces ORDER BY trace_key").all(),
+    ).toEqual([
+      { trace_key: "a", content: "Verifying each finding." },
+      { trace_key: "b", content: "" },
+      { trace_key: "c", content: "Plain update." },
+      { trace_key: "d", content: '{"other":"json"}' },
+      { trace_key: "e", content: JSON.stringify({ kind: "answer", text: "tool output" }) },
+    ]);
+    // The trace search index follows the rewritten text.
+    expect(
+      legacy.prepare("SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'verifying'").all(),
+    ).toHaveLength(1);
+    expect(
+      legacy.prepare("SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'arguments'").all(),
+    ).toHaveLength(0);
+  } finally {
+    legacy.close();
+  }
+});

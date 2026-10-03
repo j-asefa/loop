@@ -293,6 +293,15 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     last_message: { role: "user", content: "Second" },
     run: { id: second, state: "running" },
   });
+  expect(workingCard.last_message.automation).toBeUndefined();
+  // A GitHub update Loop queued says so, so the card doesn't call it yours.
+  db.prepare(
+    "UPDATE messages SET metadata=json_set(metadata,'$.automation',json('{\"kind\":\"github_watch\",\"watchId\":\"w\"}')) WHERE run_id=? AND role='user'",
+  ).run(second);
+  expect(
+    (await items("working")).find((i: any) => i.conversation_id === followUp)
+      .last_message,
+  ).toMatchObject({ role: "user", automation: "github_watch" });
   // A failed follow-up needs you, and the earlier answer is still done.
   db.prepare("UPDATE runs SET state='failed',worker_id=NULL WHERE id=?").run(second);
   expect(await filter("needs")).toContain(followUp);
@@ -1251,8 +1260,27 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   await api(w.owner, "/artifacts", "POST", { title: "Saved prompt: Deploy", content: "Ship it" });
   await api(w.owner, "/artifacts", "POST", { title: "Report", content: "Not a snippet" });
   expect((await api(w.owner, "/artifacts", "POST", { title: "X", content: "y", metadata: { tool: "exec" } })).status).toBe(400);
+  // The same text saved again is offered once.
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Standup again",
+    content: "Summarize yesterday ",
+    metadata: { snippet: true },
+  });
   const snippets = (await api(w.owner, "/snippets")).data.items;
-  expect(snippets.map((s: any) => s.title).sort()).toEqual(["Saved prompt: Deploy", "Standup"]);
+  expect(snippets.map((s: any) => s.title).sort()).toEqual(["Saved prompt: Deploy", "Standup again"]);
+  // More repeated saves than the list holds don't hide older snippets.
+  const repeats = db.prepare(
+    "INSERT INTO artifacts(id,owner_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,'markdown',?,'{\"snippet\":true}',?,?)",
+  );
+  const later = now() + 1000;
+  for (let i = 0; i < 250; i++)
+    repeats.run(id(), w.owner, "Snippet: Check CI", "Check CI", later + i, later + i);
+  const crowded = (await api(w.owner, "/snippets")).data.items;
+  expect(crowded.map((s: any) => s.content).sort()).toEqual([
+    "Check CI",
+    "Ship it",
+    "Summarize yesterday ",
+  ]);
   expect((await api("intruder", "/snippets")).data.items).toEqual([]);
 
   const project = id();

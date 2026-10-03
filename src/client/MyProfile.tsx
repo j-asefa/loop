@@ -39,6 +39,8 @@ export function MyProfile({
   onSaved,
   messages,
   later,
+  onAgents,
+  onProjects,
 }: {
   /** The name shown: your profile's, else the account's. */
   name: string;
@@ -47,6 +49,10 @@ export function MyProfile({
   onSaved: (profile: MyProfileData) => void;
   messages: ReactNode;
   later: (section: Exclude<LaterSection, "all">) => ReactNode;
+  /** Open agent management, from the Agents count. */
+  onAgents: () => void;
+  /** Open the Projects tab, from the Projects count. */
+  onProjects: () => void;
 }) {
   const [tab, setTabState] = useState<ProfileTab>(() => {
     const value = cachedView<string>("later-section");
@@ -93,20 +99,22 @@ export function MyProfile({
           workspace
         </p>
         {profile?.bio && <p className="my-profile-bio">{profile.bio}</p>}
-        <dl className="my-profile-counts">
+        {/* Each count goes to what it counts: your messages below, agent
+            management, and Projects. */}
+        <div className="my-profile-counts">
           {(
             [
-              ["messages", "Messages"],
-              ["agents", "Agents"],
-              ["projects", "Projects"],
+              ["messages", "Messages", () => setTab("messages")],
+              ["agents", "Agents", onAgents],
+              ["projects", "Projects", onProjects],
             ] as const
-          ).map(([key, label]) => (
-            <div key={key}>
-              <dt>{label}</dt>
-              <dd>{counts ? counts[key] : "–"}</dd>
-            </div>
+          ).map(([key, label, open]) => (
+            <button key={key} type="button" onClick={open}>
+              <strong>{counts ? counts[key] : "–"}</strong>
+              <span>{label}</span>
+            </button>
           ))}
-        </dl>
+        </div>
       </header>
       <div className="my-profile-tabs" role="tablist" aria-label="Show">
         {profileTabs.map(([id, label]) => (

@@ -2432,30 +2432,67 @@ pre {
   gap: 6px;
   flex-wrap: wrap;
 }
+/* Commands, skills and snippets: one compact list, rows separated by
+   lines, each a name and a line or two of description. */
+.picker-search {
+  width: 100%;
+}
+.picker-source {
+  margin: 6px 2px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
 .harness-options {
-  max-height: 45dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   display: grid;
-  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
 }
 .harness-option {
   display: grid;
-  gap: 6px;
-  text-align: left;
+  gap: 2px;
+  min-height: 48px;
   width: 100%;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  text-align: left;
   overflow-wrap: anywhere;
 }
-.harness-option span {
-  color: var(--muted);
-  font-size: var(--control-size);
+.harness-option:first-child {
+  border-top: 0;
 }
-.harness-option small {
+.harness-option:disabled {
+  opacity: 0.55;
+}
+.harness-option-head small {
   color: var(--muted);
   font-weight: normal;
+}
+.harness-option-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.harness-option-text em {
+  font-style: normal;
+}
+.snippet-option {
+  align-content: center;
+}
+.snippet-option .harness-option-text {
+  -webkit-line-clamp: 1;
+}
+/* Without a name, the text is the snippet itself. */
+.snippet-option .harness-option-text.unnamed {
+  color: var(--text);
+  font-size: var(--control-size);
 }
 
 /* Clear attention and project navigation on phones and desktop. */
@@ -5450,26 +5487,18 @@ select {
   font-size: 14px;
   color: var(--muted);
 }
-.away-card ul {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 4px;
+/* The action line reads as a link, so the card looks tappable. */
+.away-toggle .away-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  min-width: 0;
+  color: var(--blue);
+  font-weight: 600;
 }
-.away-card li button {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  width: 100%;
-  text-align: left;
-  padding: 8px 0;
-  min-height: 44px;
-}
-.away-card li small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
+.away-toggle .away-link svg {
+  flex-shrink: 0;
 }
 
 /* Action sheets: the mobile context menu */
@@ -6267,10 +6296,13 @@ details > summary {
 .snippet-options {
   display: grid;
   gap: 6px;
-  margin-bottom: 12px;
+  margin: 16px 0 4px;
 }
 .snippet-options .section-title {
-  margin-top: 4px;
+  margin: 0 2px;
+}
+.snippet-options > .text-button {
+  justify-self: start;
 }
 
 /* Handoff */
@@ -6514,11 +6546,11 @@ details > summary {
 }
 
 /* Thread position: back to where I was, resumed, latest. */
+/* A small pill at the side, so it covers little of the thread. */
 .thread-return {
   position: absolute;
   bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 12px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -6956,17 +6988,26 @@ html:has(.sheet.side-panel[open]) {
   font-size: 13px;
   color: #5b5c61;
 }
-.my-profile-counts div {
+.my-profile-counts button {
   display: flex;
-  flex-direction: row-reverse;
   align-items: baseline;
   gap: 5px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
-.my-profile-counts dd {
-  margin: 0;
+.my-profile-counts strong {
   font-size: 18px;
   font-weight: 700;
   color: var(--text);
+}
+.my-profile-counts button:hover span,
+.my-profile-counts button:focus-visible span {
+  text-decoration: underline;
 }
 .my-profile .personal-message-card {
   border-left: 3px solid var(--brass);
