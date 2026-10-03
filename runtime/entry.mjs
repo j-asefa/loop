@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { readPublishedChunk } from "./published-files.mjs";
+import { FileRejected, readPublishedChunk } from "./published-files.mjs";
 import { writeUploadChunk } from "./uploads.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import {
@@ -467,11 +467,18 @@ try {
   else throw new RuntimeFailure("Unknown runtime");
 } catch (error) {
   emit({
-    code: error instanceof HarnessError ? "harness_command" : "runtime_failure",
+    code:
+      error instanceof HarnessError
+        ? "harness_command"
+        : error instanceof FileRejected
+          ? "file_rejected"
+          : "runtime_failure",
     diagnostic: runtimeFailureFacts(error.details),
     error: diagnosticText(
       clean(
-        error instanceof HarnessError || error instanceof RuntimeFailure
+        error instanceof HarnessError ||
+          error instanceof RuntimeFailure ||
+          error instanceof FileRejected
           ? error.message
           : errorSummary(error, [], false),
       ),

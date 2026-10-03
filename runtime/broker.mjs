@@ -16,6 +16,7 @@ import { lines } from "./protocol.mjs";
 import { SteeringControls } from "./steering.mjs";
 import { SharedCodex } from "./shared-codex.mjs";
 import { MAX_CONCURRENT_RUNS } from "./concurrency.mjs";
+import { FileRejected } from "./published-files.mjs";
 import {
   loginDeadline,
   LoginTimeoutError,
@@ -185,7 +186,9 @@ async function execute(key, request, onEvent, signal) {
                 diagnosticText(m.error),
                 runtimeFailureFacts(m.diagnostic),
               )
-            : new Error(m.error);
+            : m.code === "file_rejected"
+              ? new FileRejected(m.error)
+              : new Error(m.error);
       if (m.login && deadline) {
         deadline.ready();
         m.expiresAt = deadline.expiresAt;
@@ -727,10 +730,13 @@ const server = createServer(async (req, res) => {
     } else
       json(
         res,
-        {
-          error:
-            "Subscription runtime unavailable or request invalid. Check the runtime service and sign in again.",
-        },
+        // A refused file is the agent's to fix, not a runtime outage: say why.
+        error instanceof FileRejected
+          ? { code: "file_rejected", error: error.message }
+          : {
+              error:
+                "Subscription runtime unavailable or request invalid. Check the runtime service and sign in again.",
+            },
         422,
       );
   }

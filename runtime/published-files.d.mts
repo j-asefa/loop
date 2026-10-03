@@ -1,5 +1,6 @@
 export const MAX_PUBLISHED_BYTES: number;
 export const FILE_CHUNK_BYTES: number;
+export class FileRejected extends Error {}
 export function fileMime(name: string): string;
 export function readPublishedChunk(
   directory: string,

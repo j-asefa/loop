@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -8,7 +8,7 @@ import { createServer } from "node:net";
 const workspace = mkdtempSync(join(tmpdir(), "loop-broker-file-"));
 afterAll(() => rmSync(workspace, { recursive: true, force: true }));
 
-it("reads a Codex workspace file through the broker without starting the Codex worker", async () => {
+it("reads a Codex workspace file through the broker, and says why it refuses one", async () => {
   writeFileSync(join(workspace, "result.txt"), "published from Codex");
   const socket = createServer();
   await new Promise<void>((resolve) => socket.listen(0, "127.0.0.1", resolve));
@@ -58,6 +58,37 @@ it("reads a Codex workspace file through the broker without starting the Codex w
     expect(Buffer.from(chunk.base64, "base64").toString()).toBe(
       "published from Codex",
     );
+    // A refused file names its reason instead of a generic outage, so the
+    // agent can fix it rather than retry.
+    writeFileSync(join(workspace, "review.mp4"), "");
+    truncateSync(join(workspace, "review.mp4"), 49 * 1024 * 1024);
+    const refuse = async (path: string) => {
+      const refused = await fetch(url + "/runtime", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          key: "a".repeat(64),
+          provider: "codex",
+          action: "read-file",
+          path,
+          offset: 0,
+        }),
+      });
+      expect(refused.status).toBe(422);
+      return refused.json();
+    };
+    expect(await refuse("review.mp4")).toEqual({
+      code: "file_rejected",
+      error:
+        "This file is 49.0 MB; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
+    });
+    expect(await refuse("renders/missing.mp4")).toEqual({
+      code: "file_rejected",
+      error: "No file at renders/missing.mp4 in the workspace",
+    });
   } finally {
     broker.kill("SIGTERM");
     await new Promise<void>((resolve) => broker.once("close", () => resolve()));

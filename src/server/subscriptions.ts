@@ -85,13 +85,22 @@ async function request(
     signal: signal ?? AbortSignal.timeout(45000),
     redirect: "error",
   });
-  if (!r.ok)
+  if (!r.ok) {
+    // The runtime names why it refused a file (too large, missing, private).
+    // Pass that on: a generic outage message makes agents retry in vain.
+    const refusal = (await r.json().catch(() => null)) as {
+      code?: unknown;
+      error?: unknown;
+    } | null;
+    if (refusal?.code === "file_rejected" && typeof refusal.error === "string")
+      throw new Problem(422, refusal.error.slice(0, 1000));
     throw new Problem(
       422,
       action === "capabilities"
         ? "Cannot load commands while the runtime is unavailable or busy. Try refreshing when its current work finishes."
         : `Subscription runtime unavailable or busy (HTTP ${r.status}). Check the runtime service and try again. No API fallback is used.`,
     );
+  }
   return r;
 }
 export async function runtimeAction(

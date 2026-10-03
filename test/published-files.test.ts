@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import express from "express";
 import {
   readPublishedChunk,
+  FileRejected,
   FILE_CHUNK_BYTES,
   MAX_PUBLISHED_BYTES,
 } from "../runtime/published-files.mjs";
@@ -53,12 +54,24 @@ app.post("/runtime", (req, res) => {
     "Bearer " + process.env.LOOP_RUNTIME_TOKEN,
   );
   expect(req.body.action).toBe("read-file");
-  const chunk = readPublishedChunk(
-    workspace,
-    req.body.path,
-    req.body.offset,
-    req.body.version,
-  );
+  if (req.body.path === "outage.bin") {
+    res.status(422).json({ error: "Subscription runtime unavailable" });
+    return;
+  }
+  let chunk;
+  try {
+    chunk = readPublishedChunk(
+      workspace,
+      req.body.path,
+      req.body.offset,
+      req.body.version,
+    );
+  } catch (error) {
+    // The broker's contract for a refused file (test/runtime-file-broker).
+    if (!(error instanceof FileRejected)) throw error;
+    res.status(422).json({ code: "file_rejected", error: error.message });
+    return;
+  }
   res.json(changeTransfer ? changeTransfer(chunk) : chunk);
 });
 app.use("/api", core, routes, executionRoutes);
@@ -353,6 +366,32 @@ it("rejects changed, corrupt, and cancelled transfers without publishing a parti
   } finally {
     changeTransfer = undefined;
   }
+});
+
+it("tells the agent why a workspace file was refused, unlike a runtime outage", async () => {
+  const f = fixture();
+  writeFileSync(join(workspace, "review-30fps.mp4"), "");
+  truncateSync(join(workspace, "review-30fps.mp4"), 49 * 1024 * 1024);
+  const text = async (path: string) => {
+    const outcome = await invokeNative(f.run, f.binding, id(), {
+      path,
+      title: "Review cut",
+    });
+    if (!("result" in outcome)) throw new Error("Expected a result");
+    expect(outcome.result.isError).toBe(true);
+    return outcome.result.content[0].text;
+  };
+  expect(await text("review-30fps.mp4")).toBe(
+    "File was not published: This file is 49.0 MB; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
+  );
+  expect(await text("outage.bin")).toMatch(
+    /^File was not published: Subscription runtime unavailable or busy \(HTTP 422\)/,
+  );
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM artifact_objects WHERE run_id=?")
+      .get(f.run.id),
+  ).toEqual({ n: 0 });
 });
 
 it("confines published files to regular nonsecret workspace files", () => {
