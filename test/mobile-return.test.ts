@@ -372,6 +372,32 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   });
 });
 
+it("archives a thread from the feed without changing its run or history", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Archive me");
+  const rid = run(w.owner, a.id, cid, "running");
+  message(w.owner, cid, "user", "Keep working", rid);
+  expect((await api(w.owner, "/inbox?filter=working")).data.items.some(
+    (item: any) => item.conversation_id === cid,
+  )).toBe(true);
+  expect((await api("intruder", `/inbox/${cid}`, "PATCH", { hidden: true })).status).toBe(404);
+  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true })).status).toBe(200);
+  for (const filter of ["all", "working", "queued", "done"]) {
+    expect((await api(w.owner, `/inbox?filter=${filter}`)).data.items.some(
+      (item: any) => item.conversation_id === cid,
+    )).toBe(false);
+  }
+  expect((await api(w.owner, "/inbox?filter=unfinished")).data.items.some(
+    (item: any) => item.conversation_id === cid,
+  )).toBe(true);
+  expect((await api(w.owner, `/conversations/${cid}`)).status).toBe(200);
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(rid)).toEqual({ state: "running" });
+  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: false })).status).toBe(200);
+  expect((await api(w.owner, "/inbox?filter=working")).data.items.some(
+    (item: any) => item.conversation_id === cid,
+  )).toBe(true);
+});
+
 it("shows a working agent's output so far on its feed card", async () => {
   const w = workspaceFor(),
     a = w.agent(),

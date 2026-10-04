@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
+  Archive,
   ArrowDown,
   ArrowUpRight,
   MoreHorizontal,
@@ -152,6 +153,7 @@ function InboxCard({
   onNext,
   onAgent,
   onMenu,
+  onArchive,
   onLater,
 }: {
   item: InboxItem;
@@ -163,9 +165,10 @@ function InboxCard({
   onNext: (action: FeedNextAction) => void;
   onAgent?: () => void;
   onMenu: () => void;
+  onArchive: () => void;
   onLater: () => void;
 }) {
-  const swipe = useSwipe({ onLeft: onLater });
+  const swipe = useSwipe({ onLeft: onArchive });
   const press = useLongPress(onMenu);
   const status = runStatus(item.run?.state, item.pending_approvals);
   const merged = (name: string) => (e: any) => {
@@ -192,7 +195,7 @@ function InboxCard({
       }
     >
       <span className="swipe-under right" aria-hidden="true">
-        <AlarmClock size={20} /> Remind me
+        <Archive size={20} /> Archive
       </span>
       <article
         className="feed-card inbox-card"
@@ -720,6 +723,22 @@ export function Inbox({
       setError((e as Error).message);
     }
   }
+  async function archive(item: InboxItem) {
+    try {
+      await api(`/inbox/${item.conversation_id}`, { hidden: true }, "PATCH");
+      setItems((old) => old.filter((row) => row.conversation_id !== item.conversation_id));
+      notify({
+        text: "Archived from feed. Still in history and search.",
+        undo: async () => {
+          await api(`/inbox/${item.conversation_id}`, { hidden: false }, "PATCH");
+          await load();
+        },
+      });
+      void load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
   function actionsFor(item: InboxItem): Action[] {
     const agent = agents.find((a) => a.id === item.agent_id);
     const state = item.run?.state || "";
@@ -932,6 +951,7 @@ export function Inbox({
                   }
                   onAgent={agent ? () => onAgent(agent) : undefined}
                   onMenu={() => setMenu(item)}
+                  onArchive={() => void archive(item)}
                   onLater={() => setLater(item)}
                 />
               );

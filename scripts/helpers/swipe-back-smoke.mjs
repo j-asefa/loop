@@ -226,24 +226,23 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       await expect(cards.first().locator("h2").first()).toHaveText(archived);
     }
 
-    // Feed threads own their left swipe too: it opens Remind me
-    // (which must stay open).
+    // Feed threads own their left swipe too: archive removes the card and
+    // Undo restores it without opening Remind me.
     if (client) {
       await page.goto(fixture.base, { waitUntil: "networkidle" });
       const row = page.locator(
         `.inbox-row[aria-label^="${fixture.conversations[0].title}"]`,
       );
+      await expect(row).toHaveCount(1);
       await swipe(row);
-      await expect(
-        page.locator("dialog[open]"),
-        "Swiping a Feed thread left keeps Remind me open",
-      ).toHaveCount(1);
-      await expect(dialog()).toHaveAttribute("aria-label", "Remind me");
-      await dialog()
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
+      await expect(row).toHaveCount(0);
       await expect(page.locator("dialog[open]")).toHaveCount(0);
-      await page.waitForFunction(() => history.state?.loopSheet !== true);
+      const toast = page
+        .getByRole("status")
+        .filter({ hasText: "Archived from feed" });
+      await expect(toast).toBeVisible();
+      await toast.getByRole("button", { name: "Undo", exact: true }).click();
+      await expect(row).toHaveCount(1);
     }
 
     // The agent row owns its horizontal gestures, even when the Feed has a Back

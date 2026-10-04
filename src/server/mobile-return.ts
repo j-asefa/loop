@@ -171,7 +171,7 @@ type InboxRow = {
   pending_approvals: number;
 };
 
-function inboxSql(teams: boolean, folders: boolean, agent = false) {
+function inboxSql(teams: boolean, folders: boolean, agent = false, history = false) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
 base AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.team_id,c.origin,
@@ -191,7 +191,7 @@ base AS (
     EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed
   FROM conversations c
   LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id
-  WHERE c.owner_id=@owner
+  WHERE c.owner_id=@owner ${history ? "" : "AND c.feed_hidden=0"}
     ${teams ? "AND c.team_id IN (SELECT value FROM json_each(@teams))" : ""}
     ${agent ? "AND c.agent_id=@agent" : ""}
     AND (EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id)
@@ -254,7 +254,12 @@ export function inbox(
     at: cursor?.[0] ?? null,
     after: cursor?.[1] ?? null,
   };
-  const sql = inboxSql(!!teams, !!folders, !!options.agent);
+  const sql = inboxSql(
+    !!teams,
+    !!folders,
+    !!options.agent,
+    filter === "outcomes" || filter === "unfinished",
+  );
   const where = {
     all: "NOT snoozed",
     // Every finished output stays done, even while a follow-up works, queues

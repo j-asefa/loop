@@ -144,9 +144,9 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
         encoding: "utf8",
       },
     );
-    // PR watch history (45) still runs, and the cleanup counts as 46.
+    // PR watch history (45), trace cleanup (46), and feed archiving (47) all run.
     expect(JSON.parse(result)).toEqual({
-      versions: [{ version: 45 }, { version: 46 }],
+      versions: [{ version: 45 }, { version: 46 }, { version: 47 }],
       seen: true,
     });
   } finally {
