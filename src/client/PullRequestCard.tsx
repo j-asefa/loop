@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Eye, GitPullRequest } from "lucide-react";
+import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
 import { api, parse } from "./api";
+import { openPull } from "./PullRequests";
 
 type Watch = {
   id: string;
@@ -228,6 +229,9 @@ function PullRequestRow({
           </div>
         )}
       </dl>
+      <button className="text-button pr-card-open" onClick={() => openPull(pr)}>
+        <PanelRight size={14} aria-hidden="true" /> Open in Pull requests
+      </button>
       {artifactId && (
         <WatchControl pr={pr} artifactId={artifactId} watch={watch} />
       )}
@@ -236,7 +240,8 @@ function PullRequestRow({
 }
 
 // PR cards show what GitHub reported when the tool ran. Refreshing is a new
-// tool call (ask the agent), so the fetch time is always visible.
+// tool call (ask the agent), so the fetch time is always visible; Open in
+// Pull requests reads the pull request now and lets you act on it yourself.
 export function PullRequestCards({
   card,
   compact,

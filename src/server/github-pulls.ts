@@ -1,0 +1,651 @@
+import { Router } from "express";
+import { z } from "zod";
+import { now } from "./db.js";
+import { Problem } from "./domain.js";
+import {
+  GithubError,
+  githubGraphql,
+  githubRest,
+  githubTokens,
+} from "./github-api.js";
+import {
+  parsePullRequestUrl,
+  pullRequestUrl,
+  type PullRequestRef,
+  type PullRequestState,
+} from "../shared/github.js";
+import {
+  MAX_REVIEW_BODY,
+  type ChecksState,
+  type MergeMethod,
+  type PullCheck,
+  type PullComment,
+  type PullDetail,
+  type PullFile,
+  type PullFilter,
+  type PullInbox,
+  type PullListItem,
+  type ReviewDecision,
+} from "../shared/pull-requests.js";
+
+// The Pull requests screen reads GitHub directly with your official GitHub
+// connection, so you can find, read and act on pull requests without asking
+// an agent. Actions here are yours: each one is a single request you
+// submitted, pinned to the head commit you were shown. Nothing read here is
+// passed to an agent.
+
+const NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/;
+const SHA = /^[0-9a-f]{40}$/i;
+const BODY_CHARS = 60_000;
+const COMMENT_CHARS = 20_000;
+const PATCH_CHARS = 100_000;
+const MAX_FILES = 300;
+const MAX_THREADS = 500;
+
+const repoName = z
+  .string()
+  .regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/, "Use owner/repository");
+const refParams = z.object({
+  owner: z.string().regex(NAME, "Unknown repository owner").max(39),
+  repo: z.string().regex(NAME, "Unknown repository").max(100),
+  number: z.coerce.number().int().positive().max(999_999_999),
+});
+
+const reading = (owner: string) => githubTokens(owner)[0];
+// Writes act as one GitHub identity: with several GitHub connections Loop
+// would have to guess which account you mean, so it asks you to keep one.
+function writing(owner: string) {
+  const tokens = githubTokens(owner);
+  if (!tokens.length) throw new Problem(409, "Connect GitHub in Tools first.");
+  if (tokens.length > 1)
+    throw new Problem(
+      409,
+      "More than one GitHub account is connected. Keep one GitHub connection in Tools to act on pull requests from Loop.",
+    );
+  return tokens[0];
+}
+
+/** GitHub failures as Loop problems; never a 401, which signs you out of Loop. */
+function problem(error: unknown, write = false): never {
+  if (error instanceof Problem) throw error;
+  if (error instanceof GithubError)
+    throw new Problem(
+      error.retryAt
+        ? 429
+        : error.status === 401
+          ? 409
+          : [403, 404, 405, 409, 422].includes(error.status)
+            ? error.status === 405
+              ? 409
+              : error.status
+            : 502,
+      error.message,
+    );
+  if ((error as Error)?.name === "TimeoutError" || (error as Error)?.name === "AbortError")
+    throw new Problem(
+      504,
+      write
+        ? "GitHub didn't answer in time. Refresh to see whether it went through before trying again."
+        : "GitHub didn't answer in time. Try again.",
+    );
+  throw new Problem(502, "Could not reach GitHub. Try again.");
+}
+
+// ---------------------------------------------------------------------------
+// Reading
+
+const ITEM = `
+  number title url state isDraft createdAt updatedAt
+  author { login }
+  headRefName baseRefName additions deletions
+  reviewDecision
+  totalCommentsCount
+  lastCommit: commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }`;
+
+const text = (value: unknown, max = 300) =>
+  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+const login = (value: any) => text(value?.login, 39);
+
+function checksState(value: unknown): ChecksState | undefined {
+  switch (value) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+    case "ERROR":
+      return "failure";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+  }
+}
+function reviewDecision(value: unknown): ReviewDecision | undefined {
+  switch (value) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes_requested";
+    case "REVIEW_REQUIRED":
+      return "review_required";
+  }
+}
+
+/** A GraphQL pull request as a list item, or undefined if it isn't one. */
+function listItem(node: any, expected?: PullRequestRef): PullListItem | undefined {
+  const url = text(node?.url, 500);
+  const ref = url ? parsePullRequestUrl(url) : undefined;
+  const title = text(node?.title);
+  if (!ref || !title || node.number !== ref.number) return;
+  if (
+    expected &&
+    (ref.owner.toLowerCase() !== expected.owner.toLowerCase() ||
+      ref.repo.toLowerCase() !== expected.repo.toLowerCase() ||
+      ref.number !== expected.number)
+  )
+    return;
+  const state: PullRequestState =
+    node.state === "MERGED"
+      ? "merged"
+      : node.state === "CLOSED"
+        ? "closed"
+        : node.isDraft
+          ? "draft"
+          : "open";
+  const commit = node.lastCommit?.nodes?.[0]?.commit;
+  return {
+    ...ref,
+    title,
+    url: pullRequestUrl(ref),
+    state,
+    author: login(node.author),
+    createdAt: text(node.createdAt, 40),
+    updatedAt: text(node.updatedAt, 40),
+    headRef: text(node.headRefName, 255),
+    baseRef: text(node.baseRefName, 255),
+    additions: count(node.additions),
+    deletions: count(node.deletions),
+    comments: count(node.totalCommentsCount),
+    checks: checksState(commit?.statusCheckRollup?.state),
+    review: reviewDecision(node.reviewDecision),
+  };
+}
+
+const FILTER_QUALIFIER: Record<PullFilter, string> = {
+  review: "review-requested:@me",
+  authored: "author:@me",
+  involved: "involves:@me",
+};
+
+/** Open pull requests for you, one filter at a time, with every filter's count. */
+export async function inbox(
+  owner: string,
+  options: { filter?: PullFilter; repo?: string; text?: string } = {},
+): Promise<PullInbox> {
+  const token = reading(owner);
+  if (!token) return { connected: false };
+  const filter = options.filter || "review";
+  // Your own search terms narrow the list; quotes and line breaks are
+  // dropped so they can't end the query early.
+  const terms = (options.text || "")
+    .replace(/["\0]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const query = (f: PullFilter) =>
+    [
+      "is:pr is:open archived:false",
+      FILTER_QUALIFIER[f],
+      options.repo ? "repo:" + options.repo : "",
+      terms,
+      "sort:updated-desc",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  let data: any;
+  try {
+    data = await githubGraphql<any>(
+      token,
+      `query Inbox($q: String!, $review: String!, $authored: String!, $involved: String!) {
+        viewer { login }
+        results: search(query: $q, type: ISSUE, first: 50) { issueCount nodes { ... on PullRequest { ${ITEM} } } }
+        review: search(query: $review, type: ISSUE, first: 1) { issueCount }
+        authored: search(query: $authored, type: ISSUE, first: 1) { issueCount }
+        involved: search(query: $involved, type: ISSUE, first: 1) { issueCount }
+      }`,
+      {
+        q: query(filter),
+        review: query("review"),
+        authored: query("authored"),
+        involved: query("involved"),
+      },
+    );
+  } catch (error) {
+    problem(error);
+  }
+  const pulls = (Array.isArray(data?.results?.nodes) ? data.results.nodes : [])
+    .map((node: any) => listItem(node))
+    .filter((p: PullListItem | undefined): p is PullListItem => !!p);
+  return {
+    connected: true,
+    login: login(data?.viewer) || "",
+    filter,
+    ...(options.repo ? { repo: options.repo } : {}),
+    counts: {
+      review: count(data?.review?.issueCount) ?? 0,
+      authored: count(data?.authored?.issueCount) ?? 0,
+      involved: count(data?.involved?.issueCount) ?? 0,
+    },
+    total: count(data?.results?.issueCount) ?? pulls.length,
+    pulls,
+    fetchedAt: now(),
+  };
+}
+
+// GitHub hides HTML comments (pull request templates are full of them); other
+// HTML is shown as text, never rendered.
+const markdown = (value: unknown) =>
+  typeof value === "string" ? value.replace(/<!--[\s\S]*?-->/g, "").trim() : "";
+
+const ROLE = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+function comment(node: any, chars = COMMENT_CHARS): PullComment | undefined {
+  if (!node || typeof node !== "object") return;
+  const body = markdown(node.body);
+  return {
+    author: login(node.author),
+    body: body.length > chars ? body.slice(0, chars) + "\n\n[… shortened]" : body,
+    createdAt: text(node.submittedAt || node.createdAt, 40),
+    url: githubLink(node.url),
+    member: ROLE.has(node.authorAssociation),
+  };
+}
+// Links shown from GitHub data must point at github.com.
+function githubLink(value: unknown) {
+  const url = text(value, 1000);
+  if (!url) return;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "github.com"
+      ? parsed.href
+      : undefined;
+  } catch {}
+}
+function checkLink(value: unknown) {
+  const url = text(value, 1000);
+  if (!url) return;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" ? parsed.href : undefined;
+  } catch {}
+}
+
+function checkRun(node: any): PullCheck | undefined {
+  if (node?.__typename === "CheckRun") {
+    const name = text(node.name, 200);
+    if (!name) return;
+    const conclusion = node.conclusion;
+    return {
+      name,
+      state:
+        node.status !== "COMPLETED"
+          ? "pending"
+          : conclusion === "SUCCESS"
+            ? "success"
+            : conclusion === "NEUTRAL"
+              ? "neutral"
+              : conclusion === "SKIPPED"
+                ? "skipped"
+                : "failure",
+      url: checkLink(node.detailsUrl),
+    };
+  }
+  if (node?.__typename === "StatusContext") {
+    const name = text(node.context, 200);
+    if (!name) return;
+    return {
+      name,
+      state: checksState(node.state) || "pending",
+      url: checkLink(node.targetUrl),
+      description: text(node.description, 200),
+    };
+  }
+}
+
+// Review threads come a page at a time; each says how many comments it has so
+// a long thread can say what it leaves out.
+const THREADS = `totalCount pageInfo { hasNextPage endCursor }
+  nodes { id isResolved isOutdated path line originalLine
+    comments(first: 30) { totalCount nodes { author { login } authorAssociation body createdAt url } } }`;
+
+/** One pull request with what you need to review it, read now. */
+export async function detail(owner: string, ref: PullRequestRef): Promise<PullDetail> {
+  const token = reading(owner);
+  if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
+  let data: any;
+  try {
+    data = await githubGraphql<any>(
+      token,
+      `query Pull($owner: String!, $name: String!, $number: Int!) {
+        viewer { login }
+        repository(owner: $owner, name: $name) {
+          viewerPermission
+          mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
+          pullRequest(number: $number) {
+            ${ITEM}
+            body headRefOid mergeable mergeStateStatus changedFiles viewerDidAuthor
+            commitCount: commits(first: 1) { totalCount }
+            reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
+            latestReviews(first: 30) { nodes { author { login } authorAssociation state body submittedAt url } }
+            reviewThreads(first: 100) { ${THREADS} }
+            comments(last: 50) { totalCount nodes { author { login } authorAssociation body createdAt url } }
+            checkCommit: commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+              __typename
+              ... on CheckRun { name status conclusion detailsUrl }
+              ... on StatusContext { context state targetUrl description }
+            } } } } } }
+          }
+        }
+      }`,
+      { owner: ref.owner, name: ref.repo, number: ref.number },
+    );
+  } catch (error) {
+    problem(error);
+  }
+  const repository = data?.repository;
+  const node = repository?.pullRequest;
+  const item = node ? listItem(node, ref) : undefined;
+  const headSha = text(node?.headRefOid, 40);
+  if (!item || !headSha || !SHA.test(headSha))
+    throw new Problem(404, "GitHub could not find this pull request with your connection.");
+  const nodes = (value: any) => (Array.isArray(value?.nodes) ? value.nodes : []);
+  // Later pages of review threads, so an unresolved thread past the first
+  // page still shows; past MAX_THREADS the page says how many it left out.
+  const threadNodes = [...nodes(node.reviewThreads)];
+  let pageInfo = node.reviewThreads?.pageInfo;
+  try {
+    while (
+      pageInfo?.hasNextPage === true &&
+      typeof pageInfo.endCursor === "string" &&
+      threadNodes.length < MAX_THREADS
+    ) {
+      const more = await githubGraphql<any>(
+        token,
+        `query ReviewThreads($owner: String!, $name: String!, $number: Int!, $after: String!) {
+          repository(owner: $owner, name: $name) {
+            pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { ${THREADS} } }
+          }
+        }`,
+        { owner: ref.owner, name: ref.repo, number: ref.number, after: pageInfo.endCursor },
+      );
+      const connection = more?.repository?.pullRequest?.reviewThreads;
+      if (!nodes(connection).length) break;
+      threadNodes.push(...nodes(connection));
+      pageInfo = connection.pageInfo;
+    }
+  } catch (error) {
+    problem(error);
+  }
+  const viewerLogin = login(data.viewer) || "";
+  const methods: MergeMethod[] = [];
+  if (repository.squashMergeAllowed) methods.push("squash");
+  if (repository.mergeCommitAllowed) methods.push("merge");
+  if (repository.rebaseMergeAllowed) methods.push("rebase");
+  const contexts = nodes(
+    node.checkCommit?.nodes?.[0]?.commit?.statusCheckRollup?.contexts,
+  );
+  const body = markdown(node.body);
+  return {
+    ...item,
+    body:
+      body.length > BODY_CHARS
+        ? body.slice(0, BODY_CHARS) + "\n\n[… shortened; read the rest on GitHub]"
+        : body,
+    headSha,
+    mergeState: text(node.mergeStateStatus, 40)?.toLowerCase(),
+    conflicts: node.mergeable === "CONFLICTING",
+    changedFiles: count(node.changedFiles),
+    commits: count(node.commitCount?.totalCount),
+    requested: nodes(node.reviewRequests)
+      .map((r: any) =>
+        r?.requestedReviewer?.__typename === "Team"
+          ? text(r.requestedReviewer.slug, 100) && "team " + r.requestedReviewer.slug
+          : login(r?.requestedReviewer),
+      )
+      .filter((r: unknown): r is string => typeof r === "string")
+      .slice(0, 20),
+    reviews: nodes(node.latestReviews)
+      .map((r: any) => {
+        const c = comment(r);
+        const state = text(r?.state, 40);
+        return c && state && state !== "PENDING"
+          ? { ...c, state: state.toLowerCase() }
+          : undefined;
+      })
+      .filter(Boolean),
+    checkRuns: contexts
+      .map(checkRun)
+      .filter((c: PullCheck | undefined): c is PullCheck => !!c),
+    threads: threadNodes
+      .slice(0, MAX_THREADS)
+      .map((t: any) => {
+        const comments = nodes(t?.comments)
+          .map((c: any) => comment(c))
+          .filter(Boolean);
+        return {
+          id: text(t?.id, 100) || "",
+          path: text(t?.path, 500) || "",
+          line: count(t?.line) ?? count(t?.originalLine),
+          resolved: t?.isResolved === true,
+          outdated: t?.isOutdated === true,
+          comments,
+          commentsTotal: count(t?.comments?.totalCount) ?? comments.length,
+        };
+      })
+      .filter((t: any) => t.id && t.comments.length),
+    threadsTotal: count(node.reviewThreads?.totalCount) ?? threadNodes.length,
+    conversation: nodes(node.comments)
+      .map((c: any) => comment(c))
+      .filter(Boolean),
+    conversationTotal: count(node.comments?.totalCount) ?? 0,
+    viewer: {
+      login: viewerLogin,
+      author: node.viewerDidAuthor === true,
+      canMerge: ["ADMIN", "MAINTAIN", "WRITE"].includes(repository.viewerPermission),
+    },
+    mergeMethods: methods,
+    fetchedAt: now(),
+  };
+}
+
+/**
+ * The changed files with their diffs, up to GitHub's limit of 3,000, for the
+ * head commit you were shown: GitHub lists the files of whatever the head is
+ * now, so a head that moved before or while reading them is refused.
+ */
+export async function files(owner: string, ref: PullRequestRef, headSha: string) {
+  const token = reading(owner);
+  if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
+  const base = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}/files?per_page=100&page=`;
+  const list: PullFile[] = [];
+  const moved = () =>
+    new Problem(
+      409,
+      "New commits were pushed after you opened this pull request. Refresh to see their changes.",
+    );
+  try {
+    if ((await headOf(token, ref)) !== headSha.toLowerCase()) throw moved();
+    for (let page = 1; list.length < MAX_FILES; page++) {
+      const { data, link } = await githubRest<any[]>(token, base + page);
+      for (const f of Array.isArray(data) ? data : []) {
+        const path = text(f?.filename, 1000);
+        if (!path) continue;
+        const patch = typeof f.patch === "string" ? f.patch : undefined;
+        list.push({
+          path,
+          previousPath: text(f.previous_filename, 1000),
+          status: text(f.status, 20) || "modified",
+          additions: count(f.additions) ?? 0,
+          deletions: count(f.deletions) ?? 0,
+          patch: patch && patch.length > PATCH_CHARS ? patch.slice(0, PATCH_CHARS) : patch,
+          truncated: !!patch && patch.length > PATCH_CHARS,
+        });
+      }
+      if (!/rel="next"/.test(link) || !data?.length) break;
+    }
+    if ((await headOf(token, ref)) !== headSha.toLowerCase()) throw moved();
+  } catch (error) {
+    problem(error);
+  }
+  return { files: list.slice(0, MAX_FILES), headSha, fetchedAt: now() };
+}
+
+// ---------------------------------------------------------------------------
+// Acting. Each action is a single request you submitted; nothing is retried.
+
+const pullPath = (ref: PullRequestRef) =>
+  `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`;
+
+async function readPull(token: string, ref: PullRequestRef) {
+  return (await githubRest<any>(token, pullPath(ref))).data;
+}
+const headOf = async (token: string, ref: PullRequestRef) =>
+  String((await readPull(token, ref))?.head?.sha || "").toLowerCase();
+
+/** Refuses to act on a pull request whose head moved since you read it. */
+async function current(token: string, ref: PullRequestRef, headSha: string) {
+  const data = await readPull(token, ref);
+  if (data?.merged || data?.merged_at)
+    throw new Problem(409, "This pull request was already merged.");
+  if (data?.state === "closed") throw new Problem(409, "This pull request is closed.");
+  if (String(data?.head?.sha || "").toLowerCase() !== headSha.toLowerCase())
+    throw new Problem(
+      409,
+      "New commits were pushed after you opened this pull request. Refresh and look at them first.",
+    );
+}
+
+const REVIEW_EVENT = {
+  approve: "APPROVE",
+  request_changes: "REQUEST_CHANGES",
+  comment: "COMMENT",
+} as const;
+
+export async function review(owner: string, ref: PullRequestRef, body: unknown) {
+  const input = z
+    .object({
+      event: z.enum(["approve", "request_changes", "comment"]),
+      body: z.string().max(MAX_REVIEW_BODY).default(""),
+      headSha: z.string().regex(SHA, "Refresh the pull request first"),
+    })
+    .parse(body);
+  if (input.event !== "approve" && !input.body.trim())
+    throw new Problem(
+      400,
+      input.event === "comment"
+        ? "Write a comment first."
+        : "Say what needs to change.",
+    );
+  const token = writing(owner);
+  try {
+    await current(token, ref, input.headSha);
+    const { data } = await githubRest<any>(token, pullPath(ref) + "/reviews", {
+      method: "POST",
+      body: {
+        event: REVIEW_EVENT[input.event],
+        commit_id: input.headSha,
+        ...(input.body.trim() ? { body: input.body.trim() } : {}),
+      },
+    });
+    return { ok: true, url: githubLink(data?.html_url) };
+  } catch (error) {
+    problem(error, true);
+  }
+}
+
+export async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
+  const input = z
+    .object({ body: z.string().trim().min(1, "Write a comment first.").max(MAX_REVIEW_BODY) })
+    .parse(body);
+  const token = writing(owner);
+  try {
+    const { data } = await githubRest<any>(
+      token,
+      `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/issues/${ref.number}/comments`,
+      { method: "POST", body: { body: input.body } },
+    );
+    return { ok: true, url: githubLink(data?.html_url) };
+  } catch (error) {
+    problem(error, true);
+  }
+}
+
+/**
+ * Merges exactly the head commit you were shown: GitHub refuses the merge if
+ * the branch moved, so new commits always need a fresh look.
+ */
+export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
+  const input = z
+    .object({
+      method: z.enum(["merge", "squash", "rebase"]),
+      headSha: z.string().regex(SHA, "Refresh the pull request first"),
+    })
+    .parse(body);
+  const token = writing(owner);
+  try {
+    const { data } = await githubRest<any>(token, pullPath(ref) + "/merge", {
+      method: "PUT",
+      body: { merge_method: input.method, sha: input.headSha },
+    });
+    if (data?.merged !== true)
+      throw new Problem(409, text(data?.message) || "GitHub did not merge this pull request.");
+    return { merged: true, sha: text(data?.sha, 40) };
+  } catch (error) {
+    if (error instanceof GithubError && error.status === 409)
+      throw new Problem(
+        409,
+        "New commits were pushed after you opened this pull request. Refresh and look at them before merging.",
+      );
+    problem(error, true);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+
+export const githubPulls = Router();
+const refOf = (params: unknown): PullRequestRef => refParams.parse(params);
+
+githubPulls.get("/github/pulls", async (req, res) => {
+  const query = z
+    .object({
+      filter: z.enum(["review", "authored", "involved"]).optional(),
+      repo: repoName.optional().or(z.literal("").transform(() => undefined)),
+      q: z.string().max(200).optional(),
+    })
+    .parse(req.query);
+  res.json(
+    await inbox(res.locals.owner, {
+      filter: query.filter,
+      repo: query.repo,
+      text: query.q,
+    }),
+  );
+});
+githubPulls.get("/github/pulls/:owner/:repo/:number", async (req, res) =>
+  res.json(await detail(res.locals.owner, refOf(req.params))),
+);
+githubPulls.get("/github/pulls/:owner/:repo/:number/files", async (req, res) => {
+  const { head } = z
+    .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
+    .parse(req.query);
+  res.json(await files(res.locals.owner, refOf(req.params), head));
+});
+githubPulls.post("/github/pulls/:owner/:repo/:number/reviews", async (req, res) =>
+  res.status(201).json(await review(res.locals.owner, refOf(req.params), req.body)),
+);
+githubPulls.post("/github/pulls/:owner/:repo/:number/comments", async (req, res) =>
+  res.status(201).json(await addComment(res.locals.owner, refOf(req.params), req.body)),
+);
+githubPulls.post("/github/pulls/:owner/:repo/:number/merge", async (req, res) =>
+  res.json(await merge(res.locals.owner, refOf(req.params), req.body)),
+);

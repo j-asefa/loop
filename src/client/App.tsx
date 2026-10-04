@@ -48,6 +48,7 @@ import { Tools } from "./Tools";
 import { PiCustomizations } from "./PiCustomizations";
 import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
+import { OPEN_PULL, PullRequests, TOOLS_CLOSED } from "./PullRequests";
 import { Inbox, inboxFilters, type InboxFilter } from "./Inbox";
 import { Later, SavedList, showLater, type SavedMessage } from "./Later";
 import {
@@ -93,6 +94,7 @@ import {
   SlidersHorizontal,
   ChevronDown,
   Folder,
+  GitPullRequest,
   Settings,
   Monitor,
   LogOut,
@@ -143,6 +145,7 @@ type Bootstrap = {
 const tabs = [
   { id: "inbox", label: "Feed", icon: Newspaper },
   { id: "projects", label: "Projects", icon: Folder },
+  { id: "pulls", label: "Pull requests", icon: GitPullRequest },
   { id: "search", label: "Search", icon: Search },
   { id: "profile", label: "You", icon: UserRound },
 ];
@@ -256,6 +259,10 @@ export default function App() {
   const [project, setProject] = useState(
     new URLSearchParams(location.search).get("projectView") || "",
   );
+  // The pull request open in the Pull requests tab: owner/repo/number.
+  const [pull, setPull] = useState(
+    new URLSearchParams(location.search).get("pull") || "",
+  );
   const [folderChoice, setFolderChoice] = useState<string | undefined>(
     () => new URLSearchParams(location.search).get("folder") ?? undefined,
   );
@@ -339,6 +346,32 @@ export default function App() {
       if (openConversation.current === id) focusComposer();
     }, 350);
   }
+  // "Ask an agent" on a pull request starts a new message about it; your
+  // unsent draft is kept and the request is added after it.
+  function askAboutPull(text: string) {
+    setReplyContext(null);
+    setContextArtifact(null);
+    setDraft((current) => (current.trim() ? current.trimEnd() + "\n\n" + text : text));
+    focusComposer();
+  }
+  // A PR card's "Open in Pull requests" leaves its thread for the tab.
+  const openPullRef = useRef((_key: string) => {});
+  openPullRef.current = (key: string) => {
+    if (conversation) setConversation(null);
+    setActiveArtifact(null);
+    setProfile(null);
+    setView("all");
+    setTab("pulls");
+    setPull(key);
+  };
+  useEffect(() => {
+    const open = (e: Event) => {
+      const key = (e as CustomEvent<unknown>).detail;
+      if (typeof key === "string") openPullRef.current(key);
+    };
+    window.addEventListener(OPEN_PULL, open);
+    return () => window.removeEventListener(OPEN_PULL, open);
+  }, []);
   function collapseComposer() {
     document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
     setComposerExpanded(false);
@@ -569,12 +602,14 @@ export default function App() {
       tab,
       profile?.id,
       tab === "projects" ? project : "",
+      tab === "pulls" ? pull : "",
       teamKey,
     ]),
     {
       tab,
       profileId: profile?.id,
       project,
+      pull,
       folder,
       view,
       teamSelection,
@@ -591,6 +626,7 @@ export default function App() {
         data.agents.find((agent) => agent.id === previous.profileId) || null,
       );
       setProject(previous.project);
+      setPull(previous.pull || "");
       setFolder(previous.folder);
       setView(previous.view);
       setTeamSelection(previous.teamSelection);
@@ -612,6 +648,7 @@ export default function App() {
       setProfile(null);
       setView("all");
     } else if (tab === "projects" && project) setProject("");
+    else if (tab === "pulls" && pull) setPull("");
     else if (tab !== "inbox") {
       setTab("inbox");
       setView("all");
@@ -642,6 +679,7 @@ export default function App() {
       project: projectFilter,
       teams: teamKey,
       projectView: project,
+      pull: tab === "pulls" ? pull : "",
     })) {
       if (value) url.searchParams.set(key, value);
       else url.searchParams.delete(key);
@@ -653,7 +691,7 @@ export default function App() {
       "",
       url.pathname + url.search + url.hash,
     );
-  }, [tab, projectFilter, teamKey, project, inboxFilter]);
+  }, [tab, projectFilter, teamKey, project, inboxFilter, pull]);
   const [workflowId, setWorkflowId] = useState<string | undefined>(undefined);
   const [workflowSource, setWorkflowSource] = useState<string | undefined>(
     undefined,
@@ -2477,6 +2515,14 @@ export default function App() {
               }
             />
           )}
+          {tab === "pulls" && !profile && (
+            <PullRequests
+              selected={pull}
+              onSelect={setPull}
+              onConnect={() => setSheet("mcp")}
+              onAsk={availableAgents.length ? askAboutPull : undefined}
+            />
+          )}
           {tab === "projects" && !profile && (
             <Projects
               folders={data.folders}
@@ -3170,7 +3216,14 @@ export default function App() {
           }}
         />
       )}
-      {sheet === "mcp" && <Tools onClose={closeSheet} />}
+      {sheet === "mcp" && (
+        <Tools
+          onClose={() => {
+            closeSheet();
+            window.dispatchEvent(new Event(TOOLS_CLOSED));
+          }}
+        />
+      )}
       {(sheet === "pi-customizations" || sheet === "pi-active") && (
         <PiCustomizations
           agents={data.agents}

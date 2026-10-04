@@ -26,6 +26,7 @@ import { memoryRoutes } from "./memory.js";
 import { notifications } from "./notifications.js";
 import { mobile } from "./mobile-routes.js";
 import { prWatches } from "./pr-watches.js";
+import { githubPulls } from "./github-pulls.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
@@ -171,6 +172,7 @@ app.use("/api", subscriptions);
 app.use("/api", activityRoutes);
 app.use("/api", mobile);
 app.use("/api", prWatches);
+app.use("/api", githubPulls);
 app.use("/api", core);
 app.use("/api", workspace);
 app.use("/api", workflows);

@@ -24,7 +24,8 @@
     "smoke:package": "node scripts/package-smoke.mjs",
     "smoke:design": "node scripts/design-browser-smoke.mjs",
     "smoke:workspace": "node scripts/workspace-lifecycle-smoke.mjs",
-    "smoke:html": "node scripts/html-preview-smoke.mjs"
+    "smoke:html": "node scripts/html-preview-smoke.mjs",
+    "smoke:pulls": "node scripts/pull-requests-smoke.mjs"
   },
   "repository": {
     "type": "git",

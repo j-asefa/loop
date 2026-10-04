@@ -4,9 +4,13 @@ import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
-import { readSecret, type MCPConnection } from "./mcp/client.js";
 import {
-  isGithubMcpUrl,
+  GithubError,
+  githubRest,
+  githubTokens,
+  withGithubFixture,
+} from "./github-api.js";
+import {
   pullRequestKey,
   type PullRequestCard,
   type PullRequestRef,
@@ -55,109 +59,31 @@ const UPDATE_CHARS = 12_000;
 // GitHub access. Read-only REST calls with the owner's official GitHub
 // connection token; the token never reaches the model or the browser.
 
-type GithubFetch = (url: string, init: RequestInit) => Promise<Response>;
-let githubFetch: GithubFetch = (url, init) => fetch(url, init);
-// Browser fixtures point this at a dead local address, never at GitHub.
-let githubApi = process.env.LOOP_GITHUB_API_URL || "https://api.github.com";
-/** Tests swap GitHub for a fixture; returns a restore function. */
-export function withGithubFixture(fetcher: GithubFetch, base = githubApi) {
-  const previous = { githubFetch, githubApi };
-  githubFetch = fetcher;
-  githubApi = base;
-  return () => ({ githubFetch, githubApi } = previous);
-}
-
-function githubToken(owner: string) {
-  const connections = db
-    .prepare(
-      "SELECT * FROM mcp_connections WHERE owner_id=? AND status='connected' ORDER BY created_at,rowid",
-    )
-    .all(owner) as MCPConnection[];
-  for (const connection of connections) {
-    if (!isGithubMcpUrl(connection.url)) continue;
-    const secret = readSecret(connection);
-    if (secret.stdio) continue;
-    const authorization = Object.entries(secret.headers || {}).find(
-      ([key]) => key.toLowerCase() === "authorization",
-    )?.[1];
-    const token =
-      secret.type === "bearer"
-        ? secret.token
-        : secret.type === "oauth"
-          ? secret.tokens?.access_token
-          : secret.type === "headers"
-            ? authorization?.match(/^Bearer\s+(\S+)$/i)?.[1]
-            : undefined;
-    if (
-      typeof token === "string" &&
-      token.length > 0 &&
-      token.length <= 8192 &&
-      !/[\r\n\0]/.test(token)
-    )
-      return token;
-  }
-}
-
-class GithubError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    // Set when GitHub rate-limited the request: when to try again.
-    readonly retryAt?: number,
-  ) {
-    super(message);
-  }
-}
-
-/** When a rate-limited response may be retried, or undefined if it wasn't one. */
-function rateLimitRetry(response: Response, time = now()) {
-  const after = Number(response.headers.get("retry-after"));
-  const reset = Number(response.headers.get("x-ratelimit-reset"));
-  const limited =
-    response.status === 429 ||
-    (response.status === 403 &&
-      (response.headers.get("x-ratelimit-remaining") === "0" ||
-        response.headers.has("retry-after")));
-  if (!limited) return undefined;
-  if (after > 0) return time + after * 1000;
-  if (reset > 0) return reset * 1000;
-  return time + 60_000;
-}
+export { withGithubFixture };
+const githubToken = (owner: string) => githubTokens(owner)[0];
 
 async function github<T>(token: string, path: string): Promise<T> {
   return (await githubPage<T>(token, path)).data;
 }
 /** A GitHub response with its Link header, for paging. */
 async function githubPage<T>(token: string, path: string) {
-  const response = await githubFetch(githubApi + path, {
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: "Bearer " + token,
-      "x-github-api-version": "2022-11-28",
-      "user-agent": "Loop",
-    },
-    signal: AbortSignal.timeout(20_000),
-  });
-  const retryAt = rateLimitRetry(response);
-  if (retryAt)
+  try {
+    return await githubRest<T>(token, path);
+  } catch (error) {
+    if (!(error instanceof GithubError)) throw error;
+    // A watch explains what happens to watching, not to one request.
     throw new GithubError(
-      "GitHub's rate limit was reached; watching continues after it resets.",
-      response.status,
-      retryAt,
+      error.retryAt
+        ? "GitHub's rate limit was reached; watching continues after it resets."
+        : error.status === 401
+          ? "GitHub rejected the connection. Reconnect GitHub to keep watching."
+          : error.status === 404
+            ? "GitHub could not find this pull request with your connection."
+            : `GitHub returned ${error.status}.`,
+      error.status,
+      error.retryAt,
     );
-  if (!response.ok)
-    throw new GithubError(
-      response.status === 401
-        ? "GitHub rejected the connection. Reconnect GitHub to keep watching."
-        : response.status === 404
-          ? "GitHub could not find this pull request with your connection."
-          : `GitHub returned ${response.status}.`,
-      response.status,
-    );
-  return {
-    data: (await response.json()) as T,
-    link: response.headers.get("link") || "",
-  };
+  }
 }
 
 const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>

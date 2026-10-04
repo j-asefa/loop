@@ -36,6 +36,7 @@ Native async tests use bounded waits from `test/helpers.ts`. Regressions should 
 ```sh
 npx playwright install --with-deps chromium webkit
 npm run smoke:design
+npm run smoke:pulls
 npm run smoke:companion
 LOOP_BROWSER=webkit npm run smoke:companion
 npm run smoke:browser
@@ -44,7 +45,7 @@ npm run smoke:journey
 LOOP_BROWSER=webkit npm run smoke:journey
 ```
 
-`smoke:design`, `smoke:workspace` and `smoke:html` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium.
+`smoke:design`, `smoke:workspace`, `smoke:html` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. `smoke:pulls` drives the Pull requests tab against a scripted GitHub ([fake-github.mjs](../scripts/helpers/fake-github.mjs)); it does not reach GitHub.
 
 Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. CI uploads generated screenshots from `docs/loop-v0/evidence/`; that path remains an output location, not a maintained legacy architecture guide. ACP browser evidence is generated under `docs/validation/evidence/`.
 

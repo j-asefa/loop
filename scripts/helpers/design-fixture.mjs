@@ -4,11 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID, randomBytes } from "node:crypto";
+import { createCipheriv, randomUUID, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 
 // No .env file, real accounts, provider calls, worker execution, or persisted browser auth.
-export async function designFixture() {
+// `githubApi` points server-side GitHub reads at a fake; by default they fail fast.
+export async function designFixture({ githubApi } = {}) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const listener = createServer();
   await new Promise((resolve, reject) => {
@@ -19,6 +20,7 @@ export async function designFixture() {
   await new Promise((resolve) => listener.close(resolve));
   const base = `http://127.0.0.1:${port}`;
   const dir = mkdtempSync(join(tmpdir(), "loop-design-fixture-"));
+  const key = randomBytes(32).toString("hex");
   const server = spawn(
     process.execPath,
     ["--import", "tsx", "scripts/fixture-server.ts"],
@@ -34,13 +36,13 @@ export async function designFixture() {
         PORT: String(port),
         LOOP_URL: base,
         LOOP_LISTEN_HOST: "127.0.0.1",
-        LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+        LOOP_ENCRYPTION_KEY: key,
         BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
         LOOP_SINGLE_USER_EMAIL: "",
         LOOP_GATEWAY_TOKEN: "",
         LOOP_RUNTIME_URL: "",
         // Watched pull requests poll here and fail fast: no real GitHub.
-        LOOP_GITHUB_API_URL: "http://127.0.0.1:9",
+        LOOP_GITHUB_API_URL: githubApi || "http://127.0.0.1:9",
         LOOP_RUNTIME_TOKEN: "",
       },
     },
@@ -350,7 +352,26 @@ export async function designFixture() {
       nested.id,
       agents[0].id,
     );
-    return { ...refs, nested, api, db, owner, close };
+    // Connects the official GitHub integration with a fixture token, sealed
+    // like the server seals connection secrets.
+    const connectGithub = (token = "fixture-github-token") => {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", Buffer.from(key, "hex"), iv);
+      cipher.setAAD(Buffer.from(owner));
+      const data = Buffer.concat([
+        cipher.update(JSON.stringify({ type: "bearer", token }), "utf8"),
+        cipher.final(),
+      ]);
+      db.prepare(
+        "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,'GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)",
+      ).run(
+        randomUUID(),
+        owner,
+        [iv, cipher.getAuthTag(), data].map((x) => x.toString("base64")).join("."),
+        Date.now(),
+      );
+    };
+    return { ...refs, nested, api, db, owner, connectGithub, close };
   } catch (error) {
     await close();
     throw error;
