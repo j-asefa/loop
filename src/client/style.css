@@ -7683,6 +7683,97 @@ html:has(.sheet.side-panel[open]) {
   text-align: right;
   user-select: none;
 }
+.pull-file-view {
+  margin: 0 12px 6px;
+  font-size: 13px;
+}
+
+/* A repository file viewed at the head commit */
+.repo-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  min-width: 0;
+}
+.repo-file-head .text-button {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.repo-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 650;
+}
+.repo-file-dir {
+  color: var(--muted);
+  font-weight: 400;
+}
+.repo-file-sheet .chip-row {
+  margin: 0 0 10px;
+}
+.repo-file-body {
+  min-width: 0;
+}
+.repo-file-image,
+.repo-file-video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+  background: var(--secondary);
+}
+.repo-file-markdown img,
+.repo-file-markdown video {
+  max-width: 100%;
+  height: auto;
+}
+.repo-file-markdown [align="center"] {
+  text-align: center;
+}
+.repo-file-markdown [align="right"] {
+  text-align: right;
+}
+.repo-file-markdown h1,
+.repo-file-markdown h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.repo-file-markdown :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 8px;
+}
+.repo-file-external {
+  font-size: 13px;
+}
+.repo-file-code {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.repo-file-code pre {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.repo-file-line {
+  display: block;
+  padding-right: 12px;
+  white-space: pre;
+}
+.repo-file-number {
+  display: inline-block;
+  width: 5ch;
+  margin-right: 10px;
+  padding-right: 6px;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
 .pr-choices {
   display: grid;
   gap: 8px;

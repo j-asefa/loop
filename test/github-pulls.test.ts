@@ -75,6 +75,9 @@ const github = {
   detail: undefined as any,
   /** Review threads after the first page, one page per cursor. */
   threadPages: {} as Record<string, any>,
+  /** Files at HEAD for the file viewer; "huge" claims to exceed the limit. */
+  contents: {} as Record<string, string | Buffer>,
+  contentReads: [] as string[],
 };
 beforeEach(() => {
   github.head = HEAD;
@@ -85,6 +88,7 @@ beforeEach(() => {
   github.detail = undefined;
   github.onFiles = undefined;
   github.threadPages = {};
+  github.contentReads = [];
 });
 const restoreGithub = withGithubFixture(async (url, init) => {
   const headers = init.headers as Record<string, string>;
@@ -235,6 +239,26 @@ const restoreGithub = withGithubFixture(async (url, init) => {
         },
       });
     return json({ errors: [{ message: "Unknown query" }] });
+  }
+  const content = path.match(/^\/repos\/acme\/api\/contents\/(.+)$/);
+  if (content) {
+    const file = content[1].split("/").map(decodeURIComponent).join("/");
+    github.contentReads.push(file);
+    const body = github.contents[file];
+    if (
+      searchParams.get("ref") !== HEAD ||
+      body === undefined ||
+      headers.accept !== "application/vnd.github.raw+json"
+    )
+      return json({ message: "Not Found" }, 404);
+    // GitHub's own content type is never what Loop serves.
+    return new Response(body === "huge" ? "x" : new Uint8Array(Buffer.from(body)), {
+      status: 200,
+      headers: {
+        "content-type": "text/html",
+        ...(body === "huge" ? { "content-length": String(60 * 1024 * 1024) } : {}),
+      },
+    });
   }
   if (path === "/repos/acme/api/pulls/42/files") {
     github.onFiles?.();
@@ -543,4 +567,73 @@ it("acts as one GitHub account only: two connections block writes, not reads", a
   expect(refused.status).toBe(409);
   expect(refused.data.error).toMatch(/More than one GitHub account/);
   expect(github.writes).toEqual([]);
+});
+
+async function raw(path: string, owner = "alice", headers: Record<string, string> = {}) {
+  const response = await fetch(
+    `http://127.0.0.1:${(server.address() as any).port}${path}`,
+    { headers: { "x-owner": owner, ...headers } },
+  );
+  return {
+    status: response.status,
+    headers: response.headers,
+    bytes: Buffer.from(await response.arrayBuffer()),
+  };
+}
+const fileUrl = (path: string, head = HEAD) =>
+  `${PR}/file?head=${head}&path=${encodeURIComponent(path)}`;
+
+it("serves a file at the head commit as an image, video, text or download, never a page", async () => {
+  connectGithub("alice", "gh-viewer");
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+  Object.assign(github.contents, {
+    "docs/logo.png": png,
+    "docs/demo.mp4": Buffer.alloc(1000, 7),
+    "docs/icon.svg": '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>',
+    "site/index.html": "<script>alert(1)</script>",
+    "data.bin": Buffer.from([1, 0, 2]),
+  });
+  const image = await raw(fileUrl("docs/logo.png"));
+  expect(image.status).toBe(200);
+  expect(image.headers.get("content-type")).toBe("image/png");
+  expect(image.headers.get("content-disposition")).toBe("inline; filename*=UTF-8''logo.png");
+  expect(image.headers.get("content-security-policy")).toMatch(/default-src 'none'.*sandbox$/);
+  expect(image.headers.get("cache-control")).toBe("private, max-age=86400, immutable");
+  expect(image.bytes).toEqual(png);
+  // A commit's files never change: the copy is reused, not read again.
+  expect((await raw(fileUrl("docs/logo.png"))).bytes).toEqual(png);
+  expect(github.contentReads).toEqual(["docs/logo.png"]);
+  // Phones play video only with range requests.
+  const video = await raw(fileUrl("docs/demo.mp4"), "alice", { range: "bytes=0-9" });
+  expect(video.status).toBe(206);
+  expect(video.headers.get("content-type")).toBe("video/mp4");
+  expect(video.headers.get("content-range")).toBe("bytes 0-9/1000");
+  expect(video.bytes.length).toBe(10);
+  const svg = await raw(fileUrl("docs/icon.svg"));
+  expect(svg.headers.get("content-type")).toBe("image/svg+xml");
+  expect(svg.headers.get("content-security-policy")).toMatch(/sandbox/);
+  const html = await raw(fileUrl("site/index.html"));
+  expect(html.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(html.bytes.toString()).toBe("<script>alert(1)</script>");
+  const binary = await raw(fileUrl("data.bin"));
+  expect(binary.headers.get("content-type")).toBe("application/octet-stream");
+  expect(binary.headers.get("content-disposition")).toMatch(/^attachment;/);
+});
+
+it("views only repository paths, keeps each person's copies apart, and refuses huge files", async () => {
+  connectGithub("alice", "gh-viewer");
+  github.contents["notes.md"] = "# Notes";
+  github.contents["huge.mp4"] = "huge";
+  for (const path of ["../secrets", "/etc/passwd", "docs//a.md", "docs/./a.md", "a\\b"])
+    expect((await raw(fileUrl(path))).status).toBe(400);
+  expect((await raw(`${PR}/file?head=main&path=notes.md`)).status).toBe(400);
+  expect((await raw(fileUrl("notes.md"))).bytes.toString()).toBe("# Notes");
+  // Someone without a GitHub connection never gets another person's copy.
+  const other = await raw(fileUrl("notes.md"), "bob");
+  expect(other.status).toBe(409);
+  expect(github.contentReads).toEqual(["notes.md"]);
+  expect((await raw(fileUrl("missing.md"))).status).toBe(404);
+  const huge = await raw(fileUrl("huge.mp4"));
+  expect(huge.status).toBe(413);
+  expect(JSON.parse(huge.bytes.toString()).error).toMatch(/too large to show here/);
 });

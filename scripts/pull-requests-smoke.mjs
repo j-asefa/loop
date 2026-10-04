@@ -89,6 +89,66 @@ try {
       await expect(page.locator(".pull-diff-line.add").first()).toBeVisible();
       await expect(page.getByText("GitHub doesn’t show this diff here")).toBeVisible();
       await capture("files");
+      // View a file at the head commit: Markdown rendered and sanitized,
+      // relative images from the same commit, links to other files opened in
+      // the viewer, and video served with the range requests phones need.
+      await page
+        .locator(".pull-file")
+        .filter({ hasText: "README.md" })
+        .getByRole("button", { name: "View file" })
+        .click();
+      const viewer = sheet();
+      await expect(viewer).toHaveAttribute("aria-label", "README.md");
+      await expect(viewer.getByRole("heading", { name: "Public API" })).toBeVisible();
+      const demo = viewer.locator('.repo-file-markdown img[alt="Demo"]');
+      await expect(demo).toHaveAttribute(
+        "src",
+        new RegExp(`/file\\?head=${FIRST_HEAD}&path=docs%2Fdemo\\.png$`),
+      );
+      await expect.poll(() => demo.evaluate((img) => img.naturalWidth)).toBe(1);
+      await expect(viewer.locator(".repo-file-markdown script")).toHaveCount(0);
+      await expect(viewer.locator(".repo-file-markdown [onerror]")).toHaveCount(0);
+      assert.equal(await page.evaluate(() => window.__pwned), undefined);
+      // External images are never loaded: they become links.
+      await expect(viewer.locator('img[src^="https://evil"]')).toHaveCount(0);
+      await expect(viewer.getByRole("link", { name: "Build" })).toHaveAttribute(
+        "href",
+        "https://evil.example/badge.svg",
+      );
+      await capture("file-readme");
+      await viewer.getByRole("button", { name: "Code", exact: true }).click();
+      await expect(viewer.locator(".repo-file-code")).toContainText(
+        "<script>window.__pwned = 1</script>",
+      );
+      await viewer.getByRole("button", { name: "Preview", exact: true }).click();
+      await viewer.getByRole("link", { name: "the limiter" }).click();
+      await expect(viewer).toHaveAttribute("aria-label", "limiter.ts");
+      await expect(viewer.locator(".repo-file-code")).toContainText(
+        "return rateLimit(options);",
+      );
+      await viewer.getByRole("button", { name: "Back" }).click();
+      await viewer.getByRole("link", { name: "Demo" }).click();
+      const video = viewer.locator("video.repo-file-video");
+      await expect(video).toHaveAttribute("src", /path=docs%2Fdemo\.mp4$/);
+      assert.deepEqual(
+        await page.evaluate(async (src) => {
+          const r = await fetch(src, { headers: { range: "bytes=0-1" } });
+          return [r.status, r.headers.get("content-type"), (await r.arrayBuffer()).byteLength];
+        }, await video.getAttribute("src")),
+        [206, "video/mp4", 2],
+      );
+      await viewer.getByRole("button", { name: "Close", exact: true }).click();
+      // A binary file GitHub shows no diff for can still be viewed.
+      await page
+        .locator(".pull-file")
+        .filter({ hasText: "assets/logo.png" })
+        .getByRole("button", { name: "View file" })
+        .click();
+      await expect
+        .poll(() => sheet().locator("img.repo-file-image").evaluate((img) => img.naturalWidth))
+        .toBe(1);
+      await sheet().getByRole("button", { name: "Close", exact: true }).click();
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
       // A push while Files is open: Refresh shows the new head's diff, never
       // the old one under the new head, and a review is on the new head.
       github.state.head = MOVED;

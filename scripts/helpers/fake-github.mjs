@@ -67,7 +67,7 @@ export async function fakeGithub() {
         headRefOid: state.head,
         mergeable: "MERGEABLE",
         mergeStateStatus: "BLOCKED",
-        changedFiles: 3,
+        changedFiles: 4,
         viewerDidAuthor: false,
         commitCount: { totalCount: 4 },
         reviewRequests: {
@@ -145,6 +145,34 @@ export async function fakeGithub() {
     '+// Public endpoints share one budget per client address.',
     '+api.get("/public/:id", limiter({ perMinute: 30 }), read);',
   ].join("\n");
+  // Files at the head commit, for the file viewer. The README carries what a
+  // hostile one might: a script, an event handler and an external image.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const contents = {
+    "README.md": [
+      "# Public API",
+      "",
+      '<p align="center"><a href="docs/demo.mp4"><img src="docs/demo.png" alt="Demo"></a></p>',
+      "",
+      "<script>window.__pwned = 1</script>",
+      '<img src="docs/demo.png" onerror="window.__pwned = 1" alt="Handler">',
+      "",
+      "![Build](https://evil.example/badge.svg)",
+      "",
+      "Rate limits live in [the limiter](src/limiter.ts). See [Setup](#setup).",
+      "",
+      "## Setup",
+      "",
+      "Run `npm start`.",
+    ].join("\n"),
+    "src/limiter.ts": "export function limiter(options) {\n  return rateLimit(options);\n}\n",
+    "docs/demo.png": png,
+    "assets/logo.png": png,
+    "docs/demo.mp4": Buffer.alloc(4096, 7),
+  };
   const server = createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -174,7 +202,19 @@ export async function fakeGithub() {
           : { filename: "src/api.ts", status: "modified", additions: 5, deletions: 1, patch: patch + "\n+// Pushed after the first read." },
         { filename: "src/limiter.ts", status: "added", additions: 3, deletions: 0, patch: "@@ -0,0 +1,3 @@\n+export function limiter(options) {\n+  return rateLimit(options);\n+}" },
         { filename: "assets/logo.png", status: "modified", additions: 0, deletions: 0 },
+        { filename: "README.md", status: "modified", additions: 2, deletions: 0, patch: "@@ -1,2 +1,4 @@\n # Public API\n+\n+Rate limits live in [the limiter](src/limiter.ts)." },
       ]);
+    const file = path.match(/^\/repos\/acme\/api\/contents\/(.+)$/);
+    if (file && req.method === "GET") {
+      const ref = new URL(req.url, "http://github.test").searchParams.get("ref");
+      const body = contents[decodeURIComponent(file[1])];
+      if (ref !== state.head || body === undefined || !/raw/.test(req.headers.accept || ""))
+        return send({ message: "Not Found" }, 404);
+      state.reads = (state.reads || 0) + 1;
+      // GitHub's own type is never trusted; Loop chooses what to serve.
+      res.writeHead(200, { "content-type": "text/html" });
+      return res.end(body);
+    }
     if (path === "/repos/acme/api/pulls/64" && req.method === "GET")
       return send({
         state: state.merged ? "closed" : "open",

@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   Check,
   CircleDot,
+  Eye,
   GitMerge,
   GitPullRequest,
   MessageSquare,
@@ -15,6 +16,7 @@ import {
 import { api } from "./api";
 import { Empty, RichText, Sheet } from "./components";
 import { relativeTime } from "./threadView";
+import { RepoFileSheet } from "./RepoFileView";
 import {
   parsePullRequestUrl,
   type PullRequestRef,
@@ -492,6 +494,7 @@ function FileList({
 }) {
   const [data, setData] = useState<PullFiles | null>(null);
   const [error, setError] = useState("");
+  const [viewing, setViewing] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     api<PullFiles>(
@@ -534,6 +537,15 @@ function FileList({
               <span className="del">−{f.deletions}</span>
             </span>
           </summary>
+          {f.status !== "removed" && (
+            <button
+              type="button"
+              className="text-button pull-file-view"
+              onClick={() => setViewing(f.path)}
+            >
+              <Eye size={16} aria-hidden="true" /> View file
+            </button>
+          )}
           {f.patch ? (
             <>
               <Patch patch={f.patch} />
@@ -553,7 +565,8 @@ function FileList({
             </>
           ) : (
             <p className="field-hint">
-              GitHub doesn’t show this diff here (binary or too large).{" "}
+              GitHub doesn’t show this diff here (binary or too large)
+              {f.status !== "removed" ? ", but you can view the file" : ""}.{" "}
               <a
                 href={url + "/files"}
                 target="_blank"
@@ -566,6 +579,14 @@ function FileList({
           )}
         </details>
       ))}
+      {viewing && (
+        <RepoFileSheet
+          pullRef={pullRef}
+          headSha={headSha}
+          path={viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
       {data.files.length >= 300 && (
         <p className="pr-card-note">
           Showing the first 300 files.{" "}

@@ -1,10 +1,25 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  mkdirSync,
+  openSync,
+  readSync,
+  closeSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { config } from "./config.js";
 import { now } from "./db.js";
 import { Problem } from "./domain.js";
 import {
   GithubError,
   githubGraphql,
+  githubRaw,
   githubRest,
   githubTokens,
 } from "./github-api.js";
@@ -16,6 +31,8 @@ import {
 } from "../shared/github.js";
 import {
   MAX_REVIEW_BODY,
+  isRepoPath,
+  repoMediaType,
   type ChecksState,
   type MergeMethod,
   type PullCheck,
@@ -74,7 +91,7 @@ function problem(error: unknown, write = false): never {
         ? 429
         : error.status === 401
           ? 409
-          : [403, 404, 405, 409, 422].includes(error.status)
+          : [403, 404, 405, 409, 413, 422].includes(error.status)
             ? error.status === 405
               ? 409
               : error.status
@@ -500,6 +517,114 @@ export async function files(owner: string, ref: PullRequestRef, headSha: string)
 }
 
 // ---------------------------------------------------------------------------
+// Viewing one file as it is at a commit: the pull request's head, or any file
+// it links to. A commit's files never change, so a copy is kept for a day and
+// served with range requests, which phones need to play video.
+
+const VIEW_BYTES = 50 * 1024 * 1024;
+const VIEW_CACHE_BYTES = 500 * 1024 * 1024;
+const VIEW_CACHE_MS = 24 * 3600_000;
+const viewCache = () => join(config.data, "cache", "github-files");
+
+/** Drops copies older than a day, then the oldest until the cache fits. */
+function pruneViews(directory: string) {
+  const entries = readdirSync(directory).flatMap((name) => {
+    try {
+      const stat = statSync(join(directory, name));
+      return [{ name, size: stat.size, at: stat.mtimeMs }];
+    } catch {
+      return [];
+    }
+  });
+  let total = entries.reduce((sum, e) => sum + e.size, 0);
+  for (const entry of entries.sort((a, b) => a.at - b.at)) {
+    if (now() - entry.at < VIEW_CACHE_MS && total <= VIEW_CACHE_BYTES) break;
+    try {
+      unlinkSync(join(directory, entry.name));
+      total -= entry.size;
+    } catch {}
+  }
+}
+
+/** Whether a file's first bytes look like text (no NUL bytes). */
+function looksLikeText(file: string) {
+  const descriptor = openSync(file, "r");
+  try {
+    const head = Buffer.alloc(8000);
+    const read = readSync(descriptor, head, 0, head.length, 0);
+    return !head.subarray(0, read).includes(0);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/**
+ * The file at `path` in the commit `head`, read with your GitHub connection
+ * and kept for you alone. Returns where the copy is.
+ */
+export async function fileAt(
+  owner: string,
+  ref: PullRequestRef,
+  head: string,
+  path: string,
+) {
+  const token = reading(owner);
+  if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
+  const directory = viewCache();
+  const file = join(
+    directory,
+    createHash("sha256")
+      .update(JSON.stringify([owner, ref.owner, ref.repo, head.toLowerCase(), path]))
+      .digest("hex"),
+  );
+  try {
+    statSync(file);
+    return file;
+  } catch {}
+  let bytes: Buffer;
+  try {
+    bytes = await githubRaw(
+      token,
+      `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/contents/${path
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}?ref=${head.toLowerCase()}`,
+      VIEW_BYTES,
+    );
+  } catch (error) {
+    problem(error);
+  }
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, bytes, { mode: 0o600 });
+  renameSync(temporary, file);
+  pruneViews(directory);
+  return file;
+}
+
+/** Sends a viewed file as an image, a video, plain text or a download only. */
+function sendViewed(res: Response, file: string, path: string) {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const media = repoMediaType(path);
+  const text = !media && looksLikeText(file);
+  res.setHeader(
+    "Content-Type",
+    media || (text ? "text/plain; charset=utf-8" : "application/octet-stream"),
+  );
+  res.setHeader(
+    "Content-Disposition",
+    `${media || text ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(name)}`,
+  );
+  // An SVG opened on its own must not run scripts or load anything else.
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+  );
+  res.setHeader("Cache-Control", "private, max-age=86400, immutable");
+  res.sendFile(file, { cacheControl: false, lastModified: false, dotfiles: "allow" });
+}
+
+// ---------------------------------------------------------------------------
 // Acting. Each action is a single request you submitted; nothing is retried.
 
 const pullPath = (ref: PullRequestRef) =>
@@ -639,6 +764,15 @@ githubPulls.get("/github/pulls/:owner/:repo/:number/files", async (req, res) => 
     .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
     .parse(req.query);
   res.json(await files(res.locals.owner, refOf(req.params), head));
+});
+githubPulls.get("/github/pulls/:owner/:repo/:number/file", async (req, res) => {
+  const { head, path } = z
+    .object({
+      head: z.string().regex(SHA, "Refresh the pull request first"),
+      path: z.string().refine(isRepoPath, "Choose a file in the repository"),
+    })
+    .parse(req.query);
+  sendViewed(res, await fileAt(res.locals.owner, refOf(req.params), head, path), path);
 });
 githubPulls.post("/github/pulls/:owner/:repo/:number/reviews", async (req, res) =>
   res.status(201).json(await review(res.locals.owner, refOf(req.params), req.body)),

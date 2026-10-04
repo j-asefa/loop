@@ -107,6 +107,26 @@ async function githubReason(response: Response) {
     .slice(0, 300);
 }
 
+/** Throws a rate-limited or failed GitHub response as a GithubError. */
+async function refused(response: Response) {
+  const retryAt = rateLimitRetry(response);
+  if (retryAt)
+    throw new GithubError(
+      "GitHub's rate limit was reached. Try again after it resets.",
+      response.status,
+      retryAt,
+    );
+  if (!response.ok) {
+    const reason = await githubReason(response);
+    throw new GithubError(
+      response.status === 401
+        ? "GitHub rejected the connection. Reconnect GitHub in Tools."
+        : reason || `GitHub returned ${response.status}.`,
+      response.status,
+    );
+  }
+}
+
 /** A GitHub REST response with its Link header, for paging. */
 export async function githubRest<T>(
   token: string,
@@ -125,22 +145,7 @@ export async function githubRest<T>(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
     signal: AbortSignal.timeout(20_000),
   });
-  const retryAt = rateLimitRetry(response);
-  if (retryAt)
-    throw new GithubError(
-      "GitHub's rate limit was reached. Try again after it resets.",
-      response.status,
-      retryAt,
-    );
-  if (!response.ok) {
-    const reason = await githubReason(response);
-    throw new GithubError(
-      response.status === 401
-        ? "GitHub rejected the connection. Reconnect GitHub in Tools."
-        : reason || `GitHub returned ${response.status}.`,
-      response.status,
-    );
-  }
+  await refused(response);
   return {
     data: (response.status === 204 ? null : await response.json()) as T,
     link: response.headers.get("link") || "",
@@ -175,4 +180,42 @@ export async function githubGraphql<T>(
     );
   }
   return data.data;
+}
+
+/**
+ * A file's bytes from GitHub's REST API (the raw media type), refused once
+ * it is larger than `maxBytes` rather than read whole into memory.
+ */
+export async function githubRaw(token: string, path: string, maxBytes: number) {
+  const response = await githubFetch(githubApi + path, {
+    method: "GET",
+    headers: {
+      accept: "application/vnd.github.raw+json",
+      authorization: "Bearer " + token,
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "Loop",
+    },
+    signal: AbortSignal.timeout(60_000),
+  });
+  await refused(response);
+  const tooLarge = () =>
+    new GithubError("This file is too large to show here. Open it on GitHub.", 413);
+  if (Number(response.headers.get("content-length")) > maxBytes) {
+    await response.body?.cancel();
+    throw tooLarge();
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = response.body?.getReader();
+  for (;;) {
+    const next = await reader?.read();
+    if (!next || next.done) break;
+    size += next.value.byteLength;
+    if (size > maxBytes) {
+      await reader!.cancel();
+      throw tooLarge();
+    }
+    chunks.push(next.value);
+  }
+  return Buffer.concat(chunks);
 }
