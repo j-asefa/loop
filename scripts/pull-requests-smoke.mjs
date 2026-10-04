@@ -68,9 +68,15 @@ try {
       await page.getByRole("button", { name: "Check again" }).click();
       await expect(page.getByText("Open pull requests for @fixture-user")).toBeVisible();
       await expect(page.locator(".pull-row")).toHaveCount(4);
+      // Your own pull requests are the first filter and the default.
+      await expect(page.locator('.chip-row[aria-label="Show"] .chip').first()).toHaveText(/^Yours/);
+      await expect(page.getByRole("button", { name: "Yours 1" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
       await expect(
         page.getByRole("button", { name: "Review requested 4" }),
-      ).toHaveAttribute("aria-pressed", "true");
+      ).toHaveAttribute("aria-pressed", "false");
       await capture("inbox");
 
       await page

@@ -157,7 +157,7 @@ function PullRequestInbox({
     () =>
       (PULL_FILTERS.find(
         (f) => f.id === sessionStorage.getItem("loop-pull-filter"),
-      )?.id as PullFilter) || "review",
+      )?.id as PullFilter) || PULL_FILTERS[0].id,
   );
   const [repo, setRepo] = useState(
     () => sessionStorage.getItem("loop-pull-repo") || "",

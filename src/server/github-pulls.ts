@@ -202,7 +202,7 @@ export async function inbox(
 ): Promise<PullInbox> {
   const token = reading(owner);
   if (!token) return { connected: false };
-  const filter = options.filter || "review";
+  const filter = options.filter || "authored";
   // Your own search terms narrow the list; quotes and line breaks are
   // dropped so they can't end the query early.
   const terms = (options.text || "")

@@ -7,8 +7,8 @@ import type { PullRequestRef, PullRequestState } from "./github";
 export type PullFilter = "review" | "authored" | "involved";
 
 export const PULL_FILTERS: { id: PullFilter; label: string }[] = [
-  { id: "review", label: "Review requested" },
   { id: "authored", label: "Yours" },
+  { id: "review", label: "Review requested" },
   { id: "involved", label: "Involving you" },
 ];
 
