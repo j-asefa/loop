@@ -204,6 +204,37 @@ it("dismisses failures durably without hiding history or a different owner's wor
       .get(run.id),
   ).toEqual({ n: 1 });
 });
+it("does not keep an agent in Needs you for a failure superseded in the same conversation", async () => {
+  const a = await agent();
+  const failed = submit("alice", {
+    agentId: a.id,
+    input: "First attempt",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(failed.id);
+  const other = submit("alice", {
+    agentId: a.id,
+    input: "Separate task",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(other.id);
+  expect((await api("/runs?active=1")).data.map((r: any) => r.id)).toContain(
+    failed.id,
+  );
+
+  const retry = submit("alice", {
+    agentId: a.id,
+    conversationId: failed.conversation_id!,
+    input: "Resolved follow-up",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(retry.id);
+
+  const active = (await api("/runs?active=1")).data.map((r: any) => r.id);
+  expect(active).not.toContain(failed.id);
+  expect(active).toContain(other.id);
+  expect((await api("/runs")).data.map((r: any) => r.id)).toContain(failed.id);
+});
 it("cancels waiting work and its pending approval without approving it; rejects stale active cards", async () => {
   const a = await agent(),
     run = submit("alice", {

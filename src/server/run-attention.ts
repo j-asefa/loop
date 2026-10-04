@@ -58,7 +58,12 @@ export function listRuns(owner: string, teams: string[] = [], active = false) {
       ")"
     : "";
   const states = active
-    ? " AND r.state NOT IN ('completed','cancelled') AND r.attention_dismissed_at IS NULL"
+    ? ` AND r.state NOT IN ('completed','cancelled') AND r.attention_dismissed_at IS NULL
+        AND (r.state NOT IN ('failed','interrupted') OR NOT EXISTS (
+          SELECT 1 FROM runs newer WHERE newer.owner_id=r.owner_id
+            AND newer.conversation_id=r.conversation_id
+            AND (newer.created_at>r.created_at OR (newer.created_at=r.created_at AND newer.rowid>r.rowid))
+        ))`
     : "";
   const order = active
     ? "CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NOT NULL THEN 0 WHEN r.state IN ('queued','running','pausing','awaiting_approval','paused') THEN 1 ELSE 2 END,"
