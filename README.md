@@ -88,6 +88,8 @@ loop stop
 
 To update and restart a manually launched workspace, run `loop stop`, update the checkout with `git pull`, run `bash install`, then run `loop start`. There is no separate `loop restart` command. If you installed the login service, stop it before rebuilding, then start it again with `systemctl --user stop loop.service` and `systemctl --user start loop.service` on Linux, or `launchctl bootout gui/$(id -u)/dev.loop.workspace` and `loop service install` on macOS. A Quick Tunnel URL may change after restart; run `loop pair` to reconnect your phone.
 
+`loop upgrade` performs that update flow in one command from any directory: it installs the package from the repository's remote `main`, rebuilds and reinstalls the CLI, then restarts Pi with the existing workspace state. It does not use or modify a local Loop checkout. The restart preserves workspace data and paired devices, but a Quick Tunnel URL may change, so scan the fresh pairing link it prints.
+
 Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).
 
 ## Develop and contribute

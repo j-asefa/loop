@@ -207,3 +207,37 @@ it("applies agent mail and feed archive migrations in either upgrade order", () 
     }
   }
 });
+
+it("repairs workspaces that recorded migration 37 without its conversation positions table", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-conversation-position-repair-"));
+  try {
+    const db = new Database(join(dir, "loop.db"));
+    db.exec(
+      "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
+    );
+    for (const file of readdirSync("migrations")
+      .filter((name) => name.endsWith(".sql") && Number(name.split("-")[0]) <= 48)
+      .sort())
+      db.exec(readFileSync(join("migrations", file), "utf8"));
+    db.exec("DROP TABLE conversation_positions");
+    db.close();
+    const result = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({table:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='conversation_positions'").get(),version:db.prepare('SELECT max(version) version FROM schema_version').get().version}));db.close();`,
+      ],
+      {
+        cwd: resolve("."),
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        encoding: "utf8",
+      },
+    );
+    expect(JSON.parse(result)).toEqual({ table: true, version: 49 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -26,10 +26,12 @@ import {
   type Recorded,
 } from "./daemon.js";
 import { recordOwnedProcesses } from "./processes.js";
-const { version: VERSION } = JSON.parse(
+const PACKAGE = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
+const { version: VERSION } = PACKAGE;
 const names = Harness.options;
+const REMOTE_MAIN = `${String(PACKAGE.repository?.url ?? "https://github.com/j-asefa/loop.git").replace(/^git\+/, "")}#main`;
 // First launch may install provider CLIs and compile pinned HAPI before pairing.
 const STARTUP_TIMEOUT_MS = 1800000;
 // Tests shorten these waits; they never change which stop path runs.
@@ -141,6 +143,33 @@ async function stopWorkspace(dir: string) {
   // Retry anything an earlier incomplete stop left on record.
   if ((await recordedChildren(dir)).length)
     return forceStop(dir, undefined, "exited");
+}
+function runCommand(command: string, args: string[], cwd: string) {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { cwd, stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(
+            `${command} exited${signal ? ` from ${signal}` : ` with code ${code ?? "unknown"}`}.`,
+          ),
+        );
+    });
+  });
+}
+async function upgradeWorkspace(dir: string, requestedProject: string) {
+  console.log(`Updating Loop from ${REMOTE_MAIN}…`);
+  await runCommand("npm", ["install", "-g", REMOTE_MAIN], process.cwd());
+
+  const running = await control(dir, "status").catch(() => undefined);
+  const project = await realpath(running?.project ?? requestedProject);
+  if (running) {
+    console.log("Restarting the Loop workspace…");
+    await stopWorkspace(dir);
+  }
+  await daemonize(dir, ["pi", "--project", project]);
 }
 async function daemonize(dir: string, args: string[]) {
   const log = join(dir, "daemon.log");
@@ -305,6 +334,8 @@ loop acp --executable ABSOLUTE_PATH [--acp-arg ARG]...
 loop pair               Show a fresh pairing code. Scan it to pair a new
                         device, or scan it from the Loop app to reconnect
                         after the tunnel address changed.
+loop upgrade            Install remote main, then restart Pi while preserving
+                        the existing workspace and pairing state.
 loop status [--json] | devices | devices revoke ID | doctor [--json]
 loop logs [--follow] | stop | uninstall
 loop service install|uninstall  Start automatically at login
@@ -433,6 +464,12 @@ Uninstall removes the package separately; workspace/native history is retained.`
     return;
   }
   if (action === "logs") return logs(dir, !!values.follow);
+  if (action === "upgrade") {
+    if (positionals.length > 1)
+      throw new Error("Unknown command. See loop --help.");
+    await upgradeWorkspace(dir, project);
+    return;
+  }
   if (["pair", "status", "devices", "stop", "uninstall"].includes(action)) {
     if (action === "uninstall") {
       if (await control(dir, "status").catch(() => undefined))
