@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import {
   capabilities,
+  NotDelivered,
   type Adapter,
   type NativeCommand,
   type Emit,
@@ -82,6 +83,10 @@ export class Pi implements Adapter {
   private messageId = "";
   private interrupted = false;
   private failed = false;
+  // From an accepted prompt until Pi settles. Pi queues a steer it receives
+  // while idle for its next prompt, so Loop only steers a live turn.
+  private turnActive = false;
+  private steering: Promise<unknown> = Promise.resolve();
   private requests = new Map<string, { m: any; timer?: NodeJS.Timeout }>();
   constructor(
     private options: Options,
@@ -244,6 +249,7 @@ export class Pi implements Adapter {
     });
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", () => {
+      this.turnActive = false;
       if (this.infoWait) {
         clearTimeout(this.infoWait.timer);
         this.infoWait.reject(
@@ -412,7 +418,46 @@ export class Pi implements Adapter {
     this.checkBilling();
     this.interrupted = false;
     this.failed = false;
-    await this.native.request("prompt", { message: text }, false);
+    // Set before sending: Pi's events can settle the turn before the
+    // response to this request is handled.
+    this.turnActive = true;
+    try {
+      await this.native.request("prompt", { message: text }, false);
+    } catch (error) {
+      this.turnActive = false;
+      throw error;
+    }
+  }
+  // Pi delivers steering after the current tool calls, before its next model
+  // call. A turn that ends without another model call still reads it first.
+  // One steer at a time, so Pi's queue never holds two of Loop's at once.
+  steer(text: string) {
+    const sent = this.steering.then(() => this.steerOnce(text));
+    this.steering = sent.catch(() => {});
+    return sent;
+  }
+  private async steerOnce(text: string) {
+    if (!this.turnActive) throw new NotDelivered("No active Pi turn.");
+    await this.native.request("steer", { message: text }, false);
+    const state = await this.native.request("get_state", {}, false);
+    if (state?.isStreaming || !(state?.pendingMessageCount > 0)) return;
+    // Pi settled after its last check, so the queue waits for its next
+    // prompt. Pi can only clear its whole queue: take this input back only
+    // when it is the sole entry, and put back anything else that was removed.
+    // Otherwise leave it queued and report it as unconfirmed, never resent.
+    const queued =
+      "Pi finished its turn before Loop could confirm it read this input. Anything still queued waits for Pi's next prompt.";
+    if (state.pendingMessageCount !== 1) throw new Error(queued);
+    const cleared = await this.native.request("clear_queue", {}, false);
+    const steering: string[] = cleared?.steering ?? [];
+    const followUp: string[] = cleared?.followUp ?? [];
+    if (steering.length === 1 && steering[0] === text && !followUp.length)
+      throw new NotDelivered("Pi finished its turn before reading this input.");
+    for (const message of steering)
+      await this.native.request("steer", { message }, false);
+    for (const message of followUp)
+      await this.native.request("follow_up", { message }, false);
+    throw new Error(queued);
   }
   async cancel() {
     this.interrupted = true;
@@ -462,6 +507,7 @@ export class Pi implements Adapter {
     if (m.type === "agent_start")
       this.emit({ type: "status", status: "running" });
     if (m.type === "agent_settled") {
+      this.turnActive = false;
       for (const [id, r] of this.requests) {
         clearTimeout(r.timer);
         this.emit({ type: "resolved", id });

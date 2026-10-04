@@ -820,6 +820,14 @@ core.post("/runs/:id/:action", async (req, res) => {
       )
       .all(run.id) as Run[];
     children.forEach((child) => transition(child, "cancelled"));
+    // Results of its background delegations already waiting to be read.
+    (
+      db
+        .prepare(
+          "SELECT r.* FROM delegations d JOIN agent_mail m ON m.sender_run_id=d.child_run_id AND m.kind='result' JOIN runs r ON r.id=m.run_id WHERE d.parent_run_id=? AND d.background=1 AND r.state='queued'",
+        )
+        .all(run.id) as Run[]
+    ).forEach((result) => transition(result, "cancelled"));
   }
   if (
     action === "pause" &&

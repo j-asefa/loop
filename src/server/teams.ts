@@ -18,6 +18,13 @@ export function listTeams(owner: string) {
         .prepare("SELECT agent_id FROM team_members WHERE team_id=?")
         .all(t.id) as any[]
     ).map((m) => m.agent_id),
+    paused_threads: (
+      db
+        .prepare(
+          "SELECT count(*) n FROM agent_threads WHERE owner_id=? AND team_id=? AND paused_at IS NOT NULL",
+        )
+        .get(owner, t.id) as { n: number }
+    ).n,
   }));
 }
 export function teamFilter(value: unknown, owner: string) {

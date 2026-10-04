@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { db, id, now } from "./db.js";
@@ -71,11 +72,42 @@ export function uploadFile(
     .immediate();
 }
 
+// A file an agent published (loop_publish_file), passed to a teammate with
+// loop_message. Its bytes live under the data directory, checked on read.
+function publishedFile(artifact: Artifact, owner: string) {
+  const row = db
+    .prepare(
+      "SELECT object_key,mime,checksum FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
+    )
+    .get(artifact.id, owner) as
+    { object_key: string; mime: string; checksum: string } | undefined;
+  if (
+    !row ||
+    !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(row.object_key)
+  )
+    throw new Problem(404, "Uploaded file not found");
+  const bytes = readFileSync(join(config.data, row.object_key));
+  if (createHash("sha256").update(bytes).digest("base64") !== row.checksum)
+    throw new Problem(409, "File integrity check failed");
+  const meta = JSON.parse(artifact.metadata);
+  return {
+    artifact,
+    object: {
+      id: artifact.id,
+      name: meta.name || artifact.title,
+      mime: row.mime,
+      bytes,
+    },
+    text: meta.text === true,
+    published: true,
+  };
+}
 export function uploadedFile(owner: string, fileId: string) {
   const artifact = owned<Artifact>("artifacts", fileId, owner);
   const meta = JSON.parse(artifact.metadata);
   // Archiving hides the file from workspace lists; accepted conversations and
   // retries still own their references. Ownership is checked for both records.
+  if (!meta.upload && meta.uploaded) return publishedFile(artifact, owner);
   if (!meta.upload) throw new Problem(404, "Uploaded file not found");
   const object = owned<{
     id: string;
@@ -87,13 +119,14 @@ export function uploadedFile(owner: string, fileId: string) {
 }
 export function attachedFiles(owner: string, ids: string[]): UploadedFile[] {
   return attachmentIds.parse(ids).map((id) => {
-    const { object } = uploadedFile(owner, id);
+    const file = uploadedFile(owner, id);
     return {
       id,
-      objectId: object.id,
-      name: object.name,
-      mime: object.mime,
-      size: object.bytes.length,
+      objectId: file.object.id,
+      name: file.object.name,
+      mime: file.object.mime,
+      size: file.object.bytes.length,
+      ...("published" in file ? { published: true } : {}),
     };
   });
 }

@@ -42,6 +42,9 @@ export type NativeCommand = {
   };
 };
 export type Emit = (event: AdapterEvent) => void;
+// Live input that was certainly not handed to the harness (no turn to take
+// it, or the harness gave it back). Unlike other failures it may be retried.
+export class NotDelivered extends Error {}
 export interface Adapter {
   capabilities: Capabilities;
   models?: ModelOption[];

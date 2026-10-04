@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { Codex } from "../src/adapters/codex.js";
 import { Pi } from "../src/adapters/pi.js";
 import { NativeSetupError } from "../src/adapters/setup-error.js";
+import { NotDelivered } from "../src/adapters/types.js";
 import { Claude } from "../src/adapters/claude.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { conflict } from "../src/adapters/types.js";
@@ -235,6 +236,93 @@ test("subscription conflicts are rejected without changing the environment", () 
   delete process.env.LOOP_TEST_CONFLICT;
 });
 
+test("Pi steers only a live turn", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  const events: AdapterEvent[] = [];
+  const adapter = new Pi(
+    {
+      harness: "pi",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (e) => events.push(e),
+  );
+  try {
+    await adapter.start();
+    // Pi would queue this for its next prompt; Loop refuses it instead.
+    await assert.rejects(() => adapter.steer("Too early"), /No active Pi turn/);
+    await adapter.prompt("wait");
+    await until(() => events.some((e) => e.type === "delta"));
+    await adapter.steer("Focus on the tests");
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
+    await assert.rejects(() => adapter.steer("Too late"), /No active Pi turn/);
+    // A steer Pi queues for its next prompt is taken back, not reported sent.
+    events.length = 0;
+    await adapter.prompt("wait");
+    await until(() => events.some((e) => e.type === "delta"));
+    await assert.rejects(
+      () => adapter.steer("late"),
+      (error) =>
+        error instanceof NotDelivered && /before reading/.test(error.message),
+    );
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+  }
+});
+test("Pi takes back a late steer only when it is the sole queued input", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  const events: AdapterEvent[] = [];
+  const adapter = new Pi(
+    {
+      harness: "pi",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (e) => events.push(e),
+  );
+  const queue = async () =>
+    (await (adapter as any).native.request("fixture_queue", {}, false)).queue;
+  const notDelivered = (error: unknown) => error instanceof NotDelivered;
+  const unconfirmed = (error: unknown) =>
+    !(error instanceof NotDelivered) && /confirm/.test(String(error));
+  try {
+    await adapter.start();
+    await adapter.prompt("wait");
+    await until(() => events.some((e) => e.type === "delta"));
+    // Two steers at once are taken in turn, so neither clears the other.
+    const results = await Promise.allSettled([
+      adapter.steer("late-1"),
+      adapter.steer("late-2"),
+    ]);
+    for (const result of results) {
+      assert.equal(result.status, "rejected");
+      assert.ok(notDelivered((result as PromiseRejectedResult).reason));
+    }
+    assert.deepEqual(await queue(), []);
+    // Queued behind an extension's follow-up: nothing is cleared, and Loop
+    // reports it unconfirmed rather than retryable.
+    await assert.rejects(() => adapter.steer("late-behind"), unconfirmed);
+    assert.deepEqual(await queue(), [
+      ["followUp", "extension follow-up"],
+      ["steering", "late-behind"],
+    ]);
+    await (adapter as any).native.request("clear_queue", {}, false);
+    // Pi read it, but another follow-up is the one queued entry: clearing
+    // removed someone else's input, so it is put back.
+    await assert.rejects(() => adapter.steer("late-read"), unconfirmed);
+    assert.deepEqual(await queue(), [["followUp", "extension follow-up"]]);
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+  }
+});
 test("Pi preserves assistant failures until settled and resets on follow-up", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   const events: AdapterEvent[] = [];

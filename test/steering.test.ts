@@ -16,6 +16,7 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { SteeringInbox } = await import("../src/server/steering");
+const { NotDelivered } = await import("../src/adapters/types");
 const { recordTrace } = await import("../src/server/traces");
 const { conversationMessages } =
   await import("../src/server/conversation-messages");
@@ -399,7 +400,41 @@ async function executeWithDeadline(work: Promise<boolean>) {
   }
 }
 
-it.each(["pi", "opencode", "acp"])(
+it("steers a running Pi turn, which takes live input", async () => {
+  const connection = id();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
+  ).run(
+    connection,
+    seal("fixture", "alice"),
+    JSON.stringify([{ id: "fixture" }]),
+    JSON.stringify({ loopHarness: "pi" }),
+    now(),
+  );
+  const agent = createAgent("alice", {
+    name: "pi-steer-" + id().slice(0, 8),
+    connectionId: connection,
+    model: "fixture",
+  });
+  const active = submit("alice", {
+    agentId: agent.id,
+    input: "Investigate",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(active.id);
+  const reply = await send({
+    agentId: agent.id,
+    conversationId: active.conversation_id,
+    input: "Also check the tests",
+    idempotencyKey: id(),
+  });
+  expect(reply.status).toBe(202);
+  expect(reply.data.id).toBe(active.id);
+  expect(reply.data.steeringId).toBeTruthy();
+  db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(active.id);
+});
+
+it.each(["opencode", "acp"])(
   "queues a mid-run reply to a %s turn, which cannot take live input",
   async (harness) => {
     const connection = id();
@@ -462,10 +497,10 @@ async function steerableRun(conversation: string) {
   return (await response.json()).steerable_run_id;
 }
 
-it("queues a reply to an active Pi run after the agent switches to an API connection", async () => {
+it("queues a reply to an active OpenCode run after the agent switches to an API connection", async () => {
   const agent = createAgent("alice", {
     name: "switch-" + id().slice(0, 8),
-    connectionId: harnessConnection("pi"),
+    connectionId: harnessConnection("opencode"),
     model: "fixture",
   });
   const active = submit("alice", {
@@ -474,7 +509,7 @@ it("queues a reply to an active Pi run after the agent switches to an API connec
     idempotencyKey: id(),
   });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(active.id);
-  // The run keeps the Pi connection it started with.
+  // The run keeps the OpenCode connection it started with.
   db.prepare("UPDATE agents SET connection_id=? WHERE id=?").run(
     harnessConnection(null),
     agent.id,
@@ -494,10 +529,10 @@ it("queues a reply to an active Pi run after the agent switches to an API connec
     db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(r.id);
 });
 
-it("steers an active API run after the agent switches to a Pi connection", async () => {
+it("steers an active API run after the agent switches to an OpenCode connection", async () => {
   const { agent, run } = start();
   db.prepare("UPDATE agents SET connection_id=? WHERE id=?").run(
-    harnessConnection("pi"),
+    harnessConnection("opencode"),
     agent.id,
   );
   expect(await steerableRun(run.conversation_id!)).toBe(run.id);
@@ -513,4 +548,38 @@ it("steers an active API run after the agent switches to a Pi connection", async
   transition(run, "cancelled");
   // With nothing running, nothing is steerable.
   expect(await steerableRun(run.conversation_id!)).toBeNull();
+});
+
+it("keeps input the harness certainly didn't take pending, then reports it unsent when the run ends", async () => {
+  const { agent, run } = start();
+  const reply = await send({
+    agentId: agent.id,
+    input: "Check the migration",
+    idempotencyKey: id(),
+  });
+  expect(reply.data.steeringId).toBeTruthy();
+  let attempts = 0;
+  const stop = new SteeringInbox(run).listen(async () => {
+    attempts++;
+    throw new NotDelivered("No active turn");
+  });
+  await expect.poll(() => attempts).toBeGreaterThan(1);
+  await stop();
+  // Not "could not be confirmed": nothing was handed over.
+  expect(
+    db
+      .prepare("SELECT state FROM run_steering WHERE id=?")
+      .get(reply.data.steeringId),
+  ).toEqual({ state: "pending" });
+  transition(run, "completed");
+  expect(
+    db
+      .prepare("SELECT state,error FROM run_steering WHERE id=?")
+      .get(reply.data.steeringId),
+  ).toMatchObject({
+    state: "failed",
+    error: expect.stringContaining(
+      "ended before this message could be delivered",
+    ),
+  });
 });

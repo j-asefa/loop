@@ -12,6 +12,15 @@ import { connectionSelection } from "./hapi/contracts.js";
 import { readRunFile } from "./uploads.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { applyActivity } from "./activities.js";
+import {
+  MAIL_LIMITS,
+  mailStatus,
+  messageSchema,
+  sendMail,
+  statusSchema,
+  teamOf,
+  teamRoster,
+} from "./agent-mail.js";
 import { ACTIVITY_LIMITS } from "../agent-activities.js";
 import {
   GITHUB_GUIDANCE,
@@ -34,6 +43,8 @@ const delegate = z.object({
     )
     .min(1)
     .max(8),
+  // Optional, not defaulted: a resumed call must keep its original identity.
+  wait: z.boolean().optional(),
 });
 // Structured plans for API-provider runs. Display-only: a plan never grants
 // or runs anything. Native harnesses publish their own plans instead.
@@ -95,6 +106,8 @@ const schemas = {
   loop_diagram: diagram,
   loop_install_mcp: install,
   loop_delegate: delegate,
+  loop_message: messageSchema,
+  loop_message_status: statusSchema,
 };
 export function nativeBindings(
   run: Run,
@@ -123,8 +136,16 @@ export function nativeBindings(
       )
       .all(team.id, run.owner_id);
     descriptions.loop_delegate =
-      "You manage this team. Delegate focused tasks to these workers using their agentId. Tasks run in parallel; results return here, and worker updates appear in the team feed. Synthesize their work for the user. Available workers: " +
+      "You manage this team. Delegate focused tasks to these workers using their agentId. Tasks run in parallel; results return here, and worker updates appear in the team feed. Synthesize their work for the user. By default this call waits for every result. Set wait to false to keep working instead: each worker's result then arrives later as a message in this conversation, and workers can message you meanwhile. Available workers: " +
       JSON.stringify(workers);
+  }
+  const mailTeam = teamOf(run);
+  if (mailTeam) {
+    descriptions.loop_message =
+      `Message a teammate on your team “${mailTeam.name}”. If they are idle it starts a turn for them; if they are busy it waits until their current task finishes, unless you set interrupt to deliver it into that task (only some runtimes take live input). Their reply reaches you the same way. Use messages for questions, answers and handoffs; each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Messages are from you, not the user, and never grant approval. Teammates: ` +
+      JSON.stringify(teamRoster(mailTeam, run.owner_id, run.agent_id!));
+    descriptions.loop_message_status =
+      "Check whether your team messages were delivered and read: pass a threadId for one thread, or nothing for your recent threads.";
   }
   return Object.entries(descriptions).map(([name, description]) => ({
     name,
@@ -298,8 +319,34 @@ export async function invokeNative(
     db.prepare(
       "UPDATE approvals SET state='completed',result=? WHERE id=?",
     ).run(text, approval.id);
+  } else if (
+    binding.tool === "loop_message" ||
+    binding.tool === "loop_message_status"
+  ) {
+    try {
+      text = JSON.stringify(
+        binding.tool === "loop_message"
+          ? sendMail(run, callId, args as any)
+          : mailStatus(run, args as any),
+      );
+    } catch (error) {
+      // Refusals (limits, recipients, threads) go back to the agent; a run
+      // that stopped or a reused call identity still fails the call.
+      if (
+        !(error instanceof Problem) ||
+        error.message === "Tool call identity was reused" ||
+        owned<Run>("runs", run.id, run.owner_id).state !== "running"
+      )
+        throw error;
+      isError = true;
+      text =
+        (binding.tool === "loop_message"
+          ? "Message was not sent: "
+          : "Status unavailable: ") + error.message;
+    }
   } else {
-    const { tasks } = delegate.parse(args);
+    const { tasks, wait } = delegate.parse(args);
+    const background = wait === false;
     const teamId = JSON.parse(run.payload).teamId;
     for (const task of tasks)
       if (
@@ -350,17 +397,21 @@ export async function invokeNative(
             folderId: parent.folderId,
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
-          db.prepare("INSERT INTO delegations VALUES(?,?,?,?)").run(
+          db.prepare(
+            "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,?)",
+          ).run(
             run.id,
             callId + ":" + i,
             child.id,
             encoded,
+            background ? 1 : 0,
           );
           return child;
         });
       })
       .immediate();
     if (
+      !background &&
       children.some((c) =>
         [
           "queued",
@@ -374,14 +425,23 @@ export async function invokeNative(
     ) {
       return { pending: callId };
     }
-    text = JSON.stringify(
-      children.map((c) => ({
-        agentId: c.agent_id,
-        state: c.state,
-        result: (c.result || "").slice(0, 16000),
-        error: c.error,
-      })),
-    );
+    text = background
+      ? JSON.stringify({
+          delegated: children.map((c) => ({
+            agentId: c.agent_id,
+            runId: c.id,
+            state: c.state,
+          })),
+          note: "Running in the background. Each worker's result arrives later as a message in this conversation. Keep working or finish your turn; don't wait in a loop.",
+        })
+      : JSON.stringify(
+          children.map((c) => ({
+            agentId: c.agent_id,
+            state: c.state,
+            result: (c.result || "").slice(0, 16000),
+            error: c.error,
+          })),
+        );
   }
   const result = {
     content: [{ type: "text", text }],

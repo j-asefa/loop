@@ -26,6 +26,7 @@ import { memoryRoutes } from "./memory.js";
 import { notifications } from "./notifications.js";
 import { mobile } from "./mobile-routes.js";
 import { prWatches } from "./pr-watches.js";
+import { agentMail } from "./agent-mail.js";
 import { githubPulls } from "./github-pulls.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
@@ -164,6 +165,7 @@ app.get("/api/runs", (req, res) => {
 });
 if (companionMode) app.use("/api", companion);
 app.use("/api", teams);
+app.use("/api", agentMail);
 app.use("/api", notifications);
 app.use("/api", executionRoutes);
 app.use("/api", memoryRoutes);

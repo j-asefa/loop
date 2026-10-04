@@ -32,6 +32,7 @@ import {
   SteeringInbox,
 } from "./steering.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
+import type { Automation } from "../shared/agent-mail.js";
 import { connectionSelection, type NativeSelection } from "./hapi/contracts.js";
 import { executeHapi } from "./hapi/adapter.js";
 export type Snapshot = {
@@ -70,8 +71,9 @@ export function submit(
     // User follow-ups steer active work. Internal delegation/retry creates work.
     steer?: boolean;
     personal?: boolean;
-    // Sent by Loop on your behalf (a watched pull request), not typed by you.
-    automation?: { kind: "github_watch"; watchId: string };
+    // Sent by Loop on your behalf (a watched pull request or a teammate
+    // agent's message), not typed by you.
+    automation?: Automation;
   },
 ) {
   return db
@@ -264,8 +266,8 @@ export function submit(
         attachmentIds: attachments.map((file) => file.id),
         replyTo,
       };
-      // HAPI has no SteeringInbox consumer, and Pi, OpenCode and ACP turns
-      // cannot take live input; preserve durable queued follow-ups for both.
+      // HAPI has no SteeringInbox consumer, and OpenCode and ACP turns cannot
+      // take live input; preserve durable queued follow-ups for both.
       // The active run's own connection decides, not the agent's current one.
       if (data.steer && !execution) {
         const found = activeRun(owner, conversation, agent.id);
@@ -284,7 +286,12 @@ export function submit(
             data.idempotencyKey,
             request,
             data.input,
-            { attachments, replyTo, personal: data.personal === true },
+            {
+              attachments,
+              replyTo,
+              personal: data.personal === true,
+              ...(data.automation ? { automation: data.automation } : {}),
+            },
           );
         }
       }

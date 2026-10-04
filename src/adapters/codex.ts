@@ -8,6 +8,7 @@ import type { Billing } from "../protocol.js";
 import {
   capabilities,
   conflict,
+  NotDelivered,
   type Adapter,
   type NativeCommand,
   type Emit,
@@ -310,7 +311,7 @@ export class Codex implements Adapter {
     if (!this.turn && r.turn.status === "inProgress") this.turn = r.turn.id;
   }
   async steer(text: string) {
-    if (!this.turn) throw new Error("No active Codex turn.");
+    if (!this.turn) throw new NotDelivered("No active Codex turn.");
     await this.native.request("turn/steer", {
       threadId: this.thread,
       expectedTurnId: this.turn,

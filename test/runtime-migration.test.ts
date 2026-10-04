@@ -136,7 +136,7 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
         "tsx",
         "--input-type=module",
         "-e",
-        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version WHERE version>=45 ORDER BY version').all(),seen:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pr_watch_seen'").get()}));db.close();`,
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version WHERE version IN (45,46,47,48) ORDER BY version').all(),seen:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pr_watch_seen'").get()}));db.close();`,
       ],
       {
         cwd: resolve("."),
@@ -144,12 +144,66 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
         encoding: "utf8",
       },
     );
-    // PR watch history (45), trace cleanup (46), and feed archiving (47) all run.
+    // PR watch history (45), trace cleanup (46), feed archiving (47), and agent mail (48) all run.
     expect(JSON.parse(result)).toEqual({
-      versions: [{ version: 45 }, { version: 46 }, { version: 47 }],
+      versions: [{ version: 45 }, { version: 46 }, { version: 47 }, { version: 48 }],
       seen: true,
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("applies agent mail and feed archive migrations in either upgrade order", () => {
+  const migrations = readdirSync("migrations")
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  const versions = migrations.map((name) => Number(name.split("-")[0]));
+  expect(new Set(versions).size).toBe(versions.length);
+
+  const feedArchive = readFileSync(
+    "migrations/047-conversation-feed-hidden.sql",
+    "utf8",
+  );
+  const agentMail = readFileSync("migrations/048-agent-mail.sql", "utf8");
+  for (const order of [
+    [feedArchive, agentMail], // fresh install or #67 first
+    [agentMail, feedArchive], // #64 first, then #67
+  ]) {
+    const db = new Database(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
+      );
+      for (const file of migrations) {
+        if (Number(file.split("-")[0]) >= 47) continue;
+        db.exec(readFileSync(join("migrations", file), "utf8"));
+      }
+      for (const sql of order) db.exec(sql);
+      expect(
+        db
+          .prepare(
+            "SELECT version FROM schema_version WHERE version IN (47,48) ORDER BY version",
+          )
+          .all(),
+      ).toEqual([{ version: 47 }, { version: 48 }]);
+      expect(db.pragma("table_info(conversations)")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "feed_hidden" }),
+        ]),
+      );
+      expect(
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE name='agent_mail'")
+          .get(),
+      ).toEqual({ name: "agent_mail" });
+      expect(db.pragma("table_info(delegations)")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "background" }),
+        ]),
+      );
+    } finally {
+      db.close();
+    }
   }
 });

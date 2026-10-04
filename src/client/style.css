@@ -4525,6 +4525,67 @@ h1 {
 .team-manager-option > svg {
   flex-shrink: 0;
 }
+.team-threads {
+  display: grid;
+  gap: 12px;
+}
+.team-thread {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.team-thread > header strong,
+.team-thread > header small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.team-thread > header small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.team-thread-paused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 10px;
+  color: var(--orange);
+  font-size: 13px;
+}
+.team-thread-messages {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.team-thread-messages li {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.team-thread-messages p {
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.team-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.team-message-status {
+  color: var(--muted);
+}
+.team-message-status.attention {
+  color: var(--orange);
+}
+.team-thread-messages .text-button {
+  color: var(--brass-text);
+  padding-inline: 0;
+}
 .feed-loading {
   display: grid;
   gap: 14px;

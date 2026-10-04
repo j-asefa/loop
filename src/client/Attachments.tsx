@@ -71,7 +71,11 @@ export function AttachmentList({
       </ul>
       {preview && (
         <FilePreview
-          url={`/api/objects/${preview.objectId}`}
+          url={
+            preview.published
+              ? `/api/artifacts/${preview.id}/file`
+              : `/api/objects/${preview.objectId}`
+          }
           name={preview.name}
           mime={preview.mime}
           onClose={() => setPreview(undefined)}

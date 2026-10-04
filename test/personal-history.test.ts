@@ -70,7 +70,7 @@ it("returns personal prompts across projects and maps the run recipient", () => 
   message("legacy", { metadata: { attachments: [] } });
   message("delegated", { metadata: { attachments: [] } });
   db.prepare(
-    "INSERT INTO delegations VALUES('first','call','delegated','{}')",
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES('first','call','delegated','{}')",
   ).run();
   db.prepare(
     "UPDATE conversations SET agent_id='bob' WHERE id='aliceone'",

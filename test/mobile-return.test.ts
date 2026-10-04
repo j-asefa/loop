@@ -214,7 +214,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   // Delegated child runs are internal and do not create inbox rows.
   const child = conversation(w.owner, a.id, "Child");
   const cr = run(w.owner, a.id, child, "completed");
-  db.prepare("INSERT INTO delegations VALUES(?,?,?,'{}')").run(nr, "call", cr);
+  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(nr, "call", cr);
   expect(
     (
       await api(w.owner, "/later", "POST", {

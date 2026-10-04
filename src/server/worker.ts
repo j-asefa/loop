@@ -24,6 +24,7 @@ import { deliverNotifications } from "./notifications.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 import { pollWatches } from "./pr-watches.js";
+import { sweepAgentMail } from "./agent-mail.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -151,6 +152,11 @@ export function startWorker() {
       } catch {}
       try {
         deliverScheduledSends();
+      } catch {}
+      // Results of background delegations, and team messages whose task
+      // ended before reading them.
+      try {
+        sweepAgentMail();
       } catch {}
       void deliverNotifications()
         .catch(() => {})

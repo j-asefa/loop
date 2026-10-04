@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Avatar, Sheet } from "./components";
 import {
@@ -9,8 +9,10 @@ import {
   Trash2,
   MessageSquare,
   ArrowUpRight,
+  Mail,
 } from "lucide-react";
 import type { Agent, Team } from "../shared/types";
+import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
 
 export function TeamManagerShortcut({
   teams,
@@ -139,12 +141,181 @@ export function ProfileTeams({
   );
 }
 
+type TeamThread = {
+  id: string;
+  subject: string;
+  paused_at: number | null;
+  paused_reason: string | null;
+  updated_at: number;
+  participants: string[];
+  messages: {
+    id: string;
+    kind: "message" | "result";
+    from: string;
+    to: string;
+    preview: string;
+    created_at: number;
+    status: MailStatus;
+    error: string | null;
+    files: number;
+    conversation_id: string | null;
+  }[];
+};
+
+/** Messages a team's agents sent each other, with delivery state and Resume. */
+export function TeamMessages({
+  team,
+  agents,
+  onClose,
+  onOpenConversation,
+  onChanged,
+}: {
+  team: Team;
+  agents: Agent[];
+  onClose: () => void;
+  onOpenConversation: (id: string) => void;
+  onChanged: () => void;
+}) {
+  const [threads, setThreads] = useState<TeamThread[] | null>(null),
+    [error, setError] = useState(""),
+    [resuming, setResuming] = useState("");
+  const load = async () => {
+    try {
+      setThreads(
+        (await api<{ threads: TeamThread[] }>(`/teams/${team.id}/messages`))
+          .threads,
+      );
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, [team.id]);
+  const name = (id: string) =>
+    "@" + (agents.find((agent) => agent.id === id)?.name ?? "former agent");
+  return (
+    <Sheet title={`${team.name} messages`} onClose={onClose}>
+      <p className="muted">
+        Messages this team's agents sent each other. Each one reached its
+        recipient as a turn in its conversation. A thread pauses after 30
+        messages, or 20 between two agents in an hour; nothing is lost while it
+        waits for you.
+      </p>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {threads === null && !error && <p className="muted">Loading…</p>}
+      {threads?.length === 0 && (
+        <p className="muted">
+          No messages yet. Agents on this team can message each other with
+          loop_message.
+        </p>
+      )}
+      <div className="team-threads">
+        {threads?.map((thread) => (
+          <section
+            className="team-thread"
+            key={thread.id}
+            aria-label={`Thread ${thread.subject}`}
+          >
+            <header>
+              <strong>{thread.subject}</strong>
+              <small>{thread.participants.map(name).join(" · ")}</small>
+            </header>
+            {thread.paused_at && (
+              <div className="team-thread-paused" role="status">
+                <span>
+                  Paused. {thread.paused_reason} Held messages are sent when you
+                  resume.
+                </span>
+                <button
+                  className="secondary"
+                  disabled={resuming === thread.id}
+                  onClick={async () => {
+                    setResuming(thread.id);
+                    try {
+                      await api(
+                        `/teams/${team.id}/threads/${thread.id}/resume`,
+                        {},
+                      );
+                      onChanged();
+                      await load();
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setResuming("");
+                    }
+                  }}
+                >
+                  {resuming === thread.id ? "Resuming…" : "Resume"}
+                </button>
+              </div>
+            )}
+            <ol className="team-thread-messages">
+              {thread.messages.map((message) => (
+                <li key={message.id}>
+                  <div className="team-message-meta">
+                    <span>
+                      {name(message.from)} → {name(message.to)}
+                      {message.kind === "result" ? " · result" : ""}
+                    </span>
+                    <span
+                      className={
+                        "team-message-status " +
+                        ([
+                          "held",
+                          "not_delivered",
+                          "unconfirmed",
+                          "failed",
+                        ].includes(message.status)
+                          ? "attention"
+                          : "")
+                      }
+                    >
+                      {MAIL_STATUS_LABELS[message.status]}
+                    </span>
+                  </div>
+                  <p>{message.preview}</p>
+                  {message.error && <p className="error">{message.error}</p>}
+                  {message.files > 0 && (
+                    <small className="muted">
+                      {message.files === 1
+                        ? "1 file attached"
+                        : `${message.files} files attached`}
+                    </small>
+                  )}
+                  {message.conversation_id && (
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        onOpenConversation(message.conversation_id!)
+                      }
+                    >
+                      Open in {name(message.to)}'s thread{" "}
+                      <ArrowUpRight size={14} aria-hidden="true" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
 export function TeamFilter({
   teams,
   selected,
   onChange,
   onCreate,
   onOpen,
+  onMessages,
   onDeleted,
 }: {
   teams: Team[];
@@ -152,6 +323,7 @@ export function TeamFilter({
   onChange: (ids: string[]) => void;
   onCreate: () => void;
   onOpen: (team: Team) => void;
+  onMessages: (team: Team) => void;
   onDeleted: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false),
@@ -266,6 +438,17 @@ export function TeamFilter({
                 }}
               >
                 Message manager
+              </button>
+              <button
+                className="text-button"
+                onClick={() => {
+                  close();
+                  onMessages(chosen[0]);
+                }}
+              >
+                <Mail size={17} /> Team messages
+                {!!chosen[0].paused_threads &&
+                  ` · ${chosen[0].paused_threads} paused`}
               </button>
               <button
                 className="text-button"

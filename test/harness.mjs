@@ -10,7 +10,9 @@ let thinkingLevel = "medium";
 const out = (x) => process.stdout.write(JSON.stringify(x) + "\n");
 let count = 0,
   active = "",
-  held = false;
+  held = false,
+  // Pi's queued input waiting for its next prompt, as [queue, message].
+  piQueue = [];
 if (process.argv.includes("--version")) {
   console.log(
     process.env.LOOP_TEST_HARNESS_VERSION ??
@@ -225,7 +227,21 @@ if (kind !== "opencode") {
         sessionId: "pi-1",
         model: { provider: "openai-codex", id: "fixture" },
         thinkingLevel,
+        isStreaming: !!active && !piQueue.length,
+        pendingMessageCount: piQueue.length,
       });
+    if (type === "clear_queue") {
+      const cleared = { steering: [], followUp: [] };
+      for (const [queue, message] of piQueue) cleared[queue].push(message);
+      piQueue = [];
+      return result(cleared);
+    }
+    // Test-only: what Pi still holds for its next prompt.
+    if (type === "fixture_queue") return result({ queue: piQueue });
+    if (type === "follow_up" && kind === "pi") {
+      piQueue.push(["followUp", m.message]);
+      return result({});
+    }
     if (type === "get_messages") return result({ messages: [] });
     if (type === "control_request") {
       out({
@@ -256,6 +272,22 @@ if (kind !== "opencode") {
     if (type === "turn/interrupt" || type === "abort") {
       result({});
       finish("interrupted");
+      return;
+    }
+    if (type === "steer" && kind === "pi") {
+      if (!active) throw new Error("Pi was steered without a turn");
+      // Models a steer arriving after Pi's last check: it waits for the
+      // next prompt instead of joining the turn. With "late-behind" an
+      // extension's follow-up was already queued ahead of it; with
+      // "late-read" Pi read it, but an extension's follow-up arrived after.
+      if (piQueue.length || m.message.startsWith("late")) {
+        if (m.message === "late-behind" || m.message === "late-read")
+          piQueue.push(["followUp", "extension follow-up"]);
+        if (m.message !== "late-read") piQueue.push(["steering", m.message]);
+        return result({ disposition: "queued" });
+      }
+      result({ disposition: "queued" });
+      setTimeout(() => finish(), 30);
       return;
     }
     if (type === "turn/steer") {

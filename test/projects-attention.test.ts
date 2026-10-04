@@ -254,7 +254,9 @@ it("cancels dependent work when its waiting manager is dismissed", async () => {
   db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(
     child.id,
   );
-  const link = db.prepare("INSERT INTO delegations VALUES(?,?,?,?)");
+  const link = db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,?)",
+  );
   link.run(manager.id, "child", child.id, "{}");
   link.run(child.id, "grandchild", grandchild.id, "{}");
   const approval = id();

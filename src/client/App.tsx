@@ -28,6 +28,7 @@ import type { ComposerContext } from "./composerContext";
 import { FeedPager } from "./feed";
 import {
   TeamFilter,
+  TeamMessages,
   CreateTeam,
   ProfileTeams,
   TeamManagerShortcut,
@@ -234,6 +235,7 @@ export default function App() {
       .filter(Boolean),
   );
   const teamKey = [...teamSelection].sort().join(",");
+  const [teamMessages, setTeamMessages] = useState<Team | null>(null);
   const availableAgents = data.agents.filter((a) => !a.retired_at);
   const [messageId, setMessageId] = useState<string | null>(
     new URLSearchParams(location.search).get("message"),
@@ -2303,6 +2305,7 @@ export default function App() {
                 }}
                 onCreate={() => setSheet("teams")}
                 onOpen={messageTeam}
+                onMessages={setTeamMessages}
               />
               <TeamManagerShortcut
                 teams={data.teams || []}
@@ -3214,6 +3217,19 @@ export default function App() {
             setConversation(team.conversation_id);
             void bootstrap();
           }}
+        />
+      )}
+      {teamMessages && (
+        <TeamMessages
+          team={teamMessages}
+          agents={data.agents}
+          onClose={() => setTeamMessages(null)}
+          onOpenConversation={(id) => {
+            setTeamMessages(null);
+            setTab("inbox");
+            setConversation(id);
+          }}
+          onChanged={() => void bootstrap()}
         />
       )}
       {sheet === "mcp" && (

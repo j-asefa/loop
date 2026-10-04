@@ -27,7 +27,7 @@ Direct companion connections route to durable native sessions before the managed
 
 HAPI is an active execution backend, with a private Hub, gateway and runners. The launcher can place runners natively or in Docker; the local server Compose stack also uses HAPI. mTLS, namespaces, provisioned identities and revocable credentials protect its control plane. Native processes still run with their OS user's access; project selection is not shell confinement.
 
-Follow-ups and steering retain durable input identities. Before external dispatch, Loop records intent; an uncertain send is never automatically replayed. Native approvals and cancellation belong to the owning conversation/generation. A setting request is not an effective setting until the runtime confirms it. Rebinding an agent does not silently migrate old conversations.
+Follow-ups and steering retain durable input identities. Before external dispatch, Loop records intent; an uncertain send is never automatically replayed. Agents' messages to teammates and background delegation results enter through the same submission path ([agent-mail.ts](../src/server/agent-mail.ts)), so they carry these guarantees and never share or inject another harness's context. Native approvals and cancellation belong to the owning conversation/generation. A setting request is not an effective setting until the runtime confirms it. Rebinding an agent does not silently migrate old conversations.
 
 Companion updates use replayable WebSockets with epochs/cursors and polling recovery; server views use bounded polling. Both render the same workspace projections. A private generation-bound native tool bridge rechecks permissions and expires with its owner.
 

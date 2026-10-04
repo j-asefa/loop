@@ -419,7 +419,7 @@ function inboxItem(
   const latest = (condition: string, ...params: unknown[]) =>
     db
       .prepare(
-        `SELECT id,role,substr(content,1,1000) content,created_at,json_extract(metadata,'$.automation.kind') automation FROM messages WHERE owner_id=? AND conversation_id=? ${condition} ORDER BY created_at DESC,rowid DESC LIMIT 1`,
+        `SELECT id,role,substr(content,1,1000) content,created_at,json_extract(metadata,'$.automation.kind') automation,json_extract(metadata,'$.automation.fromName') automation_from FROM messages WHERE owner_id=? AND conversation_id=? ${condition} ORDER BY created_at DESC,rowid DESC LIMIT 1`,
       )
       .get(owner, row.conversation_id, ...params) as
       | {
@@ -428,6 +428,7 @@ function inboxItem(
           content: string;
           created_at: number;
           automation: string | null;
+          automation_from: string | null;
         }
       | undefined;
   const message =
@@ -481,8 +482,12 @@ function inboxItem(
           // Markdown for full-size inbox cards; the card clips it visually.
           content: message.content.slice(0, 4000),
           created_at: message.created_at,
-          // Sent by Loop for you (a watched pull request), not typed by you.
+          // Sent by Loop for you (a watched pull request or a teammate
+          // agent), not typed by you.
           ...(message.automation ? { automation: message.automation } : {}),
+          ...(message.automation_from
+            ? { automation_from: message.automation_from }
+            : {}),
         }
       : null,
     run: run

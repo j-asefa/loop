@@ -5,6 +5,7 @@ import type { ChatMessage } from "./providers.js";
 import { attachmentPrompt } from "./uploads.js";
 import { replyPrompt } from "../shared/replies.js";
 import { RUN_LIVE_INPUT_SQL } from "./native-connections.js";
+import { NotDelivered } from "../adapters/types.js";
 
 type Delivery = (message: ChatMessage, id: string) => Promise<void>;
 type Input = {
@@ -131,7 +132,15 @@ export class SteeringInbox {
             this.delivered(value);
             this.receipt(input, "delivered");
           }).immediate();
-        } catch {
+        } catch (error) {
+          // Certainly not handed over: keep it pending for a later attempt.
+          // If the run ends first, it is marked as never delivered.
+          if (error instanceof NotDelivered) {
+            db.prepare(
+              "UPDATE run_steering SET state='pending' WHERE id=? AND state='sending'",
+            ).run(input.id);
+            return;
+          }
           this.receipt(
             input,
             "failed",

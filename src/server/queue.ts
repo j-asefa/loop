@@ -81,6 +81,8 @@ export function claim(worker: string): Run | undefined {
       // Delegated work can pass queued tasks and released managers to unblock
       // their dependency chains. Pauses and approvals still block the queue.
       // Since this can run out of enqueue order, check every active lease too.
+      // Background delegations (wait:false) block no one: their manager keeps
+      // working and receives each result as a message.
       const run = db
         .prepare(
           `WITH candidates AS (
@@ -92,11 +94,11 @@ export function claim(worker: string): Run | undefined {
  WHERE runs.state IN ('queued','running','pausing','paused','awaiting_approval')
 )
 SELECT r.* FROM candidates r WHERE
- ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id))))
+ ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id AND d.background=0))))
  AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.agent_id=r.agent_id AND (busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.agent_id=r.agent_id AND (older.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT older.per_conversation) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
-   AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id)))))
- AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
+   AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id AND delegated.background=0) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id AND waiting.background=0)))))
+ AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
  AND (json_extract(r.payload,'$.execution.backend') IS NULL OR (${process.env.LOOP_NATIVE_ADMISSION === "0" ? 0 : 1}=1 AND (
   EXISTS(SELECT 1 FROM execution_environments e WHERE e.host_id=json_extract(r.payload,'$.execution.environmentId') AND e.revoked_at IS NULL AND e.state='online' AND e.last_seen > (unixepoch()*1000-30000)

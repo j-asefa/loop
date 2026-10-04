@@ -11,6 +11,7 @@ import { Native } from "../native.js";
 import {
   capabilities,
   conflict,
+  NotDelivered,
   type Adapter,
   type NativeCommand,
   type Emit,
@@ -296,7 +297,7 @@ export class Claude implements Adapter {
     });
   }
   async steer(text: string) {
-    if (!this.active) throw new Error("No active Claude turn.");
+    if (!this.active) throw new NotDelivered("No active Claude turn.");
     try {
       await this.steering.steer(
         text,

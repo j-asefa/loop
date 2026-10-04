@@ -1,3 +1,4 @@
+import { automationLabel } from "../shared/agent-mail";
 import {
   useConversationActivities,
   visibleActivities,
@@ -661,8 +662,8 @@ export function Conversation({
     latestRun;
   const status = runStatus(currentRun?.run_state);
   const workState = currentRun?.run_state || "";
-  // API, subscription, Codex and Claude turns take a message mid-task. HAPI
-  // sessions and Pi, OpenCode and ACP turns queue every follow-up. The
+  // API, subscription, Codex, Claude and Pi turns take a message mid-task.
+  // HAPI sessions and OpenCode and ACP turns queue every follow-up. The
   // server decides from the connection the current run started with.
   const steerable =
     ["running", "awaiting_approval"].includes(workState) &&
@@ -1279,9 +1280,12 @@ export function Conversation({
                     <header className="message-meta">
                       <span className="eyebrow">
                         {m.role === "user"
-                          ? meta.automation?.kind === "github_watch"
-                            ? "GitHub update"
-                            : "You"
+                          ? automationLabel(
+                              meta.automation?.kind,
+                              agents.find(
+                                (a) => a.id === meta.automation?.fromAgentId,
+                              )?.name ?? meta.automation?.fromName,
+                            )
                           : `@${agent?.name || "agent"}`}
                         {meta.progress ? " · Update" : ""}
                         {meta.activeBranch === false ? " · alternate branch" : ""}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { automationLabel } from "../shared/agent-mail";
 import {
   AlarmClock,
   Archive,
@@ -74,6 +75,7 @@ export type InboxItem = {
     content?: string;
     created_at: number;
     automation?: string;
+    automation_from?: string;
   } | null;
   run: {
     id: string;
@@ -284,9 +286,10 @@ function InboxCard({
               <div className="preview">
                 {item.last_message!.role === "user" && (
                   <span className="inbox-you">
-                    {item.last_message!.automation === "github_watch"
-                      ? "GitHub update"
-                      : "You"}
+                    {automationLabel(
+                      item.last_message!.automation,
+                      item.last_message!.automation_from,
+                    )}
                   </span>
                 )}
                 <RichText

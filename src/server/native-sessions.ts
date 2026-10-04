@@ -18,7 +18,12 @@ import { Pi } from "../adapters/pi.js";
 import { NativeSetupError } from "../adapters/setup-error.js";
 import { OpenCode } from "../adapters/opencode.js";
 import { Acp } from "../adapters/acp.js";
-import type { Adapter, Options, NativeCommand } from "../adapters/types.js";
+import {
+  NotDelivered,
+  type Adapter,
+  type Options,
+  type NativeCommand,
+} from "../adapters/types.js";
 import {
   validateAnswer,
   type AdapterEvent,
@@ -1428,7 +1433,7 @@ export class NativeSessions {
           live.cancelling ||
           live.run?.id !== run.id
         )
-          throw new Error("This native turn cannot accept live input");
+          throw new NotDelivered("This native turn cannot accept live input");
         await live.adapter.steer(
           localAttachmentPrompt(
             run.owner_id,
