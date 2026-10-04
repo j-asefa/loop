@@ -47,7 +47,7 @@ export function Pairing({ onDone }: { onDone: () => void }) {
           <h1>
             Keep your agents.
             <br />
-            Find your flow.
+            Stay in the loop.
           </h1>
           <p>One workspace for your ideas, agents, and everything they make.</p>
         </div>
