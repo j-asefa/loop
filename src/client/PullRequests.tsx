@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "./api";
+import { PullChangeCounts } from "./PullChangeCounts";
 import { Empty, RichText, Sheet } from "./components";
 import { relativeTime } from "./threadView";
 import { RepoFileSheet } from "./RepoFileView";
@@ -96,10 +97,6 @@ const at = (value?: string) => {
   const time = value ? Date.parse(value) : NaN;
   return Number.isNaN(time) ? "" : relativeTime(time).toLowerCase();
 };
-const changes = (p: PullListItem) =>
-  p.additions !== undefined && p.deletions !== undefined
-    ? `+${p.additions} −${p.deletions}`
-    : "";
 
 function StatusChips({ pr }: { pr: PullListItem }) {
   return (
@@ -349,10 +346,10 @@ function PullRequestInbox({
                     {[
                       pr.author && "@" + pr.author,
                       pr.updatedAt && "updated " + at(pr.updatedAt),
-                      changes(pr),
                     ]
                       .filter(Boolean)
                       .join(" · ")}
+                    <PullChangeCounts {...pr} />
                     {!!pr.comments && (
                       <span
                         className="pull-row-comments"
@@ -532,10 +529,7 @@ function FileList({
                 ? `${f.previousPath} → ${f.path}`
                 : f.path}
             </span>
-            <span className="pull-file-count">
-              <span className="add">+{f.additions}</span>{" "}
-              <span className="del">−{f.deletions}</span>
-            </span>
+            <PullChangeCounts additions={f.additions} deletions={f.deletions} />
           </summary>
           {f.status !== "removed" && (
             <button
@@ -706,17 +700,13 @@ function PullRequestDetail({
               <code title={pr.headSha}>{pr.headSha.slice(0, 7)}</code>
             </dd>
           </div>
-          {(pr.changedFiles !== undefined || changes(pr)) && (
+          {(pr.changedFiles !== undefined ||
+            pr.additions !== undefined ||
+            pr.deletions !== undefined) && (
             <div>
               <dt>Changes</dt>
               <dd>
-                {[
-                  pr.changedFiles !== undefined &&
-                    `${pr.changedFiles} file${pr.changedFiles === 1 ? "" : "s"}`,
-                  changes(pr),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                <PullChangeCounts {...pr} />
               </dd>
             </div>
           )}

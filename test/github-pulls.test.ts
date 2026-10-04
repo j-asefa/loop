@@ -55,6 +55,7 @@ const pullNode = (extra: object = {}) => ({
   author: { login: "sam" },
   headRefName: "rate-limit",
   baseRefName: "main",
+  changedFiles: 6,
   additions: 120,
   deletions: 4,
   reviewDecision: "REVIEW_REQUIRED",
@@ -331,10 +332,12 @@ it("lists your open pull requests with every filter's count", async () => {
       author: "sam",
       checks: "failure",
       review: "review_required",
+      changedFiles: 6,
       comments: 3,
     }),
   ]);
-  const [{ variables }] = github.graphql;
+  const [{ query, variables }] = github.graphql;
+  expect(query).toContain("headRefName baseRefName changedFiles additions deletions");
   expect(variables.q).toBe(
     "is:pr is:open archived:false author:@me repo:acme/api limit is:closed sort:updated-desc",
   );

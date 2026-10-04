@@ -15,7 +15,8 @@ const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { withTestAdapter } = await import("../src/server/providers");
-const { withTestMcp, discover } = await import("../src/server/mcp/client");
+const { withTestMcp, discover, connect } =
+  await import("../src/server/mcp/client");
 const { safeUrl, publicAddress } = await import("../src/server/mcp/network");
 const { queueTool } = await import("../src/server/mcp/routes");
 const { authorizeTool, invokeTool, toolBindings } =
@@ -27,6 +28,7 @@ const { submit } = await import("../src/server/agent-runtime");
 const { tick, execute } = await import("../src/server/worker");
 const { normalizeResult } = await import("../src/server/mcp/results");
 let externalCalls = 0;
+let resourceReads = 0;
 const fixtureMcp = async () => {
   const server = new McpServer({
     name: "Loop deterministic fixture",
@@ -72,15 +74,18 @@ const fixtureMcp = async () => {
     "chart",
     "ui://fixture/chart",
     { mimeType: "text/html;profile=mcp-app" },
-    async (uri) => ({
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "text/html;profile=mcp-app",
-          text: "<!doctype html><p>Fixture app</p>",
-        },
-      ],
-    }),
+    async (uri) => {
+      resourceReads++;
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "text/html;profile=mcp-app",
+            text: "<!doctype html><p>Fixture app</p>",
+          },
+        ],
+      };
+    },
   );
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
@@ -215,7 +220,7 @@ it("includes every discovered workspace tool instead of silently dropping tools 
     );
   }
 });
-it("uses official MCP discovery, pauses model tool calls for approval and saves exact native data plus app resource", async () => {
+it("uses official MCP discovery, pauses model tool calls for approval and saves native data without fetching app resources", async () => {
   const run = submit("alice", {
     agentId: agent.id,
     input: "Show latency",
@@ -243,9 +248,8 @@ it("uses official MCP discovery, pauses model tool calls for approval and saves 
   expect(data.series[0].points[1]).toEqual([1700000060000, null]);
   expect(data.series[0].unit).toBe("ms");
   expect(data.source.fixture).toBe(true);
-  expect(JSON.parse(artifact.metadata).appResource.html).toContain(
-    "Fixture app",
-  );
+  expect(JSON.parse(artifact.metadata).appResource).toBeUndefined();
+  expect(resourceReads).toBe(0);
   expect(await tick(execute)).toBe(false);
   expect(externalCalls).toBe(1);
 });
@@ -590,7 +594,7 @@ it("serializes a preference update with the worker's policy read and waiting tra
   }
 });
 
-it("retains an app form on a received error without claiming success or replaying the operation", async () => {
+it("preserves a received form error as text without claiming success or replaying the operation", async () => {
   setMcpApprovalMode("alice", "allow");
   const before = externalCalls;
   const run = queueTool("alice", {
@@ -608,7 +612,8 @@ it("retains an app form on a received error without claiming success or replayin
     .prepare("SELECT * FROM artifacts WHERE id=?")
     .get(invocation.artifact_id) as any;
   const meta = JSON.parse(artifact.metadata);
-  expect(meta.appResource.html).toContain("Fixture app");
+  expect(meta.appResource).toBeUndefined();
+  expect(resourceReads).toBe(0);
   expect(meta.toolResult).toMatchObject({
     isError: true,
     structuredContent: { status: "awaiting_user_submission" },
@@ -626,4 +631,32 @@ it("retains an app form on a received error without claiming success or replayin
     result: { isError: true },
   });
   expect(externalCalls).toBe(before + 1);
+});
+
+it("negotiates production connections without interactive app capabilities", async () => {
+  resetMcp();
+  const server = new McpServer({ name: "capabilities fixture", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  const original = Client.prototype.connect;
+  const transport = vi
+    .spyOn(Client.prototype, "connect")
+    .mockImplementation(function (this: Client, _transport, options) {
+      return original.call(this, b, options);
+    });
+  let client: Client | undefined;
+  try {
+    client = await connect(connection());
+    expect(
+      server.server.getClientCapabilities()?.extensions?.[
+        "io.modelcontextprotocol/ui"
+      ],
+    ).toBeUndefined();
+    expect(server.server.getClientVersion()?.name).toBe("loop");
+  } finally {
+    transport.mockRestore();
+    await client?.close();
+    await server.close();
+    withTestMcp(fixtureMcp);
+  }
 });

@@ -166,13 +166,9 @@ export async function connect(c: MCPConnection): Promise<Client> {
     client = new Client(
       { name: "loop", version: "0.1.0" },
       {
-        capabilities: {
-          extensions: {
-            "io.modelcontextprotocol/ui": {
-              mimeTypes: ["text/html;profile=mcp-app"],
-            },
-          },
-        } as any,
+        // Loop's conversation flow cannot reliably present interactive MCP forms.
+        // Negotiate ordinary tool results instead of the MCP Apps extension.
+        capabilities: {},
       },
     );
   const headers =

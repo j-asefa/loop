@@ -7,6 +7,7 @@
   --line: #353535;
   --brass-text: #dbb843;
   --green: #91cb81;
+  --diff-removed: #ff9696;
   --orange: #f39978;
   --blue: #a5b9ef;
   color-scheme: dark;
@@ -3106,6 +3107,7 @@ pre {
   --brass-text: #7e6518;
   --shadow: 0 8px 36px #2222220a;
   --green: #277a20;
+  --diff-removed: #b4232d;
   --orange: #b4421e;
   --blue: #2e4c9b;
   color-scheme: light;
@@ -5882,7 +5884,7 @@ details > summary {
   font-variant-numeric: tabular-nums;
 }
 .diff-remove-count {
-  color: var(--orange);
+  color: var(--diff-removed);
   font-variant-numeric: tabular-nums;
 }
 .changes-head {
@@ -7640,11 +7642,9 @@ html:has(.sheet.side-panel[open]) {
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.pull-file-count .add,
 .pull-diff-line.add {
   color: var(--green);
 }
-.pull-file-count .del,
 .pull-diff-line.del {
   color: var(--orange);
 }
@@ -7918,4 +7918,23 @@ html:has(.sheet.side-panel[open]) {
   font: inherit;
   line-height: 1.5;
   resize: vertical;
+}
+
+.pull-change-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pull-change-counts > span {
+  white-space: nowrap;
+}
+.pull-changed-files {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--secondary);
+  color: var(--text);
 }

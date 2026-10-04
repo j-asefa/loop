@@ -1,6 +1,5 @@
 import { Problem } from "../../src/server/domain";
 // Explicit test entrypoints only. No HTTP route enables these adapters.
-import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { ownInstructions } from "./instructions";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -136,20 +135,6 @@ withTestMcp(async (c) => {
     },
     async () => ({
       content: [{ type: "text", text: "Fixture navigation complete" }],
-    }),
-  );
-  server.registerResource(
-    "app",
-    "ui://fixture/app",
-    { mimeType: "text/html;profile=mcp-app" },
-    async (uri) => ({
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "text/html;profile=mcp-app",
-          text: `<!doctype html><html><head><meta charset="utf-8"></head><body><h2>Fixture MCP app</h2><p id="status">Connecting…</p><button id="allowed">Approved tool request</button><button id="denied">Denied tool request</button><button id="parent">Try parent access</button><button id="link">Try unsupported capability</button><p id="denial"></p><p id="isolation"></p><p id="capability"></p><script>${readFileSync(process.env.LOOP_FIXTURE_APP!, "utf8").replaceAll("</script", "<\\/script")}</script></body></html>`,
-        },
-      ],
     }),
   );
   const [a, b] = InMemoryTransport.createLinkedPair();

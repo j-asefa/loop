@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
 import { api, parse } from "./api";
+import { PullChangeCounts } from "./PullChangeCounts";
 import { openPull } from "./PullRequests";
 
 type Watch = {
@@ -98,9 +99,7 @@ function WatchControl({
           <button
             className="text-button"
             disabled={busy}
-            onClick={() =>
-              act(() => api(`/pr-watches/${watch.id}/resume`, {}))
-            }
+            onClick={() => act(() => api(`/pr-watches/${watch.id}/resume`, {}))}
           >
             Resume
           </button>
@@ -156,10 +155,6 @@ function PullRequestRow({
   artifactId?: string;
   watch?: Watch;
 }) {
-  const changes =
-    pr.additions !== undefined && pr.deletions !== undefined
-      ? `+${pr.additions} −${pr.deletions}`
-      : undefined;
   return (
     <li className="pr-card">
       <div className="pr-card-heading">
@@ -202,17 +197,13 @@ function PullRequestRow({
             </dd>
           </div>
         )}
-        {(changes || pr.changedFiles !== undefined) && (
+        {(pr.changedFiles !== undefined ||
+          pr.additions !== undefined ||
+          pr.deletions !== undefined) && (
           <div>
             <dt>Changes</dt>
             <dd>
-              {[
-                pr.changedFiles !== undefined &&
-                  `${pr.changedFiles} file${pr.changedFiles === 1 ? "" : "s"}`,
-                changes,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              <PullChangeCounts {...pr} />
             </dd>
           </div>
         )}

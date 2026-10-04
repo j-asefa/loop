@@ -25,6 +25,7 @@ export type PullListItem = PullRequestRef & {
   updatedAt?: string;
   headRef?: string;
   baseRef?: string;
+  changedFiles?: number;
   additions?: number;
   deletions?: number;
   comments?: number;
@@ -69,7 +70,6 @@ export type PullDetail = PullListItem & {
   /** GitHub's merge state: clean, blocked, behind, dirty, draft, unstable… */
   mergeState?: string;
   conflicts: boolean;
-  changedFiles?: number;
   commits?: number;
   requested: string[];
   reviews: (PullComment & { state: string })[];

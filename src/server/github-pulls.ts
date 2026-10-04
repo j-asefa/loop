@@ -114,7 +114,7 @@ function problem(error: unknown, write = false): never {
 const ITEM = `
   number title url state isDraft createdAt updatedAt
   author { login }
-  headRefName baseRefName additions deletions
+  headRefName baseRefName changedFiles additions deletions
   reviewDecision
   totalCommentsCount
   lastCommit: commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }`;
@@ -180,6 +180,7 @@ function listItem(node: any, expected?: PullRequestRef): PullListItem | undefine
     updatedAt: text(node.updatedAt, 40),
     headRef: text(node.headRefName, 255),
     baseRef: text(node.baseRefName, 255),
+    changedFiles: count(node.changedFiles),
     additions: count(node.additions),
     deletions: count(node.deletions),
     comments: count(node.totalCommentsCount),
@@ -349,7 +350,7 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
           mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
           pullRequest(number: $number) {
             ${ITEM}
-            body headRefOid mergeable mergeStateStatus changedFiles viewerDidAuthor
+            body headRefOid mergeable mergeStateStatus viewerDidAuthor
             commitCount: commits(first: 1) { totalCount }
             reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
             latestReviews(first: 30) { nodes { author { login } authorAssociation state body submittedAt url } }
@@ -420,7 +421,6 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
     headSha,
     mergeState: text(node.mergeStateStatus, 40)?.toLowerCase(),
     conflicts: node.mergeable === "CONFLICTING",
-    changedFiles: count(node.changedFiles),
     commits: count(node.commitCount?.totalCount),
     requested: nodes(node.reviewRequests)
       .map((r: any) =>

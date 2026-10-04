@@ -101,7 +101,7 @@ export async function invokeTool(
       result: { isError: true, content: [{ type: "text", text: unpinned }] },
       artifactId: "",
     };
-  const { connection, tool } = authorizeTool(
+  const { connection } = authorizeTool(
     run.owner_id,
     run.agent_id,
     binding.connectionId,
@@ -261,7 +261,7 @@ export async function invokeTool(
     const redact = (value: unknown) =>
       redactCredentials(value, [
         readSecret(connection),
-        // OAuth may rotate credentials while a tool or app resource is fetched.
+        // OAuth may rotate credentials during a tool call.
         readSecret(
           owned<MCPConnection>("mcp_connections", connection.id, run.owner_id),
         ),
@@ -281,31 +281,6 @@ export async function invokeTool(
       fixture: metadata.fixture === true,
       github: isGithubMcpUrl(connection.url),
     });
-    const resourceUri =
-      tool._meta?.ui?.resourceUri || tool._meta?.["ui/resourceUri"];
-    let appResource: any;
-    // Error results can carry an interactive correction or submission form.
-    // Preserve that UI without treating the underlying operation as successful.
-    if (typeof resourceUri === "string" && resourceUri.startsWith("ui://")) {
-      try {
-        const resource = await client.readResource(
-          { uri: resourceUri },
-          { timeout: 10000 },
-        );
-        const html = resource.contents.find(
-          (r: any) =>
-            r.mimeType === "text/html;profile=mcp-app" &&
-            typeof r.text === "string",
-        );
-        if (html && String((html as any).text).length <= 1024 * 1024)
-          appResource = redact({
-            uri: resourceUri,
-            html: String((html as any).text),
-          });
-      } catch {
-        /* text/structured fallback remains available */
-      }
-    }
     const artifactId = db
       .transaction(() => {
         const artifactId = saveArtifact(run.owner_id, {
@@ -327,7 +302,6 @@ export async function invokeTool(
             arguments: args,
             invocationId: invocation.id,
             fetchedAt: now(),
-            appResource,
             toolResult: result,
             isError: toolFailed,
             fixture: metadata.fixture === true,

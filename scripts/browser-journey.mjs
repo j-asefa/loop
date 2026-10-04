@@ -28,7 +28,7 @@ async function freePort() {
 const port = await freePort(),
   brokerPort = await freePort(),
   base = "http://localhost:" + port;
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { feedbackJourney } from "./feedback-journey.mjs";
 import { catalogJourney } from "./catalog-journey.mjs";
 import { providerJourney } from "./provider-journey.mjs";
@@ -48,18 +48,6 @@ import { chromium, webkit, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 const dir = mkdtempSync(join(tmpdir(), "loop-journey-"));
 const remoteCodex = await codexFixture();
-execFileSync(
-  "node_modules/.bin/esbuild",
-  [
-    "test/fixtures/mcp-app.ts",
-    "--bundle",
-    "--minify",
-    "--format=iife",
-    "--platform=browser",
-    "--outfile=" + join(dir, "app.js"),
-  ],
-  { stdio: "ignore" },
-);
 const env = {
     ...(await isolatedBrowserEnv()),
     NODE_ENV: "test",
@@ -71,7 +59,6 @@ const env = {
     LOOP_URL: base,
     LOOP_RUNTIME_TOKEN: "fixture-broker-authentication-only-32chars",
     LOOP_DATA_DIR: dir,
-    LOOP_FIXTURE_APP: join(dir, "app.js"),
   },
   children = ["server", "worker"].map((name) =>
     spawn(process.execPath, ["--import", "tsx", `scripts/fixture-${name}.ts`], {
@@ -250,8 +237,16 @@ try {
   // then leaves.
   await page.goto(base);
   await page.evaluate(() =>
-    localStorage.setItem("loop-last-visit", String(Date.now() - 2 * 3600_000)),
+    sessionStorage.setItem("loop-test-away-on-reload", "1"),
   );
+  // pagehide records the current visit during reload. Set the older visit
+  // before the app mounts on the next page instead of letting pagehide erase it.
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem("loop-test-away-on-reload") === "1") {
+      sessionStorage.removeItem("loop-test-away-on-reload");
+      localStorage.setItem("loop-last-visit", String(Date.now() - 2 * 3600_000));
+    }
+  });
   await page.reload();
   const away = page.getByRole("region", { name: "While you were away" });
   await expect(away).toContainText("1 finished");
@@ -358,36 +353,22 @@ try {
     .filter({ hasText: "metrics" })
     .getByRole("button", { name: "View tool result" })
     .click();
-  const frame = page.frameLocator(
-    'iframe[title="MCP app, isolated from Loop"]',
+  const result = page.getByRole("dialog").last();
+  await expect(
+    result.getByRole("heading", { name: "Fixture request latency" }),
+  ).toBeVisible();
+  await expect(
+    result.getByRole("img", { name: /Fixture latency, ms, 2 measured points/ }),
+  ).toBeVisible();
+  await expect(
+    result.locator('iframe[title="MCP app, isolated from Loop"]'),
+  ).toHaveCount(0);
+  const chartResult = (await api("/artifacts")).items.find(
+    (x) => x.kind === "chart",
   );
-  await frame
-    .getByText("Fixture result received", { exact: true })
-    .waitFor({ timeout: 15000 });
-  await frame.getByRole("button", { name: "Try parent access" }).click();
-  await frame.getByText("Parent DOM denied").waitFor();
-  await frame
-    .getByRole("button", { name: "Try unsupported capability" })
-    .click();
-  await frame.getByText("Unsupported capability denied").waitFor();
-  await frame.getByRole("button", { name: "Denied tool request" }).click();
-  await frame
-    .getByText("Tool is no longer available", { exact: false })
-    .waitFor();
-  await frame.getByRole("button", { name: "Approved tool request" }).click();
-  await frame
-    .getByText("Request queued for explicit approval", { exact: false })
-    .waitFor();
-  await page.screenshot({ path: join(dir, "mcp-app-fixture.png") });
+  assert.ok(chartResult);
+  assert.equal(JSON.parse(chartResult.metadata).appResource, undefined);
   await closeSheets(page);
-  await openTab(page, "Feed");
-  await page.getByRole("tab", { name: /^Needs you/ }).click();
-  await page
-    .getByRole("button", { name: "Review approval: Metrics", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Approve and continue", exact: true })
-    .click();
   const conns = await api("/mcp");
   await api("/mcp/" + conns[0].id, { action: "disable" }, "PATCH");
   const chart = (await api("/artifacts")).items.find((x) => x.kind === "chart");
@@ -578,8 +559,7 @@ try {
   );
   await stranger.close();
   // Run network-failure injection in its own context without a service worker.
-  // Keep real service workers in the main journey: Playwright's WebKit blocker
-  // itself throws when injected into the opaque-origin MCP sandbox frames.
+  // Keep real service workers in the main journey.
   const providerContext = await browser.newContext({
     storageState: await page.context().storageState(),
     viewport: { width: 390, height: 844 },
@@ -698,7 +678,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: labeled fixture provider connection → chosen model → streamed artifact → natural filing/Undo → project search → original conversation; workspace MCP connect/discover → model approval → native chart → official Apps initialization + allowed request + denial + parent isolation + unsupported capability; disabled tools; client-close completion/reconnect without duplicate messages; direct second-user artifact/app/conversation/agent/search denial; both subscription sign-in UIs, subscription worker completion, disconnect and cross-user auth denial (fixtures).",
+    "PASS: labeled fixture provider connection → chosen model → streamed artifact → natural filing/Undo → project search → original conversation; workspace MCP connect/discover → model approval → native chart without app resource; disabled tools; client-close completion/reconnect without duplicate messages; direct second-user artifact/app/conversation/agent/search denial; both subscription sign-in UIs, subscription worker completion, disconnect and cross-user auth denial (fixtures).",
   );
 } catch (e) {
   console.log(

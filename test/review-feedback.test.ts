@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 it.each(["query", "stdio", "import"])(
-  "redacts %s credentials from tool results, app resources, saved versions and model input",
+  "redacts %s credentials from tool results, saved versions and model input without reading app resources",
   async (transport) => {
     const owner = id(),
       a = agent(owner);
@@ -81,6 +81,7 @@ it.each(["query", "stdio", "import"])(
         JSON.stringify({ transport, fixture: true }),
         now(),
       );
+    let resourceReads = 0;
     const restoreMcp = withTestMcp(async () => {
       const server = new McpServer({ name: "echo-fixture", version: "1" });
       server.registerTool(
@@ -98,15 +99,18 @@ it.each(["query", "stdio", "import"])(
         "diagnostic",
         "ui://fixture/diagnostic",
         { mimeType: "text/html;profile=mcp-app" },
-        async (uri) => ({
-          contents: [
-            {
-              uri: uri.href,
-              mimeType: "text/html;profile=mcp-app",
-              text: "<pre>" + echoed + "</pre>",
-            },
-          ],
-        }),
+        async (uri) => {
+          resourceReads++;
+          return {
+            contents: [
+              {
+                uri: uri.href,
+                mimeType: "text/html;profile=mcp-app",
+                text: "<pre>" + echoed + "</pre>",
+              },
+            ],
+          };
+        },
       );
       const [left, right] = InMemoryTransport.createLinkedPair();
       await server.connect(left);
@@ -192,9 +196,8 @@ it.each(["query", "stdio", "import"])(
         for (const value of variants)
           expect(stored).not.toContain(JSON.stringify(value).slice(1, -1));
       }
-      expect(JSON.parse(artifact.metadata).appResource.html).toContain(
-        "[redacted]",
-      );
+      expect(JSON.parse(artifact.metadata).appResource).toBeUndefined();
+      expect(resourceReads).toBe(0);
     } finally {
       restoreProvider();
       restoreMcp();
