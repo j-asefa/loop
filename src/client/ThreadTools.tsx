@@ -484,6 +484,8 @@ export function OutlineSheet({
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<ThreadMatch[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [searchAttempt, setSearchAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     api<{ items: OutlineItem[] }>(`/conversations/${conversationId}/outline`)
@@ -496,8 +498,9 @@ export function OutlineSheet({
   // Searching waits for a pause in typing; the newest query wins.
   useEffect(() => {
     const text = query.trim();
+    setMatches(null);
+    setSearchError("");
     if (!text) {
-      setMatches(null);
       setSearching(false);
       return;
     }
@@ -508,14 +511,14 @@ export function OutlineSheet({
         `/conversations/${conversationId}/outline?q=${encodeURIComponent(text)}`,
       )
         .then((result) => active && setMatches(result.matches))
-        .catch((e) => active && setError((e as Error).message))
+        .catch((e) => active && setSearchError((e as Error).message))
         .finally(() => active && setSearching(false));
     }, 250);
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [conversationId, query]);
+  }, [conversationId, query, searchAttempt]);
   const visible = (items || []).filter(
     (item) => filter === "all" || item.kind === filter,
   );
@@ -531,7 +534,10 @@ export function OutlineSheet({
       <form
         className="search-box outline-search"
         role="search"
-        onSubmit={(e) => e.preventDefault()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSearchAttempt((attempt) => attempt + 1);
+        }}
       >
         <Search size={18} aria-hidden="true" />
         <input
@@ -539,17 +545,34 @@ export function OutlineSheet({
           enterKeyHint="search"
           aria-label="Search this thread"
           placeholder="Search this thread"
+          maxLength={200}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </form>
-      {matches || searching ? (
+      {query.trim() ? (
         <>
           <p className="outline-status" role="status">
-            {searching && !matches
+            {searching || (!matches && !searchError)
               ? "Searching…"
-              : `${plural(matches!.length, "match")} for “${query.trim()}”`}
+              : searchError
+                ? "Search unavailable"
+                : `${plural(matches!.length, "match", "matches")} for “${query.trim()}”`}
           </p>
+          {searchError && (
+            <div>
+              <p role="alert" className="error">
+                {searchError}
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setSearchAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </button>
+            </div>
+          )}
           <ol className="outline-list">
             {(matches || []).map((match) => (
               <li key={match.kind + match.message_id} data-kind={match.kind}>
@@ -621,7 +644,7 @@ export function OutlineSheet({
           </ol>
         </>
       )}
-      {error && (
+      {!query.trim() && error && (
         <p role="alert" className="error">
           {error}
         </p>
@@ -630,8 +653,8 @@ export function OutlineSheet({
   );
 }
 
-const plural = (count: number, word: string) =>
-  `${count} ${word}${count === 1 ? "" : "s"}`;
+const plural = (count: number, word: string, multiple = `${word}s`) =>
+  `${count} ${count === 1 ? word : multiple}`;
 
 /** What happened besides applied changes, e.g. "1 not applied · 1 failed". */
 function otherActivity(summary: ChangeSummary) {

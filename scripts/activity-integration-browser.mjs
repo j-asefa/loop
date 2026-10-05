@@ -164,6 +164,7 @@ const vite = await createServer({
                 {
                   id: "answer",
                   role: "assistant",
+                  created_at: 1_700_000_000_000,
                   content: complete ? "Finished fixture" : "Working fixture",
                   run_id: "run",
                   run_state: complete ? "completed" : "running",
@@ -214,6 +215,14 @@ const vite = await createServer({
                     },
                   ],
             };
+          else if (url.pathname === "/api/conversations/conversation/usage")
+            result = {
+              total: { input_tokens: 0, output_tokens: 0 },
+              runs: {},
+              memory: [],
+            };
+          else if (url.pathname === "/api/scheduled-sends")
+            result = { items: [], failed_next: null };
           else if (url.pathname === "/api/native/decisions")
             result = decisions();
           else if (url.pathname === "/api/native/history")
@@ -298,7 +307,7 @@ try {
     });
     await expect(
       page.getByRole("heading", { name: /Command output/ }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText("Approve fixture command", { exact: true }),
     ).toBeVisible();
@@ -313,6 +322,13 @@ try {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: /Command output/ }),
+    ).toBeVisible();
     const output = page.getByLabel("Scrollable command output");
     await output.evaluate((e) => {
       e.scrollTop = 0;
@@ -322,6 +338,10 @@ try {
       page.getByRole("button", { name: "Follow latest output" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Follow latest output" }).click();
+    await page
+      .getByRole("dialog", { name: "Tool activity", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await page.getByLabel("Conversation options").click();
     await page
       .getByRole("button", { name: "Session settings", exact: true })
@@ -341,6 +361,10 @@ try {
     assert.equal(writes, 2);
     await page.keyboard.press("Escape");
     await page
+      .getByRole("dialog", { name: "Conversation", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page
       .getByRole("button", { name: "Commands & skills", exact: true })
       .click();
     await expect(page.getByRole("button", { name: /\/inspect/ })).toBeVisible();
@@ -359,6 +383,10 @@ try {
       window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect(page.getByText("1 of 1 complete")).toBeVisible();
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
     await expect(page.getByText("Exit code: 0")).toBeVisible();
     await page.reload();
     await expect(page.getByText("1 of 1 complete")).toBeVisible();

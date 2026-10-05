@@ -76,7 +76,7 @@ async function cut() {
     page.getByRole("status").filter({ hasText: "Reconnecting" }),
   ).toBeVisible();
 }
-async function createAgent(name, provider, connection, prompt) {
+async function createAgent(name, provider, connection, prompt, beforeCreate) {
   await page
     .getByRole("button", { name: /^(Create your first agent|New agent)$/ })
     .first()
@@ -92,9 +92,13 @@ async function createAgent(name, provider, connection, prompt) {
       path: `${evidence}/selection-${name}.png`,
       fullPage: true,
     });
-  await dialog
-    .getByRole("button", { name: "Create & start", exact: true })
-    .click();
+  const create = dialog.getByRole("button", {
+    name: "Create & start",
+    exact: true,
+  });
+  await expect(create).toBeEnabled();
+  await beforeCreate?.();
+  await create.click();
   await expect(dialog).toBeHidden();
   await expect.poll(() => runFor(name)?.conversation_id).toBeTruthy();
   const run = runFor(name);
@@ -273,9 +277,17 @@ try {
         .getByRole("region", { name: "Plan", exact: true })
         .getByText(missedText, { exact: true }),
     ).toBeVisible();
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
     await expect(
       page.locator("summary").filter({ hasText: missedText }),
     ).toHaveCount(1);
+    await page
+      .getByRole("dialog", { name: "Tool activity", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", {
         name: "Approve browser fixture",
@@ -354,9 +366,17 @@ try {
     await expect(
       page.getByRole("region", { name: "Plan", exact: true }),
     ).toHaveCount(1);
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
     await expect(
       page.locator("summary").filter({ hasText: "Recovered work complete" }),
     ).toHaveCount(1);
+    await page
+      .getByRole("dialog", { name: "Tool activity", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     assert.deepEqual(
       rows(
         "SELECT activity_key FROM agent_activities WHERE conversation_id=?",
@@ -403,13 +423,14 @@ try {
       fullPage: true,
     });
     await closeConversation();
-    // Production setup error: a saved connection whose desktop registration is absent.
-    db.prepare("DELETE FROM harnesses WHERE name='acp'").run();
+    // Lose registration after model discovery, before dispatch. The creation UI
+    // now blocks an already-missing harness before a user can start any work.
     await createAgent(
       `missing-${width}`,
       "ACP agent",
       "native-acp",
       "missing setup",
+      () => db.prepare("DELETE FROM harnesses WHERE name='acp'").run(),
     );
     await expect(
       page.getByRole("status").filter({
@@ -430,17 +451,18 @@ try {
     const savedOptions = db
       .prepare("SELECT options FROM harnesses WHERE name='acp'")
       .get().options;
-    db.prepare("UPDATE harnesses SET options=? WHERE name='acp'").run(
-      JSON.stringify({
-        ...JSON.parse(savedOptions),
-        executable: join(dir, "missing-acp-executable"),
-      }),
-    );
     await createAgent(
       `broken-${width}`,
       "ACP agent",
       "native-acp",
       "broken executable",
+      () =>
+        db.prepare("UPDATE harnesses SET options=? WHERE name='acp'").run(
+          JSON.stringify({
+            ...JSON.parse(savedOptions),
+            executable: join(dir, "missing-acp-executable"),
+          }),
+        ),
     );
     await expect.poll(() => runFor(`broken-${width}`)?.state).toBe("failed");
     const setupError = runFor(`broken-${width}`).error;

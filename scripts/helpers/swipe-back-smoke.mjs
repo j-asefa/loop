@@ -211,8 +211,12 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
         .click();
       await expect(page.locator(".profile-head h1")).toBeVisible();
       const cards = page.locator(".feed-card:not(.inbox-card)");
-      await cards.first().waitFor();
-      const cardCount = await cards.count();
+      // A profile refresh can replace the first render between waitFor and
+      // count. Capture a positive count atomically with the readiness check.
+      let cardCount = 0;
+      await expect
+        .poll(async () => (cardCount = await cards.count()))
+        .toBeGreaterThan(0);
       const archived = await cards.first().locator("h2").first().textContent();
       await swipe(cards.first().locator(".card-byline .identity"));
       await expect(page.locator(".profile-head h1")).toBeVisible();

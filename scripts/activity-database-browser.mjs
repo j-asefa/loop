@@ -359,7 +359,7 @@ try {
     // Raw calls/output stay out of the transcript, but remain inspectable.
     await page.getByLabel("Conversation options").click();
     await page
-      .getByRole("button", { name: "Tool activity", exact: true })
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
       .click();
     const toolSheet = page.getByRole("dialog", {
       name: "Tool activity",
@@ -400,7 +400,10 @@ try {
     await expect(page.getByLabel("Session label")).toHaveValue("Original");
     assert.equal(writes, 0);
     await page.keyboard.press("Escape");
-    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("dialog", { name: "Conversation", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await page.request.post(base + "/api/fixture", {
       data: { complete: true },
     });
@@ -428,6 +431,10 @@ try {
     ).toHaveCount(0);
     assert.equal(writes, 2);
     await page.keyboard.press("Escape");
+    await page
+      .getByRole("dialog", { name: "Conversation", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Commands & skills", exact: true })
       .click();
@@ -465,7 +472,7 @@ try {
     await expect(page.locator(".messages")).not.toContainText("Broker fixture");
     await page.getByLabel("Conversation options").click();
     await page
-      .getByRole("button", { name: "Tool activity", exact: true })
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
       .click();
     await expect(
       page.locator("summary").filter({ hasText: "Broker fixture" }),

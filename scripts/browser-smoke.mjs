@@ -147,12 +147,11 @@ try {
   });
   await searchField.fill("bids");
   await searchField.press("Enter");
-  await page
-    .getByText("Keyword search")
-    .first()
-    .waitFor({ timeout: 1500 })
-    .catch(() => {});
-  assert.ok((await page.locator(".search-result").count()) >= 1);
+  // Search may still be loading when the optional keyword notice is absent.
+  // Wait for the result itself before inspecting or opening it.
+  await expect(page.locator(".search-result").first()).toBeVisible({
+    timeout: 15000,
+  });
   await page
     .locator(".search-result")
     .first()

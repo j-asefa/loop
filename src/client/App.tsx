@@ -1686,6 +1686,12 @@ export default function App() {
               </label>
               <button
                 className="composer-collapse text-button"
+                onPointerDown={(event) => {
+                  // Keep the keyboard layout until the click; an early blur
+                  // can move Minimize away from mouseup in mobile WebKit.
+                  if (event.pointerType === "mouse" && event.button === 0)
+                    event.preventDefault();
+                }}
                 onClick={collapseComposer}
                 aria-label="Collapse composer"
               >

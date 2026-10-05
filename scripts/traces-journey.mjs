@@ -193,9 +193,12 @@ export async function tracesJourney(page, api, base, dir) {
           time,
         );
     })();
-    await page.goto(base);
-    // Running cards became Feed thread cards under the "Working" filter.
-    await page.getByRole("tab", { name: /^Working/ }).click();
+    // Bootstrap and summary counts can move the filters during initial load.
+    // Select Working after that layout settles, then verify the selection.
+    await page.goto(base, { waitUntil: "networkidle" });
+    const working = page.getByRole("tab", { name: /^Working/ });
+    await working.click();
+    await expect(working).toHaveAttribute("aria-selected", "true");
     const card = page
       .locator(".inbox-card")
       .filter({ hasText: "Trace browser task" });

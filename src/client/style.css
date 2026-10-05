@@ -3706,6 +3706,8 @@ fieldset {
   margin: 4px 0 8px;
   overscroll-behavior: contain;
   overflow-x: hidden;
+  /* Keep message actions outside WebKit's overlay scrollbar hit area. */
+  padding-inline-end: 16px;
   margin-top: 0;
 }
 .conversation-sheet .message-actions {
@@ -6755,6 +6757,7 @@ details > summary {
   margin: 8px 0;
   font-size: 13px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 /* Thread position: back to where I was, resumed, latest. */
@@ -6775,6 +6778,7 @@ details > summary {
   font-size: 13px;
 }
 .thread-return .text-button {
+  flex-shrink: 0;
   min-height: 40px;
   padding: 6px 10px;
   gap: 6px;
@@ -6788,9 +6792,10 @@ details > summary {
   min-height: 40px;
 }
 .thread-return-note {
+  min-width: 0;
   padding: 0 8px;
   color: var(--muted);
-  white-space: nowrap;
+  white-space: normal;
 }
 .queued-controls {
   flex-wrap: wrap;

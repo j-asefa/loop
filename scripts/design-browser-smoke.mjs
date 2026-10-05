@@ -18,14 +18,15 @@ import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
 import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
+import { threadLayoutSmoke } from "./helpers/thread-layout-smoke.mjs";
 
-const fixture = await designFixture();
 const screenshots =
   process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
   (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
 if (screenshots) mkdirSync(screenshots, { recursive: true });
-try {
-  for (const engine of selectedEngines()) {
+for (const engine of selectedEngines()) {
+  const fixture = await designFixture();
+  try {
     const browser = await engine.launch({
       headless: true,
       executablePath:
@@ -42,11 +43,18 @@ try {
     const page = await context.newPage();
     page.setDefaultTimeout(8000);
     const errors = [];
+    // Some journeys use their own fixture server. Keep its origin while
+    // navigating to about:blank so interrupted reads are recognized too.
+    let documentOrigin = fixture.base;
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame() && /^https?:/.test(frame.url()))
+        documentOrigin = new URL(frame.url()).origin;
+    });
     page.on("pageerror", (error) => {
       // WebKit reports a same-origin fetch interrupted by page navigation as
       // an access-control page error. The app handles the rejected request;
       // this browser-only message does not indicate a failed API response.
-      if (isWebKitNavigationFetchError(engine.name(), error, fixture.base))
+      if (isWebKitNavigationFetchError(engine.name(), error, documentOrigin))
         return;
       errors.push(error.message);
       console.error(
@@ -878,12 +886,13 @@ try {
       await resultFilesSmoke(page, fixture, capture);
       await profileWorkSmoke(page, capture);
       await conversationLiveSmoke(page, capture);
+      await threadLayoutSmoke(page, capture);
       assert.deepEqual(errors, [], "Unexpected browser errors");
       console.log(`${engine.name()}: design regressions passed`);
     } finally {
       await browser.close();
     }
+  } finally {
+    await fixture.close();
   }
-} finally {
-  await fixture.close();
 }

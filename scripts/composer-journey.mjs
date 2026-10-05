@@ -154,7 +154,16 @@ export async function composerJourney(page, api) {
     });
     // iOS can leave visualViewport at its old keyboard height after blur.
     // Closing the composer must restore the dock and navigation without resize.
-    await page.getByRole("button", { name: "Collapse composer" }).click();
+    const minimize = page.getByRole("button", { name: "Collapse composer" });
+    const minimizeBounds = await minimize.boundingBox();
+    await page.mouse.move(
+      minimizeBounds.x + minimizeBounds.width / 2,
+      minimizeBounds.y + minimizeBounds.height / 2,
+    );
+    await page.mouse.down();
+    await expect(page.getByLabel("Message your agent")).toBeFocused();
+    await page.mouse.up();
+    await expect(openComposer).toBeVisible();
     await expect(page.locator(".mobile-nav")).toBeVisible();
     const dock = await page.locator(".composer-dock").boundingBox();
     const nav = await page.locator(".mobile-nav").boundingBox();
@@ -206,15 +215,10 @@ export async function composerJourney(page, api) {
         "The picker is anchored to the screen, not the dismissed keyboard",
       );
       await sheet.getByRole("button", { name: "Close", exact: true }).click();
-      // Closing the picker returns focus to the composer, which can move the
-      // dock as WebKit settles; tap Minimize again if that tap was lost.
-      await expect(async () => {
-        if (!(await openComposer.isVisible()))
-          await page
-            .getByRole("button", { name: "Collapse composer" })
-            .click({ timeout: 2000 });
-        await expect(openComposer).toBeVisible({ timeout: 1000 });
-      }).toPass({ timeout: 15000 });
+      // Closing the picker restores prompt focus. One click still minimizes.
+      if (!(await openComposer.isVisible()))
+        await page.getByRole("button", { name: "Collapse composer" }).click();
+      await expect(openComposer).toBeVisible();
       await expect(page.locator(".mobile-nav")).toBeVisible();
     }
     // Zooming shrinks the visual viewport too, but must not raise the composer.
@@ -278,7 +282,9 @@ export async function composerJourney(page, api) {
     await expect(page.getByLabel("Message your agent")).toHaveValue(
       "Keep this draft while I choose a team.",
     );
-    await page.getByRole("button", { name: "Collapse composer" }).click();
+    // Touch must retain its normal pointer behavior and produce a click too.
+    await page.getByRole("button", { name: "Collapse composer" }).tap();
+    await expect(openComposer).toBeVisible();
   }
   console.log(
     "PASS: searchable, scroll-contained team selection; compact multi-team summary; 44px composer controls; phone layouts in both themes; simulated keyboard inset; focus restoration and draft preservation.",
