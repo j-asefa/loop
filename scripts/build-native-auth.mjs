@@ -42,6 +42,12 @@ export async function buildNativeAuth(
     format: "esm",
     target: "node22",
   });
+  await build({
+    absWorkingDir: root,
+    entryPoints: ["src/harness-upgrades.ts"],
+    outfile: join(outdir, "harness-upgrades.mjs"),
+    bundle: true, platform: "node", format: "esm", target: "node22",
+  });
   return result.metafile;
 }
 if (

@@ -1,3 +1,4 @@
+import { HarnessUpgrades } from "./generated/harness-upgrades.mjs";
 import https from "node:https";
 import { runtimeInventory } from "./runtime-inventory.mjs";
 import http from "node:http";
@@ -37,6 +38,7 @@ const settings = JSON.parse(
 );
 const launchDir = process.env.LOOP_LAUNCH_DIR;
 mkdirSync(launchDir, { recursive: true, mode: 0o700 });
+const upgrades = new HarnessUpgrades(join(launchDir, "maintenance", "harness-upgrades.json"));
 const root = realpathSync(process.env.LOOP_PROJECT_ROOT);
 const generation = Number(process.env.LOOP_ENVIRONMENT_GENERATION);
 const credential = readFileSync(settings.credentialFile, "utf8").trim();
@@ -251,6 +253,7 @@ const server = https.createServer(
       }
       if (req.url?.startsWith("/login/")) {
         if (req.method !== "POST") throw new Error("Sign-in requires POST");
+        if (req.url === "/login/start" && upgrades.busy(data.flavor)) throw new Error("Wait for the runtime upgrade to finish before signing in.");
         res.end(JSON.stringify(await logins.request(req.url.slice(7), data)));
         return;
       }
@@ -282,6 +285,39 @@ const server = https.createServer(
       }
       if (data.generation !== generation)
         throw new Error("Fenced environment generation");
+      if (req.url === "/runtime/upgrade") {
+        const flavor = validFlavor(data.flavor);
+        if (req.method !== "POST") throw new Error("Upgrade requires POST");
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.commandId)) throw new Error("Invalid upgrade identity");
+        const previous = upgrades.operation(flavor, data.commandId);
+        if (previous) { res.end(JSON.stringify({ upgrade: previous })); return; }
+        if (flavor === "opencode") throw new Error("Managed OpenCode uses Loop’s guarded build. Update Loop and restart the workspace to update this runtime.");
+        // Hold the runtime across the sign-in check so /prepare cannot start a
+        // session in between; the upgrade takes over the hold in the same tick.
+        const release = upgrades.reserve(flavor);
+        try {
+          const login = await logins.request("status", { flavor });
+          if (["starting", "waiting"].includes(login.state)) throw new Error("Finish or cancel sign-in before upgrading.");
+          release();
+          res.end(JSON.stringify({ upgrade: upgrades.start(flavor, binary(flavor), data.commandId, env()) }));
+        } finally {
+          release();
+        }
+        return;
+      }
+      if (req.url === "/runtime/upgrade/dismiss") {
+        upgrades.dismiss(validFlavor(data.flavor));
+        res.end(JSON.stringify({ upgrade: null }));
+        return;
+      }
+      if (req.url === "/runtime/upgrade/status") {
+        const flavor = validFlavor(data.flavor);
+        const availability = flavor === "opencode"
+          ? { canUpgrade: false, upgradeHelp: "Managed OpenCode uses Loop’s guarded build. Update Loop and restart the workspace to update this runtime." }
+          : upgrades.availability(flavor, binary(flavor));
+        res.end(JSON.stringify({ upgrade: upgrades.status(flavor), ...availability }));
+        return;
+      }
       if (req.url === "/project/verify") {
         const path = realpathSync(data.path),
           sub = relative(root, path);
@@ -357,7 +393,7 @@ const server = https.createServer(
         throw new Error("Invalid launch identity");
       const file = join(launchDir, data.launchId + ".json");
       if (req.url === "/prepare") {
-        validFlavor(data.flavor);
+        if (upgrades.busy(validFlavor(data.flavor))) throw new Error("Wait for the runtime upgrade to finish before starting a session.");
         const directory = realpathSync(data.directory),
           sub = relative(root, directory);
         if (sub.startsWith("..") || sub.startsWith("/"))

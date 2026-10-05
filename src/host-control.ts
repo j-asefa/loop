@@ -1,6 +1,6 @@
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import { access, realpath, readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
@@ -45,7 +45,7 @@ export async function discover(name: Harness, explicit?: string) {
     : (process.env.PATH ?? "").split(delimiter).map((p) => join(p, name))) {
     try {
       await access(candidate, constants.X_OK);
-      executable = await realpath(candidate);
+      executable = resolve(candidate);
       break;
     } catch {
       /* next PATH entry */
@@ -70,7 +70,7 @@ export async function discover(name: Harness, explicit?: string) {
       supported,
       help: supported
         ? ""
-        : `Requires a stable ${name} version >= ${minimumVersions[name]}. ${version ? `Found ${version}.` : "Could not read its version."} Install/check it at ${install[name]}; Loop never upgrades your harness.`,
+        : `Requires a stable ${name} version >= ${minimumVersions[name]}. ${version ? `Found ${version}.` : "Could not read its version."} Install/check it at ${install[name]}.`,
     };
   } catch {
     return {

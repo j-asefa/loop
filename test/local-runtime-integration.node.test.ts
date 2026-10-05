@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile, mkdir, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { LocalRuntime } from "../src/local-runtime.js";
 
 test("native launcher provisions a real mTLS worker, isolated HAPI identity and provider connection", async () => {
@@ -95,6 +96,19 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
       ).canonical_path,
       project,
     );
+    const { workerRequest, environment: resolveEnvironment } = await import("../src/server/hapi/environments.js");
+    const controlledEnvironment = resolveEnvironment(environment.owner_id, environment.host_id);
+    const upgradeStatus = await workerRequest(controlledEnvironment, "/runtime/upgrade/status", {
+      flavor: "claude", generation: environment.generation,
+    });
+    assert.equal(upgradeStatus.upgrade, null);
+    assert.equal(upgradeStatus.canUpgrade, false, "custom fixture installation must not be replaced");
+    await assert.rejects(workerRequest(controlledEnvironment, "/runtime/upgrade", {
+      flavor: "claude", generation: environment.generation + 1, commandId: randomUUID(),
+    }), /could not be verified/);
+    await assert.rejects(workerRequest(controlledEnvironment, "/runtime/upgrade", {
+      flavor: "claude", generation: environment.generation, commandId: randomUUID(),
+    }), /could not be verified/);
     // A client lacking this workspace's TLS identity cannot reach control APIs.
     await assert.rejects(fetch(environment.url + "/status"));
   } finally {

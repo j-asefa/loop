@@ -5,7 +5,6 @@ import {
   existsSync,
   readFileSync,
   writeFileSync,
-  copyFileSync,
 } from "node:fs";
 import { join, resolve, dirname, delimiter } from "node:path";
 import { homedir } from "node:os";
@@ -18,6 +17,7 @@ import {
   createHash,
 } from "node:crypto";
 import { atomic, privateDir } from "./state.js";
+import { nativeHelperInstall } from "./harness-upgrades.js";
 import { own, killOwned } from "./processes.js";
 import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
 // @ts-expect-error Shipped plain-Node provisioning utility.
@@ -243,12 +243,11 @@ export class LocalRuntime {
       ) {
         const directory = join(this.root, "helpers", "native");
         privateDir(directory);
-        for (const file of ["package.json", "package-lock.json"])
-          copyFileSync(
-            join(packageRoot, "deployment/native", file),
-            join(directory, file),
-          );
-        await run("npm", ["ci", "--omit=dev"], directory);
+        await run(
+          "npm",
+          nativeHelperInstall(directory, join(packageRoot, "deployment/native")),
+          directory,
+        );
         for (const provider of this.selection.providers.filter(
           (p) => !unavailable.has(p),
         ))

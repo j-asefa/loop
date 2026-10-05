@@ -1,3 +1,4 @@
+import { harnessUpgrades } from "./harness-upgrades.js";
 import { selectedContext } from "./carried-context.js";
 import { NativeOutput } from "./native-output.js";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
@@ -649,6 +650,7 @@ export class NativeSessions {
     return JSON.parse(row.options);
   }
   enable(options: Options) {
+    if (harnessUpgrades.busy(options.harness)) throw new Problem(409, "Wait for the runtime upgrade to finish before enabling a runtime.");
     const pending = this.enabling.get(options.harness);
     if (pending)
       throw new Problem(
@@ -682,7 +684,7 @@ export class NativeSessions {
     }
     options = {
       harness: options.harness,
-      executable: realpathSync(options.executable),
+      executable: options.harness === "acp" ? realpathSync(options.executable) : resolve(options.executable),
       version: options.version,
       project: this.directory(options.project),
       billing: options.billing,
@@ -1367,6 +1369,19 @@ export class NativeSessions {
     live.items.dirty.clear();
   }
   async execute(run: Run) {
+    // The run is already claimed, so an upgrade that holds this harness
+    // afterwards sees it as active; one that held it first is refused here.
+    // A missing connection is reported by session() below.
+    const connection = db
+      .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
+      .get((JSON.parse(run.payload) as Snapshot).connectionId, run.owner_id) as
+      | { metadata: string }
+      | undefined;
+    if (
+      connection &&
+      harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness)
+    )
+      throw new Problem(409, "Wait for the runtime upgrade to finish before starting a run.");
     if (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id))
       throw new Problem(
         409,

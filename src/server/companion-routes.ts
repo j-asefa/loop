@@ -1,5 +1,7 @@
 import { enableManagedWorkspace, managedWorkspaceInventory } from "./managed-workspace.js";
 import { runtimeSetupState } from "../runtime-setup.js";
+import { upgradeLauncher } from "../harness-upgrades.js";
+import { harnessUpgrades as upgrades } from "./harness-upgrades.js";
 import { discover } from "../host-control.js";
 import { hostname } from "node:os";
 import { nativeHistory } from "./native-history.js";
@@ -58,6 +60,7 @@ companion.post("/workspace/runtimes/:name/auth/start", async (req, res) => {
     })
     .strict()
     .parse(req.body);
+  if (upgrades.busy(req.params.name)) throw new Problem(409, "Wait for the runtime upgrade to finish before signing in.");
   const options = await authOptions(
     authHarness.parse(req.params.name),
     body.projectId,
@@ -148,6 +151,56 @@ companion.get("/workspace/runtimes", async (_req, res) => {
     setup: runtimeSetupState(),
     runtimes,
   });
+});
+companion.get("/workspace/runtimes/:name/upgrade", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const name = authHarness.parse(req.params.name);
+  const saved = nativeSessions.registrations().some((r) => r.name === name) ? nativeSessions.registration(name) : undefined;
+  const probe = await discover(name, saved?.executable);
+  res.json({ upgrade: upgrades.status(name), ...(probe.installed ? upgrades.availability(name, probe.executable!) : { canUpgrade: false, upgradeHelp: "Install this runtime on the computer first." }) });
+});
+companion.post("/workspace/runtimes/:name/upgrade", async (req, res) => {
+  const name = authHarness.parse(req.params.name);
+  const { commandId } = z.object({ commandId: z.string().uuid() }).strict().parse(req.body);
+  let release: () => void;
+  try {
+    const previous = upgrades.operation(name, commandId);
+    if (previous) { res.json({ upgrade: previous }); return; }
+    // Hold the harness before checking for runs: run start checks the same
+    // hold, so a run cannot begin between this check and the upgrade.
+    release = upgrades.reserve(name);
+  } catch (error) { throw new Problem(409, (error as Error).message); }
+  try {
+    if (nativeSignIns.inProgress(name)) throw new Problem(409, "Finish or cancel sign-in before upgrading.");
+    if (db.prepare("SELECT 1 FROM runs WHERE owner_id=? AND state IN ('running','pausing','awaiting_approval') LIMIT 1").get(OWNER))
+      throw new Problem(409, "Finish or cancel active runs before upgrading runtimes.");
+    const managed = await managedWorkspaceInventory(OWNER);
+    if (managed?.some((r) => r.name === name))
+      throw new Problem(409, "Upgrade this runtime from its execution environment controls.");
+    const saved = nativeSessions.registrations().some((r) => r.name === name) ? nativeSessions.registration(name) : undefined;
+    const probe = await discover(name, saved?.executable);
+    if (!probe.installed) throw new Problem(409, "Install this runtime on the computer first.");
+    let executable: string, upgrade: ReturnType<typeof upgrades.start>;
+    try {
+      executable = upgradeLauncher(name, probe.executable!);
+      // Hand the hold to the upgrade in the same tick.
+      release();
+      upgrade = upgrades.start(name, executable, commandId);
+    } catch (error) { throw new Problem(409, (error as Error).message); }
+    if (saved && saved.executable !== executable)
+      db.prepare("UPDATE harnesses SET options=? WHERE name=?").run(JSON.stringify({ ...saved, executable }), name);
+    res.json({ upgrade });
+  } finally {
+    release();
+  }
+});
+// Clears a finished upgrade outcome; retry is a new upgrade request.
+companion.delete("/workspace/runtimes/:name/upgrade", (req, res) => {
+  const name = authHarness.parse(req.params.name);
+  try {
+    upgrades.dismiss(name);
+  } catch (error) { throw new Problem(409, (error as Error).message); }
+  res.json({ upgrade: null });
 });
 companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
   const name = z

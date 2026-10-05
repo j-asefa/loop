@@ -5,6 +5,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { runtimeAuthScope } from "../shared/runtime-auth-scope";
+import { HarnessUpgrade } from "./HarnessUpgrade";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
@@ -287,6 +288,15 @@ export function RuntimeSetup({
                           : "Not installed"}
               </span>
             </p>
+            {runtime.version && <p className="note">Version {runtime.version}</p>}
+            <HarnessUpgrade
+              base={runtime.backend === "hapi"
+                ? `/environments/${runtime.environmentId}/runtimes/${runtime.name}/upgrade`
+                : `/workspace/runtimes/${runtime.name}/upgrade`}
+              label={label} generation={runtime.backend === "hapi" ? runtime.generation : undefined}
+              disabled={busy || settingUp || authenticating || !!signingIn || !runtime.installed}
+              onComplete={() => { void refresh().catch((e) => setError(e.message)); }}
+            />
             {!runtime.available && <p>{runtime.help}</p>}
             {(runtime.enabled || runtime.backend === "hapi") && (
               <p className="note">

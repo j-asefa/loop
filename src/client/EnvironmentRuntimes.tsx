@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { HarnessUpgrade } from "./HarnessUpgrade";
 import { api } from "./api";
 
 export function managedRuntimeName(flavor: string) {
@@ -112,6 +113,9 @@ function RuntimeCard({ environment }: { environment: Environment }) {
                 ? "Sign-in required"
                 : "Sign-in unknown"}
           </p>
+          <HarnessUpgrade base={`/environments/${environment.id}/runtimes/${runtime.flavor}/upgrade`}
+            label={managedRuntimeName(runtime.flavor)} generation={environment.generation}
+            disabled={!runtime.installed || environment.state !== "online" || !!environment.revoked_at} />
           <p>Billing policy: {runtime.billing}</p>
           <small>
             Checked {new Date(runtime.checkedAt).toLocaleString()}.

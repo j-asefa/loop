@@ -18,6 +18,7 @@ import {
 } from "./environments.js";
 import { sessionFor, reconcile } from "./adapter.js";
 import { enabled } from "../memory.js";
+import { environmentUpgrades } from "../harness-upgrades.js";
 import { artifactDownload, localArtifact } from "./artifact-storage.js";
 import { sendHtmlPreview } from "../file-preview.js";
 export const executionRoutes = Router();
@@ -34,6 +35,34 @@ executionRoutes.get("/environments/:id/runtimes", async (req, res) => {
   const e = environment(res.locals.owner, req.params.id);
   res.setHeader("Cache-Control", "no-store");
   res.json(await workerRequest(e, "/runtimes"));
+});
+executionRoutes.post("/environments/:id/runtimes/:flavor/upgrade", async (req, res) => {
+  const e = environment(res.locals.owner, req.params.id);
+  const body = z.object({ commandId: z.string().uuid(), generation: z.number().int() }).strict().parse(req.body);
+  if (e.state !== "online" || body.generation !== e.generation) throw new Problem(409, "The execution environment changed. Refresh before upgrading.");
+  const flavor = nativeSelection.shape.flavor.parse(req.params.flavor);
+  // Hold the runtime before checking for runs; run dispatch checks the hold.
+  const key = e.host_id + ":" + flavor;
+  if (environmentUpgrades.has(key)) throw new Problem(409, "Another upgrade request for this runtime is in progress.");
+  environmentUpgrades.add(key);
+  try {
+    if (db.prepare("SELECT 1 FROM runs WHERE owner_id=? AND state IN ('running','pausing','awaiting_approval') LIMIT 1").get(res.locals.owner))
+      throw new Problem(409, "Finish or cancel active runs before upgrading runtimes.");
+    res.json(await workerRequest(e, "/runtime/upgrade", { ...body, flavor }));
+  } finally {
+    environmentUpgrades.delete(key);
+  }
+});
+executionRoutes.delete("/environments/:id/runtimes/:flavor/upgrade", async (req, res) => {
+  const e = environment(res.locals.owner, req.params.id);
+  const flavor = nativeSelection.shape.flavor.parse(req.params.flavor);
+  res.json(await workerRequest(e, "/runtime/upgrade/dismiss", { flavor, generation: e.generation }));
+});
+executionRoutes.get("/environments/:id/runtimes/:flavor/upgrade", async (req, res) => {
+  const e = environment(res.locals.owner, req.params.id);
+  const flavor = nativeSelection.shape.flavor.parse(req.params.flavor);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await workerRequest(e, "/runtime/upgrade/status", { flavor, generation: e.generation }));
 });
 executionRoutes.get("/environments/:id/subscription-usage", async (req, res) => {
   const e = environment(res.locals.owner, req.params.id);

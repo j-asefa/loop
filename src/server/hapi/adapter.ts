@@ -14,6 +14,7 @@ import {
   type NativeDispatch,
 } from "./contracts.js";
 import { environment, hub, workerRequest } from "./environments.js";
+import { environmentUpgrades } from "../harness-upgrades.js";
 import { InactiveSessionError } from "./client.js";
 import { attachedFiles, attachmentPrompt } from "../uploads.js";
 import { replyPrompt } from "../../shared/replies.js";
@@ -81,6 +82,10 @@ export async function executeHapi(run: Run): Promise<false> {
     await reconcile(s);
     return false;
   }
+  // The run is already claimed: an upgrade request checks active runs only
+  // after taking this hold, and the runner refuses sessions once it starts.
+  if (environmentUpgrades.has(e.host_id + ":" + s.flavor))
+    throw new Problem(409, "Wait for the runtime upgrade to finish before starting a run.");
   const mapping = db
     .prepare(
       "SELECT canonical_path FROM environment_projects WHERE environment_id=? AND project_id=?",

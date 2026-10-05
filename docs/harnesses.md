@@ -4,7 +4,7 @@ Build and optionally link the CLI as described in the [README](../README.md). Co
 
 ## Direct harnesses
 
-Install the harness on your computer. Complete its provider sign-in in Loop or in the native CLI. Loop discovers it on PATH or accepts `--executable PATH`. Direct adapters do not install or upgrade harnesses. `loop doctor --json` reports discovery and version compatibility.
+Install the harness on your computer. Complete its provider sign-in in Loop or in the native CLI. Loop discovers it on PATH or accepts `--executable PATH`. Direct adapters do not install missing harnesses. Installed harnesses can be upgraded from Loop’s runtime controls. `loop doctor --json` reports discovery and version compatibility.
 
 Run `loop start` in a project directory to start and pair the workspace before selecting a harness. In **New agent → Choose or enable a runtime on this computer**, choose the bound project and billing policy, enable the installed harness, then select its connection and model. `loop start` returns after startup; `loop pair` issues a fresh code for the running workspace. Runtime-specific commands below remain available as shortcuts. See [start and runtime selection](companion/START-PAIR.md) for behavior and compatibility.
 
@@ -25,7 +25,7 @@ Direct version checks in [src/host-control.ts](../src/host-control.ts) accept st
 | Pi          | 0.87.1          |
 | OpenCode    | 1.18.32         |
 
-This includes the latest stable releases and future updates without requiring a Loop release for each version. Prereleases, unreadable versions and older releases are rejected with installation guidance. Version admission does not certify every future release: adapter startup still checks its protocol and account/billing requirements. Loop does not upgrade installed harnesses. ACP uses protocol negotiation instead of a CLI version floor.
+This includes the latest stable releases and future updates without requiring a Loop release for each version. Prereleases, unreadable versions and older releases are rejected with installation guidance. Version admission does not certify every future release: adapter startup still checks its protocol and account/billing requirements. Upgrades are explicit; Loop never automatically upgrades installed harnesses. ACP uses protocol negotiation instead of a CLI version floor.
 
 Managed image pins in [deployment/versions.json](../deployment/versions.json) and the helper lockfile in [deployment/native](../deployment/native/) remain reproducible build inputs, separate from these compatibility ranges. The managed laptop launcher retains installed provider CLIs rather than replacing them with its bundled versions.
 
@@ -40,6 +40,20 @@ For a direct `loop pi` agent, **Settings → Pi customizations** shows Pi's conf
 Managed Pi agents started from plain `loop` use the same Pi customizations screen. Configuration, trust decisions, package operations, and prompt preview run in the selected HAPI execution environment, including Docker. Before a conversation exists, Loop probes Pi RPC in that environment for its resource catalog. Once a HAPI session exists, its reported commands and skills determine what is shown as active; Pi RPC supplies source metadata when available. HAPI does not currently report the active session's tool catalog, so managed tool inventory remains unavailable. Package changes apply to a new session; an existing HAPI Pi session does not reload automatically. If a project has multiple mapped environments or paths, select an agent bound to the intended project.
 
 Saved Codex desktop history read/fork and `loop codex --resume NATIVE_ID` retain the direct Codex adapter even when HAPI is the default. History discovery and forks require an enabled direct Codex connection; existing direct connections are preserved. The resume command is an explicit handoff after stopping the original owner and workspace; it is not takeover of an arbitrary live desktop process. Arbitrary `loop acp` executables also retain the direct ACP adapter.
+
+## Upgrade installed harnesses
+
+In **Settings → Provider connections → Connected harnesses**, choose **Upgrade** beside Codex, Pi, Claude Code or OpenCode. The same action appears in New agent’s runtime controls. Managed native runtimes also expose it under **Settings → Execution environments → Check installation and sign-in**.
+
+Loop detects the installation that owns the executable and updates only that harness: supported npm global installations use their existing prefix, Loop’s private native helpers update their private manifest and lockfile, Homebrew installations use their matching formula or cask, native Claude uses `claude update`, and direct OpenCode uses `opencode upgrade`. Custom/project-local installations require their own package manager on the computer. The installation must be writable by the workspace’s OS user; Loop never runs sudo. Finish or cancel active runs and sign-in before upgrading. While an upgrade runs, only that harness refuses new runs, sessions and sign-in. New sessions use the updated executable; refresh the runtime’s models before creating an agent. Existing chats retain their native context and billing policy.
+
+npm installations resolve the latest release first and install that exact version. Loop reports success only after the executable’s `--version` reaches that release (or, for other installers, is not older than before; an unchanged version is reported as already up to date). An installer error, a timeout (10 minutes) or a failed version check ends the operation as failed, and Loop makes one attempt to reinstall the version it replaced, reporting whether that rollback succeeded. Homebrew cannot reinstall a chosen earlier version, so it is not rolled back.
+
+Progress remains available after a phone reconnect. Each explicit click has an operation identity; repeating that request returns its recorded outcome. **Dismiss** clears a finished outcome; **Upgrade** again is a new operation. Loop never resumes, retries or rolls back an upgrade after a workspace/runner restart: on startup it re-probes the harness version and records the interrupted operation as complete or failed. If it failed, check the computer for a remaining package-manager process before upgrading again. Direct status is under `LOOP_DATA_DIR`; managed status is under the runner’s launch directory in `maintenance/`.
+
+Loop-shipped pins for the private native helpers are restored on every managed start, so a pin bumped by a Loop release reaches existing installations. A helper upgraded in the app is reapplied only while it is newer than the shipped pin; a newer shipped pin replaces it.
+
+Managed OpenCode retains Loop’s guarded, pinned build. Its controls explain that updating Loop and restarting the workspace updates that artifact; running the upstream self-upgrader would lose the subscription execution guard. Container image runtimes require rebuilding the image. These controls do not change image pins or turn a managed runtime into a direct one.
 
 ## Provider sign-in
 
