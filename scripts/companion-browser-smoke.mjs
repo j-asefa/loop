@@ -166,7 +166,7 @@ try {
     .locator(".inbox")
     .getByRole("tab", { name: /^Needs you/ })
     .click();
-  await page.getByRole("button", { name: "decline", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Decline", exact: true }).waitFor();
   await mkdir("test-results", { recursive: true });
   await page.screenshot({
     path: "test-results/mobile-workspace-running.png",
@@ -176,7 +176,7 @@ try {
     db.prepare("SELECT count(*) n FROM companion_sessions").get().n,
     3,
   );
-  await page.getByRole("button", { name: "decline", exact: true }).click();
+  await page.getByRole("button", { name: "Decline", exact: true }).click();
   // Native conversations open from the settings drawer.
   const nativeConversations = async () => {
     await page

@@ -314,7 +314,7 @@ try {
         r.url().endsWith(`/native/decisions/${decision.id}`) &&
         r.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "allow", exact: true }).click();
+    await page.getByRole("button", { name: "Allow", exact: true }).click();
     const response = await responsePromise;
     assert.equal(response.status(), 200);
     const receipt = response.request().postDataJSON();

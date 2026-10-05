@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { api, parse, clearAuthorization } from "./api";
 import { RichText } from "./components";
 import type { Request } from "../protocol";
+import { Check, X } from "lucide-react";
+import { SessionActivityControls } from "./SessionActivityControls";
+import { Tools } from "./Tools";
 
 export function WorkspaceConnection() {
   const [status, setStatus] = useState("Connecting to desktop…");
@@ -146,6 +149,7 @@ function DecisionCard({
     [error, setError] = useState(""),
     [done, setDone] = useState(false);
   const lock = useRef(false);
+  const [toolSettings, setToolSettings] = useState(false);
   async function answer(value: Record<string, unknown>) {
     if (lock.current) return;
     lock.current = true;
@@ -200,7 +204,14 @@ function DecisionCard({
           Open owning conversation
         </button>
       )}
-      <RichText content={detail || ""} />
+      <div
+        className="native-decision-detail"
+        role="region"
+        aria-label="Request details"
+        tabIndex={0}
+      >
+        <RichText content={detail || ""} />
+      </div>
       {structured?.command && (
         <details>
           <summary>Native request details</summary>
@@ -213,17 +224,58 @@ function DecisionCard({
           automatically.
         </p>
       ) : request.kind === "approval" ? (
-        <div className="project-actions">
-          {request.choices?.map((choice) => (
+        <>
+          <div
+            className="native-approval-actions"
+            role="group"
+            aria-label="Approval decision"
+          >
+            {request.choices?.map((choice) => {
+              const allow = ["allow", "accept", "once", "confirm"].includes(
+                choice,
+              );
+              const deny = ["deny", "reject", "decline", "cancel"].includes(
+                choice,
+              );
+              return (
+                <button
+                  key={choice}
+                  className={allow ? "primary" : "secondary"}
+                  data-decision={allow ? "allow" : deny ? "deny" : "other"}
+                  disabled={busy}
+                  onClick={() => void answer({ choice })}
+                >
+                  {allow ? (
+                    <Check size={20} aria-hidden="true" />
+                  ) : deny ? (
+                    <X size={20} aria-hidden="true" />
+                  ) : null}
+                  {choice.charAt(0).toUpperCase() + choice.slice(1)}
+                </button>
+              );
+            })}
+          </div>
+          <details className="native-approval-settings">
+            <summary>Fewer approval prompts</summary>
+            <p className="field-hint">
+              Native tools follow the harness’s permission mode, when available
+              in Session settings. Changes apply only after the harness confirms
+              them; this request still needs a decision.
+            </p>
+            <SessionActivityControls conversationId={item.conversation_id} />
+            <p className="field-hint">
+              Connected MCP tools have a separate workspace preference. Allow
+              connected tools skips repeated prompts for those tools, not native
+              shell or file permissions. GitHub merges still require approval.
+            </p>
             <button
-              key={choice}
-              disabled={busy}
-              onClick={() => void answer({ choice })}
+              className="text-button"
+              onClick={() => setToolSettings(true)}
             >
-              {choice}
+              Connected tool approvals
             </button>
-          ))}
-        </div>
+          </details>
+        </>
       ) : (
         <form
           onSubmit={(e) => {
@@ -281,6 +333,12 @@ function DecisionCard({
         <p className="error" role="alert">
           {error}
         </p>
+      )}
+      {toolSettings && (
+        <Tools
+          initialView="permissions"
+          onClose={() => setToolSettings(false)}
+        />
       )}
     </section>
   );

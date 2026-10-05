@@ -6209,7 +6209,7 @@ details > summary {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
 }
 .composer-dock.thread-mode .composer-actions {
@@ -7911,7 +7911,44 @@ html:has(.sheet.side-panel[open]) {
 }
 .pi-active-trigger {
   font-size: 0.76rem;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+.native-decision-detail {
+  max-height: 35dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+.native-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block: 16px;
+}
+.native-approval-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1 1 120px;
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 700;
+  border: 2px solid transparent;
+}
+.native-approval-actions button[data-decision="deny"] {
+  color: var(--text);
+  border-color: var(--muted);
+}
+.native-approval-settings summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.native-approval-settings .field-hint {
+  margin-block: 10px;
 }
 .quote-part-text {
   width: 100%;
