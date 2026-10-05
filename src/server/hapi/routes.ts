@@ -58,6 +58,14 @@ executionRoutes.delete("/environments/:id/runtimes/:flavor/upgrade", async (req,
   const flavor = nativeSelection.shape.flavor.parse(req.params.flavor);
   res.json(await workerRequest(e, "/runtime/upgrade/dismiss", { flavor, generation: e.generation }));
 });
+executionRoutes.post("/environments/:id/runtimes/:flavor/upgrade/recover", async (req, res) => {
+  const e = environment(res.locals.owner, req.params.id);
+  const body = z.object({ confirmedStopped: z.literal(true), commandId: z.string().uuid(), generation: z.number().int() }).strict().parse(req.body);
+  if (e.state !== 'online' || body.generation !== e.generation)
+    throw new Problem(409, 'The execution environment changed. Refresh before recovering.');
+  const flavor = nativeSelection.shape.flavor.parse(req.params.flavor);
+  res.json(await workerRequest(e, '/runtime/upgrade/recover', { ...body, flavor }));
+});
 executionRoutes.get("/environments/:id/runtimes/:flavor/upgrade", async (req, res) => {
   const e = environment(res.locals.owner, req.params.id);
   const flavor = nativeSelection.shape.flavor.parse(req.params.flavor);

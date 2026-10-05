@@ -1,4 +1,5 @@
 import { harnessUpgrades } from "./harness-upgrades.js";
+import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
 import { NativeOutput } from "./native-output.js";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
@@ -1381,7 +1382,7 @@ export class NativeSessions {
       connection &&
       harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness)
     )
-      throw new Problem(409, "Wait for the runtime upgrade to finish before starting a run.");
+      throw new RunDeferred("Wait for the runtime upgrade to finish before starting a run.");
     if (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id))
       throw new Problem(
         409,

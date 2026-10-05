@@ -210,6 +210,7 @@ const server = https.createServer(
             instanceId: settings.instanceId,
             gatewayUrl: settings.gatewayUrl,
             generation,
+            maintenance: ['codex', 'claude', 'pi', 'opencode'].filter((name) => upgrades.busy(name)),
             machineId,
             versions: {
               hapi: versions.hapi,
@@ -299,7 +300,7 @@ const server = https.createServer(
           const login = await logins.request("status", { flavor });
           if (["starting", "waiting"].includes(login.state)) throw new Error("Finish or cancel sign-in before upgrading.");
           release();
-          res.end(JSON.stringify({ upgrade: upgrades.start(flavor, binary(flavor), data.commandId, env()) }));
+          res.end(JSON.stringify({ upgrade: upgrades.start(flavor, binary(flavor), data.commandId, env(), { restartRequired: flavor === "codex" }) }));
         } finally {
           release();
         }
@@ -308,6 +309,13 @@ const server = https.createServer(
       if (req.url === "/runtime/upgrade/dismiss") {
         upgrades.dismiss(validFlavor(data.flavor));
         res.end(JSON.stringify({ upgrade: null }));
+        return;
+      }
+      if (req.url === "/runtime/upgrade/recover") {
+        if (req.method !== 'POST' || data.confirmedStopped !== true) throw new Error('Recovery requires confirmation');
+        const flavor = validFlavor(data.flavor);
+        upgrades.recover(flavor, data.commandId);
+        res.end(JSON.stringify({ upgrade: upgrades.status(flavor) }));
         return;
       }
       if (req.url === "/runtime/upgrade/status") {
@@ -393,7 +401,10 @@ const server = https.createServer(
         throw new Error("Invalid launch identity");
       const file = join(launchDir, data.launchId + ".json");
       if (req.url === "/prepare") {
-        if (upgrades.busy(validFlavor(data.flavor))) throw new Error("Wait for the runtime upgrade to finish before starting a session.");
+        if (upgrades.busy(validFlavor(data.flavor))) {
+          res.end(JSON.stringify({ deferred: "runtime-maintenance" }));
+          return;
+        }
         const directory = realpathSync(data.directory),
           sub = relative(root, directory);
         if (sub.startsWith("..") || sub.startsWith("/"))

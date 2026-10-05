@@ -18,14 +18,18 @@ export type UpgradeHarness = "codex" | "claude" | "pi" | "opencode";
 export type Upgrade = {
   commandId: string;
   name: UpgradeHarness;
-  state: "running" | "complete" | "failed";
+  state: "running" | "complete" | "failed" | "unconfirmed" | "restart-required";
   message: string;
   version?: string;
   previous?: string;
   target?: string;
 };
 // The executable stays on the computer; status responses never include it.
-type UpgradeRecord = Upgrade & { executable?: string; dismissed?: boolean };
+type UpgradeRecord = Upgrade & {
+  executable?: string;
+  dismissed?: boolean;
+  restartRequired?: boolean;
+};
 // Runs one command without a shell and returns its stdout. Tests inject a fake
 // so no test path can reach a real package manager.
 export type UpgradeRunner = (
@@ -219,15 +223,22 @@ export class HarnessUpgrades {
       ).stdout,
   ) {
     if (existsSync(file)) this.records = JSON.parse(readFileSync(file, "utf8"));
-    // "unknown" is the state an earlier build left after a restart.
+    // A version probe cannot prove an interrupted installer's children stopped.
+    for (const r of Object.values(this.records)) {
+      if (r.state === "running" || (r.state as string) === "unknown") {
+        r.state = "unconfirmed";
+        r.message = `The upgrade was interrupted. It was not retried or rolled back. Stop any remaining installer processes and check the installation on the computer, then confirm recovery in Loop.`;
+        this.save();
+      }
+    }
     const interrupted = Object.values(this.records).filter(
-      (r) => (r.state as string) === "running" || (r.state as string) === "unknown",
+      (r) => r.state === "restart-required",
     );
     for (const record of interrupted) this.reconciling.add(record.name);
     this.ready = this.reconcile(interrupted);
   }
-  // Never resume or replay an interrupted upgrade: re-probe the installation
-  // and record a terminal outcome so later runs and upgrades are not blocked.
+  // Only confirmed installs or explicitly recovered operations awaiting restart
+  // can be settled by probing the installation. Never replay an installer.
   private async reconcile(records: UpgradeRecord[]) {
     for (const record of records) {
       const version = record.executable
@@ -235,13 +246,13 @@ export class HarnessUpgrades {
         : undefined;
       const reached =
         !!version &&
-        (record.target
-          ? compareVersions(version, record.target) >= 0
-          : !!record.previous && compareVersions(version, record.previous) > 0);
+        (record.target || record.version
+          ? compareVersions(version, (record.target || record.version)!) >= 0
+          : true);
       record.version = version;
-      record.state = reached ? "complete" : "failed";
+      record.state = reached ? "complete" : "unconfirmed";
       record.message = reached
-        ? `Loop restarted during the upgrade; ${version} is installed. ${READY}`
+        ? `The workspace restarted; ${version} is installed. ${READY}`
         : `Loop restarted before the upgrade was confirmed${version ? `; ${version} is installed` : ""}. It was not retried or rolled back. Check the computer for a remaining package-manager process before upgrading again.`;
       this.reconciling.delete(record.name);
     }
@@ -268,8 +279,12 @@ export class HarnessUpgrades {
     }
   }
   private view(record: UpgradeRecord): Upgrade {
-    const { executable: _executable, dismissed: _dismissed, ...upgrade } =
-      record;
+    const {
+      executable: _executable,
+      dismissed: _dismissed,
+      restartRequired: _restartRequired,
+      ...upgrade
+    } = record;
     return upgrade;
   }
   private latest(name: string) {
@@ -279,13 +294,23 @@ export class HarnessUpgrades {
   }
   // Only the harness being upgraded (or confirmed after a restart) is held.
   busy(name: string) {
-    return (!!this.lock && this.lock.name === name) || this.reconciling.has(name);
+    const state = this.latest(name)?.state;
+    return (
+      (!!this.lock && this.lock.name === name) ||
+      this.reconciling.has(name) ||
+      state === "unconfirmed" ||
+      state === "restart-required"
+    );
   }
   // Holds a harness before callers check for active runs; run start checks
   // busy() for the same harness, so neither can begin in between. Release is
   // idempotent and never frees a later holder.
   reserve(name: UpgradeHarness) {
     if (this.lock) throw new Error("Another runtime upgrade is in progress.");
+    if (this.busy(name))
+      throw new Error(
+        "This runtime needs recovery or a workspace restart before upgrading again.",
+      );
     if (this.reconciling.size)
       throw new Error(
         "Loop is confirming an interrupted upgrade. Try again shortly.",
@@ -333,11 +358,32 @@ export class HarnessUpgrades {
       this.save();
     }
   }
+  // Explicit user recovery acknowledges the stopped installer; identities stay
+  // recorded so a reconnect cannot accidentally rerun the original operation.
+  recover(name: UpgradeHarness, commandId: string) {
+    const record = this.latest(name);
+    if (
+      this.lock?.name === name ||
+      record?.state !== "unconfirmed" ||
+      record.commandId !== commandId
+    )
+      throw new Error("Only an unconfirmed upgrade can be recovered.");
+    record.state = record.restartRequired ? "restart-required" : "failed";
+    record.message = record.restartRequired
+      ? "Recovery confirmed. Restart the workspace to replace the shared Codex app-server before running Codex again."
+      : "You confirmed that installer processes have stopped and the installation has been checked. No upgrade or rollback was replayed.";
+    if (record.restartRequired) {
+      // The user may have restored a previous installation during recovery.
+      record.target = record.version = undefined;
+    }
+    this.save();
+  }
   start(
     name: UpgradeHarness,
     executable: string,
     commandId: string,
     env: NodeJS.ProcessEnv = process.env,
+    options: { restartRequired?: boolean } = {},
   ) {
     const previous = this.operation(name, commandId);
     if (previous) return previous;
@@ -352,6 +398,7 @@ export class HarnessUpgrades {
         state: "running",
         message: "Upgrading runtime…",
         executable,
+        restartRequired: options.restartRequired,
       };
       this.records[commandId] = record;
       this.save();
@@ -362,8 +409,9 @@ export class HarnessUpgrades {
     // Never return raw installer output: it can contain configuration or tokens.
     void this.perform(record, plan, env)
       .catch(() => {
-        record.state = "failed";
-        record.message = `Upgrade could not be confirmed. ${CHECK}`;
+        record.state = "unconfirmed";
+        record.message =
+          "Upgrade could not be confirmed. Stop remaining installer processes and check the installation on the computer, then confirm recovery in Loop.";
       })
       .finally(() => {
         release();
@@ -415,9 +463,16 @@ export class HarnessUpgrades {
         timeout: 600000,
       });
     } catch (error) {
-      failure = (error as { killed?: boolean })?.killed
-        ? "the installer timed out and was stopped"
-        : "the installer reported an error";
+      if (
+        (error as { killed?: boolean; signal?: string })?.killed ||
+        (error as { signal?: string })?.signal
+      ) {
+        record.state = "unconfirmed";
+        record.message =
+          "The installer was interrupted. Its child processes may still be running, so no rollback was started. Stop remaining installer processes and check the installation on the computer, then confirm recovery in Loop.";
+        return;
+      }
+      failure = "the installer reported an error";
     }
     const version = await this.probe(executable, env);
     record.version = version;
@@ -429,11 +484,13 @@ export class HarnessUpgrades {
         failure = `${version} is older than the previous ${record.previous}`;
     }
     if (!failure) {
-      record.state = "complete";
+      record.state = record.restartRequired ? "restart-required" : "complete";
       record.message =
         version === record.previous
           ? `Already up to date: ${version} is installed.`
           : `Upgraded ${record.previous ? `from ${record.previous} ` : ""}to ${version}. ${READY}`;
+      if (record.restartRequired)
+        record.message = `${version} is installed. Restart the workspace to replace the shared Codex app-server before running Codex again. Queued prompts will wait.`;
       return;
     }
     record.state = "failed";
@@ -453,9 +510,17 @@ export class HarnessUpgrades {
     const back = versioned(record.name, plan, previous);
     if (!back)
       return `Homebrew cannot reinstall ${previous} automatically. ${CHECK}`;
-    await this.run(back.command, back.args, { env, timeout: 600000 }).catch(
-      () => undefined,
-    );
+    try {
+      await this.run(back.command, back.args, { env, timeout: 600000 });
+    } catch (error) {
+      if (
+        (error as { killed?: boolean; signal?: string })?.killed ||
+        (error as { signal?: string })?.signal
+      ) {
+        record.state = "unconfirmed";
+        return "Rollback was interrupted and may have surviving installer processes. Stop them and check the installation on the computer, then confirm recovery in Loop.";
+      }
+    }
     const version = await this.probe(record.executable!, env);
     record.version = version;
     return version === previous

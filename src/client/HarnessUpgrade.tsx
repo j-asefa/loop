@@ -23,6 +23,11 @@ export function HarnessUpgrade({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(0);
+  const [confirmedStopped, setConfirmedStopped] = useState(false);
+  useEffect(
+    () => setConfirmedStopped(false),
+    [base, generation, upgrade?.commandId],
+  );
   useEffect(() => {
     let current = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -65,6 +70,8 @@ export function HarnessUpgrade({
           sending ||
           upgrade === undefined ||
           upgrade?.state === "running" ||
+          upgrade?.state === "unconfirmed" ||
+          upgrade?.state === "restart-required" ||
           !!error
         }
         onClick={async () => {
@@ -94,7 +101,7 @@ export function HarnessUpgrade({
       {upgrade && (
         <p role="status">
           {upgrade.message}
-          {upgrade.state !== "running" && (
+          {(upgrade.state === "complete" || upgrade.state === "failed") && (
             <>
               {" "}
               <button
@@ -119,6 +126,45 @@ export function HarnessUpgrade({
             </>
           )}
         </p>
+      )}
+      {upgrade?.state === "unconfirmed" && (
+        <div>
+          <label>
+            <input
+              type="checkbox"
+              checked={confirmedStopped}
+              onChange={(e) => setConfirmedStopped(e.target.checked)}
+            />
+            I stopped remaining installer processes and checked this
+            installation on the computer.
+          </label>
+          <button
+            type="button"
+            disabled={!confirmedStopped || sending}
+            onClick={async () => {
+              setSending(true);
+              try {
+                const value = await api<{ upgrade: Upgrade }>(
+                  base + "/recover",
+                  {
+                    confirmedStopped: true,
+                    commandId: upgrade.commandId,
+                    ...(generation === undefined ? {} : { generation }),
+                  },
+                );
+                setUpgrade(value.upgrade);
+                setConfirmedStopped(false);
+                setError("");
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setSending(false);
+              }
+            }}
+          >
+            Confirm recovery
+          </button>
+        </div>
       )}
       {error && (
         <>

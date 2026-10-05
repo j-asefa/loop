@@ -10,7 +10,15 @@ import { db, emit, id, now } from "./db.js";
 import { executeImport } from "./imports.js";
 import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
-import { claim, recoverStale, transition, type Run } from "./queue.js";
+import {
+  claim,
+  deferUndispatched,
+  recoverStale,
+  transition,
+  type Run,
+} from "./queue.js";
+import { RunDeferred } from "./run-deferred.js";
+import { harnessUpgrades, environmentUpgrades } from "./harness-upgrades.js";
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 import {
   observeEnvironments,
@@ -36,7 +44,33 @@ export async function tick(
 ) {
   await closeFinishedSessions();
   recoverStale();
-  const run = claim(workerId);
+  const run = claim(workerId, (candidate) => {
+    const p = JSON.parse(candidate.payload);
+    if (p.execution?.backend === "hapi") {
+      if (
+        environmentUpgrades.has(
+          p.execution.environmentId + ":" + p.execution.flavor,
+        )
+      )
+        return false;
+      const e = db
+        .prepare(
+          "SELECT health,generation FROM execution_environments WHERE host_id=? AND owner_id=?",
+        )
+        .get(p.execution.environmentId, candidate.owner_id) as
+        { health: string; generation: number } | undefined;
+      const health = JSON.parse(e?.health || "{}");
+      return (
+        health.generation !== e?.generation ||
+        !health.maintenance?.includes(p.execution.flavor)
+      );
+    }
+    const c = db
+      .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
+      .get(p.connectionId || "", candidate.owner_id) as
+      { metadata: string } | undefined;
+    return !c || !harnessUpgrades.busy(JSON.parse(c.metadata).loopHarness);
+  });
   if (!run) return false;
   const heartbeat = setInterval(
     () =>
@@ -49,6 +83,8 @@ export async function tick(
     const complete = await execute(run);
     if (complete !== false) transition(run, "completed");
   } catch (error) {
+    if (error instanceof RunDeferred && deferUndispatched(run, workerId))
+      return true;
     const checkpoint = db
       .prepare("SELECT stage,round FROM agent_checkpoints WHERE run_id=?")
       .get(run.id) as { stage: string; round: number } | undefined;

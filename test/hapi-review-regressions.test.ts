@@ -23,7 +23,7 @@ vi.mock("../src/server/hapi/environments", async (original) => ({
   }),
 }));
 const { db, id, now } = await import("../src/server/db");
-const { provisionEnvironment } =
+const { provisionEnvironment, workerRequest } =
   await import("../src/server/hapi/environments");
 const { billingPolicy } = await import("../src/server/hapi/contracts");
 const {
@@ -114,6 +114,30 @@ afterAll(() => {
   server.close();
   db.close();
   rmSync(dir, { recursive: true, force: true });
+});
+
+it('defers a confirmed runner maintenance refusal without a spawn/send or uncertain receipt', async () => {
+  const { run } = fixture();
+  vi.mocked(workerRequest).mockResolvedValueOnce({ deferred:'runtime-maintenance' });
+  const request = vi.spyOn(HapiClient.prototype,'request');
+  await expect(executeHapi(run)).rejects.toThrow('held for maintenance');
+  expect(dispatchFor(run.id)).toBeUndefined();
+  expect(request).not.toHaveBeenCalled();
+});
+
+it('fences managed upgrade recovery by the environment generation and requires explicit confirmation', async () => {
+  const commandId = id();
+  const generation = (db.prepare('SELECT generation FROM execution_environments WHERE host_id=?').get(host) as any).generation;
+  db.prepare("UPDATE execution_environments SET state='online' WHERE host_id=?").run(host);
+  const path = `/environments/${host}/runtimes/codex/upgrade/recover`;
+  vi.mocked(workerRequest).mockClear();
+  expect((await api(path,'POST',{generation:generation+1,confirmedStopped:true,commandId})).status).toBe(409);
+  expect((await api(path,'POST',{generation,confirmedStopped:false,commandId})).status).toBe(500);
+  expect(workerRequest).not.toHaveBeenCalled();
+  expect((await api(path,'POST',{generation,confirmedStopped:true,commandId})).status).toBe(200);
+  expect(workerRequest).toHaveBeenCalledWith(expect.objectContaining({host_id:host}),'/runtime/upgrade/recover',{
+    generation,confirmedStopped:true,commandId,flavor:'codex',
+  });
 });
 
 it("defers inactive sends without taking a delivery lease and permits explicit resume", async () => {

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, mkdir, rm, readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, rm, readFile, symlink } from "node:fs/promises";
+import { createRequire } from 'node:module';
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -43,13 +44,38 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
     { mode: 0o755 },
   );
   const oldPath = process.env.PATH;
+  // A fixture shared Codex server keeps its startup version while a fake brew
+  // updates the executable's version, exercising the real runner upgrade route.
+  const codex = join(root, 'Cellar/codex/0.157.0/bin/codex');
+  const codexVersion = join(root,'codex-version');
+  const serverVersion = join(root,'server-version');
+  await mkdir(join(codex,'..'),{recursive:true});
+  await writeFile(codexVersion,'0.157.0');
+  await writeFile(codex, `#!/usr/bin/env node
+const fs=require('node:fs');
+const version=fs.readFileSync(${JSON.stringify(codexVersion)},'utf8');
+if(process.argv.includes('--version')) console.log(version);
+else {
+ fs.writeFileSync(${JSON.stringify(serverVersion)},version);
+ const {WebSocketServer}=require(${JSON.stringify(createRequire(import.meta.url).resolve('ws'))});
+ const port=Number(new URL(process.argv[process.argv.indexOf('--listen')+1]).port);
+ const server=new WebSocketServer({port,host:'127.0.0.1'});
+ server.on('connection',socket=>socket.on('message',raw=>{
+   const m=JSON.parse(raw); if(!m.id)return;
+   const result=m.method==='account/read'?{account:{type:'chatgpt'}}:m.method==='config/read'?{config:{forced_login_method:'chatgpt',model_provider:'openai'}}:m.method==='model/list'?{data:[{id:'fixture',model:'fixture'}]}:{};
+   socket.send(JSON.stringify({id:m.id,result}));
+ }));
+}
+`,{mode:0o755});
+  await symlink(codex,join(bin,'codex'));
+  await writeFile(join(bin,'brew'),`#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(codexVersion)},'0.160.0');\n`,{mode:0o755});
   process.env.PATH = bin + ":" + oldPath;
   process.env.LOOP_PROFILE = "companion";
   process.env.LOOP_DATA_DIR = join(root, "data");
   process.env.LOOP_MEMORY_ENABLED = "0";
   const runtime = new LocalRuntime(
     root,
-    { providers: ["claude", "opencode"], execution: "native", project },
+    { providers: ["codex", "claude", "opencode"], execution: "native", project },
     async () => hapi,
     async () => {
       throw new Error("fixture guarded build failed");
@@ -64,10 +90,10 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
     const settings = JSON.parse(
       await readFile(join(root, "managed", nativeDir, "worker.json"), "utf8"),
     );
-    assert.deepEqual(settings.providers, ["claude"]);
+    assert.deepEqual(settings.providers, ["codex", "claude"]);
     const result = await runtime.start();
     assert.match(result.billing.description, /native execution/);
-    assert.match(result.billing.description, /^claude · native execution/);
+    assert.match(result.billing.description, /^codex \+ claude · native execution/);
     assert.doesNotMatch(result.billing.description, /opencode/);
     assert.ok(Number(await readFile(join(project, "session.pid"), "utf8")) > 0);
     const { db } = await import("../src/server/db.js");
@@ -106,6 +132,29 @@ else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvide
     await assert.rejects(workerRequest(controlledEnvironment, "/runtime/upgrade", {
       flavor: "claude", generation: environment.generation + 1, commandId: randomUUID(),
     }), /could not be verified/);
+    const commandId = randomUUID();
+    await workerRequest(controlledEnvironment,'/runtime/upgrade',{
+      flavor:'codex',generation:environment.generation,commandId,
+    });
+    let codexUpgrade: any;
+    const deadline = Date.now()+5000;
+    do {
+      codexUpgrade = await workerRequest(controlledEnvironment,'/runtime/upgrade/status',{
+        flavor:'codex',generation:environment.generation,
+      });
+      if(codexUpgrade.upgrade.state === 'running') await new Promise(r=>setTimeout(r,20));
+    } while(codexUpgrade.upgrade.state === 'running' && Date.now()<deadline);
+    assert.equal(codexUpgrade.upgrade.state,'restart-required');
+    assert.equal(await readFile(serverVersion,'utf8'),'0.157.0','running shared server is still the old version');
+    assert.equal(await readFile(codexVersion,'utf8'),'0.160.0');
+    assert.deepEqual(await workerRequest(controlledEnvironment,'/prepare',{
+      flavor:'codex',generation:environment.generation,launchId:randomUUID(),
+    }),{deferred:'runtime-maintenance'});
+    const status = await workerRequest(controlledEnvironment,'/status');
+    assert.deepEqual(status.maintenance,['codex']);
+    assert.equal((await workerRequest(controlledEnvironment,'/runtime/upgrade',{
+      flavor:'codex',generation:environment.generation,commandId,
+    })).upgrade.state,'restart-required','reconnect does not re-run the installer');
     await assert.rejects(workerRequest(controlledEnvironment, "/runtime/upgrade", {
       flavor: "claude", generation: environment.generation, commandId: randomUUID(),
     }), /could not be verified/);

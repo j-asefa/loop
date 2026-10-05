@@ -202,6 +202,13 @@ companion.delete("/workspace/runtimes/:name/upgrade", (req, res) => {
   } catch (error) { throw new Problem(409, (error as Error).message); }
   res.json({ upgrade: null });
 });
+companion.post("/workspace/runtimes/:name/upgrade/recover", (req, res) => {
+  const name = authHarness.parse(req.params.name);
+  const { commandId } = z.object({ confirmedStopped: z.literal(true), commandId: z.string().uuid() }).strict().parse(req.body);
+  try { upgrades.recover(name, commandId); }
+  catch (error) { throw new Problem(409, (error as Error).message); }
+  res.json({ upgrade: upgrades.status(name) });
+});
 companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
   const name = z
     .enum(["codex", "claude", "pi", "opencode"])

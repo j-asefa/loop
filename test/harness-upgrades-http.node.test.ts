@@ -38,6 +38,11 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   process.env.npm_config_offline = "true";
   process.env.npm_config_registry = "http://127.0.0.1:9/";
   process.env.PATH = bin + ":" + oldPath;
+  const interruptedId = randomUUID();
+  mkdirSync(process.env.LOOP_DATA_DIR!, { recursive:true });
+  writeFileSync(join(process.env.LOOP_DATA_DIR!, 'harness-upgrades.json'), JSON.stringify({
+    [interruptedId]: {commandId:interruptedId,name:'opencode',state:'unconfirmed',message:'Interrupted'},
+  }));
   const { companion } = await import("../src/server/companion-routes.js");
   const { db } = await import("../src/server/db.js");
   const { harnessUpgrades } = await import("../src/server/harness-upgrades.js");
@@ -73,6 +78,14 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
       body: JSON.stringify(body),
     });
   const commandId = randomUUID();
+  assert.equal((await fetch(base).then(r=>r.json())).upgrade.state,'unconfirmed');
+  assert.equal((await post({confirmedStopped:false},base+'/recover')).status,400);
+  assert.equal((await post({},base+'/recover')).status,400);
+  assert.equal(harnessUpgrades.busy('opencode'),true);
+  assert.equal((await post({confirmedStopped:true,commandId:randomUUID()},base+'/recover')).status,409);
+  assert.equal((await post({confirmedStopped:true,commandId:interruptedId},base+'/recover')).status,200);
+  assert.equal(harnessUpgrades.busy('opencode'),false);
+  assert.equal(harnessUpgrades.operation('opencode',interruptedId)?.state,'failed');
   assert.equal(
     (await post({ commandId, executable: "/client/override" })).status,
     400,

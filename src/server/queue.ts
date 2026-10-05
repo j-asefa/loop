@@ -75,7 +75,10 @@ export function enqueue(
     })
     .immediate();
 }
-export function claim(worker: string): Run | undefined {
+export function claim(
+  worker: string,
+  available: (run: Run) => boolean = () => true,
+): Run | undefined {
   return db
     .transaction(() => {
       // Delegated work can pass queued tasks and released managers to unblock
@@ -83,7 +86,7 @@ export function claim(worker: string): Run | undefined {
       // Since this can run out of enqueue order, check every active lease too.
       // Background delegations (wait:false) block no one: their manager keeps
       // working and receives each result as a message.
-      const run = db
+      const candidates = db
         .prepare(
           `WITH candidates AS (
  SELECT runs.rowid AS queue_order, runs.*,
@@ -104,9 +107,10 @@ SELECT r.* FROM candidates r WHERE
   EXISTS(SELECT 1 FROM execution_environments e WHERE e.host_id=json_extract(r.payload,'$.execution.environmentId') AND e.revoked_at IS NULL AND e.state='online' AND e.last_seen > (unixepoch()*1000-30000)
     AND (EXISTS(SELECT 1 FROM native_sessions s WHERE s.conversation_id=r.conversation_id)
       OR (SELECT count(*) FROM native_sessions s WHERE s.environment_id=e.host_id AND s.state NOT IN ('closed','inactive'))<e.capacity)))))
- ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order LIMIT 1`,
+ ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`,
         )
-        .get() as Run | undefined;
+        .all() as Run[];
+      const run = candidates.find(available);
       if (!run) return;
       const state = run.state === "pausing" ? "pausing" : "running";
       db.prepare(
@@ -118,6 +122,21 @@ SELECT r.* FROM candidates r WHERE
       return { ...run, state };
     })
     .immediate();
+}
+// A maintenance refusal is retryable only before either native backend has a
+// dispatch receipt. CAS preserves cancellation and the original input identity.
+export function deferUndispatched(run: Run, worker: string) {
+  const changed = db
+    .prepare(
+      `UPDATE runs SET state='queued',worker_id=NULL,
+    heartbeat=NULL,active_since=NULL,error=NULL,updated_at=? WHERE id=?
+    AND state='running' AND worker_id=?
+    AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=runs.id)
+    AND NOT EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=runs.id)`,
+    )
+    .run(now(), run.id, worker).changes;
+  if (changed) emit(run.owner_id, run.id, "queued", { maintenance: true });
+  return !!changed;
 }
 export function transition(run: Run, state: string, payload: unknown = {}) {
   return db

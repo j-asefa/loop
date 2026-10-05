@@ -15,6 +15,7 @@ import {
 } from "./contracts.js";
 import { environment, hub, workerRequest } from "./environments.js";
 import { environmentUpgrades } from "../harness-upgrades.js";
+import { RunDeferred } from "../run-deferred.js";
 import { InactiveSessionError } from "./client.js";
 import { attachedFiles, attachmentPrompt } from "../uploads.js";
 import { replyPrompt } from "../../shared/replies.js";
@@ -85,7 +86,7 @@ export async function executeHapi(run: Run): Promise<false> {
   // The run is already claimed: an upgrade request checks active runs only
   // after taking this hold, and the runner refuses sessions once it starts.
   if (environmentUpgrades.has(e.host_id + ":" + s.flavor))
-    throw new Problem(409, "Wait for the runtime upgrade to finish before starting a run.");
+    throw new RunDeferred("Wait for the runtime upgrade to finish before starting a run.");
   const mapping = db
     .prepare(
       "SELECT canonical_path FROM environment_projects WHERE environment_id=? AND project_id=?",
@@ -134,6 +135,8 @@ export async function executeHapi(run: Run): Promise<false> {
       gatewayToken: unseal(s.gateway_secret, s.owner_id),
       generation: s.generation,
     });
+    if (prepared.deferred === 'runtime-maintenance')
+      throw new RunDeferred('The runtime is held for maintenance.');
     verifyAuth(s.flavor, prepared.auth);
     db.prepare(
       "UPDATE native_dispatches SET auth_evidence=? WHERE run_id=?",
@@ -172,6 +175,13 @@ export async function executeHapi(run: Run): Promise<false> {
     }
     await sendPrepared(s, d, e);
   } catch (error) {
+    if (error instanceof RunDeferred) {
+      // /prepare refused before writing a launch or spawning/sending anything.
+      // Keep all other receipts: an uncertain external operation is never queued.
+      const removed = db.prepare("DELETE FROM native_dispatches WHERE run_id=? AND state='prepared' AND send_started_at IS NULL")
+        .run(run.id).changes;
+      if (removed) throw error;
+    }
     const current = dispatchFor(run.id)!;
     state(
       d,
