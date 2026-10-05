@@ -1,5 +1,5 @@
 FROM node:24-bookworm-slim
-ARG CODEX_VERSION=0.157.0
+ARG CODEX_VERSION=0.160.0
 ARG CLAUDE_CODE_VERSION=2.1.280
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git gh curl ripgrep python3 make g++ openssh-client && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @openai/codex@${CODEX_VERSION} @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}

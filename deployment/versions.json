@@ -3,7 +3,7 @@
   "platform": "linux/amd64",
   "hapi": "0.30.7",
   "hapiCommit": "0239edf38e2da653d662f31039e24ccea04c7837",
-  "codex": "0.157.0",
+  "codex": "0.160.0",
   "claudeCode": "2.1.280",
   "memsearch": "0.4.21",
   "memsearchCommit": "2a4652fa086fbd45e92bfd8da7781ebe1642baa7",
