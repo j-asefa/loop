@@ -2352,6 +2352,7 @@ export default function App() {
                 onChanged={() => void changed()}
                 onScheduled={() => showScheduled()}
                 onShowReminder={(id) => openLater("reminders", id)}
+                onAsk={availableAgents.length ? askAboutPull : undefined}
                 needsSlot={
                   <div className="run-list">
                     {capabilities.nativeHarnesses && (

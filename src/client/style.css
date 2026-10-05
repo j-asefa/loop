@@ -710,7 +710,8 @@ small,
   }
 }
 .sheet label,
-.auth-form label {
+.auth-form label,
+.feed-catalog label {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -721,7 +722,8 @@ small,
 .sheet input,
 .sheet select,
 .sheet textarea,
-.auth-form input {
+.auth-form input,
+.feed-catalog input {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg);
@@ -7978,5 +7980,99 @@ html:has(.sheet.side-panel[open]) {
   padding: 1px 7px;
   border-radius: 6px;
   background: var(--secondary);
+  color: var(--text);
+}
+/* Public feed items in the Feed: result cards whose links leave Loop. */
+.news-card .card-content {
+  cursor: auto;
+}
+.news-card h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.news-card h2 a:hover,
+.news-card h2 a:focus-visible {
+  text-decoration: underline;
+}
+.news-card .news-stats {
+  margin: 0;
+}
+.news-card .news-summary {
+  margin: 0;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/* A catalog feed without its own mark: its initial on its colour. */
+.avatar.generated.feed-initial {
+  color: #fff;
+  font-size: 18px;
+}
+.social-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.social-toolbar .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.social-intro {
+  margin-bottom: 14px;
+}
+.social-intro p {
+  margin: 0 0 4px;
+}
+.feed-catalog {
+  display: grid;
+  gap: 12px;
+}
+.feed-catalog label {
+  margin: 0;
+}
+.feed-catalog .chip-row {
+  margin: 0;
+}
+.feed-catalog-card p {
+  font-size: 14px;
+}
+.social-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.social-intro button {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.feed-catalog-card .catalog-card-title .identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.feed-catalog-card h4 {
+  margin: 0;
+}
+.news-card .card-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 8px;
+  font-size: 13px;
+  text-decoration: none;
+}
+.news-card .card-actions a:hover {
   color: var(--text);
 }

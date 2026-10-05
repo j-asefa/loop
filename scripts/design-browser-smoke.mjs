@@ -135,6 +135,7 @@ for (const engine of selectedEngines()) {
         /^Needs you/,
         /^Working/,
         /^Queued/,
+        "Social",
       ]);
       await expect(
         inboxFilters.getByRole("tab", { name: "Done", exact: true }),

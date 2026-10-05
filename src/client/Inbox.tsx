@@ -37,6 +37,7 @@ import {
 } from "./ThreadTools";
 import { shareLink } from "./Handoff";
 import { threadDraft } from "./drafts";
+import { Social } from "./Social";
 import {
   feedNextAction,
   preview,
@@ -53,6 +54,8 @@ export type InboxFilter =
   | "needs"
   | "working"
   | "queued"
+  // Stories from the public feeds you added, not threads.
+  | "social"
   // Project history views (no chip of their own).
   | "outcomes"
   | "unfinished";
@@ -137,7 +140,10 @@ export const inboxFilters: { id: InboxFilter; label: string }[] = [
   { id: "needs", label: "Needs you" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
+  { id: "social", label: "Social" },
 ];
+
+const isSocial = (filter: InboxFilter) => filter === "social";
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -596,6 +602,7 @@ export function Inbox({
   agent,
   onScheduled,
   onShowReminder,
+  onAsk,
 }: {
   filter: InboxFilter;
   onFilter: (filter: InboxFilter) => void;
@@ -617,6 +624,8 @@ export function Inbox({
   onScheduled?: () => void;
   /** Open Later → Reminders at one reminder. */
   onShowReminder?: (id: string) => void;
+  /** Start a new message with this text (a news card's "Ask an agent"). */
+  onAsk?: (text: string) => void;
 }) {
   type Shown = { items: InboxItem[]; next: string | null; summary: Summary };
   const shownKey = () =>
@@ -638,7 +647,9 @@ export function Inbox({
   const request = useRef(0);
   const query = (before?: string) => {
     const q = new URLSearchParams({
-      filter,
+      // Social is not a thread filter; the request only keeps the chip
+      // counts current, from the smallest list.
+      filter: isSocial(filter) ? "needs" : filter,
     });
     if (project) q.set("folder", project);
     if (agent) q.set("agent", agent);
@@ -911,6 +922,9 @@ export function Inbox({
         </p>
       )}
       {filter === "needs" && needsSlot}
+      {isSocial(filter) ? (
+        <Social onAsk={onAsk} />
+      ) : (
       <>
         {error && (
           <div className="error" role="alert">
@@ -993,6 +1007,7 @@ export function Inbox({
           </button>
         )}
       </>
+      )}
       {menu && (
         <ActionSheet
           title={menu.title}
