@@ -369,21 +369,30 @@ for (const engine of selectedEngines()) {
       "Permission must be requested directly from a tap",
     );
     await page.reload();
-    // Watch a pull request from its card in a thread, then stop watching.
-    const github = await fixture.api("/mcp", {
-      name: "GitHub",
-      url: "https://api.githubcopilot.com/mcp/",
-      auth: { type: "bearer", token: "fixture-token" },
-    });
-    fixture.db
-      .prepare("UPDATE mcp_connections SET status='connected' WHERE id=?")
-      .run(github.id);
+    // An agent-created pull request shows its automatic watch in the thread.
     const thread = fixture.db
       .prepare(
         "SELECT c.id,c.agent_id FROM conversations c WHERE c.owner_id=? AND c.agent_id IS NOT NULL ORDER BY c.created_at DESC LIMIT 1",
       )
       .get(fixture.owner);
     const prCard = randomUUID();
+    fixture.db
+      .prepare(
+        "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
+      )
+      .run(
+        randomUUID(),
+        fixture.owner,
+        thread.id,
+        thread.agent_id,
+        "acme",
+        "api",
+        42,
+        "a".repeat(40),
+        Date.now(),
+        Date.now(),
+        Date.now(),
+      );
     fixture.db
       .prepare(
         "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -416,7 +425,6 @@ for (const engine of selectedEngines()) {
       );
     await page.goto(fixture.base + "/?artifact=" + prCard);
     const watch = page.getByRole("group", { name: "Watch pull request" });
-    await watch.getByRole("button", { name: "Watch", exact: true }).click();
     await expect(watch).toContainText("Watching. CI results, reviews");
     assert.equal(
       fixture.db
@@ -436,9 +444,7 @@ for (const engine of selectedEngines()) {
     await expect(watch).toContainText(
       "Stopped watching: You stopped watching.",
     );
-    await expect(
-      watch.getByRole("button", { name: "Watch", exact: true }),
-    ).toBeVisible();
+    await expect(watch.getByRole("button")).toHaveCount(0);
     await page.goto(fixture.base);
     await accountMenu("Notifications");
     await expect(

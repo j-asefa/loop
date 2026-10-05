@@ -236,7 +236,7 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
         encoding: "utf8",
       },
     );
-    expect(JSON.parse(result)).toEqual({ table: true, version: 49 });
+    expect(JSON.parse(result)).toEqual({ table: true, version: 50 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

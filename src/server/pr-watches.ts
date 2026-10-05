@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
+import type { Run } from "./queue.js";
 import {
   GithubError,
   githubRest,
@@ -12,6 +13,7 @@ import {
 } from "./github-api.js";
 import {
   pullRequestKey,
+  parsePullRequestUrls,
   type PullRequestCard,
   type PullRequestRef,
 } from "../shared/github.js";
@@ -109,6 +111,39 @@ export function watchesFor(owner: string, conversation?: string) {
     );
 }
 
+/** Register only a PR created by this run, using the trusted tool result. */
+export function watchCreatedPullRequest(run: Run, pr: PullRequestRef & { headSha?: string }) {
+  if (!run.conversation_id || !run.agent_id || !githubToken(run.owner_id)) return;
+  return db.transaction(() => {
+    const existing = db.prepare(
+      "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
+    ).get(run.owner_id, run.conversation_id, pr.owner, pr.repo, pr.number) as PrWatch | undefined;
+    if (existing) return existing;
+    const time = now();
+    const watchId = id();
+    db.prepare(
+      "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
+    ).run(watchId, run.owner_id, run.conversation_id, run.agent_id,
+      pr.owner, pr.repo, pr.number, pr.headSha ?? null, time, time, time);
+    return db.prepare("SELECT * FROM pr_watches WHERE id=?").get(watchId) as PrWatch;
+  }).immediate();
+}
+
+/** Native harnesses report a completed command, not an MCP create result. */
+export async function watchNativeCreatedPullRequest(run: Run, command: string, output: string) {
+  if (!/^\s*gh\s+pr\s+create(?:\s|$)/.test(command)) return;
+  const refs = parsePullRequestUrls(output, 2);
+  if (refs.length !== 1) return;
+  const token = githubToken(run.owner_id);
+  if (!token) return;
+  const ref = refs[0];
+  const path = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`;
+  const pr = await github<{ state: string; created_at: string; head?: { sha?: string } }>(token, path);
+  const created = Date.parse(pr.created_at);
+  if (pr.state !== "open" || !Number.isFinite(created) || created < run.created_at - 60_000) return;
+  watchCreatedPullRequest(run, { ...ref, headSha: pr.head?.sha });
+}
+
 /**
  * Starts watching a pull request from a PR card: the card's artifact names
  * the thread and agent, and must itself list this pull request.
@@ -158,17 +193,10 @@ export function startWatch(owner: string, body: unknown) {
         throw new Problem(409, "Connect GitHub to watch pull requests.");
       const existing = db
         .prepare(
-          "SELECT * FROM pr_watches WHERE owner_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
+          "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
         )
-        .get(owner, pr.owner, pr.repo, pr.number) as PrWatch | undefined;
-      if (existing) {
-        if (existing.conversation_id !== artifact.conversation_id)
-          throw new Problem(
-            409,
-            "Another thread is already watching this pull request. Stop it there first.",
-          );
-        return existing;
-      }
+        .get(owner, artifact.conversation_id, pr.owner, pr.repo, pr.number) as PrWatch | undefined;
+      if (existing) return existing;
       const watchId = id(),
         time = now();
       // What came after the agent read this card comes back: comments and

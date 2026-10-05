@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
 import {
+  createdPullRequest,
   GITHUB_GUIDANCE,
   mergeHeadProblem,
   parsePullRequestUrls,
@@ -22,7 +23,7 @@ const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { withTestAdapter } = await import("../src/server/providers");
 const { withTestMcp, discover } = await import("../src/server/mcp/client");
-const { authorizeTool } = await import("../src/server/mcp/broker");
+const { authorizeTool, invokeTool } = await import("../src/server/mcp/broker");
 const { normalizeResult } = await import("../src/server/mcp/results");
 const { runtimeInstructions } = await import("../src/server/native-tools");
 const { decide } = await import("../src/server/approvals");
@@ -142,6 +143,16 @@ it("renders GitHub PR results as cards only for the official GitHub connection",
   ).toBe("markdown");
 });
 
+it("accepts only a successful create result for the requested repository", () => {
+  const args = { owner: "acme", repo: "api" };
+  const result = { content: [{ type: "text", text: JSON.stringify(restPull) }] };
+  expect(createdPullRequest(result, args)?.number).toBe(42);
+  expect(createdPullRequest({ ...result, isError: true }, args)).toBeUndefined();
+  expect(createdPullRequest(result, { ...args, repo: "other" })).toBeUndefined();
+  expect(createdPullRequest({ content: [{ type: "text", text: restPull.html_url }] }, args)).toBeUndefined();
+  expect(createdPullRequest({ structuredContent: { ...restPull, state: "closed" } }, args)).toBeUndefined();
+});
+
 it("requires a full head SHA for merges", () => {
   expect(mergeHeadProblem("merge_pull_request", {})).toMatch(/expectedHeadSha/);
   expect(
@@ -216,6 +227,14 @@ const githubFixture = async () => {
       };
     },
   );
+  server.registerTool(
+    "create_pull_request",
+    { inputSchema: { owner: z.string(), repo: z.string(), title: z.string(), head: z.string(), base: z.string() } },
+    async (args) => {
+      calls.push({ tool: "create_pull_request", args });
+      return { content: [{ type: "text", text: JSON.stringify({ ...restPull, number: 43, title: args.title, html_url: "https://github.com/acme/api/pull/43" }) }] };
+    },
+  );
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: "loop-github-fixture", version: "1" });
@@ -242,7 +261,7 @@ db.prepare(
   "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'alice','GitHub','https://api.githubcopilot.com/mcp/',?,'connected',?,?)",
 ).run(
   gh,
-  seal(JSON.stringify({ type: "none" }), "alice"),
+  seal(JSON.stringify({ type: "bearer", token: "fixture-token" }), "alice"),
   JSON.stringify({ fixture: true }),
   now(),
 );
@@ -366,6 +385,24 @@ it("reads a PR as a card, refuses an unpinned merge and merges only after explic
   );
   expect(JSON.parse(unpinned.content)).toMatchObject({ isError: true });
   expect(unpinned.content).toContain("expectedHeadSha");
+});
+
+it("starts one watch for a PR created by the official GitHub tool", async () => {
+  const run = submit("alice", { agentId: agent.id, input: "Create a PR", idempotencyKey: "github-create" });
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+  setMcpApprovalMode("alice", "allow");
+  const args = { owner: "acme", repo: "api", title: "New PR", head: "feature", base: "main" };
+  const binding = {
+    name: "create_pull_request", connectionId: gh, tool: "create_pull_request",
+    description: "Create a pull request", inputSchema: {},
+  };
+  const first = await invokeTool(run, binding, "create", args);
+  expect(first).toHaveProperty("result");
+  const second = await invokeTool(run, binding, "create", args);
+  expect(second).toEqual(first);
+  const watches = db.prepare("SELECT * FROM pr_watches WHERE owner_id='alice' AND number=43").all() as any[];
+  expect(watches).toHaveLength(1);
+  expect(watches[0]).toMatchObject({ conversation_id: run.conversation_id, agent_id: agent.id, state: "watching" });
 });
 
 it("refuses unpinned merges at dispatch, but not on other servers", () => {

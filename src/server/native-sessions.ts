@@ -1267,6 +1267,23 @@ export class NativeSessions {
     // presented as new work. Stored projections remain authoritative.
     if (!live.run && kind !== "settings" && kind !== "commands") return;
     ingestNativeActivity(live, { ...update, generation: live.generation });
+    const activity = update as { replay?: boolean; patch?: {
+      command?: string; status?: string; exitCode?: number;
+      upstreamTruncated?: boolean; replace?: { text?: string }[];
+    } };
+    if (kind === "output" && live.run && !activity.replay &&
+        activity.patch?.status === "exited" &&
+        (activity.patch.exitCode === undefined || activity.patch.exitCode === 0) &&
+        !activity.patch.upstreamTruncated && typeof activity.patch.command === "string" &&
+        Array.isArray(activity.patch.replace)) {
+      const output = activity.patch.replace.map((chunk) => chunk.text || "").join("");
+      const run = live.run;
+      const command = activity.patch.command;
+      void import("./pr-watches.js")
+        .then(({ watchNativeCreatedPullRequest }) =>
+          watchNativeCreatedPullRequest(run, command, output))
+        .catch(() => {});
+    }
   }
   /** @internal Flush the retained display projection. */
   projectOutput(live: Live, partial: boolean) {

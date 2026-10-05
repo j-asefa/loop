@@ -21,6 +21,7 @@ import { workspaceToolBindings, type ToolBinding } from "./tool-budget.js";
 import { mcpApprovalMode } from "./approval-policy.js";
 import { recordTrace } from "../traces.js";
 import {
+  createdPullRequest,
   isGithubMcpUrl,
   mergeHeadProblem,
   requiresExplicitApproval,
@@ -321,6 +322,14 @@ export async function invokeTool(
         return artifactId;
       })
       .immediate();
+    if (binding.tool === "create_pull_request" && isGithubMcpUrl(connection.url)) {
+      const pr = createdPullRequest(result, args);
+      // The external create has already succeeded. Registration must never
+      // turn its known result into an uncertain tool failure.
+      if (pr) {
+        try { (await import("../pr-watches.js")).watchCreatedPullRequest(run, pr); } catch {}
+      }
+    }
     emit(run.owner_id, run.id, toolFailed ? "tool.failed" : "tool.completed", {
       tool: binding.tool,
       artifactId,

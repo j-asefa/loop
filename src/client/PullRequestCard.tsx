@@ -42,17 +42,9 @@ function useWatches(conversation: string | null | undefined) {
 
 /**
  * Watch: CI results, reviews and comments on this pull request come back to
- * the thread as follow-ups. Only you start it; it ends on merge or close.
+ * the thread as follow-ups. It ends on merge or close.
  */
-function WatchControl({
-  pr,
-  artifactId,
-  watch,
-}: {
-  pr: PullRequestSummary;
-  artifactId: string;
-  watch?: Watch;
-}) {
+function WatchControl({ watch }: { watch?: Watch }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const act = async (work: () => Promise<unknown>) => {
@@ -67,20 +59,10 @@ function WatchControl({
       setBusy(false);
     }
   };
-  const start = () =>
-    act(() =>
-      api("/pr-watches", {
-        artifactId,
-        owner: pr.owner,
-        repo: pr.repo,
-        number: pr.number,
-      }),
-    );
   const stop = () =>
     act(() => api(`/pr-watches/${watch!.id}`, undefined, "DELETE"));
-  const open = pr.state === "open" || pr.state === "draft";
   const active = watch && watch.state !== "stopped";
-  if (!active && !open && !watch) return null;
+  if (!active && !watch) return null;
   return (
     <div className="pr-watch" role="group" aria-label="Watch pull request">
       {watch?.state === "watching" ? (
@@ -114,11 +96,6 @@ function WatchControl({
               Stopped watching: {watch.ended_reason}
             </p>
           )}
-          {open && (
-            <button className="secondary" disabled={busy} onClick={start}>
-              <Eye size={15} aria-hidden="true" /> Watch
-            </button>
-          )}
         </>
       )}
       {error && (
@@ -148,11 +125,9 @@ export function pullRequestCardData(content: string) {
 
 function PullRequestRow({
   pr,
-  artifactId,
   watch,
 }: {
   pr: PullRequestSummary;
-  artifactId?: string;
   watch?: Watch;
 }) {
   return (
@@ -223,9 +198,7 @@ function PullRequestRow({
       <button className="text-button pr-card-open" onClick={() => openPull(pr)}>
         <PanelRight size={14} aria-hidden="true" /> Open in Pull requests
       </button>
-      {artifactId && (
-        <WatchControl pr={pr} artifactId={artifactId} watch={watch} />
-      )}
+      {watch && <WatchControl watch={watch} />}
     </li>
   );
 }
@@ -241,7 +214,7 @@ export function PullRequestCards({
 }: {
   card: PullRequestCard;
   compact?: boolean;
-  /** The card's saved result in a thread; enables Watch. */
+  /** The card's saved result in a thread. */
   artifactId?: string;
   conversationId?: string | null;
 }) {
@@ -266,7 +239,6 @@ export function PullRequestCards({
           <PullRequestRow
             key={pr.url}
             pr={pr}
-            artifactId={watchable ? artifactId : undefined}
             watch={watchFor(pr)}
           />
         ))}

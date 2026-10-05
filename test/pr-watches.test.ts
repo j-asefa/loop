@@ -14,7 +14,7 @@ const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
 const { transition } = await import("../src/server/queue");
 const { inbox } = await import("../src/server/mobile-return");
-const { prWatches, pollWatch, pollWatches, stopWatch, withGithubFixture, TURNS_PER_HOUR } =
+const { prWatches, pollWatch, pollWatches, stopWatch, watchCreatedPullRequest, watchNativeCreatedPullRequest, withGithubFixture, TURNS_PER_HOUR } =
   await import("../src/server/pr-watches");
 
 const app = express();
@@ -553,4 +553,49 @@ it("never redelivers what a watch handled before ids were tracked", async () => 
   expect(update.content).toContain("> New.");
   expect(update.content).not.toContain("Delivered before.");
   finish(update.id);
+});
+
+it("automatically watches the creating run and deduplicates repeated registration", async () => {
+  const { conversation } = setup("iris");
+  connectGithub("iris");
+  const run = db.prepare("SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(conversation) as any;
+  const pr = { owner: "acme", repo: "api", number: 43, headSha: HEAD };
+  const first = watchCreatedPullRequest(run, pr)!;
+  expect(watchCreatedPullRequest(run, pr)?.id).toBe(first.id);
+  expect(first).toMatchObject({ conversation_id: conversation, agent_id: run.agent_id, since_at: first.created_at });
+  expect(watchCreatedPullRequest({ ...run, conversation_id: null }, { ...pr, number: 44 })).toBeUndefined();
+});
+
+it("watches a successful native gh create only after GitHub verifies the new PR", async () => {
+  const { conversation } = setup("jules");
+  connectGithub("jules");
+  const run = db.prepare("SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(conversation) as any;
+  github.pull = { state: "open", created_at: new Date(now()).toISOString(), head: { sha: HEAD } };
+  const url = "https://github.com/acme/api/pull/42";
+  await watchNativeCreatedPullRequest(run, "echo gh pr create", url);
+  expect((await api("/pr-watches?conversation=" + conversation, "GET", undefined, "jules")).data.watches).toEqual([]);
+  await watchNativeCreatedPullRequest(run, "gh pr create --fill", url);
+  expect((await api("/pr-watches?conversation=" + conversation, "GET", undefined, "jules")).data.watches).toMatchObject([{ number: 42, state: "watching" }]);
+});
+
+it.each(["watching", "paused"])("keeps an existing %s watch in another conversation when registering a created PR", async (state) => {
+  const owner = "separate-" + state;
+  const first = setup(owner);
+  const second = setup(owner);
+  connectGithub(owner);
+  const run = (conversation: string) => db.prepare("SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(conversation) as any;
+  const pr = { owner: "acme", repo: "api", number: 42, headSha: HEAD };
+  const old = watchCreatedPullRequest(run(first.conversation), pr)!;
+  db.prepare("UPDATE pr_watches SET state=? WHERE id=?").run(state, old.id);
+  const created = watchCreatedPullRequest(run(second.conversation), pr)!;
+  expect(created.id).not.toBe(old.id);
+  expect(created.conversation_id).toBe(second.conversation);
+  expect(created.agent_id).toBe(second.agent.id);
+  expect(watchCreatedPullRequest(run(second.conversation), { ...pr, owner: "ACME", repo: "API" })?.id).toBe(created.id);
+  expect(db.prepare("SELECT conversation_id,state FROM pr_watches WHERE id=?").get(old.id)).toEqual({ conversation_id: first.conversation, state });
+  for (const [thread, expected] of [[first, old], [second, created]] as const) {
+    const body = { artifactId: thread.artifact, ...pr };
+    expect((await api("/pr-watches", "POST", body, owner)).data.id).toBe(expected.id);
+    expect((await api("/pr-watches?conversation=" + thread.conversation, "GET", undefined, owner)).data.watches.map((w: any) => w.id)).toEqual([expected.id]);
+  }
 });
