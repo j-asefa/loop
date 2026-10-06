@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import createDOMPurify from "dompurify";
 import { marked } from "marked";
 import { authorizedFetch } from "./api";
+import { sourceApiPath } from "./sourceRouting";
 import { Sheet } from "./components";
 import type { PullRequestRef } from "../shared/github";
 import {
@@ -20,7 +21,7 @@ const encodePath = (path: string) => path.split("/").map(encodeURIComponent).joi
 
 /** The Loop address of a file at a commit, for fetch, <img> and <video>. */
 export const repoFileUrl = (ref: PullRequestRef, head: string, path: string) =>
-  `/api/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}/file?head=${head}&path=${encodeURIComponent(path)}`;
+  sourceApiPath(`/api/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}/file?head=${head}&path=${encodeURIComponent(path)}`);
 
 const githubBlob = (ref: PullRequestRef, head: string, path: string) =>
   `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/blob/${head}/${encodePath(path)}`;

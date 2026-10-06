@@ -22,7 +22,8 @@ import {
   User,
   X,
 } from "lucide-react";
-import { api } from "./api";
+import { api, apiInWorkspace } from "./api";
+import { executionSourceId } from "./sourceRouting";
 import { RichText, Sheet } from "./components";
 import { FileChangePanel } from "./ActivityPanels";
 import type { Agent } from "../shared/types";
@@ -287,6 +288,7 @@ export function LaterSheet({
   title,
   running,
   project,
+  sourceId,
   onClose,
   onDone,
 }: {
@@ -297,6 +299,7 @@ export function LaterSheet({
   title: string;
   running?: boolean;
   project?: { id: string; name: string };
+  sourceId?: string;
   onClose: () => void;
   onDone: (label: string, created: CreatedReminder) => void;
 }) {
@@ -320,8 +323,9 @@ export function LaterSheet({
       projectId: condition === "project_open" ? project?.id : undefined,
     };
     try {
-      const row = await api<{ id: string; replaced?: string | null }>(
+      const row = await apiInWorkspace<{ id: string; replaced?: string | null }>(
         itemId ? `/later/${itemId}/snooze` : "/later",
+        sourceId ?? executionSourceId(),
         itemId ? trigger : { kind, targetId, ...trigger },
       );
       window.dispatchEvent(new Event("loop-later-change"));
@@ -407,10 +411,10 @@ export function LaterSheet({
  * Undo a reminder Loop just created: cancel it, and reopen the reminder it
  * replaced, if any. Both are true reversals: nothing was sent anywhere.
  */
-export async function undoReminder(created: CreatedReminder) {
-  await api("/later/" + created.id, undefined, "DELETE");
+export async function undoReminder(created: CreatedReminder, sourceId = executionSourceId()) {
+  await apiInWorkspace("/later/" + created.id, sourceId, undefined, "DELETE");
   if (created.replaced)
-    await api(`/later/${created.replaced}/reopen`, {}).catch(() => {});
+    await apiInWorkspace(`/later/${created.replaced}/reopen`, sourceId, {}).catch(() => {});
   window.dispatchEvent(new Event("loop-later-change"));
 }
 

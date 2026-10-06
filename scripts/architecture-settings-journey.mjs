@@ -144,29 +144,30 @@ async function nativeLoginFixture(originalPage) {
       await new Promise((resolve) => setTimeout(resolve, 120));
     return route.fulfill({ json: snapshot });
   });
-  const open = async () => {
+  const connect = async (flavor) => {
+    const label = flavor === "codex" ? "Codex · ChatGPT" : "Claude Code · Claude";
+    await page
+      .locator(".environment-provider")
+      .filter({ hasText: label })
+      .getByRole("button", { name: "Connect", exact: true })
+      .click();
+  };
+  const open = async (flavor) => {
     await openSettings(page);
     await page.getByRole("button", { name: /Execution environments/ }).click();
-    await page
-      .getByRole("button", { name: "Manage sign-in", exact: true })
-      .click();
+    await connect(flavor);
   };
   try {
     await page.goto(new URL("/", originalPage.url()).href);
-    await open();
+    await open("codex");
     await page
       .getByRole("button", { name: "Start sign-in", exact: true })
       .click();
     await expect(page.getByText("AB12-CD34", { exact: true })).toBeVisible();
     await closeSheets(page);
-    await open();
+    await open("codex");
     await expect(page.getByText("AB12-CD34", { exact: true })).toBeVisible();
-    await page
-      .getByLabel("Native runtime", { exact: true })
-      .selectOption("claude");
-    await page
-      .getByRole("button", { name: "Manage sign-in", exact: true })
-      .click();
+    await connect("claude");
     await expect(page.getByText("AB12-CD34", { exact: true })).toHaveCount(0);
     await page
       .getByRole("button", { name: "Start sign-in", exact: true })
@@ -186,12 +187,7 @@ async function nativeLoginFixture(originalPage) {
     await expect(
       page.getByRole("button", { name: "Cancel sign-in", exact: true }),
     ).toHaveCount(0);
-    await page
-      .getByLabel("Native runtime", { exact: true })
-      .selectOption("codex");
-    await page
-      .getByRole("button", { name: "Manage sign-in", exact: true })
-      .click();
+    await connect("codex");
     await expect(page.getByText("AB12-CD34", { exact: true })).toBeVisible();
     assert.deepEqual(
       submissions.map(({ flavor, action }) => ({ flavor, action })),

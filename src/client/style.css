@@ -2790,6 +2790,53 @@ pre {
   gap: 1rem;
   min-width: 0;
 }
+.environment-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+}
+.environment-picker button {
+  min-height: 66px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface, transparent);
+  color: inherit;
+  text-align: left;
+}
+.environment-picker button.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.environment-picker strong,
+.environment-picker small,
+.environment-provider strong,
+.environment-provider small {
+  display: block;
+}
+.environment-picker small,
+.environment-provider small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.environment-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.environment-provider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.environment-provider button {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
 .native-settings label:not(.native-toggle) {
   display: flex;
   flex-direction: column;
@@ -4024,6 +4071,12 @@ fieldset {
 .card-model {
   overflow-wrap: anywhere;
 }
+.card-environment {
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
 .agent-environment {
   display: inline-flex;
   align-items: center;
@@ -4236,13 +4289,18 @@ h1 {
 }
 .agent-shortcut-model,
 .agent-shortcut-name,
-.agent-shortcut-status {
+.agent-shortcut-status,
+.agent-shortcut-environment {
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
   line-height: 1.4;
+}
+.agent-shortcut-environment {
+  color: var(--muted);
+  font-size: 11px;
 }
 .agent-shortcut-name {
   font-weight: 550;

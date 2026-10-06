@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { environmentRuntimeBrowser } from "./helpers/environment-runtime-browser.mjs";
 import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
@@ -61,6 +62,7 @@ try {
     isMobile: true,
     deviceScaleFactor: 2,
     hasTouch: true,
+    serviceWorkers: "block",
   });
   const page = await context.newPage();
   const errors = [];
@@ -84,6 +86,15 @@ try {
     .waitFor();
   assert(!page.url().includes("#"));
   const workspaceUrl = page.url();
+  await agentSourcesBrowser(page, workspaceUrl);
+  // The rest of this fixture starts with no linked agents. A developer's
+  // running Docker Loop must not change its first-agent assertions.
+  await page.route("**/api/agent-sources", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: "[]",
+  }));
+  await page.goto(workspaceUrl);
   await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
   await page.goto(`http://localhost:${provider.address().port}/`);
   const callbackResponse = page.waitForResponse((response) =>
@@ -99,6 +110,11 @@ try {
   );
   const unpaired = await browser.newContext();
   assert.equal((await unpaired.request.get(callback.url())).status(), 401);
+  const oldDockerLink = await unpaired.newPage();
+  await oldDockerLink.goto(
+    host.gateway.origin + "/?workspace=docker:" + "a".repeat(64),
+  );
+  await oldDockerLink.getByRole("heading", { name: "Pair this device" }).waitFor();
   await unpaired.close();
   await page.goto(workspaceUrl);
   const otherProject = join(dir, "second-project");

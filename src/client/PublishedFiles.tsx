@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Expand, File } from "lucide-react";
 import { api, parse } from "./api";
+import { sourceApiPath } from "./sourceRouting";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
 import { isHtmlFile } from "../shared/file-preview";
@@ -19,7 +20,7 @@ export function PublishedFile({
     meta.mime,
   );
   const name = meta.name || item.title;
-  const url = "/api/artifacts/" + item.id + "/file";
+  const url = sourceApiPath("/api/artifacts/" + item.id + "/file");
   return (
     <div className="published-file">
       {image && (

@@ -4,6 +4,7 @@ import {
   PostMessageTransport,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { api } from "./api";
+import { sourceApiPath } from "./sourceRouting";
 export function McpApp({
   artifactId,
   metadata,
@@ -61,7 +62,7 @@ export function McpApp({
     void bridge
       .connect(new PostMessageTransport(f.contentWindow!, f.contentWindow!))
       .then(() => {
-        f.src = "/api/artifacts/" + artifactId + "/app";
+        f.src = sourceApiPath("/api/artifacts/" + artifactId + "/app");
       })
       .catch(() => setStatus("App unavailable. Use the saved snapshot below."));
     const timeout = setTimeout(() => {

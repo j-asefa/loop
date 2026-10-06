@@ -1,5 +1,6 @@
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
+import { sourceApiPath } from "./sourceRouting";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 const McpApp = lazy(() =>
   import("./McpApp").then((m) => ({ default: m.McpApp })),
@@ -211,7 +212,7 @@ export function ArtifactViewer({
               {(meta.objectId || meta.rawObjectId) && (
                 <FileLink
                   className="text-button"
-                  url={"/api/objects/" + (meta.objectId || meta.rawObjectId)}
+                  url={sourceApiPath("/api/objects/" + (meta.objectId || meta.rawObjectId))}
                   name={meta.name || item.title}
                   mime={meta.mime}
                 >

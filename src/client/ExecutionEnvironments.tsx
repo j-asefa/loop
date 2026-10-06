@@ -2,21 +2,33 @@ import {
   EnvironmentRuntimeCard,
   managedRuntimeName,
 } from "./EnvironmentRuntimes";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, parse } from "./api";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 import { Sheet } from "./components";
 import type { Folder } from "../shared/types";
+import type { Connection } from "../shared/types";
+
+const runtimes = [
+  { flavor: "codex", label: "Codex · ChatGPT" },
+  { flavor: "claude", label: "Claude Code · Claude" },
+  { flavor: "opencode", label: "OpenCode · ChatGPT" },
+  { flavor: "pi", label: "Pi · Existing billing" },
+] as const;
 
 export function ExecutionEnvironments({
   folders,
+  connections,
+  initialEnvironmentId = "",
   onClose,
   onChange,
   onLegacy,
 }: {
   folders: Folder[];
+  connections: Connection[];
+  initialEnvironmentId?: string;
   onClose: () => void;
-  onChange: () => void;
+  onChange: () => Promise<void>;
   onLegacy: () => void;
 }) {
   const [items, setItems] = useState<any[]>([]),
@@ -30,10 +42,17 @@ export function ExecutionEnvironments({
     [path, setPath] = useState(""),
     [repository, setRepository] = useState(""),
     [mappings, setMappings] = useState<any[]>([]);
+  const autoVerify = useRef(false);
   const load = async () => {
     const rows = await api("/environments");
     setItems(rows);
-    setSelected((s) => s || rows[0]?.id || "");
+    setSelected(
+      (s) =>
+        s ||
+        rows.find((row: any) => row.id === initialEnvironmentId)?.id ||
+        rows[0]?.id ||
+        "",
+    );
   };
   useEffect(() => {
     void load().catch((e) => setError(e.message));
@@ -70,13 +89,33 @@ export function ExecutionEnvironments({
   }
   const env = items.find((i) => i.id === selected),
     health = parse<any>(env?.health, {});
+  const connected = (runtime: string) =>
+    connections.some((connection) => {
+      const metadata = parse<any>(connection.metadata, {});
+      return (
+        connection.status === "connected" &&
+        metadata.backend === "hapi" &&
+        metadata.environmentId === selected &&
+        metadata.flavor === runtime
+      );
+    });
+  async function verifySelected() {
+    await act(async () => {
+      await api(`/environments/${selected}/provider/${flavor}/verify`, {});
+      setNotice(
+        `${managedRuntimeName(flavor)} is ready on ${env.name}. Choose ${env.name} under Run on when creating an agent.`,
+      );
+      setSigningIn(false);
+      await onChange();
+    });
+  }
   return (
     <Sheet title="Execution environments" onClose={onClose}>
       <div className="native-settings">
         <p>
-          Run Codex, Claude Code, OpenCode and Pi on your laptop or in Docker. Your
-          conversations and uploaded files remain available when an environment
-          is offline.
+          Run Codex, Claude Code, OpenCode and Pi on your laptop or in Docker.
+          Your conversations and uploaded files remain available when an
+          environment is offline.
         </p>
         {error && (
           <p role="alert" className="error">
@@ -92,24 +131,29 @@ export function ExecutionEnvironments({
           </p>
         )}
         {items.length > 0 && (
-          <label>
-            Environment
-            <select
-              aria-label="Environment"
-              disabled={busy}
-              value={selected}
-              onChange={(e) => {
-                setSelected(e.target.value);
-                setSigningIn(false);
-              }}
-            >
-              {items.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name} · {i.state}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div
+            className="environment-picker"
+            role="group"
+            aria-label="Execution environment"
+          >
+            {items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={selected === item.id}
+                className={selected === item.id ? "selected" : ""}
+                disabled={busy}
+                onClick={() => {
+                  setSelected(item.id);
+                  setSigningIn(false);
+                  autoVerify.current = false;
+                }}
+              >
+                <strong>{item.name}</strong>
+                <small>{item.state}</small>
+              </button>
+            ))}
+          </div>
         )}
         {env && (
           <>
@@ -123,49 +167,41 @@ export function ExecutionEnvironments({
                 · Capacity {env.capacity} resident sessions
               </small>
             </p>
-            <button
-              disabled={busy || !!env.revoked_at}
-              onClick={() =>
-                void act(async () => {
-                  await api("/environments/" + selected + "/refresh", {});
-                })
-              }
-            >
-              Refresh environment
-            </button>
-            <EnvironmentRuntimeCard environment={env} />
-            <h3>Provider sign-in</h3>
+            <h3>Use {env.name} for new agents</h3>
             <p>
-              Sign-in is saved in this execution environment. Codex and OpenCode
-              require ChatGPT authentication; API fallback is disabled. Pi uses its
-              existing provider billing and may incur API charges.
+              Connect each provider in this environment once. Its account stays
+              there and appears under Run on when you create an agent.
             </p>
-            <label>
-              Native runtime
-              <select
-                aria-label="Native runtime"
-                disabled={busy}
-                value={flavor}
-                onChange={(e) => {
-                  setFlavor(e.target.value);
-                  setSigningIn(false);
-                }}
-              >
-                <option value="codex">Codex · ChatGPT</option>
-                <option value="claude">Claude Code · Claude</option>
-                <option value="opencode">OpenCode · ChatGPT</option>
-                <option value="pi">Pi · Existing billing</option>
-              </select>
-            </label>
-            <button
-              disabled={busy || env.state !== "online"}
-              onClick={() => setSigningIn(true)}
-            >
-              Manage sign-in
-            </button>
+            <div className="environment-provider-list">
+              {runtimes.map((runtime) => (
+                <div className="environment-provider" key={runtime.flavor}>
+                  <div>
+                    <strong>{runtime.label}</strong>
+                    <small>
+                      {connected(runtime.flavor)
+                        ? "Connected"
+                        : "Sign-in needed"}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={
+                      busy || env.state !== "online" || !!env.revoked_at
+                    }
+                    onClick={() => {
+                      setFlavor(runtime.flavor);
+                      setSigningIn(true);
+                      autoVerify.current = false;
+                    }}
+                  >
+                    {connected(runtime.flavor) ? "Manage" : "Connect"}
+                  </button>
+                </div>
+              ))}
+            </div>
             {signingIn && (
               <RuntimeSignIn
-                key={`${selected}:${env.generation}:${env.state}:${env.revoked_at}`}
+                key={`${selected}:${flavor}:${env.generation}:${env.state}:${env.revoked_at}`}
                 base={`/environments/${selected}/provider/${flavor}`}
                 backend="environment"
                 location={env.name}
@@ -174,26 +210,21 @@ export function ExecutionEnvironments({
                 signedIn={false}
                 enabled={false}
                 enabling={busy}
-                onStateChange={() => {}}
+                onStateChange={(_name, state) => {
+                  if (state === "complete" && !autoVerify.current) {
+                    autoVerify.current = true;
+                    void verifySelected();
+                  }
+                }}
                 onClose={() => setSigningIn(false)}
                 enableAction={
                   <button
+                    type="button"
+                    className="btn primary"
                     disabled={busy || env.state !== "online"}
-                    onClick={() =>
-                      void act(async () => {
-                        await api(
-                          `/environments/${selected}/provider/${flavor}/verify`,
-                          {},
-                        );
-                        setNotice(
-                          "Provider verified in this environment. Its connection is available when creating an agent.",
-                        );
-                        setSigningIn(false);
-                        onChange();
-                      })
-                    }
+                    onClick={() => void verifySelected()}
                   >
-                    Verify connection
+                    {busy ? "Connecting…" : "Use in Loop"}
                   </button>
                 }
               />
@@ -280,6 +311,18 @@ export function ExecutionEnvironments({
             </button>
             <details>
               <summary>Environment details</summary>
+              <button
+                type="button"
+                disabled={busy || !!env.revoked_at}
+                onClick={() =>
+                  void act(async () => {
+                    await api("/environments/" + selected + "/refresh", {});
+                  })
+                }
+              >
+                Refresh environment
+              </button>
+              <EnvironmentRuntimeCard environment={env} />
               <pre>{JSON.stringify(health.versions || {}, null, 2)}</pre>
               <p>
                 Revocation immediately blocks further access. A partitioned

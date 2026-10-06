@@ -1,30 +1,31 @@
 import { useState } from "react";
 import { ArrowUpRight, Plus, Search } from "lucide-react";
 import { Avatar, Badge, Empty, Sheet } from "./components";
-import type { Agent, Folder } from "../shared/types";
+import type { EnvironmentAgent, EnvironmentFolder } from "./agentSources";
 
 export function AgentDirectory({
   agents,
-  scopedIds,
+  scopedKeys,
   folders,
   onAgent,
   onCreate,
   onClose,
 }: {
-  agents: Agent[];
-  scopedIds: string[];
-  folders: Folder[];
-  onAgent: (agent: Agent) => void;
+  agents: EnvironmentAgent[];
+  scopedKeys: string[];
+  folders: EnvironmentFolder[];
+  onAgent: (agent: EnvironmentAgent) => void;
   onCreate: () => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [all, setAll] = useState(false);
   const [retired, setRetired] = useState(false);
+  const key = (agent: EnvironmentAgent) => `${agent.sourceId || "laptop"}:${agent.id}`;
   const filtered = agents.filter(
     (a) =>
       !!a.retired_at === retired &&
-      (retired || all || scopedIds.includes(a.id)) &&
+      (retired || all || scopedKeys.includes(key(a))) &&
       `${a.name} ${a.model} ${a.instructions}`
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
@@ -59,7 +60,7 @@ export function AgentDirectory({
         />
       </label>
       {!retired &&
-        scopedIds.length !== agents.filter((a) => !a.retired_at).length && (
+        scopedKeys.length !== agents.filter((a) => !a.retired_at).length && (
           <label className="checkbox-row">
             <input
               type="checkbox"
@@ -73,7 +74,7 @@ export function AgentDirectory({
         {filtered.map((a) => (
           <button
             className="project-agent"
-            key={a.id}
+            key={key(a)}
             onClick={() => onAgent(a)}
           >
             <Avatar name={a.name} provider={a.provider} />
@@ -81,8 +82,11 @@ export function AgentDirectory({
               <strong>@{a.name}</strong>
               <Badge provider={a.provider} />
               <small>
-                {a.model} ·{" "}
-                {folders.find((f) => f.id === a.folder_id)?.name || "Workspace"}
+                {a.model} · {a.executionEnvironment || "This laptop"}
+                {a.folder_id && folders.find((f) =>
+                  f.id === a.folder_id && (f.sourceId || "") === (a.sourceId || "")) &&
+                  ` · ${folders.find((f) =>
+                    f.id === a.folder_id && (f.sourceId || "") === (a.sourceId || ""))?.name}`}
               </small>
             </span>
             <ArrowUpRight size={18} />
@@ -94,17 +98,17 @@ export function AgentDirectory({
           title={
             !agents.length
               ? "No agents yet."
-              : !all && !scopedIds.length
+              : !all && !scopedKeys.length
                 ? "No agents in this view."
                 : "No matching agents."
           }
         >
           {!agents.length
             ? "Create your first agent to get started."
-            : !all && !scopedIds.length
+            : !all && !scopedKeys.length
               ? "Show all workspace agents or create an agent here."
               : "Try a different name" +
-                (!all && scopedIds.length !== agents.length
+                (!all && scopedKeys.length !== agents.length
                   ? " or show all workspace agents."
                   : ".")}
         </Empty>

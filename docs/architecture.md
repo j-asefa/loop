@@ -8,6 +8,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | CLI and managed laptop provisioning                       | [cli.ts](../src/cli.ts), [local-runtime.ts](../src/local-runtime.ts)                                                          |
 | Companion host, worker ownership and device authorization | [workspace-host.ts](../src/workspace-host.ts), [host.ts](../src/host.ts)                                                      |
+| Agent-source discovery and paired proxy                   | [agent-sources.ts](../src/agent-sources.ts), [linked-docker.ts](../src/linked-docker.ts)                                       |
 | Server entrypoints and routes                             | [serve.ts](../src/server/serve.ts), [worker.ts](../src/server/worker.ts), [index.ts](../src/server/index.ts)                  |
 | Profile and owner access                                  | [profile.ts](../src/server/profile.ts), [access.ts](../src/server/access.ts), [auth.ts](../src/server/auth.ts)                |
 | Queue and managed model/tool loop                         | [queue.ts](../src/server/queue.ts), [agent-runtime.ts](../src/server/agent-runtime.ts)                                        |
@@ -20,6 +21,12 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | UI and shared contracts                                   | [client](../src/client), [shared](../src/shared)                                                                              |
 
 ## Execution paths
+
+### Agent sources and execution environments
+
+An agent belongs to one owner on one Loop API source and has a connection that selects its execution environment. The paired client reads each available source's owner-scoped agent, run and inbox projections and merges the Feed by activity time. Source IDs qualify agent, conversation and run identities in the client; source-scoped writes go only to the owning API. A late response from a prior signed-in owner is discarded. Project and team filters remain scoped to their source. The source's database, credentials and dispatch identities are never copied to the companion host.
+
+[agent-sources.ts](../src/agent-sources.ts) maps opaque source IDs to adapters. Its current Docker adapter discovers only local loopback-published single-user Loop containers and forwards paired requests once. Unknown IDs cannot nominate a network destination. Other Loop hosts need an adapter with secure discovery/enrollment and owner authorization; HAPI runner hosts connected to an existing Loop source already work through that source's connection metadata. The client uses the same source-keyed Feed and **Run on** form regardless of adapter kind.
 
 API-provider and server subscription connections use Loop's managed queue and conversation context. Managed work is serialized per agent, except HAPI connections, which serialize turns per conversation and allow concurrent conversations bounded by environment capacity. Subscription runtimes receive Loop's bounded history and structured tool/answer contract while retaining their native tools.
 

@@ -23,7 +23,13 @@ import {
   X,
   ChevronRight,
 } from "lucide-react";
-import { api } from "./api";
+import { api, apiInWorkspace } from "./api";
+import { executionSourceId, sourceUrl } from "./sourceRouting";
+import type {
+  EnvironmentAgent,
+  EnvironmentConnection,
+  AgentSource,
+} from "./agentSources";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Avatar, RichText, Sheet } from "./components";
 import {
@@ -69,6 +75,8 @@ export type InboxFilter =
   | "unfinished";
 
 export type InboxItem = {
+  sourceId?: string;
+  executionEnvironment?: string;
   conversation_id: string;
   title: string;
   agent_id: string | null;
@@ -140,6 +148,7 @@ type Summary = {
   scheduled_pending?: number;
 };
 type Brief = {
+  sourceId?: string;
   conversation_id: string;
   title: string;
   agent_name: string | null;
@@ -182,9 +191,9 @@ function InboxCard({
   onLater,
 }: {
   item: InboxItem;
-  agent?: Agent;
+  agent?: EnvironmentAgent;
   model?: string;
-  environment?: ExecutionLocation | null;
+  environment?: { kind: ExecutionLocation | null; label: string } | null;
   onOpen: () => void;
   onReply: () => void;
   /** Open exactly where the next action is. */
@@ -201,7 +210,10 @@ function InboxCard({
     (swipe.handlers as any)[name]?.(e);
     (press as any)[name]?.(e);
   };
-  const draft = threadDraft(item.conversation_id).text;
+  const draft =
+    (item.sourceId || "") === executionSourceId()
+      ? threadDraft(item.conversation_id).text
+      : "";
   const next = feedNextAction(item.next_action, draft);
   const detail =
     status.tone === "working" && item.run
@@ -251,13 +263,20 @@ function InboxCard({
               <span className="subline">
                 {model && <span className="card-model">{model}</span>}
                 {environment && (
-                  <span className={`agent-environment ${environment}`}>
-                    {environment === "laptop" ? (
+                  <span
+                    className={
+                      "card-environment" +
+                      (environment.kind
+                        ? ` agent-environment ${environment.kind}`
+                        : "")
+                    }
+                  >
+                    {environment.kind === "laptop" ? (
                       <Laptop size={12} aria-hidden="true" />
-                    ) : (
+                    ) : environment.kind === "docker" ? (
                       <Container size={12} aria-hidden="true" />
-                    )}
-                    {executionLocationLabels[environment]}
+                    ) : null}
+                    {environment.label}
                   </span>
                 )}
                 <time dateTime={new Date(item.last_activity_at).toISOString()}>
@@ -400,20 +419,28 @@ const nextIcon = {
 function AwaySummary({
   onFilter,
   onOpen,
+  sources,
 }: {
   onFilter: (filter: InboxFilter) => void;
-  onOpen: (conversation: string) => void;
+  onOpen: (conversation: string, sourceId: string) => void;
+  sources: AgentSource[];
 }) {
   const [away, setAway] = useState<{
     completed: Brief[];
     needs: Brief[];
     failed: Brief[];
   } | null>(null);
+  const previousVisit = useRef<number | null>(null);
+  const sourceKey = sources.map((source) => source.id).join(",");
   useEffect(() => {
-    let since = 0;
-    try {
-      since = Number(localStorage.getItem(LAST_VISIT) || 0);
-    } catch {}
+    if (previousVisit.current === null) {
+      try {
+        previousVisit.current = Number(localStorage.getItem(LAST_VISIT) || 0);
+      } catch {
+        previousVisit.current = 0;
+      }
+    }
+    const since = previousVisit.current;
     const record = () => {
       try {
         localStorage.setItem(LAST_VISIT, String(Date.now()));
@@ -425,22 +452,43 @@ function AwaySummary({
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", record);
     if (since && Date.now() - since > AWAY_AFTER)
-      void api("/inbox/away?since=" + since)
-        .then((result) => {
-          if (
-            result.completed.length ||
-            result.needs.length ||
-            result.failed.length
-          )
-            setAway(result);
-        })
-        .catch(() => {});
+      void Promise.allSettled(
+        sources.map(async (source) => ({
+          source,
+          result: await apiInWorkspace<{
+            completed: Brief[];
+            needs: Brief[];
+            failed: Brief[];
+          }>("/inbox/away?since=" + since, source.id),
+        })),
+      ).then((settled) => {
+        const loaded = settled.flatMap((entry) =>
+          entry.status === "fulfilled" ? [entry.value] : [],
+        );
+        const result = {
+          completed: loaded.flatMap(({ source, result }) =>
+            result.completed.map((item) => ({ ...item, sourceId: source.id })),
+          ),
+          needs: loaded.flatMap(({ source, result }) =>
+            result.needs.map((item) => ({ ...item, sourceId: source.id })),
+          ),
+          failed: loaded.flatMap(({ source, result }) =>
+            result.failed.map((item) => ({ ...item, sourceId: source.id })),
+          ),
+        };
+        if (
+          result.completed.length ||
+          result.needs.length ||
+          result.failed.length
+        )
+          setAway(result);
+      });
     record();
     return () => {
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("pagehide", record);
     };
-  }, []);
+  }, [sourceKey]);
   if (!away) return null;
   const parts = [
     away.completed.length && `${away.completed.length} finished`,
@@ -453,7 +501,7 @@ function AwaySummary({
   const threads = [
     ...new Set(
       [...away.needs, ...away.failed, ...away.completed].map(
-        (item) => item.conversation_id,
+        (item) => `${item.sourceId || "laptop"}:${item.conversation_id}`,
       ),
     ),
   ];
@@ -465,7 +513,7 @@ function AwaySummary({
   const show = () => {
     setAway(null);
     if (single) {
-      onOpen(single.conversation_id);
+      onOpen(single.conversation_id, single.sourceId || "");
       return;
     }
     onFilter(attention ? "needs" : "done");
@@ -513,6 +561,7 @@ export type QueuedMessage = {
   id: string;
   input: string;
   agentId?: string | null;
+  sourceId?: string;
 };
 
 export function EditQueued({
@@ -550,7 +599,12 @@ export function EditQueued({
           setBusy(true);
           setError("");
           try {
-            await api("/runs/" + message.id, { input: text }, "PATCH");
+            await apiInWorkspace(
+              "/runs/" + message.id,
+              message.sourceId ?? executionSourceId(),
+              { input: text },
+              "PATCH",
+            );
             onSaved();
             onClose();
           } catch (e) {
@@ -578,7 +632,12 @@ function MoveQueued({
   onMoved: (conversation?: string) => void;
 }) {
   const choices = agents.filter(
-    (a) => a.connection_id && !a.retired_at && a.id !== message.agentId,
+    (a) =>
+      a.connection_id &&
+      !a.retired_at &&
+      a.id !== message.agentId &&
+      ((a as EnvironmentAgent).sourceId || "") ===
+        (message.sourceId ?? executionSourceId()),
   );
   const [agentId, setAgentId] = useState(choices[0]?.id || "");
   const [error, setError] = useState("");
@@ -610,10 +669,14 @@ function MoveQueued({
         onClick={async () => {
           setError("");
           try {
-            const result = await api(`/runs/${message.id}/move`, {
-              agentId,
-              idempotencyKey: key.current,
-            });
+            const result = await apiInWorkspace<{ conversation_id: string }>(
+              `/runs/${message.id}/move`,
+              message.sourceId ?? executionSourceId(),
+              {
+                agentId,
+                idempotencyKey: key.current,
+              },
+            );
             onMoved(result.conversation_id);
             onClose();
           } catch (e) {
@@ -647,22 +710,23 @@ export function Inbox({
   onScheduled,
   onShowReminder,
   onAsk,
+  sources,
 }: {
   filter: InboxFilter;
   onFilter: (filter: InboxFilter) => void;
   project?: string;
   teams?: string;
   revision: number;
-  agents: Agent[];
-  onOpen: (conversation: string, message?: string) => void;
+  agents: EnvironmentAgent[];
+  onOpen: (conversation: string, message?: string, sourceId?: string) => void;
   onAgent: (agent: Agent) => void;
   onChanged: () => void;
   header?: ReactNode;
   needsSlot?: ReactNode;
   emptyAction?: ReactNode;
   hideFilters?: boolean;
-  connections?: Connection[];
-  onReply?: (conversation: string) => void;
+  connections?: EnvironmentConnection[];
+  onReply?: (conversation: string, sourceId?: string) => void;
   agent?: string;
   /** Open Later → Scheduled. */
   onScheduled?: () => void;
@@ -670,16 +734,45 @@ export function Inbox({
   onShowReminder?: (id: string) => void;
   /** Start a new message with this text (a news card's "Ask an agent"). */
   onAsk?: (text: string) => void;
+  /** Present only for the combined top-level Feed. */
+  sources?: AgentSource[];
 }) {
   type Shown = { items: InboxItem[]; next: string | null; summary: Summary };
+  const activeSources =
+    sources && !project && !teams && !agent
+      ? sources
+      : [{ id: executionSourceId(), name: "" }];
+  const sourceKey = activeSources.map((source) => source.id).join(",");
   const shownKey = () =>
-    "inbox:" + JSON.stringify([filter, project, agent, teams]);
+    "inbox:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
   // Going back shows the list as you left it while it refreshes.
   const shown = cachedView<Shown>(shownKey());
+  // Recorded locations, keyed by source and connection id: ids from
+  // different sources can collide.
   const environments = useMemo(
-    () => connectionEnvironments(connections || []),
+    () =>
+      new Map(
+        (connections || []).map((connection) => [
+          `${connection.sourceId || ""}:${connection.id}`,
+          connectionEnvironments([connection]).get(connection.id) ?? null,
+        ]),
+      ),
     [connections],
   );
+  // One badge per card. A linked Docker server is Docker by definition;
+  // on the laptop source, the connection's recorded location decides.
+  const cardEnvironment = (
+    source: string,
+    connectionId: string | null,
+    label: string | undefined,
+  ) => {
+    const kind: ExecutionLocation | null = source.startsWith("docker:")
+      ? "docker"
+      : (environments.get(`${source}:${connectionId}`) ?? null);
+    const text =
+      kind && !source ? executionLocationLabels[kind] : label || null;
+    return text ? { kind, label: text } : null;
+  };
   const [items, setItems] = useState<InboxItem[]>(shown?.items || []);
   const [summary, setSummary] = useState<Summary | null>(
     shown?.summary || null,
@@ -715,11 +808,69 @@ export function Inbox({
     const owner = viewOwner();
     if (!append && !items.length) setLoading(true);
     try {
-      const result = await api<{
-        items: InboxItem[];
-        next: string | null;
-        summary: Summary;
-      }>(query(append ? next || undefined : undefined));
+      type Page = { items: InboxItem[]; next: string | null; summary: Summary };
+      let result: Page;
+      let partialError = "";
+      if (sources && !project && !teams && !agent) {
+        const cursors: Record<string, string> =
+          append && next ? JSON.parse(next) : {};
+        const pending = append
+          ? activeSources.filter((source) => cursors[source.id])
+          : activeSources;
+        const settled = await Promise.allSettled(
+          pending.map(async (source) => ({
+            source,
+            page: await apiInWorkspace<Page>(
+              query(append ? cursors[source.id] : undefined),
+              source.id,
+            ),
+          })),
+        );
+        const loaded = settled.flatMap((entry) =>
+          entry.status === "fulfilled" ? [entry.value] : [],
+        );
+        if (!loaded.length && settled.length)
+          throw new Error("Couldn’t load the Feed from any environment.");
+        partialError = settled.some((entry) => entry.status === "rejected")
+          ? "Some execution environments are unavailable. Try again."
+          : "";
+        const nextCursors: Record<string, string> = append
+          ? { ...cursors }
+          : {};
+        for (const { source, page } of loaded) {
+          if (page.next) nextCursors[source.id] = page.next;
+          else delete nextCursors[source.id];
+        }
+        result = {
+          items: loaded.flatMap(({ source, page }) =>
+            page.items.map((item) => ({
+              ...item,
+              sourceId: source.id,
+              executionEnvironment: source.id ? source.name : undefined,
+            })),
+          ),
+          next: Object.keys(nextCursors).length
+            ? JSON.stringify(nextCursors)
+            : null,
+          summary: loaded.reduce(
+            (sum, { page }) => ({
+              needs: sum.needs + page.summary.needs,
+              working: sum.working + page.summary.working,
+              queued: sum.queued + page.summary.queued,
+              later_due: sum.later_due + page.summary.later_due,
+              scheduled_failed:
+                (sum.scheduled_failed || 0) +
+                (page.summary.scheduled_failed || 0),
+              scheduled_pending:
+                (sum.scheduled_pending || 0) +
+                (page.summary.scheduled_pending || 0),
+            }),
+            { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary,
+          ),
+        };
+      } else {
+        result = await api<Page>(query(append ? next || undefined : undefined));
+      }
       if (ticket !== request.current || owner !== viewOwner()) return;
       const key = shownKey();
       setItems((old) => {
@@ -728,10 +879,22 @@ export function Inbox({
               ...old,
               ...result.items.filter(
                 (item) =>
-                  !old.some((o) => o.conversation_id === item.conversation_id),
+                  !old.some(
+                    (o) =>
+                      o.conversation_id === item.conversation_id &&
+                      (o.sourceId || "") === (item.sourceId || ""),
+                  ),
               ),
             ]
           : result.items;
+        if (sources)
+          merged.sort(
+            (a, b) =>
+              b.last_activity_at - a.last_activity_at ||
+              `${a.sourceId}:${a.conversation_id}`.localeCompare(
+                `${b.sourceId}:${b.conversation_id}`,
+              ),
+          );
         cacheView<Shown>(
           key,
           { items: merged, next: result.next, summary: result.summary },
@@ -740,8 +903,8 @@ export function Inbox({
         return merged;
       });
       setNext(result.next);
-      setSummary(result.summary);
-      setError("");
+      if (!append) setSummary(result.summary);
+      setError(partialError);
     } catch (e) {
       if (ticket === request.current) setError((e as Error).message);
     } finally {
@@ -762,7 +925,7 @@ export function Inbox({
     }
     firstLoad.current = false;
     void load();
-  }, [filter, project, teams, agent]);
+  }, [filter, project, teams, agent, sourceKey]);
   useEffect(() => {
     void load(false, true);
   }, [revision]);
@@ -775,10 +938,17 @@ export function Inbox({
       window.removeEventListener("loop-later-change", update);
       clearInterval(timer);
     };
-  }, [filter, project, teams]);
-  async function runAction(runId: string, action: string, body = {}) {
+    // Re-arm with every input `load` reads, so the fallback refresh never
+    // replaces the Feed using a stale filter or source list.
+  }, [filter, project, teams, agent, sourceKey]);
+  async function runAction(
+    runId: string,
+    action: string,
+    sourceId: string,
+    body = {},
+  ) {
     try {
-      await api(`/runs/${runId}/${action}`, body);
+      await apiInWorkspace(`/runs/${runId}/${action}`, sourceId, body);
       onChanged();
       await load();
     } catch (e) {
@@ -787,12 +957,29 @@ export function Inbox({
   }
   async function archive(item: InboxItem) {
     try {
-      await api(`/inbox/${item.conversation_id}`, { hidden: true }, "PATCH");
-      setItems((old) => old.filter((row) => row.conversation_id !== item.conversation_id));
+      const source = item.sourceId ?? executionSourceId();
+      await apiInWorkspace(
+        `/inbox/${item.conversation_id}`,
+        source,
+        { hidden: true },
+        "PATCH",
+      );
+      setItems((old) =>
+        old.filter(
+          (row) =>
+            row.conversation_id !== item.conversation_id ||
+            (row.sourceId || "") !== (item.sourceId || ""),
+        ),
+      );
       notify({
         text: "Archived from feed. Still in history and search.",
         undo: async () => {
-          await api(`/inbox/${item.conversation_id}`, { hidden: false }, "PATCH");
+          await apiInWorkspace(
+            `/inbox/${item.conversation_id}`,
+            source,
+            { hidden: false },
+            "PATCH",
+          );
           await load();
         },
       });
@@ -802,7 +989,12 @@ export function Inbox({
     }
   }
   function actionsFor(item: InboxItem): Action[] {
-    const agent = agents.find((a) => a.id === item.agent_id);
+    const agent = agents.find(
+      (a) =>
+        a.id === item.agent_id &&
+        (a.sourceId || "") === (item.sourceId ?? executionSourceId()),
+    );
+    const source = item.sourceId ?? executionSourceId();
     const state = item.run?.state || "";
     const actions: Action[] = [
       {
@@ -820,13 +1012,19 @@ export function Inbox({
         queued.length > 1 || (item.run && item.run.id !== q.id)
           ? ` “${preview(q.input, 32)}”`
           : "";
-      const message = { id: q.id, input: q.input, agentId: item.agent_id };
+      const message = {
+        id: q.id,
+        input: q.input,
+        agentId: item.agent_id,
+        sourceId: source,
+      };
       if (q.can_move_up)
         actions.push({
           id: "up-" + q.id,
           label: `Move up in queue${which}`,
           icon: <ArrowUp size={20} />,
-          onSelect: () => void runAction(q.id, "reorder", { direction: "up" }),
+          onSelect: () =>
+            void runAction(q.id, "reorder", source, { direction: "up" }),
         });
       if (q.can_move_down)
         actions.push({
@@ -834,7 +1032,7 @@ export function Inbox({
           label: `Move down in queue${which}`,
           icon: <ArrowDown size={20} />,
           onSelect: () =>
-            void runAction(q.id, "reorder", { direction: "down" }),
+            void runAction(q.id, "reorder", source, { direction: "down" }),
         });
       if (q.can_edit)
         actions.push(
@@ -857,7 +1055,7 @@ export function Inbox({
           label: `Cancel queued message${which}`,
           danger: true,
           icon: <Square size={18} />,
-          onSelect: () => void runAction(q.id, "cancel"),
+          onSelect: () => void runAction(q.id, "cancel", source),
         });
     }
     if (["queued", "running"].includes(state))
@@ -865,21 +1063,21 @@ export function Inbox({
         id: "pause",
         label: "Pause",
         icon: <Pause size={20} />,
-        onSelect: () => void runAction(item.run!.id, "pause"),
+        onSelect: () => void runAction(item.run!.id, "pause", source),
       });
     if (state === "paused")
       actions.push({
         id: "resume",
         label: "Resume",
         icon: <Play size={20} />,
-        onSelect: () => void runAction(item.run!.id, "resume"),
+        onSelect: () => void runAction(item.run!.id, "resume", source),
       });
     if (["failed", "interrupted"].includes(state))
       actions.push({
         id: "dismiss",
         label: "Dismiss from Needs you",
         icon: <X size={20} />,
-        onSelect: () => void runAction(item.run!.id, "dismiss"),
+        onSelect: () => void runAction(item.run!.id, "dismiss", source),
       });
     if (
       state &&
@@ -893,7 +1091,7 @@ export function Inbox({
             : "Cancel task",
         danger: true,
         icon: <Square size={18} />,
-        onSelect: () => void runAction(item.run!.id, "cancel"),
+        onSelect: () => void runAction(item.run!.id, "cancel", source),
       });
     if (agent)
       actions.push({
@@ -908,7 +1106,7 @@ export function Inbox({
       icon: <Share2 size={20} />,
       onSelect: () =>
         void shareLink(
-          `/?conversation=${item.conversation_id}`,
+          sourceUrl(source, { conversation: item.conversation_id }),
           item.title,
         ).then((text) => text && setNotice(text)),
     });
@@ -925,7 +1123,11 @@ export function Inbox({
   return (
     <section className="inbox" aria-label="Feed">
       {!hideFilters && (
-        <AwaySummary onFilter={onFilter} onOpen={(id) => onOpen(id)} />
+        <AwaySummary
+          sources={activeSources}
+          onFilter={onFilter}
+          onOpen={(id, source) => onOpen(id, undefined, source)}
+        />
       )}
       {header}
       {!hideFilters && (
@@ -973,111 +1175,137 @@ export function Inbox({
       {isSocial(filter) ? (
         <Social onAsk={onAsk} />
       ) : (
-      <>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-            <button className="text-button" onClick={() => void load()}>
-              Try again
-            </button>
-          </div>
-        )}
-        {notice && (
-          <p role="status" className="field-hint">
-            {notice}
-          </p>
-        )}
-        {loading && !items.length ? (
-          <div className="feed-loading" role="status" aria-label="Loading feed">
-            <span />
-            <span />
-            <span />
-          </div>
-        ) : items.length ? (
-          <ul className="inbox-list feed">
-            {items.map((item) => {
-              const agent = agents.find((a) => a.id === item.agent_id);
-              // Both badges describe the connection that ran (or will run)
-              // this thread, so an agent reconfiguration doesn't relabel it.
-              const connectionId =
-                item.run?.connection_id ||
-                item.connection_id ||
-                agent?.connection_id ||
-                null;
-              const model = !connections
-                ? undefined
-                : item.run?.model
-                  ? runModelName(
-                      {
-                        model: item.run.model,
-                        resolvedModel: item.run.resolved_model,
-                        connectionId,
-                      },
-                      connections,
-                    )
-                  : agent
-                    ? agentModelName(
-                        { connection_id: connectionId, model: agent.model },
-                        connections,
-                      )
-                    : undefined;
-              return (
-                <InboxCard
-                  key={item.conversation_id}
-                  item={item}
-                  agent={agent}
-                  model={model}
-                  environment={
-                    connectionId ? environments.get(connectionId) : null
-                  }
-                  onOpen={() => onOpen(item.conversation_id)}
-                  onReply={() => (onReply || onOpen)(item.conversation_id)}
-                  onNext={(action) =>
-                    action.kind === "draft"
-                      ? (onReply || onOpen)(item.conversation_id)
-                      : onOpen(item.conversation_id, action.message_id || undefined)
-                  }
-                  onAgent={agent ? () => onAgent(agent) : undefined}
-                  onMenu={() => setMenu(item)}
-                  onArchive={() => void archive(item)}
-                  onLater={() => setLater(item)}
-                />
-              );
-            })}
-          </ul>
-        ) : (
-          !error && (
-            <div className="inbox-empty">
-              <p>
-                <strong>
-                  {filter === "all"
-                    ? "Nothing here yet."
-                    : filter === "done"
-                      ? "Nothing finished yet."
-                      : filter === "needs"
-                        ? "Nothing needs you right now."
-                        : filter === "working"
-                          ? "No agents are working right now."
-                          : filter === "outcomes"
-                            ? "No finished work here yet."
-                            : filter === "unfinished"
-                              ? "Nothing unfinished here."
-                              : "Nothing is queued."}
-                </strong>
-              </p>
-              {(filter === "all" || filter === "done") && emptyAction}
+        <>
+          {error && (
+            <div className="error" role="alert">
+              {error}
+              <button className="text-button" onClick={() => void load()}>
+                Try again
+              </button>
             </div>
-          )
-        )}
-        {next && (
-          <button
-            className="secondary load-more"
-            onClick={() => void load(true)}
-          >
-            Load more
-          </button>
-        )}
-      </>
+          )}
+          {notice && (
+            <p role="status" className="field-hint">
+              {notice}
+            </p>
+          )}
+          {loading && !items.length ? (
+            <div
+              className="feed-loading"
+              role="status"
+              aria-label="Loading feed"
+            >
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : items.length ? (
+            <ul className="inbox-list feed">
+              {items.map((item) => {
+                const source = item.sourceId ?? executionSourceId();
+                const agent = agents.find(
+                  (a) =>
+                    a.id === item.agent_id && (a.sourceId || "") === source,
+                );
+                // Both badges describe the connection that ran (or will run)
+                // this thread on its own source, so an agent reconfiguration
+                // doesn't relabel it.
+                const sourceConnections = (connections || []).filter(
+                  (connection) => (connection.sourceId || "") === source,
+                );
+                const connectionId =
+                  item.run?.connection_id ||
+                  item.connection_id ||
+                  agent?.connection_id ||
+                  null;
+                const model = !connections
+                  ? undefined
+                  : item.run?.model
+                    ? runModelName(
+                        {
+                          model: item.run.model,
+                          resolvedModel: item.run.resolved_model,
+                          connectionId,
+                        },
+                        sourceConnections,
+                      )
+                    : agent
+                      ? agentModelName(
+                          { connection_id: connectionId, model: agent.model },
+                          sourceConnections,
+                        )
+                      : undefined;
+                return (
+                  <InboxCard
+                    key={`${source}:${item.conversation_id}`}
+                    item={item}
+                    agent={agent}
+                    model={model}
+                    environment={cardEnvironment(
+                      source,
+                      connectionId,
+                      agent?.executionEnvironment || item.executionEnvironment,
+                    )}
+                    onOpen={() =>
+                      onOpen(item.conversation_id, undefined, source)
+                    }
+                    onReply={() =>
+                      onReply
+                        ? onReply(item.conversation_id, source)
+                        : onOpen(item.conversation_id, undefined, source)
+                    }
+                    onNext={(action) =>
+                      action.kind === "draft"
+                        ? onReply
+                          ? onReply(item.conversation_id, source)
+                          : onOpen(item.conversation_id, undefined, source)
+                        : onOpen(
+                            item.conversation_id,
+                            action.message_id || undefined,
+                            source,
+                          )
+                    }
+                    onAgent={agent ? () => onAgent(agent) : undefined}
+                    onMenu={() => setMenu(item)}
+                    onArchive={() => void archive(item)}
+                    onLater={() => setLater(item)}
+                  />
+                );
+              })}
+            </ul>
+          ) : (
+            !error && (
+              <div className="inbox-empty">
+                <p>
+                  <strong>
+                    {filter === "all"
+                      ? "Nothing here yet."
+                      : filter === "done"
+                        ? "Nothing finished yet."
+                        : filter === "needs"
+                          ? "Nothing needs you right now."
+                          : filter === "working"
+                            ? "No agents are working right now."
+                            : filter === "outcomes"
+                              ? "No finished work here yet."
+                              : filter === "unfinished"
+                                ? "Nothing unfinished here."
+                                : "Nothing is queued."}
+                  </strong>
+                </p>
+                {(filter === "all" || filter === "done") && emptyAction}
+              </div>
+            )
+          )}
+          {next && (
+            <button
+              className="secondary load-more"
+              onClick={() => void load(true)}
+            >
+              Load more
+            </button>
+          )}
+        </>
       )}
       {menu && (
         <ActionSheet
@@ -1097,6 +1325,7 @@ export function Inbox({
         <LaterSheet
           kind="conversation"
           targetId={later.conversation_id}
+          sourceId={later.sourceId ?? executionSourceId()}
           title={later.title}
           running={[
             "queued",
@@ -1113,12 +1342,19 @@ export function Inbox({
           onDone={(label, created) => {
             notify({
               text: `Reminder set: ${label.toLowerCase()}.`,
-              link: onShowReminder && {
-                label: "View",
-                onSelect: () => onShowReminder(created.id),
-              },
+              link:
+                onShowReminder &&
+                (later.sourceId ?? executionSourceId()) === executionSourceId()
+                  ? {
+                      label: "View",
+                      onSelect: () => onShowReminder(created.id),
+                    }
+                  : undefined,
               undo: async () => {
-                await undoReminder(created);
+                await undoReminder(
+                  created,
+                  later.sourceId ?? executionSourceId(),
+                );
                 void load();
               },
             });
@@ -1144,7 +1380,12 @@ export function Inbox({
           onMoved={(conversation) => {
             onChanged();
             void load();
-            if (conversation) onOpen(conversation);
+            if (conversation)
+              onOpen(
+                conversation,
+                undefined,
+                moving.sourceId ?? executionSourceId(),
+              );
           }}
         />
       )}

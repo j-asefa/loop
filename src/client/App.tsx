@@ -5,6 +5,13 @@ import { agentModelName, effortName } from "./modelChoices";
 import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 import { capabilities } from "./capabilities";
+import {
+  executionSourceId,
+  returnToLocalSource,
+  sourceUrl,
+  sourceApiPath,
+} from "./sourceRouting";
+import { useAgentSources, type EnvironmentAgent } from "./agentSources";
 import { NativeHistory } from "./NativeHistory";
 import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
@@ -173,8 +180,22 @@ function initialFilter(): InboxFilter {
     : initialPage().filter || "done";
 }
 export default function App() {
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (!url.searchParams.has("connect")) return;
+    url.searchParams.delete("connect");
+    history.replaceState(
+      history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
+  }, []);
   const [sharedDraft, setSharedDraft] = useState<SharedDraft>(initialShare);
-  const [returnTo, setReturnTo] = useState("");
+  const [returnTo, setReturnTo] = useState(
+    new URLSearchParams(location.search).has("connect") ? "create" : "",
+  );
+  const [environmentToOpen, setEnvironmentToOpen] = useState("");
+  const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
   useEffect(() => {
     sessionStorage.setItem("loop-share", JSON.stringify(sharedDraft));
@@ -200,7 +221,9 @@ export default function App() {
           : new URLSearchParams(location.search).has("share") ||
               location.pathname === "/share"
             ? "share"
-            : "",
+            : new URLSearchParams(location.search).has("connect")
+              ? "connections"
+              : "",
     ),
     [error, setError] = useState(""),
     [profile, setProfile] = useState<Agent | null>(null),
@@ -241,6 +264,9 @@ export default function App() {
     new URLSearchParams(location.search).get("message"),
   );
   const [composerExpanded, setComposerExpanded] = useState(false);
+  const initialAgentId = useRef(
+    new URLSearchParams(location.search).get("agent"),
+  );
   const [replyContext, setReplyContext] = useState<ComposerContext | null>(() =>
     parse(sessionStorage.getItem("loop-draft-context") || "", null),
   );
@@ -353,7 +379,9 @@ export default function App() {
   function askAboutPull(text: string) {
     setReplyContext(null);
     setContextArtifact(null);
-    setDraft((current) => (current.trim() ? current.trimEnd() + "\n\n" + text : text));
+    setDraft((current) =>
+      current.trim() ? current.trimEnd() + "\n\n" + text : text,
+    );
     focusComposer();
   }
   // A PR card's "Open in Pull requests" leaves its thread for the tab.
@@ -427,7 +455,9 @@ export default function App() {
     text: string,
     files: UploadedFile[],
   ) {
-    const added = files.filter((file) => !current.files.some((f) => f.id === file.id));
+    const added = files.filter(
+      (file) => !current.files.some((f) => f.id === file.id),
+    );
     const merged = [...current.files, ...added].slice(0, MAX_MESSAGE_FILES);
     return {
       text: current.text.trim() ? `${current.text.trimEnd()}\n\n${text}` : text,
@@ -660,12 +690,18 @@ export default function App() {
   const [editError, setEditError] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   function closeSheet() {
+    if (sheet === "create") {
+      setEnvironmentToOpen("");
+      setEnvironmentSetupProvider("");
+    }
     setSheet(
       sheet === "create" && ["share", "workflows", "teams"].includes(returnTo)
         ? returnTo
-        : settingsParent
-          ? "settings"
-          : "",
+        : sheet === "environments" && returnTo === "create"
+          ? "create"
+          : settingsParent
+            ? "settings"
+            : "",
     );
     setReturnTo("");
   }
@@ -702,6 +738,41 @@ export default function App() {
     [revision, setRevision] = useState(0);
   // Your profile and its counts; refreshed while the profile is open.
   const signedIn: string | undefined = session?.user?.id;
+  const unified = useAgentSources(signedIn, { ...data, runs });
+  const currentSourceName =
+    unified.sources.find((source) => source.id === executionSourceId())?.name ||
+    (executionSourceId() ? "Connected environment" : "This laptop");
+  const creationConnections = unified.connections.length
+    ? unified.connections
+    : data.connections.map((connection) => ({
+        ...connection,
+        sourceId: executionSourceId(),
+        executionEnvironment: currentSourceName,
+      }));
+  const creationFolders = unified.folders.length
+    ? unified.folders
+    : data.folders.map((folder) => ({
+        ...folder,
+        sourceId: executionSourceId(),
+      }));
+  function openSourcedConversation(
+    id: string,
+    message?: string,
+    sourceId = executionSourceId(),
+  ) {
+    if (sourceId !== executionSourceId()) {
+      location.assign(sourceUrl(sourceId, { conversation: id, message }));
+      return;
+    }
+    setConversation(id, message);
+  }
+  function openSourcedAgent(agent: EnvironmentAgent) {
+    if ((agent.sourceId || "") !== executionSourceId()) {
+      location.assign(sourceUrl(agent.sourceId || "", { agent: agent.id }));
+      return;
+    }
+    setProfile(agent);
+  }
   useEffect(() => {
     if (!signedIn) return setMyProfile(null);
     const controller = new AbortController();
@@ -714,9 +785,14 @@ export default function App() {
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
   const initials = initialsOf(displayName);
+  const receiptStorageKey = `loop-draft-receipt:${executionSourceId() || "laptop"}`;
   const request = useRef(
     parse<SendReceipt>(
-      sessionStorage.getItem("loop-draft-receipt") || "",
+      sessionStorage.getItem(receiptStorageKey) ||
+        (!executionSourceId()
+          ? sessionStorage.getItem("loop-draft-receipt")
+          : "") ||
+        "",
       { signature: "", key: "" },
     ),
   );
@@ -776,9 +852,9 @@ export default function App() {
   const sentRun = runs.find((run) => run.id === sendNotice?.runId);
   // The Feed tab's badge: how many agents are working right now.
   const runningAgentCount = new Set(
-    scopedRuns
+    (projectFilter || teamSelection.length ? scopedRuns : unified.runs)
       .filter((r) => ["running", "pausing"].includes(r.state))
-      .map((r) => r.agent_id),
+      .map((r) => `${"sourceId" in r ? r.sourceId || "laptop" : executionSourceId() || "laptop"}:${r.agent_id}`),
   ).size;
   // Each thread keeps its own unsent draft (and the global composer keeps its
   // own), so switching threads never carries text into the wrong one.
@@ -831,7 +907,8 @@ export default function App() {
     if (current && belongsToProject(current.folder_id, project, data.folders))
       return;
     const agent = availableAgents.find(
-      (a) => a.connection_id && belongsToProject(a.folder_id, project, data.folders),
+      (a) =>
+        a.connection_id && belongsToProject(a.folder_id, project, data.folders),
     );
     if (agent) {
       setSelected(agent.id);
@@ -845,7 +922,9 @@ export default function App() {
     await refresh();
   }
   async function check() {
-    const r = await fetch("/api/auth/get-session", { cache: "no-store" });
+    const r = await fetch(sourceApiPath("/api/auth/get-session"), {
+      cache: "no-store",
+    });
     if (
       r.redirected &&
       !r.headers.get("content-type")?.includes("application/json")
@@ -854,6 +933,10 @@ export default function App() {
       return;
     }
     const result = await r.json();
+    if (r.status === 401 && executionSourceId()) {
+      returnToLocalSource();
+      return;
+    }
     if (!r.ok)
       throw new Error(result.error || "Could not open your workspace.");
     setSession(
@@ -871,6 +954,16 @@ export default function App() {
       generation === bootstrapGeneration.current
     ) {
       setData(result);
+      if (initialAgentId.current) {
+        const match = result.agents.find(
+          (agent: Agent) => agent.id === initialAgentId.current,
+        );
+        initialAgentId.current = null;
+        if (match) setProfile(match);
+        const url = new URL(location.href);
+        url.searchParams.delete("agent");
+        history.replaceState(history.state, "", url.pathname + url.search);
+      }
       setTeamSelection((old) => {
         const present = old.filter((id) =>
           result.teams?.some((team: Team) => team.id === id),
@@ -893,9 +986,7 @@ export default function App() {
   }
   async function loadFeed(append = false, notify = true) {
     const owner = ownerRef.current,
-      key = [owner, profile?.id, view, teamKey, projectFilter].join(
-        ":",
-      );
+      key = [owner, profile?.id, view, teamKey, projectFilter].join(":");
     if (!owner || key !== feedContext.current) return;
     if (feed.current.key !== key) {
       setItems([]);
@@ -906,8 +997,7 @@ export default function App() {
     try {
       const query = () => {
         const q = new URLSearchParams({
-          view:
-            ["traces", "messages", "threads"].includes(view) ? "all" : view,
+          view: ["traces", "messages", "threads"].includes(view) ? "all" : view,
           teams: profile ? "" : teamKey,
         });
         if (profile) q.set("agent", profile.id);
@@ -1249,7 +1339,7 @@ export default function App() {
       );
       request.current = plan.receipt;
       sessionStorage.setItem(
-        "loop-draft-receipt",
+        receiptStorageKey,
         JSON.stringify(request.current),
       );
       const reconciled = plan.reconciled
@@ -1302,8 +1392,12 @@ export default function App() {
         setDraft("");
         setAttachments([]);
         request.current = { signature: "", key: "" };
-        sessionStorage.removeItem("loop-draft-receipt");
-        setReplyContext(conversation && conversationTarget ? conversationTarget : null);
+        sessionStorage.removeItem(receiptStorageKey);
+        if (!executionSourceId())
+          sessionStorage.removeItem("loop-draft-receipt");
+        setReplyContext(
+          conversation && conversationTarget ? conversationTarget : null,
+        );
         if (!conversation) collapseComposer();
         return;
       }
@@ -1322,16 +1416,17 @@ export default function App() {
         ]);
       if (!conversation)
         setSendNotice({
-        runId: accepted.id,
-        conversationId: accepted.conversation_id || conversationId || null,
-        agentId: recipient.id,
-        agentName: recipient.name,
-        steering: Boolean(accepted.steeringId),
-      });
+          runId: accepted.id,
+          conversationId: accepted.conversation_id || conversationId || null,
+          agentId: recipient.id,
+          agentName: recipient.name,
+          steering: Boolean(accepted.steeringId),
+        });
       setDraft("");
       setAttachments([]);
       request.current = { signature: "", key: "" };
-      sessionStorage.removeItem("loop-draft-receipt");
+      sessionStorage.removeItem(receiptStorageKey);
+      if (!executionSourceId()) sessionStorage.removeItem("loop-draft-receipt");
       if (conversationId) {
         saveThreadDraft(conversationId, "", []);
         sessionStorage.removeItem("loop-receipt-" + conversationId);
@@ -1342,7 +1437,9 @@ export default function App() {
         sessionStorage.removeItem("loop-result-reply-" + reply.artifactId);
       // Stay in the thread after sending; its reply context returns to the
       // conversation itself rather than the quoted message.
-      setReplyContext(conversation && conversationTarget ? conversationTarget : null);
+      setReplyContext(
+        conversation && conversationTarget ? conversationTarget : null,
+      );
       setContextArtifact(null);
       if (options.queue && conversation)
         notify({
@@ -1367,7 +1464,7 @@ export default function App() {
           (e as { status?: number }).status,
         );
         sessionStorage.setItem(
-          "loop-draft-receipt",
+          receiptStorageKey,
           JSON.stringify(request.current),
         );
       }
@@ -1568,9 +1665,7 @@ export default function App() {
             : "Send message"
       }
       title="Hold for more send options"
-      disabled={
-        busy || uploading || !draft.trim() || !!activeAgent?.retired_at
-      }
+      disabled={busy || uploading || !draft.trim() || !!activeAgent?.retired_at}
       onClick={() => void send()}
       {...sendPress}
     >
@@ -1655,7 +1750,9 @@ export default function App() {
                   aria-label="Agent recipient"
                   disabled={busy || uploading}
                   value={
-                    selected === "__route__" ? "__route__" : activeAgent?.id || ""
+                    selected === "__route__"
+                      ? "__route__"
+                      : activeAgent?.id || ""
                   }
                   onChange={(e) => {
                     setSelected(e.target.value);
@@ -1730,10 +1827,10 @@ export default function App() {
                   Replying to {quoted.excerpt ? "part of " : ""}
                   {quoted.mine
                     ? "your message"
-                    : "@" + (activeAgent?.name || "agent") +
+                    : "@" +
+                      (activeAgent?.name || "agent") +
                       (quoted.excerpt ? "'s message" : "")}
-                  :{" "}
-                  <span>{preview(quoted.content!, 80)}</span>
+                  : <span>{preview(quoted.content!, 80)}</span>
                 </summary>
                 <div
                   className="composer-quote"
@@ -1749,7 +1846,9 @@ export default function App() {
                 aria-label="Clear reply context"
                 onClick={() =>
                   setReplyContext(
-                    conversation && conversationTarget ? conversationTarget : null,
+                    conversation && conversationTarget
+                      ? conversationTarget
+                      : null,
                   )
                 }
               >
@@ -1945,8 +2044,7 @@ export default function App() {
       connections={data.connections}
       project={[
         data.teams?.find((t) => t.id === item.team_id)?.name,
-        data.folders.find((f) => f.id === item.folder_id)?.name ||
-          "Unfiled",
+        data.folders.find((f) => f.id === item.folder_id)?.name || "Unfiled",
       ]
         .filter(Boolean)
         .join(" · ")}
@@ -1956,9 +2054,7 @@ export default function App() {
       onArchive={inSaved ? undefined : () => void archiveCard(item.id)}
       onLater={() => setLaterCard(item)}
       onProfile={() =>
-        setProfile(
-          data.agents.find((a) => a.id === item.agent_id) || null,
-        )
+        setProfile(data.agents.find((a) => a.id === item.agent_id) || null)
       }
       onFile={() => setFiling(item)}
       onPin={async () => {
@@ -1989,7 +2085,11 @@ export default function App() {
         </div>
       )}
       {feedLoading ? (
-        <div className="feed-loading" role="status" aria-label="Loading activity">
+        <div
+          className="feed-loading"
+          role="status"
+          aria-label="Loading activity"
+        >
           <span />
           <span />
           <span />
@@ -2006,8 +2106,7 @@ export default function App() {
           // Snippets are reusable prompts, not agent output; they live in the
           // composer's / menu instead of the results list.
           .filter(
-            (item) =>
-              !item.role && !parse<any>(item.metadata, {}).snippet,
+            (item) => !item.role && !parse<any>(item.metadata, {}).snippet,
           )
           .map((item) => resultCard(item))
       ) : (
@@ -2180,6 +2279,14 @@ export default function App() {
                 <p className="muted profile-model">
                   {agentModelName(profile, data.connections)}
                 </p>
+                <p className="muted profile-environment">
+                  Runs on{" "}
+                  {unified.agents.find(
+                    (agent) =>
+                      agent.id === profile.id &&
+                      (agent.sourceId || "") === executionSourceId(),
+                  )?.executionEnvironment || currentSourceName}
+                </p>
                 <p className="profile-status">
                   {profile.instructions ||
                     (profileWork.some((run) =>
@@ -2323,12 +2430,27 @@ export default function App() {
           )}
           {tab === "inbox" && !profile && (
             <>
-              {data.agents.length > 0 && (
+              {unified.error && (
+                <p className="error" role="status">
+                  {unified.error}
+                </p>
+              )}
+              {unified.agents.length > 0 && (
                 <YourAgents
-                  agents={scopedAgents}
-                  connections={data.connections}
-                  runs={runs}
-                  onProfile={setProfile}
+                  agents={
+                    projectFilter || teamSelection.length
+                      ? unified.agents.filter(
+                          (agent) =>
+                            (agent.sourceId || "") === executionSourceId() &&
+                            scopedAgents.some(
+                              (scoped) => scoped.id === agent.id,
+                            ),
+                        )
+                      : unified.agents.filter((agent) => !agent.retired_at)
+                  }
+                  connections={unified.connections}
+                  runs={unified.runs}
+                  onProfile={openSourcedAgent}
                   onCreate={() => {
                     setFolder(projectFilter);
                     setSheet("create");
@@ -2341,14 +2463,16 @@ export default function App() {
                 project={projectFilter || undefined}
                 teams={teamKey || undefined}
                 revision={revision}
-                agents={data.agents}
-                onOpen={(c, m) => setConversation(c, m)}
-                onReply={(c) => {
-                  setConversation(c);
-                  focusThreadComposer(c);
+                agents={unified.agents}
+                sources={unified.sources}
+                onOpen={openSourcedConversation}
+                onReply={(c, source) => {
+                  openSourcedConversation(c, undefined, source);
+                  if ((source || "") === executionSourceId())
+                    focusThreadComposer(c);
                 }}
-                connections={data.connections}
-                onAgent={setProfile}
+                connections={unified.connections}
+                onAgent={openSourcedAgent}
                 onChanged={() => void changed()}
                 onScheduled={() => showScheduled()}
                 onShowReminder={(id) => openLater("reminders", id)}
@@ -2379,12 +2503,18 @@ export default function App() {
                   <button
                     className="primary"
                     onClick={() =>
-                      data.agents.length ? focusComposer() : setSheet("create")
+                      data.agents.length
+                        ? focusComposer()
+                        : unified.agents.length
+                          ? setSheet("agents")
+                          : setSheet("create")
                     }
                   >
                     <Plus size={17} />
-                    {data.agents.length
-                      ? "Start a conversation"
+                    {unified.agents.length
+                      ? data.agents.length
+                        ? "Start a conversation"
+                        : "Choose an agent"
                       : "Create your first agent"}
                   </button>
                 }
@@ -2401,7 +2531,7 @@ export default function App() {
             />
           )}
           {profile && view === "threads" && (
-              <Inbox
+            <Inbox
               key={"agent-" + profile.id}
               filter="all"
               onFilter={() => {}}
@@ -2476,27 +2606,29 @@ export default function App() {
                   {section === "saved" && projectScope && (
                     <div className="later-scope">{projectScope}</div>
                   )}
-                <Later
-                  key={section}
-                  only={section}
-                  project={
-                    section === "saved" ? projectFilter || undefined : undefined
-                  }
-                  revision={revision}
-                  onOpen={(c, m) => setConversation(c, m)}
-                  onArtifact={(id) =>
-                    void api<Artifact>("/artifacts/" + id)
-                      .then((item) => void open(item))
-                      .catch((e) => setError(e.message))
-                  }
-                  teams={teamKey || undefined}
-                  renderResult={(item, options) =>
-                    resultCard(item, true, options.onUnsave)
-                  }
-                  onUnsaveResult={unsaveResult}
-                  onDraft={draftFromScheduled}
-                  onReply={replySaved}
-                />
+                  <Later
+                    key={section}
+                    only={section}
+                    project={
+                      section === "saved"
+                        ? projectFilter || undefined
+                        : undefined
+                    }
+                    revision={revision}
+                    onOpen={(c, m) => setConversation(c, m)}
+                    onArtifact={(id) =>
+                      void api<Artifact>("/artifacts/" + id)
+                        .then((item) => void open(item))
+                        .catch((e) => setError(e.message))
+                    }
+                    teams={teamKey || undefined}
+                    renderResult={(item, options) =>
+                      resultCard(item, true, options.onUnsave)
+                    }
+                    onUnsaveResult={unsaveResult}
+                    onDraft={draftFromScheduled}
+                    onReply={replySaved}
+                  />
                 </>
               )}
             />
@@ -2840,44 +2972,44 @@ export default function App() {
               <strong>{displayName}</strong>
               <small>Personal workspace</small>
             </span>
-          {session.mode === "multi-user" && (
-            <button
-              className="text-button"
-              onClick={async () => {
-                stopEventsPoll.current();
-                await api("/auth/sign-out", {});
-                sessionStorage.clear();
-                setTeamSelection([]);
-                setArchivedCard(null);
-                setComposerExpanded(false);
-                setSharedDraft({
-                  url: "",
-                  title: "",
-                  excerpt: "",
-                  question: "",
-                  folderId: "",
-                });
-                setActiveArtifact(null);
-                setContextArtifact(null);
-                setReplyContext(null);
-                setRoutePreview(null);
-                setFiling(null);
-                setSheet("");
-                history.replaceState({}, "", "/");
-                setDraft("");
-                setFolderChoice(undefined);
-                setConversation(null);
-                          setProfile(null);
-                setSession(null);
-                setData({ agents: [], connections: [], folders: [] });
-                setItems([]);
-                setRuns([]);
-              }}
-            >
-              <LogOut size={18} />
-              Sign out
-            </button>
-          )}
+            {session.mode === "multi-user" && (
+              <button
+                className="text-button"
+                onClick={async () => {
+                  stopEventsPoll.current();
+                  await api("/auth/sign-out", {});
+                  sessionStorage.clear();
+                  setTeamSelection([]);
+                  setArchivedCard(null);
+                  setComposerExpanded(false);
+                  setSharedDraft({
+                    url: "",
+                    title: "",
+                    excerpt: "",
+                    question: "",
+                    folderId: "",
+                  });
+                  setActiveArtifact(null);
+                  setContextArtifact(null);
+                  setReplyContext(null);
+                  setRoutePreview(null);
+                  setFiling(null);
+                  setSheet("");
+                  history.replaceState({}, "", "/");
+                  setDraft("");
+                  setFolderChoice(undefined);
+                  setConversation(null);
+                  setProfile(null);
+                  setSession(null);
+                  setData({ agents: [], connections: [], folders: [] });
+                  setItems([]);
+                  setRuns([]);
+                }}
+              >
+                <LogOut size={18} />
+                Sign out
+              </button>
+            )}
           </footer>
         </Sheet>
       )}
@@ -2951,7 +3083,10 @@ export default function App() {
                 },
             {
               id: "queue",
-              label: threadMode && threadWork ? "Queue after this task" : "Queue after current work",
+              label:
+                threadMode && threadWork
+                  ? "Queue after this task"
+                  : "Queue after current work",
               hint: "Held until the agent’s earlier work ends, and while it is paused. Edit, cancel or move it back to a draft until it starts.",
               icon: <Clock3 size={20} />,
               onSelect: () => void send({ queue: true }),
@@ -3015,8 +3150,8 @@ export default function App() {
           <p className="field-hint">
             Loop sends it once, at that time, to the agent above. If it can’t be
             sent then, it stays in Needs you and Later → Scheduled with the
-            reason, and is never retried on its own. This is not a reminder:
-            use Remind me to bring something back to yourself.
+            reason, and is never retried on its own. This is not a reminder: use
+            Remind me to bring something back to yourself.
           </p>
           <button
             className="primary"
@@ -3149,6 +3284,7 @@ export default function App() {
           connections={data.connections}
           onChange={async () => {
             await bootstrap();
+            setRevision((value) => value + 1);
           }}
           onClose={() => (returnTo ? setSheet("create") : closeSheet())}
         />
@@ -3157,15 +3293,40 @@ export default function App() {
         <CreateAgent
           initialFolder={folder}
           initialPromptText={newAgentPrompt}
-          connections={data.connections}
-          folders={data.folders}
+          preferredEnvironmentId={environmentToOpen}
+          preferredProvider={environmentSetupProvider}
+          connections={creationConnections}
+          folders={creationFolders}
+          sources={unified.sources}
           onConnectionsChanged={bootstrap}
           onClose={closeSheet}
           onConnect={() => {
             setSheet("connections");
             if (!returnTo) setReturnTo("create");
           }}
-          onCreated={async (a, f) => {
+          onSourceSetup={(sourceId) => {
+            const url = new URL(sourceUrl(sourceId), location.origin);
+            url.searchParams.set("connect", "1");
+            location.assign(url.pathname + url.search);
+          }}
+          onEnvironmentSetup={(environmentId, provider) => {
+            setEnvironmentToOpen(environmentId);
+            setEnvironmentSetupProvider(provider);
+            setReturnTo("create");
+            setSheet("environments");
+          }}
+          onCreated={async (a, f, sourceId) => {
+            if (sourceId !== executionSourceId()) {
+              location.assign(
+                sourceUrl(
+                  sourceId,
+                  a.initialRun?.conversation_id
+                    ? { conversation: a.initialRun.conversation_id }
+                    : { agent: a.id },
+                ),
+              );
+              return;
+            }
             if (newAgentPrompt) {
               setNewAgentPrompt("");
               setDraft("");
@@ -3191,6 +3352,8 @@ export default function App() {
               setConversation(a.initialRun.conversation_id);
             }
             setReturnTo("");
+            setEnvironmentToOpen("");
+            setEnvironmentSetupProvider("");
           }}
         />
       )}
@@ -3198,8 +3361,10 @@ export default function App() {
       {sheet === "environments" && (
         <ExecutionEnvironments
           folders={data.folders}
+          connections={data.connections}
+          initialEnvironmentId={environmentToOpen}
           onClose={closeSheet}
-          onChange={() => void api("/bootstrap").then(setData)}
+          onChange={async () => setData(await api("/bootstrap"))}
           onLegacy={() => setSheet("runtime-hosts")}
         />
       )}
@@ -3260,15 +3425,25 @@ export default function App() {
             setDraft(token + " ");
             setSettingsParent(false);
             setSheet("");
-            requestAnimationFrame(() => document.getElementById("composer")?.focus());
+            requestAnimationFrame(() =>
+              document.getElementById("composer")?.focus(),
+            );
           }}
         />
       )}
       {sheet === "agents" && (
         <AgentDirectory
-          agents={data.agents}
-          scopedIds={scopedAgents.map((a) => a.id)}
-          folders={data.folders}
+          agents={unified.agents}
+          scopedKeys={
+            projectFilter || teamSelection.length
+              ? scopedAgents.map(
+                  (a) => `${executionSourceId() || "laptop"}:${a.id}`,
+                )
+              : unified.agents
+                  .filter((a) => !a.retired_at)
+                  .map((a) => `${a.sourceId || "laptop"}:${a.id}`)
+          }
+          folders={unified.folders.length ? unified.folders : creationFolders}
           onClose={closeSheet}
           onCreate={() => {
             setFolder(projectFilter);
@@ -3277,7 +3452,7 @@ export default function App() {
           onAgent={(a) => {
             setSettingsParent(false);
             setSheet("");
-            setProfile(a);
+            openSourcedAgent(a);
             afterSheetsClose(() =>
               window.scrollTo({ top: 0, behavior: "instant" }),
             );

@@ -6,40 +6,79 @@ import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
-import { api, parse } from "./api";
+import { api, apiInWorkspace, parse } from "./api";
+import { executionSourceId } from "./sourceRouting";
 import { Sheet, Badge, providerName } from "./components";
-import type { Connection, CreatedAgent, Folder } from "../shared/types";
+import type { Connection, CreatedAgent } from "../shared/types";
+import type {
+  AgentSource,
+  EnvironmentConnection,
+  EnvironmentFolder,
+} from "./agentSources";
 import { modelDisplayName } from "./modelChoices";
 import { AttachmentList, UploadButton } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 export function CreateAgent({
   connections,
   folders,
+  sources = [],
   initialFolder = "",
   initialPromptText = "",
+  preferredEnvironmentId = "",
+  preferredProvider = "",
   onClose,
   onConnect,
+  onSourceSetup,
+  onEnvironmentSetup,
   onConnectionsChanged,
   onCreated,
 }: {
-  connections: Connection[];
-  folders: Folder[];
+  connections: EnvironmentConnection[];
+  folders: EnvironmentFolder[];
+  sources?: AgentSource[];
   initialFolder?: string;
   initialPromptText?: string;
+  preferredEnvironmentId?: string;
+  preferredProvider?: string;
   onClose: () => void;
   onConnect: () => void;
+  onSourceSetup?: (sourceId: string) => void;
+  onEnvironmentSetup: (environmentId: string, provider: string) => void;
   onConnectionsChanged: () => Promise<Connection[]>;
-  onCreated: (a: CreatedAgent, folder: string) => void | Promise<void>;
+  onCreated: (
+    a: CreatedAgent,
+    folder: string,
+    sourceId: string,
+  ) => void | Promise<void>;
 }) {
+  const connectionKey = (item: EnvironmentConnection) =>
+    `${item.sourceId || "laptop"}:${item.id}`;
   const connected = connections
     .filter((c) => c.status === "connected")
     .sort(
       (a, b) =>
+        Number(!!a.sourceId) - Number(!!b.sourceId) ||
         Number(parse<any>(b.metadata, {}).authMode === "subscription") -
-        Number(parse<any>(a.metadata, {}).authMode === "subscription"),
+          Number(parse<any>(a.metadata, {}).authMode === "subscription"),
     );
-  const [provider, setProvider] = useState(connected[0]?.provider || "openai"),
-    [connection, setConnection] = useState(connected[0]?.id || ""),
+  const preferredConnection = connected.find((item) => {
+    const metadata = parse<any>(item.metadata, {});
+    return (
+      item.provider === preferredProvider &&
+      metadata.backend === "hapi" &&
+      metadata.environmentId === preferredEnvironmentId
+    );
+  });
+  const [provider, setProvider] = useState(
+      preferredConnection?.provider || connected[0]?.provider || "openai",
+    ),
+    [connection, setConnection] = useState(
+      preferredConnection
+        ? connectionKey(preferredConnection)
+        : connected[0]
+          ? connectionKey(connected[0])
+          : "",
+    ),
     [model, setModel] = useState(""),
     [effort, setEffort] = useState(""),
     [initialPrompt, setInitialPrompt] = useState(initialPromptText),
@@ -47,8 +86,14 @@ export function CreateAgent({
     [uploading, setUploading] = useState(false),
     [folderChoice, setFolderChoice] = useState(
       initialFolder ||
-        (parse<any>(connected[0]?.metadata, {}).backend === "hapi"
-          ? folders.find((f) => f.kind === "project")?.id || ""
+        (parse<any>((preferredConnection || connected[0])?.metadata, {})
+          .backend === "hapi"
+          ? folders.find(
+              (f) =>
+                f.kind === "project" &&
+                (f.sourceId || "") ===
+                  ((preferredConnection || connected[0])?.sourceId || ""),
+            )?.id || ""
           : ""),
     ),
     [suggestedName, setSuggestedName] = useState(""),
@@ -65,11 +110,19 @@ export function CreateAgent({
   // must not change underneath them: a late suggestion would land between
   // their caret placement and first keystroke and merge into what they type.
   const name = nameTouched ? typedName : suggestedName;
+  const accounts = connected.filter((c) => c.provider === provider);
+  const selected =
+    accounts.find((c) => connectionKey(c) === connection) || accounts[0];
+  const source = selected?.sourceId || "";
+  const availableFolders = folders.filter(
+    (item) => (item.sourceId || "") === source,
+  );
   useEffect(() => {
     let cancelled = false;
-    api<{ name: string }>("/agents/suggest-name")
+    if (!nameTouched) setLoadingName(true);
+    apiInWorkspace<{ name: string }>("/agents/suggest-name", source)
       .then((suggestion) => {
-        if (!cancelled) setSuggestedName(suggestion.name);
+        if (!cancelled && !nameTouched) setSuggestedName(suggestion.name);
       })
       .catch(() => {
         // Manual naming remains available if suggestions cannot be loaded.
@@ -80,9 +133,7 @@ export function CreateAgent({
     return () => {
       cancelled = true;
     };
-  }, []);
-  const accounts = connected.filter((c) => c.provider === provider);
-  const selected = accounts.find((c) => c.id === connection) || accounts[0];
+  }, [source]);
   const nativeConnection = parse<any>(selected?.metadata, {}).loopHarness
     ? selected?.id || ""
     : "";
@@ -92,12 +143,27 @@ export function CreateAgent({
     error?: string;
   }>();
   const [catalogRevision, setCatalogRevision] = useState(0);
+  const [environments, setEnvironments] = useState<
+    { id: string; name: string; state: string }[]
+  >([]);
+  useEffect(() => {
+    let current = true;
+    void api<{ id: string; name: string; state: string }[]>("/environments")
+      .then((items) => {
+        if (current) setEnvironments(items);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
   useEffect(() => {
     if (!nativeConnection) return;
     let current = true;
     setCatalog({ connectionId: nativeConnection });
-    void api<{ models: ModelOption[] }>(
+    void apiInWorkspace<{ models: ModelOption[] }>(
       `/connections/${nativeConnection}/models`,
+      source,
     ).then(
       ({ models }) => {
         if (current) setCatalog({ connectionId: nativeConnection, models });
@@ -110,7 +176,7 @@ export function CreateAgent({
     return () => {
       current = false;
     };
-  }, [nativeConnection, catalogRevision]);
+  }, [nativeConnection, source, catalogRevision]);
   const currentCatalog =
     catalog?.connectionId === nativeConnection ? catalog : undefined;
   const refreshingModels =
@@ -119,10 +185,53 @@ export function CreateAgent({
     ? currentCatalog?.models || []
     : parse<ModelOption[]>(selected?.models, []);
   const chosen = models.find((m) => m.id === model)?.id || models[0]?.id || "";
+  const managedFlavor =
+    provider === "anthropic"
+      ? "claude"
+      : ["codex", "pi", "opencode"].includes(provider)
+        ? provider
+        : "";
+  const setupEnvironments = managedFlavor
+    ? environments.filter(
+        (environment) =>
+          environment.state === "online" &&
+          !accounts.some((account) => {
+            const metadata = parse<any>(account.metadata, {});
+            return (
+              // `/environments` lists the current page's source, so match
+              // its accounts, not the laptop's.
+              (account.sourceId || "") === executionSourceId() &&
+              metadata.backend === "hapi" &&
+              metadata.environmentId === environment.id &&
+              metadata.flavor === managedFlavor
+            );
+          }),
+      )
+    : [];
+  const setupSources = ["codex", "anthropic", "openai"].includes(provider)
+    ? sources.filter(
+        (item) =>
+          item.id &&
+          item.id !== executionSourceId() &&
+          !accounts.some((account) => account.sourceId === item.id),
+      )
+    : [];
+  const currentSourceName =
+    sources.find((item) => item.id === executionSourceId())?.name ||
+    "this laptop";
+  // Uploads are stored by the source this page is on, so they can only be
+  // attached to an agent created on that same source.
+  const crossSource = source !== executionSourceId();
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (locked.current || uploading || !chosen || refreshingModels) return;
     const f = new FormData(e.currentTarget);
+    if (crossSource && attachments.length) {
+      setError(
+        `Files uploaded to ${currentSourceName} can’t be sent to another runtime. Remove them or choose a runner on ${currentSourceName}.`,
+      );
+      return;
+    }
     const data = {
       name: String(f.get("name") || "")
         .trim()
@@ -133,20 +242,24 @@ export function CreateAgent({
       instructions: String(f.get("instructions") || ""),
       initialPrompt: initialPrompt.trim(),
       attachmentIds: attachments.map((file) => file.id),
-      folderId: String(f.get("folder") || "") || undefined,
+      folderId: availableFolders.some(
+        (folder) => folder.id === String(f.get("folder") || ""),
+      )
+        ? String(f.get("folder"))
+        : undefined,
     };
-    const signature = JSON.stringify(data);
+    const signature = JSON.stringify({ source, ...data });
     if (request.current.signature !== signature)
       request.current = { signature, key: crypto.randomUUID() };
     locked.current = true;
     setBusy(true);
     setError("");
     try {
-      const a = await api<CreatedAgent>("/agents", {
+      const a = await apiInWorkspace<CreatedAgent>("/agents", source, {
         ...data,
         idempotencyKey: request.current.key,
       });
-      await onCreated(a, data.folderId || "");
+      await onCreated(a, data.folderId || "", source);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -173,7 +286,7 @@ export function CreateAgent({
               );
               if (next && !selected) {
                 setProvider(next.provider);
-                setConnection(next.id);
+                setConnection(connectionKey(next));
               }
               setCatalogRevision((revision) => revision + 1);
             }}
@@ -197,11 +310,15 @@ export function CreateAgent({
             name="folder"
             aria-label="Project"
             disabled={busy}
-            value={folderChoice}
+            value={
+              availableFolders.some((item) => item.id === folderChoice)
+                ? folderChoice
+                : ""
+            }
             onChange={(event) => setFolderChoice(event.target.value)}
           >
             <option value="">No project (unfiled)</option>
-            {folders.map((f) => (
+            {availableFolders.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
               </option>
@@ -239,24 +356,51 @@ export function CreateAgent({
         {selected ? (
           <>
             <label>
-              {parse<any>(selected.metadata, {}).backend === "hapi"
-                ? "Run on"
-                : "Connected account"}
+              Run on
               <select
                 disabled={busy}
-                value={selected.id}
+                value={connectionKey(selected)}
                 onChange={(e) => {
+                  if (e.target.value.startsWith("setup:")) {
+                    onEnvironmentSetup(e.target.value.slice(6), provider);
+                    return;
+                  }
+                  if (e.target.value.startsWith("setup-source:")) {
+                    onSourceSetup?.(
+                      e.target.value.slice("setup-source:".length),
+                    );
+                    return;
+                  }
                   setConnection(e.target.value);
+                  setFolderChoice("");
                   setModel("");
                 }}
               >
                 {accounts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
+                  <option key={connectionKey(c)} value={connectionKey(c)}>
+                    {c.label.startsWith(c.executionEnvironment || "This laptop")
+                      ? c.label
+                      : `${c.executionEnvironment || "This laptop"} · ${c.label}`}
+                  </option>
+                ))}
+                {setupEnvironments.map((environment) => (
+                  <option
+                    key={environment.id}
+                    value={`setup:${environment.id}`}
+                  >
+                    {environment.name} · connect {providerName(provider)}
+                  </option>
+                ))}
+                {setupSources.map((item) => (
+                  <option key={item.id} value={`setup-source:${item.id}`}>
+                    {item.name} · connect {providerName(provider)}
                   </option>
                 ))}
               </select>
             </label>
+            <p className="field-hint">
+              Runs on {selected.executionEnvironment || "This laptop"}.
+            </p>
             <ConnectionDetails connection={selected} />
             <label>
               Model
@@ -314,8 +458,30 @@ export function CreateAgent({
             Connect {providerName(provider)} to choose an available model.
             <button type="button" className="text-button" onClick={onConnect}>
               <Plus size={16} />
-              Connect account
+              Connect on {currentSourceName}
             </button>
+            {setupEnvironments.map((environment) => (
+              <button
+                type="button"
+                className="text-button"
+                key={environment.id}
+                onClick={() => onEnvironmentSetup(environment.id, provider)}
+              >
+                <Plus size={16} />
+                Connect on {environment.name}
+              </button>
+            ))}
+            {setupSources.map((item) => (
+              <button
+                type="button"
+                className="text-button"
+                key={item.id}
+                onClick={() => onSourceSetup?.(item.id)}
+              >
+                <Plus size={16} />
+                Connect on {item.name}
+              </button>
+            ))}
           </div>
         )}
         <label>
@@ -380,13 +546,15 @@ export function CreateAgent({
           <UploadButton
             menu
             folderId={folderChoice}
-            disabled={busy}
+            disabled={busy || crossSource}
             remaining={MAX_MESSAGE_FILES - attachments.length}
             onBusy={setUploading}
             onUploaded={(file) => setAttachments((files) => [...files, file])}
           />
           <span className="field-hint">
-            Add photos or files to your first message
+            {crossSource
+              ? `File attachments are available for agents on ${currentSourceName}.`
+              : "Add photos or files to your first message"}
           </span>
         </div>
         <AttachmentList
@@ -424,7 +592,8 @@ export function CreateAgent({
             refreshingModels ||
             !chosen ||
             !name.trim() ||
-            (!!attachments.length && !initialPrompt.trim())
+            (!!attachments.length && !initialPrompt.trim()) ||
+            (!!source && !!attachments.length)
           }
         >
           {busy

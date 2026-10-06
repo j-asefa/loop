@@ -1,8 +1,9 @@
 import { capabilities } from "./capabilities";
+import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 export async function authorize() {
-  if (!capabilities.pairedDevices || csrf) return;
+  if ((!capabilities.pairedDevices && !executionSourceId()) || csrf) return;
   if (!sessionRequest)
     sessionRequest = (async () => {
       const response = await fetch("/session", {
@@ -42,7 +43,17 @@ export async function api<T = any>(
   method?: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const r = await authorizedFetch("/api" + path, {
+  return apiInWorkspace(path, executionSourceId(), body, method, signal);
+}
+
+export async function apiInWorkspace<T = any>(
+  path: string,
+  sourceId: string,
+  body?: unknown,
+  method?: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const r = await authorizedFetch(sourceApiPathAt("/api" + path, sourceId), {
     signal,
     method: method || (body ? "POST" : "GET"),
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -68,7 +79,7 @@ export async function api<T = any>(
     return { error: "Connection unavailable. Try again." };
   });
   if (!r.ok || !parsed) {
-    if (r.status === 401) {
+    if (r.status === 401 && (!sourceId || /Pair this device/i.test(data?.error || ""))) {
       clearAuthorization();
       window.dispatchEvent(new Event("loop-auth-expired"));
     }

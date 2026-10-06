@@ -1,4 +1,5 @@
 import { Chart } from "./Chart";
+import { sourceApiPath } from "./sourceRouting";
 import { Diagram } from "./Diagram";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
@@ -405,7 +406,7 @@ function ArtifactPreview({
     return (
       <img
         className="preview-image"
-        src={`/api/artifacts/${item.id}/file?preview=1`}
+        src={sourceApiPath(`/api/artifacts/${item.id}/file?preview=1`)}
         alt={metadata.name || item.title}
         loading="lazy"
       />

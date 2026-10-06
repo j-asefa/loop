@@ -3,6 +3,7 @@ import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
 import { FilePreview } from "./FilePreview";
 import { authorizedFetch, parse } from "./api";
+import { sourceApiPath } from "./sourceRouting";
 import { prepareImage, shouldPrepare } from "./imageUpload";
 import {
   MAX_MESSAGE_FILES,
@@ -73,8 +74,8 @@ export function AttachmentList({
         <FilePreview
           url={
             preview.published
-              ? `/api/artifacts/${preview.id}/file`
-              : `/api/objects/${preview.objectId}`
+              ? sourceApiPath(`/api/artifacts/${preview.id}/file`)
+              : sourceApiPath(`/api/objects/${preview.objectId}`)
           }
           name={preview.name}
           mime={preview.mime}
@@ -151,7 +152,7 @@ export function UploadButton({
         if (agentId) form.append("agentId", agentId);
         let response: Response;
         try {
-          response = await authorizedFetch("/api/uploads", {
+          response = await authorizedFetch(sourceApiPath("/api/uploads"), {
             method: "POST",
             body: form,
             signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),

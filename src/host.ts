@@ -8,6 +8,8 @@ import { readFile, stat, unlink } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { linkedDockerWorkspaces, proxyLinkedDocker } from "./linked-docker.js";
+import { agentSources, proxyAgentSource } from "./agent-sources.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -419,6 +421,26 @@ export class Host {
         if (path === "/api/auth/sign-out" && req.method === "POST") {
           this.revoke(device.id);
           return this.json(res, 200, { ok: true });
+        }
+        if (path === "/api/linked-workspaces" && req.method === "GET") {
+          const workspaces = await linkedDockerWorkspaces();
+          return this.json(res, 200, workspaces.map(({ id, name }) => ({ id, name })));
+        }
+        if (path === "/api/agent-sources" && req.method === "GET")
+          return this.json(res, 200, await agentSources());
+        if (path.startsWith("/api/agent-sources/")) {
+          const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
+          if (!match) return this.json(res, 404, { error: "Not found" });
+          const query = new URL(req.url!, this.origin).search;
+          await proxyAgentSource(req, res, decodeURIComponent(match[1]), match[2] + query);
+          return;
+        }
+        if (path.startsWith("/api/linked/")) {
+          const match = /^\/api\/linked\/([a-f0-9]{64})\/(.+)$/.exec(path);
+          if (!match) return this.json(res, 404, { error: "Not found" });
+          const query = new URL(req.url!, this.origin).search;
+          await proxyLinkedDocker(req, res, match[1], match[2] + query);
+          return;
         }
         if (path === "/api/workspace/devices" && req.method === "GET")
           return this.json(

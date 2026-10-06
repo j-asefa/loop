@@ -170,7 +170,9 @@ function RuntimeSignInSession({
           </div>
           <p>
             {backend === "environment"
-              ? "Verify this account to make its connection available in this environment."
+              ? enabling
+                ? "Connecting this account to Loop…"
+                : "This account is signed in. Loop is connecting it to the selected environment."
               : enabled
                 ? `Refresh ${label} to update the models available in Loop.`
                 : `Enable ${label} to use its models in Loop.`}

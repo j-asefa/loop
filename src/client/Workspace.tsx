@@ -1,5 +1,6 @@
 import { SearchExcerpt } from "./SearchExcerpt";
 import { capabilities } from "./capabilities";
+import { sourceApiPath } from "./sourceRouting";
 import { useEffect, useState, useRef, type FormEvent } from "react";
 import {
   Folder,
@@ -877,7 +878,7 @@ export function ImportSheet({
     setBusy(true);
     setError("");
     try {
-      const r = await authorizedFetch("/api/imports/preview", {
+      const r = await authorizedFetch(sourceApiPath("/api/imports/preview"), {
         method: "POST",
         body: new FormData(e.currentTarget),
       });
@@ -988,7 +989,7 @@ export function ImportSheet({
                   </button>
                 )
               )}
-              <FileLink url={"/api/objects/" + s.objectId}>
+              <FileLink url={sourceApiPath("/api/objects/" + s.objectId)}>
                 Original export
               </FileLink>
             </div>

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Orbit, ShieldCheck } from "lucide-react";
 import { authorize, clearAuthorization } from "./api";
+import { executionSourceId } from "./sourceRouting";
 export function Pairing({ onDone }: { onDone: () => void }) {
   const secret = useRef(
     new URLSearchParams(location.hash.slice(1)).get("pair") || "",
@@ -25,6 +26,10 @@ export function Pairing({ onDone }: { onDone: () => void }) {
       if (!response.ok) throw new Error(data.error || "Pairing failed");
       secret.current = "";
       clearAuthorization();
+      if (executionSourceId()) {
+        location.reload();
+        return;
+      }
       await authorize();
       onDone();
     } catch (e) {

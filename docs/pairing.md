@@ -44,9 +44,19 @@ Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`. 
 
 If status reports a crash or unresponsive workspace, inspect logs and use `loop stop`. It checks recorded process identity before signaling, reports processes it cannot confirm and retains unresolved records for another stop attempt. Never assume an uncertain dispatch did not execute: inspect partial work before an explicit follow-up. `loop uninstall` retains workspace/native data and prints package-removal guidance.
 
-## Multiple browser workspaces
+## Unified agents and Feed
 
-Browser and PWA installations are separate per origin. Pair and install the laptop and Docker workspace separately; each origin has its own device cookie and installation. Revoke unused device records on their workspace host.
+The paired app shows agents and conversations from the laptop and connected Loop servers in one Feed and agent directory. Each agent and thread shows its execution environment. Opening a thread routes reads and actions to the server that owns it, so existing conversations continue with their original credentials and dispatch history. No provider sign-in is needed to read old chats. A fresh install works with only the laptop source and shows the same interface without an environment selector.
+
+**New agent → Run on** lists connected provider destinations across sources. Pick the laptop, a managed Docker runner or a connected older Docker server for that agent. The new agent and its conversations live on the selected source. Project choices are scoped to that source. Files uploaded to one source cannot be attached when creating an agent on another source. An online runner that needs a provider connection links to its sign-in setup; that connection must be verified before new work starts.
+
+The companion currently discovers multiple running local Docker Compose Loop servers whose service is `app` or `loop`, whose port 3000 is published on `127.0.0.1`, and whose authentication mode is single-user. Each appears as an agent source while it is running. Discovery does not import or duplicate its database: each server keeps its owner, provider credentials, worker and conversation dispatches. Paired requests pass through the laptop's authenticated gateway; the device cookie and CSRF token are not sent to Docker. Stopped or unpublished servers disappear from the Feed until available again. A server's source ID comes from its Compose project and service, so thread links survive `docker compose up` recreating the container; links made with the earlier container ID, and older `?workspace=docker:…` links, still open their threads while that container runs.
+
+Multiple HAPI execution environments, including runners on other machines, can already hold agents in one Loop workspace; their agents appear in the same Feed and have their own **Run on** destinations. Linking an independent Loop server on a cloud host or another laptop requires a source adapter and secure enrollment for that host. The client Feed and source routing use opaque source IDs so those adapters do not require another workspace selector. See [architecture](architecture.md#agent-sources-and-execution-environments).
+
+The Feed's **Social** tab uses the paired laptop's subscriptions and stories. Older Docker servers may not have Social endpoints.
+
+Browser and PWA installations on different origins still have separate device cookies. Pair and install a standalone Docker companion separately if you use its own URL. Revoke unused device records on their workspace host.
 
 ## Docker companion
 

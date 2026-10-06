@@ -58,7 +58,7 @@ try {
   await setup
     .getByRole("button", { name: "Enable Codex", exact: true })
     .click();
-  await expect(page.getByLabel("Connected account")).toBeVisible();
+  await expect(page.getByLabel("Run on")).toBeVisible();
   await page.getByLabel("Unique name").fill("start-browser");
   await page
     .getByText("Instructions & advanced options", { exact: true })

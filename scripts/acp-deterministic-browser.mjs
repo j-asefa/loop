@@ -83,8 +83,8 @@ async function createAgent(name, provider, connection, prompt, beforeCreate) {
     .click();
   const dialog = page.getByRole("dialog", { name: "Meet your next agent" });
   await dialog.getByRole("button", { name: provider, exact: true }).click();
-  await dialog.getByLabel("Connected account").selectOption(connection);
-  await expect(dialog.getByLabel("Connected account")).toHaveValue(connection);
+  await dialog.getByLabel("Run on").selectOption(`laptop:${connection}`);
+  await expect(dialog.getByLabel("Run on")).toHaveValue(`laptop:${connection}`);
   await dialog.getByLabel("Unique name").fill(name);
   await dialog.getByLabel("Initial prompt", { exact: true }).fill(prompt);
   if (/^(direct|acp)-/.test(name))
