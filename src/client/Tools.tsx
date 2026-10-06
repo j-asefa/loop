@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, parse } from "./api";
+import { api, apiInWorkspace, parse } from "./api";
 import { Sheet } from "./components";
 import { McpCatalog } from "./McpCatalog";
+import {
+  PERMISSION_MODES,
+  type PermissionMode,
+} from "../shared/permission-modes";
+import { executionSourceId } from "./sourceRouting";
 export function Tools({
   onClose,
   initialView = "catalog",
@@ -23,9 +28,23 @@ export function Tools({
   const [approvalMode, setApprovalMode] = useState<"ask" | "allow" | null>(
     null,
   );
+  const [agentMode, setAgentMode] = useState<PermissionMode | null>(null);
   const [configJson, setConfigJson] = useState(""),
     [hosts, setHosts] = useState<any[]>([]),
     [host, setHost] = useState("");
+  const [sharingSources, setSharingSources] = useState<
+    { id: string; name: string; shared: boolean }[]
+  >([]);
+  const [nativeCandidates, setNativeCandidates] = useState<
+    { id: string; provider: string; name: string; kind: string }[]
+  >([]);
+  async function loadSharing() {
+    try {
+      setSharingSources(await apiInWorkspace("/mcp-sharing", ""));
+    } catch {
+      setSharingSources([]);
+    }
+  }
   useEffect(() => {
     void api<any[]>("/runtime-hosts")
       .then((hosts) =>
@@ -36,13 +55,21 @@ export function Tools({
   async function load() {
     const [connections, preferences] = await Promise.all([
       api<any[]>("/mcp"),
-      api<{ approvalMode: "ask" | "allow" }>("/mcp/preferences"),
+      api<{
+        approvalMode: "ask" | "allow";
+        agentPermissionMode: PermissionMode;
+      }>("/mcp/preferences"),
     ]);
     setConnections(connections);
     setApprovalMode(preferences.approvalMode);
+    setAgentMode(preferences.agentPermissionMode);
   }
   useEffect(() => {
     void load().catch((e) => setError(e.message));
+    void loadSharing();
+    void api<typeof nativeCandidates>("/mcp/native-candidates")
+      .then(setNativeCandidates)
+      .catch(() => setNativeCandidates([]));
   }, []);
   async function action(fn: () => Promise<void>) {
     setError("");
@@ -108,7 +135,45 @@ export function Tools({
       {view === "permissions" && (
         <section className="tool-approval-preferences">
           <label>
-            Tool approvals
+            Agent tool calls
+            <select
+              aria-label="Agent tool calls"
+              value={agentMode || "default"}
+              disabled={busy || !agentMode}
+              onChange={(e) => {
+                const mode = e.target.value as PermissionMode;
+                void action(async () => {
+                  const result = await api(
+                    "/mcp/preferences",
+                    { agentPermissionMode: mode },
+                    "PUT",
+                  );
+                  setAgentMode(result.agentPermissionMode);
+                  setNotice(
+                    "Agents use this from their next turn. Requests already waiting still need a decision.",
+                  );
+                });
+              }}
+            >
+              {PERMISSION_MODES.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="field-hint">
+            {
+              PERMISSION_MODES.find(
+                (mode) => mode.value === (agentMode || "default"),
+              )!.description
+            }{" "}
+            Applies to coding agents on your computers: their shell commands,
+            file edits and other native tools. Questions an agent asks you
+            always wait for your answer.
+          </p>
+          <label>
+            Connected MCP tools
             <select
               aria-label="Tool approvals"
               value={approvalMode || "ask"}
@@ -139,6 +204,51 @@ export function Tools({
               ? "All your agents can use connected MCP tools without stopping for approval. GitHub pull request merges still ask every time. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
               : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
           </p>
+          {sharingSources.length > 0 && agentMode && approvalMode && (
+            <div className="tool-sharing">
+              <p className="field-hint">
+                Permissions are saved on each execution source. Apply these
+                choices to your other connected sources when you want the same
+                approval behavior everywhere.
+              </p>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void action(async () => {
+                    const targets = [
+                      "",
+                      ...sharingSources.map((source) => source.id),
+                    ].filter((id) => id !== executionSourceId());
+                    const results = await Promise.allSettled(
+                      targets.map((id) =>
+                        apiInWorkspace(
+                          "/mcp/preferences",
+                          id,
+                          {
+                            approvalMode,
+                            agentPermissionMode: agentMode,
+                          },
+                          "PUT",
+                        ),
+                      ),
+                    );
+                    const failed = results.filter(
+                      (result) => result.status === "rejected",
+                    ).length;
+                    if (failed)
+                      throw new Error(
+                        `Updated ${targets.length - failed} sources; ${failed} unavailable. Refresh or update those sources and try again.`,
+                      );
+                    setNotice(
+                      `Permissions saved on ${targets.length} other sources.`,
+                    );
+                  })
+                }
+              >
+                Apply permissions to other sources
+              </button>
+            </div>
+          )}
           <p className="field-hint">
             Allow connected tools also gives managed coding agents your
             connected GitHub token in their shell environment, with its full
@@ -160,6 +270,87 @@ export function Tools({
           hosts={hosts}
           onInstalled={load}
         />
+      )}
+      {view === "installed" && sharingSources.length > 0 && (
+        <section className="tool-sharing">
+          <h3>Share tools across execution sources</h3>
+          <p className="field-hint">
+            Connect a Docker Loop source once to let agents on either source use
+            its connected MCP tools. Accounts stay on their original source.
+          </p>
+          {sharingSources.map((source) => (
+            <div className="tool-sharing-source" key={source.id}>
+              <span>{source.name}</span>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void action(async () => {
+                    await apiInWorkspace("/mcp-sharing", "", {
+                      sourceId: source.id,
+                      action: "connect",
+                    });
+                    await loadSharing();
+                    setNotice(`Tools are shared with ${source.name}.`);
+                  })
+                }
+              >
+                {source.shared ? "Refresh sharing" : "Share tools"}
+              </button>
+              {source.shared && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void action(async () => {
+                      await apiInWorkspace("/mcp-sharing", "", {
+                        sourceId: source.id,
+                        action: "disconnect",
+                      });
+                      await loadSharing();
+                      setNotice(`Tool sharing with ${source.name} stopped.`);
+                    })
+                  }
+                >
+                  Stop sharing
+                </button>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+      {view === "installed" && nativeCandidates.length > 0 && (
+        <section className="tool-sharing">
+          <h3>Import from installed harnesses</h3>
+          <p className="field-hint">
+            Choose a server to make it available to all Loop agents. Its
+            configuration is read on this source; credentials stay on this
+            backend and are never sent to your browser.
+          </p>
+          {nativeCandidates.map((candidate) => (
+            <div className="tool-sharing-source" key={candidate.id}>
+              <span>
+                {candidate.provider} · {candidate.name}
+              </span>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void action(async () => {
+                    const result = await api<any[]>(
+                      `/mcp/native-candidates/${candidate.id}/import`,
+                      {},
+                    );
+                    setNotice(
+                      result[0]?.status === "connected"
+                        ? `${candidate.name} is available to Loop agents.`
+                        : `${candidate.name} was saved. Test or reconnect it in Installed tools.`,
+                    );
+                  })
+                }
+              >
+                Import
+              </button>
+            </div>
+          ))}
+        </section>
       )}
       {view === "custom" && (
         <details className="mcp-import">
@@ -250,7 +441,11 @@ export function Tools({
                 <h3>
                   {c.name} <small>{c.status.replaceAll("_", " ")}</small>
                 </h3>
-                <p className="field-hint">{c.url}</p>
+                <p className="field-hint">
+                  {parse<any>(c.metadata, {}).transport === "federation"
+                    ? "Shared from another execution source"
+                    : c.url}
+                </p>
                 <p className="field-hint">
                   {c.status === "connected"
                     ? `Available to all agents · ${approvalMode === "allow" ? "Allowed automatically" : "Ask every time"}`
@@ -263,57 +458,85 @@ export function Tools({
                   >
                     Test / reconnect
                   </button>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      action(async () => {
-                        await api(
-                          "/mcp/" + c.id,
-                          {
-                            action:
-                              c.status === "disabled" ? "enable" : "disable",
-                          },
-                          "PATCH",
-                        );
-                      })
-                    }
-                  >
-                    {c.status === "disabled" ? "Enable" : "Disable"}
-                  </button>
-                  <button
-                    disabled={
-                      parse<any>(c.metadata, {}).transport === "stdio" ||
-                      c.authType === "query"
-                    }
-                    title={
-                      c.authType === "query"
-                        ? "Use Edit setup in Catalog to update this key"
-                        : undefined
-                    }
-                    onClick={() => {
-                      setView("custom");
-                      setEditing(c.id);
-                      setName(c.name);
-                      setUrl(c.url);
-                      setAuthType(c.authType);
-                    }}
-                  >
-                    Replace credentials
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      action(async () => {
-                        await api(
-                          "/mcp/" + c.id,
-                          { action: "disconnect" },
-                          "PATCH",
-                        );
-                      })
-                    }
-                  >
-                    Disconnect
-                  </button>
+                  {parse<any>(c.metadata, {}).transport !== "federation" && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action(async () => {
+                          await api(
+                            "/mcp/" + c.id,
+                            {
+                              action:
+                                c.status === "disabled" ? "enable" : "disable",
+                            },
+                            "PATCH",
+                          );
+                        })
+                      }
+                    >
+                      {c.status === "disabled" ? "Enable" : "Disable"}
+                    </button>
+                  )}
+                  {parse<any>(c.metadata, {}).transport !== "federation" && (
+                    <button
+                      disabled={
+                        parse<any>(c.metadata, {}).transport === "stdio" ||
+                        c.authType === "query"
+                      }
+                      title={
+                        c.authType === "query"
+                          ? "Use Edit setup in Catalog to update this key"
+                          : undefined
+                      }
+                      onClick={() => {
+                        setView("custom");
+                        setEditing(c.id);
+                        setName(c.name);
+                        setUrl(c.url);
+                        setAuthType(c.authType);
+                      }}
+                    >
+                      Replace credentials
+                    </button>
+                  )}
+                  {parse<any>(c.metadata, {}).transport !== "federation" && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action(async () => {
+                          await api(
+                            "/mcp/" + c.id,
+                            { action: "disconnect" },
+                            "PATCH",
+                          );
+                        })
+                      }
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                  {/* A Docker share is revoked from the laptop, including one
+                      left behind by a source that is no longer running. */}
+                  {!executionSourceId() &&
+                    c.status !== "disconnected" &&
+                    /^docker:/.test(
+                      String(parse<any>(c.metadata, {}).federatedPeer || ""),
+                    ) && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          action(async () => {
+                            await apiInWorkspace("/mcp-sharing", "", {
+                              sourceId: parse<any>(c.metadata, {}).federatedPeer,
+                              action: "disconnect",
+                            });
+                            await loadSharing();
+                          })
+                        }
+                      >
+                        Stop sharing
+                      </button>
+                    )}
                 </div>
                 <details>
                   <summary>

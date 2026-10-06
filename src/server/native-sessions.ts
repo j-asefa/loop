@@ -36,6 +36,13 @@ import {
 import type { Snapshot } from "./agent-runtime.js";
 import { replyPrompt } from "../shared/replies.js";
 import {
+  autoApproval,
+  DEFAULT_PERMISSION_MODE,
+  isPermissionMode,
+  launchPermissionMode,
+  type PermissionMode,
+} from "../shared/permission-modes.js";
+import {
   ingestNativeActivity,
   ingestNativeCapabilities,
 } from "./activities.js";
@@ -129,6 +136,13 @@ export type Live = {
   cancelling: boolean;
   waiting: boolean;
   bridgeWaiting: number;
+  /** The workspace approval level for this session's current turn. */
+  permissionMode?: PermissionMode;
+  /**
+   * The native permission mode chosen for this session in Session settings.
+   * It outranks the workspace level for Loop's automatic answers.
+   */
+  sessionMode?: string;
 };
 
 /** One workspace owns native processes; native sessions own their model context. */
@@ -647,6 +661,8 @@ export class NativeSessions {
       );
     try {
       const settings = await live.adapter.setSetting(setting, value, revision);
+      if (setting === "mode" && typeof value === "string")
+        live.sessionMode = value;
       if (!isCurrent())
         throw new Problem(409, "Native session changed; refresh and retry.");
       return {
@@ -1015,7 +1031,21 @@ export class NativeSessions {
     }
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
-    if (binding.model !== model || (binding.effort || null) !== effort) {
+    const permissionMode = isPermissionMode(snapshot.permissionMode)
+      ? snapshot.permissionMode
+      : DEFAULT_PERMISSION_MODE;
+    // A harness launched in a permission mode restarts to change it, like a
+    // model change. Loop-side approval policy applies from the next turn.
+    const relaunch =
+      !!current &&
+      !current.closed &&
+      launchPermissionMode(harness, current.permissionMode) !==
+        launchPermissionMode(harness, permissionMode);
+    if (
+      binding.model !== model ||
+      (binding.effort || null) !== effort ||
+      relaunch
+    ) {
       if (current && !current.closed) {
         await current.ready;
         if (current.run)
@@ -1033,6 +1063,7 @@ export class NativeSessions {
     } else if (current && !current.closed) {
       clearTimeout(current.idle);
       await current.ready;
+      current.permissionMode = permissionMode;
       return current;
     }
     if (this.stopped) throw new Problem(409, "Workspace is stopping.");
@@ -1047,6 +1078,7 @@ export class NativeSessions {
       resume: binding.native_id || undefined,
       model: binding.model || undefined,
       effort: binding.effort || undefined,
+      permissionMode: launchPermissionMode(harness, permissionMode),
       instructions: binding.instructions,
       workspaceTools: this.tools?.(conversation, generation),
       projectTrust:
@@ -1066,6 +1098,7 @@ export class NativeSessions {
       cancelling: false,
       waiting: false,
       bridgeWaiting: 0,
+      permissionMode,
     };
     live.adapter = new classes[harness](options, (event) =>
       this.event(live, event),
@@ -1222,19 +1255,51 @@ export class NativeSessions {
         return;
       }
       live.requests.set(event.request.id, event.request);
-      db.prepare(
-        "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation_id,generation,native_id) DO NOTHING",
-      ).run(
-        id(),
-        run.id,
-        live.binding.conversation_id,
-        live.generation,
-        event.request.id,
-        JSON.stringify(event.request),
-        now(),
+      const decisionId = id();
+      const recorded = db
+        .prepare(
+          "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation_id,generation,native_id) DO NOTHING",
+        )
+        .run(
+          decisionId,
+          run.id,
+          live.binding.conversation_id,
+          live.generation,
+          event.request.id,
+          JSON.stringify(event.request),
+          now(),
+        ).changes;
+      // A mode chosen for this session in Session settings outranks the
+      // workspace level: only its own "never ask" lets Loop answer for you.
+      const allow = autoApproval(
+        live.sessionMode === undefined
+          ? live.permissionMode
+          : live.sessionMode === "bypassPermissions"
+            ? "bypassPermissions"
+            : DEFAULT_PERMISSION_MODE,
+        event.request,
       );
-      transition(run, "awaiting_approval");
-      live.waiting = true;
+      if (recorded && allow) {
+        // "Never ask" answers routine tool approvals for the user. Questions
+        // and elicitations have no allow choice and still wait. A failed
+        // answer is left visible as unknown and is never retried.
+        void this.answer(decisionId, "auto:" + decisionId, {
+          choice: allow,
+        }).then(
+          () =>
+            emit(run.owner_id, run.id, "approval.auto_approved", {
+              decisionId,
+              title: event.request.title,
+            }),
+          () => {
+            transition(run, "awaiting_approval");
+            live.waiting = true;
+          },
+        );
+      } else {
+        transition(run, "awaiting_approval");
+        live.waiting = true;
+      }
     }
     if (event.type === "resolved") {
       live.requests.delete(event.id);

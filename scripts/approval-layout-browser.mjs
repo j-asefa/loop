@@ -117,16 +117,23 @@ try {
             .evaluate((node) => node.scrollHeight > node.clientHeight),
           "Long request must scroll separately from decision buttons",
         );
+        assert(
+          await card.evaluate((node) => node.scrollWidth <= node.clientWidth),
+          "Long request details must wrap inside the approval card",
+        );
         await card.getByText("Fewer approval prompts", { exact: true }).click();
         await expect(
           card.getByRole("button", { name: "Session settings", exact: true }),
         ).toBeVisible();
         await card
-          .getByRole("button", { name: "Connected tool approvals" })
+          .getByRole("button", { name: "Permissions", exact: true })
           .click();
         const settings = page.getByRole("dialog", {
           name: "Tools & integrations",
         });
+        await expect(
+          settings.getByRole("combobox", { name: "Agent tool calls" }),
+        ).toBeVisible();
         await expect(
           settings.getByRole("combobox", { name: "Tool approvals" }),
         ).toBeVisible();

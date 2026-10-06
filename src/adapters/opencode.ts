@@ -481,6 +481,7 @@ export class OpenCode implements Adapter {
             2,
           ),
           choices: ["once", "reject"],
+          allow: "once",
         },
       });
     }

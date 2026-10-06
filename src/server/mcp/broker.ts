@@ -51,6 +51,15 @@ export function authorizeTool(
   args: unknown,
 ) {
   owned("agents", agentId, owner);
+  return authorizeConnectionTool(owner, connectionId, toolName, args);
+}
+/** Validate a source-owned MCP call made through a delegated peer token. */
+export function authorizeConnectionTool(
+  owner: string,
+  connectionId: string,
+  toolName: string,
+  args: unknown,
+) {
   const c = owned<MCPConnection>("mcp_connections", connectionId, owner);
   if (c.status !== "connected")
     throw new Problem(409, "Tool connection is disabled or needs reconnecting");
@@ -76,9 +85,37 @@ export function authorizeTool(
   }
   if (!valid)
     throw new Problem(422, "Tool arguments do not match the discovered schema");
-  const merge = isGithubMcpUrl(c.url) && mergeHeadProblem(toolName, args);
+  const hints = loopHints(c, tool);
+  const merge =
+    (isGithubMcpUrl(c.url) || hints.github) &&
+    mergeHeadProblem(hints.sourceTool || toolName, args);
   if (merge) throw new Problem(422, merge);
-  return { connection: c, tool };
+  return { connection: c, tool, hints };
+}
+// Loop's own `_meta.loop` hints on a discovered tool. Only a federation
+// connection (another Loop source relaying its tools) may rename a tool in
+// the approval prompt or claim GitHub provenance; any other server's hints
+// could disguise an effect. `alwaysAsk` only makes approval stricter, so it
+// is honoured from any server.
+export function loopHints(
+  connection: Pick<MCPConnection, "metadata">,
+  tool: any,
+) {
+  let federated = false;
+  try {
+    federated = JSON.parse(connection.metadata || "{}").transport === "federation";
+  } catch {
+    // Unreadable metadata grants no hints.
+  }
+  const loop = tool?._meta?.loop;
+  return {
+    sourceTool:
+      federated && typeof loop?.sourceTool === "string"
+        ? (loop.sourceTool as string)
+        : undefined,
+    github: federated && loop?.github === true,
+    alwaysAsk: loop?.alwaysAsk === true,
+  };
 }
 export async function invokeTool(
   run: Run,
@@ -95,14 +132,19 @@ export async function invokeTool(
     binding.connectionId,
     run.owner_id,
   );
-  const unpinned =
-    isGithubMcpUrl(target.url) && mergeHeadProblem(binding.tool, args);
+  const descriptor = JSON.parse(target.tools).find(
+    (tool: any) => tool.name === binding.tool,
+  );
+  const hints = loopHints(target, descriptor);
+  const displayTool = hints.sourceTool || binding.tool;
+  const githubTool = isGithubMcpUrl(target.url) || hints.github;
+  const unpinned = githubTool && mergeHeadProblem(displayTool, args);
   if (unpinned)
     return {
       result: { isError: true, content: [{ type: "text", text: unpinned }] },
       artifactId: "",
     };
-  const { connection } = authorizeTool(
+  const { connection, hints: authorized } = authorizeTool(
     run.owner_id,
     run.agent_id,
     binding.connectionId,
@@ -136,7 +178,8 @@ export async function invokeTool(
       // Permission comes from the owner's saved policy, never server-provided hints.
       const automaticallyAllowed =
         mcpApprovalMode(run.owner_id) === "allow" &&
-        !requiresExplicitApproval(connection.url, binding.tool);
+        !requiresExplicitApproval(connection.url, binding.tool) &&
+        !authorized.alwaysAsk;
       let approval = invocation?.approval_id
         ? owned<any>("approvals", invocation.approval_id, run.owner_id)
         : null;
@@ -149,7 +192,7 @@ export async function invokeTool(
             server: connection.name,
             tool: binding.tool,
             arguments: args,
-            message: `Allow @${JSON.parse(run.payload).name || "agent"} to call ${binding.tool} on ${connection.name}?`,
+            message: `Allow @${JSON.parse(run.payload).name || "agent"} to call ${displayTool} on ${connection.name}?`,
             callId,
           },
           automaticallyAllowed,
@@ -240,7 +283,7 @@ export async function invokeTool(
   const started = now();
   let received = false;
   try {
-    client = await connectForRun(connection, run.id);
+    client = await connectForRun(connection, run.id, callId);
     authorizeTool(
       run.owner_id,
       run.agent_id,
@@ -277,10 +320,10 @@ export async function invokeTool(
     const metadata = JSON.parse(connection.metadata);
     const normalized = normalizeResult(result, {
       connectionId: connection.id,
-      tool: binding.tool,
+      tool: displayTool,
       fetchedAt: now(),
       fixture: metadata.fixture === true,
-      github: isGithubMcpUrl(connection.url),
+      github: githubTool,
     });
     const artifactId = db
       .transaction(() => {

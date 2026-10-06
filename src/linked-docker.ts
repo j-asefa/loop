@@ -129,6 +129,20 @@ export async function proxyLinkedDocker(
   apiPath: string,
   responsePrefix = `/api/linked/${sourceId}/`,
 ) {
+  // Federation enrollment returns a private service credential and must only
+  // be driven by the local source adapter, never through a paired browser.
+  const rawPath = apiPath.split("?")[0];
+  let decodedPath = rawPath;
+  try {
+    decodedPath = decodeURIComponent(rawPath);
+  } catch {
+    // A malformed path cannot authorize a private setup route.
+  }
+  if (/^mcp\/(?:federation|reverse)(?:\/|$)/i.test(decodedPath)) {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
+    return;
+  }
   // Writes reuse a discovery from the last few seconds too: re-running
   // docker on every send only delays it, and a stale port fails closed.
   const workspace = (await linkedDockerWorkspaces()).find(

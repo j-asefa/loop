@@ -158,6 +158,23 @@ test("paired gateway discovers a local Docker workspace and forwards its convers
     );
     assert.equal(unknown.status, 404);
     assert.equal(received.length, 0);
+    for (const prefix of [
+      `/api/agent-sources/docker%3A${sourceId}/`,
+      `/api/linked/${sourceId}/`,
+    ]) {
+      for (const privatePath of [
+        "mcp/federation/enroll",
+        "MCP/FEDERATION/enroll",
+        "mcp%2Ffederation%2Fenroll",
+        "mcp/reverse",
+      ]) {
+        const blocked: Response = await fetch(host.origin + prefix + privatePath, {
+          headers: { cookie },
+        });
+        assert.equal(blocked.status, 404);
+        assert.equal(received.length, 0);
+      }
+    }
     const base = host.origin + `/api/agent-sources/docker%3A${sourceId}/`;
     // Root-relative redirects stay on this source, not the paired laptop.
     const redirect = await fetch(base + "artifacts/a1/download", {

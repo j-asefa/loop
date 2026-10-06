@@ -11,6 +11,7 @@ import { startWorker } from "./server/worker.js";
 import { z } from "zod";
 import { WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
+import { DockerMcpSharing } from "./mcp-docker-sharing.js";
 
 const registration = z
   .object({
@@ -25,6 +26,7 @@ const registration = z
 export class WorkspaceHost {
   gateway: Host;
   private tools = new NativeToolBridge();
+  private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private closing = false;
   private epoch = randomUUID();
@@ -67,6 +69,12 @@ export class WorkspaceHost {
           return nativeSessions.enable(registration.parse(input));
         throw new Error("Unknown workspace control command");
       },
+      shareTools: (sourceId, action) =>
+        sourceId
+          ? action === "disconnect"
+            ? this.mcpSharing.disconnect(sourceId)
+            : this.mcpSharing.connect(sourceId)
+          : this.mcpSharing.status(),
       originChanged: (origin) => {
         config.url = origin;
       },
@@ -146,6 +154,7 @@ export class WorkspaceHost {
     nativeSessions.revokeTools = (conversation, generation) =>
       this.tools.revoke(conversation, generation);
     await this.gateway.listen();
+    this.mcpSharing.start();
     if (this.closing) {
       await this.gateway.close();
       throw new Error("Workspace is stopping");
@@ -175,6 +184,7 @@ export class WorkspaceHost {
   }
   async close() {
     this.closing = true;
+    this.mcpSharing.close();
     await nativeSignIns.close();
     await this.stopWorker?.();
     if (!this.stopWorker) await nativeSessions.close();

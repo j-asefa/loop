@@ -20,7 +20,7 @@ const { cleanupMergedWorkspaces } =
 const { githubEnvironment } = await import(resolve("runtime/workspace.mjs"));
 const token = "fixture-github-secret";
 function preference(owner = "alice", mode = "allow") {
-  db.prepare("INSERT OR REPLACE INTO mcp_preferences VALUES(?,?)").run(
+  db.prepare("INSERT OR REPLACE INTO mcp_preferences(owner_id,approval_mode) VALUES(?,?)").run(
     owner,
     mode,
   );

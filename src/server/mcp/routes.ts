@@ -15,20 +15,54 @@ import { privateMcpUrl } from "./credentials.js";
 import { ToolBudgetError } from "./tool-budget.js";
 import { installConfig } from "./install.js";
 import { config } from "../config.js";
+import { companionMode } from "../profile.js";
 import { publicCatalog, reviewedAt } from "./catalog-data.js";
 import { installCatalog } from "./catalog.js";
-import { mcpApprovalMode, setMcpApprovalMode } from "./approval-policy.js";
+import {
+  agentPermissionMode,
+  mcpApprovalMode,
+  setAgentPermissionMode,
+  setMcpApprovalMode,
+} from "./approval-policy.js";
+import {
+  isPermissionMode,
+  type PermissionMode,
+} from "../../shared/permission-modes.js";
 import { toolErrorMessage } from "./results.js";
+import {
+  importNativeMcpCandidate,
+  publicNativeMcpCandidates,
+} from "./native-config-import.js";
 export const mcp = Router();
 mcp.get("/mcp/preferences", (_req, res) =>
-  res.json({ approvalMode: mcpApprovalMode(res.locals.owner) }),
+  res.json({
+    approvalMode: mcpApprovalMode(res.locals.owner),
+    agentPermissionMode: agentPermissionMode(res.locals.owner),
+  }),
 );
 mcp.put("/mcp/preferences", (req, res) => {
   const data = z
-    .object({ approvalMode: z.enum(["ask", "allow"]) })
+    .object({
+      approvalMode: z.enum(["ask", "allow"]).optional(),
+      agentPermissionMode: z
+        .custom<PermissionMode>(isPermissionMode, "Unknown permission mode")
+        .optional(),
+    })
     .strict()
+    .refine(
+      (value) =>
+        value.approvalMode !== undefined ||
+        value.agentPermissionMode !== undefined,
+      "Choose a preference to change",
+    )
     .parse(req.body);
-  res.json(setMcpApprovalMode(res.locals.owner, data.approvalMode));
+  const agent = data.agentPermissionMode
+    ? setAgentPermissionMode(res.locals.owner, data.agentPermissionMode)
+    : { agentPermissionMode: agentPermissionMode(res.locals.owner) };
+  const tools = data.approvalMode
+    ? setMcpApprovalMode(res.locals.owner, data.approvalMode)
+    : { approvalMode: mcpApprovalMode(res.locals.owner), resumed: 0 };
+  res.json({ ...tools, ...agent });
 });
 mcp.get("/mcp/catalog", (_req, res) => {
   res.json({
@@ -36,6 +70,24 @@ mcp.get("/mcp/catalog", (_req, res) => {
     reviewedAt,
     oauthRedirectUrl: config.url + "/api/mcp/oauth/callback",
   });
+});
+// Installed-harness configs belong to whoever runs this Loop process. In a
+// multi-user server they hold the operator's credentials, which are never
+// any signed-in user's to list or import.
+const nativeImportAllowed = () =>
+  companionMode || config.authMode !== "multi-user";
+mcp.get("/mcp/native-candidates", async (_req, res) => {
+  res.json(nativeImportAllowed() ? await publicNativeMcpCandidates() : []);
+});
+mcp.post("/mcp/native-candidates/:id/import", async (req, res) => {
+  if (!nativeImportAllowed())
+    throw new Problem(
+      403,
+      "Importing installed harness MCP servers is available only on a personal Loop.",
+    );
+  res.status(201).json(
+    await importNativeMcpCandidate(res.locals.owner, String(req.params.id)),
+  );
 });
 mcp.post("/mcp/catalog/:id/install", async (req, res) => {
   const data = z

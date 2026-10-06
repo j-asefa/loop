@@ -38,6 +38,11 @@ if (process.argv.includes("auth")) {
   process.exit();
 }
 if (kind === "claude" && process.argv.includes("--print")) {
+  if (process.env.LOOP_TEST_ARGV)
+    appendFileSync(
+      process.env.LOOP_TEST_ARGV,
+      JSON.stringify(process.argv.slice(2)) + "\n",
+    );
   const permissionFlag = process.argv.indexOf("--permission-prompt-tool");
   if (
     permissionFlag < 0 ||

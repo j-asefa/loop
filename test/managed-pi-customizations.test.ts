@@ -4,6 +4,7 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
+  realpathSync,
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -98,7 +99,7 @@ describe("managed Pi customization worker", () => {
         sourceInfo: { scope: "project" },
       });
       expect(result.commands[0].sourceInfo.path).toBe(
-        join(project, ".pi", "prompts", "review.md"),
+        join(realpathSync(project), ".pi", "prompts", "review.md"),
       );
       expect(result.state.model).toMatchObject({
         provider: "fixture",

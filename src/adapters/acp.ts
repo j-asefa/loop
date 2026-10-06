@@ -653,6 +653,7 @@ export class Acp implements Adapter {
           title: text(request.toolCall.title).slice(0, 500) || "ACP permission",
           detail: choices.map((o) => `${o.name} (${o.kind})`).join("\n"),
           choices: choices.map((o) => o.optionId),
+          allow: choices.find((o) => o.kind === "allow_once")?.optionId,
         },
       });
     });

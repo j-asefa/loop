@@ -1,6 +1,8 @@
 import { isNativeConnection } from "./native-connections.js";
 import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
+import { agentPermissionMode } from "./mcp/approval-policy.js";
+import type { PermissionMode } from "../shared/permission-modes.js";
 import { nativeSessions } from "./native-sessions.js";
 import {
   nativeBindings,
@@ -42,6 +44,8 @@ export type Snapshot = {
   connectionId: string;
   model: string;
   effort?: string | null;
+  /** The workspace's native harness approval level when the run was sent. */
+  permissionMode?: PermissionMode;
   instructions: string;
   folderId: string | null;
   maxTokens?: number;
@@ -280,6 +284,7 @@ export function submit(
                   .get(conversation) as { model?: string } | undefined
               )?.model || agent.model,
         effort: agent.effort,
+        permissionMode: agentPermissionMode(owner),
         instructions: agent.instructions,
         folderId,
         source: data.source,

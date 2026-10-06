@@ -17,6 +17,8 @@ import {
   hub,
 } from "./environments.js";
 import { sessionFor, reconcile } from "./adapter.js";
+import { agentPermissionMode } from "../mcp/approval-policy.js";
+import { launchPermissionMode } from "../../shared/permission-modes.js";
 import { enabled } from "../memory.js";
 import { environmentUpgrades } from "../harness-upgrades.js";
 import { artifactDownload, localArtifact } from "./artifact-storage.js";
@@ -294,7 +296,12 @@ executionRoutes.post("/conversations/:id/resume-native", async (req, res) => {
   ).run(s.conversation_id);
   const result = await hub(e).request(
     "/api/sessions/" + s.hub_session_id + "/resume",
-    { permissionMode: "default" },
+    {
+      permissionMode: launchPermissionMode(
+        s.flavor,
+        agentPermissionMode(res.locals.owner),
+      ),
+    },
   );
   if (result.sessionId !== s.hub_session_id) {
     const next = await hub(e).request("/api/sessions/" + result.sessionId);

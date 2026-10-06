@@ -116,8 +116,12 @@ export async function inspectPiPackage(
 ): Promise<PackageInspection> {
   try {
     if (source.startsWith("./")) {
-      const path = realpathSync(resolve(project, ".pi", source));
-      if (!path.startsWith(project + sep) || !statSync(path).isDirectory())
+      const canonicalProject = realpathSync(project);
+      const path = realpathSync(resolve(canonicalProject, ".pi", source));
+      if (
+        !path.startsWith(canonicalProject + sep) ||
+        !statSync(path).isDirectory()
+      )
         throw new Error("Local source must be a project directory");
       const manifestPath = join(path, "package.json");
       const manifest = existsSync(manifestPath)

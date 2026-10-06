@@ -188,7 +188,7 @@ export async function piCustomization(
     return inspectPiPackage(input.source, project);
   if (input.action === "preview") {
     const path = realpathSync(input.path);
-    const allowed = [agentDir + sep, project + sep];
+    const allowed = [realpathSync(agentDir) + sep, realpathSync(project) + sep];
     if (
       !allowed.some((prefix) => path.startsWith(prefix)) ||
       !path.endsWith(".md") ||
@@ -270,10 +270,11 @@ export async function piCustomization(
             "Pi updates matching sources in both scopes. Remove the duplicate first.",
           );
         if (source.startsWith("./")) {
-          const path = realpathSync(resolve(project, ".pi", source));
+          const canonicalProject = realpathSync(project);
+          const path = realpathSync(resolve(canonicalProject, ".pi", source));
           if (
             scope !== "project" ||
-            !path.startsWith(project + sep) ||
+            !path.startsWith(canonicalProject + sep) ||
             !statSync(path).isDirectory()
           )
             throw new Error(

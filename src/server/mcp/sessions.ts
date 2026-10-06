@@ -7,8 +7,8 @@ const sessions = new Map<
   string,
   { run: string; secret: string; client: Promise<Client> }
 >();
-export async function connectForRun(c: MCPConnection, run: string) {
-  if (JSON.parse(c.metadata).transport !== "stdio") return connect(c);
+export async function connectForRun(c: MCPConnection, run: string, callId?: string) {
+  if (JSON.parse(c.metadata).transport !== "stdio") return connect(c, run, callId);
   const key = c.owner_id + ":" + c.id + ":" + run;
   const old = sessions.get(key);
   if (old?.secret === c.secret) return old.client;

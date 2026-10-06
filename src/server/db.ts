@@ -90,6 +90,17 @@ db.transaction(() => {
   // PR watch history. A 45 without that table was the cleanup: it is 46.
   if (version(45) && !version(46) && !table("pr_watch_seen"))
     db.exec("UPDATE schema_version SET version=46 WHERE version=45");
+  // The permission branch used 51 before main assigned it to Social feeds.
+  // Preserve databases opened on that branch and let the feed migration run.
+  if (
+    version(51) &&
+    !version(52) &&
+    !table("feed_subscriptions") &&
+    (db.pragma("table_info(mcp_preferences)") as { name: string }[]).some(
+      (column) => column.name === "agent_permission_mode",
+    )
+  )
+    db.exec("UPDATE schema_version SET version=52 WHERE version=51");
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

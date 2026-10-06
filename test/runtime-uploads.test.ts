@@ -238,7 +238,7 @@ it("copies the current turn's uploads into the runtime workspace before the turn
   expect(new Set(uploads.map((r) => r.workspaceKey))).toEqual(
     new Set(["b".repeat(64)]),
   );
-  const path = join(workspace, ".loop", "uploads", image.id, "IMG_8960.png");
+  const path = join(realpathSync(workspace), ".loop", "uploads", image.id, "IMG_8960.png");
   expect(readFileSync(path).equals(bytes)).toBe(true);
   expect(content).toContain("Use native file tools to inspect them");
   expect(content).toContain(JSON.stringify(path));
@@ -338,7 +338,7 @@ it("stores uploads through a native-host broker outside the project directory", 
     const result = await response.json();
     expect(result).toMatchObject({ complete: true, size: bytes.length });
     expect(result.path).toBe(
-      join(home, ".loop", "uploads", fileId, "photo.png"),
+      join(realpathSync(home), ".loop", "uploads", fileId, "photo.png"),
     );
     expect(readFileSync(result.path).equals(bytes)).toBe(true);
     expect(readdirSync(project)).toEqual([]);

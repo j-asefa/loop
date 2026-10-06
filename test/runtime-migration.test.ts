@@ -236,7 +236,47 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
         encoding: "utf8",
       },
     );
-    expect(JSON.parse(result)).toEqual({ table: true, version: 51 });
+    expect(JSON.parse(result)).toEqual({ table: true, version: 55 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("preserves permission-branch databases that used feed migration number 51", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-permission-migration-repair-"));
+  try {
+    const db = new Database(join(dir, "loop.db"));
+    db.exec(
+      "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
+    );
+    for (const file of readdirSync("migrations")
+      .filter((name) => name.endsWith(".sql") && Number(name.split("-")[0]) <= 50)
+      .sort())
+      db.exec(readFileSync(join("migrations", file), "utf8"));
+    db.exec(
+      "ALTER TABLE mcp_preferences ADD COLUMN agent_permission_mode TEXT; INSERT INTO schema_version VALUES(51,unixepoch()*1000)",
+    );
+    db.close();
+    const result = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({feed:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='feed_subscriptions'").get(),permission:db.pragma('table_info(mcp_preferences)').some(c=>c.name==='agent_permission_mode'),versions:db.prepare('SELECT version FROM schema_version WHERE version IN (51,52) ORDER BY version').all().map(x=>x.version)}));db.close();`,
+      ],
+      {
+        cwd: resolve("."),
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        encoding: "utf8",
+      },
+    );
+    expect(JSON.parse(result)).toEqual({
+      feed: true,
+      permission: true,
+      versions: [51, 52],
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

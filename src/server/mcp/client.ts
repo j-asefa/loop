@@ -18,6 +18,7 @@ import { safeFetch, safeToolFetch, safeUrl } from "./network.js";
 import { config } from "../config.js";
 import { RuntimeTransport } from "./runtime-transport.js";
 import { workspaceToolBindings, ToolBudgetError } from "./tool-budget.js";
+import { federationUrl } from "./federation.js";
 export type MCPConnection = {
   id: string;
   owner_id: string;
@@ -44,7 +45,10 @@ export function readSecret(c: MCPConnection): AuthSecret {
   return c.secret ? JSON.parse(unseal(c.secret, c.owner_id)) : { type: "none" };
 }
 export function connectionUrl(c: MCPConnection) {
-  const url = safeUrl(c.url);
+  const url =
+    JSON.parse(c.metadata).transport === "federation"
+      ? federationUrl(c.url)
+      : safeUrl(c.url);
   // Some publishers require keys in the query string. Keep them encrypted and
   // add them only at the outbound transport boundary, never to public records.
   const secret = readSecret(c);
@@ -158,10 +162,15 @@ export function withTestMcp(factory: (c: MCPConnection) => Promise<Client>) {
     testFactory = undefined;
   };
 }
-export async function connect(c: MCPConnection): Promise<Client> {
+export async function connect(
+  c: MCPConnection,
+  runId?: string,
+  callId?: string,
+): Promise<Client> {
   if (testFactory) return testFactory(c);
   const metadata = JSON.parse(c.metadata);
-  if (metadata.transport !== "stdio") safeUrl(c.url);
+  if (metadata.transport === "federation") federationUrl(c.url);
+  else if (metadata.transport !== "stdio") safeUrl(c.url);
   const secret = readSecret(c),
     client = new Client(
       { name: "loop", version: "0.1.0" },
@@ -177,6 +186,14 @@ export async function connect(c: MCPConnection): Promise<Client> {
       : secret.type === "headers"
         ? secret.headers
         : undefined;
+  const requestHeaders =
+    metadata.transport === "federation" && runId
+      ? {
+          ...headers,
+          "x-loop-run-id": runId,
+          ...(callId ? { "x-loop-call-id": callId } : {}),
+        }
+      : headers;
   const oauth = secret.type === "oauth" ? oauthProvider(c) : undefined;
   const transport =
     metadata.transport === "stdio"
@@ -189,8 +206,12 @@ export async function connect(c: MCPConnection): Promise<Client> {
           metadata.runtimeHostId,
         )
       : new StreamableHTTPClientTransport(connectionUrl(c), {
-          requestInit: { headers },
-          fetch: safeToolFetch,
+          requestInit: { headers: requestHeaders },
+          fetch:
+            metadata.transport === "federation"
+              ? ((input: any, init: any) =>
+                  fetch(input, { ...init, redirect: "error" }))
+              : safeToolFetch,
           authProvider: oauth?.provider,
         });
   try {
@@ -212,7 +233,13 @@ export async function connect(c: MCPConnection): Promise<Client> {
     );
   }
 }
-export async function discover(c: MCPConnection) {
+// `keepOnBudget` refreshes an already-enabled catalog: if the new catalog
+// would exceed the tool budget, the previous catalog stays connected instead
+// of the connection being disabled.
+export async function discover(
+  c: MCPConnection,
+  { keepOnBudget = false }: { keepOnBudget?: boolean } = {},
+) {
   const client = await connect(c);
   try {
     const capabilities = client.getServerCapabilities();
@@ -263,7 +290,7 @@ export async function discover(c: MCPConnection) {
     }).immediate();
     return { tools, metadata };
   } catch (error) {
-    if (error instanceof ToolBudgetError)
+    if (error instanceof ToolBudgetError && !keepOnBudget)
       db.prepare("UPDATE mcp_connections SET status='disabled' WHERE id=?").run(
         c.id,
       );

@@ -1,8 +1,9 @@
 process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync } from "node:fs";
-import { resolve } from "node:path";
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { Codex } from "../src/adapters/codex.js";
 import { Pi } from "../src/adapters/pi.js";
 import { NativeSetupError } from "../src/adapters/setup-error.js";
@@ -161,6 +162,11 @@ for (const [name, Klass] of Object.entries({
       );
       const request = events.find((e) => e.type === "request")!;
       assert.equal(request.type, "request");
+      // "Never ask" answers only the choice that permits this one call.
+      assert.equal(
+        request.request.allow,
+        { codex: "accept", claude: "allow", opencode: "once" }[name],
+      );
       await adapter.answer(request.request.id, {
         choice:
           name === "pi"
@@ -225,6 +231,49 @@ for (const [name, Klass] of Object.entries({
     }
   });
 }
+test("Claude launches in the workspace permission mode", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-claude-argv-"));
+  process.env.LOOP_TEST_HARNESS = "claude";
+  process.env.LOOP_TEST_ARGV = join(dir, "argv");
+  try {
+    for (const permissionMode of [undefined, "default", "bypassPermissions"]) {
+      const adapter = new Claude(
+        {
+          harness: "claude",
+          project: process.cwd(),
+          executable,
+          billing: "existing",
+          version: "fixture",
+          permissionMode,
+        },
+        () => {},
+      );
+      try {
+        await adapter.start();
+        assert.equal(
+          adapter.settings.options.find((option) => option.id === "mode")
+            ?.confirmed,
+          permissionMode,
+        );
+      } finally {
+        await adapter.dispose();
+      }
+    }
+    const launches = readFileSync(process.env.LOOP_TEST_ARGV, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as string[]);
+    assert.equal(launches.length, 3);
+    assert(!launches[0].includes("--permission-mode"));
+    assert(!launches[1].includes("--permission-mode"));
+    const flag = launches[2].indexOf("--permission-mode");
+    assert.equal(launches[2][flag + 1], "bypassPermissions");
+  } finally {
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_ARGV;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 test("subscription conflicts are rejected without changing the environment", () => {
   process.env.LOOP_TEST_CONFLICT = "not-a-real-key";
   assert.throws(

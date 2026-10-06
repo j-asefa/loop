@@ -59,6 +59,10 @@ export class Host {
     http: (req: IncomingMessage, res: ServerResponse) => void;
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
+    shareTools?: (
+      sourceId?: string,
+      action?: "connect" | "disconnect",
+    ) => Promise<unknown>;
     connect: (socket: WebSocket, url: URL) => () => void;
     originChanged: (origin: string) => void;
   };
@@ -428,6 +432,26 @@ export class Host {
         }
         if (path === "/api/agent-sources" && req.method === "GET")
           return this.json(res, 200, await agentSources());
+        if (path === "/api/mcp-sharing" && req.method === "GET") {
+          if (!this.workspace.shareTools)
+            return this.json(res, 404, { error: "Tool sharing unavailable" });
+          return this.json(res, 200, await this.workspace.shareTools());
+        }
+        if (path === "/api/mcp-sharing" && req.method === "POST") {
+          if (!this.workspace.shareTools)
+            return this.json(res, 404, { error: "Tool sharing unavailable" });
+          const input = await body(req);
+          if (
+            typeof input.sourceId !== "string" ||
+            !["connect", "disconnect"].includes(input.action)
+          )
+            return this.json(res, 400, { error: "Choose an execution source" });
+          return this.json(
+            res,
+            200,
+            await this.workspace.shareTools(input.sourceId, input.action),
+          );
+        }
         if (path.startsWith("/api/agent-sources/")) {
           const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
           if (!match) return this.json(res, 404, { error: "Not found" });

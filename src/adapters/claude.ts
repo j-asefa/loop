@@ -61,6 +61,7 @@ export class Claude implements Adapter {
   ) {
     this.emit = directActivityEmitter(emit);
     this.session = options.resume ?? randomUUID();
+    this.permissionMode = options.permissionMode;
   }
   private permissionMode?: string;
   private sessionOptions(model?: string): Setting[] {
@@ -171,6 +172,10 @@ export class Claude implements Adapter {
         "stdio",
         ...(this.options.model ? ["--model", this.options.model] : []),
         ...(this.options.effort ? ["--effort", this.options.effort] : []),
+        ...(this.options.permissionMode &&
+        this.options.permissionMode !== "default"
+          ? ["--permission-mode", this.options.permissionMode]
+          : []),
         ...(!this.options.resume && this.options.instructions
           ? ["--append-system-prompt", this.options.instructions]
           : []),
@@ -424,6 +429,7 @@ export class Claude implements Adapter {
                     2,
                   ),
                   choices: ["allow", "deny"],
+                  allow: "allow",
                 },
         });
       } else if (r.subtype === "elicitation") {

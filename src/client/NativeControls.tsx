@@ -139,10 +139,12 @@ function DecisionCard({
 }) {
   const request = parse<Request>(item.request, {} as Request);
   const structured = parse<any>(request.detail, null);
-  const detail = structured?.command
-    ? typeof structured.command === "string"
-      ? structured.command
-      : JSON.stringify(structured.command)
+  // Claude nests the shell command in its tool input.
+  const command = structured?.command ?? structured?.input?.command;
+  const detail = command
+    ? typeof command === "string"
+      ? command
+      : JSON.stringify(command)
     : request.detail;
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false),
@@ -210,9 +212,15 @@ function DecisionCard({
         aria-label="Request details"
         tabIndex={0}
       >
-        <RichText content={detail || ""} />
+        {structured && !command ? (
+          // Structured requests are data, not Markdown: indented JSON would
+          // otherwise become unwrapped code blocks.
+          <pre>{JSON.stringify(structured, null, 2)}</pre>
+        ) : (
+          <RichText content={detail || ""} />
+        )}
       </div>
-      {structured?.command && (
+      {command && (
         <details>
           <summary>Native request details</summary>
           <pre>{JSON.stringify(structured, null, 2)}</pre>
@@ -258,22 +266,22 @@ function DecisionCard({
           <details className="native-approval-settings">
             <summary>Fewer approval prompts</summary>
             <p className="field-hint">
-              Native tools follow the harness’s permission mode, when available
-              in Session settings. Changes apply only after the harness confirms
-              them; this request still needs a decision.
-            </p>
-            <SessionActivityControls conversationId={item.conversation_id} />
-            <p className="field-hint">
-              Connected MCP tools have a separate workspace preference. Allow
-              connected tools skips repeated prompts for those tools, not native
-              shell or file permissions. GitHub merges still require approval.
+              Set Agent tool calls to Never ask in Permissions and your agents
+              run shell commands, file edits and other native tools without
+              stopping, from their next turn. This request still needs a
+              decision.
             </p>
             <button
               className="text-button"
               onClick={() => setToolSettings(true)}
             >
-              Connected tool approvals
+              Permissions
             </button>
+            <p className="field-hint">
+              To change only this session, use the harness’s permission mode
+              below. Changes apply after the harness confirms them.
+            </p>
+            <SessionActivityControls conversationId={item.conversation_id} />
           </details>
         </>
       ) : (

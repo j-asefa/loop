@@ -480,6 +480,10 @@ export class Codex implements Adapter {
                 : "Codex permission",
             detail: JSON.stringify(p, null, 2),
             choices,
+            allow:
+              m.method === "mcpServer/elicitation/request"
+                ? undefined
+                : choices.find((c: string) => ["accept", "allow"].includes(c)),
           },
         });
       } else

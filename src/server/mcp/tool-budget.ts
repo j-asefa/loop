@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { db } from "../db.js";
 import { Problem } from "../domain.js";
 
@@ -40,7 +41,14 @@ export function workspaceToolBindings(
     for (const tool of JSON.parse(row.tools)) {
       if (result.length >= MCP_TOOL_BUDGET.count) throw new ToolBudgetError();
       result.push({
-        name: `loop_tool_${result.length}`,
+        // A harness may retain a catalog across turns. Positional names could
+        // silently point an existing tool call at a newly installed server.
+        name:
+          "loop_tool_" +
+          createHash("sha256")
+            .update(JSON.stringify([row.id, tool.name]))
+            .digest("hex")
+            .slice(0, 24),
         connectionId: row.id,
         tool: tool.name,
         description: `${row.name}: ${String(tool.description || tool.name).slice(0, 1500)}`,

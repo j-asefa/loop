@@ -21,6 +21,7 @@ import { RunDeferred } from "../run-deferred.js";
 import { InactiveSessionError } from "./client.js";
 import { attachedFiles, attachmentPrompt } from "../uploads.js";
 import { replyPrompt } from "../../shared/replies.js";
+import { launchPermissionMode } from "../../shared/permission-modes.js";
 import { recallForRun } from "../memory.js";
 
 export const sessionFor = (conversation: string) =>
@@ -162,7 +163,7 @@ export async function executeHapi(run: Run): Promise<false> {
           directory: mapping.canonical_path,
           agent: s.flavor,
           model: p.model,
-          permissionMode: "default",
+          permissionMode: launchPermissionMode(s.flavor, p.permissionMode),
           startingMode: "remote",
           loopLaunchId: s.launch_id,
         },

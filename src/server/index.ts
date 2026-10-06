@@ -9,6 +9,20 @@ import { runtimeHosts } from "./runtime-hosts.js";
 import { subscriptions } from "./subscriptions.js";
 import { sharing } from "./sharing.js";
 import { mcp } from "./mcp/routes.js";
+import {
+  enrollFederationPeer,
+  FEDERATION_SETUP_HEADER,
+  handleFederationMcp,
+  installFederationPeer,
+  revokeFederationPeer,
+} from "./mcp/federation.js";
+import {
+  claimReverseCall,
+  completeReverseCall,
+  handleReverseMcp,
+  installReverseCatalog,
+  pendingReverseCalls,
+} from "./mcp/reverse.js";
 import express from "express";
 import { toNodeHandler } from "better-auth/node";
 
@@ -100,6 +114,16 @@ if (companionMode) {
   );
 }
 app.use(express.json({ limit: "12mb" }));
+// The shared-tool endpoint authenticates a source token, not a browser or
+// device. Its catalog contains no credentials and is excluded from API proxying.
+if (!companionMode) {
+  app.all("/api/mcp/federation", (req, res, next) => {
+    void handleFederationMcp(req, res, req.body).catch(next);
+  });
+  app.all("/api/mcp/reverse", (req, res, next) => {
+    void handleReverseMcp(req, res, req.body).catch(next);
+  });
+}
 app.get("/api/health", (_req, res) => {
   const worker = db
     .prepare("SELECT max(heartbeat) last FROM worker_health")
@@ -141,6 +165,103 @@ app.use("/api", async (req, res, next) => {
   }
   next();
 });
+if (!companionMode) {
+  // Setup returns private service credentials. Besides arriving locally, it
+  // must carry a header that no paired-browser proxy forwards (they use
+  // header allowlists) and that a cross-site page cannot add without CORS.
+  const localFederationSetup = (req: express.Request) =>
+    config.authMode === "single-user" &&
+    access!.localRequest(req) &&
+    req.get(FEDERATION_SETUP_HEADER) === "1";
+  app.post("/api/mcp/federation/enroll", (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    res.json({
+      token: enrollFederationPeer(
+        res.locals.owner,
+        String(req.body?.peerId || ""),
+      ),
+    });
+  });
+  app.post("/api/mcp/federation/import", async (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    const { peerId, label, endpoint, token } = req.body || {};
+    if (
+      typeof peerId !== "string" ||
+      typeof label !== "string" ||
+      typeof endpoint !== "string" ||
+      typeof token !== "string" ||
+      label.length > 80
+    )
+      throw new Problem(400, "Invalid execution source connection");
+    res.json(
+      await installFederationPeer(
+        res.locals.owner,
+        peerId,
+        label,
+        endpoint,
+        token,
+      ),
+    );
+  });
+  app.post("/api/mcp/federation/import-reverse", async (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    const { peerId, label, tools } = req.body || {};
+    if (
+      typeof peerId !== "string" ||
+      typeof label !== "string" ||
+      label.length > 80
+    )
+      throw new Problem(400, "Invalid shared tool catalog");
+    res.json(
+      await installReverseCatalog(res.locals.owner, peerId, label, tools),
+    );
+  });
+  app.post("/api/mcp/federation/revoke", (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    res.json(
+      revokeFederationPeer(
+        res.locals.owner,
+        String(req.body?.peerId || ""),
+        true,
+      ),
+    );
+  });
+  app.get("/api/mcp/federation/pending", (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    res.json(
+      pendingReverseCalls(res.locals.owner, String(req.query.peerId || "")),
+    );
+  });
+  app.post("/api/mcp/federation/claim/:id", (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    const { peerId } = req.body || {};
+    if (typeof peerId !== "string")
+      throw new Problem(400, "Invalid shared tool claim");
+    res.json(claimReverseCall(res.locals.owner, peerId, String(req.params.id)));
+  });
+  app.post("/api/mcp/federation/complete/:id", (req, res) => {
+    if (!localFederationSetup(req))
+      throw new Problem(403, "Local execution source setup required");
+    const { peerId, state, result } = req.body || {};
+    if (typeof peerId !== "string" || !["completed", "unknown"].includes(state))
+      throw new Problem(400, "Invalid shared tool result");
+    res.json(
+      completeReverseCall(
+        res.locals.owner,
+        peerId,
+        String(req.params.id),
+        state,
+        result,
+      ),
+    );
+  });
+}
 app.post("/api/diagnostic", (req, res) =>
   res.json(
     enqueue(

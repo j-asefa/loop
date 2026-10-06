@@ -4921,6 +4921,24 @@ h1 {
   border: 0;
   padding: 0;
 }
+.tool-sharing {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.tool-sharing-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.tool-sharing-source span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .search-filter-panel {
   margin: 12px 0 0;
   border: 1px solid var(--line);
@@ -6440,7 +6458,20 @@ details > summary {
 /* Approvals: decide inline */
 .approval-card {
   display: grid;
+  /* A long command or path wraps inside the card instead of widening it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
+}
+.approval-summary-text > strong,
+.approval-card .field-hint {
+  overflow-wrap: anywhere;
+}
+.approval-card .approval-target-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .approval-card-actions {
   display: flex;
@@ -8022,6 +8053,16 @@ html:has(.sheet.side-panel[open]) {
   overflow-wrap: anywhere;
   overscroll-behavior: contain;
 }
+.native-decision pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.native-decision-detail > pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
 .native-approval-actions {
   display: flex;
   flex-wrap: wrap;
@@ -8034,6 +8075,8 @@ html:has(.sheet.side-panel[open]) {
   justify-content: center;
   gap: 8px;
   flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   min-height: 48px;
   font-size: 16px;
   font-weight: 700;

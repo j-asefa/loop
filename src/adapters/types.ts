@@ -20,6 +20,8 @@ export type Options = {
   version: string;
   model?: string;
   effort?: string;
+  /** Native launch permission mode; only set for harnesses that accept one. */
+  permissionMode?: string;
   instructions?: string;
   probeOnly?: boolean;
   projectTrust?: boolean;
