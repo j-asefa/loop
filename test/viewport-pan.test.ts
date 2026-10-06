@@ -1,5 +1,20 @@
 import { expect, it, vi } from "vitest";
-import { leftoverPan } from "../src/client/Pwa";
+import { leftoverPan, sheetKeyboardInset } from "../src/client/Pwa";
+
+it("anchors keyboard-open dialogs to the measured fixed viewport, even after Safari pans it", () => {
+  const viewport = { offsetTop: 0, height: 430, scale: 1 };
+  expect(sheetKeyboardInset(viewport, 844, true)).toBe(414);
+  // Safari pans to the input while the fixed layout viewport stays tall.
+  expect(sheetKeyboardInset({ ...viewport, offsetTop: 370 }, 844, true)).toBe(44);
+  // The fixed containing block has shrunk independently of innerHeight.
+  // The old 44px inset would leave almost the entire dialog above the screen.
+  expect(sheetKeyboardInset({ ...viewport, offsetTop: 370 }, 430, true)).toBe(-370);
+  expect(sheetKeyboardInset(viewport, 430, true)).toBe(0);
+  expect(sheetKeyboardInset(viewport, 844, false)).toBe(0);
+  expect(sheetKeyboardInset({ ...viewport, scale: 2 }, 844, true)).toBe(0);
+  expect(sheetKeyboardInset(undefined, 844, true)).toBe(0);
+  expect(sheetKeyboardInset(viewport, 0, true)).toBe(0);
+});
 
 it("folds a pan Safari leaves after the keyboard closes back into the page", () => {
   // Keyboard closed, but the visible area is still panned 240px down: the

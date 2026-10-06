@@ -43,7 +43,7 @@ Saved Codex desktop history read/fork and `loop codex --resume NATIVE_ID` retain
 
 ## Upgrade installed harnesses
 
-In **Settings → Provider connections → Connected harnesses**, choose **Upgrade** beside Codex, Pi, Claude Code or OpenCode. The same action appears in New agent’s runtime controls. Managed native runtimes also expose it under **Settings → Execution environments → Check installation and sign-in**.
+In **Settings → Provider connections → Harnesses**, choose **Upgrade** beside Codex, Pi, Claude Code or OpenCode. The same action appears in New agent’s runtime controls. Managed native runtimes also expose it under **Settings → Execution environments → Check installation and sign-in**.
 
 Loop detects the installation that owns the executable and updates only that harness: supported npm global installations use their existing prefix, Loop’s private native helpers update their private manifest and lockfile, Homebrew installations use their matching formula or cask, native Claude uses `claude update`, and direct OpenCode uses `opencode upgrade`. Custom/project-local installations require their own package manager on the computer. The installation must be writable by the workspace’s OS user; Loop never runs sudo. Finish or cancel active runs and sign-in before upgrading. While an upgrade runs, only that harness refuses new runs, sessions and sign-in. New sessions use the updated executable; refresh the runtime’s models before creating an agent. Existing chats retain their native context and billing policy.
 
@@ -57,11 +57,15 @@ Loop-shipped pins for the private native helpers are restored on every managed s
 
 Managed OpenCode retains Loop’s guarded, pinned build. Its controls explain that updating Loop and restarting the workspace updates that artifact; running the upstream self-upgrader would lose the subscription execution guard. Container image runtimes require rebuilding the image. These controls do not change image pins or turn a managed runtime into a direct one.
 
+### Session permission choices
+
+In a native conversation, **Session settings** shows the harness’s confirmed value and any pending request separately. A confirmed Claude permission choice is saved for that conversation and restored when its idle process restarts. It takes precedence over the workspace default; a rejected or superseded request is not saved. Permission mode can be changed while a turn is waiting for a tool decision. That existing decision still needs an answer and is never replayed automatically. Launch-only settings, such as Claude reasoning effort, are labelled as launch values rather than pending confirmations.
+
 ## Provider sign-in
 
-Direct runtime setup and Settings → Execution environments use the same sign-in form. In environment settings, choose the environment and runtime, open **Manage sign-in**, complete the provider flow, then **Verify connection**. The account stays in the selected runner’s native credential store. Closing the form leaves an active attempt available to resume; **Cancel sign-in** cancels it.
+Direct runtime setup and Settings → Execution environments use the same sign-in form. In environment settings, choose the environment and runtime, open **Manage sign-in**, complete the provider flow, then choose **Use in Loop** to verify the account and load its models. The account stays in the selected runner’s native credential store. Closing the form leaves an active attempt available to resume; **Cancel sign-in** cancels it.
 
-In a paired native workspace, open **Settings → Provider connections → Connected harnesses**, or expand the runtime controls in **New agent**. Choose **Sign in** beside an installed, supported harness, select its provider and sign-in method, and start sign-in. Open the provider link in your phone's browser and return to Loop; enter a verification code or API key when requested. After success, the panel shows **Signed in** with an **Enable** (or **Refresh**) button to load the harness's models. **Manage account** lets you change accounts later.
+In a paired native workspace, open **Settings → Provider connections → Harnesses**, or expand the runtime controls in **New agent**. Choose **Sign in** beside an installed, supported harness, select its provider and sign-in method, and start sign-in. Open the provider link in your phone's browser and return to Loop; enter a verification code or API key when requested. After success, the panel shows **Signed in** with an **Enable** (or **Refresh**) button to load the harness's models. **Manage account** lets you change accounts later.
 
 Codex uses its device-code login. Claude Code uses `claude auth login` with the selected Claude or Console account. Pi exposes its installed SDK's provider login methods through a dedicated extension. OpenCode exposes its native provider authentication methods through a private local server. For cross-device OAuth, choose a device/headless method when a provider offers one; methods that require a browser callback to the computer's localhost still require that computer's browser. ACP authentication remains owned by its executable.
 

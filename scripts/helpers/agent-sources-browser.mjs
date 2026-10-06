@@ -121,7 +121,27 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       contentType: "application/json",
       body: JSON.stringify(value),
     });
-  const list = (route) => fulfill(route, sources);
+  let discoveryFailed = false,
+    discoveryMissing = false,
+    discoveryHung = false,
+    sourceFailed = false;
+  const hung = [];
+  const unavailable = (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Fixture connection interrupted" }),
+    });
+  const list = (route) => {
+    // A black-holed tunnel: the request stays open until the fixture ends.
+    if (discoveryHung) return new Promise((resolve) => hung.push(resolve));
+    if (discoveryMissing) return route.fulfill({ status: 404, body: "{}" });
+    return discoveryFailed ? unavailable(route) : fulfill(route, sources);
+  };
+  const visible = (route, thread) =>
+    new URL(route.request().url()).searchParams.get("filter") === "needs"
+      ? []
+      : [thread];
   const localBootstrap = (route) =>
     fulfill(route, {
       agents: [local.agent],
@@ -131,7 +151,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     });
   const localInbox = (route) =>
     fulfill(route, {
-      items: [local.thread],
+      items: visible(route, local.thread),
       next: null,
       summary: { needs: 0, working: 0, queued: 0, later_due: 0 },
     });
@@ -140,12 +160,16 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
     const record = match && records.get(decodeURIComponent(match[1]));
     if (!record) return route.fulfill({ status: 404, body: "{}" });
+    if (sourceFailed && decodeURIComponent(match[1]) === sources[0].id)
+      return unavailable(route);
     // A source page checks its own capabilities and session; the fixture
     // sources answer as the paired owner.
     if (/^(capabilities|auth\/get-session|me\/profile)/.test(match[2])) {
       const url = new URL(route.request().url());
       url.pathname = "/api/" + match[2].split("?")[0];
-      return route.fulfill({ response: await route.fetch({ url: url.toString() }) });
+      return route.fulfill({
+        response: await route.fetch({ url: url.toString() }),
+      });
     }
     if (match[2] === "bootstrap")
       return fulfill(route, {
@@ -157,7 +181,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     if (match[2] === "runs") return fulfill(route, []);
     if (match[2] === "inbox")
       return fulfill(route, {
-        items: [record.thread],
+        items: visible(route, record.thread),
         next: null,
         summary: { needs: 0, working: 0, queued: 0, later_due: 0 },
       });
@@ -201,6 +225,91 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       await page.getByLabel("Workspace", { exact: true }).count(),
       0,
     );
+    // A transient discovery/read failure retains both agent and thread DOM.
+    await page
+      .locator(".inbox-row")
+      .filter({ hasText: "Remote thread 0" })
+      .evaluate((el) => {
+        el.dataset.retained = "yes";
+      });
+    discoveryFailed = true;
+    sourceFailed = true;
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("loop-source-refresh"));
+      window.dispatchEvent(new Event("loop-later-change"));
+    });
+    await expect(
+      page.getByText(
+        "Connection check unavailable. Showing your last connected environments.",
+      ),
+    ).toBeVisible();
+    await expect(page.locator('.inbox-row[data-retained="yes"]')).toBeVisible();
+    await expect(
+      strip.getByRole("button", { name: /@remote-0/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/Some environments could not refresh/),
+    ).toBeVisible();
+    discoveryFailed = false;
+    sourceFailed = false;
+    // Retry reloads both the agent sources and the Feed threads it explains.
+    await page
+      .getByRole("button", { name: "Retry connection", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        "Connection check unavailable. Showing your last connected environments.",
+      ),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(/Some environments could not refresh/),
+    ).toHaveCount(0);
+
+    // Empty Needs you is loaded content. Observe every DOM mutation across
+    // refreshes so even a brief skeleton flash fails this regression.
+    await page.getByRole("tab", { name: /^Needs you/ }).click();
+    await expect(page.locator(".inbox-row")).toHaveCount(0);
+    await expect(page.locator(".feed-loading")).toHaveCount(0);
+    await page.evaluate(() => {
+      window.__feedFlashes = 0;
+      window.__feedObserver = new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.addedNodes)
+            if (
+              node.nodeType === 1 &&
+              (node.matches(".feed-loading") ||
+                node.querySelector(".feed-loading"))
+            )
+              window.__feedFlashes++;
+      });
+      window.__feedObserver.observe(document.querySelector(".inbox"), {
+        childList: true,
+        subtree: true,
+      });
+    });
+    for (let i = 0; i < 3; i++) {
+      const updated = page.waitForResponse((r) =>
+        r.url().includes("/api/inbox?filter=needs"),
+      );
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("loop-later-change")),
+      );
+      await updated;
+      await page.evaluate(
+        () =>
+          new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          ),
+      );
+    }
+    assert.equal(
+      await page.evaluate(() => {
+        window.__feedObserver.disconnect();
+        return window.__feedFlashes;
+      }),
+      0,
+    );
+    await page.getByRole("tab", { name: "Done", exact: true }).click();
     await strip.getByRole("button", { name: "New agent" }).click();
     const destinations = page
       .getByRole("dialog", { name: "Meet your next agent" })
@@ -213,7 +322,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     const dockerPage = new URL(workspaceUrl);
     dockerPage.searchParams.set("source", sources[0].id);
     await page.goto(dockerPage.toString());
-    await page.locator(".inbox-row").filter({ hasText: "Laptop thread" }).waitFor();
+    await page
+      .locator(".inbox-row")
+      .filter({ hasText: "Laptop thread" })
+      .waitFor();
     assert.equal(new URL(page.url()).searchParams.get("source"), sources[0].id);
     await page
       .locator(".inbox-row")
@@ -224,7 +336,33 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
       .toBe("laptop-thread");
     assert.equal(new URL(page.url()).searchParams.get("source"), null);
+
+    // A hung discovery request times out instead of blocking later refreshes.
+    await page.goto(workspaceUrl);
+    await expect(
+      strip.getByRole("button", { name: /@remote-0/ }),
+    ).toBeVisible();
+    discoveryHung = true;
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("loop-source-refresh")),
+    );
+    await expect.poll(() => hung.length).toBe(1);
+    discoveryHung = false;
+    // The workspace no longer lists linked sources: stop showing them.
+    discoveryMissing = true;
+    await expect(async () => {
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("loop-source-refresh")),
+      );
+      await expect(
+        strip.getByRole("button", { name: /@remote-0/ }),
+      ).toHaveCount(0, { timeout: 1_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(
+      strip.getByRole("button", { name: /@laptop-agent/ }),
+    ).toBeVisible();
   } finally {
+    for (const release of hung.splice(0)) release();
     await page.unroute("**/api/agent-sources", list);
     await page.unroute("**/api/agent-sources/**", detail);
     await page.unroute("**/api/bootstrap", localBootstrap);

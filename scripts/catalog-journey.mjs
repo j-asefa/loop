@@ -80,6 +80,8 @@ export async function catalogJourney(page, api, base) {
   const installed = page
     .locator(".connection-card")
     .filter({ has: page.getByRole("heading", { name: /DeepWiki/ }) });
+  // Connection actions live behind each card's Manage row.
+  await installed.getByText("Manage DeepWiki", { exact: true }).click();
   await installed.getByRole("button", { name: "Disable", exact: true }).click();
   await expect(
     installed.getByRole("button", { name: "Enable", exact: true }),

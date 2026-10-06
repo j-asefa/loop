@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, parse } from "./api";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 import { Sheet } from "./components";
+import { capabilities } from "./capabilities";
 import type { Folder } from "../shared/types";
 import type { Connection } from "../shared/types";
 
@@ -42,9 +43,12 @@ export function ExecutionEnvironments({
     [path, setPath] = useState(""),
     [repository, setRepository] = useState(""),
     [mappings, setMappings] = useState<any[]>([]);
-  const autoVerify = useRef(false);
+  const loadRevision = useRef(0);
+  const generation = items.find((item) => item.id === selected)?.generation;
   const load = async () => {
+    const revision = ++loadRevision.current;
     const rows = await api("/environments");
+    if (revision !== loadRevision.current) return;
     setItems(rows);
     setSelected(
       (s) =>
@@ -57,10 +61,20 @@ export function ExecutionEnvironments({
   useEffect(() => {
     void load().catch((e) => setError(e.message));
     const t = setInterval(() => void load().catch(() => {}), 10000);
-    return () => clearInterval(t);
+    return () => {
+      loadRevision.current++;
+      clearInterval(t);
+    };
   }, []);
+  // Messages belong to the chosen environment; a runner reconnect (new
+  // generation) reloads its mappings but keeps an unverified result visible.
+  useEffect(() => {
+    setError("");
+    setNotice("");
+  }, [selected]);
   useEffect(() => {
     let current = true;
+    setMappings([]);
     if (selected) {
       void api("/environments/" + selected + "/projects")
         .then((value) => {
@@ -73,7 +87,7 @@ export function ExecutionEnvironments({
     return () => {
       current = false;
     };
-  }, [selected]);
+  }, [selected, generation]);
   async function act(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -110,13 +124,13 @@ export function ExecutionEnvironments({
     });
   }
   return (
-    <Sheet title="Execution environments" onClose={onClose}>
+    <Sheet
+      className="settings-sheet"
+      title="Execution environments"
+      onClose={onClose}
+    >
       <div className="native-settings">
-        <p>
-          Run Codex, Claude Code, OpenCode and Pi on your laptop or in Docker.
-          Your conversations and uploaded files remain available when an
-          environment is offline.
-        </p>
+        <p className="settings-intro">Choose where your agents run.</p>
         {error && (
           <p role="alert" className="error">
             {error}
@@ -146,7 +160,6 @@ export function ExecutionEnvironments({
                 onClick={() => {
                   setSelected(item.id);
                   setSigningIn(false);
-                  autoVerify.current = false;
                 }}
               >
                 <strong>{item.name}</strong>
@@ -157,21 +170,14 @@ export function ExecutionEnvironments({
         )}
         {env && (
           <>
-            <p>
-              <strong>{env.name}</strong> · {env.state} · {env.instance_id}
-              <br />
-              <small>
-                {env.last_seen
-                  ? "Last checked " + new Date(env.last_seen).toLocaleString()
-                  : "Awaiting authenticated Runner connection"}{" "}
-                · Capacity {env.capacity} resident sessions
-              </small>
-            </p>
-            <h3>Use {env.name} for new agents</h3>
-            <p>
-              Connect each provider in this environment once. Its account stays
-              there and appears under Run on when you create an agent.
-            </p>
+            <div className="settings-card">
+              <strong>{env.name}</strong>
+              <p>
+                {env.state} · Accounts and project paths belong to this
+                environment.
+              </p>
+            </div>
+            <h3>Provider connections</h3>
             <div className="environment-provider-list">
               {runtimes.map((runtime) => (
                 <div className="environment-provider" key={runtime.flavor}>
@@ -179,8 +185,10 @@ export function ExecutionEnvironments({
                     <strong>{runtime.label}</strong>
                     <small>
                       {connected(runtime.flavor)
-                        ? "Connected"
-                        : "Sign-in needed"}
+                        ? env.state === "online"
+                          ? "Connected"
+                          : "Saved · environment offline"
+                        : "Not connected"}
                     </small>
                   </div>
                   <button
@@ -191,7 +199,6 @@ export function ExecutionEnvironments({
                     onClick={() => {
                       setFlavor(runtime.flavor);
                       setSigningIn(true);
-                      autoVerify.current = false;
                     }}
                   >
                     {connected(runtime.flavor) ? "Manage" : "Connect"}
@@ -200,117 +207,144 @@ export function ExecutionEnvironments({
               ))}
             </div>
             {signingIn && (
-              <RuntimeSignIn
-                key={`${selected}:${flavor}:${env.generation}:${env.state}:${env.revoked_at}`}
-                base={`/environments/${selected}/provider/${flavor}`}
-                backend="environment"
-                location={env.name}
-                name={flavor}
-                label={managedRuntimeName(flavor)}
-                signedIn={false}
-                enabled={false}
-                enabling={busy}
-                onStateChange={(_name, state) => {
-                  if (state === "complete" && !autoVerify.current) {
-                    autoVerify.current = true;
-                    void verifySelected();
-                  }
-                }}
+              <Sheet
+                className="settings-sheet"
+                title={managedRuntimeName(flavor)}
                 onClose={() => setSigningIn(false)}
-                enableAction={
-                  <button
-                    type="button"
-                    className="btn primary"
-                    disabled={busy || env.state !== "online"}
-                    onClick={() => void verifySelected()}
-                  >
-                    {busy ? "Connecting…" : "Use in Loop"}
-                  </button>
-                }
-              />
+              >
+                <RuntimeSignIn
+                  key={`${selected}:${flavor}:${env.generation}:${env.state}:${env.revoked_at}`}
+                  base={`/environments/${selected}/provider/${flavor}`}
+                  backend="environment"
+                  location={env.name}
+                  name={flavor}
+                  label={managedRuntimeName(flavor)}
+                  signedIn={connected(flavor)}
+                  enabled={
+                    connected(flavor) &&
+                    env.state === "online" &&
+                    !env.revoked_at
+                  }
+                  enabling={busy}
+                  onStateChange={(_name, state) => {
+                    if (state === "starting" || state === "waiting")
+                      setError("");
+                  }}
+                  onClose={() => setSigningIn(false)}
+                  enableAction={
+                    <>
+                      <button
+                        type="button"
+                        className="btn primary"
+                        disabled={busy || env.state !== "online"}
+                        onClick={() => void verifySelected()}
+                      >
+                        {busy ? "Connecting…" : "Use in Loop"}
+                      </button>
+                      {error && (
+                        <div className="settings-error" role="alert">
+                          <strong>Connection not verified</strong>
+                          <p>{error}</p>
+                        </div>
+                      )}
+                    </>
+                  }
+                />
+              </Sheet>
             )}
             <h3>Project directories</h3>
-            <p>
-              Map an existing directory or explicitly clone a repository into
-              this environment. Starting roots do not restrict every shell
-              command.
-            </p>
             {mappings.map((m) => (
-              <p key={m.project_id}>
+              <p className="settings-card" key={m.project_id}>
                 {folders.find((f) => f.id === m.project_id)?.name}:{" "}
                 <code>{m.canonical_path}</code>
               </p>
             ))}
-            <label>
-              Project
-              <select
-                value={project}
-                onChange={(e) => setProject(e.target.value)}
+            <details className="settings-details">
+              <summary>Map or clone a project</summary>
+              <p className="field-hint">
+                Choose an existing directory or explicitly clone a repository
+                here. Project roots do not restrict shell access.
+              </p>
+              <label>
+                Project
+                <select
+                  value={project}
+                  onChange={(e) => setProject(e.target.value)}
+                >
+                  <option value="">Choose a project</option>
+                  {folders
+                    .filter((f) => f.kind === "project")
+                    .map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Existing directory
+                <input
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  placeholder="/workspaces/my-project"
+                />
+              </label>
+              <button
+                disabled={busy || !project || !path || env.state !== "online"}
+                onClick={() =>
+                  void act(async () => {
+                    await api(
+                      "/environments/" + selected + "/projects",
+                      { projectId: project, path },
+                      "PUT",
+                    );
+                    setMappings(
+                      await api("/environments/" + selected + "/projects"),
+                    );
+                  })
+                }
               >
-                <option value="">Choose a project</option>
-                {folders
-                  .filter((f) => f.kind === "project")
-                  .map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              Existing directory
-              <input
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                placeholder="/workspaces/my-project"
-              />
-            </label>
-            <button
-              disabled={busy || !project || !path || env.state !== "online"}
-              onClick={() =>
-                void act(async () => {
-                  await api(
-                    "/environments/" + selected + "/projects",
-                    { projectId: project, path },
-                    "PUT",
-                  );
-                  setMappings(
-                    await api("/environments/" + selected + "/projects"),
-                  );
-                })
-              }
-            >
-              Map directory
-            </button>
-            <label>
-              Repository HTTPS URL
-              <input
-                value={repository}
-                onChange={(e) => setRepository(e.target.value)}
-                placeholder="https://github.com/owner/repository.git"
-              />
-            </label>
-            <button
-              disabled={
-                busy || !project || !repository || env.state !== "online"
-              }
-              onClick={() =>
-                void act(async () => {
-                  await api("/environments/" + selected + "/projects/clone", {
-                    projectId: project,
-                    repository,
-                    directory: project,
-                  });
-                  setMappings(
-                    await api("/environments/" + selected + "/projects"),
-                  );
-                })
-              }
-            >
-              Clone into this environment
-            </button>
-            <details>
+                Map directory
+              </button>
+              <label>
+                Repository HTTPS URL
+                <input
+                  value={repository}
+                  onChange={(e) => setRepository(e.target.value)}
+                  placeholder="https://github.com/owner/repository.git"
+                />
+              </label>
+              <button
+                disabled={
+                  busy || !project || !repository || env.state !== "online"
+                }
+                onClick={() =>
+                  void act(async () => {
+                    await api("/environments/" + selected + "/projects/clone", {
+                      projectId: project,
+                      repository,
+                      directory: project,
+                    });
+                    setMappings(
+                      await api("/environments/" + selected + "/projects"),
+                    );
+                  })
+                }
+              >
+                Clone into this environment
+              </button>
+            </details>
+            <details className="settings-details">
               <summary>Environment details</summary>
+              <p>
+                Instance: <code>{env.instance_id}</code>
+              </p>
+              <p className="field-hint">
+                {env.last_seen
+                  ? "Last checked " + new Date(env.last_seen).toLocaleString()
+                  : "Awaiting authenticated Runner connection"}{" "}
+                · Capacity {env.capacity} resident sessions
+              </p>
               <button
                 type="button"
                 disabled={busy || !!env.revoked_at}
@@ -344,7 +378,11 @@ export function ExecutionEnvironments({
             </details>
           </>
         )}
-        <button onClick={onLegacy}>Existing runtime connections</button>
+        {capabilities.runtimeHosts && (
+          <button className="secondary" onClick={onLegacy}>
+            Existing runtime connections
+          </button>
+        )}
       </div>
     </Sheet>
   );

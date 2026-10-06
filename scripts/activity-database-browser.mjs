@@ -520,6 +520,9 @@ try {
     await historySheet
       .getByRole("button", { name: "Close", exact: true })
       .click();
+    // This fixture detaches its in-process adapter instead of disposing a
+    // native process. Retire the production idle timer at that boundary too.
+    clearTimeout(live.idle);
     nativeSessions.live.delete(conversation);
     await page.getByLabel("Conversation options").click();
     await page
@@ -614,6 +617,7 @@ try {
     "PASS NativeSessions.event + SQLite + production routers + Conversation/NativeHistory at 390/1280: live, reload, pending decisions, settings requested/confirmed/rejection/dependent removal, catalog removal, managed history, hostile text, scrolling, generation replacement/stale writes, unstarted session and connection errors. Deterministic adapter; no paid calls or full auth-stack gate.",
   );
 } finally {
+  clearTimeout(live.idle);
   nativeSessions.live.delete(conversation);
   await browser?.close();
   await vite.close();

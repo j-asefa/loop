@@ -130,7 +130,7 @@ it("a session's own permission mode outranks the workspace level", async () => {
     "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at,generation) VALUES(?,'claude',?,0,'test')",
   ).run("session-plan", dir);
   vi.spyOn(kept.live.adapter, "setSetting" as any).mockResolvedValue({
-    options: [],
+    options: [{ id: "mode", confirmed: "plan" }],
     revision: 1,
   });
   // Session settings switch this session to plan mode while the run is idle.
@@ -140,6 +140,8 @@ it("a session's own permission mode outranks the workspace level", async () => {
   (sessions as any).live.set("session-plan", kept.live);
   await sessions.setSetting("session-plan", "mode", "plan", 0, "test");
   expect(kept.live.sessionMode).toBe("plan");
+  expect(db.prepare("SELECT permission_mode FROM companion_sessions WHERE conversation_id=?").get("session-plan")).toEqual({ permission_mode: "plan" });
+  clearTimeout(kept.live.idle);
   kept.live.run = run;
   sessions.event(kept.live, { type: "request", request: approval });
   expect(kept.answer).not.toHaveBeenCalled();

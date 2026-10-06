@@ -20,6 +20,9 @@ for (const branch of ["main", "hapi"] as const)
         const number = Number(file.split("-")[0]);
         if (branch === "main" && number > 22) continue;
         if (branch === "hapi" && number >= 19 && number < 27) continue;
+        // This historical branch predates companion-only session preferences.
+        // The production migrator creates its companion tables before 56.
+        if (branch === "hapi" && number >= 56) continue;
         let sql = readFileSync(join("migrations", file), "utf8");
         if (branch === "main")
           sql = sql.replaceAll("companion_sessions", "native_sessions");
@@ -55,6 +58,7 @@ for (const branch of ["main", "hapi"] as const)
       expect(migrated.hapi).toContain("hub_session_id");
       expect(migrated.companion).toContain("harness");
       expect(migrated.companion).toContain("effort");
+      expect(migrated.companion).toContain("permission_mode");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -236,7 +240,8 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
         encoding: "utf8",
       },
     );
-    expect(JSON.parse(result)).toEqual({ table: true, version: 55 });
+    const latest = Math.max(...readdirSync("migrations").filter(name => name.endsWith(".sql")).map(name => Number(name.split("-")[0])));
+    expect(JSON.parse(result)).toEqual({ table: true, version: latest });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

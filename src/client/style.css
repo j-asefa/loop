@@ -1407,7 +1407,7 @@ small,
   }
   .sheet {
     position: fixed;
-    bottom: var(--keyboard-inset, 0px);
+    bottom: var(--sheet-keyboard-inset, var(--keyboard-inset, 0px));
     top: auto;
     left: 0;
     right: 0;
@@ -2805,7 +2805,7 @@ pre {
   text-align: left;
 }
 .environment-picker button.selected {
-  border-color: var(--accent);
+  border-color: var(--brass-text);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 .environment-picker strong,
@@ -5201,14 +5201,17 @@ mark {
   margin-bottom: 16px;
   flex-wrap: nowrap !important;
   gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .tools-views button {
   min-height: 44px;
   padding: 8px 10px;
   border-radius: 10px;
-  flex: 1;
+  flex: 1 0 auto;
   padding-inline: 6px;
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .checkbox-row {
@@ -8211,4 +8214,249 @@ html:has(.sheet.side-panel[open]) {
 }
 .news-card .card-actions a:hover {
   color: var(--text);
+}
+
+/* Settings use the same rows and details at phone and desktop sizes. */
+@media (max-width: 360px) {
+  .sheet.settings-sheet .tools-views { gap: 0; }
+  .sheet.settings-sheet .tools-views button { padding-inline: 5px; font-size: 12px; }
+}
+.settings-intro {
+  color: var(--muted);
+  margin: 4px 0 20px;
+  line-height: 1.5;
+}
+.settings-drawer .settings-intro {
+  padding: 0 10px;
+}
+.settings-navigation,
+.settings-appearance {
+  margin-bottom: 20px;
+}
+.settings-navigation h3,
+.settings-appearance h3 {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 12px 10px 8px;
+}
+.settings-row-group {
+  display: grid;
+  gap: 2px;
+}
+.settings-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 18px;
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+}
+.settings-row:hover,
+.settings-row:focus-visible {
+  background: var(--bg);
+}
+.settings-row strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.settings-row-icon {
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  color: var(--brass-text);
+}
+.settings-appearance .drawer-segmented {
+  margin-inline: 10px;
+}
+.settings-appearance .drawer-segmented button,
+.settings-tabs button {
+  min-height: 44px;
+}
+.settings-section-head,
+.settings-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.settings-section-head h3 {
+  flex: 1;
+  margin: 0;
+}
+.settings-card-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.settings-sheet .settings-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin-block: 12px;
+}
+.settings-card-list > .settings-card {
+  margin-block: 0;
+}
+.settings-card-heading > div {
+  flex: 1;
+  min-width: 100px;
+}
+.settings-card-heading h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+.settings-card-heading small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.settings-status {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  border-radius: 20px;
+}
+.provider-mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-weight: 600;
+}
+.settings-sheet .settings-next {
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  border-radius: 0;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  color: var(--text);
+  text-align: left;
+}
+.settings-details {
+  margin: 12px 0;
+}
+.settings-details > summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.settings-details[open] > summary {
+  margin-bottom: 8px;
+}
+.settings-details > p,
+.settings-details .field-hint {
+  line-height: 1.5;
+}
+.settings-error {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  margin-block: 12px;
+  color: var(--text);
+  background: var(--bg);
+  overflow-wrap: anywhere;
+}
+.settings-error p {
+  margin: 6px 0;
+}
+.settings-error button {
+  min-height: 44px;
+}
+.settings-sheet .actions {
+  flex-wrap: wrap;
+}
+.settings-sheet .actions:not(.tools-views) > button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.settings-sheet .sheet-body > .drawer-segmented {
+  margin-bottom: 20px;
+}
+.settings-sheet .native-settings {
+  min-width: 0;
+}
+.settings-sheet .connection-card h3 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 0;
+}
+.settings-sheet .connection-card h3 small {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.settings-sheet .connection-card > .settings-details {
+  margin-bottom: 0;
+}
+.settings-sign-in {
+  min-width: 0;
+}
+.settings-sign-in .native-sign-in-success p {
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+.connection-steps {
+  list-style: none;
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.settings-sign-in > button.primary {
+  width: 100%;
+  margin-inline: 0;
+  min-height: 44px;
+}
+.settings-sign-in > .text-button {
+  min-height: 44px;
+}
+@media (max-width: 420px) {
+  .settings-sheet .sheet-body {
+    padding-inline: 16px;
+  }
+  .settings-sheet .tools-views button {
+    padding-inline: 10px;
+  }
+  .settings-sheet .settings-card {
+    padding: 12px;
+  }
 }

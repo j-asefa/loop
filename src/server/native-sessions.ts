@@ -115,6 +115,8 @@ type Binding = {
   project: string;
   model: string | null;
   effort?: string | null;
+  permission_mode?: string | null;
+  permission_base?: string | null;
   instructions: string;
   generation: string;
   state: string;
@@ -654,17 +656,38 @@ export class NativeSessions {
     };
     if (!isCurrent())
       throw new Problem(409, "Native session changed; refresh and retry.");
-    if (live.run || live.cancelling)
+    if (live.cancelling || (live.run && !(setting === "mode" && live.waiting)))
       throw new Problem(
         409,
         "Wait for the native turn to finish before changing settings.",
       );
+    // An idle eviction must not close the protocol while a setting is being
+    // confirmed. The next turn/idle timer owns the session after this request.
+    clearTimeout(live.idle);
     try {
       const settings = await live.adapter.setSetting(setting, value, revision);
-      if (setting === "mode" && typeof value === "string")
-        live.sessionMode = value;
       if (!isCurrent())
         throw new Problem(409, "Native session changed; refresh and retry.");
+      const confirmed = settings.options.find(
+        (option) => option.id === setting,
+      )?.confirmed;
+      if (
+        setting === "mode" &&
+        typeof confirmed === "string" &&
+        confirmed === value
+      ) {
+        live.sessionMode = confirmed;
+        if (live.binding.harness === "claude") {
+          // Record the workspace level this choice was made against, so a
+          // later change to that level supersedes it (see session()).
+          const base = live.permissionMode ?? DEFAULT_PERMISSION_MODE;
+          db.prepare(
+            "UPDATE companion_sessions SET permission_mode=?,permission_base=?,updated_at=? WHERE conversation_id=? AND generation=?",
+          ).run(confirmed, base, now(), conversation, generation);
+          live.binding.permission_mode = confirmed;
+          live.binding.permission_base = base;
+        }
+      }
       return {
         generation: live.generation,
         settings,
@@ -680,6 +703,12 @@ export class NativeSessions {
         409,
         error instanceof Error ? error.message : "Native setting was rejected",
       );
+    } finally {
+      // Replace, never add, the idle timer: overlapping requests must not
+      // leave an untracked timer that later disposes an active turn.
+      clearTimeout(live.idle);
+      if (isCurrent() && !live.run)
+        live.idle = setTimeout(() => void this.dispose(live), 60_000);
     }
   }
   registrations() {
@@ -706,7 +735,11 @@ export class NativeSessions {
     return JSON.parse(row.options);
   }
   enable(options: Options) {
-    if (harnessUpgrades.busy(options.harness)) throw new Problem(409, "Wait for the runtime upgrade to finish before enabling a runtime.");
+    if (harnessUpgrades.busy(options.harness))
+      throw new Problem(
+        409,
+        "Wait for the runtime upgrade to finish before enabling a runtime.",
+      );
     const pending = this.enabling.get(options.harness);
     if (pending)
       throw new Problem(
@@ -740,7 +773,10 @@ export class NativeSessions {
     }
     options = {
       harness: options.harness,
-      executable: options.harness === "acp" ? realpathSync(options.executable) : resolve(options.executable),
+      executable:
+        options.harness === "acp"
+          ? realpathSync(options.executable)
+          : resolve(options.executable),
       version: options.version,
       project: this.directory(options.project),
       billing: options.billing,
@@ -1034,11 +1070,25 @@ export class NativeSessions {
     const permissionMode = isPermissionMode(snapshot.permissionMode)
       ? snapshot.permissionMode
       : DEFAULT_PERMISSION_MODE;
+    // A mode chosen in Session settings outranks the workspace level only
+    // until that level changes; the newer decision then wins.
+    if (
+      binding.permission_mode &&
+      (binding.permission_base ?? DEFAULT_PERMISSION_MODE) !== permissionMode
+    ) {
+      db.prepare(
+        "UPDATE companion_sessions SET permission_mode=NULL,permission_base=NULL,updated_at=? WHERE conversation_id=?",
+      ).run(now(), conversation);
+      binding.permission_mode = null;
+      binding.permission_base = null;
+      if (current && !current.closed) current.sessionMode = undefined;
+    }
     // A harness launched in a permission mode restarts to change it, like a
     // model change. Loop-side approval policy applies from the next turn.
     const relaunch =
       !!current &&
       !current.closed &&
+      !binding.permission_mode &&
       launchPermissionMode(harness, current.permissionMode) !==
         launchPermissionMode(harness, permissionMode);
     if (
@@ -1078,7 +1128,9 @@ export class NativeSessions {
       resume: binding.native_id || undefined,
       model: binding.model || undefined,
       effort: binding.effort || undefined,
-      permissionMode: launchPermissionMode(harness, permissionMode),
+      permissionMode:
+        binding.permission_mode ||
+        launchPermissionMode(harness, permissionMode),
       instructions: binding.instructions,
       workspaceTools: this.tools?.(conversation, generation),
       projectTrust:
@@ -1099,6 +1151,7 @@ export class NativeSessions {
       waiting: false,
       bridgeWaiting: 0,
       permissionMode,
+      sessionMode: binding.permission_mode || undefined,
     };
     live.adapter = new classes[harness](options, (event) =>
       this.event(live, event),
@@ -1397,21 +1450,36 @@ export class NativeSessions {
     // presented as new work. Stored projections remain authoritative.
     if (!live.run && kind !== "settings" && kind !== "commands") return;
     ingestNativeActivity(live, { ...update, generation: live.generation });
-    const activity = update as { replay?: boolean; patch?: {
-      command?: string; status?: string; exitCode?: number;
-      upstreamTruncated?: boolean; replace?: { text?: string }[];
-    } };
-    if (kind === "output" && live.run && !activity.replay &&
-        activity.patch?.status === "exited" &&
-        (activity.patch.exitCode === undefined || activity.patch.exitCode === 0) &&
-        !activity.patch.upstreamTruncated && typeof activity.patch.command === "string" &&
-        Array.isArray(activity.patch.replace)) {
-      const output = activity.patch.replace.map((chunk) => chunk.text || "").join("");
+    const activity = update as {
+      replay?: boolean;
+      patch?: {
+        command?: string;
+        status?: string;
+        exitCode?: number;
+        upstreamTruncated?: boolean;
+        replace?: { text?: string }[];
+      };
+    };
+    if (
+      kind === "output" &&
+      live.run &&
+      !activity.replay &&
+      activity.patch?.status === "exited" &&
+      (activity.patch.exitCode === undefined ||
+        activity.patch.exitCode === 0) &&
+      !activity.patch.upstreamTruncated &&
+      typeof activity.patch.command === "string" &&
+      Array.isArray(activity.patch.replace)
+    ) {
+      const output = activity.patch.replace
+        .map((chunk) => chunk.text || "")
+        .join("");
       const run = live.run;
       const command = activity.patch.command;
       void import("./pr-watches.js")
         .then(({ watchNativeCreatedPullRequest }) =>
-          watchNativeCreatedPullRequest(run, command, output))
+          watchNativeCreatedPullRequest(run, command, output),
+        )
         .catch(() => {});
     }
   }
@@ -1503,13 +1571,14 @@ export class NativeSessions {
     const connection = db
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
       .get((JSON.parse(run.payload) as Snapshot).connectionId, run.owner_id) as
-      | { metadata: string }
-      | undefined;
+      { metadata: string } | undefined;
     if (
       connection &&
       harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness)
     )
-      throw new RunDeferred("Wait for the runtime upgrade to finish before starting a run.");
+      throw new RunDeferred(
+        "Wait for the runtime upgrade to finish before starting a run.",
+      );
     if (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id))
       throw new Problem(
         409,
@@ -1522,6 +1591,9 @@ export class NativeSessions {
       return false;
     live.items.clear();
     live.requests.clear();
+    // A settings request may have re-armed the idle timer after session()
+    // cleared it; the turn now owns the session.
+    clearTimeout(live.idle);
     live.run = run;
     live.cancelling = false;
     const snapshot = JSON.parse(run.payload) as Snapshot;

@@ -409,7 +409,7 @@ function ServerConnections({
     </button>
   );
   return (
-    <Sheet title={title} titleRef={heading} onClose={onClose}>
+    <Sheet className="settings-sheet" title={title} titleRef={heading} onClose={onClose}>
       <div className="connections-flow">
         {screen.page === "accounts" && (
           <>

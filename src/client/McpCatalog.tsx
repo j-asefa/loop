@@ -197,10 +197,13 @@ export function McpCatalog({
                 </span>
               </div>
               <p>{entry.description}</p>
-              {entry.note && <p className="field-hint">{entry.note}</p>}
-              <a href={entry.source} target="_blank" rel="noreferrer">
-                Setup guide<span className="sr-only"> for {entry.name}</span>
-              </a>
+              <details className="settings-details">
+                <summary>Setup details</summary>
+                {entry.note && <p className="field-hint">{entry.note}</p>}
+                <a href={entry.source} target="_blank" rel="noreferrer">
+                  Setup guide<span className="sr-only"> for {entry.name}</span>
+                </a>
+              </details>
               {message?.message && (
                 <p
                   className={message.error ? "error" : "note"}

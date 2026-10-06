@@ -289,7 +289,8 @@ it("migration 030 is additive and preserves conversations and native bindings", 
     const before = old.prepare("SELECT * FROM companion_sessions").all();
     for (const file of files.filter((f) => f >= "030"))
       old.exec(readFileSync("migrations/" + file, "utf8"));
-    expect(old.prepare("SELECT * FROM companion_sessions").all()).toEqual(before);
+    expect(old.prepare("SELECT * FROM companion_sessions").all()).toMatchObject(before);
+    expect(old.prepare("SELECT permission_mode FROM companion_sessions").get()).toEqual({ permission_mode: null });
     expect(old.prepare("SELECT count(*) n FROM agent_activities").get()).toEqual({ n: 0 });
   } finally {
     old.close();

@@ -13,6 +13,8 @@ import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
 import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
 import { resultFilesSmoke } from "./helpers/result-files-smoke.mjs";
 import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
+import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
+import { dialogKeyboardSmoke } from "./helpers/dialog-keyboard-smoke.mjs";
 import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
 import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
@@ -878,6 +880,8 @@ for (const engine of selectedEngines()) {
       await page.setViewportSize({ width: 1280, height: 900 });
       await capture("desktop");
       await replyKeyboardSmoke(page, fixture, capture);
+      await dialogKeyboardSmoke(page, fixture, capture);
+      await settingsReliabilityBrowser(page, fixture.base, capture);
       await workspaceControlsSmoke(page, fixture, engine.name(), capture);
       await teamNavigationSmoke(page, fixture, engine.name(), capture);
       await profileNavigationSmoke(page, fixture, engine.name(), capture);

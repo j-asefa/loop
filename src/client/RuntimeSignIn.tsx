@@ -14,6 +14,7 @@ type RuntimeSignInProps = {
   enabled: boolean;
   enabling: boolean;
   enableAction: ReactNode;
+  connectionSetup?: ReactNode;
   onStateChange(name: string, state: SignIn["state"] | undefined): void;
   onClose(): void;
 };
@@ -21,7 +22,9 @@ type RuntimeSignInProps = {
 export function RuntimeSignIn(props: RuntimeSignInProps) {
   return (
     <RuntimeSignInSession
-      key={`${props.backend}:${props.base}:${props.projectId || ""}`}
+      // The account belongs to the runtime, not the project: a project change
+      // refetches the catalog without discarding an in-progress sign-in view.
+      key={`${props.backend}:${props.base}`}
       {...props}
     />
   );
@@ -38,6 +41,7 @@ function RuntimeSignInSession({
   enabled,
   enabling,
   enableAction,
+  connectionSetup,
   onStateChange,
   onClose,
 }: RuntimeSignInProps) {
@@ -48,15 +52,22 @@ function RuntimeSignInSession({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [changingAccount, setChangingAccount] = useState(false);
   const mounted = useRef(true);
   const requestId = useRef<string | undefined>(undefined);
   const attempt = view?.attempt;
-  const complete = attempt?.state === "complete" || (!view && signedIn);
   const waiting = !!attempt && ["starting", "waiting"].includes(attempt.state);
   const selected = view?.providers.find((p) => p.id === provider);
+  const complete =
+    attempt?.state === "complete" ||
+    // CLI catalogs don't report `configured` for credentials that predate this
+    // auth manager (a restart, or a sign-in outside Loop); the runtime's own
+    // signed-in status covers those.
+    (!attempt && !changingAccount && (selected?.configured ?? signedIn));
   const selectedMethod = selected?.methods.find((m) => m.id === method);
   const receive = (next: NativeAuthView) => {
     if (!mounted.current) return;
+    setError("");
     onStateChange(name, next.attempt?.state);
     if (!next.providers.length && !next.attempt) {
       setView((old) =>
@@ -80,8 +91,10 @@ function RuntimeSignInSession({
       setProvider(next.attempt.provider);
       setMethod(next.attempt.method);
     } else {
-      setProvider((old) => old || next.providers[0]?.id || "");
-      setMethod((old) => old || next.providers[0]?.methods[0]?.id || "");
+      const first =
+        next.providers.find((p) => p.configured) || next.providers[0];
+      setProvider((old) => old || first?.id || "");
+      setMethod((old) => old || first?.methods[0]?.id || "");
     }
   };
   useEffect(() => {
@@ -159,24 +172,36 @@ function RuntimeSignInSession({
   }
   return (
     <section
-      className="native-decision native-sign-in"
+      className="native-sign-in settings-sign-in"
       aria-label={`${label} account`}
     >
       {complete ? (
         <>
           <div className="native-sign-in-success" role="status">
             <CircleCheck size={22} aria-hidden="true" />
-            <h3>Signed in to {label}</h3>
+            <div>
+              <h3>
+                {!view
+                  ? "Saved account"
+                  : enabled
+                    ? "Ready in Loop"
+                    : `Signed in to ${label}`}
+              </h3>
+              {enabled && <p>Signed in to {label}</p>}
+            </div>
           </div>
           <p>
-            {backend === "environment"
-              ? enabling
-                ? "Connecting this account to Loop…"
-                : "This account is signed in. Loop is connecting it to the selected environment."
+            {enabling
+              ? "Connecting this account to Loop…"
               : enabled
                 ? `Refresh ${label} to update the models available in Loop.`
-                : `Enable ${label} to use its models in Loop.`}
+                : "Your account is saved. Finish connecting to make it available in Loop."}
           </p>
+          <ol className="connection-steps" aria-label="Connection progress">
+            <li>✓ Sign in</li>
+            <li>{enabled ? "✓" : "2."} Connect to Loop</li>
+          </ol>
+          {connectionSetup}
           {enableAction}
         </>
       ) : (
@@ -197,7 +222,7 @@ function RuntimeSignInSession({
       {view && !view.providers.length && (
         <p>No sign-in methods are available from this harness.</p>
       )}
-      {view && !waiting && attempt?.state !== "complete" && (
+      {view && !waiting && !complete && (
         <>
           <label>
             Provider
@@ -335,6 +360,7 @@ function RuntimeSignInSession({
           className="text-button"
           disabled={enabling}
           onClick={() => {
+            setChangingAccount(true);
             setView({ providers: view!.providers });
             requestId.current = undefined;
             setError("");

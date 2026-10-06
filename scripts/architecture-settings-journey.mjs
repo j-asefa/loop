@@ -145,7 +145,20 @@ async function nativeLoginFixture(originalPage) {
     return route.fulfill({ json: snapshot });
   });
   const connect = async (flavor) => {
-    const label = flavor === "codex" ? "Codex · ChatGPT" : "Claude Code · Claude";
+    const label =
+      flavor === "codex" ? "Codex · ChatGPT" : "Claude Code · Claude";
+    // Each provider signs in on its own sheet above the provider list; leave
+    // the open one the way a person would before choosing another provider.
+    const providerSheet = page.locator(
+      'dialog[aria-label="Codex"], dialog[aria-label="Claude Code"]',
+    );
+    if (await providerSheet.count()) {
+      await providerSheet
+        .locator(":scope > .sheet-inner > .sheet-head")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect(providerSheet).toHaveCount(0);
+    }
     await page
       .locator(".environment-provider")
       .filter({ hasText: label })

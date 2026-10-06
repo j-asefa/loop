@@ -102,14 +102,47 @@ export function useAgentSources(
   useEffect(() => {
     if (!owner || !federated) return;
     let active = true;
+    let busy = false;
+    let known: AgentSource[] = [];
+    const snapshots = new Map<string, Projection>();
+    const controller = new AbortController();
+    // Each request has its own deadline, so one unreachable source can't
+    // hold the single in-flight pass (and every later refresh) forever.
+    const signal = () =>
+      typeof AbortSignal.any === "function"
+        ? AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)])
+        : controller.signal;
     const load = async () => {
-      let linked: AgentSource[] = [];
+      if (busy || !active) return;
+      busy = true;
+      try {
+        await pass();
+      } finally {
+        busy = false;
+      }
+    };
+    const pass = async () => {
+      let linked = known;
       let error = "";
       try {
-        linked = await apiInWorkspace<AgentSource[]>("/agent-sources", "");
+        linked = await apiInWorkspace<AgentSource[]>(
+          "/agent-sources",
+          "",
+          undefined,
+          undefined,
+          signal(),
+        );
+        known = linked;
       } catch (failure) {
-        if ((failure as { status?: number }).status !== 404)
-          error = "Couldn’t check connected execution sources.";
+        if (!active) return;
+        // A 404 means this workspace has no linked sources: stop showing and
+        // polling the ones it listed before.
+        if ((failure as { status?: number }).status === 404)
+          linked = known = [];
+        else
+          error = known.length
+            ? "Connection check unavailable. Showing your last connected environments."
+            : "Couldn’t connect to your execution environments. Check your connection and retry.";
       }
       const sources = [
         laptop,
@@ -131,16 +164,27 @@ export function useAgentSources(
                 agents: Agent[];
                 connections: Connection[];
                 folders: Folder[];
-              }>("/bootstrap", source.id),
-              apiInWorkspace<Run[]>("/runs?active=1", source.id),
+              }>("/bootstrap", source.id, undefined, undefined, signal()),
+              apiInWorkspace<Run[]>(
+                "/runs?active=1",
+                source.id,
+                undefined,
+                undefined,
+                signal(),
+              ),
             ]);
-            return project(source, { ...bootstrap, runs });
+            return { source, data: project(source, { ...bootstrap, runs }) };
           }),
       );
       if (!active) return;
-      const loaded = settled.flatMap((item) =>
-        item.status === "fulfilled" ? [item.value] : [],
-      );
+      for (const item of settled)
+        if (item.status === "fulfilled")
+          snapshots.set(item.value.source.id, item.value.data);
+      const loaded = sources
+        .filter((source) => source.id !== currentSourceId)
+        .flatMap((source) =>
+          snapshots.has(source.id) ? [snapshots.get(source.id)!] : [],
+        );
       setState({
         owner,
         currentSourceId,
@@ -152,15 +196,19 @@ export function useAgentSources(
         error:
           error ||
           (settled.some((item) => item.status === "rejected")
-            ? "Some agents are temporarily unavailable. Try refreshing the Feed."
+            ? "An environment is temporarily unavailable. Its last loaded agents are still shown."
             : ""),
       });
     };
     void load();
     const timer = setInterval(() => void load(), 30_000);
+    const retry = () => void load();
+    window.addEventListener("loop-source-refresh", retry);
     return () => {
       active = false;
+      controller.abort();
       clearInterval(timer);
+      window.removeEventListener("loop-source-refresh", retry);
     };
   }, [owner, currentSourceId, federated]);
 

@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { environmentRuntimeBrowser } from "./helpers/environment-runtime-browser.mjs";
 import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -87,6 +88,7 @@ try {
   assert(!page.url().includes("#"));
   const workspaceUrl = page.url();
   await agentSourcesBrowser(page, workspaceUrl);
+  await settingsReliabilityBrowser(page, workspaceUrl, undefined, { companion: true });
   // The rest of this fixture starts with no linked agents. A developer's
   // running Docker Loop must not change its first-agent assertions.
   await page.route("**/api/agent-sources", (route) => route.fulfill({

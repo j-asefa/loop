@@ -3,7 +3,10 @@ import {
   type RuntimeSetupState,
 } from "../shared/runtime-setup";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, parse } from "./api";
+import { Sheet } from "./components";
+import { ConnectionDetails } from "./ConnectionDetails";
+import type { Connection } from "../shared/types";
 import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { HarnessUpgrade } from "./HarnessUpgrade";
 import { RuntimeSignIn } from "./RuntimeSignIn";
@@ -41,12 +44,26 @@ function authBase(runtime: Runtime) {
     : `/workspace/runtimes/${runtime.name}/auth`;
 }
 function authStatus(runtime: Runtime) {
-  return api<NativeAuthView>(`${authBase(runtime)}/status`, runtime.backend === "hapi" ? {} : undefined);
+  return api<NativeAuthView>(
+    `${authBase(runtime)}/status`,
+    runtime.backend === "hapi" ? {} : undefined,
+  );
+}
+function matchesRuntime(connection: Connection, runtime: Runtime) {
+  const metadata = parse<any>(connection.metadata, {});
+  return (
+    metadata.loopHarness === runtime.name ||
+    (metadata.backend === "hapi" &&
+      metadata.environmentId === runtime.environmentId &&
+      metadata.flavor === runtime.name)
+  );
 }
 export function RuntimeSetup({
   onEnabled,
+  connections = [],
 }: {
   onEnabled: (name: string) => Promise<void>;
+  connections?: Connection[];
 }) {
   const [discovery, setDiscovery] = useState<Discovery>();
   const [projects, setProjects] = useState<
@@ -59,6 +76,7 @@ export function RuntimeSetup({
   const [error, setError] = useState("");
   const [enableError, setEnableError] = useState<{
     name: string;
+    scope: string;
     message: string;
   }>();
   const [signingIn, setSigningIn] = useState<string>();
@@ -70,6 +88,13 @@ export function RuntimeSetup({
     (name: string, state: SignIn["state"] | undefined) => {
       authRevision.current++;
       setAuthStates((current) => ({ ...current, [name]: state }));
+      // A new login supersedes the previous account's enable/refresh failure.
+      // Do not clear on every complete status: verification can still fail
+      // independently after authentication succeeds.
+      if (state === "starting" || state === "waiting")
+        setEnableError((current) =>
+          current?.scope === name ? undefined : current,
+        );
     },
     [],
   );
@@ -109,14 +134,14 @@ export function RuntimeSetup({
     setEnableError(undefined);
     setError("");
     try {
-      const projectId = runtime.enabled && runtime.backend !== "hapi"
-        ? projects.find((p) => p.path === runtime.project)?.folder_id
-        : project;
+      const projectId =
+        runtime.enabled && runtime.backend !== "hapi"
+          ? projects.find((p) => p.path === runtime.project)?.folder_id
+          : project;
       await api(`/workspace/runtimes/${runtime.name}/enable`, {
         projectId,
         billing: runtime.billing || billing,
       });
-      setSigningIn(undefined);
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
         refresh(),
@@ -126,7 +151,11 @@ export function RuntimeSetup({
           "Runtime enabled, but the screen could not refresh. Check installed runtimes again.",
         );
     } catch (e) {
-      setEnableError({ name: runtime.name, message: (e as Error).message });
+      setEnableError({
+        name: runtime.name,
+        scope: runtimeAuthScope(runtime),
+        message: (e as Error).message,
+      });
     } finally {
       setEnabling(undefined);
     }
@@ -157,7 +186,9 @@ export function RuntimeSetup({
     };
   }, [settingUp]);
   const authInProgress = discovery?.runtimes.some((runtime) =>
-    ["starting", "waiting"].includes(authStates[runtimeAuthScope(runtime)] || ""),
+    ["starting", "waiting"].includes(
+      authStates[runtimeAuthScope(runtime)] || "",
+    ),
   );
   useEffect(() => {
     if (!authInProgress) return;
@@ -166,38 +197,35 @@ export function RuntimeSetup({
     const poll = async () => {
       await Promise.allSettled(
         (discovery?.runtimes || [])
-          .filter((runtime) => ["starting", "waiting"].includes(authStates[runtimeAuthScope(runtime)] || ""))
+          .filter((runtime) =>
+            ["starting", "waiting"].includes(
+              authStates[runtimeAuthScope(runtime)] || "",
+            ),
+          )
           .map(async (runtime) => {
             const view = await authStatus(runtime);
-            if (!disposed) onAuthState(runtimeAuthScope(runtime), view.attempt?.state);
+            if (!disposed)
+              onAuthState(runtimeAuthScope(runtime), view.attempt?.state);
           }),
       );
       if (!disposed) timer = setTimeout(poll, 1200);
     };
     timer = setTimeout(poll, 1200);
-    return () => { disposed = true; clearTimeout(timer); };
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
   }, [authInProgress, authStates, onAuthState, discovery]);
-  return (
-    <section className="native-decision" aria-label="Runtime setup">
-      <h3>
-        {discovery
-          ? `Computer: ${discovery.computer} · ${discovery.online ? "online" : "offline"}`
-          : "Checking this computer…"}
-      </h3>
-      <p>
-        Use the accounts already on this computer, or sign in below. Enable a
-        harness to make its models available in Loop.
-      </p>
-      {discovery?.setup && discovery.setup !== "idle" && (
-        <p role="status">{runtimeSetupMessages[discovery.setup]}</p>
-      )}
+  const setupFields = (
+    <>
       <label>
         Project directory for new runtimes
         <select
           value={project}
           onChange={(e) => setProject(e.target.value)}
-          disabled={busy || !!signingIn || authInProgress}
+          disabled={busy || authInProgress}
         >
+          {!projects.length && <option value="">No project directories</option>}
           {projects.map((p) => (
             <option key={p.folder_id} value={p.folder_id}>
               {p.path}
@@ -206,14 +234,16 @@ export function RuntimeSetup({
         </select>
       </label>
       {!projects.length && (
-        <p>Add a desktop directory in Projects before enabling a runtime.</p>
+        <p className="field-hint">
+          Add a desktop directory in Projects before enabling a runtime.
+        </p>
       )}
       <label>
         Billing policy for new runtimes
         <select
           value={billing}
           onChange={(e) => setBilling(e.target.value)}
-          disabled={busy}
+          disabled={busy || authInProgress}
         >
           <option value="subscription">
             Require verified native subscription
@@ -223,137 +253,302 @@ export function RuntimeSetup({
           </option>
         </select>
       </label>
-      <p className="note">
-        No automatic billing fallback. Managed Codex, Claude Code and OpenCode
-        require native subscription sign-in. Pi uses existing billing and may
-        incur API charges. Direct runtimes use the selected or saved policy.
+      <p className="field-hint">
+        No automatic billing fallback. Pi uses existing billing and may incur
+        API charges.
       </p>
-      {discovery?.runtimes.map((runtime) => {
-        const label = labels[runtime.name];
-        const scope = runtimeAuthScope(runtime);
-        const open = signingIn === runtime.name;
-        const signedIn = authStates[scope] === "complete" || runtime.authentication === "signed_in";
-        const authenticating = ["starting", "waiting"].includes(
-          authStates[scope] || "",
-        );
-        const projectId = runtime.enabled && runtime.backend !== "hapi"
-          ? projects.find((p) => p.path === runtime.project)?.folder_id
-          : project;
-        const enableAction = (
-          <>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={
-                busy ||
-                (!!signingIn && !open) ||
-                (open && !signedIn) ||
-                authenticating ||
-                !projectId ||
-                !runtime.available ||
-                !discovery.online
-              }
-              onClick={() => void enable(runtime)}
-            >
-              {enabling === runtime.name
-                ? runtime.enabled
-                  ? "Refreshing…"
-                  : "Enabling…"
-                : `${runtime.enabled ? "Refresh" : "Enable"} ${label}`}
-            </button>
-            {enableError?.name === runtime.name && (
-              <p className="error" role="alert">
-                {enableError.message}
-              </p>
-            )}
-          </>
-        );
-        return (
-          <div key={runtime.name} className="native-runtime">
-            <p className="native-runtime-title">
-              <strong>{label}</strong>
-              <span
-                className={`native-runtime-state${signedIn || runtime.enabled ? " connected" : ""}`}
+    </>
+  );
+  return (
+    <section className="runtime-setup" aria-label="Runtime setup">
+      <div className="settings-section-head">
+        <h3>{discovery ? discovery.computer : "Checking this computer…"}</h3>
+        {discovery && (
+          <span className="settings-status">
+            {discovery.online ? "Online" : "Offline"}
+          </span>
+        )}
+      </div>
+      {discovery?.setup && discovery.setup !== "idle" && (
+        <p role="status" className="note">
+          {runtimeSetupMessages[discovery.setup]}
+        </p>
+      )}
+      <p className="settings-intro">Use your coding accounts in Loop.</p>
+      {error && (
+        <div className="settings-error" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="settings-card-list">
+        {discovery?.runtimes.map((runtime) => {
+          const label = labels[runtime.name] || runtime.name;
+          const scope = runtimeAuthScope(runtime);
+          const open = signingIn === runtime.name;
+          const signedIn =
+            authStates[scope] === "complete" ||
+            runtime.authentication === "signed_in";
+          const authenticating = ["starting", "waiting"].includes(
+            authStates[scope] || "",
+          );
+          const projectId =
+            runtime.enabled && runtime.backend !== "hapi"
+              ? projects.find((p) => p.path === runtime.project)?.folder_id
+              : project;
+          // Direct sign-in runs the harness in a project directory.
+          const needsProject = !projectId && runtime.backend !== "hapi";
+          const state = !discovery.online
+            ? "Offline"
+            : authenticating
+              ? "Signing in…"
+              : !runtime.available
+                ? runtime.installed
+                  ? "Unavailable"
+                  : "Not installed"
+                : runtime.enabled
+                  ? "Enabled in Loop"
+                  : signedIn
+                    ? "Signed in"
+                    : "Sign-in needed";
+          const enableAction = (
+            <>
+              <button
+                type="button"
+                className="primary"
+                disabled={
+                  busy ||
+                  authenticating ||
+                  !projectId ||
+                  !runtime.available ||
+                  !discovery.online
+                }
+                onClick={() => void enable(runtime)}
               >
-                {authenticating
-                  ? "Signing in…"
-                  : runtime.enabled
-                    ? "Enabled in Loop"
-                    : signedIn
-                      ? "Signed in"
-                      : runtime.available
-                        ? "Installed"
-                        : runtime.installed
-                          ? "Unavailable"
-                          : "Not installed"}
-              </span>
-            </p>
-            {runtime.version && <p className="note">Version {runtime.version}</p>}
-            <HarnessUpgrade
-              base={runtime.backend === "hapi"
-                ? `/environments/${runtime.environmentId}/runtimes/${runtime.name}/upgrade`
-                : `/workspace/runtimes/${runtime.name}/upgrade`}
-              label={label} generation={runtime.backend === "hapi" ? runtime.generation : undefined}
-              disabled={busy || settingUp || authenticating || !!signingIn || !runtime.installed}
-              onComplete={() => { void refresh().catch((e) => setError(e.message)); }}
-            />
-            {!runtime.available && <p>{runtime.help}</p>}
-            {(runtime.enabled || runtime.backend === "hapi") && (
-              <p className="note">
-                {runtime.backend === "hapi" ? "Managed runner" : `Bound project: ${runtime.project || "unknown"}`}. Billing:{" "}
-                {runtime.billing || "unknown"}.
-              </p>
-            )}
-            {open && (
-              <RuntimeSignIn
-                base={authBase(runtime)}
-                backend={runtime.backend === "hapi" ? "environment" : "direct"}
-                location="this computer"
-                key={scope + projectId}
-                name={runtime.name}
-                label={label}
-                projectId={projectId!}
-                signedIn={signedIn}
-                enabled={runtime.enabled}
-                enabling={busy}
-                enableAction={enableAction}
-                onStateChange={(_, state) => onAuthState(scope, state)}
-                onClose={() => {
-                  setSigningIn(undefined);
-                  void refresh().catch((e) => setError(e.message));
-                }}
-              />
-            )}
-            {!open && (
-              <div className="native-runtime-actions">
-                {enableAction}
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={
-                    busy ||
-                    !projectId ||
-                    !runtime.available ||
-                    !discovery.online
-                  }
-                  onClick={() => setSigningIn(runtime.name)}
-                  aria-label={
-                    signedIn || runtime.enabled
-                      ? `Manage ${label} account`
-                      : undefined
-                  }
-                >
-                  {signedIn || runtime.enabled
-                    ? "Manage account"
-                    : `Sign in to ${label}`}
-                </button>
+                {enabling === runtime.name
+                  ? runtime.enabled
+                    ? "Refreshing…"
+                    : "Enabling…"
+                  : `${runtime.enabled ? "Refresh" : "Enable"} ${label}`}
+              </button>
+              {enableError?.scope === scope && (
+                <div className="settings-error" role="alert">
+                  <strong>Connection not verified</strong>
+                  <p>{enableError.message}</p>
+                  <p>Your sign-in is saved. Check the setup and retry.</p>
+                </div>
+              )}
+            </>
+          );
+          return (
+            <section className="native-runtime settings-card" key={scope}>
+              <div className="settings-card-heading">
+                <span className="provider-mark" aria-hidden="true">
+                  {label[0]}
+                </span>
+                <div>
+                  <h3>{label}</h3>
+                  <small>
+                    {runtime.billing === "existing" || runtime.name === "pi"
+                      ? "Existing billing · may incur API charges"
+                      : runtime.billing === "subscription"
+                        ? "Native subscription"
+                        : "Choose billing during setup"}
+                  </small>
+                </div>
+                <span className="settings-status">{state}</span>
               </div>
-            )}
-          </div>
-        );
-      })}
+              <button
+                type="button"
+                className="settings-next"
+                disabled={
+                  busy ||
+                  !runtime.installed ||
+                  (needsProject && runtime.available && discovery.online)
+                }
+                onClick={() => setSigningIn(runtime.name)}
+                aria-label={
+                  !runtime.available || !discovery.online
+                    ? `${label} setup details`
+                    : signedIn || runtime.enabled
+                      ? `Manage ${label} account`
+                      : `Sign in to ${label}`
+                }
+              >
+                {!runtime.available || !discovery.online
+                  ? "Setup details"
+                  : signedIn || runtime.enabled
+                    ? runtime.enabled
+                      ? "Manage account"
+                      : "Finish connecting"
+                    : `Sign in to ${label}`}{" "}
+                <span aria-hidden="true">→</span>
+              </button>
+              {!runtime.available && (
+                <p className="field-hint">{runtime.help}</p>
+              )}
+              {needsProject && runtime.available && discovery.online && (
+                <p className="field-hint">
+                  {runtime.enabled
+                    ? `${label} is bound to a directory that is no longer in Projects. Add it back to manage this account.`
+                    : "Add a desktop directory in Projects before signing in."}
+                </p>
+              )}
+              {open && (
+                <Sheet
+                  className="settings-sheet"
+                  title={label}
+                  onClose={() => setSigningIn(undefined)}
+                >
+                  <p className="settings-intro">
+                    {discovery.computer} ·{" "}
+                    {runtime.backend === "hapi"
+                      ? "Managed runner"
+                      : "Native harness"}
+                  </p>
+                  {runtime.available && discovery.online ? (
+                    <RuntimeSignIn
+                      base={authBase(runtime)}
+                      backend={
+                        runtime.backend === "hapi" ? "environment" : "direct"
+                      }
+                      location={discovery.computer}
+                      key={scope}
+                      name={runtime.name}
+                      label={label}
+                      projectId={projectId}
+                      signedIn={signedIn}
+                      enabled={runtime.enabled}
+                      enabling={busy}
+                      connectionSetup={
+                        <section className="settings-card">
+                          <h3>Connection setup</h3>
+                          {runtime.enabled && runtime.backend !== "hapi" ? (
+                            <p>
+                              Project:{" "}
+                              <code>{runtime.project || "Unknown"}</code>
+                            </p>
+                          ) : (
+                            setupFields
+                          )}
+                          {runtime.billing && (
+                            <p className="field-hint">
+                              Saved billing policy: {runtime.billing}.{" "}
+                              {runtime.billing === "existing" &&
+                                "Provider charges may apply."}
+                            </p>
+                          )}
+                        </section>
+                      }
+                      enableAction={enableAction}
+                      onStateChange={(_, state) => onAuthState(scope, state)}
+                      onClose={() => {
+                        setSigningIn(undefined);
+                        void refresh().catch((e) => setError(e.message));
+                      }}
+                    />
+                  ) : (
+                    <p>
+                      {state}. {runtime.help}
+                    </p>
+                  )}
+                  <details
+                    className="settings-details"
+                    open={!runtime.available}
+                  >
+                    <summary>Advanced & installation</summary>
+                    {connections
+                      .filter((c) => matchesRuntime(c, runtime))
+                      .map((c) => (
+                        <ConnectionDetails key={c.id} connection={c} />
+                      ))}
+                    {runtime.version && <p>Version {runtime.version}</p>}
+                    <HarnessUpgrade
+                      base={
+                        runtime.backend === "hapi"
+                          ? `/environments/${runtime.environmentId}/runtimes/${runtime.name}/upgrade`
+                          : `/workspace/runtimes/${runtime.name}/upgrade`
+                      }
+                      label={label}
+                      generation={
+                        runtime.backend === "hapi"
+                          ? runtime.generation
+                          : undefined
+                      }
+                      disabled={
+                        busy ||
+                        settingUp ||
+                        authenticating ||
+                        !discovery.online ||
+                        !runtime.installed
+                      }
+                      onComplete={() => {
+                        void refresh().catch((e) => setError(e.message));
+                      }}
+                    />
+                    <p className="field-hint">
+                      Native tools, instructions and session context stay with
+                      this harness. Existing conversations keep their project.
+                    </p>
+                  </details>
+                </Sheet>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {discovery &&
+        connections
+          .filter((c) => {
+            const metadata = parse<any>(c.metadata, {});
+            return (
+              (metadata.loopHarness || metadata.backend === "hapi") &&
+              !discovery.runtimes.some((runtime) => matchesRuntime(c, runtime))
+            );
+          })
+          .map((connection) => (
+            <details
+              className="settings-card settings-details"
+              key={connection.id}
+            >
+              <summary>
+                {connection.label} · {connection.status}
+              </summary>
+              <ConnectionDetails connection={connection} />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  const metadata = parse<any>(connection.metadata, {});
+                  setEnabling(connection.id);
+                  setError("");
+                  try {
+                    await api(
+                      metadata.backend === "hapi"
+                        ? `/environments/${metadata.environmentId}/provider/${metadata.flavor}/verify`
+                        : `/connections/${connection.id}/refresh`,
+                      {},
+                    );
+                    await onEnabled(metadata.loopHarness || metadata.flavor);
+                  } catch (cause) {
+                    setError((cause as Error).message);
+                  } finally {
+                    setEnabling(undefined);
+                  }
+                }}
+              >
+                Refresh account and models
+              </button>
+            </details>
+          ))}
+      {!signingIn && (
+        <details className="settings-details">
+          <summary>Defaults for new harnesses</summary>
+          {setupFields}
+        </details>
+      )}
       <button
         type="button"
+        className="secondary"
         disabled={busy}
         onClick={() => {
           setError("");
@@ -362,11 +557,6 @@ export function RuntimeSetup({
       >
         Check installed runtimes again
       </button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
     </section>
   );
 }

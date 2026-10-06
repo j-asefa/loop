@@ -29,6 +29,7 @@ export function SessionActivityControls({
   const [data, setData] = useState<Controls>();
   const [pending, setPending] = useState<{ id: string; value: SettingValue }>();
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
   const epoch = useRef(0),
     ticket = useRef(0),
     writing = useRef(false);
@@ -70,7 +71,8 @@ export function SessionActivityControls({
         response.capabilities.settings.state === "supported"
           ? response
           : readOnlySnapshot() || { ...response, readOnly: true };
-      if (own === epoch.current && request === ticket.current)
+      if (own === epoch.current && request === ticket.current) {
+        setReadError("");
         setData((old) =>
           old &&
           !old.readOnly &&
@@ -80,15 +82,16 @@ export function SessionActivityControls({
             ? old
             : next,
         );
+      }
     } catch (e) {
       if (own === epoch.current && request === ticket.current) {
         const snapshot = readOnlySnapshot();
         if (snapshot) {
           setData(snapshot);
-          setError("");
+          setReadError("");
         } else {
-          setData(undefined);
-          setError((e as Error).message);
+          setData((old) => (old ? { ...old, readOnly: true } : undefined));
+          setReadError((e as Error).message);
         }
       }
     }
@@ -98,6 +101,7 @@ export function SessionActivityControls({
     setData(undefined);
     setPending(undefined);
     setError("");
+    setReadError("");
     writing.current = false;
     if (!open) return;
     void refresh();
@@ -147,18 +151,22 @@ export function SessionActivityControls({
         Session settings
       </button>
       {open && (
-        <Sheet title="Session settings" onClose={() => setOpen(false)}>
+        <Sheet
+          className="settings-sheet"
+          title="Session settings"
+          onClose={() => setOpen(false)}
+        >
           <p className="note">
             {data?.readOnly
               ? "Recorded session settings. Reconnect to discover current controls."
               : "Confirmed values come from the running session. A request is not effective until the runtime confirms it."}
           </p>
-          {error && (
+          {(error || readError) && (
             <p role="alert" className="error">
-              {error}
+              {error || readError}
             </p>
           )}
-          {!data && !error && (
+          {!data && !error && !readError && (
             <p role="status">Discovering session controls…</p>
           )}
           {data && (
@@ -183,11 +191,11 @@ export function SessionActivityControls({
                           !option.mutable ||
                           data.capabilities.settings.state !== "supported"
                         }
-                        value={
-                          option.confirmed === undefined
-                            ? ""
-                            : String(option.confirmed)
-                        }
+                        value={String(
+                          pending?.id === option.id
+                            ? pending.value
+                            : (option.requested ?? option.confirmed ?? ""),
+                        )}
                         onChange={(e) => void change(option.id, e.target.value)}
                       >
                         <option value="" disabled>
@@ -224,7 +232,9 @@ export function SessionActivityControls({
                     ) : (
                       <input
                         key={`${data.generation}:${data.settings.revision}:${option.id}`}
-                        defaultValue={String(option.confirmed ?? "")}
+                        defaultValue={String(
+                          option.requested ?? option.confirmed ?? "",
+                        )}
                         disabled={
                           data.readOnly ||
                           !!pending ||
@@ -233,10 +243,12 @@ export function SessionActivityControls({
                         }
                         onBlur={(e) => {
                           const requested = e.target.value;
-                          const confirmed = String(option.confirmed ?? "");
+                          const displayed = String(
+                            option.requested ?? option.confirmed ?? "",
+                          );
                           // Rejection before adapter dispatch may leave the revision unchanged.
-                          e.target.value = confirmed;
-                          if (requested !== confirmed)
+                          e.target.value = displayed;
+                          if (requested !== displayed)
                             void change(option.id, requested);
                         }}
                       />
@@ -248,16 +260,23 @@ export function SessionActivityControls({
                       ? "Not reported"
                       : String(option.confirmed)}
                   </p>
-                  {(pending?.id === option.id ||
-                    option.requested != null) && (
+                  {(pending?.id === option.id || option.requested != null) && (
                     <p role="status">
-                      Requested:{" "}
+                      {option.application === "new-session"
+                        ? "Launch value: "
+                        : "Requested: "}
                       {String(
                         pending?.id === option.id
                           ? pending.value
                           : option.requested,
                       )}{" "}
-                      · awaiting confirmation
+                      {option.application === "new-session"
+                        ? " · set when this session started"
+                        : option.application === "next-turn"
+                          ? " · applies on the next turn"
+                          : data.readOnly
+                            ? " · session disconnected before confirmation"
+                            : " · awaiting confirmation"}
                     </p>
                   )}
                   {option.rejected && (

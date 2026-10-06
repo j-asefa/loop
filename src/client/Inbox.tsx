@@ -742,7 +742,9 @@ export function Inbox({
     sources && !project && !teams && !agent
       ? sources
       : [{ id: executionSourceId(), name: "" }];
-  const sourceKey = activeSources.map((source) => source.id).join(",");
+  const sourceKey = JSON.stringify(
+    activeSources.map((source) => source.id).sort(),
+  );
   const shownKey = () =>
     "inbox:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
   // Going back shows the list as you left it while it refreshes.
@@ -799,6 +801,10 @@ export function Inbox({
     return "/inbox?" + q;
   };
   const inFlight = useRef(false);
+  const sourcePages = useRef<{ key: string; pages: Map<string, Shown> }>({
+    key: "",
+    pages: new Map(),
+  });
   async function load(append = false, background = false) {
     // Background refreshes never overlap; filter changes and actions always load.
     if (background && inFlight.current) return;
@@ -806,7 +812,8 @@ export function Inbox({
     const ticket = ++request.current;
     // The account this request is for; a late answer for another is dropped.
     const owner = viewOwner();
-    if (!append && !items.length) setLoading(true);
+    // Loading placeholders belong to the first read of a filter. An empty
+    // result is loaded content too; polling must keep its empty state visible.
     try {
       type Page = { items: InboxItem[]; next: string | null; summary: Summary };
       let result: Page;
@@ -826,14 +833,28 @@ export function Inbox({
             ),
           })),
         );
+        if (ticket !== request.current || owner !== viewOwner()) return;
         const loaded = settled.flatMap((entry) =>
           entry.status === "fulfilled" ? [entry.value] : [],
         );
         if (!loaded.length && settled.length)
           throw new Error("Couldn’t load the Feed from any environment.");
         partialError = settled.some((entry) => entry.status === "rejected")
-          ? "Some execution environments are unavailable. Try again."
+          ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
+        if (!append) {
+          const key = JSON.stringify([owner, shownKey()]);
+          if (sourcePages.current.key !== key)
+            sourcePages.current = { key, pages: new Map() };
+          for (const { source, page } of loaded)
+            sourcePages.current.pages.set(source.id, page);
+          settled.forEach((entry, index) => {
+            const source = pending[index];
+            const previous = sourcePages.current.pages.get(source.id);
+            if (entry.status === "rejected" && previous)
+              loaded.push({ source, page: previous });
+          });
+        }
         const nextCursors: Record<string, string> = append
           ? { ...cursors }
           : {};
@@ -908,8 +929,10 @@ export function Inbox({
     } catch (e) {
       if (ticket === request.current) setError((e as Error).message);
     } finally {
-      inFlight.current = false;
-      if (ticket === request.current) setLoading(false);
+      if (ticket === request.current) {
+        inFlight.current = false;
+        setLoading(false);
+      }
     }
   }
   const firstLoad = useRef(true);
@@ -932,10 +955,13 @@ export function Inbox({
   useEffect(() => {
     const update = () => void load(false, true);
     window.addEventListener("loop-later-change", update);
+    // "Retry connection" asks every source-backed view to reload now.
+    window.addEventListener("loop-source-refresh", update);
     // Workspace events already bump `revision`; this is only a fallback.
     const timer = setInterval(update, 30_000);
     return () => {
       window.removeEventListener("loop-later-change", update);
+      window.removeEventListener("loop-source-refresh", update);
       clearInterval(timer);
     };
     // Re-arm with every input `load` reads, so the fallback refresh never

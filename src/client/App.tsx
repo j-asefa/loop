@@ -1,3 +1,4 @@
+import { SettingsHome } from "./SettingsHome";
 import { PersonalProfile } from "./PersonalProfile";
 import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
@@ -85,18 +86,12 @@ import {
 import { useEffect, useState, useRef } from "react";
 import {
   UserRound,
-  Server,
-  Plug,
-  Download,
-  Smartphone,
   Orbit,
   Newspaper,
   RefreshCw,
   AlarmClock,
   Clock3,
   Search,
-  Bookmark,
-  Bell,
   Plus,
   ArrowUp,
   SlidersHorizontal,
@@ -104,14 +99,12 @@ import {
   Folder,
   GitPullRequest,
   Settings,
-  Monitor,
   LogOut,
   MessageSquare,
   ArrowLeft,
   MoreHorizontal,
   ArrowUpRight,
   Reply as ReplyIcon,
-  Link as LinkIcon,
   X,
 } from "lucide-react";
 import { api, parse } from "./api";
@@ -854,7 +847,10 @@ export default function App() {
   const runningAgentCount = new Set(
     (projectFilter || teamSelection.length ? scopedRuns : unified.runs)
       .filter((r) => ["running", "pausing"].includes(r.state))
-      .map((r) => `${"sourceId" in r ? r.sourceId || "laptop" : executionSourceId() || "laptop"}:${r.agent_id}`),
+      .map(
+        (r) =>
+          `${"sourceId" in r ? r.sourceId || "laptop" : executionSourceId() || "laptop"}:${r.agent_id}`,
+      ),
   ).size;
   // Each thread keeps its own unsent draft (and the global composer keeps its
   // own), so switching threads never carries text into the wrong one.
@@ -2433,6 +2429,15 @@ export default function App() {
               {unified.error && (
                 <p className="error" role="status">
                   {unified.error}
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() =>
+                      window.dispatchEvent(new Event("loop-source-refresh"))
+                    }
+                  >
+                    Retry connection
+                  </button>
                 </p>
               )}
               {unified.agents.length > 0 && (
@@ -2892,78 +2897,11 @@ export default function App() {
             setSheet("");
           }}
         >
-          <div className="drawer-appearance">
-            <span id="appearance-label">Appearance</span>
-            <div
-              className="drawer-segmented"
-              role="group"
-              aria-labelledby="appearance-label"
-            >
-              {(["system", "light", "dark"] as const).map((v) => (
-                <button
-                  key={v}
-                  aria-pressed={theme === v}
-                  onClick={() => setTheme(v)}
-                >
-                  {v[0].toUpperCase() + v.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <nav className="drawer-links" aria-label="Settings pages">
-            <h3>Connections</h3>
-            <button onClick={() => openSettingsPage("connections")}>
-              <LinkIcon size={20} aria-hidden="true" />
-              Provider connections
-            </button>
-            <button onClick={() => openSettingsPage("environments")}>
-              <Monitor size={20} aria-hidden="true" />
-              Execution environments
-            </button>
-            <button onClick={() => openSettingsPage("runtime-hosts")}>
-              <Server size={20} aria-hidden="true" />
-              Runtime machines
-            </button>
-            <button onClick={() => openSettingsPage("mcp")}>
-              <Plug size={20} aria-hidden="true" />
-              Tools & integrations
-            </button>
-            <button onClick={() => openSettingsPage("pi-customizations")}>
-              <Orbit size={20} aria-hidden="true" />
-              Pi customizations
-            </button>
-            <h3>Workspace</h3>
-            <button onClick={() => openSettingsPage("agents")}>
-              <Orbit size={20} aria-hidden="true" />
-              Manage agents
-            </button>
-            <button onClick={() => openSettingsPage("memory")}>
-              <Bookmark size={20} aria-hidden="true" />
-              Shared memory
-            </button>
-            <button onClick={() => openSettingsPage("notifications")}>
-              <Bell size={20} aria-hidden="true" />
-              Notifications
-            </button>
-            {capabilities.nativeHarnesses && (
-              <button onClick={() => openSettingsPage("native-history")}>
-                <MessageSquare size={20} aria-hidden="true" />
-                Native conversations
-              </button>
-            )}
-            <button onClick={() => openSettingsPage("search-settings")}>
-              <Search size={20} aria-hidden="true" />
-              Search preferences
-            </button>
-            <button onClick={() => openSettingsPage("import")}>
-              <Download size={20} aria-hidden="true" />
-              Import conversations
-            </button>
-            <button onClick={() => openSettingsPage("install")}>
-              <Smartphone size={20} aria-hidden="true" />
-              Install on your phone
-            </button>
-          </nav>
+          <SettingsHome
+            open={openSettingsPage}
+            theme={theme}
+            onTheme={setTheme}
+          />
           <footer className="drawer-account">
             <span className="avatar user" aria-hidden="true">
               {initials}

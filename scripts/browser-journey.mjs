@@ -305,6 +305,8 @@ try {
     await page.getByRole("button", { name: "Save permissions" }).count(),
     0,
   );
+  // Server details and permissions live behind the connection's Manage row.
+  await page.getByText("Manage Deterministic MCP fixture").click();
   await page.getByText("Available to all agents · Ask every time").waitFor();
   await page.screenshot({
     path: join(tmpdir(), "loop-workspace-mcp.png"),

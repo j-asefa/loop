@@ -7,6 +7,7 @@ import {
   type PermissionMode,
 } from "../shared/permission-modes";
 import { executionSourceId } from "./sourceRouting";
+import { capabilities } from "./capabilities";
 export function Tools({
   onClose,
   initialView = "catalog",
@@ -38,38 +39,60 @@ export function Tools({
   const [nativeCandidates, setNativeCandidates] = useState<
     { id: string; provider: string; name: string; kind: string }[]
   >([]);
-  async function loadSharing() {
+  const [readErrors, setReadErrors] = useState<Record<string, string>>({});
+  const [connectionsReady, setConnectionsReady] = useState(false);
+  async function read(key: string, fn: () => Promise<void>) {
     try {
-      setSharingSources(await apiInWorkspace("/mcp-sharing", ""));
-    } catch {
-      setSharingSources([]);
+      await fn();
+      setReadErrors((old) => ({ ...old, [key]: "" }));
+    } catch (e) {
+      setReadErrors((old) => ({ ...old, [key]: (e as Error).message }));
     }
   }
-  useEffect(() => {
-    void api<any[]>("/runtime-hosts")
-      .then((hosts) =>
-        setHosts(hosts.filter((h) => !h.kind || h.kind === "broker")),
-      )
-      .catch((e) => setError(e.message));
-  }, []);
-  async function load() {
-    const [connections, preferences] = await Promise.all([
-      api<any[]>("/mcp"),
-      api<{
+  async function loadSharing() {
+    if (!capabilities.pairedDevices && !executionSourceId()) return;
+    await read("sharing", async () => {
+      setSharingSources(await apiInWorkspace("/mcp-sharing", ""));
+    });
+  }
+  async function loadHosts() {
+    if (!capabilities.runtimeHosts) return;
+    await read("hosts", async () => {
+      const rows = await api<any[]>("/runtime-hosts");
+      setHosts(rows.filter((h) => !h.kind || h.kind === "broker"));
+    });
+  }
+  async function loadConnections() {
+    await read("tools", async () => {
+      setConnections(await api<any[]>("/mcp"));
+      setConnectionsReady(true);
+    });
+  }
+  async function loadPreferences() {
+    await read("permissions", async () => {
+      const preferences = await api<{
         approvalMode: "ask" | "allow";
         agentPermissionMode: PermissionMode;
-      }>("/mcp/preferences"),
-    ]);
-    setConnections(connections);
-    setApprovalMode(preferences.approvalMode);
-    setAgentMode(preferences.agentPermissionMode);
+      }>("/mcp/preferences");
+      setApprovalMode(preferences.approvalMode);
+      setAgentMode(preferences.agentPermissionMode);
+    });
+  }
+  async function loadCandidates() {
+    await read("imports", async () => {
+      setNativeCandidates(
+        await api<typeof nativeCandidates>("/mcp/native-candidates"),
+      );
+    });
+  }
+  async function load() {
+    await Promise.all([loadConnections(), loadPreferences()]);
   }
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    void load();
+    void loadHosts();
     void loadSharing();
-    void api<typeof nativeCandidates>("/mcp/native-candidates")
-      .then(setNativeCandidates)
-      .catch(() => setNativeCandidates([]));
+    void loadCandidates();
   }, []);
   async function action(fn: () => Promise<void>) {
     setError("");
@@ -90,10 +113,14 @@ export function Tools({
     else setNotice("Connected. Available to all agents in your workspace.");
   }
   return (
-    <Sheet wide title="Tools & integrations" onClose={onClose}>
-      <p className="muted">
-        Install once for your whole workspace. Connected MCPs are available to
-        all your current and future agents.
+    <Sheet
+      wide
+      className="settings-sheet"
+      title="Tools & integrations"
+      onClose={onClose}
+    >
+      <p className="settings-intro">
+        Shared tools for your workspace’s agents.
       </p>
       {error && (
         <p className="error" role="alert">
@@ -117,7 +144,10 @@ export function Tools({
           onClick={() => setView("installed")}
         >
           Installed (
-          {connections.filter((c) => c.status !== "disconnected").length})
+          {connectionsReady
+            ? connections.filter((c) => c.status !== "disconnected").length
+            : "…"}
+          )
         </button>
         <button
           aria-pressed={view === "custom"}
@@ -132,6 +162,41 @@ export function Tools({
           Permissions
         </button>
       </div>
+      {(
+        [
+          [
+            "tools",
+            "Installed tools",
+            ["catalog", "installed"],
+            loadConnections,
+          ],
+          ["permissions", "Permissions", ["permissions"], loadPreferences],
+          ["hosts", "Runtime machines", ["catalog", "custom"], loadHosts],
+          [
+            "sharing",
+            "Tool sharing",
+            ["installed", "permissions"],
+            loadSharing,
+          ],
+          ["imports", "Harness integrations", ["installed"], loadCandidates],
+        ] as const
+      ).map(
+        ([key, label, views, retry]) =>
+          readErrors[key] &&
+          (views as readonly string[]).includes(view) && (
+            <div className="settings-error" role="alert" key={key}>
+              <strong>{label} couldn’t be refreshed</strong>
+              <p>{readErrors[key]}</p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => void retry()}
+              >
+                Retry {label.toLowerCase()}
+              </button>
+            </div>
+          ),
+      )}
       {view === "permissions" && (
         <section className="tool-approval-preferences">
           <label>
@@ -168,9 +233,7 @@ export function Tools({
                 (mode) => mode.value === (agentMode || "default"),
               )!.description
             }{" "}
-            Applies to coding agents on your computers: their shell commands,
-            file edits and other native tools. Questions an agent asks you
-            always wait for your answer.
+            Questions always wait for your answer.
           </p>
           <label>
             Connected MCP tools
@@ -201,17 +264,16 @@ export function Tools({
           </label>
           <p className="field-hint">
             {approvalMode === "allow"
-              ? "All your agents can use connected MCP tools without stopping for approval. GitHub pull request merges still ask every time. Your GitHub connection also enables Git and gh for coding and reviews on the Loop server. Calls stay in the conversation history."
-              : "Choose Allow connected tools to stop repeated approval prompts for all your agents and resume waiting tool calls."}
+              ? "Connected tools can run automatically. GitHub pull request merges still ask. Calls stay in conversation history."
+              : "Ask before each connected tool call. Allowing tools also resumes waiting MCP requests."}
           </p>
           {sharingSources.length > 0 && agentMode && approvalMode && (
             <div className="tool-sharing">
               <p className="field-hint">
-                Permissions are saved on each execution source. Apply these
-                choices to your other connected sources when you want the same
-                approval behavior everywhere.
+                Use these permissions on your other connected environments.
               </p>
               <button
+                className="secondary"
                 disabled={busy}
                 onClick={() =>
                   void action(async () => {
@@ -257,11 +319,14 @@ export function Tools({
             content you trust. Agents using the same subscription account share
             a filesystem and can read or modify each other’s workspaces.
           </p>
-          <p className="field-hint">
-            Managed coding runs stop after 60 minutes without provider output,
-            including during silent builds or CI waits. Saved partial work
-            remains available to inspect before retrying.
-          </p>
+          <details className="settings-details">
+            <summary>Run limits</summary>
+            <p className="field-hint">
+              Managed coding runs stop after 60 minutes without provider output,
+              including during silent builds or CI waits. Saved partial work
+              remains available to inspect before retrying.
+            </p>
+          </details>
         </section>
       )}
       {view === "catalog" && (
@@ -416,7 +481,7 @@ export function Tools({
       )}
       {view === "installed" && (
         <>
-          {connections.length === 0 && (
+          {connectionsReady && connections.length === 0 && (
             <p>
               No tools installed yet. Browse the catalog to connect your first
               integration.
@@ -437,123 +502,129 @@ export function Tools({
                 .includes(query.toLowerCase()),
             )
             .map((c) => (
-              <section className="connection-card" key={c.id}>
+              <section className="connection-card settings-card" key={c.id}>
                 <h3>
                   {c.name} <small>{c.status.replaceAll("_", " ")}</small>
                 </h3>
-                <p className="field-hint">
-                  {parse<any>(c.metadata, {}).transport === "federation"
-                    ? "Shared from another execution source"
-                    : c.url}
-                </p>
-                <p className="field-hint">
-                  {c.status === "connected"
-                    ? `Available to all agents · ${approvalMode === "allow" ? "Allowed automatically" : "Ask every time"}`
-                    : "Unavailable to all agents until connected"}
-                </p>
-                <div className="actions">
-                  <button
-                    disabled={busy}
-                    onClick={() => action(() => test(c.id))}
-                  >
-                    Test / reconnect
-                  </button>
-                  {parse<any>(c.metadata, {}).transport !== "federation" && (
+                <details className="settings-details">
+                  <summary>Manage {c.name}</summary>
+                  <p className="field-hint">
+                    {parse<any>(c.metadata, {}).transport === "federation"
+                      ? "Shared from another execution source"
+                      : c.url}
+                  </p>
+                  <p className="field-hint">
+                    {c.status === "connected"
+                      ? `Available to all agents · ${approvalMode === "allow" ? "Allowed automatically" : "Ask every time"}`
+                      : "Unavailable to all agents until connected"}
+                  </p>
+                  <div className="actions">
                     <button
                       disabled={busy}
-                      onClick={() =>
-                        action(async () => {
-                          await api(
-                            "/mcp/" + c.id,
-                            {
-                              action:
-                                c.status === "disabled" ? "enable" : "disable",
-                            },
-                            "PATCH",
-                          );
-                        })
-                      }
+                      onClick={() => action(() => test(c.id))}
                     >
-                      {c.status === "disabled" ? "Enable" : "Disable"}
+                      Test / reconnect
                     </button>
-                  )}
-                  {parse<any>(c.metadata, {}).transport !== "federation" && (
-                    <button
-                      disabled={
-                        parse<any>(c.metadata, {}).transport === "stdio" ||
-                        c.authType === "query"
-                      }
-                      title={
-                        c.authType === "query"
-                          ? "Use Edit setup in Catalog to update this key"
-                          : undefined
-                      }
-                      onClick={() => {
-                        setView("custom");
-                        setEditing(c.id);
-                        setName(c.name);
-                        setUrl(c.url);
-                        setAuthType(c.authType);
-                      }}
-                    >
-                      Replace credentials
-                    </button>
-                  )}
-                  {parse<any>(c.metadata, {}).transport !== "federation" && (
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        action(async () => {
-                          await api(
-                            "/mcp/" + c.id,
-                            { action: "disconnect" },
-                            "PATCH",
-                          );
-                        })
-                      }
-                    >
-                      Disconnect
-                    </button>
-                  )}
-                  {/* A Docker share is revoked from the laptop, including one
-                      left behind by a source that is no longer running. */}
-                  {!executionSourceId() &&
-                    c.status !== "disconnected" &&
-                    /^docker:/.test(
-                      String(parse<any>(c.metadata, {}).federatedPeer || ""),
-                    ) && (
+                    {parse<any>(c.metadata, {}).transport !== "federation" && (
                       <button
                         disabled={busy}
                         onClick={() =>
                           action(async () => {
-                            await apiInWorkspace("/mcp-sharing", "", {
-                              sourceId: parse<any>(c.metadata, {}).federatedPeer,
-                              action: "disconnect",
-                            });
-                            await loadSharing();
+                            await api(
+                              "/mcp/" + c.id,
+                              {
+                                action:
+                                  c.status === "disabled"
+                                    ? "enable"
+                                    : "disable",
+                              },
+                              "PATCH",
+                            );
                           })
                         }
                       >
-                        Stop sharing
+                        {c.status === "disabled" ? "Enable" : "Disable"}
                       </button>
                     )}
-                </div>
-                <details>
-                  <summary>
-                    {parse<any[]>(c.tools, []).length} tools · resources &
-                    prompts
-                  </summary>
-                  <pre className="code-artifact">
-                    {JSON.stringify(
-                      {
-                        tools: parse(c.tools, []),
-                        resources: parse<any>(c.metadata, {}).resources,
-                        prompts: parse<any>(c.metadata, {}).prompts,
-                      },
-                      null,
-                      2,
+                    {parse<any>(c.metadata, {}).transport !== "federation" && (
+                      <button
+                        disabled={
+                          parse<any>(c.metadata, {}).transport === "stdio" ||
+                          c.authType === "query"
+                        }
+                        title={
+                          c.authType === "query"
+                            ? "Use Edit setup in Catalog to update this key"
+                            : undefined
+                        }
+                        onClick={() => {
+                          setView("custom");
+                          setEditing(c.id);
+                          setName(c.name);
+                          setUrl(c.url);
+                          setAuthType(c.authType);
+                        }}
+                      >
+                        Replace credentials
+                      </button>
                     )}
-                  </pre>
+                    {parse<any>(c.metadata, {}).transport !== "federation" && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          action(async () => {
+                            await api(
+                              "/mcp/" + c.id,
+                              { action: "disconnect" },
+                              "PATCH",
+                            );
+                          })
+                        }
+                      >
+                        Disconnect
+                      </button>
+                    )}
+                    {/* A Docker share is revoked from the laptop, including one
+                      left behind by a source that is no longer running. */}
+                    {!executionSourceId() &&
+                      c.status !== "disconnected" &&
+                      /^docker:/.test(
+                        String(parse<any>(c.metadata, {}).federatedPeer || ""),
+                      ) && (
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            action(async () => {
+                              await apiInWorkspace("/mcp-sharing", "", {
+                                sourceId: parse<any>(c.metadata, {})
+                                  .federatedPeer,
+                                action: "disconnect",
+                              });
+                              await loadSharing();
+                            })
+                          }
+                        >
+                          Stop sharing
+                        </button>
+                      )}
+                  </div>
+                  <details>
+                    <summary>
+                      {parse<any[]>(c.tools, []).length} tools · resources &
+                      prompts
+                    </summary>
+                    <pre className="code-artifact">
+                      {JSON.stringify(
+                        {
+                          tools: parse(c.tools, []),
+                          resources: parse<any>(c.metadata, {}).resources,
+                          prompts: parse<any>(c.metadata, {}).prompts,
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
                 </details>
               </section>
             ))}
