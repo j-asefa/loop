@@ -1407,7 +1407,7 @@ small,
   }
   .sheet {
     position: fixed;
-    bottom: var(--sheet-keyboard-inset, var(--keyboard-inset, 0px));
+    bottom: 0;
     top: auto;
     left: 0;
     right: 0;
@@ -1421,9 +1421,13 @@ small,
   .sheet.wide {
     max-width: 100%;
   }
-  /* The sheet rides on the keyboard. Paint the strip beneath it too, so the
-     page doesn't show through around a floating keyboard or its form bar. */
-  :root[data-keyboard="open"] .sheet {
+  /* Anchor from the visible top: Safari's top-layer modal and the page's
+     fixed-bottom probe can disagree while the keyboard pans the viewport. */
+  :root[data-keyboard="open"] .sheet:not(.side-panel) {
+    top: calc(var(--visual-viewport-top, 0px) + 8px);
+    bottom: auto;
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 16px);
+    translate: none;
     box-shadow:
       0 var(--keyboard-inset, 0px) 0 0 var(--surface),
       0 30px 100px #0003;

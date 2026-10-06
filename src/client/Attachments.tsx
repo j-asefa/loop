@@ -3,7 +3,7 @@ import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
 import { FilePreview } from "./FilePreview";
 import { authorizedFetch, parse } from "./api";
-import { sourceApiPath } from "./sourceRouting";
+import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import { prepareImage, shouldPrepare } from "./imageUpload";
 import {
   MAX_MESSAGE_FILES,
@@ -36,8 +36,10 @@ const size = (bytes: number) =>
 export function AttachmentList({
   files,
   onRemove,
+  sourceId = executionSourceId(),
 }: {
   files: UploadedFile[];
+  sourceId?: string;
   onRemove?: (id: string) => void;
 }) {
   const [preview, setPreview] = useState<UploadedFile>();
@@ -74,8 +76,8 @@ export function AttachmentList({
         <FilePreview
           url={
             preview.published
-              ? sourceApiPath(`/api/artifacts/${preview.id}/file`)
-              : sourceApiPath(`/api/objects/${preview.objectId}`)
+              ? sourceApiPathAt(`/api/artifacts/${preview.id}/file`, sourceId)
+              : sourceApiPathAt(`/api/objects/${preview.objectId}`, sourceId)
           }
           name={preview.name}
           mime={preview.mime}
@@ -90,6 +92,7 @@ export function UploadButton({
   onBusy,
   folderId,
   agentId,
+  sourceId = executionSourceId(),
   disabled,
   remaining,
   label = "Attach files",
@@ -99,6 +102,7 @@ export function UploadButton({
   onBusy?: (busy: boolean) => void;
   folderId?: string | null;
   agentId?: string | null;
+  sourceId?: string;
   disabled?: boolean;
   remaining?: number;
   label?: string;
@@ -152,7 +156,7 @@ export function UploadButton({
         if (agentId) form.append("agentId", agentId);
         let response: Response;
         try {
-          response = await authorizedFetch(sourceApiPath("/api/uploads"), {
+          response = await authorizedFetch(sourceApiPathAt("/api/uploads", sourceId), {
             method: "POST",
             body: form,
             signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),

@@ -63,12 +63,11 @@ export function PwaStatus() {
         "--keyboard-inset",
         (keyboardOpen ? inset : 0) + "px",
       );
-      // Safari can move the fixed-position containing block independently of
-      // innerHeight while the keyboard pans the visible area. Anchor dialogs
-      // using the measured fixed bottom, not an assumed layout height.
+      // Top-layer dialogs can have a different fixed bottom than the page.
+      // Use the visual viewport's top directly while the keyboard is open.
       document.documentElement.style.setProperty(
-        "--sheet-keyboard-inset",
-        sheetKeyboardInset(v, probe.getBoundingClientRect().top, keyboardOpen) + "px",
+        "--visual-viewport-top",
+        (keyboardOpen ? v!.offsetTop : 0) + "px",
       );
       place(keyboardOpen);
       fold(keyboardOpen);
@@ -143,7 +142,7 @@ export function PwaStatus() {
       stopWatching();
       probe.remove();
       document.documentElement.style.removeProperty("--viewport-drop");
-      document.documentElement.style.removeProperty("--sheet-keyboard-inset");
+      document.documentElement.style.removeProperty("--visual-viewport-top");
       for (const type of touchEvents)
         window.removeEventListener(type, touched);
     };
@@ -255,21 +254,6 @@ export function leftoverPan(
 ) {
   if (!v || keyboardOpen || (v.scale || 1) !== 1) return 0;
   return v.offsetTop >= 1 ? Math.round(v.offsetTop) : 0;
-}
-
-/**
- * Signed bottom offset for a keyboard-open sheet. Negative offsets are valid:
- * Safari's fixed viewport can end above the panned visual viewport. Clamping
- * to zero would leave the dialog (but not its backdrop) above the screen.
- */
-export function sheetKeyboardInset(
-  v: Pick<VisualViewport, "offsetTop" | "height" | "scale"> | null | undefined,
-  layoutBottom: number,
-  keyboardOpen: boolean,
-) {
-  if (!v || !keyboardOpen || (v.scale || 1) !== 1 || !(layoutBottom > 0))
-    return 0;
-  return Math.round(layoutBottom - (v.offsetTop + v.height));
 }
 
 /**

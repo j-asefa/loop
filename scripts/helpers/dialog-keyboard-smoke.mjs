@@ -8,9 +8,7 @@ export async function dialogKeyboardSmoke(page, fixture, capture) {
   const draft = '{ "mcpServers": {} }';
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await openSettings(page);
-  await page
-    .getByRole("button", { name: /Tools & integrations/ })
-    .click();
+  await page.getByRole("button", { name: /Tools & integrations/ }).click();
   const sheet = page.getByRole("dialog", {
     name: "Tools & integrations",
     exact: true,
@@ -25,13 +23,13 @@ export async function dialogKeyboardSmoke(page, fixture, capture) {
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
       // Account for a fixed containing block ending earlier than innerHeight.
-      // Override the existing fixed-bottom probe and emulate that same origin
-      // for dialogs; otherwise changing VisualViewport alone misses this bug.
+      // Shift bottom-anchored dialogs independently from the page probe.
+      // Top-anchored dialogs must not depend on either bottom measurement.
       const style = await page.addStyleTag({
         content: `
         @media (max-width: 700px) {
-          .sheet:not(.side-panel) {
-            translate: 0 calc(var(--viewport-drop, 0px) - var(--test-layout-shift, 0px));
+           .sheet:not(.side-panel) {
+            margin-bottom: var(--test-layout-shift, 0px);
           }
         }
       `,
@@ -51,69 +49,73 @@ export async function dialogKeyboardSmoke(page, fixture, capture) {
         });
       });
       for (const layoutBottom of [844, 430]) {
-        for (const offsetTop of [0, 370]) {
-          await input.focus();
-          await page.evaluate(
-            ({ layoutBottom, offsetTop }) => {
-              window.__sheetLayoutBottom = layoutBottom;
-              document.documentElement.style.setProperty(
-                "--test-layout-shift",
-                innerHeight - layoutBottom + "px",
-              );
-              Object.defineProperty(window.visualViewport, "height", {
-                configurable: true,
-                value: 430,
-              });
-              Object.defineProperty(window.visualViewport, "offsetTop", {
-                configurable: true,
-                value: offsetTop,
-              });
-              window.visualViewport.dispatchEvent(new Event("resize"));
-            },
-            { layoutBottom, offsetTop },
-          );
-          await expect(page.locator("html")).toHaveAttribute(
-            "data-keyboard",
-            "open",
-          );
-          await expect
-            .poll(
-              () =>
-                sheet.evaluate((el) => {
-                  const r = el.getBoundingClientRect();
-                  const v = window.visualViewport;
-                  const header = el
-                    .querySelector(".sheet-head")
-                    .getBoundingClientRect();
-                  return (
-                    r.top >= v.offsetTop &&
-                    r.bottom <= v.offsetTop + v.height + 1 &&
-                    r.height > 100 &&
-                    header.top >= v.offsetTop &&
-                    header.bottom <= v.offsetTop + v.height
-                  );
-                }),
-              {
-                message: `Dialog and its close control stay visible: ${width}px, fixed bottom ${layoutBottom}, pan ${offsetTop}`,
+        for (const dialogBottom of [844, 430]) {
+          for (const offsetTop of [0, 370]) {
+            await input.focus();
+            await page.evaluate(
+              ({ layoutBottom, dialogBottom, offsetTop }) => {
+                window.__sheetLayoutBottom = layoutBottom;
+                document.documentElement.style.setProperty(
+                  "--test-layout-shift",
+                  innerHeight - dialogBottom + "px",
+                );
+                Object.defineProperty(window.visualViewport, "height", {
+                  configurable: true,
+                  value: 430,
+                });
+                Object.defineProperty(window.visualViewport, "offsetTop", {
+                  configurable: true,
+                  value: offsetTop,
+                });
+                window.visualViewport.dispatchEvent(new Event("resize"));
               },
-            )
-            .toBe(true);
-          await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
-          await expect(input).toBeFocused();
-          await expect(input).toHaveValue(draft);
-          const bounds = await input.boundingBox();
-          assert(
-            bounds.y >= offsetTop &&
-              bounds.y + bounds.height <= offsetTop + 430,
-            "The focused form field remains above the keyboard",
-          );
-          assert.equal(
-            await sheet.evaluate((el) => el.scrollWidth > el.clientWidth),
-            false,
-          );
-          await capture(
-            `dialog-keyboard-${width}-${layoutBottom}-${offsetTop}`,
-          );
+              { layoutBottom, dialogBottom, offsetTop },
+            );
+            await expect(page.locator("html")).toHaveAttribute(
+              "data-keyboard",
+              "open",
+            );
+            await expect
+              .poll(
+                () =>
+                  sheet.evaluate((el) => {
+                    const r = el.getBoundingClientRect();
+                    const v = window.visualViewport;
+                    const header = el
+                      .querySelector(".sheet-head")
+                      .getBoundingClientRect();
+                    return (
+                      r.top >= v.offsetTop &&
+                      r.bottom <= v.offsetTop + v.height + 1 &&
+                      r.height > 100 &&
+                      header.top >= v.offsetTop &&
+                      header.bottom <= v.offsetTop + v.height
+                    );
+                  }),
+                {
+                  message: `Dialog and its close control stay visible: ${width}px, page bottom ${layoutBottom}, modal bottom ${dialogBottom}, pan ${offsetTop}`,
+                },
+              )
+              .toBe(true);
+            await input.evaluate((el) =>
+              el.scrollIntoView({ block: "center" }),
+            );
+            await expect(input).toBeFocused();
+            await expect(input).toHaveValue(draft);
+            const bounds = await input.boundingBox();
+            assert(
+              bounds.y >= offsetTop &&
+                bounds.y + bounds.height <= offsetTop + 430,
+              "The focused form field remains above the keyboard",
+            );
+            assert.equal(
+              await sheet.evaluate((el) => el.scrollWidth > el.clientWidth),
+              false,
+            );
+            await capture(
+              `dialog-keyboard-${width}-${layoutBottom}-${dialogBottom}-${offsetTop}`,
+            );
+          }
         }
       }
       await page.evaluate(() => {

@@ -83,6 +83,7 @@ export function CreateAgent({
     [effort, setEffort] = useState(""),
     [initialPrompt, setInitialPrompt] = useState(initialPromptText),
     [attachments, setAttachments] = useState<UploadedFile[]>([]),
+    [attachmentSource, setAttachmentSource] = useState(""),
     [uploading, setUploading] = useState(false),
     [folderChoice, setFolderChoice] = useState(
       initialFolder ||
@@ -217,11 +218,10 @@ export function CreateAgent({
       )
     : [];
   const currentSourceName =
-    sources.find((item) => item.id === executionSourceId())?.name ||
-    "this laptop";
-  // Uploads are stored by the source this page is on, so they can only be
-  // attached to an agent created on that same source.
-  const crossSource = source !== executionSourceId();
+    sources.find((item) => item.id === attachmentSource)?.name ||
+    "the original runtime";
+  // Uploaded IDs belong to one source, even if the runner changes later.
+  const crossSource = attachments.length > 0 && source !== attachmentSource;
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (locked.current || uploading || !chosen || refreshingModels) return;
@@ -309,7 +309,7 @@ export function CreateAgent({
           <select
             name="folder"
             aria-label="Project"
-            disabled={busy}
+            disabled={busy || uploading}
             value={
               availableFolders.some((item) => item.id === folderChoice)
                 ? folderChoice
@@ -340,7 +340,7 @@ export function CreateAgent({
               <button
                 type="button"
                 key={p}
-                disabled={busy}
+                disabled={busy || uploading}
                 className={provider === p ? "selected" : ""}
                 aria-pressed={provider === p}
                 onClick={() => {
@@ -358,7 +358,7 @@ export function CreateAgent({
             <label>
               Run on
               <select
-                disabled={busy}
+                disabled={busy || uploading}
                 value={connectionKey(selected)}
                 onChange={(e) => {
                   if (e.target.value.startsWith("setup:")) {
@@ -431,7 +431,7 @@ export function CreateAgent({
                 </p>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || uploading}
                   onClick={() => {
                     setCatalog({ connectionId: nativeConnection });
                     setCatalogRevision((revision) => revision + 1);
@@ -504,7 +504,7 @@ export function CreateAgent({
               placeholder={loadingName ? "Choosing a name…" : "Choose a name"}
               pattern="[a-zA-Z][a-zA-Z0-9-]{2,31}"
               maxLength={32}
-              disabled={busy}
+              disabled={busy || uploading}
             />
           </div>
         </label>
@@ -517,7 +517,7 @@ export function CreateAgent({
               aria-label="Agent instructions"
               rows={3}
               maxLength={12000}
-              disabled={busy}
+              disabled={busy || uploading}
               aria-describedby={instructionsHint}
               placeholder="Research carefully, cite sources, and keep answers concise."
             />
@@ -535,7 +535,7 @@ export function CreateAgent({
             rows={3}
             maxLength={30000}
             required={attachments.length > 0}
-            disabled={busy}
+            disabled={busy || uploading}
             value={initialPrompt}
             onChange={(e) => setInitialPrompt(e.target.value)}
             aria-describedby={promptHint}
@@ -545,19 +545,24 @@ export function CreateAgent({
         <div className="initial-prompt-attachments">
           <UploadButton
             menu
-            folderId={folderChoice}
+            sourceId={source}
+            folderId={availableFolders.some((folder) => folder.id === folderChoice) ? folderChoice : undefined}
             disabled={busy || crossSource}
             remaining={MAX_MESSAGE_FILES - attachments.length}
             onBusy={setUploading}
-            onUploaded={(file) => setAttachments((files) => [...files, file])}
+            onUploaded={(file) => {
+              setAttachmentSource(source);
+              setAttachments((files) => [...files, file]);
+            }}
           />
           <span className="field-hint">
             {crossSource
-              ? `File attachments are available for agents on ${currentSourceName}.`
+              ? `These files belong to ${currentSourceName}. Remove them or select that runtime to continue.`
               : "Add photos or files to your first message"}
           </span>
         </div>
         <AttachmentList
+          sourceId={attachmentSource}
           files={attachments}
           onRemove={
             busy || uploading
@@ -593,7 +598,7 @@ export function CreateAgent({
             !chosen ||
             !name.trim() ||
             (!!attachments.length && !initialPrompt.trim()) ||
-            (!!source && !!attachments.length)
+            crossSource
           }
         >
           {busy

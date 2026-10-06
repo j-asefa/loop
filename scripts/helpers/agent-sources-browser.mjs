@@ -155,6 +155,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       next: null,
       summary: { needs: 0, working: 0, queued: 0, later_due: 0 },
     });
+  const uploads = [];
+  const creations = [];
   const detail = async (route) => {
     const path = new URL(route.request().url()).pathname;
     const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
@@ -178,6 +180,24 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         folders: [],
         teams: [],
       });
+    if (match[2] === "uploads") {
+      const file = {
+        id: `uploaded-${uploads.length}`,
+        objectId: `object-${uploads.length}`,
+        name: `attachment-${uploads.length}.txt`,
+        mime: "text/plain",
+        size: 5,
+      };
+      uploads.push({ source: decodeURIComponent(match[1]), file });
+      return fulfill(route, file);
+    }
+    if (match[2].startsWith("objects/"))
+      return route.fulfill({ contentType: "text/plain", body: "hello" });
+    if (match[2] === "agents" && route.request().method() === "POST") {
+      creations.push({ source: decodeURIComponent(match[1]), ...route.request().postDataJSON() });
+      // Keep the form open to test retries without dispatching a real run.
+      return unavailable(route);
+    }
     if (match[2] === "runs") return fulfill(route, []);
     if (match[2] === "inbox")
       return fulfill(route, {
@@ -317,6 +337,32 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await expect(destinations).toContainText("Docker · Alpha");
     await expect(destinations).toContainText("Cloud · Beta");
     await expect(destinations).toContainText("This laptop");
+    const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
+    const dockerRunner = `${sources[0].id}:remote-connection-0`;
+    await destinations.selectOption(dockerRunner);
+    await sheet.getByLabel("Unique name").fill("docker-files");
+    await sheet.getByLabel("Initial prompt", { exact: true }).fill("Read these files");
+    await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeEnabled();
+    await sheet.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "brief.txt", mimeType: "text/plain", buffer: Buffer.from("hello"),
+    });
+    await expect(sheet.getByRole("list", { name: "Attached files" })).toContainText("attachment-0.txt");
+    assert.equal(uploads[0].source, sources[0].id);
+    await sheet.getByRole("button", { name: "Preview attachment-0.txt" }).click();
+    await expect(page.locator(".file-preview-content pre")).toHaveText("hello");
+    await page.locator("dialog[open]").last().getByRole("button", { name: "Close", exact: true }).click();
+    await destinations.selectOption("laptop:laptop-connection");
+    await expect(sheet.getByRole("button", { name: "Create & start" })).toBeDisabled();
+    await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeDisabled();
+    await destinations.selectOption(dockerRunner);
+    await sheet.getByRole("button", { name: "Create & start" }).click();
+    await expect(sheet.getByRole("alert")).toContainText("Fixture connection interrupted");
+    assert.deepEqual(creations[0].attachmentIds, [uploads[0].file.id]);
+    assert.equal(creations[0].source, sources[0].id);
+    await sheet.getByRole("button", { name: "Create & start" }).click();
+    await expect.poll(() => creations.length).toBe(2);
+    assert.equal(creations[0].idempotencyKey, creations[1].idempotencyKey);
+
     // On a Docker source page, the laptop's empty source id still means the
     // laptop: opening its card leaves the Docker source.
     const dockerPage = new URL(workspaceUrl);
