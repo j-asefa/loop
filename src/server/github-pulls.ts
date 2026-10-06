@@ -55,6 +55,7 @@ const NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const BODY_CHARS = 60_000;
 const COMMENT_CHARS = 20_000;
+const COMMIT_MESSAGE_CHARS = 4_000;
 const PATCH_CHARS = 100_000;
 const MAX_FILES = 300;
 const MAX_THREADS = 500;
@@ -121,6 +122,13 @@ const ITEM = `
 
 const text = (value: unknown, max = 300) =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+const commitMessage = (value: unknown) => {
+  const message = text(value, COMMIT_MESSAGE_CHARS + 1);
+  if (!message) return "Untitled commit";
+  return message.length > COMMIT_MESSAGE_CHARS
+    ? message.slice(0, COMMIT_MESSAGE_CHARS) + "\n\n[… shortened; read the rest on GitHub]"
+    : message;
+};
 const count = (value: unknown) =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const login = (value: any) => text(value?.login, 39);
@@ -352,8 +360,9 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
             ${ITEM}
             body headRefOid mergeable mergeStateStatus viewerDidAuthor
             commitCount: commits(first: 1) { totalCount }
+            commitHistory: commits(last: 100) { nodes { commit { oid message committedDate author { name user { login } } } } }
             reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } ... on Bot { login } } } }
-            latestReviews(first: 30) { nodes { author { login } authorAssociation state body submittedAt url } }
+            reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount nodes { author { login } authorAssociation state body submittedAt url } }
             reviewThreads(first: 100) { ${THREADS} }
             comments(last: 50) { totalCount nodes { author { login } authorAssociation body createdAt url } }
             checkCommit: commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
@@ -411,6 +420,22 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
   const contexts = nodes(
     node.checkCommit?.nodes?.[0]?.commit?.statusCheckRollup?.contexts,
   );
+  // GitHub files a blank COMMENTED review each time someone leaves inline
+  // comments from the Files tab; those comments already show under review
+  // threads, so only reviews with something to say are listed and counted.
+  const reviewNodes = nodes(node.reviews);
+  const reviews = reviewNodes
+    .map((r: any) => {
+      const c = comment(r);
+      const state = text(r?.state, 40);
+      return c && state && state !== "PENDING" && (c.body.trim() || state !== "COMMENTED")
+        ? { ...c, state: state.toLowerCase() }
+        : undefined;
+    })
+    .filter((r: (PullComment & { state: string }) | undefined): r is PullComment & { state: string } => !!r);
+  // GitHub's total includes blank inline-comment reviews. Older reviews may
+  // also be blank, so their displayable count cannot be inferred from it.
+  const reviewsOmitted = (count(node.reviews?.totalCount) ?? 0) > reviewNodes.length;
   const body = markdown(node.body);
   return {
     ...item,
@@ -422,6 +447,19 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
     mergeState: text(node.mergeStateStatus, 40)?.toLowerCase(),
     conflicts: node.mergeable === "CONFLICTING",
     commits: count(node.commitCount?.totalCount),
+    commitHistory: nodes(node.commitHistory)
+      .flatMap((entry: any) => {
+        const commit = entry?.commit;
+        const sha = text(commit?.oid, 40);
+        if (!sha || !SHA.test(sha)) return [];
+        return [{
+          sha,
+          message: commitMessage(commit.message),
+          author: login(commit.author?.user) || text(commit.author?.name, 100),
+          committedAt: text(commit.committedDate, 40),
+          url: `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/commit/${sha}`,
+        }];
+      }),
     requested: nodes(node.reviewRequests)
       .map((r: any) =>
         r?.requestedReviewer?.__typename === "Team"
@@ -430,15 +468,9 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
       )
       .filter((r: unknown): r is string => typeof r === "string")
       .slice(0, 20),
-    reviews: nodes(node.latestReviews)
-      .map((r: any) => {
-        const c = comment(r);
-        const state = text(r?.state, 40);
-        return c && state && state !== "PENDING"
-          ? { ...c, state: state.toLowerCase() }
-          : undefined;
-      })
-      .filter(Boolean),
+    reviews,
+    reviewsTotal: reviews.length,
+    reviewsOmitted,
     checkRuns: contexts
       .map(checkRun)
       .filter((c: PullCheck | undefined): c is PullCheck => !!c),

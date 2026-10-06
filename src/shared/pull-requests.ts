@@ -71,8 +71,19 @@ export type PullDetail = PullListItem & {
   mergeState?: string;
   conflicts: boolean;
   commits?: number;
+  commitHistory: {
+    sha: string;
+    message: string;
+    author?: string;
+    committedAt?: string;
+    url: string;
+  }[];
   requested: string[];
   reviews: (PullComment & { state: string })[];
+  /** Reviews displayed on this page, excluding blank inline-comment reviews. */
+  reviewsTotal: number;
+  /** GitHub has older reviews beyond the latest 50, with an unknown displayable count. */
+  reviewsOmitted: boolean;
   checkRuns: PullCheck[];
   threads: {
     id: string;

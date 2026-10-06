@@ -7625,6 +7625,14 @@ html:has(.sheet.side-panel[open]) {
   padding: 6px 12px;
   font-size: 13px;
 }
+.pull-commit-title {
+  flex: 1 1 calc(100% - 30px);
+  font-weight: 600;
+}
+.pull-commit-meta {
+  margin-left: 18px;
+  font-size: 12px;
+}
 .pull-file > .field-hint {
   margin: 0;
   padding: 0 12px 12px;

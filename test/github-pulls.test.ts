@@ -153,7 +153,7 @@ const restoreGithub = withGithubFixture(async (url, init) => {
                   { requestedReviewer: { __typename: "Team", slug: "platform" } },
                 ],
               },
-              latestReviews: {
+              reviews: {
                 nodes: [
                   {
                     author: { login: "lee" },
@@ -388,6 +388,125 @@ it("reads one pull request for review, keeping only safe links", async () => {
   expect(data.threads[0].comments[0].member).toBe(false);
   expect(data.threads[0].comments[0].url).toBeUndefined();
   expect(github.graphql[0].variables).toEqual({ owner: "acme", name: "api", number: 42 });
+});
+
+it("reads submitted review comments even when latestReviews is empty", async () => {
+  github.detail = {
+    viewer: { login: "alice-gh" },
+    repository: {
+      viewerPermission: "READ",
+      pullRequest: pullNode({
+        headRefOid: HEAD,
+        latestReviews: { nodes: [] },
+        reviews: {
+          totalCount: 53,
+          nodes: [
+            { author: { login: "sam" }, state: "COMMENTED", body: "First review", submittedAt: "2026-10-02T09:00:00Z" },
+            { author: { login: "sam" }, state: "COMMENTED", body: "Re-review", submittedAt: "2026-10-02T10:00:00Z" },
+            { author: { login: "sam" }, state: "COMMENTED", body: "" },
+            { author: { login: "review-bot" }, state: "DISMISSED", body: "Earlier feedback" },
+            { author: { login: "lee" }, state: "APPROVED", body: "" },
+            { state: "PENDING", body: "Private draft" },
+          ],
+        },
+        comments: { totalCount: 0, nodes: [] },
+        reviewThreads: { totalCount: 0, nodes: [] },
+      }),
+    },
+  };
+  const { status, data } = await api(PR);
+  expect(status).toBe(200);
+  expect(data.reviews.map((r: any) => [r.state, r.body])).toEqual([
+    ["commented", "First review"],
+    ["commented", "Re-review"],
+    ["dismissed", "Earlier feedback"],
+    ["approved", ""],
+  ]);
+  // GitHub's total includes reviews whose visible count we cannot infer.
+  expect(data.reviewsTotal).toBe(4);
+  expect(data.reviewsOmitted).toBe(true);
+  expect(data.conversationTotal).toBe(0);
+  expect(github.graphql[0].query).toContain("reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED])");
+  expect(github.graphql[0].query).not.toContain("latestReviews");
+});
+
+it("hides the blank reviews GitHub files for inline comments", async () => {
+  github.detail = {
+    viewer: { login: "alice-gh" },
+    repository: {
+      viewerPermission: "READ",
+      pullRequest: pullNode({
+        headRefOid: HEAD,
+        reviews: {
+          totalCount: 3,
+          nodes: [
+            { author: { login: "sam" }, state: "COMMENTED", body: "" },
+            { author: { login: "sam" }, state: "COMMENTED", body: "  \n" },
+            { author: { login: "sam" }, state: "CHANGES_REQUESTED", body: "Needs a test" },
+          ],
+        },
+      }),
+    },
+  };
+  const { status, data } = await api(PR);
+  expect(status).toBe(200);
+  expect(data.reviews.map((r: any) => r.body)).toEqual(["Needs a test"]);
+  expect(data.reviewsTotal).toBe(1);
+  expect(data.reviewsOmitted).toBe(false);
+});
+
+it("does not count unseen reviews when the latest page contains only blank inline reviews", async () => {
+  github.detail = {
+    viewer: { login: "alice-gh" },
+    repository: { pullRequest: pullNode({
+      headRefOid: HEAD,
+      reviews: {
+        totalCount: 51,
+        nodes: Array.from({ length: 50 }, () => ({ state: "COMMENTED", body: "" })),
+      },
+    }) },
+  };
+  const { status, data } = await api(PR);
+  expect(status).toBe(200);
+  expect(data.reviews).toEqual([]);
+  expect(data.reviewsTotal).toBe(0);
+  expect(data.reviewsOmitted).toBe(true);
+});
+
+it("reads commit messages and authors with safe links and a bounded history", async () => {
+  github.detail = {
+    viewer: { login: "alice-gh" },
+    repository: { pullRequest: pullNode({
+      headRefOid: HEAD,
+      commitCount: { totalCount: 120 },
+      commitHistory: { nodes: [
+        { commit: { oid: HEAD, message: "Subject\n\nFull commit message", committedDate: "2026-10-02T10:00:00Z", author: { name: "Sam", user: { login: "sam" } } } },
+        { commit: { oid: NEW_HEAD, message: "Offline author", author: { name: "Offline" } } },
+        { commit: { oid: "javascript:alert(1)", message: "Invalid commit" } },
+      ] },
+    }) },
+  };
+  const { status, data } = await api(PR);
+  expect(status).toBe(200);
+  expect(data.commits).toBe(120);
+  expect(data.commitHistory).toEqual([
+    { sha: HEAD, message: "Subject\n\nFull commit message", author: "sam", committedAt: "2026-10-02T10:00:00Z", url: "https://github.com/acme/api/commit/" + HEAD },
+    { sha: NEW_HEAD, message: "Offline author", author: "Offline", url: "https://github.com/acme/api/commit/" + NEW_HEAD },
+  ]);
+  expect(github.graphql[0].query).toContain("commitHistory: commits(last: 100)");
+});
+
+it("marks long commit messages as shortened", async () => {
+  github.detail = {
+    viewer: { login: "alice-gh" },
+    repository: { pullRequest: pullNode({
+      headRefOid: HEAD,
+      commitHistory: { nodes: [{ commit: { oid: HEAD, message: "a".repeat(10_000) } }] },
+    }) },
+  };
+  const { data } = await api(PR);
+  expect(data.commitHistory[0].message).toHaveLength(4_000 + "\n\n[… shortened; read the rest on GitHub]".length);
+  expect(data.commitHistory[0].message).toMatch(/\[… shortened; read the rest on GitHub\]$/);
 });
 
 it("refuses a pull request GitHub answered for a different one", async () => {

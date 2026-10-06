@@ -70,16 +70,27 @@ export async function fakeGithub() {
         changedFiles: 4,
         viewerDidAuthor: false,
         commitCount: { totalCount: 4 },
+        commitHistory: { nodes: [
+          { commit: { oid: state.head, message: "Add rate limiter\n\nHandle forwarded addresses safely.", committedDate: ago(1), author: { name: "Sam Rivera", user: { login: "sam-rivera" } } } },
+        ] },
         reviewRequests: {
           nodes: [{ requestedReviewer: { __typename: "Team", slug: "platform" } }],
         },
-        latestReviews: {
+        latestReviews: { nodes: [] },
+        reviews: {
+          totalCount: 3,
           nodes: [
+            {
+              ...comment("fixture-user", "Review comment from the PR author.", 1),
+              state: "COMMENTED",
+              submittedAt: ago(1),
+            },
             {
               ...comment("lee-park", "Needs a test for the 429 path.", 2),
               state: "CHANGES_REQUESTED",
               submittedAt: ago(2),
             },
+            { ...comment("lee-park", "", 2), state: "COMMENTED", submittedAt: ago(2) },
           ],
         },
         reviewThreads: {

@@ -396,6 +396,29 @@ function PullRequestInbox({
   );
 }
 
+function Reviews({ pr }: { pr: PullDetail }) {
+  return (
+    <section className="pull-section">
+      <h3>Reviews</h3>
+      {pr.reviewsOmitted && pr.reviews.length > 0 && (
+        <p className="pr-card-note">
+          Showing {pr.reviews.length} reviews from the latest 50. Older reviews may be available.{" "}
+          <a href={pr.url} target="_blank" rel="noopener noreferrer">
+            Read them all on GitHub
+          </a>.
+        </p>
+      )}
+      {pr.reviews.length ? (
+        pr.reviews.map((r, i) => <Comment key={i} comment={r} state={r.state} />)
+      ) : (
+        <p className="muted">
+          {pr.reviewsOmitted ? "No reviews shown from the latest 50. Older reviews may be available on GitHub." : "No reviews yet."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Comment({ comment, state }: { comment: PullComment; state?: string }) {
   return (
     <article className="pull-comment">
@@ -610,7 +633,7 @@ function PullRequestDetail({
   const [pr, setPr] = useState<PullDetail | null>(null);
   const [error, setError] = useState<{ message: string; status?: number }>();
   const [busy, setBusy] = useState(false);
-  const [page, setPage] = useState<"overview" | "files" | "conversation">(
+  const [page, setPage] = useState<"overview" | "files" | "commits" | "conversation">(
     "overview",
   );
   const [action, setAction] = useState<Action | null>(null);
@@ -788,9 +811,10 @@ function PullRequestDetail({
           [
             ["overview", "Overview"],
             ["files", `Files${pr.changedFiles !== undefined ? ` (${pr.changedFiles})` : ""}`],
+            ["commits", `Commits${pr.commits !== undefined ? ` (${pr.commits})` : ""}`],
             [
               "conversation",
-              `Conversation (${pr.conversationTotal + pr.threadsTotal})`,
+              `Conversation (${pr.conversationTotal + pr.threadsTotal + pr.reviewsTotal})`,
             ],
           ] as const
         ).map(([value, label]) => (
@@ -863,16 +887,7 @@ function PullRequestDetail({
               <p className="muted">No checks reported on the head commit.</p>
             )}
           </section>
-          <section className="pull-section">
-            <h3>Reviews</h3>
-            {pr.reviews.length ? (
-              pr.reviews.map((r, i) => (
-                <Comment key={i} comment={r} state={r.state} />
-              ))
-            ) : (
-              <p className="muted">No reviews yet.</p>
-            )}
-          </section>
+          <Reviews pr={pr} />
         </>
       )}
       {page === "files" && (
@@ -883,8 +898,40 @@ function PullRequestDetail({
           headSha={pr.headSha}
         />
       )}
+      {page === "commits" && (
+        <section className="pull-section">
+          <h3>Commits</h3>
+          {(pr.commits ?? 0) > pr.commitHistory.length && (
+            <p className="pr-card-note">
+              Showing the latest {pr.commitHistory.length} of {pr.commits} commits.{" "}
+              <a href={pr.url + "/commits"} target="_blank" rel="noopener noreferrer">
+                Read them all on GitHub
+              </a>.
+            </p>
+          )}
+          {pr.commitHistory.length ? pr.commitHistory.map((commit) => (
+            <details key={commit.sha} className="pull-file">
+              <summary>
+                <span className="pull-commit-title">{commit.message.split("\n")[0]}</span>
+                <span className="pull-commit-meta muted">
+                  {commit.author || "Unknown author"} · {at(commit.committedAt)} ·{" "}
+                  <a href={commit.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
+                    <code>{commit.sha.slice(0, 7)}</code> View commit on GitHub
+                  </a>
+                </span>
+              </summary>
+              {commit.message.includes("\n") && (
+                <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {commit.message.slice(commit.message.indexOf("\n") + 1).trim()}
+                </p>
+              )}
+            </details>
+          )) : <p className="muted">No commits shown.</p>}
+        </section>
+      )}
       {page === "conversation" && (
         <>
+          <Reviews pr={pr} />
           {pr.threads.length > 0 && (
             <section className="pull-section">
               <h3>Review threads</h3>

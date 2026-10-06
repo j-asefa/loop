@@ -178,7 +178,19 @@ try {
       ).toHaveText(FIRST_HEAD.slice(0, 7));
       await expect(page.getByText("// Pushed after the first read.")).toHaveCount(0);
       await expect(page.locator(".pull-diff-line.add").first()).toBeVisible();
+      await page.getByRole("button", { name: "Commits (4)", exact: true }).click();
+      await expect(page.locator(".pull-commit-meta")).toContainText("sam-rivera");
+      await expect(page.getByRole("link", { name: /View commit on GitHub/ })).toBeVisible();
+      await page.locator("details").filter({ hasText: "Add rate limiter" }).locator(".pull-commit-title").click();
+      await expect(page.getByText("Handle forwarded addresses safely.", { exact: false })).toBeVisible();
+      await expect(page.getByRole("link", { name: /View commit on GitHub/ })).toHaveAttribute("href", `https://github.com/acme/api/commit/${FIRST_HEAD}`);
+      await expect(page.getByText("Showing the latest 1 of 4 commits.", { exact: false })).toBeVisible();
+      await capture("commits");
       await page.getByRole("button", { name: /^Conversation/ }).click();
+      await expect(page.getByRole("button", { name: "Conversation (6)", exact: true })).toBeVisible();
+      await expect(page.getByText("No comment.")).toHaveCount(0);
+      await expect(page.getByText("Review comment from the PR author.")).toBeVisible();
+      await expect(page.getByText("Needs a test for the 429 path.")).toBeVisible();
       await expect(page.getByText("Should this read the forwarded address?")).toBeVisible();
       await expect(
         page.locator(".pull-section").filter({ hasText: "Comments" }).getByText("Outside the repository"),
