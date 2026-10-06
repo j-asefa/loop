@@ -20,6 +20,7 @@ import { atomic, privateDir } from "./state.js";
 import { nativeHelperInstall } from "./harness-upgrades.js";
 import { own, killOwned } from "./processes.js";
 import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
+import { LOCAL_ENVIRONMENT_NAMES } from "./server/execution-location.js";
 // @ts-expect-error Shipped plain-Node provisioning utility.
 import { provisionOpencode } from "../native/provision-opencode.mjs";
 const exec = promisify(execFile);
@@ -159,7 +160,7 @@ export class LocalRuntime {
   private failure?: Error;
   private state: string;
   private envs: {
-    kind: string;
+    kind: "native" | "docker";
     dir: string;
     settings: any;
     identity: Identity;
@@ -266,9 +267,9 @@ export class LocalRuntime {
         "No selected managed native runtime is available. Resolve the runtime setup error or select another provider.",
       );
     // An unavailable native runtime must not disable its baked Docker sibling.
-    const executionKinds =
+    const executionKinds: ("native" | "docker")[] =
       this.selection.execution === "both"
-        ? [...(nativeProviders.length ? ["native"] : []), "docker"]
+        ? [...(nativeProviders.length ? (["native"] as const) : []), "docker"]
         : [this.selection.execution];
     this.hubBinary = await this.buildHapi(this.root);
     const ca = join(this.state, "ca");
@@ -497,7 +498,7 @@ export class LocalRuntime {
     ).run(OWNER);
     for (const e of this.envs) {
       const host = provisionEnvironment(OWNER, {
-        name: e.kind === "native" ? "This laptop" : "Docker",
+        name: LOCAL_ENVIRONMENT_NAMES[e.kind],
         url: `https://127.0.0.1:${e.workerPort}`,
         ...e.identity,
         certificateFingerprint: new X509Certificate(

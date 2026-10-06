@@ -62,15 +62,46 @@ export async function conversationLiveSmoke(page, capture) {
       )
       .get(conversation.run).content;
     assert.ok(feedPreview.trim(), "The running fixture has a result preview");
-    // A running thread is under Working, not Done.
-    await page.goto(fixture.base + "/?filter=working", {
-      waitUntil: "networkidle",
-    });
+    const connection = fixture.db
+      .prepare("SELECT c.id,c.metadata FROM agents a JOIN connections c ON c.id=a.connection_id WHERE a.id=?")
+      .get(agent);
+    const setEnvironment = (location) => fixture.db
+      .prepare("UPDATE connections SET metadata=json_set(metadata,'$.location',?) WHERE id=?")
+      .run(location, connection.id);
+    const workingCard = page.locator(".inbox-card").filter({ hasText: conversation.title });
+    // The badge fixture changes a connection other fixture agents share;
+    // restore it even when an assertion fails.
+    try {
+      setEnvironment("laptop");
+      fixture.db.prepare(
+        "UPDATE artifacts SET content='' WHERE id=(SELECT artifact_id FROM agent_checkpoints WHERE run_id=?)",
+      ).run(conversation.run);
+      // A running thread is under Working, not Done.
+      await page.goto(fixture.base + "/?filter=working", {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard.locator(".inbox-awaiting-update")).toContainText("Waiting for agent update");
+      await expect(workingCard.locator(".inbox-you")).toHaveCount(0);
+      await expect(workingCard.locator(".agent-environment.laptop")).toHaveText("This laptop");
+      const laptopColor = await workingCard.locator(".agent-environment").evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+      setEnvironment("docker");
+      await page.reload();
+      await expect(workingCard.locator(".agent-environment.docker")).toHaveText("Docker");
+      const dockerColor = await workingCard.locator(".agent-environment").evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+      assert.notEqual(dockerColor, laptopColor, "Laptop and Docker badges use distinct colors");
+    } finally {
+      fixture.db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(connection.metadata, connection.id);
+      fixture.db.prepare(
+        "UPDATE artifacts SET content=? WHERE id=(SELECT artifact_id FROM agent_checkpoints WHERE run_id=?)",
+      ).run(feedPreview, conversation.run);
+    }
+    await page.reload();
     await expect(
-      page
-        .locator(".inbox-card")
-        .filter({ hasText: conversation.title })
-        .locator(".live-preview"),
+      workingCard.locator(".live-preview"),
     ).toContainText(feedPreview.replaceAll("**", ""));
     await page.goto(`${fixture.base}/?conversation=${conversation.id}`);
     const transcript = page.locator(".conversation-sheet .messages");

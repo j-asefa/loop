@@ -4024,6 +4024,33 @@ fieldset {
 .card-model {
   overflow-wrap: anywhere;
 }
+.agent-environment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.agent-environment.laptop {
+  color: #234d91;
+  background: #e7efff;
+}
+.agent-environment.docker {
+  color: #713c8e;
+  background: #f2e8fa;
+}
+[data-theme="dark"] .agent-environment.laptop {
+  color: #b8d0ff;
+  background: #253855;
+}
+[data-theme="dark"] .agent-environment.docker {
+  color: #e3c3fa;
+  background: #3e2b4d;
+}
 .card-byline time {
   white-space: nowrap;
 }

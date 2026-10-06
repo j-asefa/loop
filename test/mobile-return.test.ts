@@ -290,18 +290,33 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     (i: any) => i.conversation_id === followUp,
   );
   expect(workingCard).toMatchObject({
-    last_message: { role: "user", content: "Second" },
+    last_message: null,
     run: { id: second, state: "running" },
   });
-  expect(workingCard.last_message.automation).toBeUndefined();
-  // A GitHub update Loop queued says so, so the card doesn't call it yours.
+  // A GitHub update is still input, not an agent preview.
   db.prepare(
     "UPDATE messages SET metadata=json_set(metadata,'$.automation',json('{\"kind\":\"github_watch\",\"watchId\":\"w\"}')) WHERE run_id=? AND role='user'",
   ).run(second);
+  const triggered = (await items("working")).find(
+    (i: any) => i.conversation_id === followUp,
+  );
+  expect(triggered.last_message).toBeNull();
+  // The hidden prompt still says who started the work.
+  expect(triggered.run).toMatchObject({ automation: "github_watch" });
+  // A saved progress row is not the agent's output.
+  const progress = message(w.owner, followUp, "assistant", "Status ping", second);
+  db.prepare(
+    "UPDATE messages SET metadata=json_set(metadata,'$.progress',1) WHERE id=?",
+  ).run(progress);
   expect(
     (await items("working")).find((i: any) => i.conversation_id === followUp)
       .last_message,
-  ).toMatchObject({ role: "user", automation: "github_watch" });
+  ).toBeNull();
+  message(w.owner, followUp, "assistant", "Checking the follow-up now.", second);
+  expect(
+    (await items("working")).find((i: any) => i.conversation_id === followUp)
+      .last_message,
+  ).toMatchObject({ role: "assistant", content: "Checking the follow-up now." });
   // A failed follow-up needs you, and the earlier answer is still done.
   db.prepare("UPDATE runs SET state='failed',worker_id=NULL WHERE id=?").run(second);
   expect(await filter("needs")).toContain(followUp);
@@ -402,7 +417,14 @@ it("shows a working agent's output so far on its feed card", async () => {
   const w = workspaceFor(),
     a = w.agent(),
     cid = conversation(w.owner, a.id, "Live work");
-  const live = run(w.owner, a.id, cid, "running");
+  const connectionId = (
+    db.prepare("SELECT connection_id FROM agents WHERE id=?").get(a.id) as {
+      connection_id: string;
+    }
+  ).connection_id;
+  const live = run(w.owner, a.id, cid, "running", {
+    payload: { connectionId, model: "run-model" },
+  });
   db.prepare("UPDATE runs SET worker_id='w' WHERE id=?").run(live);
   message(w.owner, cid, "user", "Review the PR", live);
   // The answer placeholder is empty while the agent works.
@@ -412,6 +434,11 @@ it("shows a working agent's output so far on its feed card", async () => {
       (i: any) => i.conversation_id === cid,
     );
   expect((await card()).live_preview).toBeNull();
+  expect((await card()).last_message).toBeNull();
+  expect((await card()).run.connection_id).toBe(connectionId);
+  expect((await card()).run.automation).toBeUndefined();
+  // The card's model badge uses the run's model, like its environment badge.
+  expect((await card()).run.model).toBe("run-model");
   recordTrace(owned("runs", live, w.owner) as any, "update-1", {
     kind: "message",
     title: "Agent update",

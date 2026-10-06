@@ -59,6 +59,50 @@ export function agentModelName(
   );
 }
 
+export type ExecutionLocation = "laptop" | "docker";
+export const executionLocationLabels: Record<ExecutionLocation, string> = {
+  laptop: "This laptop",
+  docker: "Docker",
+};
+
+/**
+ * Where a connection runs, from the location the server recorded when it was
+ * registered. This is saved information, not a live host check.
+ */
+export function connectionLocation(connection?: Connection): {
+  kind: ExecutionLocation | null;
+  label: string;
+} {
+  const parsed = parse<unknown>(connection?.metadata, {});
+  const metadata = (
+    parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+  ) as Record<string, unknown>;
+  const kind =
+    metadata.location === "laptop" || metadata.location === "docker"
+      ? metadata.location
+      : null;
+  if (kind) return { kind, label: executionLocationLabels[kind] };
+  if (metadata.backend === "hapi")
+    return {
+      kind,
+      label:
+        typeof metadata.environmentName === "string"
+          ? metadata.environmentName
+          : "Managed environment",
+    };
+  return {
+    kind,
+    label: metadata.loopHarness ? "This computer" : "Server connection",
+  };
+}
+
+/** Badge kind for each connection with a known local location. */
+export function connectionEnvironments(connections: Connection[]) {
+  return new Map(
+    connections.map((c) => [c.id, connectionLocation(c).kind] as const),
+  );
+}
+
 export function runModelName(
   snapshot: {
     model?: unknown;

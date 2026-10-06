@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { automationLabel } from "../shared/agent-mail";
 import {
   AlarmClock,
@@ -8,6 +8,8 @@ import {
   MoreHorizontal,
   ArrowUp,
   FileText,
+  Container,
+  Laptop,
   MessageCircleQuestion,
   MessageSquare,
   ShieldCheck,
@@ -24,7 +26,13 @@ import {
 import { api } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Avatar, RichText, Sheet } from "./components";
-import { agentModelName } from "./modelChoices";
+import {
+  agentModelName,
+  connectionEnvironments,
+  executionLocationLabels,
+  runModelName,
+  type ExecutionLocation,
+} from "./modelChoices";
 import type { Agent, Connection } from "../shared/types";
 import {
   ActionSheet,
@@ -64,6 +72,7 @@ export type InboxItem = {
   conversation_id: string;
   title: string;
   agent_id: string | null;
+  connection_id: string | null;
   agent_name: string | null;
   provider: string | null;
   project_id: string | null;
@@ -85,6 +94,11 @@ export type InboxItem = {
     state: string;
     error: string | null;
     input: string;
+    connection_id: string | null;
+    automation?: string;
+    automation_from?: string | null;
+    model: string | null;
+    resolved_model: string | null;
     created_at: number;
     updated_at: number;
     queue_position: number | null;
@@ -152,10 +166,13 @@ const AWAY_AFTER = 30 * 60_000;
  * A thread in the Feed, shown at the same size as a result card: agent
  * byline, status and project, the thread title and the latest message.
  */
+// Run states whose prompt the Feed hides until the agent writes something.
+const awaitingStates = ["running", "pausing", "waiting_children"];
 function InboxCard({
   item,
   agent,
   model,
+  environment,
   onOpen,
   onReply,
   onNext,
@@ -167,6 +184,7 @@ function InboxCard({
   item: InboxItem;
   agent?: Agent;
   model?: string;
+  environment?: ExecutionLocation | null;
   onOpen: () => void;
   onReply: () => void;
   /** Open exactly where the next action is. */
@@ -232,6 +250,16 @@ function InboxCard({
               <strong>{name ? "@" + name : "Your workspace"}</strong>
               <span className="subline">
                 {model && <span className="card-model">{model}</span>}
+                {environment && (
+                  <span className={`agent-environment ${environment}`}>
+                    {environment === "laptop" ? (
+                      <Laptop size={12} aria-hidden="true" />
+                    ) : (
+                      <Container size={12} aria-hidden="true" />
+                    )}
+                    {executionLocationLabels[environment]}
+                  </span>
+                )}
                 <time dateTime={new Date(item.last_activity_at).toISOString()}>
                   {relativeTime(item.last_activity_at)}
                 </time>
@@ -285,6 +313,22 @@ function InboxCard({
             <div className="preview live-preview">
               <RichText content={item.live_preview} compact />
             </div>
+          ) : item.run &&
+            awaitingStates.includes(item.run.state) &&
+            item.last_message?.role !== "assistant" ? (
+            // The server hides the prompt while its run works; say whether
+            // the agent has written anything yet, and who started the work.
+            <p className="field-hint inbox-detail inbox-awaiting-update">
+              {item.run.automation
+                ? automationLabel(
+                    item.run.automation,
+                    item.run.automation_from,
+                  ) + " · "
+                : ""}
+              {status.tone === "working"
+                ? "Waiting for agent update…"
+                : "No agent update yet."}
+            </p>
           ) : (
             !!(
               item.last_message?.content ?? item.last_message?.preview
@@ -307,7 +351,7 @@ function InboxCard({
               </div>
             )
           )}
-          {!!item.last_message && (
+          {!!(item.last_message || item.run) && (
             <button className="text-button preview-open" onClick={onOpen}>
               Open thread <ArrowUpRight size={14} />
             </button>
@@ -632,6 +676,10 @@ export function Inbox({
     "inbox:" + JSON.stringify([filter, project, agent, teams]);
   // Going back shows the list as you left it while it refreshes.
   const shown = cachedView<Shown>(shownKey());
+  const environments = useMemo(
+    () => connectionEnvironments(connections || []),
+    [connections],
+  );
   const [items, setItems] = useState<InboxItem[]>(shown?.items || []);
   const [summary, setSummary] = useState<Summary | null>(
     shown?.summary || null,
@@ -949,15 +997,38 @@ export function Inbox({
           <ul className="inbox-list feed">
             {items.map((item) => {
               const agent = agents.find((a) => a.id === item.agent_id);
+              // Both badges describe the connection that ran (or will run)
+              // this thread, so an agent reconfiguration doesn't relabel it.
+              const connectionId =
+                item.run?.connection_id ||
+                item.connection_id ||
+                agent?.connection_id ||
+                null;
+              const model = !connections
+                ? undefined
+                : item.run?.model
+                  ? runModelName(
+                      {
+                        model: item.run.model,
+                        resolvedModel: item.run.resolved_model,
+                        connectionId,
+                      },
+                      connections,
+                    )
+                  : agent
+                    ? agentModelName(
+                        { connection_id: connectionId, model: agent.model },
+                        connections,
+                      )
+                    : undefined;
               return (
                 <InboxCard
                   key={item.conversation_id}
                   item={item}
                   agent={agent}
-                  model={
-                    agent && connections
-                      ? agentModelName(agent, connections)
-                      : undefined
+                  model={model}
+                  environment={
+                    connectionId ? environments.get(connectionId) : null
                   }
                   onOpen={() => onOpen(item.conversation_id)}
                   onReply={() => (onReply || onOpen)(item.conversation_id)}

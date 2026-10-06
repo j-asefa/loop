@@ -21,6 +21,7 @@ import { enabled } from "../memory.js";
 import { environmentUpgrades } from "../harness-upgrades.js";
 import { artifactDownload, localArtifact } from "./artifact-storage.js";
 import { sendHtmlPreview } from "../file-preview.js";
+import { environmentLocation } from "../execution-location.js";
 export const executionRoutes = Router();
 executionRoutes.get("/environments", (_req, res) =>
   res.json(
@@ -378,6 +379,7 @@ export async function connectProvider(
     authMode: flavor === "pi" ? "existing" : "subscription",
     billing: flavor === "pi" ? piPolicy : flavor === "claude" ? claudePolicy : billingPolicy,
     environmentName: e.name,
+    location: environmentLocation(e),
   });
   db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','connected',?,?,?) ON CONFLICT(id) DO UPDATE SET status='connected',models=excluded.models,metadata=excluded.metadata",

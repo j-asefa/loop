@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 import {
   agentModelName,
+  connectionEnvironments,
+  connectionLocation,
   modelDisplayName,
   runModelName,
 } from "../src/client/modelChoices";
@@ -68,6 +70,30 @@ it("resolves the model using the agent's own connection", () => {
   expect(
     agentModelName({ connection_id: "missing", model: "opus" }, connections),
   ).toBe("opus");
+});
+
+it("labels only connections with a recorded local location", () => {
+  const connections = [
+    { id: "laptop", metadata: JSON.stringify({ backend: "hapi", environmentName: "This laptop", location: "laptop" }) },
+    { id: "docker", metadata: JSON.stringify({ backend: "hapi", environmentName: "Docker", location: "docker" }) },
+    { id: "container", metadata: JSON.stringify({ loopHarness: "codex", location: "docker" }) },
+    // Display names alone never decide the badge.
+    { id: "named", metadata: JSON.stringify({ backend: "hapi", environmentName: "Docker" }) },
+    { id: "legacy-direct", metadata: JSON.stringify({ loopHarness: "codex" }) },
+    { id: "remote", metadata: JSON.stringify({ backend: "hapi", environmentName: "Remote runner" }) },
+  ] as Connection[];
+  const kinds = connectionEnvironments(connections);
+  expect(kinds.get("laptop")).toBe("laptop");
+  expect(kinds.get("docker")).toBe("docker");
+  expect(kinds.get("container")).toBe("docker");
+  expect(kinds.get("named")).toBeNull();
+  expect(kinds.get("legacy-direct")).toBeNull();
+  expect(kinds.get("remote")).toBeNull();
+  expect(kinds.get("missing")).toBeUndefined();
+  // Settings and Feed use the same wording for a recorded location.
+  expect(connectionLocation(connections[2]).label).toBe("Docker");
+  expect(connectionLocation(connections[4]).label).toBe("This computer");
+  expect(connectionLocation(connections[5]).label).toBe("Remote runner");
 });
 
 const runConnections = [

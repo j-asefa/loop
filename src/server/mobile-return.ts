@@ -159,6 +159,7 @@ type InboxRow = {
   conversation_id: string;
   title: string;
   agent_id: string | null;
+  execution_connection_id: string | null;
   team_id: string | null;
   origin: string;
   folder_id: string | null;
@@ -174,7 +175,7 @@ type InboxRow = {
 function inboxSql(teams: boolean, folders: boolean, agent = false, history = false) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
 base AS (
-  SELECT c.id conversation_id,c.title,c.agent_id,c.team_id,c.origin,
+  SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
     ${conversationFolder("c")} folder_id,
     -- Current run: the newest active one, otherwise the newest run.
     (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
@@ -431,19 +432,10 @@ function inboxItem(
           automation_from: string | null;
         }
       | undefined;
-  const message =
-    mode === "done" && runId
-      ? (latest(
-          "AND run_id=? AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0",
-          runId,
-        ) ?? latest("AND run_id=?", runId))
-      : mode === "working" && runId
-        ? latest("AND run_id=?", runId)
-        : latest("");
   const run = runId
     ? (db
         .prepare(
-          `SELECT id,${publicState("runs")} state,error,input,created_at,updated_at FROM runs WHERE id=? AND owner_id=?`,
+          `SELECT id,${publicState("runs")} state,error,input,json_extract(payload,'$.connectionId') connection_id,json_extract(payload,'$.model') model,json_extract(payload,'$.resolvedModel') resolved_model,created_at,updated_at FROM runs WHERE id=? AND owner_id=?`,
         )
         .get(runId, owner) as
         | {
@@ -451,11 +443,39 @@ function inboxItem(
             state: string;
             error: string | null;
             input: string;
+            connection_id: string | null;
+            model: string | null;
+            resolved_model: string | null;
             created_at: number;
             updated_at: number;
           }
         | undefined)
     : undefined;
+  const message =
+    mode === "done" && runId
+      ? (latest(
+          "AND run_id=? AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0",
+          runId,
+        ) ?? latest("AND run_id=?", runId))
+      : runId &&
+          (mode === "working" ||
+            (mode === "thread" &&
+              run &&
+              ["running", "pausing", "waiting_children"].includes(run.state)))
+        ? latest(
+            "AND run_id=? AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0",
+            runId,
+          )
+        : latest("");
+  // The prompt is hidden while its run works, so keep who started it: a
+  // watched pull request or a teammate agent rather than you.
+  const trigger =
+    run && message?.role !== "user"
+      ? latest(
+          "AND run_id=? AND role='user' AND json_extract(metadata,'$.automation.kind') IS NOT NULL",
+          run.id,
+        )
+      : undefined;
   const later = row.later_id
     ? (db
         .prepare(
@@ -467,6 +487,7 @@ function inboxItem(
     conversation_id: row.conversation_id,
     title: row.title,
     agent_id: row.agent_id,
+    connection_id: row.execution_connection_id,
     agent_name: agent?.name ?? null,
     provider: agent?.provider ?? null,
     project_id: project?.id ?? null,
@@ -494,6 +515,12 @@ function inboxItem(
       ? {
           ...run,
           input: run.input.slice(0, 1000),
+          ...(trigger?.automation
+            ? {
+                automation: trigger.automation,
+                automation_from: trigger.automation_from,
+              }
+            : {}),
           queue_position: run.state === "queued" ? queuePosition(run.id) : null,
           ...(run.state === "queued"
             ? queueMoves(owner, run.id)
@@ -522,7 +549,7 @@ function inboxItem(
     // While the agent works, its card shows what it has written so far.
     live_preview:
       run &&
-      ["running", "pausing", "paused", "awaiting_approval"].includes(run.state)
+      ["running", "pausing", "waiting_children", "paused", "awaiting_approval"].includes(run.state)
         ? livePreview(owner, run.id)
         : null,
     pending_approvals: mode === "done" ? 0 : row.pending_approvals,

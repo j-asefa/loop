@@ -1,4 +1,5 @@
 import type { Connection } from "../shared/types";
+import { connectionLocation } from "./modelChoices";
 
 // Connection metadata describes the last successful registration, not a live
 // check of a runner's binaries or credentials.
@@ -16,14 +17,8 @@ export function ConnectionDetails({ connection }: { connection: Connection }) {
           metadata.billing.description.trim()
         ? metadata.billing.description
         : "Billing not reported. Refresh this connection before use.";
-  const location =
-    metadata.backend === "hapi"
-      ? typeof metadata.environmentName === "string"
-        ? metadata.environmentName
-        : "Managed environment"
-      : metadata.loopHarness
-        ? "This computer"
-        : "Server connection";
+  const location = connectionLocation(connection).label;
+  const local = !metadata.backend && !!metadata.loopHarness;
   return (
     <div className="connection-details">
       <p>
@@ -34,10 +29,7 @@ export function ConnectionDetails({ connection }: { connection: Connection }) {
         <p className="note">
           This is saved connection information, not a live sign-in or runtime
           availability check. Sign-in stays on{" "}
-          {location === "This computer"
-            ? "this computer"
-            : "the selected environment"}
-          .
+          {local ? "this computer" : "the selected environment"}.
         </p>
       )}
     </div>

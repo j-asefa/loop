@@ -59,6 +59,7 @@ import {
   inspectPiPackage,
   previousPiPackageSource,
 } from "./pi-package-inspect.js";
+import { hostLocation } from "./execution-location.js";
 
 export const OWNER = "local-workspace";
 const classes = {
@@ -735,6 +736,7 @@ export class NativeSessions {
       authMode:
         options.billing === "subscription" ? "subscription" : "native-existing",
       runtimeKind: "loop-local",
+      location: hostLocation(),
       billing,
       capabilities,
     };
