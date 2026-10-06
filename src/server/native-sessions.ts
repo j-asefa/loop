@@ -132,6 +132,7 @@ export type Live = {
 };
 
 /** One workspace owns native processes; native sessions own their model context. */
+const PROBE_TTL = 15_000;
 export class NativeSessions {
   private piPackageBusy = false;
   private piAgentDir() {
@@ -224,7 +225,19 @@ export class NativeSessions {
       instructions: piInstructionSources(agentDir, project, trust.trusted),
     };
   }
+  // Pi configuration changes invalidate probed catalogs, success or not.
   async piTrustDecision(agent: any, trusted: boolean, fingerprint: string) {
+    try {
+      return await this.applyPiTrust(agent, trusted, fingerprint);
+    } finally {
+      this.clearProbes();
+    }
+  }
+  private async applyPiTrust(
+    agent: any,
+    trusted: boolean,
+    fingerprint: string,
+  ) {
     const { project } = this.piPackageContext(agent);
     const current = piProjectResources(project);
     if (current.fingerprint !== fingerprint)
@@ -322,7 +335,19 @@ export class NativeSessions {
       throw new Problem(422, "Enter a valid Pi package source.");
     return inspectPiPackage(source, project);
   }
+  // Pi configuration changes invalidate probed catalogs, success or not.
   async piRollbackPackage(
+    agent: any,
+    source: string,
+    scope: "user" | "project",
+  ) {
+    try {
+      return await this.applyPiRollback(agent, source, scope);
+    } finally {
+      this.clearProbes();
+    }
+  }
+  private async applyPiRollback(
     agent: any,
     source: string,
     scope: "user" | "project",
@@ -399,7 +424,20 @@ export class NativeSessions {
     const { project } = this.piPackageContext(agent);
     return piPackageEntries(this.piAgentDir(), project);
   }
+  // Pi configuration changes invalidate probed catalogs, success or not.
   async piPackageAction(
+    agent: any,
+    action: "install" | "remove" | "update",
+    source: string,
+    scope: "user" | "project",
+  ) {
+    try {
+      return await this.applyPiPackageAction(agent, action, source, scope);
+    } finally {
+      this.clearProbes();
+    }
+  }
+  private async applyPiPackageAction(
     agent: any,
     action: "install" | "remove" | "update",
     source: string,
@@ -820,26 +858,32 @@ export class NativeSessions {
     );
   }
   private catalogCount = 0;
+
+  // Reports the catalog of the harness the conversation's next turn would
+  // use. session() rebinds a chat to the agent's current harness while
+  // keeping its project, so the catalog follows the same rule.
   async catalog(agent: any, conversation?: string) {
-    if (this.catalogCount >= 3)
-      throw new Problem(429, "Native catalogs are busy. Retry shortly.");
-    const connection = owned<any>("connections", agent.connection_id, OWNER);
-    const harness = JSON.parse(connection.metadata).loopHarness as Harness;
+    const c = conversation
+      ? owned<any>("conversations", conversation, OWNER)
+      : undefined;
+    if (c && c.agent_id !== agent.id)
+      throw new Problem(400, "Conversation belongs to another agent");
+    const harness = JSON.parse(
+      owned<any>("connections", agent.connection_id, OWNER).metadata,
+    ).loopHarness as Harness;
+    const binding = conversation
+      ? (db
+          .prepare(
+            "SELECT harness,project FROM companion_sessions WHERE conversation_id=?",
+          )
+          .get(conversation) as
+          Pick<Binding, "harness" | "project"> | undefined)
+      : undefined;
     const options = this.registration(harness);
-    let project = this.project(
-      { folderId: agent.folder_id } as Snapshot,
-      options,
-    );
-    if (conversation) {
-      const c = owned<any>("conversations", conversation, OWNER);
-      if (c.agent_id !== agent.id)
-        throw new Problem(400, "Conversation belongs to another agent");
-      const binding = db
-        .prepare(
-          "SELECT project FROM companion_sessions WHERE conversation_id=?",
-        )
-        .get(conversation) as any;
-      if (binding) project = this.directory(binding.project);
+    const project = binding
+      ? this.directory(binding.project)
+      : this.project({ folderId: agent.folder_id } as Snapshot, options);
+    if (conversation && binding?.harness === harness) {
       const live = this.live.get(conversation);
       if (live && !live.closed && live.adapter.commandCatalog)
         return {
@@ -857,33 +901,49 @@ export class NativeSessions {
             ),
         };
     }
+    const projectTrust =
+      harness === "pi" ? this.projectTrust(project).override : undefined;
+    // Commands & skills polls every few seconds. Share one recent probe per
+    // harness, project and trust decision instead of starting a process each
+    // time; Pi configuration changes clear it.
+    const key = JSON.stringify([harness, project, projectTrust ?? null]);
+    const cached = this.probes.get(key);
+    if (cached && cached.expires > Date.now()) return cached.result;
+    if (this.catalogCount >= 3)
+      throw new Problem(429, "Native catalogs are busy. Retry shortly.");
     this.catalogCount++;
-    const native = new classes[harness](
-      {
-        ...options,
-        project,
-        probeOnly: true,
-        projectTrust:
-          harness === "pi" ? this.projectTrust(project).override : undefined,
-      },
-      () => {},
-    );
-    try {
-      await native.start();
-      return {
-        available: true,
-        runtime: labels[harness],
-        commands: native.commands || [],
-        ...(harness === "pi"
-          ? { inventory: (native as Adapter).customizationInventory }
-          : {}),
-        message:
-          "Native catalog for this project. Terminal-only interactions are unavailable.",
-      };
-    } finally {
-      await native.dispose();
-      this.catalogCount--;
-    }
+    const result = (async () => {
+      const native = new classes[harness](
+        { ...options, project, probeOnly: true, projectTrust },
+        () => {},
+      );
+      try {
+        await native.start();
+        return {
+          available: true,
+          runtime: labels[harness],
+          commands: native.commands || [],
+          ...(harness === "pi"
+            ? { inventory: (native as Adapter).customizationInventory }
+            : {}),
+          message:
+            "Native catalog for this project. Terminal-only interactions are unavailable.",
+        };
+      } finally {
+        await native.dispose();
+        this.catalogCount--;
+      }
+    })();
+    this.probes.set(key, { expires: Date.now() + PROBE_TTL, result });
+    result.catch(() => {
+      if (this.probes.get(key)?.result === result) this.probes.delete(key);
+    });
+    return result;
+  }
+  private probes = new Map<string, { expires: number; result: Promise<any> }>();
+  /** Forget probed catalogs after Pi configuration or trust changes. */
+  clearProbes() {
+    this.probes.clear();
   }
   async session(run: Run): Promise<Live> {
     if (!run.conversation_id)

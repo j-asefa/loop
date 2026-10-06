@@ -78,14 +78,6 @@ import {
   type ChangeSummary,
 } from "./threadView";
 
-// Keep the transcript focused on public messages and plans. Raw tool calls and
-// command output are available from the options menu; file changes collapse
-// into one "N files changed" summary per run that opens the change review.
-const conversationActivity = (record: ActivityRecord) =>
-  record.kind !== "tool" &&
-  record.kind !== "output" &&
-  record.kind !== "file_change";
-
 type Usage = { input_tokens: number; output_tokens: number };
 export type ThreadWork = {
   state: string;
@@ -206,12 +198,34 @@ export function Conversation({
 }) {
   const activityItems = useConversationActivities(id);
   const allActivities = visibleActivities(activityItems);
-  const activities = allActivities.filter((item) =>
-    conversationActivity(item.record),
+  // The transcript shows only public messages. Tool calls, command output and
+  // plan progress stay inspectable from the options menu; file changes have
+  // their own per-run review.
+  const toolActivities = allActivities.filter((item) =>
+    ["tool", "output", "plan"].includes(item.record.kind),
   );
-  const toolActivities = allActivities.filter(
-    (item) => item.record.kind === "tool" || item.record.kind === "output",
-  );
+  // Older messages carry their activity in metadata rather than the live
+  // activity store; include those records unless the store has them too.
+  const toolRecords = () => {
+    const live = toolActivities.map((item) => item.record);
+    const same = (a: ActivityRecord, b: ActivityRecord) =>
+      a.id === b.id &&
+      a.kind === b.kind &&
+      a.source.transport === b.source.transport &&
+      a.source.harness === b.source.harness;
+    const saved = (data?.messages || []).flatMap((m) => {
+      const meta = parse<any>(m.metadata, {});
+      return (
+        (meta.activities || (meta.activity ? [meta.activity] : [])) as
+          ActivityRecord[]
+      ).filter(
+        (record) =>
+          ["tool", "output", "plan"].includes(record?.kind) &&
+          !live.some((other) => same(other, record)),
+      );
+    });
+    return [...live, ...saved];
+  };
   const [data, setData] = useState<{
       conversation: any;
       messages: ConversationMessage[];
@@ -851,7 +865,7 @@ export function Conversation({
                   },
                 ]
               : []),
-            ...(toolActivities.length
+            ...(toolRecords().length
               ? [
                   {
                     id: "tools",
@@ -1081,9 +1095,7 @@ export function Conversation({
       )}
       {showToolActivity && (
         <Sheet title="Tool activity" onClose={() => setShowToolActivity(false)}>
-          <ActivityRecords
-            records={toolActivities.map((item) => item.record)}
-          />
+          <ActivityRecords records={toolRecords()} />
         </Sheet>
       )}
       {editingModel && agent && (
@@ -1195,9 +1207,6 @@ export function Conversation({
               Load earlier messages
             </button>
           )}
-          <ActivityRecords
-            records={activities.filter((a) => !a.run).map((a) => a.record)}
-          />
           {data?.messages.map((m) => {
             const meta = parse<any>(m.metadata, {});
             const pendingAnswer =
@@ -1396,23 +1405,6 @@ export function Conversation({
                       </p>
                     </div>
                   )}
-                  <ActivityRecords
-                    records={(
-                      meta.activities || (meta.activity ? [meta.activity] : [])
-                    ).filter(
-                      (record: ActivityRecord) =>
-                        conversationActivity(record) &&
-                        !activities.some(
-                          (a) =>
-                            a.run === m.run_id &&
-                            a.record.id === record.id &&
-                            a.record.kind === record.kind &&
-                            a.record.source.transport ===
-                              record.source.transport &&
-                            a.record.source.harness === record.source.harness,
-                        ),
-                    )}
-                  />
                   <AttachmentList files={meta.attachments || []} />
                   {meta.steeringId && (
                     <p
@@ -1430,11 +1422,6 @@ export function Conversation({
                   )}
                   {finalForRun && (
                     <>
-                      <ActivityRecords
-                        records={activities
-                          .filter((a) => a.run === m.run_id)
-                          .map((a) => a.record)}
-                      />
                       {changed && (
                         <ChangesChip
                           summary={changed}

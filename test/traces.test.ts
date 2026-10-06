@@ -1088,3 +1088,138 @@ it("unwraps updates saved as Loop's reply envelope", () => {
     legacy.close();
   }
 });
+
+
+it("keeps native lifecycle events and tool rows out of conversation pages while retaining tool traces", async () => {
+  const a = agent();
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "Inspect public output",
+    idempotencyKey: id(),
+  });
+  const { normalizeMessage } = await import("../src/server/hapi/adapter");
+  const bodies = [
+    { type: "ready" },
+    { type: "loop-turn", status: "completed", output: "Public answer" },
+    {
+      type: "tool-call",
+      name: "exec_command",
+      input: "private fixture command",
+    },
+  ];
+  for (let i = 0; i < 65; i++) {
+    const n = normalizeMessage({
+      content: {
+        role: "agent",
+        content: { type: "codex", data: bodies[i % bodies.length] },
+      },
+    });
+    expect(n.role).toBe("tool");
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,'{}',?)",
+    ).run(id(), run.conversation_id, run.id, n.role, n.content, now());
+  }
+  recordTrace(run, "fixture-tool", {
+    kind: "tool",
+    title: "exec_command",
+    content: "private fixture command",
+  });
+  recordTrace(run, "fixture-update", {
+    kind: "message",
+    title: "Agent update",
+    content: "Public progress",
+  });
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','Public answer','{}',?)",
+  ).run(id(), run.conversation_id, run.id, now());
+  const page = await get(`/conversations/${run.conversation_id}`);
+  expect(page.next).toBeNull();
+  expect(page.messages.map((m: any) => m.content)).toEqual([
+    "Inspect public output",
+    "Public progress",
+    "Public answer",
+  ]);
+  expect(
+    page.messages.every((m: any) => ["user", "assistant"].includes(m.role)),
+  ).toBe(true);
+  expect((await get(`/agents/${a.id}/traces`)).items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "tool",
+        title: "exec_command",
+        content: "private fixture command",
+      }),
+    ]),
+  );
+  expect(
+    (
+      db
+        .prepare(
+          "SELECT count(*) n FROM messages WHERE conversation_id=? AND role='tool'",
+        )
+        .get(run.conversation_id) as any
+    ).n,
+  ).toBe(65);
+});
+
+it("keeps system messages and native failure notices in conversation pages", async () => {
+  const a = agent();
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "Inspect notices",
+    idempotencyKey: id(),
+  });
+  const system = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,NULL,'system','Imported instructions','{}',?)",
+  ).run(system, run.conversation_id, now());
+  for (const type of ["error", "loop-delivery-unknown", "ready"])
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,NULL,'tool',?,?,?)",
+    ).run(
+      id(),
+      run.conversation_id,
+      type + " notice",
+      JSON.stringify({ backend: "hapi", native: { type } }),
+      now(),
+    );
+  const page = await get(`/conversations/${run.conversation_id}`);
+  expect(page.messages.map((m: any) => m.content)).toEqual(
+    expect.arrayContaining([
+      "Imported instructions",
+      "error notice",
+      "loop-delivery-unknown notice",
+    ]),
+  );
+  expect(page.messages.map((m: any) => m.content)).not.toContain(
+    "ready notice",
+  );
+  const anchored = await get(
+    `/conversations/${run.conversation_id}?message=${system}`,
+  );
+  expect(anchored.messages.some((m: any) => m.id === system)).toBe(true);
+});
+
+it("opens a conversation anchored on a row the transcript hides", async () => {
+  const a = agent();
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "Anchor on hidden activity",
+    idempotencyKey: id(),
+  });
+  const hidden = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,NULL,'tool','{\"type\":\"tool-call\"}','{\"native\":{\"type\":\"tool-call\"}}',?)",
+  ).run(hidden, run.conversation_id, now());
+  const page = await get(
+    `/conversations/${run.conversation_id}?message=${hidden}`,
+  );
+  expect(page.messages.map((m: any) => m.content)).toContain(
+    "Anchor on hidden activity",
+  );
+  expect(page.messages.some((m: any) => m.id === hidden)).toBe(false);
+  expect(
+    (await fetch(`${base}/conversations/${run.conversation_id}?message=${id()}`))
+      .status,
+  ).toBe(404);
+});

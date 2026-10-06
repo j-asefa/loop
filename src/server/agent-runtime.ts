@@ -52,6 +52,62 @@ export type Snapshot = {
   attachmentIds?: string[];
   replyTo?: ReplyContext;
 };
+// The connection a conversation's next turn runs on: a managed conversation
+// keeps its HAPI connection, any other follows the agent's current one.
+// Shared by submit and command discovery so the catalog matches the turn.
+export function nextTurnConnection(
+  owner: string,
+  agent: Pick<Agent, "connection_id">,
+  conversation?: {
+    execution_backend?: string | null;
+    execution_connection_id?: string | null;
+  },
+) {
+  if (!agent.connection_id)
+    throw new Problem(409, "Connect a provider to this agent first");
+  let connection = owned<Connection>("connections", agent.connection_id, owner);
+  if (
+    conversation?.execution_backend === "hapi" &&
+    conversation.execution_connection_id
+  )
+    connection = owned<Connection>(
+      "connections",
+      conversation.execution_connection_id,
+      owner,
+    );
+  else if (
+    conversation?.execution_backend === "legacy" &&
+    connectionSelection(connection)
+  )
+    throw new Problem(
+      409,
+      "This conversation belongs to its original backend. Start a new native conversation.",
+    );
+  const execution = connectionSelection(connection);
+  if (connection.status !== "connected" && !execution)
+    throw new Problem(409, "Reconnect the provider to run this agent");
+  return { connection, execution };
+}
+
+// The project folder of a conversation's next turn when the sender picks
+// none: the previous run's, which may be none, else the agent's.
+export function nextTurnFolder(
+  owner: string,
+  agent: Pick<Agent, "folder_id">,
+  conversation?: string,
+): string | null {
+  const previous = conversation
+    ? (db
+        .prepare(
+          "SELECT payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+        )
+        .get(owner, conversation) as { payload: string } | undefined)
+    : undefined;
+  return previous
+    ? (JSON.parse(previous.payload).folderId ?? null)
+    : agent.folder_id || null;
+}
+
 export function submit(
   owner: string,
   data: {
@@ -91,40 +147,13 @@ export function submit(
       if (steered) return steered;
       const agent = owned<Agent>("agents", data.agentId, owner);
       const attachments = attachedFiles(owner, data.attachmentIds || []);
-      if (!agent.connection_id)
-        throw new Problem(409, "Connect a provider to this agent first");
-      let connection = owned<Connection>(
-        "connections",
-        agent.connection_id,
+      const { connection, execution } = nextTurnConnection(
         owner,
+        agent,
+        data.conversationId
+          ? owned<any>("conversations", data.conversationId, owner)
+          : undefined,
       );
-      if (data.conversationId) {
-        const existing = owned<any>(
-          "conversations",
-          data.conversationId,
-          owner,
-        );
-        if (
-          existing.execution_backend === "hapi" &&
-          existing.execution_connection_id
-        )
-          connection = owned<Connection>(
-            "connections",
-            existing.execution_connection_id,
-            owner,
-          );
-        else if (
-          existing.execution_backend === "legacy" &&
-          connectionSelection(connection)
-        )
-          throw new Problem(
-            409,
-            "This conversation belongs to its original backend. Start a new native conversation.",
-          );
-      }
-      const execution = connectionSelection(connection);
-      if (connection.status !== "connected" && !execution)
-        throw new Problem(409, "Reconnect the provider to run this agent");
       if (data.folderId) owned("folders", data.folderId, owner);
       const prior = db
         .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
@@ -204,15 +233,8 @@ export function submit(
         // Loop owns the transcript, so a changed provider or model simply
         // handles the next turn; active work keeps its original snapshot.
         teamId = c.team_id || undefined;
-        if (data.folderId === undefined) {
-          const previous = db
-            .prepare(
-              "SELECT payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-            )
-            .get(owner, conversation) as { payload: string } | undefined;
-          if (previous)
-            folderId = JSON.parse(previous.payload).folderId ?? null;
-        }
+        if (data.folderId === undefined)
+          folderId = nextTurnFolder(owner, agent, conversation);
       } else {
         if (teamId) {
           const team = owned<any>("teams", teamId, owner);

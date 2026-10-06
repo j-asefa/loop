@@ -4,6 +4,8 @@ import { db, id, now, emit } from "../db.js";
 import { owned, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { recordTrace } from "../traces.js";
+import { applyActivity } from "../activities.js";
+import { ACTIVITY_LIMITS, ACTIVITY_VERSION } from "../../agent-activities.js";
 import { saveArtifact } from "../artifacts.js";
 import { requestApproval } from "../approvals.js";
 import { transition, type Run } from "../queue.js";
@@ -345,6 +347,21 @@ export function normalizeMessage(message: any): {
     ...(!recognized ? { unrecognized: true } : {}),
   };
 }
+// Native tool rows outside a Loop turn that the Tool activity sheet keeps.
+// Lifecycle bookkeeping is not worth showing, and failure or uncertain
+// delivery notices already appear in the transcript.
+const notInspectable = new Set([
+  "ready",
+  "loop-turn",
+  "token_count",
+  "event",
+  "error",
+  "loop-delivery-unknown",
+  "loop-interrupted",
+]);
+function inspectable(n: ReturnType<typeof normalizeMessage>) {
+  return !notInspectable.has(n.body.type);
+}
 export function projectMessages(
   s: NativeSession,
   messages: any[],
@@ -432,6 +449,33 @@ export function projectMessages(
             meta,
             m.createdAt || now(),
           );
+          // Transcripts hide native tool rows. Activity that arrived outside
+          // a Loop turn has no run trace, so keep it inspectable from the
+          // conversation's Tool activity sheet.
+          if (n.role === "tool" && !turn && inspectable(n))
+            applyActivity(
+              { owner: s.owner_id, conversation: s.conversation_id },
+              {
+                v: ACTIVITY_VERSION,
+                id: "hapi:" + external,
+                // Display-only, keyed as history: it never belonged to a turn.
+                replay: true,
+                kind: "tool",
+                source: { transport: "native", harness: s.flavor, origin: "hapi" },
+                patch: {
+                  title: String(
+                    n.body.name || n.body.type || "Native activity",
+                  ).slice(0, ACTIVITY_LIMITS.title),
+                  status: n.body.type === "error" ? "failed" : "completed",
+                  content: [
+                    {
+                      type: "text",
+                      text: n.content.slice(0, ACTIVITY_LIMITS.text),
+                    },
+                  ],
+                },
+              },
+            );
         }
       }
       db.prepare(

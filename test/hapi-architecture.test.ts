@@ -204,6 +204,36 @@ describe("HAPI architecture safety (deterministic protocol fixtures)", () => {
     ).toBe("running");
     expect(normalizeMessage(messages[1]).content).toBe("Terminal-origin work");
   });
+  it("keeps out-of-turn native tool rows inspectable as conversation activity", () => {
+    const native = (id: string, data: object) => ({
+      id,
+      createdAt: 150,
+      content: { role: "agent", content: { type: "codex", data } },
+    });
+    projectMessages(
+      session,
+      [
+        native("terminal-tool", {
+          type: "tool-call",
+          name: "exec_command",
+          input: "git status",
+        }),
+        native("terminal-ready", { type: "ready" }),
+      ],
+      1,
+      { seq: 2, at: 150 },
+    );
+    const activities = db
+      .prepare(
+        "SELECT kind,record FROM agent_activities WHERE conversation_id=? AND activity_key LIKE '%hapi:terminal-%'",
+      )
+      .all(run.conversation_id) as { kind: string; record: string }[];
+    expect(activities).toHaveLength(1);
+    expect(activities[0].kind).toBe("tool");
+    expect(JSON.stringify(JSON.parse(activities[0].record))).toContain(
+      "exec_command",
+    );
+  });
   it("completes exactly one Loop projection only from correlated native completion", () => {
     const body = {
       type: "loop-turn",

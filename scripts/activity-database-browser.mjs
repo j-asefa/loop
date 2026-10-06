@@ -53,6 +53,14 @@ db.prepare("INSERT INTO harnesses VALUES('codex',?,'{}','{}','[]',?)").run(
   }),
   now(),
 );
+for (const body of [
+  { type: "ready" },
+  { type: "loop-turn", status: "completed", output: "Working fixture" },
+]) {
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'tool',?,?)",
+  ).run(randomUUID(), OWNER, conversation, JSON.stringify(body), now());
+}
 const attack = '<img src=x onerror="globalThis.pwned=true">';
 const source = { transport: "native", harness: "codex", origin: "fixture" };
 function activity(kind, id, patch) {
@@ -314,7 +322,21 @@ try {
       `${base}/activity-integration?conversation=${conversation}&agent=${agent}`,
       { waitUntil: "domcontentloaded" },
     );
-    await expect(page.getByText("0 of 1 complete")).toBeVisible();
+    await expect(
+      page.getByText("Working fixture", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator(".messages .activity-panel")).toHaveCount(0);
+    await expect(page.locator(".messages")).not.toContainText('"type":"ready"');
+    await expect(page.locator(".messages")).not.toContainText(
+      '"type":"loop-turn"',
+    );
+    await expect(page.locator(".messages")).not.toContainText(
+      "Recorded commands",
+    );
+    await expect(page.locator(".messages")).not.toContainText(
+      "Recorded session settings",
+    );
+    await expect(page.getByText(/of 1 complete/)).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: /Command output/ }),
     ).toHaveCount(0);
@@ -356,7 +378,19 @@ try {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     );
-    // Raw calls/output stay out of the transcript, but remain inspectable.
+    // The transcript contains output messages; raw tool details stay in Traces.
+    await expect(page.locator(".messages")).not.toContainText("Broker fixture");
+    const tracePage = await browser.newPage({
+      viewport: { width, height: 844 },
+    });
+    await tracePage.goto(`${base}/activity-integration?traces&agent=${agent}`);
+    await expect(
+      tracePage
+        .getByLabel("Agent traces")
+        .getByText("Broker fixture", { exact: true }),
+    ).toBeVisible();
+    await tracePage.close();
+    // Command output stays inspectable outside the transcript.
     await page.getByLabel("Conversation options").click();
     await page
       .getByRole("menuitem", { name: "Tool activity", exact: true })
@@ -450,13 +484,13 @@ try {
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-workspace-change")),
     );
-    await expect(page.getByText("1 of 1 complete")).toBeVisible();
+    await expect(page.locator(".messages .activity-panel")).toHaveCount(0);
     await expect(
       page.locator("summary").filter({ hasText: "Broker fixture" }),
     ).toHaveCount(0);
     await expect(page.getByText("Exit code: 0")).toHaveCount(0);
     await page.reload();
-    await expect(page.getByText("1 of 1 complete")).toBeVisible();
+    await expect(page.locator(".messages .activity-panel")).toHaveCount(0);
     await expect(
       page.locator("summary").filter({ hasText: "Broker fixture" }),
     ).toHaveCount(0);
@@ -468,18 +502,22 @@ try {
       `${base}/activity-integration?history&conversation=${conversation}&agent=${agent}`,
     );
     await page.getByRole("button", { name: /Integrated activities/ }).click();
-    await expect(page.getByText("1 of 1 complete")).toBeVisible();
+    await expect(page.locator(".messages .activity-panel")).toHaveCount(0);
     await expect(page.locator(".messages")).not.toContainText("Broker fixture");
     await page.getByLabel("Conversation options").click();
     await page
       .getByRole("menuitem", { name: "Tool activity", exact: true })
       .click();
+    const historySheet = page.getByRole("dialog", {
+      name: "Tool activity",
+      exact: true,
+    });
     await expect(
-      page.locator("summary").filter({ hasText: "Broker fixture" }),
+      historySheet.locator("summary").filter({ hasText: "Broker fixture" }),
     ).toHaveCount(1);
-    await expect(page.getByText("Exit code: 0")).toBeVisible();
-    await page
-      .getByRole("dialog", { name: "Tool activity", exact: true })
+    await expect(historySheet.getByText("Exit code: 0")).toBeVisible();
+    await expect(historySheet.getByText("1 of 1 complete")).toBeVisible();
+    await historySheet
       .getByRole("button", { name: "Close", exact: true })
       .click();
     nativeSessions.live.delete(conversation);

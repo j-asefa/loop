@@ -38,7 +38,11 @@ import { createWithPrompt } from "./agent-creation.js";
 import { suggestAgentName } from "./agent-names.js";
 import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
-import { submit } from "./agent-runtime.js";
+import {
+  nextTurnConnection,
+  nextTurnFolder,
+  submit,
+} from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
 import { attachmentIds } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
@@ -296,14 +300,27 @@ core.patch("/agents/:id", (req, res) => {
 });
 core.get("/agents/:id/harness", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
-  if (!agent.connection_id)
-    throw new Problem(409, "Connect a provider to this agent first.");
-  const connection = owned<Connection>(
-    "connections",
-    agent.connection_id,
+  const conversationId = z
+    .string()
+    .uuid()
+    .optional()
+    .parse(req.query.conversation);
+  const selected = conversationId
+    ? owned<any>("conversations", conversationId, res.locals.owner)
+    : undefined;
+  // The picker can pair the open conversation with another agent's composer.
+  // That conversation says nothing about this agent's next turn, so list the
+  // agent's new-task catalog rather than refusing.
+  const conversation =
+    selected?.agent_id === agent.id ? selected : undefined;
+  const conversationKey: string | undefined = conversation?.id;
+  const { connection } = nextTurnConnection(
     res.locals.owner,
+    agent,
+    conversation,
   );
-  if (!isSubscription(connection)) {
+  const native = JSON.parse(connection.metadata);
+  if (!isSubscription(connection) && native.backend !== "hapi") {
     res.json({
       available: false,
       commands: [],
@@ -312,25 +329,24 @@ core.get("/agents/:id/harness", async (req, res) => {
     });
     return;
   }
-  if (connection.status !== "connected")
-    throw new Problem(
-      409,
-      "Reconnect this agent’s provider to load commands and skills.",
-    );
-  const native = JSON.parse(connection.metadata);
+  const catalogAgent = {
+    ...agent,
+    connection_id: connection.id,
+    folder_id: nextTurnFolder(res.locals.owner, agent, conversationKey),
+  };
   if (native.backend === "hapi") {
-    const session = db
-      .prepare(
-        "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.environment_id=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
-      )
-      .get(agent.id, res.locals.owner, native.environmentId) as any;
-    // Before the first session, a probe that can't reach the worker or pick a
-    // project falls back to the start-a-conversation message below.
+    const session = managedSession(
+      res.locals.owner,
+      agent.id,
+      native.environmentId,
+      native.flavor,
+      conversationKey,
+    );
+    // Before a session launches, a probe that can't reach the worker or pick
+    // a project falls back to the start-a-conversation message below.
     const catalog =
-      !session && native.flavor === "pi"
-        ? await managedPiRequest(agent, res.locals.owner, {
-            action: "catalog",
-          }).catch(() => null)
+      !session?.hub_session_id && native.flavor === "pi"
+        ? await environmentPiCatalog(catalogAgent, res.locals.owner)
         : null;
     if (catalog) {
       const mapped = (catalog.commands || []).map((c: any) => ({
@@ -355,7 +371,7 @@ core.get("/agents/:id/harness", async (req, res) => {
       });
       return;
     }
-    if (!session) {
+    if (!session?.hub_session_id) {
       res.json({
         available: false,
         commands: [],
@@ -371,7 +387,7 @@ core.get("/agents/:id/harness", async (req, res) => {
       ),
       client.request("/api/sessions/" + session.hub_session_id + "/skills"),
       native.flavor === "pi"
-        ? managedPiRequest(agent, res.locals.owner, {
+        ? managedPiRequest(catalogAgent, res.locals.owner, {
             action: "catalog",
           }).catch(() => null)
         : null,
@@ -420,10 +436,7 @@ core.get("/agents/:id/harness", async (req, res) => {
     return;
   }
   const catalog = isNativeConnection(connection)
-    ? await nativeSessions.catalog(
-        agent,
-        z.string().uuid().optional().parse(req.query.conversation),
-      )
+    ? await nativeSessions.catalog(catalogAgent, conversationKey)
     : await runtimeAction(connection, "capabilities", {
         workspaceKey: runtimeWorkspaceKey(res.locals.owner, agent.id),
       });
@@ -434,6 +447,28 @@ core.get("/agents/:id/harness", async (req, res) => {
     );
   res.json(catalog);
 });
+// The managed session whose catalog describes a conversation's next turn. A
+// selected conversation reports only its own session, launched or not; a new
+// task uses the agent's newest launched session on this harness.
+function managedSession(
+  owner: string,
+  agentId: string,
+  environmentId: string,
+  flavor: string,
+  conversation?: string,
+): any {
+  return conversation
+    ? db
+        .prepare(
+          "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE s.conversation_id=? AND c.agent_id=? AND s.owner_id=? AND s.environment_id=? AND s.flavor=?",
+        )
+        .get(conversation, agentId, owner, environmentId, flavor)
+    : db
+        .prepare(
+          "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.environment_id=? AND s.flavor=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
+        )
+        .get(agentId, owner, environmentId, flavor);
+}
 function managedPi(agent: Agent, owner: string) {
   if (!agent.connection_id)
     throw new Problem(409, "Connect a Pi runtime to this agent first.");
@@ -448,7 +483,7 @@ function managedPi(agent: Agent, owner: string) {
   const e = environment(owner, metadata.environmentId);
   const latest = db
     .prepare(
-      "SELECT c.project_id FROM conversations c JOIN native_sessions s ON s.conversation_id=c.id WHERE c.agent_id=? AND s.environment_id=? ORDER BY c.created_at DESC LIMIT 1",
+      "SELECT c.project_id FROM conversations c JOIN native_sessions s ON s.conversation_id=c.id WHERE c.agent_id=? AND s.environment_id=? AND s.flavor='pi' ORDER BY c.created_at DESC LIMIT 1",
     )
     .get(agent.id, e.host_id) as { project_id: string | null } | undefined;
   const mapping =
@@ -474,6 +509,22 @@ function managedPi(agent: Agent, owner: string) {
     );
   return { e, project: mapping.canonical_path };
 }
+// Commands & skills polls every few seconds; before a managed Pi session
+// launches, share one recent environment catalog per connection and project
+// instead of asking the worker on every poll.
+const piCatalogs = new Map<string, { expires: number; result: Promise<any> }>();
+function environmentPiCatalog(agent: Agent, owner: string) {
+  const key = JSON.stringify([owner, agent.connection_id, agent.folder_id]);
+  const cached = piCatalogs.get(key);
+  if (cached && cached.expires > Date.now()) return cached.result;
+  for (const [old, entry] of piCatalogs)
+    if (entry.expires <= Date.now()) piCatalogs.delete(old);
+  const result = managedPiRequest(agent, owner, { action: "catalog" }).catch(
+    () => null,
+  );
+  piCatalogs.set(key, { expires: Date.now() + 15_000, result });
+  return result;
+}
 async function managedPiRequest(
   agent: Agent,
   owner: string,
@@ -481,17 +532,30 @@ async function managedPiRequest(
 ) {
   const target = managedPi(agent, owner);
   if (!target) return null;
-  return workerRequest(
-    target.e,
-    "/pi/customizations",
-    {
-      ...input,
-      flavor: "pi",
-      project: target.project,
-      generation: target.e.generation,
-    },
-    input.action === "package" || input.action === "rollback" ? 130000 : 35000,
-  );
+  const changes = ![
+    "catalog",
+    "configuration",
+    "preview",
+    "inspect",
+  ].includes(String(input.action));
+  try {
+    return await workerRequest(
+      target.e,
+      "/pi/customizations",
+      {
+        ...input,
+        flavor: "pi",
+        project: target.project,
+        generation: target.e.generation,
+      },
+      input.action === "package" || input.action === "rollback"
+        ? 130000
+        : 35000,
+    );
+  } finally {
+    // Trust and package changes make a cached environment catalog stale.
+    if (changes) piCatalogs.clear();
+  }
 }
 core.get("/agents/:id/pi-packages", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -565,12 +629,14 @@ core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
     .parse(req.body);
   const target = managedPi(agent, res.locals.owner);
   if (target) {
-    const session = db
-      .prepare(
-        "SELECT s.* FROM native_sessions s JOIN conversations c ON c.id=s.conversation_id WHERE c.agent_id=? AND s.owner_id=? AND s.environment_id=? AND s.hub_session_id IS NOT NULL ORDER BY s.created_at DESC LIMIT 1",
-      )
-      .get(agent.id, res.locals.owner, target.e.host_id) as any;
-    if (!session)
+    const session = managedSession(
+      res.locals.owner,
+      agent.id,
+      target.e.host_id,
+      "pi",
+      input.conversation,
+    );
+    if (!session?.hub_session_id)
       throw new Problem(
         409,
         "Start a Pi conversation before previewing a prompt.",

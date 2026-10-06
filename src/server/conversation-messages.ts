@@ -13,6 +13,9 @@ const position = (item: Entry): Position => [
 const encode = (value: Position) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
+// Transcripts show human, agent and system messages. Native tool rows stay
+// out except failure and uncertain-delivery notices, which have no trace when
+// they arrive outside a turn; keep transcriptMessage in the client in step.
 // Group a run's public updates between its prompt and saved answer, including
 // when several prompts were queued before an earlier run produced its answer.
 export function conversationMessages(
@@ -53,7 +56,8 @@ export function conversationMessages(
         WHEN json_extract(m.metadata,'$.steeringId') IS NOT NULL THEN m.created_at ELSE 0 END phase,
       m.rowid*2 ordinal
     FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
-    WHERE m.owner_id=? AND m.conversation_id=?
+    WHERE m.owner_id=? AND m.conversation_id=? AND (m.role IN ('user','assistant','system')
+      OR (m.role='tool' AND json_extract(m.metadata,'$.native.type') IN ('error','loop-delivery-unknown','loop-interrupted')))
     UNION ALL
     SELECT 'trace:'||t.id,t.owner_id,r.conversation_id,t.run_id,'assistant',t.content,
       json_set(t.metadata,'$.progress',json('true')),t.created_at,r.state,r.error,
@@ -68,8 +72,22 @@ export function conversationMessages(
     const entry = db
       .prepare(entries + " SELECT * FROM entries WHERE id=?")
       .get(...bindings, anchor) as Entry | undefined;
-    if (!entry) throw new Problem(404, "Message not found");
-    cursor = position(entry);
+    // A row the transcript hides (raw native activity) can still be a saved
+    // position, search hit or notification target: open the page around
+    // where it was rather than failing the whole conversation.
+    const hidden = entry
+      ? undefined
+      : (db
+          .prepare(
+            `SELECT COALESCE((SELECT min(prompt.rowid) FROM messages prompt WHERE prompt.owner_id=m.owner_id
+              AND prompt.run_id=m.run_id AND prompt.role='user'),m.rowid) position,
+              CASE WHEN json_extract(m.metadata,'$.steeringId') IS NOT NULL THEN m.created_at ELSE 0 END phase,
+              m.rowid*2 ordinal
+            FROM messages m WHERE m.owner_id=? AND m.conversation_id=? AND m.id=?`,
+          )
+          .get(owner, conversation, anchor) as Entry | undefined);
+    if (!entry && !hidden) throw new Problem(404, "Message not found");
+    cursor = position((entry || hidden)!);
     cursor[2]++;
   }
   const items = db

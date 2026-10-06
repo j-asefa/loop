@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { Traces } from "../../../src/client/Traces";
 import { Conversation } from "../../../src/client/Conversation";
 import { NativeHistory } from "../../../src/client/NativeHistory";
 import { HarnessPicker } from "../../../src/client/HarnessPicker";
@@ -18,7 +19,14 @@ const agent: any = {
   metadata: "{}",
 };
 createRoot(document.getElementById("root")!).render(
-  location.search.includes("history") ? (
+  location.search.includes("traces") ? (
+    <Traces
+      agentId={agent.id}
+      revision={0}
+      onConversation={noop}
+      onArtifact={noop}
+    />
+  ) : location.search.includes("history") ? (
     <NativeHistory
       onClose={noop}
       onOpen={(id) => {
