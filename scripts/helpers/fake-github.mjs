@@ -71,7 +71,7 @@ export async function fakeGithub() {
         viewerDidAuthor: false,
         commitCount: { totalCount: 4 },
         commitHistory: { nodes: [
-          { commit: { oid: state.head, message: "Add rate limiter\n\nHandle forwarded addresses safely.", committedDate: ago(1), author: { name: "Sam Rivera", user: { login: "sam-rivera" } } } },
+          { commit: { oid: state.head, message: state.commitMessage || "Add rate limiter\n\nHandle forwarded addresses safely.", committedDate: ago(1), author: { name: "Sam Rivera", user: { login: "sam-rivera" } } } },
         ] },
         reviewRequests: {
           nodes: [{ requestedReviewer: { __typename: "Team", slug: "platform" } }],
@@ -205,6 +205,15 @@ export async function fakeGithub() {
       });
     if (path === "/graphql" && body.query.includes("query Pull"))
       return send({ data: detail() });
+    if (path === `/repos/acme/api/commits/${FIRST_HEAD}`) {
+      state.commitReads = (state.commitReads || 0) + 1;
+      await new Promise(resolve => setTimeout(resolve, 200));
+      if (state.commitError) return send({ message: "Commit changes unavailable" }, 503);
+      return send({ sha: FIRST_HEAD, files: [
+        { filename: "src/limiter.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n export function limiter(options) {\n+  // Only in this commit." },
+        { filename: "assets/logo.png", status: "modified", additions: 0, deletions: 0 },
+      ] });
+    }
     if (path === "/repos/acme/api/pulls/64/files")
       return send([
         // A later head changes the diff, so a stale one is visible.
@@ -249,7 +258,7 @@ export async function fakeGithub() {
     base: `http://127.0.0.1:${server.address().port}`,
     state,
     reset() {
-      Object.assign(state, { head: FIRST_HEAD, merged: false, writes: [] });
+      Object.assign(state, { head: FIRST_HEAD, merged: false, writes: [], commitReads: 0, commitError: false, commitMessage: undefined });
     },
     close: () => new Promise((resolve) => server.close(resolve)),
   };

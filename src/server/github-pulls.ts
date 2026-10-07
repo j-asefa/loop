@@ -37,6 +37,7 @@ import {
   type MergeMethod,
   type PullCheck,
   type PullComment,
+  type PullCommitFiles,
   type PullDetail,
   type PullFile,
   type PullFilter,
@@ -506,8 +507,23 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
   };
 }
 
+function changedFile(f: any): PullFile | undefined {
+  const path = text(f?.filename, 1000);
+  if (!path) return;
+  const patch = typeof f.patch === "string" ? f.patch : undefined;
+  return {
+    path,
+    previousPath: text(f.previous_filename, 1000),
+    status: text(f.status, 20) || "modified",
+    additions: count(f.additions) ?? 0,
+    deletions: count(f.deletions) ?? 0,
+    patch: patch && patch.length > PATCH_CHARS ? patch.slice(0, PATCH_CHARS) : patch,
+    truncated: !!patch && patch.length > PATCH_CHARS,
+  };
+}
+
 /**
- * The changed files with their diffs, up to GitHub's limit of 3,000, for the
+ * The changed files with their diffs, up to MAX_FILES, for the
  * head commit you were shown: GitHub lists the files of whatever the head is
  * now, so a head that moved before or while reading them is refused.
  */
@@ -526,18 +542,8 @@ export async function files(owner: string, ref: PullRequestRef, headSha: string)
     for (let page = 1; list.length < MAX_FILES; page++) {
       const { data, link } = await githubRest<any[]>(token, base + page);
       for (const f of Array.isArray(data) ? data : []) {
-        const path = text(f?.filename, 1000);
-        if (!path) continue;
-        const patch = typeof f.patch === "string" ? f.patch : undefined;
-        list.push({
-          path,
-          previousPath: text(f.previous_filename, 1000),
-          status: text(f.status, 20) || "modified",
-          additions: count(f.additions) ?? 0,
-          deletions: count(f.deletions) ?? 0,
-          patch: patch && patch.length > PATCH_CHARS ? patch.slice(0, PATCH_CHARS) : patch,
-          truncated: !!patch && patch.length > PATCH_CHARS,
-        });
+        const file = changedFile(f);
+        if (file) list.push(file);
       }
       if (!/rel="next"/.test(link) || !data?.length) break;
     }
@@ -546,6 +552,33 @@ export async function files(owner: string, ref: PullRequestRef, headSha: string)
     problem(error);
   }
   return { files: list.slice(0, MAX_FILES), headSha, fetchedAt: now() };
+}
+
+/** Changes to an immutable commit, independent of the pull request's current head. */
+export async function commitFiles(owner: string, ref: PullRequestRef, sha: string): Promise<PullCommitFiles> {
+  const token = reading(owner);
+  if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
+  const list: PullFile[] = [];
+  let hasMore = false;
+  try {
+    // Check access to the pull request with this owner's connection.
+    await headOf(token, ref);
+    const base = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/commits/${sha.toLowerCase()}?per_page=100&page=`;
+    for (let page = 1; page <= MAX_FILES / 100; page++) {
+      const { data, link } = await githubRest<any>(token, base + page);
+      if (data?.sha?.toLowerCase() !== sha.toLowerCase() || !Array.isArray(data.files))
+        throw new Problem(502, "GitHub did not return the requested commit's changes. Try again.");
+      for (const f of data.files) {
+        const file = changedFile(f);
+        if (file) list.push(file);
+      }
+      hasMore = /rel="next"/.test(link) || list.length > MAX_FILES;
+      if (!hasMore || !data.files.length || list.length >= MAX_FILES) break;
+    }
+  } catch (error) {
+    problem(error);
+  }
+  return { files: list.slice(0, MAX_FILES), sha: sha.toLowerCase(), hasMore, fetchedAt: now() };
 }
 
 // ---------------------------------------------------------------------------
@@ -796,6 +829,10 @@ githubPulls.get("/github/pulls/:owner/:repo/:number/files", async (req, res) => 
     .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
     .parse(req.query);
   res.json(await files(res.locals.owner, refOf(req.params), head));
+});
+githubPulls.get("/github/pulls/:owner/:repo/:number/commits/:sha/files", async (req, res) => {
+  const sha = z.string().regex(SHA, "Choose a full commit SHA").parse(req.params.sha);
+  res.json(await commitFiles(res.locals.owner, refOf(req.params), sha));
 });
 githubPulls.get("/github/pulls/:owner/:repo/:number/file", async (req, res) => {
   const { head, path } = z

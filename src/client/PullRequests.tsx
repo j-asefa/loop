@@ -29,6 +29,8 @@ import {
   type ChecksState,
   type MergeMethod,
   type PullComment,
+  type PullCommitFiles,
+  type PullFile,
   type PullDetail,
   type PullFiles,
   type PullFilter,
@@ -514,7 +516,6 @@ function FileList({
 }) {
   const [data, setData] = useState<PullFiles | null>(null);
   const [error, setError] = useState("");
-  const [viewing, setViewing] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     api<PullFiles>(
@@ -534,16 +535,27 @@ function FileList({
     );
   if (!data || data.headSha !== headSha)
     return <p className="muted">Reading the changed files…</p>;
-  if (!data.files.length) return <p className="muted">No changed files.</p>;
+  return <ChangedFiles pullRef={pullRef} sha={headSha} files={data.files} url={url + "/files"} hasMore={data.files.length >= 300} />;
+}
+
+function ChangedFiles({ pullRef, sha, files, url, hasMore }: {
+  pullRef: PullRequestRef;
+  sha: string;
+  files: PullFile[];
+  url: string;
+  hasMore: boolean;
+}) {
+  const [viewing, setViewing] = useState<string | null>(null);
+  if (!files.length) return <p className="muted">No changed files.</p>;
   // Small pull requests open every diff; larger ones start collapsed.
-  const lines = data.files.reduce(
+  const lines = files.reduce(
     (sum, f) => sum + f.additions + f.deletions,
     0,
   );
-  const expand = data.files.length <= 8 && lines <= 600;
+  const expand = files.length <= 8 && lines <= 600;
   return (
     <div className="pull-files">
-      {data.files.map((f) => (
+      {files.map((f) => (
         <details key={f.path} className="pull-file" open={expand}>
           <summary>
             <span className={"pull-file-status " + f.status}>{f.status}</span>
@@ -570,7 +582,7 @@ function FileList({
                 <p className="field-hint">
                   This diff was shortened.{" "}
                   <a
-                    href={url + "/files"}
+                    href={url}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -585,7 +597,7 @@ function FileList({
               GitHub doesn’t show this diff here (binary or too large)
               {f.status !== "removed" ? ", but you can view the file" : ""}.{" "}
               <a
-                href={url + "/files"}
+                href={url}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -599,21 +611,79 @@ function FileList({
       {viewing && (
         <RepoFileSheet
           pullRef={pullRef}
-          headSha={headSha}
+          headSha={sha}
           path={viewing}
           onClose={() => setViewing(null)}
         />
       )}
-      {data.files.length >= 300 && (
+      {hasMore && (
         <p className="pr-card-note">
           Showing the first 300 files.{" "}
-          <a href={url + "/files"} target="_blank" rel="noopener noreferrer">
+          <a href={url} target="_blank" rel="noopener noreferrer">
             See the rest on GitHub
           </a>
           .
         </p>
       )}
     </div>
+  );
+}
+
+function CommitChanges({ pullRef, commit }: {
+  pullRef: PullRequestRef;
+  commit: PullDetail["commitHistory"][number];
+}) {
+  const [data, setData] = useState<PullCommitFiles | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setError("");
+    api<PullCommitFiles>(`${pullPath(pullRef)}/commits/${commit.sha}/files`)
+      .then((result) => {
+        if (result.sha.toLowerCase() !== commit.sha.toLowerCase())
+          throw new Error("GitHub did not return this commit's changes. Try again.");
+        if (live) setData(result);
+      })
+      .catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, [attempt, pullRef.owner, pullRef.repo, pullRef.number, commit.sha]);
+  if (error) return (
+    <div role="alert">
+      <p className="error">{error}</p>
+      <button className="text-button" onClick={() => setAttempt(attempt + 1)}>Try again</button>
+    </div>
+  );
+  if (!data) return <p className="muted" role="status">Reading this commit’s changes…</p>;
+  return <ChangedFiles pullRef={pullRef} sha={commit.sha} files={data.files} url={commit.url} hasMore={data.hasMore} />;
+}
+
+function CommitEntry({ pullRef, commit }: {
+  pullRef: PullRequestRef;
+  commit: PullDetail["commitHistory"][number];
+}) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <details className="pull-file" onToggle={(event) => {
+      // Nested file disclosures also emit toggle events in some browsers.
+      if (event.target === event.currentTarget && event.currentTarget.open) setOpened(true);
+    }}>
+      <summary>
+        <span className="pull-commit-title">{commit.message.split("\n")[0]}</span>
+        <span className="pull-commit-meta muted">
+          {commit.author || "Unknown author"} · {at(commit.committedAt)} ·{" "}
+          <a href={commit.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
+            <code>{commit.sha.slice(0, 7)}</code> View commit on GitHub
+          </a>
+        </span>
+      </summary>
+      {commit.message.includes("\n") && (
+        <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          {commit.message.slice(commit.message.indexOf("\n") + 1).trim()}
+        </p>
+      )}
+      {opened && <CommitChanges pullRef={pullRef} commit={commit} />}
+    </details>
   );
 }
 
@@ -910,22 +980,7 @@ function PullRequestDetail({
             </p>
           )}
           {pr.commitHistory.length ? pr.commitHistory.map((commit) => (
-            <details key={commit.sha} className="pull-file">
-              <summary>
-                <span className="pull-commit-title">{commit.message.split("\n")[0]}</span>
-                <span className="pull-commit-meta muted">
-                  {commit.author || "Unknown author"} · {at(commit.committedAt)} ·{" "}
-                  <a href={commit.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
-                    <code>{commit.sha.slice(0, 7)}</code> View commit on GitHub
-                  </a>
-                </span>
-              </summary>
-              {commit.message.includes("\n") && (
-                <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                  {commit.message.slice(commit.message.indexOf("\n") + 1).trim()}
-                </p>
-              )}
-            </details>
+            <CommitEntry key={`${commit.sha}:${pr.fetchedAt}`} pullRef={pullRef} commit={commit} />
           )) : <p className="muted">No commits shown.</p>}
         </section>
       )}

@@ -71,6 +71,10 @@ const github = {
   writes: [] as { method: string; path: string; body: any }[],
   authorizations: new Set<string>(),
   files: [] as any[],
+  commitFiles: [] as any[],
+  commitReads: [] as string[],
+  commitSha: HEAD,
+  onCommitFiles: undefined as undefined | (() => void),
   /** Called as the files list is read, to push mid-read. */
   onFiles: undefined as undefined | (() => void),
   detail: undefined as any,
@@ -82,6 +86,10 @@ const github = {
 };
 beforeEach(() => {
   github.head = HEAD;
+  github.commitFiles = [];
+  github.commitReads = [];
+  github.commitSha = HEAD;
+  github.onCommitFiles = undefined;
   github.status = 200;
   github.headers = {};
   github.graphql = [];
@@ -260,6 +268,13 @@ const restoreGithub = withGithubFixture(async (url, init) => {
         ...(body === "huge" ? { "content-length": String(60 * 1024 * 1024) } : {}),
       },
     });
+  }
+  if (path === `/repos/acme/api/commits/${HEAD}`) {
+    github.commitReads.push(path + new URL(url).search);
+    github.onCommitFiles?.();
+    const page = Number(searchParams.get("page") || 1);
+    return json({ sha: github.commitSha, files: github.commitFiles.slice((page - 1) * 100, page * 100) }, 200,
+      page * 100 < github.commitFiles.length ? { link: '<https://github.test/next>; rel="next"' } : {});
   }
   if (path === "/repos/acme/api/pulls/42/files") {
     github.onFiles?.();
@@ -559,6 +574,50 @@ it("reads changed files only for the head commit you were shown", async () => {
     headSha: NEW_HEAD,
     files: [{ path: "a.ts" }],
   });
+});
+
+it("reads a selected commit's own paged changes even after the PR head moves", async () => {
+  github.head = NEW_HEAD;
+  github.onCommitFiles = () => { github.head = "c".repeat(40); };
+  github.commitFiles = Array.from({ length: 150 }, (_, i) => ({
+    filename: `commit-${i}.ts`, status: i ? "removed" : "renamed",
+    previous_filename: i ? undefined : "old.ts", additions: 1, deletions: 2,
+    patch: i === 1 ? "x".repeat(100_001) : i === 2 ? undefined : "@@ -1 +1 @@\n-old\n+commit only",
+  }));
+  const { status, data } = await api(PR + "/commits/" + HEAD + "/files");
+  expect(status).toBe(200);
+  expect(data).toMatchObject({ sha: HEAD, hasMore: false });
+  expect(data.files).toHaveLength(150);
+  expect(data.files[0]).toMatchObject({ path: "commit-0.ts", previousPath: "old.ts", patch: "@@ -1 +1 @@\n-old\n+commit only" });
+  expect(data.files[1]).toMatchObject({ truncated: true });
+  expect(data.files[1].patch).toHaveLength(100_000);
+  expect(data.files[2].patch).toBeUndefined();
+  expect(github.commitReads).toEqual([1, 2].map(page => `/repos/acme/api/commits/${HEAD}?per_page=100&page=${page}`));
+});
+
+it("caps commit files and reports when more files were omitted", async () => {
+  github.commitFiles = Array.from({ length: 350 }, (_, i) => ({ filename: `${i}.ts` }));
+  const { data } = await api(PR + "/commits/" + HEAD + "/files");
+  expect(data.files).toHaveLength(300);
+  expect(data.hasMore).toBe(true);
+  expect(github.commitReads).toHaveLength(3);
+});
+
+it("reports empty commits and rejects wrong commit responses", async () => {
+  const route = PR + "/commits/" + HEAD + "/files";
+  expect((await api(route)).data).toMatchObject({ files: [], sha: HEAD, hasMore: false });
+  github.commitSha = NEW_HEAD;
+  expect((await api(route)).status).toBe(502);
+});
+
+it("validates commit identities and isolates GitHub reads by owner", async () => {
+  expect((await api(PR + "/commits/main/files")).status).toBe(400);
+  expect((await api(PR + "/commits/" + HEAD + "/files", "GET", undefined, "mallory")).status).toBe(409);
+  expect(github.commitReads).toHaveLength(0);
+  github.status = 401;
+  const rejected = await api(PR + "/commits/" + HEAD + "/files");
+  expect(rejected.status).toBe(409);
+  expect(rejected.data.error).toMatch(/Reconnect GitHub/);
 });
 
 it("reads every page of review threads and says what a long thread leaves out", async () => {

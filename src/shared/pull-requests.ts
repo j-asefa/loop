@@ -128,6 +128,13 @@ export type PullFiles = {
   fetchedAt: number;
 };
 
+export type PullCommitFiles = {
+  files: PullFile[];
+  sha: string;
+  hasMore: boolean;
+  fetchedAt: number;
+};
+
 export const MAX_REVIEW_BODY = 20_000;
 
 // ---------------------------------------------------------------------------
