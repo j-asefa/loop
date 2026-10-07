@@ -62,6 +62,12 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
         for (const width of [390, 320]) {
           await page.setViewportSize({ width, height: 844 });
           for (const offsetTop of [0, 370]) {
+            // A top-layer dialog can have a different origin than the page.
+            // Emulate both directions; setting visualViewport alone never
+            // reproduced the disappearing conversation on physical iPhones.
+            await thread().evaluate((el, offsetTop) => {
+              el.style.marginTop = (offsetTop ? 480 : -480) + "px";
+            }, offsetTop);
             // iOS keeps the layout viewport tall while the keyboard shrinks and
             // pans the visual viewport. Resizing the browser alone misses this.
             await page.evaluate((offsetTop) => {
@@ -115,6 +121,56 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
               )
               .toBe(true);
             await expect(input).toBeFocused();
+            await expect(thread()).toHaveCSS("transform", "none");
+            // Descendant bounds alone can pass inside a collapsed, clipping
+            // dialog. Check the sheet's usable area and the field's hit target.
+            await expect
+              .poll(
+                () =>
+                  thread().evaluate((el) => {
+                    const top = window.visualViewport.offsetTop;
+                    const bottom = top + window.visualViewport.height;
+                    const r = el.getBoundingClientRect();
+                    const header = el
+                      .querySelector(".sheet-head")
+                      .getBoundingClientRect();
+                    const actions = el
+                      .querySelector(".composer-actions")
+                      .getBoundingClientRect();
+                    const input = el.querySelector(".composer textarea");
+                    const field = input.getBoundingClientRect();
+                    const hit = document.elementFromPoint(
+                      field.left + field.width / 2,
+                      field.top + field.height / 2,
+                    );
+                    // Name the part that failed: a bare false here costs an
+                    // artifact dig to find out which of these it was.
+                    const checks = {
+                      "sheet starts inside the viewport": r.top >= top,
+                      "sheet ends inside the viewport": r.bottom <= bottom + 1,
+                      "sheet has usable height": r.height > 100,
+                      "header is inside the sheet":
+                        header.top >= r.top && header.bottom <= r.bottom,
+                      "reply field is inside the sheet":
+                        field.top >= r.top && field.bottom <= r.bottom,
+                      "reply controls are inside the sheet":
+                        actions.top >= r.top && actions.bottom <= r.bottom,
+                      "reply field is what you touch": input.contains(hit),
+                    };
+                    const failed = Object.entries(checks)
+                      .filter(([, ok]) => !ok)
+                      .map(
+                        ([name]) =>
+                          `${name} (sheet ${Math.round(r.top)}-${Math.round(r.bottom)}, header ${Math.round(header.top)}-${Math.round(header.bottom)}, field ${Math.round(field.top)}-${Math.round(field.bottom)}, controls ${Math.round(actions.top)}-${Math.round(actions.bottom)}, viewport ${top}-${bottom})`,
+                      );
+                    return failed.length ? failed.join("; ") : "";
+                  }),
+                {
+                  message:
+                    "Conversation has usable height with its header and reply field visible inside it",
+                },
+              )
+              .toBe("");
             await capture(
               `reply-${kind}-keyboard-${quote}-${width}-${offsetTop}`,
             );
@@ -144,6 +200,7 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       );
       assert.equal((await input.boundingBox()).y, replyBefore.y);
       const draft = await input.inputValue();
+      await thread().evaluate((el) => el.style.removeProperty("margin-top"));
       await input.blur();
       await expect(page.locator(".mobile-nav")).toBeVisible();
       await resetViewport();

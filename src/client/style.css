@@ -683,9 +683,15 @@ small,
   gap: 15px;
 }
 .swipe-sheet {
-  transform: translateY(var(--sheet-drag-y, 0px));
+  /* Even translateY(0) creates a transformed layer. Safari can displace that
+     layer when its keyboard pans a modal; only transform an actual drag. */
+  transform: none;
   transition: transform 160ms ease-out;
   overscroll-behavior-y: contain;
+}
+.swipe-sheet.dragging,
+.swipe-sheet.dismissing {
+  transform: translateY(var(--sheet-drag-y, 0px));
 }
 .swipe-sheet.dragging {
   transition: none;
@@ -1433,11 +1439,18 @@ small,
     max-width: 100%;
   }
   /* Anchor from the visible top: Safari's top-layer modal and the page's
-     fixed-bottom probe can disagree while the keyboard pans the viewport. */
+     fixed-bottom probe can disagree while the keyboard pans the viewport.
+     --sheet-top-gap is read by useSheetViewport, so the correction it measures
+     and this rule can never disagree about the gap or the width it applies at.
+     The correction cancels the modal's coordinate-origin shift; it does not
+     consume space inside the visible viewport or reduce its usable height. */
   :root[data-keyboard="open"] .sheet:not(.side-panel) {
-    top: calc(var(--visual-viewport-top, 0px) + 8px);
+    --sheet-top-gap: 8px;
+    top: calc(var(--visual-viewport-top, 0px) + var(--sheet-top-gap) + var(--sheet-top-correction, 0px));
     bottom: auto;
-    max-height: calc(var(--visual-viewport-height, 100dvh) - 16px);
+    max-height: calc(
+      var(--visual-viewport-height, 100dvh) - 2 * var(--sheet-top-gap)
+    );
     translate: none;
     box-shadow:
       0 var(--keyboard-inset, 0px) 0 0 var(--surface),
@@ -6467,6 +6480,64 @@ details > summary {
   overflow-y: auto;
   overscroll-behavior: contain;
   margin-top: 6px;
+}
+@media (max-width: 380px) {
+  /* The action row wraps on narrow phones, so the composer wants more of the
+     sheet than it does at 390px. An upper bound, not the guarantee: the rule
+     below is what keeps the controls reachable when even this does not fit. */
+  :root[data-keyboard="open"] .conversation-sheet .composer-quote {
+    max-height: 64px;
+  }
+}
+@media (max-width: 700px) {
+  /* With the keyboard open the sheet cannot grow and the message list is
+     already at zero, so a composer taller than the sheet body is clipped by it
+     and the send controls vanish under the keyboard. No fixed quote height can
+     prevent that: the action row's height depends on whether it wraps, which
+     depends on the text metrics of whatever is rendering. Cap the composer at
+     the body and carry that cap down to the quoted original, which is the one
+     supplementary part and keeps its own scrollbar.
+     The composer is capped, not shrinkable: the message list still yields its
+     space first, exactly as before. */
+  :root[data-keyboard="open"] .conversation-sheet .conversation-composer {
+    max-height: 100%;
+  }
+  :root[data-keyboard="open"] .conversation-sheet .conversation-composer,
+  :root[data-keyboard="open"]
+    .conversation-sheet
+    .conversation-composer
+    .composer-dock,
+  :root[data-keyboard="open"]
+    .conversation-sheet
+    .conversation-composer
+    .composer {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  /* Percentages do not resolve through an auto-height parent, so the cap is
+     carried by flex shrinking rather than by max-height on each level. */
+  :root[data-keyboard="open"]
+    .conversation-sheet
+    .conversation-composer
+    .composer-dock,
+  :root[data-keyboard="open"]
+    .conversation-sheet
+    .conversation-composer
+    .composer {
+    flex: 1 1 auto;
+  }
+  :root[data-keyboard="open"] .conversation-sheet .composer-reply-chip {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  /* The field and the controls are what the reply needs: they keep their size
+     while the quote above them gives way. */
+  :root[data-keyboard="open"] .conversation-sheet .composer-main,
+  :root[data-keyboard="open"] .conversation-sheet .composer-actions {
+    flex: 0 0 auto;
+  }
 }
 .composer-reply-chip .icon-button {
   width: 28px;

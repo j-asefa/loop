@@ -21,6 +21,22 @@ import type { Billing } from "../protocol.js";
 import { NativeSetupError } from "./setup-error.js";
 const exec = promisify(execFile);
 
+/** Why a `result` message does not end this launch's user turn, or "" when it
+ * does. Older CLIs leave `origin` absent, so only an explicit non-human kind
+ * disqualifies one: unrecognised kinds stay disqualified, because settling the
+ * user's prompt on someone else's result loses their reply, while an ignored
+ * result only stalls a turn the caller can still stop. Callers must report
+ * every non-empty reason — nothing else explains a stalled turn. */
+export function foreignResult(m: any, active: boolean, session: string) {
+  if (!active) return "no user turn is open";
+  if (m.parent_tool_use_id) return "it belongs to a child tool session";
+  if (m.session_id && m.session_id !== session)
+    return "it belongs to a different native session";
+  if (m.origin != null && m.origin.kind !== "human")
+    return `origin.kind=${JSON.stringify(m.origin.kind)} is not human`;
+  return "";
+}
+
 export class Claude implements Adapter {
   private controlState?: DirectControls;
   private get displayControls() {
@@ -297,6 +313,7 @@ export class Claude implements Adapter {
       type: "user",
       session_id: this.session,
       uuid: randomUUID(),
+      origin: { kind: "human" },
       parent_tool_use_id: null,
       message: { role: "user", content: text },
     });
@@ -358,6 +375,21 @@ export class Claude implements Adapter {
   }
   private activityInputs = new Map<string, { name: string; input: any }>();
   private message(m: any) {
+    // Streaming input also carries results for turns injected by Claude
+    // (notably stopped background tasks on resume). They must not settle the
+    // user's queued prompt, consume a steering interrupt, or clear approvals.
+    if (m.type === "result") {
+      const foreign = foreignResult(m, this.active, this.session);
+      // A dropped terminal result leaves the run streaming with no watchdog,
+      // so say why: the only visible symptom is a turn that never finishes,
+      // and `origin.kind` is an upstream protocol that keeps growing.
+      if (foreign) {
+        console.warn(
+          `Loop ignored a Claude result that is not this turn (${foreign}).`,
+        );
+        return;
+      }
+    }
     if (
       ["assistant", "user"].includes(m.type) &&
       Array.isArray(m.message?.content)

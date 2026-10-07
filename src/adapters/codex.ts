@@ -4,6 +4,7 @@ import type { Setting, SettingValue } from "../agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.mjs";
 import { Native } from "../native.js";
+import { NativeSetupError } from "./setup-error.js";
 import type { Billing } from "../protocol.js";
 import {
   capabilities,
@@ -234,12 +235,28 @@ export class Codex implements Adapter {
           }
         : {}),
     };
-    const r = await this.native.request(
-      this.options.resume ? "thread/resume" : "thread/start",
-      this.options.resume
-        ? { threadId: this.options.resume, ...extras }
-        : { cwd: this.options.project, ...extras },
-    );
+    const r = await this.native
+      .request(
+        this.options.resume ? "thread/resume" : "thread/start",
+        this.options.resume
+          ? { threadId: this.options.resume, ...extras }
+          : { cwd: this.options.project, ...extras },
+      )
+      .catch((error) => {
+        // Codex owns this wording, so match the phrase rather than the whole
+        // message: a rewording upstream must not silently drop the person
+        // back to the raw native error this branch exists to replace.
+        if (
+          this.options.resume &&
+          error instanceof Error &&
+          /already has an active writer/i.test(error.message)
+        )
+          throw new NativeSetupError(
+            "native_session_in_use",
+            "This conversation is in use by another Codex client, such as the desktop app. Stop or release the session there, then retry in Loop. No prompt was sent.",
+          );
+        throw error;
+      });
     this.thread = r.thread.id;
     if (this.options.billing === "subscription" && r.modelProvider !== "openai")
       throw new Error(

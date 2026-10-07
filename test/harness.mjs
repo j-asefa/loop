@@ -100,7 +100,14 @@ function finish(status = "completed") {
         content: [{ type: "text", text: "Fixture done" }],
       },
     });
-    out({ type: "result", subtype: "success", is_error: false });
+    out({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      ...(process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS
+        ? { origin: { kind: "human" } }
+        : {}),
+    });
   }
   if (kind === "pi") {
     out({
@@ -192,6 +199,19 @@ if (kind !== "opencode") {
     if (type === "config/read")
       return result({ config: { model_provider: "openai" } });
     if (type === "thread/start" || type === "thread/resume") {
+      if (type === "thread/resume" && process.env.LOOP_TEST_CODEX_WRITER_BUSY)
+        return out({
+          id: m.id,
+          error: {
+            code: -32600,
+            // Codex owns this wording: "reworded" stands in for an upstream
+            // change Loop must still recognise.
+            message:
+              process.env.LOOP_TEST_CODEX_WRITER_BUSY === "reworded"
+                ? `conversation ${m.params.threadId} already has an active writer (pid 4121); retry later.`
+                : `thread ${m.params.threadId} already has an active writer`,
+          },
+        });
       if (m.params?.threadId) threadId = m.params.threadId;
       return result({
         thread: { id: threadId, turns: [] },
@@ -271,7 +291,15 @@ if (kind !== "opencode") {
               : {},
         },
       });
-      if (m.request.subtype === "interrupt") finish("interrupted");
+      if (m.request.subtype === "interrupt") {
+        if (process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS)
+          out({
+            type: "result",
+            is_error: false,
+            origin: { kind: "task-notification" },
+          });
+        finish("interrupted");
+      }
       return;
     }
     if (type === "turn/interrupt" || type === "abort") {
@@ -366,6 +394,35 @@ if (kind !== "opencode") {
         });
       }
       if (kind === "claude") {
+        if (process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS) {
+          if (m.origin?.kind !== "human")
+            throw new Error("Loop prompts must declare human origin");
+          for (const origin of [
+            "task-notification",
+            "peer",
+            "channel",
+            "future-origin",
+          ])
+            out({
+              type: "result",
+              subtype: "success",
+              is_error: false,
+              session_id: m.session_id,
+              origin: { kind: origin },
+            });
+          out({
+            type: "result",
+            is_error: true,
+            errors: ["Background failure"],
+            origin: { kind: "task-notification" },
+          });
+          out({
+            type: "result",
+            is_error: false,
+            session_id: "another-session",
+          });
+          out({ type: "result", is_error: false, parent_tool_use_id: "child" });
+        }
         out({
           type: "stream_event",
           event: { type: "message_start", message: { id: active } },
@@ -423,6 +480,12 @@ if (kind !== "opencode") {
               tool_name: "Read",
               input: { file_path: "README.md" },
             },
+          });
+        if (kind === "claude" && process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS)
+          out({
+            type: "result",
+            is_error: false,
+            origin: { kind: "task-notification" },
           });
       } else
         setTimeout(() => finish(text === "fail" ? "failed" : "completed"), 30);

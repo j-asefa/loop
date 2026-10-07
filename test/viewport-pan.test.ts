@@ -96,3 +96,44 @@ it("moves the bottom bars down to what you see when Safari's layout viewport end
   expect(viewportDrop(undefined, 932, false)).toBe(0);
   expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 0, false)).toBe(0);
 });
+
+it("walks a panned sheet to the gap its own CSS rule leaves, then stops", async () => {
+  const { sheetCorrection } = await import("../src/client/useSheetViewport");
+  // Keyboard open, viewport panned 240px down, but Safari still lays the
+  // top-layer sheet out at the page's top: pull it down to 240 + 8.
+  expect(sheetCorrection(0, 8, 240, 0)).toBe(248);
+  // Measured again after it moved: already in place, so hold the correction
+  // instead of accumulating a second one.
+  expect(sheetCorrection(248, 8, 240, 248)).toBe(248);
+  expect(sheetCorrection(248, 8, 240, 248.4)).toBe(248);
+  // The sheet overshot (or the pan shrank): fold the remainder back in.
+  expect(sheetCorrection(248, 8, 100, 148)).toBe(208);
+  // No gap means no rule consumes the correction at this width, so there is
+  // nothing to correct: never measure a delta the layout will ignore.
+  expect(sheetCorrection(248, null, 240, 0)).toBe(null);
+  expect(sheetCorrection(0, 8, Number.NaN, 0)).toBe(0);
+});
+
+it("takes the sheet's gap from the rule that moves it, and nothing else", async () => {
+  const { sheetGap } = await import("../src/client/useSheetViewport");
+  const styles = (value: string) =>
+    ({
+      getPropertyValue: () => value,
+    }) as unknown as CSSStyleDeclaration;
+  const original = globalThis.getComputedStyle;
+  const el = {} as Element;
+  try {
+    for (const [declared, gap] of [
+      [" 8px ", 8],
+      ["12px", 12],
+      ["0px", 0],
+      ["", null],
+      ["auto", null],
+    ] as const) {
+      globalThis.getComputedStyle = () => styles(declared);
+      expect(sheetGap(el)).toBe(gap);
+    }
+  } finally {
+    globalThis.getComputedStyle = original;
+  }
+});

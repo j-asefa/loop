@@ -41,6 +41,18 @@ Managed Pi agents started from plain `loop` use the same Pi customizations scree
 
 Saved Codex desktop history read/fork and `loop codex --resume NATIVE_ID` retain the direct Codex adapter even when HAPI is the default. History discovery and forks require an enabled direct Codex connection; existing direct connections are preserved. The resume command is an explicit handoff after stopping the original owner and workspace; it is not takeover of an arbitrary live desktop process. Arbitrary `loop acp` executables also retain the direct ACP adapter.
 
+Codex permits one writer per native conversation. If another client holds it,
+Loop reports that the session is in use before sending the prompt. Stop or
+release the session in that client, then explicitly retry in Loop. Loop keeps
+the native conversation binding and does not kill the other client, remove its
+lock, fork the conversation, or automatically resend the request.
+
+Claude's streaming connection also carries results for background notifications
+and other injected turns. Loop stamps its prompts with human origin and only
+uses results for user turns to finish the run. Background results do not clear
+pending approvals or complete an interrupt used for steering. Older CLIs that
+omit origin on user results remain supported.
+
 ## Upgrade installed harnesses
 
 In **Settings → Provider connections → Harnesses**, choose **Upgrade** beside Codex, Pi, Claude Code or OpenCode. The same action appears in New agent’s runtime controls. Managed native runtimes also expose it under **Settings → Execution environments → Check installation and sign-in**.

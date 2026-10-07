@@ -140,6 +140,7 @@ for (const [name, Klass] of Object.entries({
 })) {
   test(`${name}: real subprocess framing, incremental output, permissions, follow-up and cancellation`, async () => {
     process.env.LOOP_TEST_HARNESS = name;
+    if (name === "claude") process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS = "1";
     const events: AdapterEvent[] = [];
     const adapter = new Klass(
       {
@@ -228,6 +229,7 @@ for (const [name, Klass] of Object.entries({
     } finally {
       await adapter.dispose();
       delete process.env.LOOP_TEST_HARNESS;
+      delete process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS;
     }
   });
 }

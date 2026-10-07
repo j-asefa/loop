@@ -22,6 +22,7 @@ import { parse } from "./api";
 import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
+import { useSheetViewport } from "./useSheetViewport";
 import { registerSheet } from "./sheetHistory";
 import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
 import { FileLink, loopFileUrl } from "./FilePreview";
@@ -151,6 +152,7 @@ export function Sheet({
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useSheetDrag(ref, swipeToClose, closeRef);
+  useSheetViewport(ref);
   useEffect(() => {
     const d = ref.current!;
     // Return focus to what opened the sheet when it closes. The dialog is

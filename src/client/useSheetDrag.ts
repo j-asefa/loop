@@ -18,7 +18,7 @@ export function useSheetDrag(
       start = null;
       distance = 0;
       dragging = false;
-      dialog.classList.remove("dragging");
+      dialog.classList.remove("dragging", "dismissing");
       dialog.style.removeProperty("--sheet-drag-y");
     };
     const begin = (target: EventTarget | null, x: number, y: number) => {
@@ -85,6 +85,7 @@ export function useSheetDrag(
         start = null;
         dragging = false;
         dialog.classList.remove("dragging");
+        dialog.classList.add("dismissing");
         dialog.style.setProperty("--sheet-drag-y", window.innerHeight + "px");
         closeTimer = setTimeout(
           () => onClose.current(),
