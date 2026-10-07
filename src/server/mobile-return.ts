@@ -101,6 +101,18 @@ export function conversationReturnState(owner: string, conversation: string) {
   };
 }
 
+/** The same rule for one message: saved itself, or through its result card. */
+function messageSaved(owner: string, message: string) {
+  return !!db
+    .prepare(
+      `SELECT 1 FROM message_bookmarks WHERE owner_id=@owner AND message_id=@message
+      UNION ALL
+      SELECT 1 FROM artifacts WHERE owner_id=@owner AND pinned=1 AND archived=0 AND json_extract(metadata,'$.messageId')=@message
+      LIMIT 1`,
+    )
+    .get({ owner, message });
+}
+
 function conversationMessage(owner: string, conversation: string, message: string) {
   return db
     .prepare(
@@ -510,6 +522,9 @@ function inboxItem(
           // Markdown for full-size inbox cards; the card clips it visually.
           content: message.content.slice(0, 4000),
           created_at: message.created_at,
+          // So the card's menu offers Save or Remove from Saved, as the
+          // thread and the result card already do.
+          saved: messageSaved(owner, message.id),
           // Sent by Loop for you (a watched pull request or a teammate
           // agent), not typed by you.
           ...(message.automation ? { automation: message.automation } : {}),

@@ -706,7 +706,7 @@ export function Later({
             !later?.due.length && (
               <p className="section-empty">
                 {later
-                  ? "Use “Remind me” on a thread, result or message, or swipe a thread left."
+                  ? "Use “Remind me” on a thread, result or message."
                   : "Loading…"}
               </p>
             )

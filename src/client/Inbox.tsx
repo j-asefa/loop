@@ -4,6 +4,8 @@ import {
   AlarmClock,
   Archive,
   ArrowDown,
+  Bookmark,
+  BookmarkCheck,
   ArrowUpRight,
   MoreHorizontal,
   ArrowUp,
@@ -96,6 +98,8 @@ export type InboxItem = {
     created_at: number;
     automation?: string;
     automation_from?: string;
+    /** In Later → Saved, itself or through its result card. */
+    saved?: boolean;
   } | null;
   run: {
     id: string;
@@ -1017,6 +1021,66 @@ export function Inbox({
       setError((e as Error).message);
     }
   }
+  function markSaved(item: InboxItem, saved: boolean) {
+    setItems((old) =>
+      old.map((row) =>
+        row.conversation_id === item.conversation_id &&
+        (row.sourceId || "") === (item.sourceId || "") &&
+        row.last_message
+          ? { ...row, last_message: { ...row.last_message, saved } }
+          : row,
+      ),
+    );
+  }
+  async function setSavedOnServer(
+    item: InboxItem,
+    messageId: string,
+    saved: boolean,
+  ) {
+    await apiInWorkspace(
+      `/messages/${messageId}/saved`,
+      item.sourceId ?? executionSourceId(),
+      saved ? {} : undefined,
+      saved ? "POST" : "DELETE",
+    );
+    window.dispatchEvent(new Event("loop-later-change"));
+  }
+  /**
+   * Save the card: its latest message, and the result card that message
+   * produced, so Saved shows the one thing once. As in a thread, unsaving
+   * waits for the toast to end so Undo keeps the original save.
+   */
+  async function toggleSaved(item: InboxItem) {
+    const message = item.last_message;
+    if (!message) return;
+    const saved = !!message.saved;
+    markSaved(item, !saved);
+    if (saved) {
+      notify({
+        text: "Removed from Saved.",
+        undo: () => markSaved(item, true),
+        onExpire: () =>
+          void setSavedOnServer(item, message.id, false).catch((e) => {
+            markSaved(item, true);
+            setError((e as Error).message);
+          }),
+      });
+      return;
+    }
+    try {
+      await setSavedOnServer(item, message.id, true);
+      notify({
+        text: "Saved. Find it in Later → Saved.",
+        undo: async () => {
+          await setSavedOnServer(item, message.id, false);
+          markSaved(item, false);
+        },
+      });
+    } catch (e) {
+      markSaved(item, false);
+      setError((e as Error).message);
+    }
+  }
   function actionsFor(item: InboxItem): Action[] {
     const agent = agents.find(
       (a) =>
@@ -1026,6 +1090,24 @@ export function Inbox({
     const source = item.sourceId ?? executionSourceId();
     const state = item.run?.state || "";
     const actions: Action[] = [
+      // Nothing written yet is nothing to keep.
+      ...(item.last_message
+        ? [
+            {
+              id: "save",
+              label: item.last_message.saved ? "Remove from Saved" : "Save",
+              hint: item.last_message.saved
+                ? undefined
+                : "Keeps this card's latest message in Later → Saved",
+              icon: item.last_message.saved ? (
+                <BookmarkCheck size={20} />
+              ) : (
+                <Bookmark size={20} />
+              ),
+              onSelect: () => void toggleSaved(item),
+            },
+          ]
+        : []),
       {
         id: "later",
         label: "Remind me",

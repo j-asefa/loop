@@ -583,6 +583,36 @@ it("keeps saved messages and results in one list, newest save first, per owner",
   ).toEqual(["m:" + two]);
 });
 
+it("says on a feed card whether its latest message is saved", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id, "Save the card");
+  const r = run(w.owner, a.id, cid, "completed");
+  message(w.owner, cid, "user", "Find a cheaper CI", r);
+  const answer = message(w.owner, cid, "assistant", "Here are the options", r);
+  const card = async () =>
+    (await api(w.owner, "/inbox")).data.items.find(
+      (i: any) => i.conversation_id === cid,
+    );
+  expect((await card()).last_message).toMatchObject({
+    id: answer,
+    saved: false,
+  });
+  await api(w.owner, `/messages/${answer}/saved`, "POST");
+  expect((await card()).last_message.saved).toBe(true);
+  await api(w.owner, `/messages/${answer}/saved`, "DELETE");
+  expect((await card()).last_message.saved).toBe(false);
+  // Saving the result card the message produced counts as saving the card.
+  const result = id();
+  db.prepare(
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','Here are the options',?,?,?)",
+  ).run(result, w.owner, a.id, cid, r, JSON.stringify({ messageId: answer }), now(), now());
+  await api(w.owner, `/messages/${answer}/saved`, "POST");
+  expect((await card()).last_message.saved).toBe(true);
+  // Another owner's save is not this owner's.
+  expect((await api("intruder", "/inbox")).data.items).toEqual([]);
+});
+
 it("scopes the Saved list to a project and to teams like the results feed", async () => {
   const w = workspaceFor(),
     a = w.agent();
