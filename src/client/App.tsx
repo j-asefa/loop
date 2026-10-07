@@ -40,6 +40,7 @@ import {
   CreateTeam,
   ProfileTeams,
   TeamManagerShortcut,
+  TeamDirectory,
 } from "./Teams";
 import { RuntimeHosts } from "./RuntimeHosts";
 import { ExecutionEnvironments } from "./ExecutionEnvironments";
@@ -97,6 +98,7 @@ import {
   SlidersHorizontal,
   ChevronDown,
   Folder,
+  Users,
   GitPullRequest,
   Settings,
   LogOut,
@@ -187,6 +189,7 @@ export default function App() {
   const [returnTo, setReturnTo] = useState(
     new URLSearchParams(location.search).has("connect") ? "create" : "",
   );
+  const [returnToTeamDirectory, setReturnToTeamDirectory] = useState(false);
   const [environmentToOpen, setEnvironmentToOpen] = useState("");
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
@@ -585,6 +588,21 @@ export default function App() {
       setError((error as Error).message);
     }
   }
+  function openTeamFeed(team: Team) {
+    setProfile(null);
+    setTab("inbox");
+    setView("all");
+    setTeamSelection([team.id]);
+    setProjectFilter("");
+    if (!draft.trim() && !attachments.length) {
+      setSelected(team.manager_id);
+      setReplyContext(null);
+      setContextArtifact(null);
+    }
+    afterSheetsClose(() =>
+      window.scrollTo({ top: 0, behavior: "instant" }),
+    );
+  }
   function messageTeam(team: Team) {
     setReplyContext(null);
     setSelected(team.manager_id);
@@ -686,6 +704,12 @@ export default function App() {
     if (sheet === "create") {
       setEnvironmentToOpen("");
       setEnvironmentSetupProvider("");
+    }
+    if (sheet === "teams" && returnToTeamDirectory) {
+      setSheet("teamDirectory");
+      setReturnToTeamDirectory(false);
+      setReturnTo("");
+      return;
     }
     setSheet(
       sheet === "create" && ["share", "workflows", "teams"].includes(returnTo)
@@ -1523,7 +1547,14 @@ export default function App() {
     }
   }, [profile?.id]);
   useEffect(() => {
-    if (conversation || profile || draft.trim() || replyContext) return;
+    if (
+      conversation ||
+      profile ||
+      draft.trim() ||
+      attachments.length ||
+      replyContext
+    )
+      return;
     const target =
       scopedAgents.find((a) => a.id === selected) ||
       scopedAgents.find((a) => a.connection_id);
@@ -2158,6 +2189,12 @@ export default function App() {
           <span className="wordmark-dot" />
         </button>
         <nav>{nav}</nav>
+        <button
+          className="project-nav"
+          onClick={() => setSheet("teamDirectory")}
+        >
+          <Users size={17} /> Teams
+        </button>
         <div className="sidebar-label">
           WORKSPACE
           <button
@@ -2318,21 +2355,7 @@ export default function App() {
                   agent={profile}
                   teams={data.teams || []}
                   onMessage={messageTeam}
-                  onOpen={(team) => {
-                    setProfile(null);
-                    setTab("inbox");
-                    setView("all");
-                    setTeamSelection([team.id]);
-                    setProjectFilter("");
-                    if (!draft.trim() && !attachments.length) {
-                      setSelected(team.manager_id);
-                      setReplyContext(null);
-                      setContextArtifact(null);
-                    }
-                    afterSheetsClose(() =>
-                      window.scrollTo({ top: 0, behavior: "instant" }),
-                    );
-                  }}
+                  onOpen={openTeamFeed}
                 />
                 {profile.retired_at && (
                   <p className="note" role="status">
@@ -2841,7 +2864,7 @@ export default function App() {
                 setWorkflowSource(undefined);
                 setSheet("workflows");
               }}
-              onTeams={() => setSheet("teams")}
+              onTeams={() => setSheet("teamDirectory")}
             />
           )}
           {dismissNotice && (
@@ -3322,12 +3345,14 @@ export default function App() {
       {sheet === "teams" && (
         <CreateTeam
           agents={data.agents}
+          connections={data.connections}
           onClose={closeSheet}
           onCreateAgent={() => {
             setReturnTo("teams");
             setSheet("create");
           }}
           onCreated={(team) => {
+            setReturnToTeamDirectory(false);
             setSettingsParent(false);
             setSheet("");
             setTeamSelection([team.id]);
@@ -3337,6 +3362,20 @@ export default function App() {
             setConversation(team.conversation_id);
             void bootstrap();
           }}
+        />
+      )}
+      {sheet === "teamDirectory" && (
+        <TeamDirectory
+          teams={data.teams || []}
+          agents={data.agents}
+          connections={data.connections}
+          onClose={closeSheet}
+          onCreate={() => {
+            setReturnToTeamDirectory(true);
+            setSheet("teams");
+          }}
+          onOpen={openTeamFeed}
+          onChanged={() => void bootstrap()}
         />
       )}
       {teamMessages && (

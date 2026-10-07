@@ -3,8 +3,16 @@ import { expect } from "@playwright/test";
 
 export async function profileNavigationSmoke(page, fixture, engine, capture) {
   const dialog = () => page.locator("dialog[open]").last();
-  const close = () =>
-    dialog().getByRole("button", { name: "Close", exact: true }).click();
+  const settled = async () => {
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    // Closing a sheet schedules Back asynchronously. A document navigation
+    // before popstate can strand its loopSheet marker in the next document.
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
+  };
+  const close = async () => {
+    await dialog().getByRole("button", { name: "Close", exact: true }).click();
+    await settled();
+  };
   const nav = (name) =>
     page.locator(".mobile-nav").getByRole("button", { name, exact: true });
   const connection = fixture.db
@@ -73,7 +81,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
       }
     }
     await avatarButton.click();
-    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    await settled();
     await expect(page.locator(".profile-head h1")).toHaveText(name);
     await expect(page.locator(".profile-head h1")).toBeInViewport({ ratio: 1 });
     await page.waitForLoadState("networkidle");

@@ -202,21 +202,33 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       // Open the profile of an agent known to have results.
       const resultAuthor = fixture.db
         .prepare(
-          "SELECT g.name FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
+          "SELECT g.id,g.name FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
         )
-        .get(fixture.artifacts[0]).name;
+        .get(fixture.artifacts[0]);
+      // The profile heading appears before its scoped feed replaces the
+      // previous feed's cards. Counting the first non-empty render can capture
+      // those old cards and make archive/undo expect the wrong cardinality.
+      const profileFeed = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === "/api/feed" &&
+          url.searchParams.get("agent") === resultAuthor.id &&
+          url.searchParams.get("view") === "all"
+        );
+      });
       await page
         .locator(".your-agents")
-        .getByRole("button", { name: new RegExp(`^@${resultAuthor} · `) })
+        .getByRole("button", { name: new RegExp(`^@${resultAuthor.name} · `) })
         .click();
       await expect(page.locator(".profile-head h1")).toBeVisible();
+      await page.getByRole("tab", { name: "Results", exact: true }).click();
+      const loaded = await (await profileFeed).json();
       const cards = page.locator(".feed-card:not(.inbox-card)");
-      // A profile refresh can replace the first render between waitFor and
-      // count. Capture a positive count atomically with the readiness check.
-      let cardCount = 0;
-      await expect
-        .poll(async () => (cardCount = await cards.count()))
-        .toBeGreaterThan(0);
+      const cardCount = loaded.items.filter(
+        (item) => !item.role && !JSON.parse(item.metadata || "{}").snippet,
+      ).length;
+      assert(cardCount > 0, "The fixture profile has results to archive");
+      await expect(cards).toHaveCount(cardCount);
       const archived = await cards.first().locator("h2").first().textContent();
       await swipe(cards.first().locator(".card-byline .identity"));
       await expect(page.locator(".profile-head h1")).toBeVisible();

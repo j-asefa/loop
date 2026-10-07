@@ -172,6 +172,10 @@ small,
   flex-direction: column;
   background: var(--bg);
   z-index: 20;
+  overflow-y: auto;
+}
+.sidebar > * {
+  flex-shrink: 0;
 }
 .sidebar > .wordmark {
   margin-bottom: 42px;
@@ -4696,6 +4700,18 @@ label.directory-search:focus-within {
 .team-manager-option > .avatar,
 .team-manager-option > svg {
   flex-shrink: 0;
+}
+.team-directory-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.team-directory-item .team-manager-option {
+  width: 100%;
+}
+.team-directory-item p {
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
 }
 .team-threads {
   display: grid;

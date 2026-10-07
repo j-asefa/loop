@@ -40,7 +40,7 @@ New interactive submissions carry a server-controlled personal-origin marker; in
 
 ## Teams
 
-A team is a manager and up to 8 workers. Each agent keeps its own provider connection, so one team can mix API, subscription, Codex, Claude Code, Pi, OpenCode, ACP and HAPI agents. You talk to the manager in the team thread.
+A team is a manager and up to 8 workers. Each agent keeps its own provider connection, so one team can mix API, subscription, Codex, Claude Code, Pi, OpenCode, ACP and HAPI agents. You talk to the manager in the team thread. Open **Teams** from the desktop workspace sidebar or **Projects → Agent teams** on a phone to browse teams, open a team feed, or add an existing connected agent as a worker. The Feed's team filter also opens a selected team's activity.
 
 **Delegation.** The manager's `loop_delegate` tool starts focused tasks for workers, which run in parallel; their updates appear in the team's feed. By default the call waits for every result. With `wait: false` the manager keeps working or finishes its turn, and each worker's result arrives later in the delegating conversation as a turn labelled **Result from @worker**, once per final state. While the manager is working in another team conversation, results wait rather than start a second session. Cancelling the manager's task also cancels its workers' tasks and any of their results still waiting to be read; results from workers that finished but weren't delivered yet are dropped, so a cancelled manager is never restarted.
 

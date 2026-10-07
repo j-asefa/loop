@@ -10,9 +10,161 @@ import {
   MessageSquare,
   ArrowUpRight,
   Mail,
+  UserPlus,
 } from "lucide-react";
-import type { Agent, Team } from "../shared/types";
+import type { Agent, Connection, Team } from "../shared/types";
 import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
+
+export function TeamDirectory({
+  teams,
+  agents,
+  connections,
+  onClose,
+  onOpen,
+  onCreate,
+  onChanged,
+}: {
+  teams: Team[];
+  agents: Agent[];
+  connections: Connection[];
+  onClose: () => void;
+  onOpen: (team: Team) => void;
+  onCreate: () => void;
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState<Team | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const name = (id: string) =>
+    agents.find((agent) => agent.id === id)?.name || "Former agent";
+  const available = adding
+    ? agents.filter(
+        (agent) =>
+          !agent.retired_at &&
+          connections.some(
+            (connection) =>
+              connection.id === agent.connection_id &&
+              connection.status === "connected",
+          ) &&
+          agent.id !== adding.manager_id &&
+          !adding.members.includes(agent.id),
+      )
+    : [];
+  const backToTeams = () => {
+    setAdding(null);
+    setError("");
+  };
+  return (
+    <Sheet
+      title={adding ? `Add a worker to ${adding.name}` : "Agent teams"}
+      onClose={adding ? backToTeams : onClose}
+    >
+      {adding ? (
+        <>
+          <p className="muted">
+            Choose an agent with a connected provider. A team can have up to 8
+            workers.
+          </p>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="team-manager-options">
+            {available.map((agent) => (
+              <button
+                className="team-manager-option"
+                key={agent.id}
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await api(`/teams/${adding.id}/members`, {
+                      agentId: agent.id,
+                    });
+                    onChanged();
+                    setAdding(null);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Avatar name={agent.name} provider={agent.provider} />
+                <span>
+                  <strong>@{agent.name}</strong>
+                </span>
+                <UserPlus size={18} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+          {!available.length && (
+            <p className="muted">
+              No available agents. Create or connect another agent first.
+            </p>
+          )}
+          <button className="text-button" onClick={backToTeams}>
+            Back to teams
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="team-manager-options">
+            {teams.map((team) => {
+              const workers = team.members.filter((id) =>
+                agents.some((agent) => agent.id === id && !agent.retired_at),
+              );
+              return (
+                <section className="team-directory-item" key={team.id}>
+                  <button
+                    className="team-manager-option"
+                    onClick={() => {
+                      onClose();
+                      onOpen(team);
+                    }}
+                  >
+                    <Users size={20} aria-hidden="true" />
+                    <span>
+                      <strong>{team.name}</strong>
+                      <small>
+                        Manager @{name(team.manager_id)} · {workers.length}{" "}
+                        {workers.length === 1 ? "worker" : "workers"}
+                      </small>
+                    </span>
+                    <ArrowUpRight size={18} aria-hidden="true" />
+                  </button>
+                  <p className="muted">
+                    {workers.map((id) => `@${name(id)}`).join(" · ")}
+                  </p>
+                  <button
+                    className="text-button"
+                    disabled={workers.length >= 8}
+                    onClick={() => {
+                      setAdding(team);
+                      setError("");
+                    }}
+                  >
+                    <UserPlus size={16} /> Add worker
+                  </button>
+                </section>
+              );
+            })}
+          </div>
+          {!teams.length && (
+            <p className="muted">
+              Create a team to coordinate a manager and workers.
+            </p>
+          )}
+          <button className="primary" onClick={onCreate}>
+            New team
+          </button>
+        </>
+      )}
+    </Sheet>
+  );
+}
 
 export function TeamManagerShortcut({
   teams,
@@ -545,16 +697,26 @@ export function TeamFilter({
 }
 export function CreateTeam({
   agents,
+  connections,
   onClose,
   onCreated,
   onCreateAgent,
 }: {
   agents: Agent[];
+  connections: Connection[];
   onClose: () => void;
   onCreated: (t: Team) => void;
   onCreateAgent: () => void;
 }) {
-  const available = agents.filter((a) => a.connection_id && !a.retired_at);
+  const available = agents.filter(
+    (agent) =>
+      !agent.retired_at &&
+      connections.some(
+        (connection) =>
+          connection.id === agent.connection_id &&
+          connection.status === "connected",
+      ),
+  );
   const [name, setName] = useState(""),
     [manager, setManager] = useState(available[0]?.id || ""),
     [members, setMembers] = useState<string[]>([]),

@@ -47,7 +47,7 @@ import { activeRun } from "./steering.js";
 import { attachmentIds } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
-import { listTeams, teamFilter } from "./teams.js";
+import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { nativeCancel, dispatchFor } from "./hapi/adapter.js";
 import { piInventory } from "../adapters/pi-inventory.js";
@@ -240,6 +240,8 @@ core.patch("/agents/:id", (req, res) => {
         agent = owned<Agent>("agents", req.params.id, owner);
       if (req.body.retired !== undefined) {
         const retired = z.boolean().parse(req.body.retired);
+        if (!retired && agent.retired_at != null)
+          assertTeamRestoreCapacity(owner, agent.id);
         db.prepare(
           "UPDATE agents SET retired_at=? WHERE id=? AND owner_id=?",
         ).run(retired ? agent.retired_at || now() : null, agent.id, owner);

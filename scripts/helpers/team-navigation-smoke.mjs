@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import { teamDirectorySmoke } from "./team-directory-smoke.mjs";
 
 export async function teamNavigationSmoke(page, fixture, engine, capture) {
   const teams = await fixture.api("/teams");
@@ -81,8 +82,34 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     });
   };
   try {
+    await teamDirectorySmoke(page, fixture, second);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(fixture.base);
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page
+      .locator(".projects-view")
+      .getByRole("button", { name: /^Agent teams/ })
+      .click();
+    await expect(dialog()).toHaveAttribute("aria-label", "Agent teams");
+    await expect(dialog().locator(".team-directory-item")).toHaveCount(3);
+    await dialog()
+      .locator(".team-directory-item")
+      .filter({ hasText: second.name })
+      .getByRole("button", { name: "Add worker" })
+      .click();
+    await dialog()
+      .getByRole("button", { name: `@${fixture.agents[4].name}` })
+      .click();
+    await expect(
+      dialog().locator(".team-directory-item").filter({ hasText: second.name }),
+    ).toContainText(`@${fixture.agents[4].name}`);
+    assert.ok(
+      (await fixture.api("/teams"))
+        .find((team) => team.id === second.id)
+        .members.includes(fixture.agents[4].id),
+    );
+    await close();
+    await page.getByRole("button", { name: "Feed", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Filter by team: All teams" }),
     ).toBeVisible();

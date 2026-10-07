@@ -488,6 +488,115 @@ it("deletes a team without deleting agents, history, or active work", async () =
   expect((await request(`/feed?teams=${team.id}`)).status).toBe(404);
 });
 
+it("adds an existing agent to an owned team within the worker limit", async () => {
+  const manager = agent(),
+    worker = agent(),
+    newcomer = agent();
+  const team = createTeam("alice", {
+    name: "Expanded team",
+    managerId: manager.id,
+    members: [worker.id],
+  });
+  const path = `/teams/${team.id}/members`;
+  expect(
+    (await request(path, { agentId: newcomer.id }, "POST", "bob")).status,
+  ).toBe(404);
+  expect(
+    (await request(path, { agentId: agent("openai", "bob").id })).status,
+  ).toBe(404);
+  expect((await request(path, { agentId: manager.id })).status).toBe(400);
+  const disconnected = agent();
+  db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+    disconnected.connection_id,
+  );
+  expect((await request(path, { agentId: disconnected.id })).status).toBe(409);
+  const retired = agent();
+  db.prepare("UPDATE agents SET retired_at=? WHERE id=?").run(
+    now(),
+    retired.id,
+  );
+  expect((await request(path, { agentId: retired.id })).status).toBe(409);
+  expect(
+    (await request(path, { agentId: newcomer.id })).data.members,
+  ).toContain(newcomer.id);
+  expect(
+    (await request(path, { agentId: newcomer.id })).data.members,
+  ).toHaveLength(2);
+  for (let i = 0; i < 6; i++)
+    expect((await request(path, { agentId: agent().id })).status).toBe(200);
+  expect(
+    listTeams("alice").find((item) => item.id === team.id)!.members,
+  ).toHaveLength(8);
+  expect((await request(path, { agentId: agent().id })).status).toBe(409);
+  // Retired workers retain their membership history but free an active slot.
+  expect(
+    (await request(`/agents/${worker.id}`, { retired: true }, "PATCH")).status,
+  ).toBe(200);
+  const replacement = agent();
+  const added = await request(path, { agentId: replacement.id });
+  expect(added.status).toBe(200);
+  expect(added.data.members).toHaveLength(9);
+  expect(added.data.members).toContain(worker.id);
+  expect(added.data.members).toContain(replacement.id);
+  expect((await request(path, { agentId: replacement.id })).status).toBe(200);
+  expect((await request(path, { agentId: agent().id })).status).toBe(409);
+  await request(`/teams/${team.id}`, undefined, "DELETE");
+  expect((await request(path, { agentId: agent().id })).status).toBe(404);
+});
+
+it("restores a retired worker only when every live team has capacity", async () => {
+  const worker = agent(),
+    manager = agent();
+  const full = createTeam("alice", {
+    name: "Full team",
+    managerId: manager.id,
+    members: [worker.id, ...Array.from({ length: 7 }, () => agent().id)],
+  });
+  const other = createTeam("alice", {
+    name: "Other team",
+    managerId: manager.id,
+    members: [worker.id],
+  });
+  const patch = (agentId: string, retired: boolean, owner = "alice") =>
+    request(`/agents/${agentId}`, { retired }, "PATCH", owner);
+  expect((await patch(worker.id, true)).status).toBe(200);
+  const replacement = agent();
+  expect(
+    (await request(`/teams/${full.id}/members`, { agentId: replacement.id }))
+      .status,
+  ).toBe(200);
+  expect((await patch(worker.id, false, "bob")).status).toBe(404);
+  const refused = await request(
+    `/agents/${worker.id}`,
+    {
+      retired: false,
+      instructions: "Should not be written",
+    },
+    "PATCH",
+  );
+  expect(refused.status).toBe(409);
+  expect(refused.data.error).toContain("Full team");
+  expect((await request(`/agents/${worker.id}`)).data.agent).toMatchObject({
+    retired_at: expect.any(Number),
+    instructions: worker.instructions,
+  });
+  expect(
+    listTeams("alice").find((team) => team.id === other.id)!.members,
+  ).toEqual([worker.id]);
+  // A manager does not consume a worker slot, even when its team is full.
+  expect((await patch(manager.id, true)).status).toBe(200);
+  expect((await patch(manager.id, false)).status).toBe(200);
+  expect((await patch(replacement.id, true)).status).toBe(200);
+  expect((await patch(worker.id, false)).status).toBe(200);
+  expect((await patch(worker.id, false)).status).toBe(200);
+  expect((await patch(replacement.id, false)).status).toBe(409);
+  // Historical memberships in a deleted team cannot block restoration.
+  expect((await request(`/teams/${full.id}`, undefined, "DELETE")).status).toBe(
+    200,
+  );
+  expect((await patch(replacement.id, false)).status).toBe(200);
+});
+
 it("changes provider, model, and supported effort atomically, continuing existing conversations while preserving queued snapshots", async () => {
   const a = agent(),
     team = createTeam("alice", {

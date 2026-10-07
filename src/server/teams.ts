@@ -85,6 +85,69 @@ export function createTeam(owner: string, input: unknown) {
     })
     .immediate();
 }
+export function addTeamMember(owner: string, teamId: string, input: unknown) {
+  const { agentId } = z.object({ agentId: z.string().min(1) }).parse(input);
+  return db
+    .transaction(() => {
+      const team = owned<any>("teams", teamId, owner);
+      if (team.deleted_at != null)
+        throw new Problem(404, "Team no longer exists");
+      if (team.manager_id === agentId)
+        throw new Problem(400, "The manager is already on this team");
+      const agent = owned<Agent>("agents", agentId, owner);
+      if (agent.retired_at)
+        throw new Problem(409, "Restore this agent before adding it to a team");
+      if (
+        !agent.connection_id ||
+        owned<any>("connections", agent.connection_id, owner).status !==
+          "connected"
+      )
+        throw new Problem(409, "This agent needs a connected provider");
+      const existing = db
+        .prepare("SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?")
+        .get(teamId, agentId);
+      if (!existing) {
+        const count = (
+          db
+            .prepare(
+              `SELECT count(*) n FROM team_members m
+               JOIN agents a ON a.id=m.agent_id
+               WHERE m.team_id=? AND a.retired_at IS NULL`,
+            )
+            .get(teamId) as { n: number }
+        ).n;
+        if (count >= 8)
+          throw new Problem(409, "A team can have up to 8 workers");
+        db.prepare(
+          "INSERT INTO team_members(team_id,agent_id) VALUES(?,?)",
+        ).run(teamId, agentId);
+      }
+      return listTeams(owner).find((item) => item.id === teamId)!;
+    })
+    .immediate();
+}
+// Called inside the agent PATCH transaction, before clearing retired_at.
+export function assertTeamRestoreCapacity(owner: string, agentId: string) {
+  const full = db
+    .prepare(
+      `
+    SELECT t.name FROM teams t
+    JOIN team_members membership ON membership.team_id=t.id
+    WHERE t.owner_id=? AND t.deleted_at IS NULL AND membership.agent_id=?
+      AND (SELECT count(*) FROM team_members m
+           JOIN agents a ON a.id=m.agent_id
+           WHERE m.team_id=t.id AND a.retired_at IS NULL) >= 8
+    LIMIT 1
+  `,
+    )
+    .get(owner, agentId) as { name: string } | undefined;
+  if (full)
+    throw new Problem(
+      409,
+      `Cannot restore this agent: team "${full.name}" already has 8 active workers. Retire another worker or delete the team first.`,
+    );
+}
+
 export const teams = Router();
 export function deleteTeam(owner: string, teamId: string) {
   db.transaction(() => {
@@ -100,6 +163,9 @@ export function deleteTeam(owner: string, teamId: string) {
 teams.get("/teams", (_req, res) => res.json(listTeams(res.locals.owner)));
 teams.post("/teams", (req, res) =>
   res.status(201).json(createTeam(res.locals.owner, req.body)),
+);
+teams.post("/teams/:id/members", (req, res) =>
+  res.json(addTeamMember(res.locals.owner, req.params.id, req.body)),
 );
 teams.delete("/teams/:id", (req, res) => {
   deleteTeam(res.locals.owner, req.params.id);
