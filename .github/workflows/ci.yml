@@ -1,10 +1,36 @@
 name: Loop checks
-on: [pull_request, workflow_dispatch]
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      browser_workers:
+        description: Design scenario workers per engine (full validation always runs)
+        type: choice
+        options: ["auto", "2", "1"]
+        default: "auto"
+  schedule:
+    - cron: "17 4 * * *"
+  # Seed default-branch caches when build inputs change; ordinary feature merges
+  # do not duplicate their entire PR run. Scheduled/manual runs also seed caches.
+  push:
+    branches: [main]
+    paths:
+      - "package*.json"
+      - "Dockerfile*"
+      - "docker-bake.hcl"
+      - "deployment/**"
+      - "native/**"
+      - "src/hapi-build.ts"
+      - ".github/**"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 env:
   # Hosted runners use CPU inference; optional CUDA downloads add a flaky NuGet dependency.
   ONNXRUNTIME_NODE_INSTALL: skip
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
 jobs:
   # Docs-only PRs skip the jobs below. A job skipped by its condition reports
   # success, so this stays mergeable if these checks become required.
@@ -12,19 +38,21 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      containers: ${{ steps.diff.outputs.containers }}
+      companion: ${{ steps.diff.outputs.companion }}
+      native: ${{ steps.diff.outputs.native }}
+      service: ${{ steps.diff.outputs.service }}
+      browser_image: ${{ steps.diff.outputs.browser_image }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node --test scripts/ci/*.test.mjs
       - id: diff
-        run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD | grep -qvE '(\.md$|^docs/)'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: node scripts/ci/changes.mjs
 
   # Unit tests, browser smokes and the package smoke run in parallel jobs;
   # each browser engine gets its own job.
@@ -34,11 +62,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/node
         with:
-          node-version: "24"
-          cache: npm
-      - run: npm ci
+          save-cache: "true"
       - run: npm run setup
       - run: npm run build
       - run: npm run test:all
@@ -47,36 +73,39 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         browser: [chromium, webkit]
     env:
       LOOP_BROWSER: ${{ matrix.browser }}
+      LOOP_BROWSER_WORKERS: ${{ inputs.browser_workers && inputs.browser_workers != 'auto' && inputs.browser_workers || (matrix.browser == 'webkit' && '1' || '2') }}
+      LOOP_CI_BROWSER_IMAGE: ${{ needs.changes.outputs.browser_image }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/node
       - run: npm run setup
       - run: npm run build
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: npm run smoke:workspace
-      - run: npm run smoke:html
-      - run: npm run smoke:pulls
-      - run: npm run smoke:design
-      - run: npm run smoke:history
-      - run: npm run smoke:companion
-      - run: npm run smoke:reconnect
-      - run: npm run smoke:browser
-      - run: npm run smoke:journey
+      - name: Pull locked browser image
+        run: docker pull "$LOOP_CI_BROWSER_IMAGE"
+      - name: Verify preinstalled browser and runtime
+        run: bash scripts/ci/browser-container.sh node scripts/ci/check-browser-image.mjs
+      - run: bash scripts/ci/browser-container.sh npm run smoke:workspace
+      - run: bash scripts/ci/browser-container.sh npm run smoke:html
+      - run: bash scripts/ci/browser-container.sh npm run smoke:pulls
+      - run: bash scripts/ci/browser-container.sh npm run smoke:design
+      - run: bash scripts/ci/browser-container.sh npm run smoke:history
+      - run: bash scripts/ci/browser-container.sh npm run smoke:companion
+      - run: bash scripts/ci/browser-container.sh npm run smoke:reconnect
+      - run: bash scripts/ci/browser-container.sh npm run smoke:browser
+      - run: bash scripts/ci/browser-container.sh npm run smoke:journey
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: loop-browser-evidence-${{ matrix.browser }}
           path: docs/loop-v0/evidence/*.png
+          retention-days: 7
 
   package:
     needs: changes
@@ -84,18 +113,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/node
       - run: npm run setup
       # The smoke builds and packs the tarball itself.
       - run: npm run smoke:package
 
   containers:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.containers == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,8 +128,13 @@ jobs:
         with:
           node-version: "24"
       - run: node scripts/setup.mjs
-      - run: docker compose config --quiet
-      - run: docker compose up --build -d
+      - uses: ./.github/actions/docker
+      - uses: docker/bake-action@v6
+        with:
+          files: docker-bake.hcl
+          targets: server-stack
+      - run: docker compose -f compose.yaml -f scripts/ci/server-images.yaml config --quiet
+      - run: docker compose -f compose.yaml -f scripts/ci/server-images.yaml up --no-build -d
       - run: node scripts/compose-smoke.mjs
       - run: docker run --rm --network none --entrypoint node -i loop-runtime:0.2 --input-type=module < scripts/native-harness-smoke.mjs
       - run: >-
@@ -121,16 +151,12 @@ jobs:
   # its cloudflared and the Quick Tunnel address. macOS launchd has no CI job.
   service-lifecycle:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.service == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/node
       - run: npm run build
       - name: Start a user systemd manager
         run: |
@@ -148,7 +174,7 @@ jobs:
     # build exhausted the hosted runner after the server images were built.
     # Separate jobs get separate runners, so this runs alongside containers.
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.companion == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -163,21 +189,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - run: node scripts/compose-companion-smoke.mjs
+      - uses: ./.github/actions/docker
+      - uses: docker/bake-action@v6
+        with:
+          files: docker-bake.hcl
+          targets: companion-stack
+      - run: node scripts/compose-companion-smoke.mjs --prebuilt
+      - if: always()
+        run: df -h /
 
   native-contract:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Reclaim disk for native source builds
+        # Cold source builds need the same headroom as companion.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: ./.github/actions/node
+      - uses: ./.github/actions/docker
+      - uses: docker/bake-action@v6
         with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: docker build -f deployment/Dockerfile.native -t loop-architecture-native:validation .
+          files: docker-bake.hcl
+          targets: native
       - name: Patched OpenCode ACP boundaries
         timeout-minutes: 5
         shell: bash
@@ -208,3 +246,37 @@ jobs:
       - name: Pi shipped workspace tools
         timeout-minutes: 5
         run: docker run --rm --network none loop-architecture-native:validation node /opt/loop-native/check-pi-managed-tools.mjs /opt/native/node_modules/.bin/pi /opt/loop-native/generated/pi-managed-extension.mjs
+
+  ci-success:
+    if: always()
+    needs:
+      [
+        changes,
+        verify,
+        browser,
+        package,
+        containers,
+        companion-container,
+        native-contract,
+        service-lifecycle,
+      ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all selected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node - <<'JS'
+          const jobs = JSON.parse(process.env.RESULTS);
+          if (jobs.changes.result !== 'success') process.exit(1);
+          const outputs = jobs.changes.outputs;
+          const flags = { verify: 'code', browser: 'code', package: 'code', containers: 'containers',
+            'companion-container': 'companion', 'native-contract': 'native', 'service-lifecycle': 'service' };
+          for (const [name, flag] of Object.entries(flags)) {
+            const expected = outputs[flag] === 'true' ? 'success' : 'skipped';
+            if (jobs[name].result !== expected) {
+              console.error(`${name}: expected ${expected}, got ${jobs[name].result}`);
+              process.exitCode = 1;
+            }
+          }
+          JS

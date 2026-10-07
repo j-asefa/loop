@@ -1,3 +1,22 @@
+# Native artifacts depend on their provisioning inputs, never on the UI build.
+FROM node:24-bookworm-slim AS native-tools
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends git openssl unzip ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY deployment/versions.json ./deployment/versions.json
+
+FROM native-tools AS opencode
+COPY native/provision-opencode.mjs native/build-opencode.mjs native/apply-opencode-patch.mjs native/opencode-execution-guard.ts native/opencode-models.json.gz ./native/
+RUN node native/provision-opencode.mjs /opt/loop-opencode
+
+FROM native-tools AS hapi
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY src/hapi-build.ts src/state.ts ./src/
+COPY src/native-auth/pi-customizations.ts ./src/native-auth/
+COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/pi-readiness.ts ./native/
+COPY scripts/stage-companion-hapi.mjs ./scripts/
+RUN node_modules/.bin/esbuild src/hapi-build.ts src/state.ts --outdir=dist --platform=node --format=esm && node scripts/stage-companion-hapi.mjs
+
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git openssl unzip python3 make g++ ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -6,8 +25,6 @@ RUN npm ci
 COPY . .
 RUN npm run build
 RUN node --input-type=module -e 'import { helper } from "./dist/tunnel.js"; await helper("/opt/loop-tunnel")'
-RUN node native/provision-opencode.mjs /opt/loop-opencode
-RUN node scripts/stage-companion-hapi.mjs
 RUN npm ci --prefix deployment/native --omit=dev
 RUN npm prune --omit=dev && rm scripts/build-native-auth.mjs
 
@@ -15,8 +32,8 @@ FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build --chown=node:node /app /app
 COPY --from=build /opt/loop-tunnel /opt/loop-tunnel
-COPY --from=build /opt/loop-opencode /opt/loop-opencode
-COPY --from=build /opt/loop-hapi-artifact /opt/loop-hapi
+COPY --from=opencode /opt/loop-opencode /opt/loop-opencode
+COPY --from=hapi /opt/loop-hapi-artifact /opt/loop-hapi
 RUN chmod -R a+rX /opt/loop-opencode /opt/loop-hapi
 RUN chmod -R a+rX /opt/loop-tunnel && ln -s /app/dist/cli.js /usr/local/bin/loop && mkdir -p /data/loop/provider-home /data/loop-connection /workspaces && chown -R node:node /data /workspaces && chmod 700 /data/loop-connection
 ENV NODE_ENV=production LOOP_HOME=/data/loop HOME=/data/loop/provider-home LOOP_COMPANION_CONTAINER=1 LOOP_BAKED_HELPERS=/opt/loop-tunnel LOOP_BAKED_OPENCODE=/opt/loop-opencode LOOP_BAKED_HAPI=/opt/loop-hapi

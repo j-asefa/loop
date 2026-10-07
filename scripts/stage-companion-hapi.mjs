@@ -24,7 +24,7 @@ export function stageHapiArtifact(buildRoot, binary, destination) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { hapi } = await import("../dist/local-runtime.js");
+  const { hapi } = await import("../dist/hapi-build.js");
   const buildRoot = "/opt/loop-hapi";
   stageHapiArtifact(buildRoot, await hapi(buildRoot), "/opt/loop-hapi-artifact");
   // Remove build inputs in the same Docker layer that downloaded them.

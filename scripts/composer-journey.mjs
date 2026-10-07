@@ -291,7 +291,16 @@ export async function composerJourney(page, api) {
   );
 }
 
-export async function sendCollapseJourney(page, api) {
+export async function sendCollapseJourney(page, api, dir) {
+  // This independent case must not inherit the earlier provider/composer
+  // journeys' request budget when a faster runner fits them in one minute.
+  const limits = new Database(join(dir, "loop.db"));
+  try {
+    limits.pragma("busy_timeout = 10000");
+    limits.prepare("DELETE FROM request_limits").run();
+  } finally {
+    limits.close();
+  }
   const base = new URL(page.url()).origin;
   const agent = (await api("/bootstrap")).agents.find(
     (a) => a.name === "creation-idle",

@@ -23,7 +23,7 @@ The root build typechecks, builds the Vite UI/service worker and bundles CLI/ser
 | `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service |
 | `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                    |
 
-Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
+The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime settings and credentials (except explicit `LOOP_TEST_*` fixture controls) from its child environment. Vitest starts with `LOOP_PROFILE=server`; individual companion fixtures still choose their own profile. Native fixtures choose their profiles independently. This prevents a companion-launched terminal from injecting live state or disabling memory tests. Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
 For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
 
@@ -58,7 +58,29 @@ Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an 
 
 ## Containers and CI
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. Its jobs run in parallel: root test/build (`verify`), one browser-smoke job per engine (`browser`), package smoke, Docker Compose smoke, the companion image and native HAPI transport/compatibility checks. A `changes` job skips all of them when a pull request touches only Markdown files or `docs/`; skipped jobs report success, so this also holds if they become required checks. Docker checks require an actual daemon and build the pinned images; do not substitute fixture-only results for them.
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) is the authoritative check list. New commits cancel older runs of the same PR. Manual runs and the daily 04:17 UTC default-branch run always execute full coverage. Selected build-input merges also run on `main` to seed caches; ordinary feature merges do not duplicate every PR check.
+
+The dependency classifier in [scripts/ci/changes.mjs](../scripts/ci/changes.mjs) always runs root build/tests, package smoke and both browser engines for code PRs. Client-only and standalone root-test changes skip deployment checks. Individual Docker/Compose/smoke definitions select their deployment jobs. Shared code, dependency changes, helpers, unknown paths, and diff errors run every job. Renames consider both paths. Markdown-only changes skip expensive jobs; executable files under `docs/` do not. The `ci-success` check rejects failures or unexpected skips. Classifier regressions run before job selection.
+
+To request full validation, including comparison with serial design scenarios:
+
+```sh
+gh workflow run ci.yml --ref YOUR_BRANCH -f browser_workers=auto
+# Use browser_workers=1 or 2 for a controlled comparison on the same commit.
+```
+
+CI restores npm downloads keyed by OS, architecture, Node 24 and the lockfile; `verify` saves a missing cache after installation. Default-branch caches can serve unrelated PRs. PR-specific caches expire through GitHub's normal eviction policy; CI does not grant cache-deletion permissions. Installs still use `npm ci`.
+
+Docker Bake builds the current checkout's images directly into the Docker daemon's containerd store, using a separate GitHub cache scope for each image. Compose smokes consume those images with `--no-build`; ordinary local smokes still build. Native artifact stages use their provisioning inputs independently of the client build. Cache export is bounded and best-effort; misses rebuild normally. Companion and server/native jobs keep separate disks, and companion/native disk reclamation remains necessary for cold builds and image export. The Docker driver shares the build/image store, avoiding a separate multi-GB export/load copy before the smokes. Store configuration runs only on fresh hosted VMs, before any containers start. Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them.
+
+Browser jobs install/build on the Ubuntu host, then run fixtures in the Playwright image resolved from `package-lock.json`. The exact host Node 24 runtime is mounted read-only so native modules retain the same ABI; browser libraries come from the image. A launch check catches mismatched/missing browser binaries. The design smoke runs named scenarios with separate databases, servers and browser contexts, at most two at a time. CI defaults to two Chromium workers and one WebKit worker; manual runs can override this. `smoke:journey` remains the integrated service-worker/provider journey. For a focused design regression:
+
+```sh
+LOOP_BROWSER=webkit node scripts/design-browser-smoke.mjs models
+LOOP_BROWSER=chromium LOOP_BROWSER_WORKERS=1 npm run smoke:design
+```
+
+Omitting scenario names runs all scenarios; unknown names fail. Each scenario reports timing, and screenshots include its engine/name. Browser evidence and Docker build records are retained for seven days. To roll back an optimisation, restore the host Playwright install for provisioning, select all deployment jobs in the classifier, or remove Bake's cache import/export independently; preserve the smoke assertions.
 
 The native image compatibility job also runs `native/check-opencode-discovery.mjs` against the image’s guarded OpenCode executable and shipped runner service, with external networking disabled. It checks execution-guard evidence, native model discovery, credential replacement and provider-specific sign-out using disposable synthetic credentials. Locally, pass the guarded executable as the first argument; an optional second argument selects an already-built runner service. Without it, the fixture builds the service from the checkout. This does not verify real OAuth or inference.
 

@@ -613,7 +613,7 @@ try {
     await agentCreationJourney(providerPage, providerApi);
     await failureJourney(providerPage, providerApi);
     await composerJourney(providerPage, providerApi);
-    await sendCollapseJourney(providerPage, providerApi);
+    await sendCollapseJourney(providerPage, providerApi, dir);
     await scheduledSendJourney(providerPage, providerApi, dir);
   } catch (error) {
     console.log("PROVIDER REQUESTS", providerRequests.slice(-25));

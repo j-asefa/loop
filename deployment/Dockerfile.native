@@ -7,10 +7,11 @@ COPY native ./native
 COPY scripts/build-native-auth.mjs ./scripts/build-native-auth.mjs
 RUN node scripts/build-native-auth.mjs
 FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS bun
-FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS native-tools
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git unzip && rm -rf /var/lib/apt/lists/*
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 COPY deployment/versions.json /opt/deployment/versions.json
+FROM native-tools AS build
 RUN git clone https://github.com/tiann/hapi.git /opt/hapi && cd /opt/hapi && git checkout "$(node -p 'require("/opt/deployment/versions.json").hapiCommit')" && bun install --frozen-lockfile
 COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/pi-readiness.ts /opt/loop-native/
 RUN node /opt/loop-native/apply-hapi-patch.mjs /opt/hapi
@@ -19,7 +20,7 @@ RUN bun run typecheck:cli && bun run typecheck:hub && cd cli && bun run build:ex
 RUN target="bun-linux-$(uname -m)"; case "$(uname -m)" in x86_64) target=bun-linux-x64-baseline ;; aarch64) target=bun-linux-arm64 ;; esac; cp "cli/dist-exe/$target/hapi" /opt/loop-native/hapi
 RUN git diff > /opt/loop-native/hapi.patch && git archive --format=tar HEAD > /opt/loop-native/hapi-source.tar
 # The managed OpenCode guard needs its audited Bun, independently of HAPI.
-FROM build AS opencode-build
+FROM native-tools AS opencode-build
 WORKDIR /opt
 COPY native/build-opencode.mjs native/apply-opencode-patch.mjs native/opencode-execution-guard.ts native/opencode-models.json.gz /opt/loop-native/
 RUN opencode_bun="$(node -p 'require("/opt/deployment/versions.json").opencodeBun')" && npm install --prefix /opt/opencode-tools --no-audit --no-fund "bun@$opencode_bun"

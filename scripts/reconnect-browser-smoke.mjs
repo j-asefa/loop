@@ -157,9 +157,15 @@ try {
   assert.equal(rebuilt.url, before.url);
   assert.equal(rebuilt.connection.service.tunnel.pid, before.connection.service.tunnel.pid);
 
+  // Finish checking the paired-page journey before the separate hard-down case.
+  // WebKit can report rejected in-flight requests as page errors when its server
+  // is deliberately killed; those are not failures of the completed restart.
+  assert.deepEqual(errors, []);
+  await page.close();
   // A page opened while the application is down gets the generic reconnect page.
   process.kill(rebuilt.pid, "SIGKILL");
   const fresh = await context.newPage();
+  fresh.on("pageerror", (e) => errors.push(e.message));
   const down = await fresh.goto(new URL("/", pairUrl).href);
   assert.equal(down.status(), 503);
   await expect(fresh.getByRole("heading", { name: "Loop is reconnecting…" })).toBeVisible();

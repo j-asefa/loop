@@ -5,7 +5,9 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 const project = `loop-companion-smoke-${randomUUID().slice(0, 8)}`;
-const args = ["compose", "-p", project, "-f", resolve("compose.companion.yaml")];
+const prebuilt = process.argv.includes("--prebuilt");
+const args = ["compose", "-p", project, "-f", resolve("compose.companion.yaml"),
+  ...(prebuilt ? ["-f", resolve("scripts/ci/companion-images.yaml")] : [])];
 function compose(extra, input, timeout = 60_000) {
   try {
     return execFileSync("docker", [...args, ...extra], {
@@ -68,7 +70,7 @@ const identity = () =>
 try {
   compose(["config", "--quiet"]);
   compose(
-    ["up", "--build", "-d", "--wait", "--wait-timeout", "240"],
+    ["up", prebuilt ? "--no-build" : "--build", "-d", "--wait", "--wait-timeout", "240"],
     undefined,
     1_500_000,
   );

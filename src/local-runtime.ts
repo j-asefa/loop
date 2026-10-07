@@ -23,6 +23,7 @@ import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
 import { LOCAL_ENVIRONMENT_NAMES } from "./server/execution-location.js";
 // @ts-expect-error Shipped plain-Node provisioning utility.
 import { provisionOpencode } from "../native/provision-opencode.mjs";
+import { hapi } from "./hapi-build.js";
 const exec = promisify(execFile);
 const versions = JSON.parse(
   readFileSync(new URL("../deployment/versions.json", import.meta.url), "utf8"),
@@ -87,70 +88,8 @@ async function run(command: string, args: string[], cwd = packageRoot) {
     );
   });
 }
-/** Build the exact already-reviewed HAPI patch on the laptop's architecture. */
-export async function hapi(root: string) {
-  const baked = process.env.LOOP_BAKED_HAPI;
-  if (baked) root = baked;
-  const patchHash = createHash("sha256")
-    .update(readFileSync(join(packageRoot, "native/apply-hapi-patch.mjs")))
-    .update(readFileSync(join(packageRoot, "native/loopManaged.ts")))
-    .update(readFileSync(join(packageRoot, "native/pi-readiness.ts")))
-    .update(
-      readFileSync(join(packageRoot, "src/native-auth/pi-customizations.ts")),
-    )
-    .digest("hex")
-    .slice(0, 12);
-  const source = join(
-    root,
-    "helpers",
-    `hapi-${versions.hapiCommit.slice(0, 8)}-${patchHash}`,
-  );
-  const target = `bun-${process.platform}-${process.arch}${process.platform === "linux" && process.arch === "x64" ? "-baseline" : ""}`;
-  const binary = join(source, "cli", "dist-exe", target, "hapi");
-  const ready = join(source, "loop-build-ready.json");
-  if (existsSync(binary) && existsSync(ready)) return binary;
-  if (baked) throw new Error("Baked HAPI artifact is missing or incompatible");
-  console.log(
-    `Preparing HAPI ${versions.hapi} for this machine (first launch only)…`,
-  );
-  privateDir(dirname(source));
-  if (!existsSync(join(source, ".git")))
-    await run("git", [
-      "clone",
-      "--filter=blob:none",
-      "--no-checkout",
-      "https://github.com/tiann/hapi.git",
-      source,
-    ]);
-  await run("git", ["checkout", versions.hapiCommit], source);
-  await run(process.execPath, [
-    join(packageRoot, "native/apply-hapi-patch.mjs"),
-    source,
-  ]);
-  // npm selects the Bun binary for the host; no Linux-only executable is copied.
-  await run(
-    "npx",
-    [
-      "--yes",
-      "--package",
-      `bun@${versions.bun}`,
-      "bun",
-      "install",
-      "--frozen-lockfile",
-    ],
-    source,
-  );
-  await run(
-    "npx",
-    ["--yes", "--package", `bun@${versions.bun}`, "bun", "run", "build:exe"],
-    join(source, "cli"),
-  );
-  if (!existsSync(binary))
-    throw new Error("HAPI build did not produce the expected host binary");
-  await exec(binary, ["--version"], { timeout: 10000 });
-  atomic(ready, { patchHash });
-  return binary;
-}
+export { hapi } from "./hapi-build.js";
+
 type Identity = { instanceId: string; namespace: string; credential: string };
 export class LocalRuntime {
   private children: ReturnType<typeof spawn>[] = [];
