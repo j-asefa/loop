@@ -68,6 +68,7 @@ jobs:
       - run: npm run smoke:pulls
       - run: npm run smoke:design
       - run: npm run smoke:companion
+      - run: npm run smoke:reconnect
       - run: npm run smoke:browser
       - run: npm run smoke:journey
       - uses: actions/upload-artifact@v4
@@ -114,6 +115,32 @@ jobs:
         run: docker compose logs --tail=100 loop runtime-broker runtime-image
       - if: always()
         run: docker compose down -v --remove-orphans
+
+  # Real user systemd units: application restarts keep the connection unit,
+  # its cloudflared and the Quick Tunnel address. macOS launchd has no CI job.
+  service-lifecycle:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Start a user systemd manager
+        run: |
+          sudo loginctl enable-linger "$USER"
+          uid=$(id -u)
+          for i in $(seq 1 30); do [ -S "/run/user/$uid/bus" ] && break; sleep 1; done
+          echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
+      - run: node scripts/service-lifecycle-smoke.mjs
+      - if: failure()
+        run: journalctl --user -n 200 --no-pager -u loop.service -u loop-connection.service || true
 
   companion-container:
     # Keep the two deployment builds off the same disk: the guarded runtime

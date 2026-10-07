@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml, stringify as yaml } from "yaml";
 import { createHash } from "node:crypto";
 import { privateDir, atomic } from "./state.js";
+import { own } from "./processes.js";
 const exec = promisify(execFile);
 const RELEASE = "2026.9.3";
 // Release asset SHA-256 digests from cloudflare/cloudflared release 2026.9.3.
@@ -225,8 +226,21 @@ export async function namedTunnelConfig(
   await writeFile(config, yaml(generated), { mode: 0o600 });
   return config;
 }
+/**
+ * Deterministic tests substitute a fake helper. Production images set
+ * NODE_ENV=production, where only the pinned, verified helper runs.
+ */
+function testHelper() {
+  return process.env.NODE_ENV !== "production"
+    ? process.env.LOOP_TEST_CLOUDFLARED || undefined
+    : undefined;
+}
 export class Tunnel {
   private child?: ChildProcessWithoutNullStreams;
+  /** The running cloudflared process, for status and acceptance evidence. */
+  get pid() {
+    return this.child?.exitCode === null ? this.child.pid : undefined;
+  }
   private stopped = false;
   constructor(
     private root: string,
@@ -235,7 +249,7 @@ export class Tunnel {
     private named?: { name: string; origin: string; config?: string },
   ) {}
   async start(): Promise<string> {
-    const binary = await helper(this.root);
+    const binary = testHelper() ?? (await helper(this.root));
     if (this.stopped) throw new Error("Quick Tunnel startup cancelled.");
     let config = join(this.root, "quick-tunnel.yml");
     if (this.named) {
@@ -279,6 +293,8 @@ export class Tunnel {
           ],
       { stdio: "pipe", shell: false },
     );
+    // Recorded so a full stop can still find it if the service itself crashed.
+    own(this.child);
     return new Promise((resolve, reject) => {
       let buffer = "",
         ready = false;

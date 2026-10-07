@@ -4,7 +4,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { readFileSync } from "node:fs";
-import { readFile, stat, unlink } from "node:fs/promises";
+import { chmod, readFile, rm, stat, unlink } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -77,6 +77,9 @@ export class Host {
   private decisions = new Set<string>();
   private promptPending = false;
   private stopped = false;
+  private active = 0;
+  private socketPath?: string;
+  private probe?: (nonce: string) => string;
   private adminToken = secret();
   private flush?: NodeJS.Timeout;
   private heartbeat?: NodeJS.Timeout;
@@ -164,7 +167,14 @@ export class Host {
     }
     socket.send(JSON.stringify(m));
   }
-  async listen() {
+  /**
+   * Without options the public gateway takes a loopback TCP port. Behind the
+   * connection service it listens on a private Unix socket instead and serves
+   * no origin until setOrigin applies the service's confirmed address.
+   */
+  async listen(
+    options: { socket?: string; probe?: (nonce: string) => string } = {},
+  ) {
     this.publicServer.on("upgrade", (req, socket, head) => {
       const device = this.authenticate(req);
       if (
@@ -224,12 +234,23 @@ export class Host {
     });
     this.publicServer.requestTimeout = 10000;
     this.publicServer.headersTimeout = 10000;
-    await new Promise<void>((resolve) =>
-      this.publicServer.listen(0, "127.0.0.1", resolve),
-    );
-    this.port = (this.publicServer.address() as { port: number }).port;
-    this.origin = `http://127.0.0.1:${this.port}`;
-    this.workspace?.originChanged(this.origin);
+    if (options.socket) {
+      this.socketPath = options.socket;
+      this.probe = options.probe;
+      await rm(options.socket, { force: true });
+      await new Promise<void>((resolve, reject) => {
+        this.publicServer.once("error", reject);
+        this.publicServer.listen(options.socket, resolve);
+      });
+      await chmod(options.socket, 0o600);
+    } else {
+      await new Promise<void>((resolve) =>
+        this.publicServer.listen(0, "127.0.0.1", resolve),
+      );
+      this.port = (this.publicServer.address() as { port: number }).port;
+      this.origin = `http://127.0.0.1:${this.port}`;
+      this.workspace?.originChanged(this.origin);
+    }
     await new Promise<void>((resolve, reject) => {
       this.adminServer.once("error", reject);
       this.adminServer.listen(0, "127.0.0.1", resolve);
@@ -338,6 +359,16 @@ export class Host {
     res.end(JSON.stringify(value));
   }
   private async http(req: IncomingMessage, res: ServerResponse) {
+    this.active++;
+    res.once("close", () => this.active--);
+    // Registration check from the connection service over the private socket.
+    // The relay never forwards /__loop paths from the public listener.
+    if (this.probe && req.url?.startsWith("/__loop/backend-probe?")) {
+      const nonce = new URL(req.url, "http://probe").searchParams.get("nonce");
+      if (req.method !== "GET" || !nonce || !/^[\w-]{16,100}$/.test(nonce))
+        return this.json(res, 400, { error: "Invalid probe" });
+      return this.json(res, 200, { proof: this.probe(nonce) });
+    }
     res.setHeader(
       "Content-Security-Policy",
       "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
@@ -681,6 +712,15 @@ export class Host {
     this.state.save();
     for (const s of this.clients.keys()) s.terminate();
     this.ws.close();
+    if (this.socketPath) {
+      // Behind the relay, let admitted requests finish for a bounded time so
+      // a restart rarely leaves an outcome uncertain.
+      this.publicServer.close();
+      this.publicServer.closeIdleConnections();
+      const end = Date.now() + 3000;
+      while (this.active > 0 && Date.now() < end)
+        await new Promise((r) => setTimeout(r, 50));
+    }
     this.publicServer.closeAllConnections();
     this.adminServer.closeAllConnections();
     await Promise.all([
@@ -688,5 +728,6 @@ export class Host {
       new Promise<void>((r) => this.adminServer.close(() => r())),
     ]);
     await unlink(join(this.dir, "control.json")).catch(() => {});
+    if (this.socketPath) await rm(this.socketPath, { force: true });
   }
 }

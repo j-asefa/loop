@@ -95,3 +95,32 @@ it("still expires the session when an unauthorized response has no JSON body", a
   );
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
 });
+const restarting = () =>
+  Response.json(
+    { error: "Loop is restarting. Try again in a moment.", reconnecting: true },
+    { status: 503, headers: { "x-loop-unavailable": "restarting" } },
+  );
+it("treats the connection service's restart response as reconnecting, never as signed out", async () => {
+  const dispatchEvent = vi.fn();
+  vi.stubGlobal("window", { dispatchEvent });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(restarting()));
+  const error = await api("/bootstrap").catch((e) => e);
+  expect(error).toMatchObject({ status: 503, reconnecting: true });
+  expect(error.message).toMatch(/reconnecting/);
+  const events = dispatchEvent.mock.calls.map(([event]) => event.type);
+  expect(events).toEqual(["loop-reconnecting"]);
+});
+it("keeps a mutation's session and outcome uncertain while Loop restarts", async () => {
+  const dispatchEvent = vi.fn();
+  vi.stubGlobal("window", { dispatchEvent });
+  vi.stubGlobal("location", { search: "" });
+  // One attempt: the client never resends on its own.
+  const fetcher = vi.fn().mockResolvedValue(restarting());
+  vi.stubGlobal("fetch", fetcher);
+  const error = await api("/runs", { input: "x" }).catch((e) => e);
+  expect(error.status).toBe(503);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(dispatchEvent.mock.calls.map(([event]) => event.type)).not.toContain(
+    "loop-auth-expired",
+  );
+});

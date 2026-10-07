@@ -25,7 +25,8 @@
     "smoke:design": "node scripts/design-browser-smoke.mjs && node scripts/approval-layout-browser.mjs",
     "smoke:workspace": "node scripts/workspace-lifecycle-smoke.mjs",
     "smoke:html": "node scripts/html-preview-smoke.mjs",
-    "smoke:pulls": "node scripts/pull-requests-smoke.mjs"
+    "smoke:pulls": "node scripts/pull-requests-smoke.mjs",
+    "smoke:reconnect": "node scripts/reconnect-browser-smoke.mjs"
   },
   "repository": {
     "type": "git",

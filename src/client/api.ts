@@ -2,6 +2,20 @@ import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
+/**
+ * Loop's connection service answers this while the application restarts. The
+ * request never reached Loop; nothing about pairing or the session changed.
+ */
+const restarting = (r: Response) =>
+  r.status === 503 && r.headers.get("x-loop-unavailable") === "restarting";
+export const RECONNECTING = "Loop is reconnecting… Work on your computer continues.";
+function reconnectingError() {
+  window.dispatchEvent(new Event("loop-reconnecting"));
+  return Object.assign(new Error(RECONNECTING), {
+    status: 503,
+    reconnecting: true,
+  });
+}
 export async function authorize() {
   if ((!capabilities.pairedDevices && !executionSourceId()) || csrf) return;
   if (!sessionRequest)
@@ -10,9 +24,16 @@ export async function authorize() {
         cache: "no-store",
         credentials: "same-origin",
       });
+      if (restarting(response)) throw reconnectingError();
       if (!response.ok) {
-        window.dispatchEvent(new Event("loop-auth-expired"));
-        throw new Error("Pair this device from the desktop.");
+        // Only a refusal ends the session; a server or relay failure doesn't.
+        if (response.status < 500)
+          window.dispatchEvent(new Event("loop-auth-expired"));
+        throw new Error(
+          response.status < 500
+            ? "Pair this device from the desktop."
+            : "Couldn’t reach Loop. Try again.",
+        );
       }
       csrf = (await response.json()).csrf;
     })().finally(() => {
@@ -65,6 +86,9 @@ export async function apiInWorkspace<T = any>(
       );
     throw error;
   });
+  // Rejected before forwarding, so it is safe to try again; the caller's
+  // durable request key still reconciles anything sent earlier.
+  if (restarting(r)) throw reconnectingError();
   if (
     r.redirected &&
     !r.headers.get("content-type")?.includes("application/json")

@@ -6,6 +6,7 @@ import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
+import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 
 export function WorkspaceConnection() {
   const [status, setStatus] = useState("Connecting to desktop…");
@@ -15,7 +16,9 @@ export function WorkspaceConnection() {
       timer: ReturnType<typeof setTimeout>,
       attempt = 0;
     let epoch = "",
-      cursor = 0;
+      cursor = 0,
+      // Assets this page loaded with; a restarted Loop may serve newer ones.
+      build = "";
     const connect = () => {
       const url = new URL("/ws", location.href);
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -25,6 +28,7 @@ export function WorkspaceConnection() {
       socket.onopen = () => {
         attempt = 0;
         setStatus("Connected to desktop");
+        setConnection({ reconnecting: false });
       };
       socket.onmessage = (event) => {
         try {
@@ -37,6 +41,10 @@ export function WorkspaceConnection() {
             return;
           epoch = m.epoch;
           cursor = m.cursor;
+          if (m.type === "reset" && typeof m.build === "string") {
+            if (!build) build = m.build;
+            else if (m.build !== build) setConnection({ updated: true });
+          }
           window.dispatchEvent(
             new CustomEvent("loop-workspace-change", { detail: m.type }),
           );
@@ -51,7 +59,8 @@ export function WorkspaceConnection() {
           window.dispatchEvent(new Event("loop-auth-expired"));
           return;
         }
-        setStatus("Reconnecting… Desktop work continues.");
+        setStatus("Loop is reconnecting… Desktop work continues.");
+        setConnection({ reconnecting: true });
         timer = setTimeout(
           connect,
           Math.min(15000, 500 * 2 ** Math.min(attempt++, 5)) +
@@ -61,6 +70,12 @@ export function WorkspaceConnection() {
       socket.onerror = () => socket.close();
     };
     connect();
+    const restarting = () => {
+      if (socket.readyState === WebSocket.OPEN) return;
+      setStatus("Loop is reconnecting… Desktop work continues.");
+      setConnection({ reconnecting: true });
+    };
+    window.addEventListener("loop-reconnecting", restarting);
     const wake = () => {
       if (socket.readyState === WebSocket.CLOSED) {
         clearTimeout(timer);
@@ -73,12 +88,16 @@ export function WorkspaceConnection() {
       clearTimeout(timer);
       socket.close();
       window.removeEventListener("online", wake);
+      window.removeEventListener("loop-reconnecting", restarting);
     };
   }, []);
   return (
-    <p className="workspace-connection" role="status">
-      {status}
-    </p>
+    <>
+      <p className="workspace-connection" role="status">
+        {status}
+      </p>
+      <ConnectionNotice />
+    </>
   );
 }
 type Decision = {

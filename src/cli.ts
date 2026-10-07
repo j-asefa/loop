@@ -3,7 +3,8 @@ import { automaticManagedStart } from "./start-selection.js";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync } from "node:fs";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
 import { join, resolve, dirname, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -11,7 +12,18 @@ import { createInterface } from "node:readline/promises";
 import qr from "qrcode-terminal";
 import { Harness } from "./protocol.js";
 import { privateDir, atomic } from "./state.js";
-import { Tunnel, TunnelSupervisor } from "./tunnel.js";
+import {
+  BackendLease,
+  connectionDir,
+  inspectConnection,
+  publicConnection,
+  type TunnelMode,
+} from "./connection.js";
+import {
+  ensureConnection,
+  stopConnection,
+  tunnelArgs,
+} from "./connection-launch.js";
 import type { Options } from "./adapters/types.js";
 import { discover, control } from "./host-control.js";
 import {
@@ -51,8 +63,13 @@ type Ready = {
   ready: true;
   description: string;
   notice?: string;
-  pair: Pair;
+  pair?: Pair;
+  url?: string;
 };
+// Set by Loop's service definitions and the Docker companion: a service
+// manager or sibling container owns the connection service.
+const externalConnection = process.env.LOOP_CONNECTION_MANAGED === "external";
+const LAUNCH_RECORD = "launch.json";
 function showPair(pair: Pair) {
   console.log(
     "\nScan with your phone's camera to open Loop in your browser, then choose Pair and open Loop. Use Share → Add to Home Screen to install it. Scan a new code to reconnect after a tunnel address change. This single-use code expires in 2 minutes.",
@@ -67,7 +84,11 @@ function showReady(ready: Ready, withCode = true) {
     "Create agents in Loop; multiple agents may use the same project. Commands: loop status, loop pair, loop logs, loop stop.",
   );
   if (ready.notice) console.log(ready.notice);
-  if (withCode) showPair(ready.pair);
+  if (withCode && ready.pair) showPair(ready.pair);
+  else if (!ready.pair && ready.url)
+    console.log(
+      `Same address: ${ready.url}. Paired devices stay signed in; no new pairing is needed.`,
+    );
   else console.log("Run loop pair to show a pairing code.");
 }
 function report(message: Ready | { error: string }) {
@@ -108,6 +129,7 @@ export async function forceStop(
   await stopManagedContainers(dirname(dir));
   await forgetWorkspace(dir);
 }
+/** Stops the application, its runners and managed containers; never the connection service. */
 async function stopWorkspace(dir: string) {
   const recorded = await recordedWorkspace(dir);
   const answered = await control(dir, "stop").then(
@@ -159,19 +181,304 @@ function runCommand(command: string, args: string[], cwd: string) {
     });
   });
 }
-async function upgradeWorkspace(dir: string, requestedProject: string) {
-  console.log(`Updating Loop from ${REMOTE_MAIN}…`);
-  await runCommand("npm", ["install", "-g", REMOTE_MAIN], process.cwd());
+/** Full shutdown: application, runners, then the connection service and tunnel. */
+async function stopAll(dir: string, connection: string) {
+  let stopped = false;
+  try {
+    await stopWorkspace(dir);
+    stopped = true;
+  } catch (error) {
+    if ((error as Error).message !== "No workspace is running.") throw error;
+  }
+  const service = await stopConnection(connection);
+  if (service === "external")
+    console.error(
+      "The connection service belongs to another container or service manager and was left running.",
+    );
+  if (!stopped && !service) throw new Error("No workspace is running.");
+}
 
-  const running = await control(dir, "status").catch(() => undefined);
-  const project = await realpath(running?.project ?? requestedProject);
-  if (running) {
-    console.log("Restarting the Loop workspace…");
+const execFileAsync = promisify(execFile);
+/** The launch to repeat on restart; written by each application launch. */
+async function launchArgs(dir: string) {
+  const saved = await readFile(join(dir, LAUNCH_RECORD), "utf8")
+    .then(JSON.parse)
+    .catch(() => undefined);
+  if (
+    saved?.schema === 1 &&
+    Array.isArray(saved.args) &&
+    saved.args.every((a: unknown) => typeof a === "string")
+  )
+    return saved.args as string[];
+  // Launched by a release without launch records: its saved start project and
+  // preferences (providers, execution, tunnel and billing) still apply.
+  const preferences = await readFile(join(dir, "preferences.json"), "utf8")
+    .then(JSON.parse)
+    .catch(() => ({}));
+  return ["start", ...(preferences.project ? ["--project", preferences.project] : [])];
+}
+
+/**
+ * Replaces the application with this CLI's installed build. The connection
+ * service, its cloudflared and the public address stay; so do paired devices.
+ */
+async function restartWorkspace(
+  dir: string,
+  connection: string,
+  root: string,
+  force: boolean,
+  upgradedFrom?: string,
+) {
+  if (process.env.LOOP_COMPANION_CONTAINER === "1")
+    throw new Error(
+      "In the Docker companion, restart the application container instead: docker compose -f compose.companion.yaml restart loop-companion",
+    );
+  const status = await control(dir, "status").catch(() => undefined);
+  const service = await inspectConnection(connection);
+  let hung = false;
+  // The application reports its own supervisor, which it cannot do once it is
+  // hung or gone -- exactly when a restart matters. The installed unit says so
+  // too, and routing to the manager is what keeps the restart inside the unit:
+  // starting a detached application instead leaves the manager relaunching its
+  // own copy, which then dies on the workspace lock, over and over.
+  const { installedSupervisor } = await import("./service.js");
+  const supervisor = status?.supervisor ?? (await installedSupervisor(root));
+  if (!status) {
+    const recorded = await recordedWorkspace(dir);
+    if (recorded?.state === "unknown")
+      throw new Error(
+        `Workspace process ${recorded.pid} is not responding and can't be confirmed as Loop's. Check it with ps.`,
+      );
+    hung = recorded?.state === "running";
+    if (hung && !force)
+      throw new Error(
+        "The application is not responding. Run loop restart --force to stop it (the connection and its address are kept).",
+      );
+    if (!hung && !supervisor && service.state !== "running")
+      throw new Error("No workspace is running. Run loop start.");
+    if (supervisor)
+      return restartService(
+        dir,
+        { supervisor, pid: recorded?.pid },
+        upgradedFrom,
+      );
+    if (!hung)
+      console.log(
+        "The application is not running; starting it behind the existing connection.",
+      );
+  } else {
+    const active = Number(status.activeRuns?.n ?? 0);
+    if (active > 0 && !force)
+      throw new Error(
+        `${active} run(s) are active. Wait for them to finish, or run loop restart --force: interrupted work is marked for review and never resent automatically.`,
+      );
+    if (supervisor)
+      return restartService(dir, { ...status, supervisor }, upgradedFrom);
+  }
+  const args = await launchArgs(dir);
+  if (status || hung) {
+    console.log("Restarting the Loop application…");
+    // Application and runners only: the connection service is in its own
+    // process group and absent from the application's ownership records.
     await stopWorkspace(dir);
   }
-  await daemonize(dir, ["pi", "--project", project]);
+  await daemonize(dir, args, {
+    restart: true,
+    // Releases before the connection service ran cloudflared in-process.
+    legacy:
+      !!status &&
+      !status.connection &&
+      /\.trycloudflare\.com$/.test(String(status.url ?? "")) &&
+      service.state !== "running",
+    upgradedFrom,
+  });
 }
-async function daemonize(dir: string, args: string[]) {
+
+/** An installed service restarts only its application unit. */
+async function restartService(dir: string, status: any, upgradedFrom?: string) {
+  const uid = process.getuid!();
+  // An upgrade installs the new build in npm's global prefix while the service
+  // entry still names the build it was installed from, often a checkout.
+  // Restarting that entry would relaunch the old code, so point it at this CLI
+  // first. The connection unit, its cloudflared and the address stay up.
+  const pointed = upgradedFrom
+    ? await import("./service.js").then(({ repointAppService }) =>
+        repointAppService(fileURLToPath(import.meta.url)),
+      )
+    : "unchanged";
+  if (pointed === "repointed")
+    console.log("Pointed the Loop service at the newly installed build.");
+  else if (status.supervisor === "launchd")
+    await runCommand(
+      "launchctl",
+      ["kickstart", "-k", `gui/${uid}/dev.loop.workspace`],
+      process.cwd(),
+    );
+  else
+    await runCommand(
+      "systemctl",
+      ["--user", "restart", "loop.service"],
+      process.cwd(),
+    );
+  const end = Date.now() + STARTUP_TIMEOUT_MS;
+  let last: any;
+  for (;;) {
+    const next = await control(dir, "status").catch(() => undefined);
+    if (next) last = next;
+    // Only a managed tunnel has a lease to register; local-only and
+    // user-managed proxy launches are ready once the application is.
+    const tunnel = ["quick", "named"].includes(next?.connection?.mode);
+    if (
+      next?.pid &&
+      next.pid !== status.pid &&
+      (!tunnel || next.connection.registered) &&
+      // An upgrade is only done once the new release is the one serving: a
+      // changed PID alone would accept a service that relaunched the old build.
+      (!upgradedFrom || next.release === VERSION)
+    ) {
+      console.log(
+        next.url
+          ? `Loop restarted under its service. Same address: ${next.url}. Paired devices stay signed in.`
+          : "Loop restarted under its service. Paired devices stay signed in.",
+      );
+      return;
+    }
+    if (Date.now() > end)
+      throw new Error(
+        upgradedFrom && last?.pid && last.pid !== status.pid && last.release !== VERSION
+          ? `The service restarted Loop ${last.release}, not the installed ${VERSION}: its service entry launches a different installation. Run loop service install from the new build, then loop restart.`
+          : "The restarted service did not become ready. See loop logs.",
+      );
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/**
+ * Quick and named tunnels run in the connection service; local-only and a
+ * user-managed --public-url proxy keep the in-process loopback gateway.
+ */
+function tunnelModeOf(values: {
+  "local-only"?: boolean;
+  "public-url"?: string;
+  "tunnel-name"?: string;
+  "tunnel-config"?: string;
+}): TunnelMode | undefined {
+  if (values["local-only"] || (values["public-url"] && !values["tunnel-name"]))
+    return undefined;
+  return values["tunnel-name"]
+    ? {
+        kind: "named",
+        name: values["tunnel-name"],
+        origin: new URL(values["public-url"]!).origin,
+        ...(values["tunnel-config"] ? { config: values["tunnel-config"] } : {}),
+      }
+    : { kind: "quick" };
+}
+
+/**
+ * The connection service can exit while its application keeps running. loop
+ * start then starts it again (or waits for its service manager), and waits for
+ * the application to reattach and adopt the service's confirmed address, so a
+ * pairing code is only issued for an address that serves the application.
+ */
+async function recoverConnection(
+  dir: string,
+  root: string,
+  connection: string,
+  running: any,
+  fallback: TunnelMode | undefined,
+) {
+  if (!["quick", "named"].includes(running.connection?.mode)) return;
+  const found = await inspectConnection(connection);
+  if (
+    found.state === "running" &&
+    found.hello.tunnel.state === "ready" &&
+    running.connection.registered &&
+    running.url === found.hello.origin
+  )
+    return;
+  const mode = found.state === "absent" ? fallback : found.record.mode;
+  if (!mode) return;
+  if (found.state !== "running")
+    console.log("The Loop connection service stopped; starting it again…");
+  const service = await ensureConnection({
+    root,
+    dir: connection,
+    mode,
+    release: VERSION,
+    // An installed service's connection unit is restarted by its manager.
+    external: externalConnection || !!running.supervisor,
+    log: console.log,
+  });
+  const end = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS", 120000);
+  for (;;) {
+    const current = await control(dir, "status").catch(() => undefined);
+    if (
+      current?.connection?.registered &&
+      current.url === service.hello.origin
+    ) {
+      if (current.url !== running.url)
+        console.log(
+          "The public address changed to " +
+            current.url +
+            ". Scan the new code from the Loop app to reconnect.",
+        );
+      return;
+    }
+    if (Date.now() > end)
+      throw new Error(
+        "The running application did not reconnect to the connection service. Run loop restart (the address is kept).",
+      );
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/**
+ * Installs the new release while the current application keeps serving, then
+ * hands the restart to the newly installed CLI so the new build is launched.
+ */
+async function upgradeWorkspace(
+  dir: string,
+  connection: string,
+  source: string,
+  force: boolean,
+) {
+  const status = await control(dir, "status").catch(() => undefined);
+  const active = Number(status?.activeRuns?.n ?? 0);
+  if (active > 0 && !force)
+    throw new Error(
+      `${active} run(s) are active. Wait for them to finish, or run loop upgrade --force.`,
+    );
+  console.log(`Installing Loop from ${source}…`);
+  await runCommand("npm", ["install", "-g", source], process.cwd());
+  const prefix = (await execFileAsync("npm", ["prefix", "-g"])).stdout.trim();
+  const cli = join(prefix, "lib", "node_modules", PACKAGE.name, "dist", "cli.js");
+  const installed = (
+    await execFileAsync(process.execPath, [cli, "--version"], { timeout: 60000 })
+  ).stdout.trim();
+  console.log(`Installed Loop ${installed}.`);
+  const service = await inspectConnection(connection);
+  if (!status && service.state !== "running") {
+    console.log("No workspace is running. Run loop start to open it.");
+    return;
+  }
+  await runCommand(
+    process.execPath,
+    [
+      cli,
+      "restart",
+      "--upgraded-from",
+      VERSION,
+      ...(force ? ["--force"] : []),
+    ],
+    process.cwd(),
+  );
+}
+async function daemonize(
+  dir: string,
+  args: string[],
+  restart?: { restart: true; legacy: boolean; upgradedFrom?: string },
+) {
   const log = join(dir, "daemon.log");
   await retireLog(log);
   const fd = openSync(log, "a", 0o600);
@@ -183,7 +490,11 @@ async function daemonize(dir: string, args: string[]) {
       {
         detached: true,
         stdio: ["ignore", fd, fd, "ipc"],
-        env: { ...process.env, LOOP_DAEMON_CHILD: "1" },
+        env: {
+          ...process.env,
+          LOOP_DAEMON_CHILD: "1",
+          ...(restart && !restart.legacy ? { LOOP_LAUNCH_REASON: "restart" } : {}),
+        },
       },
     );
   } finally {
@@ -216,6 +527,12 @@ async function daemonize(dir: string, args: string[]) {
         );
       });
     });
+    if (restart?.legacy)
+      console.log(
+        "This release keeps the public address across restarts. Moving the tunnel into its connection service changed the address once; scan the new code from the Loop app.",
+      );
+    if (restart?.upgradedFrom)
+      console.log(`Upgraded from Loop ${restart.upgradedFrom} to ${VERSION}.`);
     showReady(ready);
     console.log(
       "Loop keeps running in the background; you can close this terminal. Logs: loop logs",
@@ -305,6 +622,9 @@ async function main() {
       execution: { type: "string" },
       "tunnel-name": { type: "string" },
       "tunnel-config": { type: "string" },
+      force: { type: "boolean" },
+      from: { type: "string" },
+      "upgraded-from": { type: "string" },
     },
   });
   if (values.version) {
@@ -334,19 +654,29 @@ loop acp --executable ABSOLUTE_PATH [--acp-arg ARG]...
 loop pair               Show a fresh pairing code. Scan it to pair a new
                         device, or scan it from the Loop app to reconnect
                         after the tunnel address changed.
-loop upgrade            Install remote main, then restart Pi while preserving
-                        the existing workspace and pairing state.
+loop restart [--force]  Restart the application into the installed build. The
+                        tunnel, its address and paired devices are kept.
+                        Refuses while runs are active unless --force.
+loop upgrade [--from PACKAGE] [--force]
+                        Install remote main (or PACKAGE) while Loop keeps
+                        running, then restart into it with the same
+                        projects, runtimes, billing and address.
 loop status [--json] | devices | devices revoke ID | doctor [--json]
 loop logs [--follow] | stop | uninstall
+loop stop               Stop Loop completely, including its tunnel. The next
+                        start may get a new Quick Tunnel address.
 loop service install|uninstall  Start automatically at login
 
 Every project and enabled harness shares one workspace host and tunnel.
-Phone disconnection does not stop native work; loop stop does.
+A separate connection service keeps the tunnel and its address while the
+application restarts or upgrades. Phone disconnection does not stop native
+work; loop stop does.
 Default billing is verified native subscription; existing mode retains your
 selected native configuration and can incur API charges. No API fallback.
 Native permissions, skills, plugins and project configuration are preserved.
-Quick Tunnel URLs rotate. When that happens, run loop pair and scan the code
-with your phone. Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
+Quick Tunnel addresses change after loop stop, a reboot or a tunnel failure.
+When that happens, run loop pair and scan the code from the Loop app.
+Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
 --foreground keeps the workspace attached to this terminal (for service
 managers and debugging).
 --resume is an explicit desktop handoff of a native session you have stopped
@@ -399,6 +729,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   );
   const dir = join(root, "workspace");
   privateDir(dir);
+  const connection = connectionDir(root);
   const logPath = join(dir, "daemon.log");
   if (daemonChild) installDaemonLog(logPath);
   let project = await realpath(resolve(values.project ?? process.cwd()));
@@ -425,6 +756,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           workspace: await control(dir, "status").catch(() => ({
             state: "stopped",
           })),
+          connection: publicConnection(await inspectConnection(connection)),
           checks: [
             "No model request made.",
             "Native billing is checked when enabling and starting sessions.",
@@ -438,23 +770,75 @@ Uninstall removes the package separately; workspace/native history is retained.`
     );
     return;
   }
+  if (action === "connection") {
+    // Run by Loop's service definitions and container: the connection service
+    // in the foreground, independent of the application's lifecycle.
+    if (!values.foreground || positionals.length > 1)
+      throw new Error(
+        "loop connection --foreground runs the connection service for a service manager. Use loop start instead.",
+      );
+    const { runConnectionService } = await import("./connection-daemon.js");
+    await runConnectionService([
+      "--dir",
+      connection,
+      "--root",
+      root,
+      "--release",
+      VERSION,
+      ...(values["tunnel-name"]
+        ? tunnelArgs({
+            kind: "named",
+            name: values["tunnel-name"],
+            origin: values["public-url"] ?? "",
+            config: values["tunnel-config"],
+          })
+        : []),
+    ]);
+    return;
+  }
   if (action === "service") {
     const preferences = await readFile(join(dir, "preferences.json"), "utf8")
       .then(JSON.parse)
       .catch(() => ({}));
-    if (positionals[1] === "install" && !preferences.project)
+    const launched = await readFile(join(dir, LAUNCH_RECORD), "utf8").then(
+      () => true,
+      () => false,
+    );
+    if (positionals[1] === "install" && !preferences.project && !launched)
       throw new Error("Run loop start once before installing the service.");
-    if (
-      positionals[1] === "install" &&
-      (await control(dir, "status").catch(() => undefined))
-    )
-      await stopWorkspace(dir);
+    // The installed services own a new connection service, so the current
+    // one stops too; the Quick Tunnel address changes once.
+    if (positionals[1] === "install")
+      await stopAll(dir, connection).catch((error) => {
+        if ((error as Error).message !== "No workspace is running.") throw error;
+      });
+    // The service repeats the saved launch, as loop restart does.
+    const launch = await launchArgs(dir);
+    const option = (name: string) => {
+      const i = launch.indexOf(name);
+      return i >= 0 ? launch[i + 1] : undefined;
+    };
+    const tunnelName = option("--tunnel-name") ?? preferences.tunnelName;
+    const publicUrl = option("--public-url") ?? preferences.publicUrl;
+    const tunnel =
+      launch.includes("--local-only") || (publicUrl && !tunnelName)
+        ? null
+        : tunnelName
+          ? tunnelArgs({
+              kind: "named",
+              name: tunnelName,
+              origin: publicUrl,
+              config: option("--tunnel-config") ?? preferences.tunnelConfig,
+            })
+          : [];
     const { userService } = await import("./service.js");
     await userService(
       positionals[1],
       fileURLToPath(import.meta.url),
       root,
-      preferences.project || project,
+      option("--project") ?? preferences.project ?? project,
+      tunnel,
+      launch,
     );
     console.log(
       "Loop user service " +
@@ -467,12 +851,21 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (action === "upgrade") {
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
-    await upgradeWorkspace(dir, project);
+    await upgradeWorkspace(dir, connection, values.from ?? REMOTE_MAIN, !!values.force);
+    return;
+  }
+  if (action === "restart") {
+    if (positionals.length > 1)
+      throw new Error("Unknown command. See loop --help.");
+    await restartWorkspace(dir, connection, root, !!values.force, values["upgraded-from"]);
     return;
   }
   if (["pair", "status", "devices", "stop", "uninstall"].includes(action)) {
     if (action === "uninstall") {
-      if (await control(dir, "status").catch(() => undefined))
+      if (
+        (await control(dir, "status").catch(() => undefined)) ||
+        (await inspectConnection(connection)).state === "running"
+      )
         throw new Error("Run loop stop first.");
       console.log(
         "Workspace and native history retained at " +
@@ -481,8 +874,50 @@ Uninstall removes the package separately; workspace/native history is retained.`
       );
       return;
     }
+    if (action === "pair") {
+      // A code is only useful at the tunnel's confirmed, current address. The
+      // connection service can exit while its application keeps running, and
+      // the application still reports the address it last held: without this
+      // check loop pair hands out a link to a tunnel that no longer exists.
+      // Local-only and user-managed proxy launches have no service to check.
+      const service = await inspectConnection(connection);
+      const running = await control(dir, "status").catch(() => undefined);
+      const managed = ["quick", "named"].includes(running?.connection?.mode);
+      if (managed && service.state !== "running")
+        throw new Error(
+          "The Loop connection service is not running, so this workspace has no public address. Run loop start to restore it (the application keeps running), then run loop pair.",
+        );
+      if (service.state === "running") {
+        if (service.hello.tunnel.state !== "ready")
+          throw new Error(
+            "The tunnel is reconnecting, so its address isn't confirmed yet. Run loop pair again shortly.",
+          );
+        // The application applies a changed address on its next heartbeat.
+        let current = running;
+        for (let i = 0; i < 25; i++) {
+          if (
+            !current ||
+            (current.url === service.hello.origin &&
+              (!managed || current.connection.registered))
+          )
+            break;
+          await new Promise((r) => setTimeout(r, 200));
+          current = await control(dir, "status").catch(() => undefined);
+        }
+        if (
+          managed &&
+          current &&
+          !(
+            current.url === service.hello.origin && current.connection.registered
+          )
+        )
+          throw new Error(
+            "The application has not taken the connection service's address yet, so a code would point at an address it does not serve. Run loop start to reconnect it (or loop restart), then run loop pair.",
+          );
+      }
+    }
     if (action === "stop") {
-      await stopWorkspace(dir);
+      await stopAll(dir, connection);
       console.log(JSON.stringify({ stopped: true }, null, values.json ? 0 : 2));
       return;
     }
@@ -493,6 +928,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ).catch(async () => {
       if (action === "status") {
         const recorded = await recordedWorkspace(dir);
+        const service = publicConnection(await inspectConnection(connection));
         const [state, message] = !recorded
           ? ["stopped", "Run loop start to open this workspace."]
           : recorded.state === "exited"
@@ -509,16 +945,29 @@ Uninstall removes the package separately; workspace/native history is retained.`
                   "unknown",
                   "A process has the workspace's recorded PID, but Loop can't confirm it is the workspace.",
                 ];
+        // The tunnel can outlive the application: report its unchanged address.
+        const serving = service.state === "running";
         return {
           workspace: true,
           state,
           stateRoot: root,
           logs: logPath,
-          message,
+          message:
+            serving && state === "stopped"
+              ? "The application is stopped, but the connection service keeps its address. Run loop start or loop restart to serve it again."
+              : message,
+          ...(serving && "url" in service ? { url: service.url } : {}),
+          serverReady: false,
+          connection: service,
         };
       }
       throw new Error("No responsive workspace host. Run loop start first.");
     });
+    if (action === "status" && output.pid && output.connection?.mode !== "local")
+      output.connection = {
+        ...output.connection,
+        service: publicConnection(await inspectConnection(connection)),
+      };
     if (action === "pair") showPair(output);
     else console.log(JSON.stringify(output, null, values.json ? 0 : 2));
     return;
@@ -615,6 +1064,9 @@ Uninstall removes the package separately; workspace/native history is retained.`
     values["public-url"] ??= preferences.publicUrl;
     values["tunnel-name"] ??= preferences.tunnelName;
     values["tunnel-config"] ??= preferences.tunnelConfig;
+    // A path: resolved once, so a restart from another directory reads the same file.
+    if (values["tunnel-config"])
+      values["tunnel-config"] = resolve(values["tunnel-config"]);
   }
   if (values["tunnel-name"] && !values["public-url"])
     throw new Error(
@@ -718,6 +1170,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           : { ...preferences.billing, [selected]: billing },
     });
   if (running) {
+    await recoverConnection(dir, root, connection, running, tunnelModeOf(values));
     if (managed || neutral) {
       if (
         (managed &&
@@ -749,54 +1202,72 @@ Uninstall removes the package separately; workspace/native history is retained.`
     );
     return;
   }
+  // The resolved launch (absolute project, executable and tunnel config):
+  // repeated by the background child, loop restart and loop upgrade from any
+  // working directory. A --resume handoff is one-time and not repeated.
+  const launch = [
+    ...(managed && !automatic
+      ? [
+          "laptop",
+          "--providers",
+          values.providers!,
+          "--execution",
+          values.execution!,
+        ]
+      : [neutral ? "start" : selected]),
+    "--project",
+    project,
+    ...(neutral && (!managed || automatic)
+      ? []
+      : ["--executable", probe.executable, "--billing", billing]),
+    ...(selected === "acp"
+      ? (values["acp-arg"] ?? []).map((arg) => "--acp-arg=" + arg)
+      : []),
+    ...(values.direct ? ["--direct"] : []),
+    ...(values["local-only"] ? ["--local-only"] : []),
+    ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
+    ...(values["tunnel-name"] ? ["--tunnel-name", values["tunnel-name"]] : []),
+    ...(values["tunnel-config"]
+      ? ["--tunnel-config", values["tunnel-config"]]
+      : []),
+  ];
   if (!values.foreground && !daemonChild)
     return daemonize(dir, [
-      ...(managed && !automatic
-        ? [
-            "laptop",
-            "--providers",
-            values.providers!,
-            "--execution",
-            values.execution!,
-          ]
-        : [neutral ? "start" : selected]),
-      "--project",
-      project,
-      ...(neutral && (!managed || automatic)
-        ? []
-        : ["--executable", probe.executable, "--billing", billing]),
-      ...(values.direct ? ["--direct"] : []),
+      ...launch,
       ...(values.resume ? ["--resume", values.resume] : []),
-      ...(values["local-only"] ? ["--local-only"] : []),
-      ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
-      ...(values["tunnel-name"]
-        ? ["--tunnel-name", values["tunnel-name"]]
-        : []),
-      ...(values["tunnel-config"]
-        ? ["--tunnel-config", values["tunnel-config"]]
-        : []),
     ]);
   const { workspaceLock } = await import("./lifecycle.js");
   const release = workspaceLock(dir);
   recordOwnedProcesses(join(dir, "children.json"));
+  atomic(join(dir, LAUNCH_RECORD), { schema: 1, args: launch, version: VERSION });
+  const tunnelMode = tunnelModeOf(values);
+  const restarting = process.env.LOOP_LAUNCH_REASON === "restart";
   let runtime: import("./local-runtime.js").LocalRuntime | undefined;
   let host: import("./workspace-host.js").WorkspaceHost | undefined;
-  let tunnel: TunnelSupervisor | undefined,
+  let lease: BackendLease | undefined,
+    connectionCreated = false,
     stopping = false;
-  const stop = async () => {
+  const stop = async (wholeStack = false) => {
     if (stopping) return;
     stopping = true;
     try {
-      await tunnel?.stop();
+      // Withdraw first: new requests get the relay's 503 while this drains.
+      await lease?.withdraw();
       await host?.close();
       await runtime?.close();
     } finally {
       release();
     }
+    if (wholeStack) await stopConnection(connection).catch(() => {});
   };
+  // Ending a terminal-owned foreground session stops what it started,
+  // including the tunnel. Background and service-managed applications stop
+  // alone; loop stop ends the connection service separately.
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => {
-      void stop();
+      void stop(
+        !!values.foreground && !daemonChild && !externalConnection && connectionCreated,
+      );
     });
   try {
     process.env.LOOP_DATA_DIR = dir;
@@ -810,7 +1281,38 @@ Uninstall removes the package separately; workspace/native history is retained.`
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
     host = new WorkspaceHost(dir, options);
-    host.gateway.onStop = stop;
+    host.gateway.onStop = () => stop();
+    if (tunnelMode) {
+      console.log(
+        externalConnection
+          ? "Connecting to the Loop connection service…"
+          : "Preparing the Loop connection service and cloudflared tunnel…",
+      );
+      const found = await ensureConnection({
+        root,
+        dir: connection,
+        mode: tunnelMode,
+        release: VERSION,
+        external: externalConnection,
+        log: console.log,
+      });
+      connectionCreated = found.created;
+      if (stopping) return;
+      lease = new BackendLease(connection, found.record);
+      await lease.acquire();
+      host.listenOptions = { socket: lease.socket, probe: lease.probe };
+    }
+    host.statusExtras = () => ({
+      release: VERSION,
+      supervisor: process.env.LOOP_SERVICE || undefined,
+      connection: tunnelMode
+        ? {
+            mode: tunnelMode.kind,
+            generation: lease?.generation,
+            registered: !!lease?.attached,
+          }
+        : { mode: values["local-only"] ? "local" : "external-proxy" },
+    });
     const { migrateLegacy, resumeFromDesktop } =
       await import("./server/migration.js");
     const onListening = async (description: string) => {
@@ -824,41 +1326,30 @@ Uninstall removes the package separately; workspace/native history is retained.`
         notice = "Point the HTTPS tunnel to http://127.0.0.1:" + gateway.port;
       } else if (values["local-only"])
         notice = "Local-only: open this link on the desktop.";
-      else {
-        console.log("Preparing cloudflared tunnel…");
-        tunnel = new TunnelSupervisor(
-          (exited) =>
-            new Tunnel(
-              root,
-              gateway.port,
-              exited,
-              values["tunnel-name"]
-                ? {
-                    name: values["tunnel-name"],
-                    origin: values["public-url"]!,
-                    config: values["tunnel-config"],
-                  }
-                : undefined,
-            ),
-          (origin, reconnected) => {
-            gateway.setOrigin(origin);
-            if (!reconnected) return;
-            console.log(
-              "Quick Tunnel address changed to " +
-                origin +
-                ". Run loop pair and scan the code from the Loop app to reconnect.",
-            );
-            if (interactive) showPair(gateway.pair());
-          },
-        );
-        await tunnel.start();
+      else if (lease) {
+        // Apply the service's confirmed origin before traffic can arrive, so
+        // Host/Origin checks and Secure cookies match what browsers hold.
+        gateway.setOrigin(lease.origin);
+        lease.onOrigin = (origin) => {
+          gateway.setOrigin(origin);
+          console.log(
+            "Quick Tunnel address changed to " +
+              origin +
+              ". Run loop pair and scan the code from the Loop app to reconnect.",
+          );
+          if (interactive) showPair(gateway.pair());
+        };
+        await lease.register();
       }
       if (stopping) return;
+      // An application restart behind the same address needs no new pairing.
+      const quiet = restarting && !!lease && !connectionCreated;
       const ready: Ready = {
         ready: true,
         description,
         notice,
-        pair: gateway.pair(),
+        url: gateway.origin,
+        ...(quiet ? {} : { pair: gateway.pair() }),
       };
       // Persist the project before returning pairing while preparation continues.
       // Automatic runtime choices remain ephemeral in remember().
@@ -897,7 +1388,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     if (runtime) console.log(enabled.billing.description);
     else await onListening(enabled.billing.description);
   } catch (error) {
-    await stop();
+    await stop(!daemonChild && !externalConnection && connectionCreated);
     throw error;
   }
 }

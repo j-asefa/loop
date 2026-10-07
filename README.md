@@ -4,7 +4,7 @@ Loop is a phone-first agent web app. Open Loop in your phone's browser and add i
 
 ## Why Loop
 
-- 📲 **No app to install.** Scan a QR code, pair in your phone's browser and add Loop to your home screen. The same flow works on iPhone and Android, with no app store or account signup. A Quick Tunnel gives your computer an HTTPS address with no domain, router or account setup; if the address changes, run `loop pair` and scan again. On iPhone, notifications work once Loop is on your home screen. See [pairing](docs/pairing.md).
+- 📲 **No app to install.** Scan a QR code, pair in your phone's browser and add Loop to your home screen. The same flow works on iPhone and Android, with no app store or account signup. A Quick Tunnel gives your computer an HTTPS address with no domain, router or account setup. Restarts and upgrades keep that address and your paired phone; if it does change (after `loop stop` or a reboot), run `loop pair` and scan again. On iPhone, notifications work once Loop is on your home screen. See [pairing](docs/pairing.md).
 - 🎯 **Results, not logs.** Final answers appear as cards; plans, diffs, command output and traces stay one tap away. Search an agent's traces for a command, tool or update, and download a whole run as JSON. Phone notifications arrive when a result is ready, not for every tool call. See [notifications](docs/feedback/SAVED-NOTIFICATIONS.md).
 - 🗂️ **A feed, not one endless chat.** Run several agents and conversations at once, then follow them through the Feed (**Done**, **Needs you**, **Working**, **Queued**), Projects and Search. Review and merge your GitHub pull requests in the Pull requests tab. Saved results and messages live under You. See [workspace](docs/workspace.md).
 - ⏱️ **Built for checking in, not sitting in.** Each Feed card offers the one action its thread is waiting for (approve, answer, continue a draft or review a result) and opens at that message. A "while you were away" card sums up what finished, failed or needs you. **Remind me**, **Send later** and **Queue after this task** pick work up when the agent is free, and scheduled sends reuse their idempotency key, so a retry after a crash never sends twice.
@@ -33,7 +33,7 @@ The installer runs `npm ci`, builds Loop and links `loop` into a writable direct
 3. In the browser, open **Share** and choose **Add to Home Screen**. On Android browsers, this may appear as **Install app** or **Add to Home screen** in the browser menu.
 4. Open Loop from the new home screen icon.
 
-The computer must stay awake for phone access. Pairing links are single use and expire after two minutes; run `loop pair` for a fresh code. If the Quick Tunnel address changes, scan a new code and add the new page to your home screen. See [pairing and recovery](docs/pairing.md).
+The computer must stay awake for phone access. Pairing links are single use and expire after two minutes; run `loop pair` for a fresh code. `loop restart` and `loop upgrade` keep the Quick Tunnel address; after `loop stop` or a reboot it can change, so scan a new code and add the new page to your home screen. See [pairing and recovery](docs/pairing.md).
 
 ## Run the server
 
@@ -77,7 +77,7 @@ Without explicit flags or saved preferences, `loop start` prepares Codex, Claude
 
 1. Start a laptop workspace with `loop start` and scan its QR code with your phone's camera.
 2. Create an agent with an enabled connection and project. The computer must stay awake; work continues when the phone disconnects.
-3. If the Quick Tunnel address changes, run `loop pair` and scan again with your phone’s camera.
+3. If the Quick Tunnel address changes (after `loop stop` or a reboot, not after `loop restart`), run `loop pair` and scan again with your phone’s camera.
 
 ```sh
 loop status
@@ -88,9 +88,9 @@ loop stop
 
 The paired app shows agents and conversations from this laptop and connected local Loop Docker servers in one Feed. Choose each new agent's destination in **Run on**; every agent shows where it runs. See [unified agents and Feed](docs/pairing.md#unified-agents-and-feed).
 
-To update and restart a manually launched workspace, run `loop stop`, update the checkout with `git pull`, run `bash install`, then run `loop start`. There is no separate `loop restart` command. If you installed the login service, stop it before rebuilding, then start it again with `systemctl --user stop loop.service` and `systemctl --user start loop.service` on Linux, or `launchctl bootout gui/$(id -u)/dev.loop.workspace` and `loop service install` on macOS. A Quick Tunnel URL may change after restart; run `loop pair` to reconnect your phone.
+To update a checkout install, run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same projects, runtimes, execution and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
 
-`loop upgrade` performs that update flow in one command from any directory: it installs the package from the repository's remote `main`, rebuilds and reinstalls the CLI, then restarts Pi with the existing workspace state. It does not use or modify a local Loop checkout. The restart preserves workspace data and paired devices, but a Quick Tunnel URL may change, so scan the fresh pairing link it prints.
+`loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address. Upgrading from a release without the connection service changes the address once; see [restart and upgrade](docs/pairing.md#connection-service-one-address-across-restarts).
 
 Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).
 

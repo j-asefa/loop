@@ -10,9 +10,22 @@ import { nativeSignIns } from "./server/native-auth.js";
 import { startWorker } from "./server/worker.js";
 import { z } from "zod";
 import { WebSocket } from "ws";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { DockerMcpSharing } from "./mcp-docker-sharing.js";
 
+// Identifies the browser assets this launch serves. A reconnecting page
+// compares it to offer a reload without discarding its draft.
+const BUILD = (() => {
+  try {
+    return createHash("sha256")
+      .update(readFileSync(new URL("./web/index.html", import.meta.url)))
+      .digest("hex")
+      .slice(0, 12);
+  } catch {
+    return "development";
+  }
+})();
 const registration = z
   .object({
     harness: z.enum(["pi", "claude", "codex", "opencode", "acp"]),
@@ -30,6 +43,10 @@ export class WorkspaceHost {
   private stopWorker?: () => Promise<void>;
   private closing = false;
   private epoch = randomUUID();
+  /** Set before start() to serve the gateway behind the connection service. */
+  listenOptions?: Parameters<Host["listen"]>[0];
+  /** Launch facts owned by the CLI (connection, supervisor), merged into status. */
+  statusExtras: () => object = () => ({});
   constructor(dir: string, options: Options) {
     if (!companionMode)
       throw new Error(
@@ -63,6 +80,8 @@ export class WorkspaceHost {
           )
           .get(),
         agents: (db.prepare("SELECT count(*) n FROM agents").get() as any).n,
+        build: BUILD,
+        ...this.statusExtras(),
       }),
       admin: async (action, input) => {
         if (action === "/enable")
@@ -104,7 +123,7 @@ export class WorkspaceHost {
           cursor = range.last || 0;
           // Cursor captured and subscription installed in one JS turn. Clients refresh
           // their projections, then continue receiving every newer committed event.
-          send({ v: 2, type: "reset", epoch: this.epoch, cursor });
+          send({ v: 2, type: "reset", epoch: this.epoch, cursor, build: BUILD });
         }
         const poll = () => {
           const events = db
@@ -153,7 +172,7 @@ export class WorkspaceHost {
       this.tools.issue(conversation, generation);
     nativeSessions.revokeTools = (conversation, generation) =>
       this.tools.revoke(conversation, generation);
-    await this.gateway.listen();
+    await this.gateway.listen(this.listenOptions);
     this.mcpSharing.start();
     if (this.closing) {
       await this.gateway.close();

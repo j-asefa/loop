@@ -1,4 +1,4 @@
-import { linkSync, readFileSync, unlinkSync } from "node:fs";
+import { linkSync, readFileSync, readlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -26,6 +26,18 @@ export function identity(pid: number): string | undefined {
     return undefined;
   }
 }
+/**
+ * The PID namespace of this process. Records written in another namespace (a
+ * sibling container) name PIDs that mean nothing here and are never signalled.
+ */
+export function pidNamespace(): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    return readlinkSync("/proc/self/ns/pid");
+  } catch {
+    return undefined;
+  }
+}
 type Owner = { pid: number; identity: string; nonce: string };
 function dead(owner: Owner) {
   try {
@@ -37,9 +49,16 @@ function dead(owner: Owner) {
   const live = identity(owner.pid);
   return !!live && live !== owner.identity;
 }
+const WORKSPACE_LOCK = {
+  name: "host.lock",
+  owner: "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
+};
 /** Complete records are installed atomically. A separate recovery lock serializes stale takeover. */
-export function workspaceLock(dir: string): () => void {
-  const path = join(dir, "host.lock");
+export function workspaceLock(
+  dir: string,
+  lock: { name: string; owner: string } = WORKSPACE_LOCK,
+): () => void {
+  const path = join(dir, lock.name);
   const owner: Owner = {
     pid: process.pid,
     identity: identity(process.pid) || "",
@@ -65,9 +84,7 @@ export function workspaceLock(dir: string): () => void {
         );
       }
       if (!prior.identity || !prior.nonce || !dead(prior))
-        throw new Error(
-          "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
-        );
+        throw new Error(lock.owner);
       const recovery = path + ".recovery";
       try {
         linkSync(temp, recovery);

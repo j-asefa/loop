@@ -18,7 +18,7 @@ COPY --from=build /opt/loop-tunnel /opt/loop-tunnel
 COPY --from=build /opt/loop-opencode /opt/loop-opencode
 COPY --from=build /opt/loop-hapi-artifact /opt/loop-hapi
 RUN chmod -R a+rX /opt/loop-opencode /opt/loop-hapi
-RUN chmod -R a+rX /opt/loop-tunnel && ln -s /app/dist/cli.js /usr/local/bin/loop && mkdir -p /data/loop/provider-home /workspaces && chown -R node:node /data /workspaces
+RUN chmod -R a+rX /opt/loop-tunnel && ln -s /app/dist/cli.js /usr/local/bin/loop && mkdir -p /data/loop/provider-home /data/loop-connection /workspaces && chown -R node:node /data /workspaces && chmod 700 /data/loop-connection
 ENV NODE_ENV=production LOOP_HOME=/data/loop HOME=/data/loop/provider-home LOOP_COMPANION_CONTAINER=1 LOOP_BAKED_HELPERS=/opt/loop-tunnel LOOP_BAKED_OPENCODE=/opt/loop-opencode LOOP_BAKED_HAPI=/opt/loop-hapi
 ENV PATH=/app/deployment/native/node_modules/.bin:$PATH
 USER node

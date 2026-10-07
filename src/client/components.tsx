@@ -1,6 +1,7 @@
 import { Chart } from "./Chart";
 import { sourceApiPath } from "./sourceRouting";
 import { Diagram } from "./Diagram";
+import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
@@ -221,6 +222,7 @@ export function Sheet({
             <X size={20} />
           </button>
         </div>
+        <ConnectionNotice />
         <div className="sheet-body">{children}</div>
       </div>
     </dialog>

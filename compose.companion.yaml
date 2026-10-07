@@ -1,5 +1,18 @@
 # Deliberately separate from compose.yaml: no server secrets or server services.
+# loop-connection owns cloudflared and the relay; it keeps the public address
+# while loop-companion restarts or is replaced. Update the application alone:
+#   docker compose -f compose.companion.yaml up -d --build --no-deps loop-companion
+# `down` stops both (a new Quick Tunnel address); omit -v to keep your data.
 services:
+  loop-connection:
+    build:
+      context: .
+      dockerfile: Dockerfile.connection
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - loop-companion-connection:/data/loop-connection
   loop-companion:
     build:
       context: .
@@ -7,9 +20,18 @@ services:
     init: true
     restart: unless-stopped
     stop_grace_period: 40s
+    # Started, not healthy: the application waits for the tunnel itself, and
+    # the connection never waits for the application.
+    depends_on:
+      - loop-connection
+    environment:
+      LOOP_CONNECTION_DIR: /data/loop-connection
+      LOOP_CONNECTION_MANAGED: external
     volumes:
       - loop-companion-data:/data/loop
       - loop-companion-projects:/workspaces
+      - loop-companion-connection:/data/loop-connection
 volumes:
   loop-companion-data:
   loop-companion-projects:
+  loop-companion-connection:

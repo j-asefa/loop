@@ -1021,7 +1021,9 @@ export default function App() {
       setNext(result.next);
       if (notify) setRevision((v) => v + 1);
     } catch (e) {
-      if (key === feedContext.current) setFeedError((e as Error).message);
+      // While Loop restarts, the status line reports it; keep the feed as is.
+      if (key === feedContext.current && !(e as { reconnecting?: boolean }).reconnecting)
+        setFeedError((e as Error).message);
     } finally {
       if (key === feedContext.current) setFeedLoading(false);
     }
@@ -1043,12 +1045,18 @@ export default function App() {
       return;
     // Loading failures recover independently of action errors. A later
     // successful read must remove its warning without hiding a failed send.
+    const failed = [workspace, tasks].find((r) => r.status === "rejected") as
+      | PromiseRejectedResult
+      | undefined;
+    // Existing content stays on screen; only the status line changes.
     setWorkspaceLoadError(
-      workspace.status === "rejected"
-        ? "Couldn’t refresh your agents and projects."
-        : tasks.status === "rejected"
-          ? "Couldn’t refresh task status."
-          : "",
+      failed?.reason?.reconnecting
+        ? "Loop is reconnecting…"
+        : workspace.status === "rejected"
+          ? "Couldn’t refresh your agents and projects."
+          : tasks.status === "rejected"
+            ? "Couldn’t refresh task status."
+            : "",
     );
   }
   useEffect(() => {

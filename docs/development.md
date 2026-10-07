@@ -20,7 +20,7 @@ The root build typechecks, builds the Vite UI/service worker and bundles CLI/ser
 | `npm test`                 | Vitest server/domain and shared client production logic in `test/`            |
 | `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing |
 | `npm run test:all`         | Both root suites                                                              |
-| `npm run smoke:package`    | Tarball installation and CLI/host lifecycle in an isolated directory          |
+| `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service |
 | `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                    |
 
 Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
@@ -28,6 +28,8 @@ Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests 
 For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
 
 Vitest runs files in parallel workers; Node-runner tests run one file at a time. Tests that exercise stop escalation shorten its waits with `LOOP_TEST_STOP_WAIT_MS` and `LOOP_TEST_STOP_GRACE_MS` instead of sleeping through production timeouts.
+
+Connection-service tests (`test/connection.node.test.ts`, `test/cli-connection.node.test.ts`) run the real service, relay, sockets and CLI with [a fixture cloudflared](../test/fixtures/fake-cloudflared.mjs) selected by `LOOP_TEST_CLOUDFLARED`, which is ignored when `NODE_ENV=production`. `smoke:reconnect` adds a local TLS edge so a paired Chromium or WebKit page crosses `loop restart`. None of these reach Cloudflare: real Quick Tunnel behavior is covered by the Docker companion job (`scripts/compose-companion-smoke.mjs`), the `service-lifecycle` job (`scripts/service-lifecycle-smoke.mjs`, real user systemd units; it installs units in the current user's systemd, so run it only on a disposable machine) and by live acceptance recorded in the PR.
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
@@ -39,6 +41,8 @@ npm run smoke:design
 npm run smoke:pulls
 npm run smoke:companion
 LOOP_BROWSER=webkit npm run smoke:companion
+npm run smoke:reconnect
+LOOP_BROWSER=webkit npm run smoke:reconnect
 npm run smoke:browser
 LOOP_BROWSER=webkit npm run smoke:browser
 npm run smoke:journey

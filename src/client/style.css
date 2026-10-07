@@ -9178,3 +9178,15 @@ label.catalog-filter-chip {
 .settings-file-field input[type="file"]::file-selector-button:hover {
   background: var(--secondary);
 }
+.connection-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 6px 0;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: var(--secondary);
+  color: var(--text);
+  font-size: 13px;
+}

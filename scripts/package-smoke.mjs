@@ -13,6 +13,8 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
+import { request } from "node:http";
+import { existsSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
 import { WebSocket } from "ws";
 const exec = promisify(execFile),
   base = await mkdtemp(join(tmpdir(), "loop-package-"));
@@ -218,8 +220,9 @@ try {
   assert(
     (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
   );
+  await upgradeBehindConnection();
   console.log(
-    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data and server profile passed. Fixture only.",
+    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
   );
 } finally {
   ws?.terminate();
@@ -227,4 +230,100 @@ try {
   if (bin) await exec(bin, ["stop"], { env }).catch(() => {});
   await rm(base, { recursive: true, force: true });
   if (tarball) await rm(tarball, { force: true });
+}
+
+/**
+ * `loop upgrade` from one packed build to a distinguishable second one, both
+ * installed globally into a private prefix, with the fixture tunnel helper.
+ * The connection service, its cloudflared and the address must survive; the
+ * browser cookie must keep working; the new assets and release must serve.
+ */
+async function upgradeBehindConnection() {
+  const prefix = join(base, "global prefix");
+  const state = join(base, "upgrade-state");
+  const work = join(base, "upgrade-project");
+  await mkdir(prefix);
+  await mkdir(work);
+  const upgradeEnv = {
+    ...process.env,
+    npm_config_prefix: prefix,
+    LOOP_HOME: state,
+    LOOP_TEST_HARNESS: "codex",
+    LOOP_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
+  };
+  await chmod(upgradeEnv.LOOP_TEST_CLOUDFLARED, 0o755);
+  // Build B: same code, new version and an asset marker the browser can see.
+  const unpacked = join(base, "build-b");
+  await mkdir(unpacked);
+  await exec("tar", ["-xzf", tarball, "-C", unpacked]);
+  const pkg = join(unpacked, "package");
+  const manifest = JSON.parse(readFileSync(join(pkg, "package.json"), "utf8"));
+  const nextVersion = manifest.version + "-upgrade.1";
+  manifest.version = nextVersion;
+  writeFileSync(join(pkg, "package.json"), JSON.stringify(manifest, null, 2));
+  const index = join(pkg, "dist", "web", "index.html");
+  writeFileSync(index, readFileSync(index, "utf8").replace("</head>", "<!-- loop-build-b --></head>"));
+  const packed = JSON.parse(
+    (await exec("npm", ["pack", pkg, "--ignore-scripts", "--json", "--pack-destination", base], { maxBuffer: 1000000 })).stdout,
+  );
+  const tarballB = join(base, packed[0].filename);
+  await exec("npm", ["install", "-g", "--omit=optional", "--no-audit", "--no-fund", tarball], {
+    env: upgradeEnv, maxBuffer: 1000000, timeout: 240000,
+  });
+  const loop = (...args) => exec(join(prefix, "bin", "loop"), args, { env: upgradeEnv, timeout: 300000, maxBuffer: 4000000 });
+  const fixture = join(base, "fixture-harness");
+  const started = await loop("codex", "--executable", fixture, "--project", work, "--billing", "existing");
+  const code = started.stdout.match(/#pair=([\w-]+)/)[1];
+  const status = async () => JSON.parse((await loop("status", "--json")).stdout);
+  const before = await status();
+  const relay = new URL(before.connection.service.relay);
+  let cookie = "";
+  const send = (method, path, body) =>
+    new Promise((resolve, reject) => {
+      const req = request({ host: relay.hostname, port: Number(relay.port), method, path, headers: {
+        host: new URL(before.url).host, origin: before.url,
+        ...(cookie ? { cookie } : {}), ...(body ? { "content-type": "application/json" } : {}),
+      } }, (res) => {
+        let out = "";
+        res.on("data", (b) => (out += b));
+        res.on("end", () => {
+          if (res.headers["set-cookie"]) cookie = res.headers["set-cookie"][0].split(";")[0];
+          resolve({ status: res.statusCode, body: out });
+        });
+      });
+      req.on("error", reject);
+      req.end(body ? JSON.stringify(body) : undefined);
+    });
+  assert.equal((await send("POST", "/pair", { secret: code, name: "Upgrade fixture" })).status, 200);
+  assert.equal((await send("GET", "/api/bootstrap")).status, 200);
+  const devices = (await send("GET", "/api/workspace/devices")).body;
+  assert.doesNotMatch((await send("GET", "/")).body, /loop-build-b/);
+  const service = join(state, "connection", "bin");
+  const artifacts = readdirSync(service);
+  assert.equal(artifacts.length, 1, "the service runs from an immutable copy");
+
+  // A failed install leaves the running application alone.
+  await assert.rejects(loop("upgrade", "--from", join(base, "missing.tgz")));
+  assert.equal((await status()).pid, before.pid);
+
+  const upgraded = await loop("upgrade", "--from", tarballB);
+  assert.match(upgraded.stdout, new RegExp(`Upgraded from Loop ${manifest.version.replace("-upgrade.1", "")} to ${nextVersion.replace(/\./g, "\\.")}`));
+  assert.match(upgraded.stdout, /Same address/);
+  const after = await status();
+  assert.notEqual(after.pid, before.pid);
+  assert.equal(after.release, nextVersion, "the new build is serving");
+  assert.equal(after.url, before.url);
+  assert.equal(after.connection.service.pid, before.connection.service.pid);
+  assert.equal(after.connection.service.tunnel.pid, before.connection.service.tunnel.pid);
+  assert.equal(after.harnesses[0].name, "codex", "the saved runtime was restored, not Pi");
+  assert.equal(after.harnesses[0].billing.mode, "existing");
+  assert.equal(after.project, before.project);
+  assert.equal((await send("GET", "/api/bootstrap")).status, 200, "the same cookie still works");
+  assert.equal((await send("GET", "/api/workspace/devices")).body, devices);
+  assert.match((await send("GET", "/")).body, /loop-build-b/, "new assets at the old address");
+  assert.deepEqual(readdirSync(service), artifacts, "the running service's file was untouched");
+  assert(existsSync(join(service, artifacts[0])));
+  await loop("stop");
+  assert.equal((await status()).state, "stopped");
+  assert.equal((await status()).connection.state, "stopped");
 }
