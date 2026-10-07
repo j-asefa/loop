@@ -557,11 +557,22 @@ export async function tracesJourney(page, api, base, dir) {
       name: "Tool activity",
       exact: true,
     });
-    const reviewActivity = activityDialog
-      .locator("details.activity-panel")
-      .filter({
-        has: page.locator("summary", { hasText: "pull_request_review_write" }),
-      });
+    // This run predates activity records, so its tool history is legacy traces
+    // the sheet requests instead of loading with the conversation.
+    const panels = activityDialog.locator("details.activity-panel");
+    const earlierActivity = activityDialog.getByRole("button", {
+      name: "Load earlier activity",
+      exact: true,
+    });
+    await expect(panels).toHaveCount(0);
+    for (const loaded of [100, 182]) {
+      await earlierActivity.click();
+      await expect(panels).toHaveCount(loaded);
+    }
+    await expect(earlierActivity).toHaveCount(0);
+    const reviewActivity = panels.filter({
+      has: page.locator("summary", { hasText: "pull_request_review_write" }),
+    });
     await expect(reviewActivity).toHaveCount(1);
     await expect(reviewActivity.locator("summary")).toHaveText(
       "pull_request_review_write · failed",
@@ -590,9 +601,7 @@ export async function tracesJourney(page, api, base, dir) {
       ),
     );
     // The public legacy bursts are intentional activity content, not secrets.
-    await expect(activityDialog.locator("details.activity-panel")).toHaveCount(
-      182,
-    );
+    await expect(panels).toHaveCount(182);
     await activityDialog
       .getByRole("button", { name: "Close", exact: true })
       .click();

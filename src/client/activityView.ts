@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
 // Type-only: the client bundle does not ship the zod schemas.
 import type { ActivityRecord } from "../agent-activities";
 
@@ -20,6 +21,8 @@ export type ActivityPage = {
   items: ActivityItem[];
   cursor: number;
   more: boolean;
+  earlier?: number | null;
+  legacyAvailable?: boolean;
 };
 
 export function mergeActivities(
@@ -72,57 +75,49 @@ export function recordedSessionControls(items: ActivityItem[]) {
   };
 }
 
-// Loads the snapshot, then follows changes on the existing workspace-change
-// signal (or a slow poll). Never sends anything that mutates the session.
-export function useConversationActivities(conversation: string | undefined) {
+// Read recent activity on open; older tools/outputs are requested explicitly.
+export function useConversationActivities(
+  conversation: string | undefined,
+  runs: string[] = [],
+) {
   const [items, setItems] = useState<ActivityItem[]>([]);
-  const cursor = useRef(0);
+  const [history, setHistory] = useState<ActivityHistoryState>({
+    hasEarlier: false,
+    loadingEarlier: false,
+    error: "",
+  });
+  const loader = useRef<ActivityHistory | null>(null);
+  const runKey = [...new Set(runs)].sort().join(",");
   useEffect(() => {
-    if (!conversation) {
-      setItems([]);
-      return;
-    }
-    let stopped = false;
-    let busy = false;
-    let pending = false;
-    cursor.current = 0;
     setItems([]);
-    const load = async () => {
-      if (stopped) return;
-      if (busy) {
-        pending = true;
-        return;
-      }
-      busy = true;
-      try {
-        const base = `/conversations/${encodeURIComponent(conversation)}/activities`;
-        let page: ActivityPage;
-        do {
-          page = await api<ActivityPage>(
-            cursor.current ? `${base}?after=${cursor.current}` : base,
-          );
-          if (stopped) return;
-          cursor.current = page.cursor;
-          setItems((old) => mergeActivities(old, page));
-        } while (page.more);
-      } catch {
-        // Older desktops lack the endpoint; activities simply stay empty.
-      } finally {
-        busy = false;
-        if (pending && !stopped) {
-          pending = false;
-          void load();
-        }
-      }
+    setHistory({ hasEarlier: false, loadingEarlier: false, error: "" });
+    if (!conversation) return;
+    const current = new ActivityHistory(
+      `/conversations/${encodeURIComponent(conversation)}/activities`,
+      (url) => api<ActivityPage>(url),
+      (page) => setItems((old) => mergeActivities(old, page)),
+      setHistory,
+    );
+    loader.current = current;
+    void current.refresh();
+    const update = () => {
+      void current.refresh();
     };
-    void load();
-    const timer = setInterval(load, 5000);
-    window.addEventListener("loop-workspace-change", load);
+    const timer = setInterval(update, 5000);
+    window.addEventListener("loop-workspace-change", update);
     return () => {
-      stopped = true;
+      current.stop();
+      if (loader.current === current) loader.current = null;
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", load);
+      window.removeEventListener("loop-workspace-change", update);
     };
   }, [conversation]);
-  return items;
+  useEffect(() => {
+    void loader.current?.setRuns(runKey ? runKey.split(",") : []);
+  }, [conversation, runKey]);
+  return {
+    items,
+    ...history,
+    loadEarlier: () => loader.current?.loadEarlier(),
+  };
 }

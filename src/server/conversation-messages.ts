@@ -13,11 +13,29 @@ const position = (item: Entry): Position => [
 const encode = (value: Position) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
-// Transcripts show human, agent and system messages. Native tool rows stay
-// out except failure and uncertain-delivery notices, which have no trace when
-// they arrive outside a turn; keep transcriptMessage in the client in step.
-// Group a run's public updates between its prompt and saved answer, including
-// when several prompts were queued before an earlier run produced its answer.
+// Order/eligibility is maintained transactionally by migration 065. Materialize
+// only the page before joining content and current run/delivery state.
+export const transcriptPageSql = `WITH page AS MATERIALIZED (
+  SELECT * FROM conversation_transcript
+  WHERE owner_id=? AND conversation_id=? AND (position,phase,ordinal)<(?,?,?)
+  ORDER BY position DESC,phase DESC,ordinal DESC LIMIT 51
+) SELECT COALESCE(m.id,'trace:'||t.id) id,p.owner_id,p.conversation_id,p.run_id,
+  COALESCE(m.role,'assistant') role,COALESCE(m.content,t.content) content,
+  CASE WHEN p.message_id IS NOT NULL THEN
+    json_set(m.metadata,'$.completedTraceId',(SELECT max(final.id) FROM run_traces final
+      WHERE final.owner_id=p.owner_id AND final.run_id=p.run_id AND final.kind='message'
+      AND json_extract(final.metadata,'$.final')=1),
+      '$.delivery',s.state,'$.deliveryError',s.error)
+    ELSE json_set(t.metadata,'$.progress',json('true')) END metadata,
+  COALESCE(m.created_at,t.created_at) created_at,r.state run_state,r.error run_error,
+  p.position,p.phase,p.ordinal
+FROM page p
+LEFT JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
+LEFT JOIN run_traces t ON t.id=p.trace_id AND t.owner_id=p.owner_id
+LEFT JOIN runs r ON r.id=p.run_id AND r.owner_id=p.owner_id
+LEFT JOIN run_steering s ON s.message_id=p.message_id AND s.owner_id=p.owner_id
+ORDER BY p.position DESC,p.phase DESC,p.ordinal DESC`;
+
 export function conversationMessages(
   owner: string,
   conversation: string,
@@ -42,60 +60,42 @@ export function conversationMessages(
       throw new Problem(400, "Invalid conversation cursor");
     }
   }
-  const entries = `WITH entries AS (
-    SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
-      json_set(m.metadata,'$.completedTraceId',(SELECT max(t.id) FROM run_traces t
-        WHERE t.owner_id=m.owner_id AND t.run_id=m.run_id AND t.kind='message'
-        AND json_extract(t.metadata,'$.final')=1),
-        '$.delivery',(SELECT state FROM run_steering s WHERE s.message_id=m.id),
-        '$.deliveryError',(SELECT error FROM run_steering s WHERE s.message_id=m.id)) metadata,
-      m.created_at,r.state run_state,r.error run_error,
-      COALESCE((SELECT min(prompt.rowid) FROM messages prompt WHERE prompt.owner_id=m.owner_id
-        AND prompt.run_id=m.run_id AND prompt.role='user'),m.rowid) position,
-      CASE WHEN m.role='assistant' THEN 9007199254740991
-        WHEN json_extract(m.metadata,'$.steeringId') IS NOT NULL THEN m.created_at ELSE 0 END phase,
-      m.rowid*2 ordinal
-    FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
-    WHERE m.owner_id=? AND m.conversation_id=? AND (m.role IN ('user','assistant','system')
-      OR (m.role='tool' AND json_extract(m.metadata,'$.native.type') IN ('error','loop-delivery-unknown','loop-interrupted')))
-    UNION ALL
-    SELECT 'trace:'||t.id,t.owner_id,r.conversation_id,t.run_id,'assistant',t.content,
-      json_set(t.metadata,'$.progress',json('true')),t.created_at,r.state,r.error,
-      (SELECT min(prompt.rowid) FROM messages prompt WHERE prompt.owner_id=t.owner_id
-        AND prompt.run_id=t.run_id),t.created_at,t.id*2+1
-    FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-    WHERE t.owner_id=? AND r.conversation_id=? AND t.kind='message'
-      AND json_extract(t.metadata,'$.final') IS NOT 1 AND length(trim(t.content))>0
-  )`;
-  const bindings = [owner, conversation, owner, conversation];
   if (anchor) {
     const entry = db
-      .prepare(entries + " SELECT * FROM entries WHERE id=?")
-      .get(...bindings, anchor) as Entry | undefined;
-    // A row the transcript hides (raw native activity) can still be a saved
-    // position, search hit or notification target: open the page around
-    // where it was rather than failing the whole conversation.
-    const hidden = entry
-      ? undefined
-      : (db
-          .prepare(
-            `SELECT COALESCE((SELECT min(prompt.rowid) FROM messages prompt WHERE prompt.owner_id=m.owner_id
-              AND prompt.run_id=m.run_id AND prompt.role='user'),m.rowid) position,
-              CASE WHEN json_extract(m.metadata,'$.steeringId') IS NOT NULL THEN m.created_at ELSE 0 END phase,
-              m.rowid*2 ordinal
-            FROM messages m WHERE m.owner_id=? AND m.conversation_id=? AND m.id=?`,
-          )
-          .get(owner, conversation, anchor) as Entry | undefined);
-    if (!entry && !hidden) throw new Problem(404, "Message not found");
-    cursor = position((entry || hidden)!);
-    cursor[2]++;
+      .prepare(
+        "SELECT position,phase,ordinal FROM conversation_transcript WHERE owner_id=? AND conversation_id=? AND message_id=?",
+      )
+      .get(owner, conversation, anchor) as Entry | undefined;
+    const traceId = /^trace:(\d+)$/.exec(anchor)?.[1];
+    const trace =
+      !entry && traceId
+        ? (db
+            .prepare(
+              "SELECT position,phase,ordinal FROM conversation_transcript WHERE owner_id=? AND conversation_id=? AND trace_id=?",
+            )
+            .get(owner, conversation, traceId) as Entry | undefined)
+        : undefined;
+    // Saved/search links to hidden native rows still open where that row was.
+    const hidden =
+      entry || trace
+        ? undefined
+        : (db
+            .prepare(
+              "SELECT position,phase,ordinal FROM transcript_message_entries WHERE owner_id=? AND conversation_id=? AND message_id=?",
+            )
+            .get(owner, conversation, anchor) as Entry | undefined);
+    const target = entry || trace || hidden;
+    if (!target) throw new Problem(404, "Message not found");
+    // Progress recorded before its run stored any message has no position yet.
+    // Open the newest page rather than failing the conversation it belongs to.
+    if (target.position !== null) {
+      cursor = position(target);
+      cursor[2]++;
+    }
   }
   const items = db
-    .prepare(
-      entries +
-        " SELECT * FROM entries WHERE (position,phase,ordinal)<(?,?,?) ORDER BY position DESC,phase DESC,ordinal DESC LIMIT 51",
-    )
-    .all(...bindings, ...cursor) as Entry[];
+    .prepare(transcriptPageSql)
+    .all(owner, conversation, ...cursor) as Entry[];
   const hasMore = items.length > 50;
   if (hasMore) items.pop();
   return {

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error Plain JavaScript helper used by browser smoke scripts.
 import { isWebKitNavigationFetchError } from "../scripts/helpers/browser-errors.mjs";
 
-const base = "http://127.0.0.1:34093";
-const diagnostic = `Fetch API cannot load ${base}/api/agents/123/messages due to access control checks.`;
-describe("WebKit navigation fetch diagnostic", () => {
+describe.each([
+  "http://127.0.0.1:34093",
+  "https://loop-fixture-6841.trycloudflare.com",
+])("WebKit navigation fetch diagnostic for %s", (base) => {
+  const diagnostic = `Fetch API cannot load ${base}/api/agents/123/messages due to access control checks.`;
   it("recognizes the full and Playwright-shortened diagnostic", () => {
     expect(
       isWebKitNavigationFetchError("webkit", { message: diagnostic }, base),
@@ -13,8 +15,7 @@ describe("WebKit navigation fetch diagnostic", () => {
       isWebKitNavigationFetchError(
         "webkit",
         {
-          message:
-            "/127.0.0.1:34093/api/agents/123/messages due to access control checks.",
+          message: `/${new URL(base).host}/api/agents/123/messages due to access control checks.`,
           stack: `${diagnostic}\n    at fetch`,
         },
         base,

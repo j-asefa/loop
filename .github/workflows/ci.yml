@@ -67,6 +67,7 @@ jobs:
       - run: npm run smoke:html
       - run: npm run smoke:pulls
       - run: npm run smoke:design
+      - run: npm run smoke:history
       - run: npm run smoke:companion
       - run: npm run smoke:reconnect
       - run: npm run smoke:browser

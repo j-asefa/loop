@@ -2,6 +2,7 @@
 // connection service and a local TLS edge standing in for Cloudflare. The
 // tunnel helper is the deterministic fixture; this is not live-network evidence.
 import { chromium, webkit, expect } from "@playwright/test";
+import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer as createNet, connect } from "node:net";
@@ -80,7 +81,13 @@ try {
   });
   const page = await context.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (error) => {
+    // The fixture deliberately restarts the server and reloads the document.
+    // WebKit reports interrupted same-origin API reads as access-control errors;
+    // retain all other diagnostics, just as the other browser journeys do.
+    if (!isWebKitNavigationFetchError(engine.name(), error, new URL(pairUrl).origin))
+      errors.push(error.message);
+  });
   await page.goto(pairUrl);
   await page.getByRole("button", { name: "Pair and open Loop" }).click();
   const authenticated = (path) =>

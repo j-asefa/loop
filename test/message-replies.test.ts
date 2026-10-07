@@ -375,3 +375,42 @@ it("bounds a long whole-message quote to its start and end", () => {
   expect(prompt).toMatch(/characters omitted/);
   expect(prompt.endsWith("\n\nSummarise")).toBe(true);
 });
+
+it("opens and replies to progress from an imported run without a user prompt", async () => {
+  const { agent, run, message } = source();
+  db.prepare("DELETE FROM messages WHERE run_id=?").run(run.id);
+  // A trace can arrive before its first imported message; the link must still
+  // open the owning conversation while the transcript has no position for it.
+  const path = `/conversations/${run.conversation_id}?message=${message}`;
+  expect((await request(path)).status).toBe(200);
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'alice',?,?,'assistant','Imported answer',?)",
+  ).run(id(), run.conversation_id, run.id, now());
+  const opened = await request(path);
+  expect(opened.status).toBe(200);
+  expect(opened.data.messages.at(-1).id).toBe(message);
+  expect(
+    (await request(`/conversations/${run.conversation_id}`)).data.messages.map(
+      (entry: any) => entry.id,
+    ),
+  ).toContain(message);
+  expect((await request(path, undefined, "bob")).status).toBe(404);
+  const accepted = await request("/runs", {
+    agentId: agent.id,
+    conversationId: run.conversation_id,
+    replyToMessageId: message,
+    input: "Why do these histories differ?",
+    idempotencyKey: id(),
+  });
+  expect(accepted.status).toBe(202);
+  const transcript = await request(`/conversations/${run.conversation_id}`);
+  const sent = transcript.data.messages.find(
+    (entry: any) => entry.run_id === accepted.data.id,
+  );
+  expect(JSON.parse(sent.metadata).replyTo).toMatchObject({
+    id: message,
+    name: agent.name,
+    content: expect.stringContaining("separating the session tables"),
+  });
+  transition(accepted.data, "cancelled");
+});

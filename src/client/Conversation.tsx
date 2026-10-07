@@ -196,36 +196,6 @@ export function Conversation({
    */
   onWork?: (work: ThreadWork | null) => void;
 }) {
-  const activityItems = useConversationActivities(id);
-  const allActivities = visibleActivities(activityItems);
-  // The transcript shows only public messages. Tool calls, command output and
-  // plan progress stay inspectable from the options menu; file changes have
-  // their own per-run review.
-  const toolActivities = allActivities.filter((item) =>
-    ["tool", "output", "plan"].includes(item.record.kind),
-  );
-  // Older messages carry their activity in metadata rather than the live
-  // activity store; include those records unless the store has them too.
-  const toolRecords = () => {
-    const live = toolActivities.map((item) => item.record);
-    const same = (a: ActivityRecord, b: ActivityRecord) =>
-      a.id === b.id &&
-      a.kind === b.kind &&
-      a.source.transport === b.source.transport &&
-      a.source.harness === b.source.harness;
-    const saved = (data?.messages || []).flatMap((m) => {
-      const meta = parse<any>(m.metadata, {});
-      return (
-        (meta.activities || (meta.activity ? [meta.activity] : [])) as
-          ActivityRecord[]
-      ).filter(
-        (record) =>
-          ["tool", "output", "plan"].includes(record?.kind) &&
-          !live.some((other) => same(other, record)),
-      );
-    });
-    return [...live, ...saved];
-  };
   const [data, setData] = useState<{
       conversation: any;
       messages: ConversationMessage[];
@@ -275,6 +245,39 @@ export function Conversation({
     [origin, setOrigin] = useState<{ messageId: string | null } | null>(null),
     [resumed, setResumed] = useState(false),
     [editQueued, setEditQueued] = useState<QueuedMessage | null>(null);
+  const activityHistory = useConversationActivities(
+    id, (data?.messages || []).flatMap(message => message.run_id ? [message.run_id] : []),
+  );
+  const activityItems = activityHistory.items;
+  const allActivities = visibleActivities(activityItems);
+  // The transcript shows only public messages. Tool calls, command output and
+  // plan progress stay inspectable from the options menu; file changes have
+  // their own per-run review.
+  const toolActivities = allActivities.filter((item) =>
+    ["tool", "output", "plan"].includes(item.record.kind),
+  );
+  // Older messages carry their activity in metadata rather than the live
+  // activity store; include those records unless the store has them too.
+  const toolRecords = () => {
+    const live = toolActivities.map((item) => item.record);
+    const same = (a: ActivityRecord, b: ActivityRecord) =>
+      a.id === b.id &&
+      a.kind === b.kind &&
+      a.source.transport === b.source.transport &&
+      a.source.harness === b.source.harness;
+    const saved = (data?.messages || []).flatMap((m) => {
+      const meta = parse<any>(m.metadata, {});
+      return (
+        (meta.activities || (meta.activity ? [meta.activity] : [])) as
+          ActivityRecord[]
+      ).filter(
+        (record) =>
+          ["tool", "output", "plan"].includes(record?.kind) &&
+          !live.some((other) => same(other, record)),
+      );
+    });
+    return [...live, ...saved];
+  };
   const [newProvider, setNewProvider] = useState<Agent | null>(null);
   // The link target, a jump from the outline, or where you left off.
   const anchor = jump || messageId;
@@ -865,7 +868,7 @@ export function Conversation({
                   },
                 ]
               : []),
-            ...(toolRecords().length
+            ...(toolRecords().length || activityHistory.hasEarlier
               ? [
                   {
                     id: "tools",
@@ -1096,6 +1099,13 @@ export function Conversation({
       {showToolActivity && (
         <Sheet title="Tool activity" onClose={() => setShowToolActivity(false)}>
           <ActivityRecords records={toolRecords()} />
+          {activityHistory.error && <p className="error" role="alert">{activityHistory.error}</p>}
+          {activityHistory.hasEarlier && (
+            <button type="button" disabled={activityHistory.loadingEarlier}
+              onClick={() => { void activityHistory.loadEarlier(); }}>
+              {activityHistory.loadingEarlier ? "Loading…" : "Load earlier activity"}
+            </button>
+          )}
         </Sheet>
       )}
       {editingModel && agent && (

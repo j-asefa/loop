@@ -23,6 +23,10 @@ for (;;) {
   }
 }
 db.pragma("foreign_keys = ON");
+// A migration that rewrites stored history holds this lock for longer than a
+// statement timeout. The API and worker start together, so the process that
+// does not win the migration waits for it instead of failing to start.
+db.pragma("busy_timeout = 120000");
 // Mutating transactions must use .immediate(): API and worker processes share
 // this WAL database. A deferred read snapshot cannot safely upgrade after
 // another process commits, even with busy_timeout configured.
@@ -133,6 +137,7 @@ db.transaction(() => {
       );
   }).immediate();
 }).immediate();
+db.pragma("busy_timeout = 5000");
 export const now = () => Date.now();
 export const id = () => crypto.randomUUID();
 export function emit(

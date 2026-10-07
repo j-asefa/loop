@@ -283,7 +283,21 @@ export function setActivityCapabilities(
 
 // Old runs predate activities. Project only their public broker/native tool
 // traces as read-only records; internal envelopes stay hidden as in agentTraces.
-function legacyTools(owner: string, scope: string, known: Set<string>) {
+// Paged legacy history must not offer traces already represented by a durable
+// record, even when that record is on an older activity page.
+const unrepresentedTrace = `NOT EXISTS (
+  SELECT 1 FROM agent_activities a
+  WHERE a.owner_id=t.owner_id AND a.scope=COALESCE(r.conversation_id,'run:'||r.id)
+    AND a.run_id=t.run_id AND json_extract(a.record,'$.data.links.trace') IS NOT NULL
+    AND json_extract(a.record,'$.data.links.trace')=t.trace_key
+)`;
+
+function legacyTools(
+  owner: string,
+  scope: string,
+  known: Set<string>,
+  before?: number,
+) {
   const traces = db
     .prepare(
       `SELECT t.run_id,t.trace_key,t.title,t.content,t.metadata,t.artifact_id,t.id
@@ -292,15 +306,27 @@ function legacyTools(owner: string, scope: string, known: Set<string>) {
         -- Plan tool calls are represented by their plan activity.
         AND t.title<>'loop_plan'
         AND ${publicTraceFilter}
-      ORDER BY t.id LIMIT 2000`,
+        ${before === undefined ? "" : `AND ${unrepresentedTrace}`}
+      AND t.id<? ORDER BY t.id ${before === undefined ? "ASC" : "DESC"} LIMIT ?`,
     )
-    .all(owner, scope, scope) as any[];
-  return traces
+    .all(
+      owner,
+      scope,
+      scope,
+      before ?? Number.MAX_SAFE_INTEGER,
+      before === undefined ? 2000 : 101,
+    ) as any[];
+  const more = before !== undefined && traces.length > 100;
+  if (more) traces.pop();
+  const next = more ? (traces.at(-1)!.id as number) : null;
+  const items = traces
     .filter((t) => !known.has(t.run_id + "\0" + t.trace_key))
     .map((t) => {
       const metadata = JSON.parse(t.metadata || "{}");
       const state = String(metadata.state || metadata.status || "");
-      const status = ["running", "waiting", "completed", "failed"].includes(state)
+      const status = ["running", "waiting", "completed", "failed"].includes(
+        state,
+      )
         ? state
         : metadata.isError
           ? "failed"
@@ -309,7 +335,10 @@ function legacyTools(owner: string, scope: string, known: Set<string>) {
         v: ACTIVITY_VERSION,
         kind: "tool",
         id: t.trace_key,
-        source: { transport: metadata.native ? "native" : "api", origin: "trace" },
+        source: {
+          transport: metadata.native ? "native" : "api",
+          origin: "trace",
+        },
         revision: 1,
         fieldSeq: {},
         partial: false,
@@ -318,8 +347,12 @@ function legacyTools(owner: string, scope: string, known: Set<string>) {
           title: t.title,
           status,
           content: [
-            ...(t.content ? [{ type: "text", text: String(t.content).slice(0, 16000) }] : []),
-            ...(t.artifact_id ? [{ type: "artifact", artifactId: t.artifact_id }] : []),
+            ...(t.content
+              ? [{ type: "text", text: String(t.content).slice(0, 16000) }]
+              : []),
+            ...(t.artifact_id
+              ? [{ type: "artifact", artifactId: t.artifact_id }]
+              : []),
           ],
           links: { trace: t.trace_key },
         },
@@ -333,14 +366,130 @@ function legacyTools(owner: string, scope: string, known: Set<string>) {
         record,
       };
     });
+  return { items, next };
 }
+
+const activityItem = (r: Row) => ({
+  key: r.activity_key,
+  kind: r.kind,
+  run: r.run_id,
+  sequence: r.sequence,
+  record: JSON.parse(r.record),
+});
 
 export function listActivities(
   owner: string,
   conversation: string,
-  options: { after?: number; run?: string } = {},
+  options: {
+    after?: number;
+    run?: string;
+    before?: number;
+    view?: "recent" | "updates" | "legacy" | "files";
+    runs?: string[];
+  } = {},
 ) {
   owned("conversations", conversation, owner);
+  if (options.view === "legacy") {
+    const page = legacyTools(
+      owner,
+      conversation,
+      new Set(),
+      options.before ?? Number.MAX_SAFE_INTEGER,
+    );
+    return {
+      version: ACTIVITY_VERSION,
+      items: page.items,
+      cursor: 0,
+      more: false,
+      earlier: page.next,
+    };
+  }
+  if (options.view === "recent") {
+    const rows = db
+      .prepare(
+        `SELECT * FROM agent_activities
+      WHERE owner_id=? AND scope=? AND sequence<? ORDER BY sequence DESC LIMIT 101`,
+      )
+      .all(
+        owner,
+        conversation,
+        options.before ?? Number.MAX_SAFE_INTEGER,
+      ) as Row[];
+    const more = rows.length > 100;
+    if (more) rows.pop();
+    const next = more ? rows.at(-1)!.sequence : null;
+    // Only offer older activity this view can show. File changes load with
+    // their run and controls come with the snapshot, so pages holding nothing
+    // else would ask the reader to load records that never appear.
+    const earlier =
+      next !== null &&
+      db
+        .prepare(
+          `SELECT 1 FROM agent_activities WHERE owner_id=? AND scope=?
+      AND kind IN ('tool','output','plan') AND sequence<? LIMIT 1`,
+        )
+        .get(owner, conversation, next)
+        ? next
+        : null;
+    // Controls are keyed by producer, not turn. Include their current records
+    // even if hundreds of newer tool updates put them outside the recent page.
+    const controls =
+      options.before === undefined
+        ? ["settings", "commands", "capabilities"].flatMap(
+            (kind) =>
+              db
+                .prepare(
+                  `SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND kind=?
+        ORDER BY sequence DESC LIMIT 16`,
+                )
+                .all(owner, conversation, kind) as Row[],
+          )
+        : [];
+    const byKey = new Map(
+      [...rows, ...controls].map((r) => [r.activity_key, r]),
+    );
+    // Match legacyTools exactly: traces it hides as internal envelopes or as
+    // plan calls are not history the reader can load.
+    const legacyAvailable =
+      options.before === undefined &&
+      !!db
+        .prepare(
+          `SELECT 1 FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
+      WHERE t.owner_id=? AND t.kind='tool' AND (r.conversation_id=? OR 'run:'||r.id=?)
+        AND t.title<>'loop_plan' AND ${publicTraceFilter}
+        AND ${unrepresentedTrace} LIMIT 1`,
+        )
+        .get(owner, conversation, conversation);
+    return {
+      version: ACTIVITY_VERSION,
+      items: [...byKey.values()]
+        .sort((a, b) => a.sequence - b.sequence)
+        .map(activityItem),
+      cursor: rows[0]?.sequence ?? 0,
+      more: false,
+      earlier,
+      legacyAvailable,
+    };
+  }
+  if (options.view === "files") {
+    const runs = options.runs || [];
+    if (!runs.length) throw new Problem(400, "Choose runs for file changes");
+    const rows = db
+      .prepare(
+        `SELECT * FROM agent_activities WHERE owner_id=? AND scope=?
+      AND run_id IN (${runs.map(() => "?").join(",")}) AND kind='file_change' AND sequence>?
+      ORDER BY sequence LIMIT 501`,
+      )
+      .all(owner, conversation, ...runs, options.after ?? 0) as Row[];
+    const more = rows.length > 500;
+    if (more) rows.pop();
+    return {
+      version: ACTIVITY_VERSION,
+      items: rows.map(activityItem),
+      cursor: rows.at(-1)?.sequence ?? options.after ?? 0,
+      more,
+    };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND sequence>?
@@ -355,13 +504,7 @@ export function listActivities(
     ) as Row[];
   const more = rows.length > 500;
   if (more) rows.pop();
-  const items = rows.map((r) => ({
-    key: r.activity_key,
-    kind: r.kind,
-    run: r.run_id,
-    sequence: r.sequence,
-    record: JSON.parse(r.record),
-  }));
+  const items = rows.map(activityItem);
   // Legacy records are only needed for a full (non-incremental) load.
   const known = new Set<string>();
   for (const item of items) {
@@ -369,9 +512,9 @@ export function listActivities(
     if (item.run && trace) known.add(item.run + "\0" + trace);
   }
   const legacy =
-    options.after
+    options.after !== undefined || options.view
       ? []
-      : legacyTools(owner, conversation, known).filter(
+      : legacyTools(owner, conversation, known).items.filter(
           (l) => !options.run || l.run === options.run,
         );
   return {
@@ -388,6 +531,19 @@ activityRoutes.get("/conversations/:id/activities", (req, res) => {
     .object({
       after: z.coerce.number().int().nonnegative().optional(),
       run: z.string().max(100).optional(),
+      before: z.coerce
+        .number()
+        .int()
+        .nonnegative()
+        .max(Number.MAX_SAFE_INTEGER)
+        .optional(),
+      view: z.enum(["recent", "updates", "legacy", "files"]).optional(),
+      runs: z
+        .string()
+        .max(7600)
+        .transform((value) => value.split(","))
+        .pipe(z.array(z.string().min(1).max(150)).min(1).max(50))
+        .optional(),
     })
     .safeParse(req.query);
   if (!query.success) throw new Problem(400, "Invalid activity query");
