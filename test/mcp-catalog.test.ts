@@ -10,6 +10,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 const dir = mkdtempSync(join(tmpdir(), "loop-catalog-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+// Remote-runtime fixtures must not inherit the launcher's companion profile.
+process.env.LOOP_PROFILE = "server";
 process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:31999";
 process.env.LOOP_RUNTIME_TOKEN =
   "fixture-runtime-token-with-at-least-32-characters";

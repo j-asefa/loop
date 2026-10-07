@@ -413,6 +413,55 @@ it("archives a thread from the feed without changing its run or history", async 
   )).toBe(true);
 });
 
+it("heads Working cards with the active task's prompt instead of the thread's first prompt or newer queued input", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    title = "Why is MCP-catalog failing on main",
+    cid = conversation(w.owner, a.id, title);
+  const first = run(w.owner, a.id, cid, "completed", { input: title });
+  message(w.owner, cid, "user", title, first);
+  message(w.owner, cid, "assistant", "The test inherits companion mode.", first);
+  const active = run(w.owner, a.id, cid, "running", {
+    input: " Open a PR\nfor this ",
+  });
+  db.prepare("UPDATE runs SET worker_id='w' WHERE id=?").run(active);
+  message(w.owner, cid, "user", " Open a PR\nfor this ", active);
+  message(w.owner, cid, "assistant", "I’ll verify the fix and open the PR.", active);
+  const queued = run(w.owner, a.id, cid, "queued", { input: "Deploy it next" });
+  message(w.owner, cid, "user", "Deploy it next", queued);
+  // Steering belongs to this run, but did not start it.
+  message(w.owner, cid, "user", "Mention the reproduction in the PR", active);
+  const card = async (filter: string) =>
+    (await api(w.owner, "/inbox?filter=" + filter)).data.items.find(
+      (i: any) => i.conversation_id === cid,
+    );
+  for (const state of ["running", "pausing", "waiting_children"]) {
+    db.prepare("UPDATE runs SET state=?,worker_id=? WHERE id=?").run(
+      state === "waiting_children" ? "running" : state,
+      state === "waiting_children" ? null : "w",
+      active,
+    );
+    for (const filter of ["working", "all"]) {
+      expect(await card(filter)).toMatchObject({
+        title: "Open a PR for this",
+        run: { id: active, state },
+        last_message: {
+          role: "assistant",
+          content: "I’ll verify the fix and open the PR.",
+        },
+        queued_runs: [{ id: queued, input: "Deploy it next" }],
+      });
+    }
+    expect(await card("done")).toMatchObject({ title, run: { id: first } });
+  }
+  // Only the card heading changes; the stored thread title stays available.
+  expect(owned<any>("conversations", cid, w.owner).title).toBe(title);
+  db.prepare("UPDATE runs SET input=? WHERE id=?").run("word ".repeat(100), active);
+  expect((await card("working")).title).toHaveLength(200);
+  db.prepare("UPDATE runs SET input='  ' WHERE id=?").run(active);
+  expect((await card("working")).title).toBe(title);
+});
+
 it("shows a working agent's output so far on its feed card", async () => {
   const w = workspaceFor(),
     a = w.agent(),
