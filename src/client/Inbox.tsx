@@ -953,12 +953,15 @@ export function Inbox({
     void load(false, true);
   }, [revision]);
   useEffect(() => {
-    const update = () => void load(false, true);
+    // Explicit refreshes supersede an older read: dropping one while polling
+    // is in flight can leave a completed action or connection retry unseen.
+    // The request ticket prevents the older response from replacing this one.
+    const update = () => void load();
     window.addEventListener("loop-later-change", update);
     // "Retry connection" asks every source-backed view to reload now.
     window.addEventListener("loop-source-refresh", update);
     // Workspace events already bump `revision`; this is only a fallback.
-    const timer = setInterval(update, 30_000);
+    const timer = setInterval(() => void load(false, true), 30_000);
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-source-refresh", update);

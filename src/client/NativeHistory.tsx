@@ -1,8 +1,16 @@
 import { ActivityRecords } from "./ActivityRecords";
 import type { ActivityRecord } from "../agent-activities";
 import { useEffect, useRef, useState } from "react";
+import { FolderSearch, Info, TerminalSquare } from "lucide-react";
 import { api } from "./api";
 import { Sheet, RichText } from "./components";
+import {
+  SettingsList,
+  SettingsNote,
+  SettingsPill,
+  SettingsRow,
+  SettingsSegmented,
+} from "./SettingsUI";
 export function NativeHistory({
   onClose,
   onOpen,
@@ -11,6 +19,7 @@ export function NativeHistory({
   onOpen: (id: string) => void;
 }) {
   const [data, setData] = useState<any>({ managed: [], external: [] }),
+    [source, setSource] = useState<"managed" | "external">("managed"),
     [selected, setSelected] = useState<any>(),
     [activities, setActivities] = useState<ActivityRecord[]>([]),
     [items, setItems] = useState<any[]>([]),
@@ -46,67 +55,97 @@ export function NativeHistory({
   }, []);
   return (
     <Sheet title="Native conversations" onClose={onClose}>
-      <p>
-        Your Loop conversations keep their native context. Open a saved
-        conversation to send a follow-up.
+      <p className="settings-intro">
+        Threads that keep their harness context.
       </p>
-      <h3>Managed by Loop</h3>
-      {data.managed.map((c: any) => (
+      <SettingsSegmented
+        label="History source"
+        value={source}
+        onChange={setSource}
+        options={[
+          { id: "managed", label: "Managed by Loop" },
+          { id: "external", label: "Other Codex" },
+        ]}
+      />
+      {source === "managed" ? (
+        <SettingsList>
+          {data.managed.map((c: any) => (
+            <SettingsRow
+              key={c.id}
+              icon={TerminalSquare}
+              title={c.title}
+              description={`${c.harness} · ${c.project}`}
+              state={
+                <SettingsPill
+                  tone={
+                    c.state === "running"
+                      ? "attention"
+                      : c.state === "completed"
+                        ? "ready"
+                        : "muted"
+                  }
+                >
+                  {c.state[0].toUpperCase() + c.state.slice(1)}
+                </SettingsPill>
+              }
+              onClick={() => onOpen(c.id)}
+            />
+          ))}
+        </SettingsList>
+      ) : (
+        <>
+          <SettingsList>
+            <SettingsRow
+              icon={FolderSearch}
+              title="Discover Codex history"
+              description="Saved threads in other directories"
+              disabled={busy}
+              onClick={() => void load(true)}
+            />
+          </SettingsList>
+          <SettingsNote icon={Info} title="Read or fork only">
+            Loop cannot take over a session another process is running. Pi,
+            Claude and OpenCode currently expose Loop-managed history here.
+          </SettingsNote>
+          <SettingsList>
+            {data.external.map((c: any) => (
+              <SettingsRow
+                key={c.id}
+                icon={TerminalSquare}
+                title={c.title}
+                description={c.project}
+                onClick={async () => {
+                  const ticket = ++selection.current;
+                  setBusy(true);
+                  setError("");
+                  try {
+                    const r = await api(
+                      "/native/history/" + encodeURIComponent(c.id),
+                    );
+                    if (ticket !== selection.current) return;
+                    setSelected({ ...c, note: r.note });
+                    setItems(r.items);
+                    setActivities(
+                      (r.activities || []).map((a: any) => a.record || a),
+                    );
+                  } catch (e) {
+                    if (ticket === selection.current)
+                      setError((e as Error).message);
+                  } finally {
+                    if (ticket === selection.current) setBusy(false);
+                  }
+                }}
+              />
+            ))}
+          </SettingsList>
+        </>
+      )}
+      {source === "external" && data.next && (
         <button
-          className="project-agent"
-          key={c.id}
-          onClick={() => onOpen(c.id)}
+          className="secondary"
+          disabled={busy}
+          onClick={() => void load(true, data.next)}
         >
-          <span>
-            <strong>{c.title}</strong>
-            <small>
-              {c.harness} · {c.project} · {c.state}
-            </small>
-          </span>
-        </button>
-      ))}
-      <h3>Other native Codex history</h3>
-      <p className="note">
-        Discover saved threads across directories. External live sessions can be
-        read or forked; Loop cannot take over their running process. Pi, Claude
-        and OpenCode currently expose Loop-managed history here.
-      </p>
-      <button disabled={busy} onClick={() => void load(true)}>
-        Discover Codex history
-      </button>
-      {data.external.map((c: any) => (
-        <button
-          className="project-agent"
-          key={c.id}
-          onClick={async () => {
-            const ticket = ++selection.current;
-            setBusy(true);
-            setError("");
-            try {
-              const r = await api(
-                "/native/history/" + encodeURIComponent(c.id),
-              );
-              if (ticket !== selection.current) return;
-              setSelected({ ...c, note: r.note });
-              setItems(r.items);
-              setActivities(
-                (r.activities || []).map((a: any) => a.record || a),
-              );
-            } catch (e) {
-              if (ticket === selection.current) setError((e as Error).message);
-            } finally {
-              if (ticket === selection.current) setBusy(false);
-            }
-          }}
-        >
-          <span>
-            <strong>{c.title}</strong>
-            <small>{c.project}</small>
-          </span>
-        </button>
-      ))}
-      {data.next && (
-        <button disabled={busy} onClick={() => void load(true, data.next)}>
           Load more
         </button>
       )}

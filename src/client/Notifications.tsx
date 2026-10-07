@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Bell, BellOff } from "lucide-react";
+import { Bell, BellOff, Info, TriangleAlert } from "lucide-react";
 import { api } from "./api";
+import { SettingsList, SettingsNote, SettingsToggle } from "./SettingsUI";
 
 async function workerRegistration() {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -143,47 +144,55 @@ export function Notifications() {
   }
   return (
     <section className="notification-settings">
-      <p>
-        Get a notification on this device when an agent creates a new result,
-        even when Loop is closed.
-      </p>
+      <p className="settings-intro">On this device.</p>
       {!supported ? (
-        <p className="note">
-          On iPhone, add Loop to your Home Screen from the Share menu, open it
-          there, then enable notifications. Other devices need a browser that
-          supports web notifications.
-        </p>
+        <>
+          <SettingsNote icon={Info} title="Not available in this browser">
+            On iPhone, add Loop to your Home Screen from the Share menu and open
+            it there. Other devices need a browser that supports web
+            notifications.
+          </SettingsNote>
+        </>
       ) : (
         <>
-          <p role="status">
+          <SettingsList>
+            <SettingsToggle
+              icon={enabled ? BellOff : Bell}
+              title="Result notifications"
+              description={
+                busy ? "Updating…" : "Even when Loop is closed"
+              }
+              checked={enabled}
+              disabled={!ready || busy}
+              onChange={() => void toggle()}
+            />
+          </SettingsList>
+          <p role="status" className="sr-only">
             {enabled
               ? "Result notifications are on for this device."
               : "Result notifications are off for this device."}
           </p>
           {permission === "denied" && (
-            <p className="note">
-              Notifications are blocked. Allow them in your device’s
-              notification settings, then try again.
-            </p>
+            <SettingsNote
+              icon={TriangleAlert}
+              tone="attention"
+              title="Blocked by this device"
+            >
+              Allow notifications for Loop in your device’s notification
+              settings, then turn this on again.
+            </SettingsNote>
           )}
-          <button
-            className="primary"
-            disabled={!ready || busy}
-            onClick={() => void toggle()}
-          >
-            {enabled ? <BellOff size={18} /> : <Bell size={18} />}
-            {busy
-              ? "Updating…"
-              : enabled
-                ? "Turn off notifications"
-                : "Enable notifications"}
-          </button>
         </>
       )}
       {error && (
-        <p role="alert" className="error">
+        <SettingsNote
+          icon={TriangleAlert}
+          tone="attention"
+          role="alert"
+          title="Could not update notifications"
+        >
           {error}
-        </p>
+        </SettingsNote>
       )}
     </section>
   );

@@ -30,6 +30,20 @@ export function AgentDirectory({
         .toLowerCase()
         .includes(query.trim().toLowerCase()),
   );
+  // Group by project so the project name stops repeating in every subtitle,
+  // which is what pushed these rows onto three lines.
+  const groups: { name: string; agents: EnvironmentAgent[] }[] = [];
+  for (const agent of filtered) {
+    const folder = folders.find(
+      (f) =>
+        f.id === agent.folder_id &&
+        (f.sourceId || "") === (agent.sourceId || ""),
+    );
+    const name = folder?.name || "No project";
+    const group = groups.find((g) => g.name === name);
+    if (group) group.agents.push(agent);
+    else groups.push({ name, agents: [agent] });
+  }
   return (
     <Sheet title="Your agents" onClose={onClose}>
       <div className="segmented">
@@ -51,7 +65,6 @@ export function AgentDirectory({
       <label className="directory-search">
         <Search size={18} />
         <input
-          autoFocus
           type="search"
           aria-label="Search agents"
           placeholder="Find an agent…"
@@ -70,29 +83,33 @@ export function AgentDirectory({
             Show all workspace agents
           </label>
         )}
-      <div className="project-agents">
-        {filtered.map((a) => (
-          <button
-            className="project-agent"
-            key={key(a)}
-            onClick={() => onAgent(a)}
-          >
-            <Avatar name={a.name} provider={a.provider} />
-            <span>
-              <strong>@{a.name}</strong>
-              <Badge provider={a.provider} />
-              <small>
-                {a.model} · {a.executionEnvironment || "This laptop"}
-                {a.folder_id && folders.find((f) =>
-                  f.id === a.folder_id && (f.sourceId || "") === (a.sourceId || "")) &&
-                  ` · ${folders.find((f) =>
-                    f.id === a.folder_id && (f.sourceId || "") === (a.sourceId || ""))?.name}`}
-              </small>
-            </span>
-            <ArrowUpRight size={18} />
-          </button>
-        ))}
-      </div>
+      {groups.map((group) => (
+        <section
+          className="settings-navigation agent-directory-group"
+          key={group.name}
+        >
+          {groups.length > 1 && <h3>{group.name}</h3>}
+          <div className="project-agents settings-list">
+            {group.agents.map((a) => (
+              <button
+                className="project-agent"
+                key={key(a)}
+                onClick={() => onAgent(a)}
+              >
+                <Avatar name={a.name} provider={a.provider} />
+                <span>
+                  <strong>@{a.name}</strong>
+                  <Badge provider={a.provider} />
+                  <small>
+                    {a.model} · {a.executionEnvironment || "This laptop"}
+                  </small>
+                </span>
+                <ArrowUpRight size={18} />
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
       {!filtered.length && (
         <Empty
           title={

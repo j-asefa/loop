@@ -1,6 +1,15 @@
 import { useState, useRef } from "react";
+import { Check, Info, Share, WifiOff } from "lucide-react";
 import { api } from "./api";
 import { Sheet } from "./components";
+import {
+  SettingsList,
+  SettingsNote,
+  SettingsRow,
+  SettingsSection,
+  SettingsSegmented,
+  SettingsSteps,
+} from "./SettingsUI";
 import type { Agent, Folder, Run } from "../shared/types";
 export type SharedDraft = {
   url: string;
@@ -218,48 +227,109 @@ export function InstallHelp({
   onClose: () => void;
   personal?: boolean;
 }) {
+  const [platform, setPlatform] = useState<"iphone" | "android" | "desktop">(
+    /iPhone|iPad|iPod/.test(navigator.userAgent) ? "iphone" : "desktop",
+  );
+  const [detail, setDetail] = useState("");
   return (
-    <Sheet title="Loop on your Home Screen" onClose={onClose}>
-      <h3>iPhone & iPad</h3>
-      <ol>
-        <li>Open this Loop address in Safari.</li>
-        <li>Tap Share → Add to Home Screen.</li>
-        <li>Enable Open as Web App when offered, then tap Add.</li>
-        <li>
-          {personal
-            ? "Launch Loop from the new icon. This personal workspace opens directly; no Loop account is needed."
-            : "Launch Loop from the new icon and sign in. Some Safari versions keep app and browser sign-ins separate."}
-        </li>
-      </ol>
-      <h3>Share a link from iPhone</h3>
-      <p>
-        Use the Shortcut below to open a shared link as a Loop draft. Native Web
-        Share Target is not assumed on Safari.
-      </p>
-      <p>
-        For a Shortcut: accept URLs or Text from the Share Sheet, URL Encode the
-        Shortcut Input, build the text below with that encoded value, then Open
-        URLs. Loop will open a draft for you to review.
-      </p>
-      <code className="wrap-code">
-        {location.origin}/share?text=[URL-encoded Shortcut Input]
-      </code>
-      <p className="field-hint">
-        A shared URL in the text field can be copied into Source URL. You can
-        also use /share?url=…&question=… . Opening a link never submits work.
-      </p>
-      <h3>Android & desktop</h3>
-      <p>
-        Use your browser’s Install app option. Browsers supporting Web Share
-        Target can send URL/text to the installed Loop app.
-      </p>
-      <h3>Connection & updates</h3>
-      <p>
-        Active runs continue on the server when you close Loop. New work needs a
-        connection. The current screen remains readable offline; private history
-        is not stored in the service-worker cache. Save your draft before
-        accepting an update.
-      </p>
+    <Sheet title="Install Loop" onClose={onClose}>
+      <p className="settings-intro">Open it from your Home Screen.</p>
+      <SettingsSegmented
+        label="Platform"
+        value={platform}
+        onChange={setPlatform}
+        options={[
+          { id: "iphone", label: "iPhone" },
+          { id: "android", label: "Android" },
+          { id: "desktop", label: "Desktop" },
+        ]}
+      />
+      {platform === "iphone" ? (
+        <SettingsSteps>
+          <li>
+            <p>Open this Loop address in Safari.</p>
+          </li>
+          <li>
+            <p>Tap Share → Add to Home Screen.</p>
+          </li>
+          <li>
+            <p>Enable Open as Web App when offered, then tap Add.</p>
+          </li>
+        </SettingsSteps>
+      ) : (
+        <SettingsSteps>
+          <li>
+            <p>Open this Loop address in your browser.</p>
+          </li>
+          <li>
+            <p>
+              Choose Install app from the address bar or the browser menu.
+              <small className="field-hint">
+                Browsers supporting Web Share Target can send a URL or text
+                straight to the installed Loop app.
+              </small>
+            </p>
+          </li>
+        </SettingsSteps>
+      )}
+      <SettingsNote
+        icon={personal ? Check : Info}
+        tone={personal ? "ready" : "muted"}
+        title={personal ? "No Loop account needed" : "Sign in once in the app"}
+      >
+        {personal
+          ? "Launch Loop from the new icon: this personal workspace opens directly."
+          : "Launch Loop from the new icon and sign in. Some Safari versions keep app and browser sign-ins separate."}
+      </SettingsNote>
+      <SettingsSection title="Once installed">
+        <SettingsList>
+          {platform === "iphone" && (
+            <SettingsRow
+              icon={Share}
+              title="Share links into Loop"
+              description="Set up the iPhone Shortcut"
+              onClick={() => setDetail(detail === "share" ? "" : "share")}
+            />
+          )}
+          <SettingsRow
+            icon={WifiOff}
+            title="Offline & updates"
+            description="What works without a connection"
+            onClick={() => setDetail(detail === "offline" ? "" : "offline")}
+          />
+        </SettingsList>
+      </SettingsSection>
+      {detail === "share" && (
+        <div className="settings-card">
+          <h3>Share a link from iPhone</h3>
+          <p className="field-hint">
+            Use a Shortcut to open a shared link as a Loop draft. Native Web
+            Share Target is not assumed on Safari. Accept URLs or Text from the
+            Share Sheet, URL Encode the Shortcut Input, build the text below
+            with that encoded value, then Open URLs. Loop opens a draft for you
+            to review.
+          </p>
+          <code className="wrap-code">
+            {location.origin}/share?text=[URL-encoded Shortcut Input]
+          </code>
+          <p className="field-hint">
+            A shared URL in the text field can be copied into Source URL. You
+            can also use /share?url=…&question=… . Opening a link never submits
+            work.
+          </p>
+        </div>
+      )}
+      {detail === "offline" && (
+        <div className="settings-card">
+          <h3>Connection &amp; updates</h3>
+          <p className="field-hint">
+            Active runs continue on the server when you close Loop. New work
+            needs a connection. The current screen remains readable offline;
+            private history is not stored in the service-worker cache. Save your
+            draft before accepting an update.
+          </p>
+        </div>
+      )}
     </Sheet>
   );
 }

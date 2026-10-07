@@ -3,10 +3,12 @@ import {
   managedRuntimeName,
 } from "./EnvironmentRuntimes";
 import { useEffect, useRef, useState } from "react";
+import { Box, Monitor, TriangleAlert } from "lucide-react";
 import { api, parse } from "./api";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 import { Sheet } from "./components";
 import { capabilities } from "./capabilities";
+import { SettingsEmpty, SettingsList, SettingsRow } from "./SettingsUI";
 import type { Folder } from "../shared/types";
 import type { Connection } from "../shared/types";
 
@@ -33,6 +35,7 @@ export function ExecutionEnvironments({
   onLegacy: () => void;
 }) {
   const [items, setItems] = useState<any[]>([]),
+    [help, setHelp] = useState(""),
     [selected, setSelected] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -138,11 +141,42 @@ export function ExecutionEnvironments({
         )}
         {notice && <p role="status">{notice}</p>}
         {!items.length && (
-          <p>
-            No managed execution environment is connected yet. Check runtime
-            setup for preparation progress or direct fallback. To add Docker
-            execution, start Loop with --execution both.
-          </p>
+          <>
+            <SettingsEmpty icon={Monitor} title="No environment connected yet">
+              Agents run on the Loop server until you connect one.
+            </SettingsEmpty>
+            <SettingsList>
+              <SettingsRow
+                icon={Box}
+                title="Add Docker execution"
+                description="Start Loop with --execution both"
+                onClick={() => setHelp(help === "docker" ? "" : "docker")}
+              />
+              <SettingsRow
+                icon={TriangleAlert}
+                title="Environment not appearing?"
+                description="Check runtime setup for progress or fallback"
+                onClick={() => setHelp(help === "setup" ? "" : "setup")}
+              />
+            </SettingsList>
+            {help === "docker" && (
+              <div className="settings-card">
+                <p className="field-hint">
+                  Restart Loop with <code>--execution both</code> to run agents
+                  in Docker alongside the Loop server.
+                </p>
+              </div>
+            )}
+            {help === "setup" && (
+              <div className="settings-card">
+                <p className="field-hint">
+                  A managed environment appears here once its Runner connects
+                  and authenticates. Until then, check runtime setup for
+                  preparation progress or direct fallback.
+                </p>
+              </div>
+            )}
+          </>
         )}
         {items.length > 0 && (
           <div

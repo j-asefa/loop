@@ -6,9 +6,17 @@ import assert from "node:assert/strict";
 export async function architectureSettingsJourney(page) {
   await openSettings(page);
   await page.getByRole("button", { name: /Execution environments/ }).click();
+  // The empty state leads with the state and keeps both explanations one tap
+  // away instead of printing them as a paragraph.
+  await expect(page.getByText("No environment connected yet")).toBeVisible();
+  await page.getByRole("button", { name: /Add Docker execution/ }).click();
+  await expect(
+    page.getByText(/Restart Loop with .*to run agents in Docker/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Environment not appearing/ }).click();
   await expect(
     page.getByText(
-      /No managed execution environment is connected yet\. Check runtime setup for preparation progress or direct fallback\./,
+      /check runtime setup for preparation progress or direct fallback\./,
     ),
   ).toBeVisible();
   for (const width of [320, 390, 1024]) {
@@ -23,7 +31,11 @@ export async function architectureSettingsJourney(page) {
   await closeSheets(page);
   await openSettings(page);
   await page.getByRole("button", { name: /Shared memory/ }).click();
-  await expect(page.getByText(/Lexical fallback/)).toBeVisible();
+  // Readiness is a note beside the toggle rather than a status sentence.
+  await expect(page.getByText(/Keyword matching for now/)).toBeVisible();
+  await expect(page.getByText(/semantic index is unavailable/)).toBeVisible();
+  // Pinning a note is a focused sub-form, not three fields on the page.
+  await page.getByRole("button", { name: "Pin a note" }).click();
   await page
     .getByLabel("Title", { exact: true })
     .fill("Synthetic mobile decision");

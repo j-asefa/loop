@@ -1001,26 +1001,35 @@ small,
   outline-offset: 2px;
 }
 .connection-accounts {
-  margin-top: 20px;
+  margin-top: 4px;
 }
-.connection-account {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
-  margin-top: 12px;
-  overflow-wrap: anywhere;
+/* One account reads as a row: who it is, its state, and its actions. */
+.connection-accounts.settings-list .connection-account {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 12px 14px;
+  min-width: 0;
 }
 .connection-identity {
   display: flex;
   align-items: center;
   gap: 12px;
 }
+.connection-identity > div {
+  flex: 1;
+  min-width: 0;
+}
 .connection-identity h3 {
   margin: 0 0 3px;
+  font-size: 15px;
 }
 .connection-identity p {
   font-size: 12px;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .connection-account .connection-account-name {
   margin: 14px 0 3px;
@@ -1038,15 +1047,17 @@ small,
 }
 .connection-machine {
   font-size: 12px;
-  margin: 0;
+  margin: 6px 0 0;
 }
 .connection-account-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border-top: 1px solid var(--line);
-  margin-top: 12px;
-  padding-top: 6px;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+}
+.connection-account-actions .text-button {
+  gap: 6px;
 }
 .connection-account-actions > .text-button {
   margin-right: auto;
@@ -2347,8 +2358,8 @@ pre {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 14px;
+  padding: 14px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -2359,26 +2370,57 @@ pre {
   gap: 10px;
 }
 .catalog-card h4 {
-  font-size: 18px;
-  margin: 0 0 4px;
+  font-size: 16px;
+  margin: 0 0 3px;
 }
 .catalog-card p {
-  margin: 8px 0;
+  margin: 6px 0;
+}
+/* The list is for scanning. The rest of a tool's copy is one tap away in
+   Setup details, so the card shows the purpose and nothing more. */
+.catalog-card-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 .catalog-card-title .field-hint {
   margin: 0;
 }
 .catalog-badge {
   flex-shrink: 0;
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
   font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.catalog-badge-on {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
 }
 .catalog-card a {
   font-size: 13px;
-  margin: 6px 0 14px;
+  margin: 6px 0 10px;
+}
+.catalog-card .settings-details {
+  margin: 4px 0 8px;
+}
+.catalog-card .settings-details > summary {
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.catalog-card .secondary {
+  min-height: 44px;
+  width: 100%;
 }
 .catalog-install {
   margin-top: auto;
@@ -2841,12 +2883,13 @@ pre {
   flex: 0 0 auto;
   min-height: 44px;
 }
-.native-settings label:not(.native-toggle) {
+.native-settings
+  label:not(.native-toggle):not(.settings-toggle):not(.settings-select-row) {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
 }
-.native-settings input,
+.native-settings input:not(.settings-switch),
 .native-settings textarea,
 .native-settings select {
   width: 100%;
@@ -4346,10 +4389,31 @@ h1 {
 .feed-filters > .muted {
   font-size: 12px;
 }
-.directory-search {
+label.directory-search {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 0 14px;
+  margin-bottom: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--muted);
+}
+label.directory-search:focus-within {
+  border-color: var(--brass);
+}
+.directory-search input {
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  min-height: 46px;
+  color: var(--text);
+}
+.directory-search input:focus-visible {
+  outline: 0;
 }
 .directory-search input {
   min-width: 0;
@@ -8334,6 +8398,370 @@ html:has(.sheet.side-panel[open]) {
   font-size: 13px;
   color: var(--muted);
 }
+/* Settings kit: status, switches, grouped lists, steps and notes.
+   One row shape carries icon, label, state and a chevron so every settings
+   page reads the same way at phone and desktop widths. */
+.settings-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.settings-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.settings-pill.quiet {
+  font-weight: 500;
+}
+.settings-pill.quiet::before {
+  display: none;
+}
+.settings-pill.ready {
+  color: var(--green);
+}
+.settings-pill.attention {
+  color: var(--orange);
+}
+/* A bordered group: rows read as one card instead of floating separately. */
+.settings-list {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  margin-bottom: 8px;
+}
+.settings-list > * + * {
+  border-top: 1px solid var(--line);
+}
+.settings-list .settings-row {
+  border-radius: 0;
+  min-height: 60px;
+  padding: 11px 14px;
+}
+.settings-list .settings-row:hover,
+.settings-list .settings-row:focus-visible {
+  background: var(--secondary);
+}
+/* Rows carry an optional state between the label and the chevron. */
+.settings-row.has-state {
+  grid-template-columns: 36px minmax(0, 1fr) auto 18px;
+}
+.settings-row.no-chevron {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+.settings-row.no-icon {
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+}
+.settings-row.no-icon.no-chevron {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+/* Long paths, IDs and model names must not push a row onto three lines. The
+   title wraps on word boundaries; the supporting line is capped at two. */
+.settings-row > span > strong {
+  overflow-wrap: break-word;
+}
+.settings-row > span > small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.settings-row.wrap > span > small {
+  display: block;
+  overflow: visible;
+}
+/* Switch: the control's own position is the state, so no status sentence. */
+label.settings-toggle,
+.native-settings label.settings-toggle {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 60px;
+  padding: 11px 14px;
+  cursor: pointer;
+}
+label.settings-toggle.no-icon,
+.native-settings label.settings-toggle.no-icon {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.settings-toggle strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-toggle small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+input.settings-switch,
+.native-settings input.settings-switch {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  width: 46px;
+  min-width: 46px;
+  height: 28px;
+  min-height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--secondary);
+  border: 1px solid var(--line);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.settings-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s ease;
+}
+input.settings-switch:checked,
+.native-settings input.settings-switch:checked {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+.settings-switch:checked::after {
+  background: #1a1a1c;
+  transform: translateX(18px);
+}
+input.settings-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-switch,
+  .settings-switch::after {
+    transition: none;
+  }
+}
+/* A note sits beside the control it qualifies, never as a page preamble. */
+.settings-note-card {
+  display: flex;
+  gap: 11px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 13px;
+  padding: 13px 14px;
+  margin-bottom: 12px;
+}
+.settings-note-card > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--muted);
+}
+.settings-note-card strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  margin-bottom: 3px;
+}
+.settings-note-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.settings-note-card.attention {
+  border-color: color-mix(in srgb, var(--orange) 40%, transparent);
+  background: color-mix(in srgb, var(--orange) 9%, var(--surface));
+}
+.settings-note-card.attention > svg,
+.settings-note-card.attention strong {
+  color: var(--orange);
+}
+.settings-note-card.ready {
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: color-mix(in srgb, var(--green) 9%, var(--surface));
+}
+.settings-note-card.ready > svg,
+.settings-note-card.ready strong {
+  color: var(--green);
+}
+.settings-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  counter-reset: settings-step;
+}
+.settings-steps li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 9px 2px;
+}
+.settings-steps li::before {
+  counter-increment: settings-step;
+  content: counter(settings-step);
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--secondary);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.settings-steps p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.settings-steps small {
+  display: block;
+  margin-top: 2px;
+}
+/* One copyable command replaces a block of shell instructions. */
+.settings-command {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.settings-command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.settings-command-head strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.settings-command-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--brass-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.settings-command pre {
+  margin: 0;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: var(--secondary);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.75;
+  overflow-x: auto;
+  white-space: pre;
+}
+.settings-command pre.clipped {
+  max-height: 72px;
+  overflow: hidden;
+}
+.settings-command > button.text-button {
+  width: 100%;
+  justify-content: center;
+}
+.settings-empty {
+  text-align: center;
+  padding: 22px 16px 10px;
+}
+.settings-empty-mark {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 18px;
+  background: var(--secondary);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+.settings-empty strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 650;
+  margin-bottom: 5px;
+}
+.settings-empty p {
+  margin: 0 auto;
+  max-width: 300px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.settings-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+.settings-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.settings-chips button[aria-pressed="true"] {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #1a1a1c;
+}
+.settings-progress {
+  height: 5px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.settings-progress span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+.settings-progress.running span {
+  background: var(--brass);
+}
+/* Keeps the one primary action reachable without hiding the list behind it. */
+.settings-sticky {
+  position: sticky;
+  bottom: 0;
+  margin: 10px -4px -4px;
+  padding: 14px 4px 4px;
+  background: linear-gradient(transparent, var(--surface) 26%);
+}
+.settings-sticky .primary {
+  width: 100%;
+}
+
 .settings-status {
   font-size: 12px;
   color: var(--muted);
@@ -8463,4 +8891,290 @@ html:has(.sheet.side-panel[open]) {
   .settings-sheet .settings-card {
     padding: 12px;
   }
+}
+/* A settings row whose control is a native select: the label and the current
+   value stay on one line so long account names cannot stretch the row. */
+label.settings-select-row,
+.native-settings label.settings-select-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 11px 14px;
+  min-height: 60px;
+}
+.settings-select-row > span > strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-select-row > span > small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+}
+.settings-select-row select {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0 10px;
+}
+/* An import job shows how far it got, not just a status word. */
+.settings-import-job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  padding: 13px 14px;
+}
+.settings-import-job > div:first-child {
+  min-width: 0;
+}
+.settings-import-job strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-import-job small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+}
+.settings-import-job .actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.settings-import-job .actions button,
+.settings-import-job .actions a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+}
+/* Catalog filters: search and filters first, in Loop's own control shapes. */
+label.catalog-search {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.catalog-search input {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-height: 46px;
+  width: 100%;
+  color: var(--text);
+}
+.catalog-search input:focus-visible {
+  outline: 0;
+}
+.catalog-search:focus-within {
+  border-color: var(--brass);
+}
+label.catalog-category select {
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 12px;
+  width: auto;
+}
+/* The filter stays a real checkbox for keyboard and assistive technology;
+   only its box is replaced by the chip's pressed appearance. */
+label.catalog-filter-chip {
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.catalog-filter-chip:has(input:checked) {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #1a1a1c;
+}
+.catalog-filter-chip:focus-within {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+}
+/* The checkbox itself is the chip's hit area: it stays a real, clickable
+   control for pointers, keyboards and tests, and only its box is hidden. */
+.sheet .catalog-filter-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.catalog-card .secondary {
+  width: auto;
+  align-self: flex-start;
+  padding-inline: 20px;
+}
+/* The directory groups agents by project; rows carry only what differs. */
+.agent-directory-group h3 {
+  margin: 16px 2px 8px;
+}
+.project-agents.settings-list .project-agent {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  width: 100%;
+  padding: 12px 14px;
+}
+.project-agents.settings-list .project-agent + .project-agent {
+  border-top: 1px solid var(--line);
+}
+.project-agents.settings-list {
+  display: block;
+  gap: 0;
+}
+/* A memory source row: opening it and removing it are separate targets, so
+   neither action is nested inside the other. */
+.memory-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 14px 12px;
+}
+.memory-source-open {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0;
+  text-align: left;
+  min-width: 0;
+}
+.memory-source-open strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memory-source-open small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+}
+.memory-source > .text-button {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  min-height: 44px;
+  font-size: 13px;
+}
+/* A sheet's closing hint must clear the form's primary action above it. */
+.sheet form + .field-hint {
+  margin-top: 16px;
+}
+/* At the narrowest supported width a state label would squeeze the title into
+   a mid-word break, so it moves under the description instead. */
+@media (max-width: 380px) {
+  .settings-row.has-state {
+    grid-template-columns: 36px minmax(0, 1fr) 18px;
+  }
+  .settings-row.has-state > .settings-row-icon {
+    grid-area: 1 / 1 / 3 / 2;
+  }
+  .settings-row.has-state > span {
+    grid-area: 1 / 2 / 2 / 3;
+  }
+  .settings-row.has-state > .settings-pill {
+    grid-area: 2 / 2 / 3 / 3;
+    margin-top: 5px;
+  }
+  .settings-row.has-state > svg:last-child {
+    grid-area: 1 / 3 / 3 / 4;
+  }
+  .settings-row.no-icon.has-state {
+    grid-template-columns: minmax(0, 1fr) 18px;
+  }
+  .settings-row.no-icon.has-state > span {
+    grid-area: 1 / 1 / 2 / 2;
+  }
+  .settings-row.no-icon.has-state > .settings-pill {
+    grid-area: 2 / 1 / 3 / 2;
+  }
+  .settings-row.no-icon.has-state > svg:last-child {
+    grid-area: 1 / 2 / 3 / 3;
+  }
+  /* A row with no chevron has no narrow column to spare: its state holds the
+     row's action (Remove machine, for one), and 18px clips the label. Keep
+     that column auto-sized. Pill states still drop under the description, so
+     this does not apply to them. */
+  .settings-row.has-state.no-chevron:not(:has(> .settings-pill)) {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+  .settings-row.no-icon.has-state.no-chevron:not(:has(> .settings-pill)) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+/* The file picker is the one control the browser draws itself. Keep the real
+   input — tests and assistive technology rely on it — and restyle its button.
+   Scoped to this field: the composer's attachment input shares the selector
+   and must keep its own compact geometry above the keyboard. */
+.settings-file-field input[type="file"] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  min-height: 60px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-file-field input[type="file"]::file-selector-button {
+  appearance: none;
+  min-height: 44px;
+  padding: 0 18px;
+  margin-right: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-file-field input[type="file"]::file-selector-button:hover {
+  background: var(--secondary);
 }

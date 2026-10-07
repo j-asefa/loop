@@ -2901,6 +2901,8 @@ export default function App() {
             open={openSettingsPage}
             theme={theme}
             onTheme={setTheme}
+            agents={data.agents}
+            connections={data.connections}
           />
           <footer className="drawer-account">
             <span className="avatar user" aria-hidden="true">

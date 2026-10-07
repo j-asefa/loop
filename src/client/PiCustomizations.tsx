@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Search, Sparkles } from "lucide-react";
 import { api } from "./api";
 import { Sheet } from "./components";
+import { SettingsEmpty } from "./SettingsUI";
 import type { Agent } from "../shared/types";
 
 type Resource = {
@@ -325,9 +327,8 @@ export function PiCustomizations({
       title={mode === "active" ? "Active in this chat" : "Pi customizations"}
       onClose={onClose}
     >
-      <p className="muted">
-        Discovered from Pi on the computer running this agent. Changes to Pi
-        files or packages appear after Pi reloads or a new session starts.
+      <p className="settings-intro">
+        Skills, prompts and tools from the computer running this agent.
       </p>
       {piAgents.length > 1 && (
         <label>
@@ -348,10 +349,10 @@ export function PiCustomizations({
         </label>
       )}
       {!selected ? (
-        <p className="note">
+        <SettingsEmpty icon={Sparkles} title="No Pi agent yet">
           Run <code>loop</code> or <code>loop pi</code>, then create a Pi agent
           to discover its customizations.
-        </p>
+        </SettingsEmpty>
       ) : (
         <>
           {error && (
@@ -649,11 +650,17 @@ export function PiCustomizations({
               aria-label="Package resource selection"
             >
               <strong>Resources from {editing.source}</strong>
-              <p>
-                {editing.autoload === false
-                  ? "This project entry is a Pi filtering overlay. Use custom Pi path patterns to add or exclude resources from the personal package selection."
-                  : "Leave a type on All to use every resource declared by the package. Select None to disable that type, or enter one Pi path pattern per line. Pi filters cannot add resources the package does not declare."}
+              <p className="field-hint">
+                Pi filters can only narrow what the package declares.
               </p>
+              <details className="settings-details">
+                <summary>How these filters work</summary>
+                <p className="field-hint">
+                  {editing.autoload === false
+                    ? "This project entry is a Pi filtering overlay. Use custom Pi path patterns to add or exclude resources from the personal package selection."
+                    : "Leave a type on All to use every resource declared by the package. Select None to disable that type, or enter one Pi path pattern per line. Pi filters cannot add resources the package does not declare."}
+                </p>
+              </details>
               {(["extensions", "skills", "prompts", "themes"] as const).map(
                 (kind) => (
                   <div key={kind}>
@@ -760,8 +767,9 @@ export function PiCustomizations({
             </div>
           )}
           {tab !== "discover" && tab !== "instructions" && (
-            <label>
-              Search Pi customizations{" "}
+            <label className="directory-search">
+              <span className="sr-only">Search Pi customizations</span>
+              <Search size={17} aria-hidden="true" />
               <input
                 type="search"
                 value={query}

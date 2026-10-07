@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
+import { Bookmark, Info, MessageSquare } from "lucide-react";
 import { api, parse } from "./api";
 import { Sheet } from "./components";
+import {
+  SettingsList,
+  SettingsNote,
+  SettingsPill,
+  SettingsSection,
+  SettingsToggle,
+} from "./SettingsUI";
 import type { Folder } from "../shared/types";
 export function Memory({
   folders,
@@ -14,6 +22,7 @@ export function Memory({
     [title, setTitle] = useState(""),
     [content, setContent] = useState(""),
     [project, setProject] = useState(""),
+    [pinning, setPinning] = useState(false),
     [source, setSource] = useState<any>(null);
   const load = () =>
     api("/memory")
@@ -37,134 +46,196 @@ export function Memory({
   };
   const isOn = (scope: string) =>
     data?.policies.find((p: any) => p.scope === scope)?.enabled !== 0;
+  const sourceState = (s: any) =>
+    s.tombstone
+      ? { label: "Removed", tone: "muted" as const }
+      : !s.eligible
+        ? { label: "Excluded", tone: "muted" as const }
+        : s.indexed_revision === s.revision
+          ? { label: "Indexed", tone: "ready" as const }
+          : { label: "Pending", tone: "muted" as const };
   return (
     <Sheet title="Shared memory" onClose={onClose}>
       <div className="native-settings">
-        <p>
-          Included conversations and pinned notes help agents recall prior work
-          with source citations. Removing shared memory retains the original
-          conversation and context already delivered to agents.
+        <p className="settings-intro">
+          What agents can recall across conversations.
         </p>
-        {error && <p role="alert">{error}</p>}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
         {data && (
           <>
-            <p role="status">
-              {data.readiness.ready
-                ? "Semantic memory ready"
-                : "Lexical fallback · semantic index unavailable"}{" "}
-              · {data.backlog} pending updates
-            </p>
-            <label className="native-toggle">
-              <input
-                type="checkbox"
+            <SettingsList>
+              <SettingsToggle
+                icon={Bookmark}
+                title="Enable shared recall"
+                description="Agents cite the source they used"
                 checked={isOn("workspace")}
-                onChange={(e) => void change("workspace", e.target.checked)}
+                onChange={(next) => void change("workspace", next)}
               />
-              Enable shared recall
-            </label>
-            {folders
-              .filter((f) => f.kind === "project")
-              .map((f) => (
-                <label key={f.id} className="native-toggle">
-                  <input
-                    type="checkbox"
-                    checked={isOn("project:" + f.id)}
-                    onChange={(e) =>
-                      void change("project:" + f.id, e.target.checked)
-                    }
-                  />
-                  {f.name}
-                </label>
-              ))}
-            <h3>Pin a note</h3>
-            <label>
-              Title
-              <input value={title} onChange={(e) => setTitle(e.target.value)} />
-            </label>
-            <label>
-              Note
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={5}
-              />
-            </label>
-            <label>
-              Scope
-              <select
-                value={project}
-                onChange={(e) => setProject(e.target.value)}
-              >
-                <option value="">Promoted workspace note</option>
+            </SettingsList>
+            <SettingsNote
+              icon={Info}
+              role="status"
+              title={
+                data.readiness.ready
+                  ? "Semantic memory ready"
+                  : "Keyword matching for now"
+              }
+            >
+              {(data.readiness.ready
+                ? "Related ideas are matched by meaning."
+                : "The semantic index is unavailable.") +
+                " " +
+                data.backlog +
+                " pending updates."}
+            </SettingsNote>
+            <SettingsSection title="Projects included">
+              <SettingsList>
                 {folders
                   .filter((f) => f.kind === "project")
                   .map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
+                    <SettingsToggle
+                      key={f.id}
+                      title={f.name}
+                      checked={isOn("project:" + f.id)}
+                      onChange={(next) => void change("project:" + f.id, next)}
+                    />
                   ))}
-              </select>
-            </label>
-            <button
-              disabled={!title.trim() || !content.trim()}
-              onClick={() =>
-                void api("/memory/notes", {
-                  title,
-                  content,
-                  projectId: project || null,
-                })
-                  .then(() => {
-                    setTitle("");
-                    setContent("");
-                    return load();
-                  })
-                  .catch((e) => setError(e.message))
+              </SettingsList>
+            </SettingsSection>
+            <SettingsSection
+              title="Sources"
+              action={
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-expanded={pinning}
+                  onClick={() => setPinning(!pinning)}
+                >
+                  {pinning ? "Cancel" : "Pin a note"}
+                </button>
               }
             >
-              Pin note
-            </button>
-            <h3>Sources</h3>
-            {data.sources.map((s: any) => (
-              <div className="native-card" key={s.id}>
-                <button
-                  disabled={!!s.tombstone || !s.eligible}
-                  onClick={() =>
-                    void api("/memory/sources/" + s.id)
-                      .then(setSource)
-                      .catch((e) => setError(e.message))
-                  }
-                >
-                  {s.title}
-                </button>
-                <small>
-                  Revision {s.revision} ·{" "}
-                  {s.tombstone
-                    ? "Removed"
-                    : !s.eligible
-                      ? "Excluded"
-                      : s.indexed_revision === s.revision
-                        ? "Indexed"
-                        : "Pending index"}
-                </small>
-                {!s.tombstone && (
+              {pinning && (
+                <div className="settings-card">
+                  <label>
+                    Title
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Note
+                    <textarea
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      rows={5}
+                    />
+                  </label>
+                  <label>
+                    Scope
+                    <select
+                      value={project}
+                      onChange={(e) => setProject(e.target.value)}
+                    >
+                      <option value="">Promoted workspace note</option>
+                      {folders
+                        .filter((f) => f.kind === "project")
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                   <button
+                    className="primary"
+                    disabled={!title.trim() || !content.trim()}
                     onClick={() =>
-                      void api("/memory/sources/" + s.id, {}, "DELETE")
-                        .then(load)
+                      void api("/memory/notes", {
+                        title,
+                        content,
+                        projectId: project || null,
+                      })
+                        .then(() => {
+                          setTitle("");
+                          setContent("");
+                          setPinning(false);
+                          return load();
+                        })
                         .catch((e) => setError(e.message))
                     }
                   >
-                    Remove from shared memory
+                    Pin note
                   </button>
-                )}
-              </div>
-            ))}
+                </div>
+              )}
+              <SettingsList>
+                {data.sources.map((s: any) => {
+                  const state = sourceState(s);
+                  return (
+                    <div className="memory-source" key={s.id}>
+                      <button
+                        type="button"
+                        className="memory-source-open"
+                        aria-label={s.title}
+                        disabled={!!s.tombstone || !s.eligible}
+                        onClick={() =>
+                          void api("/memory/sources/" + s.id)
+                            .then(setSource)
+                            .catch((e) => setError(e.message))
+                        }
+                      >
+                        <span className="settings-row-icon">
+                          {s.kind === "note" ? (
+                            <Bookmark size={20} aria-hidden="true" />
+                          ) : (
+                            <MessageSquare size={20} aria-hidden="true" />
+                          )}
+                        </span>
+                        <span>
+                          <strong>{s.title}</strong>
+                          <small>
+                            {s.kind === "note" ? "Note" : "Conversation"} ·
+                            Revision {s.revision}
+                          </small>
+                        </span>
+                      </button>
+                      <SettingsPill tone={state.tone}>
+                        {state.label}
+                      </SettingsPill>
+                      {!s.tombstone && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() =>
+                            void api("/memory/sources/" + s.id, {}, "DELETE")
+                              .then(load)
+                              .catch((e) => setError(e.message))
+                          }
+                        >
+                          Remove from shared memory
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </SettingsList>
+              <p className="field-hint">
+                Removing a source keeps the original conversation and anything
+                already delivered to an agent.
+              </p>
+            </SettingsSection>
           </>
         )}
         {source && (
-          <div className="native-card">
+          <div className="settings-card">
             <h3>{source.title}</h3>
-            <p>
+            <p className="muted">
               {source.role} · revision {source.revision}
               {source.truncated ? " · truncated excerpt" : ""}
             </p>
@@ -191,6 +262,7 @@ export function Memory({
                   />
                 </label>
                 <button
+                  className="primary"
                   onClick={() =>
                     void api(
                       "/memory/notes/" + source.id,
@@ -214,10 +286,12 @@ export function Memory({
             ) : (
               <pre className="memory-excerpt">{source.content}</pre>
             )}
-            {source.conversation_id && (
-              <a href={source.link}>Open original message</a>
-            )}
-            <button onClick={() => setSource(null)}>Close source</button>
+            <div className="actions">
+              {source.conversation_id && (
+                <a href={source.link}>Open original message</a>
+              )}
+              <button onClick={() => setSource(null)}>Close source</button>
+            </div>
           </div>
         )}
       </div>

@@ -149,12 +149,18 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       folders: [],
       teams: [],
     });
-  const localInbox = (route) =>
-    fulfill(route, {
+  let holdNextInbox = null;
+  let releaseInbox = () => {};
+  const localInbox = async (route) => {
+    const hold = holdNextInbox;
+    holdNextInbox = null;
+    if (hold) await hold();
+    return fulfill(route, {
       items: visible(route, local.thread),
       next: null,
       summary: { needs: 0, working: 0, queued: 0, later_due: 0 },
     });
+  };
   const uploads = [];
   const creations = [];
   const detail = async (route) => {
@@ -252,6 +258,27 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .evaluate((el) => {
         el.dataset.retained = "yes";
       });
+    // Keep an older successful Feed pass in flight while the explicit refresh
+    // arrives. Previously the Feed dropped that event and never read the
+    // failing source, depending on timing in Chromium CI.
+    const inboxStarted = new Promise((started) => {
+      holdNextInbox = () => new Promise((release) => {
+        releaseInbox = release;
+        started();
+      });
+    });
+    const remoteReads = sources.map((source) =>
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname ===
+          `/api/agent-sources/${encodeURIComponent(source.id)}/inbox` &&
+          response.ok();
+      }),
+    );
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("loop-later-change")),
+    );
+    await Promise.all([inboxStarted, ...remoteReads]);
     discoveryFailed = true;
     sourceFailed = true;
     await page.evaluate(() => {
@@ -270,6 +297,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await expect(
       page.getByText(/Some environments could not refresh/),
     ).toBeVisible();
+    releaseInbox();
     discoveryFailed = false;
     sourceFailed = false;
     // Retry reloads both the agent sources and the Feed threads it explains.
@@ -408,6 +436,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       strip.getByRole("button", { name: /@laptop-agent/ }),
     ).toBeVisible();
   } finally {
+    releaseInbox();
     for (const release of hung.splice(0)) release();
     await page.unroute("**/api/agent-sources", list);
     await page.unroute("**/api/agent-sources/**", detail);

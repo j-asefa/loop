@@ -413,17 +413,8 @@ function ServerConnections({
       <div className="connections-flow">
         {screen.page === "accounts" && (
           <>
-            <p className="muted connection-intro">
-              Manage the accounts Loop can use.
-            </p>
-            <button
-              className="primary connection-full"
-              onClick={() => navigate({ page: "providers" })}
-              disabled={busy}
-            >
-              <Plus size={17} /> Add a provider
-            </button>
-            <div className="connection-accounts">
+            <p className="settings-intro">Accounts Loop can use.</p>
+            <div className="connection-accounts settings-list">
               {connections.map(accountFrom).map((account) => {
                 const provider = providers[account.brand],
                   sub = account.method === "subscription",
@@ -434,7 +425,20 @@ function ServerConnections({
                       needs_sign_in: "Sign-in needed",
                       needs_reconnect: "Reconnect needed",
                       disconnected: "Disconnected",
-                    }[account.status] || account.status.replaceAll("_", " ");
+                    }[account.status] ||
+                    account.status.replaceAll("_", " "),
+                  machine = [
+                    sub ? "Subscription" : `${provider.company} API`,
+                    sub && account.plan ? account.plan : "",
+                    sub
+                      ? account.runtimeHostId
+                        ? hosts.find((h) => h.id === account.runtimeHostId)
+                            ?.name || "remote machine"
+                        : "Loop server"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
                 return (
                   <section
                     className="connection-account"
@@ -445,32 +449,23 @@ function ServerConnections({
                       <ProviderMark brand={account.brand} />
                       <div>
                         <h3>{provider.name}</h3>
-                        <p className="muted">
-                          {sub ? "Subscription" : `${provider.company} API`}
-                          {sub && account.plan ? ` · ${account.plan}` : ""}
-                        </p>
+                        <p className="muted">{account.label}</p>
                       </div>
+                      <span
+                        className={
+                          "settings-pill " +
+                          (account.status === "connected"
+                            ? "ready"
+                            : account.status === "disconnected"
+                              ? ""
+                              : "attention")
+                        }
+                      >
+                        {status}
+                      </span>
                     </div>
-                    {account.label !== provider.name &&
-                      account.label !== `${provider.company} API` && (
-                        <p className="connection-account-name">
-                          {account.label}
-                        </p>
-                      )}
-                    <p
-                      className={`connection-status ${account.status === "connected" ? "connected" : ""}`}
-                    >
-                      {account.status === "connected" && <Check size={14} />}{" "}
-                      {status}
-                    </p>
-                    {sub && (
-                      <p className="connection-machine muted">
-                        Runs on{" "}
-                        {account.runtimeHostId
-                          ? hosts.find((h) => h.id === account.runtimeHostId)
-                              ?.name || "remote machine"
-                          : "Loop server"}
-                      </p>
+                    {machine && (
+                      <p className="connection-machine muted">{machine}</p>
                     )}
                     <div className="connection-account-actions">
                       <button
@@ -515,7 +510,7 @@ function ServerConnections({
                       {account.status !== "disconnected" && (
                         <>
                           <button
-                            className="icon-button"
+                            className="text-button"
                             aria-label={`Refresh ${account.label}`}
                             disabled={busy}
                             onClick={() =>
@@ -533,10 +528,11 @@ function ServerConnections({
                               })
                             }
                           >
-                            <RefreshCw size={17} />
+                            <RefreshCw size={16} aria-hidden="true" />
+                            Refresh
                           </button>
                           <button
-                            className="icon-button"
+                            className="text-button"
                             aria-label={`Disconnect ${account.label}`}
                             disabled={busy}
                             onClick={() =>
@@ -553,7 +549,8 @@ function ServerConnections({
                               })
                             }
                           >
-                            <Unplug size={17} />
+                            <Unplug size={16} aria-hidden="true" />
+                            Disconnect
                           </button>
                         </>
                       )}
@@ -562,6 +559,17 @@ function ServerConnections({
                 );
               })}
             </div>
+            <button
+              className="secondary connection-full"
+              onClick={() => navigate({ page: "providers" })}
+              disabled={busy}
+            >
+              <Plus size={17} /> Add a provider
+            </button>
+            <p className="field-hint">
+              Secrets are encrypted on the server. Disconnecting never signs you
+              out with the provider.
+            </p>
           </>
         )}
         {screen.page === "providers" && (

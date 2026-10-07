@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { api, apiInWorkspace, parse } from "./api";
 import { Sheet } from "./components";
+import { SettingsNote } from "./SettingsUI";
 import { McpCatalog } from "./McpCatalog";
 import {
   PERMISSION_MODES,
@@ -264,7 +266,7 @@ export function Tools({
           </label>
           <p className="field-hint">
             {approvalMode === "allow"
-              ? "Connected tools can run automatically. GitHub pull request merges still ask. Calls stay in conversation history."
+              ? "Connected tools can run automatically. Connected GitHub tools still ask before merging. Calls stay in conversation history."
               : "Ask before each connected tool call. Allowing tools also resumes waiting MCP requests."}
           </p>
           {sharingSources.length > 0 && agentMode && approvalMode && (
@@ -311,14 +313,30 @@ export function Tools({
               </button>
             </div>
           )}
-          <p className="field-hint">
-            Allow connected tools also gives managed coding agents your
-            connected GitHub token in their shell environment, with its full
-            permissions. Shell commands can read and transmit that token; output
-            redaction does not prevent this. Enable it only for agents and
-            content you trust. Agents using the same subscription account share
-            a filesystem and can read or modify each other’s workspaces.
-          </p>
+          <SettingsNote
+            icon={TriangleAlert}
+            tone="attention"
+            title="Connected GitHub tools always ask before merging"
+          >
+            That approval cannot be turned off for connected tool calls,
+            whatever you choose above. Shell commands are a separate path: an
+            agent that can run them holds your connected GitHub token and can
+            merge with it, without asking.
+          </SettingsNote>
+          <details className="settings-details">
+            <summary>What allowing tools gives an agent</summary>
+            <p className="field-hint">
+              Allow connected tools also gives managed coding agents your
+              connected GitHub token in their shell environment, with its full
+              permissions. Shell commands can read and transmit that token,
+              and can call GitHub with it directly, including merging a pull
+              request, without passing through the approval above; output
+              redaction does not prevent this. Enable it only for agents and
+              content you trust. Agents using the same subscription account
+              share a filesystem and can read or modify each other’s
+              workspaces.
+            </p>
+          </details>
           <details className="settings-details">
             <summary>Run limits</summary>
             <p className="field-hint">

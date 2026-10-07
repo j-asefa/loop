@@ -357,8 +357,9 @@ for (const engine of selectedEngines()) {
     await expect(
       page.getByRole("dialog", { name: "Notifications", exact: true }),
     ).toBeVisible();
+    // The button became a switch; its position is the state.
     await dialog()
-      .getByRole("button", { name: "Enable notifications", exact: true })
+      .getByRole("checkbox", { name: "Result notifications" })
       .click();
     await expect(dialog().getByRole("status")).toHaveText(
       "Result notifications are on for this device.",
@@ -450,19 +451,16 @@ for (const engine of selectedEngines()) {
     await expect(
       page.getByRole("dialog", { name: "Notifications", exact: true }),
     ).toBeVisible();
-    await expect(
-      dialog().getByRole("button", {
-        name: "Turn off notifications",
-        exact: true,
-      }),
-    ).toBeVisible();
+    // Reopening shows the switch already on; turning it off uses the same
+    // control rather than a separate button.
+    const resultNotifications = () =>
+      dialog().getByRole("checkbox", { name: "Result notifications" });
+    await expect(resultNotifications()).toBeChecked();
     if (evidence)
       await page.screenshot({
         path: `${evidence}/${engine.name()}-notifications.png`,
       });
-    await dialog()
-      .getByRole("button", { name: "Turn off notifications", exact: true })
-      .click();
+    await resultNotifications().click();
     await expect(dialog().getByRole("status")).toHaveText(
       "Result notifications are off for this device.",
     );

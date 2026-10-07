@@ -13,26 +13,45 @@ import {
   Smartphone,
   type LucideIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { capabilities } from "./capabilities";
+import { SettingsPill } from "./SettingsUI";
+import type { Agent, Connection } from "../shared/types";
 
 export function SettingsHome({
   open,
   theme,
   onTheme,
+  agents = [],
+  connections = [],
 }: {
   open: (page: string) => void;
   theme: string;
   onTheme: (theme: "system" | "light" | "dark") => void;
+  agents?: Agent[];
+  connections?: Connection[];
 }) {
+  // Only summarize what the workspace has already loaded. A settings row never
+  // starts a probe of its own just to show a badge.
+  const connected = connections.filter((c) => c.status === "connected").length;
+  const unhealthy = connections.length - connected;
+  const providerState = !connections.length ? null : unhealthy ? (
+    <SettingsPill tone="attention">
+      {unhealthy} need{unhealthy === 1 ? "s" : ""} attention
+    </SettingsPill>
+  ) : (
+    <SettingsPill tone="ready">{connected} ready</SettingsPill>
+  );
   const row = (
     page: string,
     title: string,
     description: string,
     Icon: LucideIcon,
+    state?: ReactNode,
   ) => (
     <button
       type="button"
-      className="settings-row"
+      className={"settings-row" + (state ? " has-state" : "")}
       aria-label={title}
       onClick={() => open(page)}
       key={page}
@@ -44,6 +63,7 @@ export function SettingsHome({
         <strong>{title}</strong>
         <small>{description}</small>
       </span>
+      {state}
       <ChevronRight size={18} aria-hidden="true" />
     </button>
   );
@@ -57,8 +77,9 @@ export function SettingsHome({
             {row(
               "connections",
               "Provider connections",
-              "Accounts, models & coding harnesses",
+              "Accounts & coding harnesses",
               Link,
+              providerState,
             )}
             {row(
               "environments",
@@ -76,7 +97,7 @@ export function SettingsHome({
               row(
                 "runtime-hosts",
                 "Runtime machines",
-                "Machines for API & command tools",
+                "Run agents on your own computer",
                 Server,
               )}
           </div>
@@ -87,8 +108,13 @@ export function SettingsHome({
             {row(
               "agents",
               "Manage agents",
-              "Models, instructions & preferences",
+              "Models, instructions & projects",
               Orbit,
+              agents.length ? (
+                <SettingsPill tone="muted" quiet>
+                  {agents.length}
+                </SettingsPill>
+              ) : undefined,
             )}
             {row(
               "pi-customizations",

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { api, parse } from "./api";
 import { catalogResults } from "./catalogSearch";
 import type {
@@ -117,8 +118,9 @@ export function McpCatalog({
   const entries = catalogResults(catalog.entries, query, category, noAccount);
   return (
     <section aria-label="MCP catalog">
-      <label>
-        Search tools
+      <label className="catalog-search">
+        <span className="sr-only">Search tools</span>
+        <Search size={17} aria-hidden="true" />
         <input
           type="search"
           placeholder="GitHub, search, databases…"
@@ -127,8 +129,8 @@ export function McpCatalog({
         />
       </label>
       <div className="catalog-options">
-        <label>
-          Category
+        <label className="catalog-category">
+          <span className="sr-only">Category</span>
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -138,7 +140,7 @@ export function McpCatalog({
             ))}
           </select>
         </label>
-        <label className="catalog-checkbox">
+        <label className="catalog-checkbox catalog-filter-chip">
           <input
             type="checkbox"
             checked={noAccount}
@@ -192,11 +194,15 @@ export function McpCatalog({
                   <h4>{entry.name}</h4>
                   <p className="field-hint">{entry.publisher}</p>
                 </div>
-                <span className="catalog-badge">
+                <span
+                  className={
+                    "catalog-badge" + (installed ? " catalog-badge-on" : "")
+                  }
+                >
                   {installed ? "Installed" : setupLabels[entry.auth]}
                 </span>
               </div>
-              <p>{entry.description}</p>
+              <p className="catalog-card-description">{entry.description}</p>
               <details className="settings-details">
                 <summary>Setup details</summary>
                 {entry.note && <p className="field-hint">{entry.note}</p>}
@@ -269,7 +275,7 @@ export function McpCatalog({
               ) : (
                 <div className="actions catalog-install">
                   <button
-                    className={installed ? "" : "primary"}
+                    className={installed ? "" : "secondary"}
                     aria-label={
                       installed
                         ? `${entry.name} installed`

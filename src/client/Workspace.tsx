@@ -14,10 +14,22 @@ import {
   Undo2,
   Upload,
   Check,
+  Cpu,
+  Sparkles,
+  TriangleAlert,
 } from "lucide-react";
 import { api, parse, authorizedFetch } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Sheet, Empty, Badge } from "./components";
+import {
+  SettingsList,
+  SettingsNote,
+  SettingsPill,
+  SettingsProgress,
+  SettingsRow,
+  SettingsSection,
+  SettingsToggle,
+} from "./SettingsUI";
 import { FileLink } from "./FilePreview";
 import { PersonalProfile, type PromptReply } from "./PersonalProfile";
 import type {
@@ -460,9 +472,17 @@ function SearchIndexStatus() {
       </strong>
       <span>{status.detail}</span>
       {status.pending > 0 && (
-        <span>
-          {status.indexed} of {status.total} items indexed
-        </span>
+        <>
+          <span>
+            {status.indexed} of {status.total} items indexed
+          </span>
+          <SettingsProgress
+            label="Indexing progress"
+            value={status.indexed}
+            total={status.total}
+            running
+          />
+        </>
       )}
     </div>
   );
@@ -854,6 +874,79 @@ export function SearchWorkspace({
     </>
   );
 }
+/**
+ * One import job. The original export lives in the object store of whichever
+ * source ran the import, so its link must keep that source's routing.
+ */
+export function ImportJobRow({
+  job,
+  onReload,
+}: {
+  job: any;
+  onReload: () => Promise<void> | void;
+}) {
+  const s = parse<any>(job.summary, {});
+  const done = s.completed || 0;
+  const total = s.conversations || 0;
+  const running = ["running", "queued"].includes(job.status);
+  return (
+    <div className="settings-import-job">
+      <div>
+        <strong>
+          {job.provider === "openai" ? "ChatGPT" : "Claude"} export
+        </strong>
+        <small>
+          {done} of {total} conversations
+        </small>
+        <SettingsProgress
+          label="Import progress"
+          value={done}
+          total={total}
+          running={running}
+        />
+      </div>
+      <SettingsPill
+        tone={
+          job.status === "completed"
+            ? "ready"
+            : running
+              ? "attention"
+              : "muted"
+        }
+      >
+        {job.status === "completed"
+          ? "Done"
+          : job.status[0].toUpperCase() + job.status.slice(1)}
+      </SettingsPill>
+      <div className="actions">
+        {running ? (
+          <button
+            onClick={async () => {
+              await api(`/imports/${job.id}/cancel`, {});
+              await onReload();
+            }}
+          >
+            Cancel
+          </button>
+        ) : (
+          job.status !== "completed" && (
+            <button
+              onClick={async () => {
+                await api(`/imports/${job.id}/start`, {});
+                await onReload();
+              }}
+            >
+              Start / resume safely
+            </button>
+          )
+        )}
+        <FileLink url={sourceApiPath("/api/objects/" + s.objectId)}>
+          Original export
+        </FileLink>
+      </div>
+    </div>
+  );
+}
 export function ImportSheet({
   onClose,
   onChange,
@@ -893,14 +986,13 @@ export function ImportSheet({
     }
   }
   return (
-    <Sheet title="Bring your history with you" onClose={onClose}>
-      <p className="muted">
-        Import a ChatGPT or Claude export. Your original conversations stay
-        intact, and nothing is sent to a model by importing.
+    <Sheet title="Import conversations" onClose={onClose}>
+      <p className="settings-intro">
+        Bring your ChatGPT or Claude history.
       </p>
-      <details>
+      <details className="settings-details">
         <summary>How to export your chats</summary>
-        <p className="note">
+        <p className="field-hint">
           In ChatGPT, open Settings → Data controls → Export data. In Claude’s
           web app, open Settings → Privacy → Export data. Download the export
           from the provider’s email, save it to Files, then select it here.
@@ -908,13 +1000,13 @@ export function ImportSheet({
         </p>
       </details>
       <form onSubmit={upload}>
-        <label>
+        <label className="settings-file-field">
           Export ZIP or conversations.json
           <input type="file" name="file" accept=".zip,.json" required />
         </label>
         <p className="field-hint">
-          Up to 30 MB compressed / 100 MB expanded. Original files are retained
-          privately.
+          Up to 30 MB compressed / 100 MB expanded. Nothing is sent to a model,
+          and your original files are retained privately.
         </p>
         <button className="primary" disabled={busy}>
           <Upload size={17} />
@@ -922,18 +1014,22 @@ export function ImportSheet({
         </button>
       </form>
       {preview && (
-        <div className="note">
+        <div className="settings-card">
           <h3>{preview.provider === "openai" ? "ChatGPT" : "Claude"} export</h3>
-          <p>
+          <p className="muted">
             {preview.summary.conversations} conversations ·{" "}
             {preview.summary.messages} messages · {preview.summary.attachments}{" "}
             attached files
           </p>
           {preview.summary.titles?.map((t: string) => (
-            <p key={t}>{t}</p>
+            <p key={t} className="field-hint">
+              {t}
+            </p>
           ))}
           {preview.summary.warnings?.map((w: string) => (
-            <p key={w}>{w}</p>
+            <p key={w} className="field-hint">
+              {w}
+            </p>
           ))}
           {preview.status !== "completed" && (
             <button
@@ -953,49 +1049,31 @@ export function ImportSheet({
             </button>
           )}
           {preview.duplicate && (
-            <p>Already uploaded. Existing messages will not be duplicated.</p>
+            <p className="field-hint">
+              Already uploaded. Existing messages will not be duplicated.
+            </p>
           )}
         </div>
       )}
-      {error && <p className="error">{error}</p>}
-      <h3 className="section-title">Import history</h3>
-      {jobs.map((j) => {
-        const s = parse<any>(j.summary, {});
-        return (
-          <div className="connection-card" key={j.id}>
-            <Badge provider={j.provider} />
-            <p>
-              {s.completed || 0} / {s.conversations} conversations · {j.status}
-            </p>
-            <div className="actions">
-              {["running", "queued"].includes(j.status) ? (
-                <button
-                  onClick={async () => {
-                    await api(`/imports/${j.id}/cancel`, {});
-                    await load();
-                  }}
-                >
-                  Cancel
-                </button>
-              ) : (
-                j.status !== "completed" && (
-                  <button
-                    onClick={async () => {
-                      await api(`/imports/${j.id}/start`, {});
-                      await load();
-                    }}
-                  >
-                    Start / resume safely
-                  </button>
-                )
-              )}
-              <FileLink url={sourceApiPath("/api/objects/" + s.objectId)}>
-                Original export
-              </FileLink>
-            </div>
-          </div>
-        );
-      })}
+      {error && (
+        <SettingsNote
+          icon={TriangleAlert}
+          tone="attention"
+          role="alert"
+          title="Could not read that export"
+        >
+          {error}
+        </SettingsNote>
+      )}
+      {!!jobs.length && (
+        <SettingsSection title="Import history">
+          <SettingsList>
+            {jobs.map((j) => (
+              <ImportJobRow key={j.id} job={j} onReload={load} />
+            ))}
+          </SettingsList>
+        </SettingsSection>
+      )}
     </Sheet>
   );
 }
@@ -1017,42 +1095,86 @@ export function SearchSettings({
       })
       .catch((e) => setError(e.message));
   }, []);
+  const embedding = connections.filter(
+    (c) => c.provider === "openai" && c.status === "connected",
+  );
+  const chosen = embedding.find((c) => c.id === connection);
   return (
     <Sheet title="Search preferences" onClose={onClose}>
-      <p>Keyword search always runs privately on this server.</p>
-      <SearchIndexStatus />
-      <p className="note">
-        Local semantic search finds related ideas by meaning. It downloads a
-        small model once, then keeps your text on this server. Indexing runs in
-        the background. You can also choose an OpenAI API account; that sends
-        text to OpenAI and may incur charges. Turning search off deletes stored
-        vectors.
-      </p>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => setEnabled(e.target.checked)}
+      <p className="settings-intro">How Loop finds your past work.</p>
+      <SettingsList>
+        <SettingsRow
+          icon={Search}
+          title="Keyword search"
+          description="Always on · never leaves this server"
+          state={<SettingsPill tone="ready">On</SettingsPill>}
         />
-        Enable semantic search
-      </label>
-      <label>
-        Embedding account
-        <select
-          value={connection}
-          onChange={(e) => setConnection(e.target.value)}
+        <SettingsToggle
+          icon={Sparkles}
+          title="Enable semantic search"
+          description="Finds related ideas by meaning"
+          checked={enabled}
+          onChange={setEnabled}
+        />
+      </SettingsList>
+      {enabled && (
+        <SettingsSection title="Semantic search">
+          <SettingsList>
+            <label className="settings-select-row">
+              <span className="settings-row-icon">
+                <Cpu size={20} aria-hidden="true" />
+              </span>
+              <span>
+                <strong>Embedding account</strong>
+                <small>
+                  {chosen ? "Sends text to OpenAI" : "Private to this server"}
+                </small>
+              </span>
+              <select
+                value={connection}
+                onChange={(e) => setConnection(e.target.value)}
+              >
+                <option value="">Local model · private, no API key</option>
+                {embedding.map((c) => (
+                  <option value={c.id} key={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </SettingsList>
+        </SettingsSection>
+      )}
+      {/* The index banner follows the server's own status, not this page's
+          unsaved toggle, so preparation and failures stay visible. */}
+      <SearchIndexStatus />
+      <details className="settings-details">
+        <summary>How semantic search works</summary>
+        <p className="field-hint">
+          A local model is downloaded once and your text stays on this server.
+          Indexing runs in the background. Turning semantic search off deletes
+          the stored vectors.
+        </p>
+      </details>
+      {chosen && (
+        <SettingsNote
+          icon={TriangleAlert}
+          tone="attention"
+          title="This account sends your text to OpenAI"
         >
-          <option value="">Local model · private, no API key</option>
-          {connections
-            .filter((c) => c.provider === "openai" && c.status === "connected")
-            .map((c) => (
-              <option value={c.id} key={c.id}>
-                {c.label}
-              </option>
-            ))}
-        </select>
-      </label>
-      {error && <p className="error">{error}</p>}
+          It may incur charges. The local model keeps everything on this server.
+        </SettingsNote>
+      )}
+      {error && (
+        <SettingsNote
+          icon={TriangleAlert}
+          tone="attention"
+          role="alert"
+          title="Could not save your preference"
+        >
+          {error}
+        </SettingsNote>
+      )}
       <button
         className="primary"
         onClick={async () => {

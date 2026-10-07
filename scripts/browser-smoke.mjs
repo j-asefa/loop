@@ -100,9 +100,10 @@ try {
   await page
     .getByRole("button", { name: "Import these conversations" })
     .click();
-  await page
-    .getByText("1 / 1 conversations · completed")
-    .waitFor({ timeout: 15000 });
+  // Import jobs show progress and state separately instead of "1 / 1 · status".
+  const job = page.locator(".settings-import-job").first();
+  await job.getByText("1 of 1 conversations").waitFor({ timeout: 15000 });
+  await job.getByText("Done", { exact: true }).waitFor({ timeout: 15000 });
   await closeSheets(page);
   // Result cards live on the agent's profile; the imported thread's byline
   // on the Feed opens it.
