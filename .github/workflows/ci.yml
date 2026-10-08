@@ -31,6 +31,7 @@ env:
   # Hosted runners use CPU inference; optional CUDA downloads add a flaky NuGet dependency.
   ONNXRUNTIME_NODE_INSTALL: skip
   DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
+  CACHE_WRITE: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
 jobs:
   # Docs-only PRs skip the jobs below. A job skipped by its condition reports
   # success, so this stays mergeable if these checks become required.
