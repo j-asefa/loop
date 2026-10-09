@@ -198,9 +198,23 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
         if (signal === "page-scroll")
           await page.waitForTimeout(Math.max(...SHEET_SETTLE_MS) + 200);
         if (signal === "late-viewport") {
-          await page.clock.pauseAt(
-            new Date(await page.evaluate(() => Date.now())),
-          );
+          // Leave a small transport margin: a sampled "now" is already past
+          // when pauseAt reaches the browser. Retry only that timestamp race;
+          // never jump a minute and burst every background poller.
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await page.clock.pauseAt(
+                new Date(await page.evaluate(() => Date.now() + 1000)),
+              );
+              break;
+            } catch (error) {
+              if (
+                attempt >= 2 ||
+                !String(error).includes("Cannot fast-forward to the past")
+              )
+                throw error;
+            }
+          }
           await page.evaluate(() =>
             window.visualViewport.dispatchEvent(new Event("scroll")),
           );

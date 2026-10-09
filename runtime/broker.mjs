@@ -63,6 +63,9 @@ async function remove(name) {
   const p = docker(["rm", "-f", name]);
   p.stdout.resume();
   p.stderr.resume();
+  const timer = setTimeout(() => p.kill("SIGKILL"), 10000);
+  p.once("close", () => clearTimeout(timer));
+  p.once("error", () => clearTimeout(timer));
   return await new Promise((resolve) => {
     p.once("error", () => resolve(false));
     p.once("close", (code) => resolve(code === 0));
@@ -142,7 +145,14 @@ async function execute(key, request, onEvent, signal) {
   const timer =
     deadline || request.action === "turn"
       ? null
-      : setTimeout(cancel, 30 * 60 * 1000);
+      : setTimeout(
+          () => {
+            if (request.action === "cleanup")
+              error = new Error("Maintenance deadline exceeded");
+            cancel(request.action === "cleanup");
+          },
+          request.action === "cleanup" ? 60_000 : 30 * 60 * 1000,
+        );
   const idle =
     request.action === "turn"
       ? idleDeadline((failure) => {
@@ -339,8 +349,36 @@ const server = createServer(async (req, res) => {
       workspaceCleanups.add(key);
       try {
         const cleanup = serial(key, async () => {
+          // Maintenance must never recreate a volume that an owner pruned.
+          const inspect = docker(["volume", "inspect", `${prefix}-${key}`]);
+          inspect.stdout.resume();
+          inspect.stderr.resume();
+          const timer = setTimeout(() => inspect.kill("SIGKILL"), 10000);
+          const exists = await new Promise((resolve) => {
+            inspect.once("error", () => resolve(false));
+            inspect.once("close", (code) => resolve(code === 0));
+          });
+          clearTimeout(timer);
+          if (!exists) return { skipped: true };
           const idleWorker = codexWorkers.get(key);
           if (idleWorker) {
+            const preview = await execute(
+              key,
+              {
+                provider: "file",
+                action,
+                workspaceKeys: data.workspaceKeys,
+                githubToken: data.githubToken,
+                dryRun: true,
+              },
+              () => {},
+            );
+            if (
+              ![...(preview.storage || []), ...(preview.results || [])].some(
+                (result) => result.eligible,
+              )
+            )
+              return preview;
             // Wait for Docker to confirm the container is gone, not just for
             // its attached CLI to exit; background tools could still write.
             const removed = await remove(idleWorker.containerName);

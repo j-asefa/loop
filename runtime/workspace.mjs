@@ -1,7 +1,14 @@
-import { mkdirSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-export function managedWorkspace(home, key) {
+export function managedWorkspace(home, key, recordUse = false) {
   if (
     key !== undefined &&
     (typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key))
@@ -11,6 +18,25 @@ export function managedWorkspace(home, key) {
   // agents keep separate checkouts while every turn of one agent reuses its work.
   const cwd = join(home, "workspaces", key || "default");
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
+  if (recordUse) {
+    const temp = join(cwd, `.loop-last-used-${randomUUID()}`);
+    try {
+      if (
+        realpathSync(cwd) !==
+        join(realpathSync(home), "workspaces", key || "default")
+      )
+        return cwd;
+      writeFileSync(temp, "", { mode: 0o600, flag: "wx" });
+      renameSync(temp, join(cwd, ".loop-last-used"));
+    } catch {
+      // Maintenance metadata must never prevent a user turn. An invalid marker
+      // also makes cleanup preserve the workspace's dependencies.
+    } finally {
+      try {
+        rmSync(temp, { force: true });
+      } catch {}
+    }
+  }
   return cwd;
 }
 

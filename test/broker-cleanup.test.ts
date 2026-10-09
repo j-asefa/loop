@@ -12,9 +12,14 @@ import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 
-it.each(["claude", "codex"])(
-  "waits for idle %s work and excludes new work during cleanup",
-  async (provider) => {
+it.each([
+  ["claude", false],
+  ["codex", false],
+  ["claude", true],
+  ["codex", true],
+] as const)(
+  "waits for idle %s work and excludes new work during cleanup (deadline=%s)",
+  async (provider, timeout) => {
     const dir = mkdtempSync(join(tmpdir(), "loop-broker-cleanup-"));
     cpSync(resolve("runtime"), join(dir, "runtime"), { recursive: true });
     writeFileSync(join(dir, "package.json"), '{"type":"commonjs"}');
@@ -27,6 +32,10 @@ it.each(["claude", "codex"])(
       join(dir, "port.mjs"),
       `
 import { Server } from 'node:http';
+if (process.env.CLEANUP_FAST_DEADLINE) {
+  const original = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...args) => original(fn, ms === 60000 ? 100 : ms, ...args);
+}
 const listen = Server.prototype.listen;
 Server.prototype.listen = function () {
   this.once('listening', () => process.send({ port: this.address().port }));
@@ -37,11 +46,13 @@ Server.prototype.listen = function () {
     writeFileSync(
       join(dir, "bin", "docker"),
       `#!/usr/bin/env node
-const { appendFileSync } = require('node:fs');
+const { appendFileSync, existsSync } = require('node:fs');
 const { createInterface } = require('node:readline');
+if (process.argv[2] === 'volume') process.exit(existsSync(process.env.CLEANUP_CALLS + '.missing') ? 1 : 0);
 if (process.argv[2] !== 'run') process.exit(0);
 const shared = process.argv.at(-1).endsWith('codex-worker.mjs');
 const log = (action) => appendFileSync(process.env.CLEANUP_CALLS, action + '\\n');
+if (shared) appendFileSync(process.env.CLEANUP_CALLS + '.workers', 'worker\\n');
 const input = createInterface({ input: process.stdin });
 input.on('line', line => {
   const m = JSON.parse(line), request = shared ? m.request : m;
@@ -52,10 +63,10 @@ input.on('line', line => {
   setTimeout(() => {
     log(request.action + ':end');
     if (request.action === 'turn') send({ done: true });
-    else send({ result: { results: [{ retired: true }] } });
+    else send({ result: existsSync(process.env.CLEANUP_CALLS + '.noop') ? { results: [], storage: [] } : request.dryRun ? { results: [{ eligible: true }] } : { results: [{ retired: true }] } });
     if (shared) send({ finished: true });
     else process.exit(0);
-  }, request.action === 'turn' ? 1800 : 350);
+  }, request.action === 'turn' ? 1800 : existsSync(process.env.CLEANUP_CALLS + '.hang') ? 10000 : 350);
 });
 `,
       { mode: 0o755 },
@@ -72,6 +83,7 @@ input.on('line', line => {
           LOOP_RUNTIME_TOKEN: token,
           LOOP_RUNTIME_TOKEN_FILE: "",
           CLEANUP_CALLS: join(dir, "calls"),
+          CLEANUP_FAST_DEADLINE: timeout ? "1" : "",
         },
         stdio: ["ignore", "ignore", "pipe", "ipc"],
       },
@@ -97,6 +109,10 @@ input.on('line', line => {
         input: { model: "fixture", workspaceKey: "b".repeat(64), messages: [] },
       };
       const cleanup = { workspaceKeys: ["b".repeat(64)] };
+      writeFileSync(join(dir, "calls.missing"), "");
+      expect(await (await call("cleanup", cleanup)).json()).toEqual({ skipped: true });
+      expect(readFileSync(join(dir, "calls"), "utf8")).toBe("");
+      rmSync(join(dir, "calls.missing"));
       const running = await call("turn", turn);
       const finished = running.text();
       await expect
@@ -106,6 +122,17 @@ input.on('line', line => {
         skipped: true,
       });
       await finished;
+      if (timeout) {
+        writeFileSync(join(dir, "calls.hang"), "");
+        const timedOut = await call("cleanup", cleanup);
+        expect(timedOut.status).toBe(422);
+        expect((await timedOut.json()).error).toBeTruthy();
+        rmSync(join(dir, "calls.hang"));
+        const next = await call("turn", turn);
+        expect(next.status).toBe(200);
+        expect(await next.text()).toContain('"done":true');
+        return;
+      }
       const cleaning = call("cleanup", cleanup);
       await expect
         .poll(() => readFileSync(join(dir, "calls"), "utf8"), { timeout: 5000 })
@@ -147,9 +174,26 @@ input.on('line', line => {
       ]);
       expect(calls.slice(4)).toEqual(
         provider === "codex"
-          ? ["turn:start", "read-file:start", "read-file:end", "turn:end"]
+          ? [
+              "cleanup:start",
+              "cleanup:end",
+              "turn:start",
+              "read-file:start",
+              "read-file:end",
+              "turn:end",
+            ]
           : ["turn:start", "turn:end"],
       );
+      if (provider === "codex") {
+        const before = readFileSync(join(dir, "calls.workers"), "utf8");
+        writeFileSync(join(dir, "calls.noop"), "");
+        expect(await (await call("cleanup", cleanup)).json()).toEqual({
+          results: [],
+          storage: [],
+        });
+        await (await call("turn", turn)).text();
+        expect(readFileSync(join(dir, "calls.workers"), "utf8")).toBe(before);
+      }
       expect(
         (await call("cleanup", { workspaceKeys: ["../escape"] })).status,
       ).toBe(422);

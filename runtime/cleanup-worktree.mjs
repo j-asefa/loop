@@ -43,6 +43,7 @@ export async function cleanupWorktree(
   repoPath,
   prUrl,
   env = process.env,
+  dryRun = false,
 ) {
   const run = async (command, args) =>
     (
@@ -222,6 +223,28 @@ export async function cleanupWorktree(
         reason:
           "An ignored generated directory contains files or directories. The checkout and branch were kept for review.",
       };
+  }
+  if (dryRun) {
+    const ignored = (
+      await git(
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--directory",
+        "-z",
+      )
+    )
+      .split("\0")
+      .filter(Boolean);
+    const empty = new Set(candidates.map((path) => relative(repo, path) + "/"));
+    if (ignored.some((path) => !empty.has(path)))
+      return {
+        removed: [],
+        retired: false,
+        reason: "Other ignored files remain",
+      };
+    return { removed: [], retired: false, eligible: true };
   }
   for (const path of candidates) {
     // Refuse replaced paths or symlinked ancestors rather than following them.

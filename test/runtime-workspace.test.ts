@@ -20,10 +20,9 @@ const { cleanupMergedWorkspaces } =
 const { githubEnvironment } = await import(resolve("runtime/workspace.mjs"));
 const token = "fixture-github-secret";
 function preference(owner = "alice", mode = "allow") {
-  db.prepare("INSERT OR REPLACE INTO mcp_preferences(owner_id,approval_mode) VALUES(?,?)").run(
-    owner,
-    mode,
-  );
+  db.prepare(
+    "INSERT OR REPLACE INTO mcp_preferences(owner_id,approval_mode) VALUES(?,?)",
+  ).run(owner, mode);
 }
 function github(
   options: {
@@ -231,7 +230,7 @@ it("Git credentials are per-process and only returned to HTTPS github.com", () =
   ).not.toContain(token);
 });
 
-it("runs post-merge maintenance only for the owner's managed subscription workspaces and allowed GitHub account", async () => {
+it("maintains owner-scoped managed storage without GitHub and only forwards allowed credentials for PR retirement", async () => {
   preference();
   github();
   preference("bob", "ask");
@@ -258,17 +257,18 @@ it("runs post-merge maintenance only for the owner's managed subscription worksp
   const alice = addConnection("alice", "codex", { authMode: "subscription" });
   const agent = addAgent("alice", alice);
   addAgent("bob", alice); // Even a malformed cross-owner association cannot cross the boundary.
-  addAgent(
+  const bobAgent = addAgent(
     "bob",
     addConnection("bob", "anthropic", { authMode: "subscription" }),
   );
   addAgent("alice", addConnection("alice", "anthropic", {})); // API connection.
-  addAgent(
+  addAgent("alice", addConnection("alice", "codex", { authMode: "subscription" }, "disconnected"));
+  const retiredAgent = addAgent(
     "alice",
     addConnection(
       "alice",
       "codex",
-      { authMode: "subscription" },
+      { authMode: "subscription", retiredDirectRuntime: true },
       "disconnected",
     ),
   );
@@ -286,16 +286,36 @@ it("runs post-merge maintenance only for the owner's managed subscription worksp
       runtimeHostId: "native",
     }),
   );
+  addAgent(
+    "alice",
+    addConnection("alice", "codex", {
+      authMode: "subscription",
+      backend: "hapi",
+    }),
+  );
   await cleanupMergedWorkspaces();
-  expect(requests).toHaveLength(1);
+  expect(requests).toHaveLength(3);
   expect(requests[0]).toMatchObject({
     action: "cleanup",
     provider: "codex",
     workspaceKeys: [runtimeWorkspaceKey("alice", agent)],
     githubToken: token,
   });
+  expect(requests[1]).toMatchObject({
+    action: "cleanup",
+    workspaceKeys: [runtimeWorkspaceKey("bob", bobAgent)],
+  });
+  expect(requests[1]).not.toHaveProperty("githubToken");
+  expect(requests[2]).toMatchObject({
+    action: "cleanup",
+    workspaceKeys: [runtimeWorkspaceKey("alice", retiredAgent)],
+    githubToken: token,
+  });
   preference("alice", "ask");
   requests.length = 0;
   await cleanupMergedWorkspaces();
-  expect(requests).toHaveLength(0);
+  expect(requests).toHaveLength(3);
+  expect(
+    requests.every((request) => !Object.hasOwn(request, "githubToken")),
+  ).toBe(true);
 });

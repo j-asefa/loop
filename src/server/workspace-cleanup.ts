@@ -9,13 +9,15 @@ import { runtimeEndpoint } from "./runtime-hosts.js";
 import { runtimeGithubCredential } from "./runtime-github.js";
 import type { Connection } from "../shared/types.js";
 
-// No model turn or inference cost: the broker checks registered PRs using this
-// owner's allowed GitHub credential, and only when the connection is idle.
+// No model turn or inference cost. Storage maintenance needs no provider/GitHub
+// credential; retiring registered PRs additionally needs this owner's GitHub.
+// Retired direct connections keep their existing broker homes eligible. HAPI
+// native homes are separate and are never included in this maintenance pass.
 export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
   if (companionMode) return;
   const connections = db
     .prepare(
-      "SELECT * FROM connections WHERE status='connected' AND provider IN ('codex','anthropic')",
+      "SELECT * FROM connections WHERE (status='connected' OR (status='disconnected' AND json_extract(metadata,'$.retiredDirectRuntime')=1)) AND provider IN ('codex','anthropic')",
     )
     .all() as Connection[];
   for (const connection of connections) {
@@ -24,6 +26,7 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
       if (!isSubscription(connection)) continue;
       const metadata = JSON.parse(connection.metadata);
       if (
+        metadata.backend === "hapi" ||
         metadata.loopHarness ||
         runtimeEndpoint(
           connection.owner_id,
@@ -33,7 +36,6 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
       )
         continue;
       const github = runtimeGithubCredential(connection.owner_id);
-      if (!github) continue;
       const agents = db
         .prepare("SELECT id FROM agents WHERE owner_id=? AND connection_id=?")
         .all(connection.owner_id, connection.id) as { id: string }[];
@@ -49,10 +51,10 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
               .map((agent) =>
                 runtimeWorkspaceKey(connection.owner_id, agent.id),
               ),
-            githubToken: github.token,
+            ...(github ? { githubToken: github.token } : {}),
           },
           AbortSignal.any([
-            AbortSignal.timeout(120000),
+            AbortSignal.timeout(180000),
             ...(signal ? [signal] : []),
           ]),
         );

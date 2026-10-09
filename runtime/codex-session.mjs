@@ -120,6 +120,7 @@ export class CodexSession {
       : managedWorkspace(
           this.home,
           request.input?.workspaceKey ?? request.workspaceKey,
+          request.action === "turn",
         );
     if (request.action === "capabilities") {
       emit({

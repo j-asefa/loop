@@ -256,3 +256,28 @@ it("refuses out-of-workspace paths and symlinked cleanup registries", async () =
   await expect(trackPullRequest(repo, job, url)).rejects.toThrow("registry");
   expect(await exists(join(job, "node_modules"))).toBe(true);
 });
+
+it("preflights an eligible registered checkout without deleting it or updating its registry", async () => {
+  const { cleanupWorkspaces } = await import(
+    resolve("runtime/workspace-cleanup.mjs")
+  );
+  for (const path of [
+    "node_modules",
+    "dist",
+    "build",
+    "packages/web/node_modules",
+    "packages/web/coverage",
+  ])
+    await rm(join(job, path), { recursive: true });
+  await mkdir(join(job, "dist"));
+  await trackPullRequest(root, job, url);
+  const registry = join(root, ".loop-cleanup");
+  const [file] = await readdir(registry);
+  const before = await readFile(join(registry, file), "utf8");
+  expect((await cleanupWorkspaces([root], env, true))[0]).toMatchObject({
+    eligible: true,
+    retired: false,
+  });
+  expect(await exists(job)).toBe(true);
+  expect(await readFile(join(registry, file), "utf8")).toBe(before);
+});

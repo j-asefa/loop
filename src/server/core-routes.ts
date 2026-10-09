@@ -215,7 +215,7 @@ core.post("/connections/:id/reconnect", async (req, res) => {
 core.delete("/connections/:id", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner);
   db.prepare(
-    "UPDATE connections SET secret='',status='disconnected' WHERE id=?",
+    "UPDATE connections SET secret='',status='disconnected',metadata=json_remove(metadata,'$.retiredDirectRuntime') WHERE id=?",
   ).run(req.params.id);
   const metadata = JSON.parse(c.metadata);
   if (metadata.backend === "hapi")

@@ -143,7 +143,8 @@ it("runs three threads in one process, isolates events and approvals, and interr
     .map((c) => c.rpc.params.threadId);
   expect(new Set(ids).size).toBe(3);
   for (const [i, stream] of [a, b, c].entries()) {
-    expect(stream.output).toContain("update for " + ids[i]);
+    // Readiness and output can arrive in separate HTTP stream chunks.
+    await expect.poll(() => stream.output).toContain("update for " + ids[i]);
     for (const id of ids.filter((id) => id !== ids[i]))
       expect(stream.output).not.toContain("update for " + id);
     expect(stream.output).not.toContain("foreign output");

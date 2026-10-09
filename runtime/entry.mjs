@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { FileRejected, readPublishedChunk } from "./published-files.mjs";
 import { writeUploadChunk } from "./uploads.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
+import { cleanupStorage } from "./storage-cleanup.mjs";
 import {
   cleanupWorkspaces,
   workspaceCleanupInstructions,
@@ -403,6 +404,7 @@ try {
       workdir = managedWorkspace(
         env.HOME,
         request.input?.workspaceKey ?? request.workspaceKey,
+        request.action === "turn",
       );
     if (
       ["turn", "cleanup"].includes(request.action) &&
@@ -433,11 +435,27 @@ try {
       )
     )
       throw new RuntimeFailure("Invalid cleanup workspaces");
-    const results = await cleanupWorkspaces(
-      request.workspaceKeys.map((key) => join(env.HOME, "workspaces", key)),
-      env,
-    );
-    emit({ result: { results } });
+    let storage;
+    try {
+      storage = cleanupStorage({
+        home: env.HOME,
+        workspaceKeys: request.workspaceKeys,
+        dryRun: request.dryRun === true,
+        recordProgress: request.dryRun === true,
+      });
+    } catch (error) {
+      storage = [
+        { kind: "maintenance", removed: false, reason: error.message },
+      ];
+    }
+    const results = request.githubToken
+      ? await cleanupWorkspaces(
+          request.workspaceKeys.map((key) => join(env.HOME, "workspaces", key)),
+          env,
+          request.dryRun === true,
+        )
+      : [];
+    emit({ result: { results, storage } });
   } else if (request.action === "read-file") {
     emit({
       result: readPublishedChunk(

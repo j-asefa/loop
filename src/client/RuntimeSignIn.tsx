@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { CircleCheck } from "lucide-react";
 import { api } from "./api";
 import type { NativeAuthView, SignIn } from "../shared/native-auth";
@@ -146,7 +152,9 @@ function RuntimeSignInSession({
       clearTimeout(timer);
     };
   }, [base, waiting, attempt?.id]);
-  useEffect(() => setValue(""), [attempt?.prompt?.id]);
+  // Clear a new prompt before it can accept input. A passive effect can run
+  // after the user types and erase that response, leaving Continue disabled.
+  useLayoutEffect(() => setValue(""), [attempt?.id, attempt?.prompt?.id]);
   async function perform(action: () => Promise<NativeAuthView>) {
     setBusy(true);
     setError("");

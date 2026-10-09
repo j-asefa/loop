@@ -197,9 +197,29 @@ async function nativeLoginFixture(originalPage) {
     await page
       .getByRole("button", { name: "Start sign-in", exact: true })
       .click();
-    await page
-      .getByLabel("Provider sign-in response", { exact: true })
-      .fill("synthetic-code");
+    const response = page.getByLabel("Provider sign-in response", {
+      exact: true,
+    });
+    await response.fill("previous-prompt-code");
+    // A status refresh of the same prompt must preserve the response. A new
+    // prompt must clear it before becoming interactive, even in the same attempt.
+    await page.waitForResponse((res) =>
+      res.url().endsWith("/provider/claude/status"),
+    );
+    await expect(response).toHaveValue("previous-prompt-code");
+    states.claude.prompt = {
+      ...states.claude.prompt,
+      id: crypto.randomUUID(),
+      message: "Enter the next verification code",
+    };
+    await expect(
+      page.getByText("Enter the next verification code", { exact: true }),
+    ).toBeVisible();
+    await expect(response).toHaveValue("");
+    await expect(
+      page.getByRole("button", { name: "Continue sign-in", exact: true }),
+    ).toBeDisabled();
+    await response.fill("synthetic-code");
     await page
       .getByRole("button", { name: "Continue sign-in", exact: true })
       .click();
