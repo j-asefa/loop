@@ -1,9 +1,11 @@
 import { SHEET_SETTLE_MS } from "../../src/shared/sheet-viewport.ts";
 import assert from "node:assert/strict";
+import { mockViewportCoordinates } from "./mock-viewport.mjs";
 import { expect } from "@playwright/test";
 import { openAgentProfile, openSettings } from "./browser-ui.mjs";
 
 export async function replyKeyboardSmoke(page, fixture, capture) {
+  await mockViewportCoordinates(page);
   await page.clock.install();
   const sheet = () => page.locator("dialog[open]").last();
   const thread = () => page.locator("dialog.conversation-sheet[open]");

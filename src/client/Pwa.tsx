@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { visibleViewportTop } from "../shared/sheet-viewport";
 export function PwaStatus() {
   const [online, setOnline] = useState(navigator.onLine),
     [update, setUpdate] = useState<ServiceWorker | null>(null);
@@ -36,6 +37,7 @@ export function PwaStatus() {
     );
     const viewport = () => {
       const v = window.visualViewport;
+      const visibleTop = v ? visibleViewportTop(v, window.scrollY) : 0;
       const currentHeight = Math.max(
         innerHeight,
         document.documentElement.clientHeight,
@@ -50,7 +52,7 @@ export function PwaStatus() {
       // A resized fixed viewport already avoids part (or all) of the keyboard.
       const inset = Math.max(
         0,
-        innerHeight - (v?.height || innerHeight) - (v?.offsetTop || 0),
+        innerHeight - (v?.height || innerHeight) - visibleTop,
       );
       const active = document.activeElement;
       const textEntryFocused =
@@ -92,7 +94,7 @@ export function PwaStatus() {
       // Use the visual viewport's top directly while the keyboard is open.
       document.documentElement.style.setProperty(
         "--visual-viewport-top",
-        (keyboardOpen ? v!.offsetTop : 0) + "px",
+        (keyboardOpen ? visibleTop : 0) + "px",
       );
       place(keyboardOpen);
       fold(keyboardOpen);
@@ -115,6 +117,7 @@ export function PwaStatus() {
         window.visualViewport,
         probe.getBoundingClientRect().top,
         keyboardOpen,
+        window.scrollY,
       );
       if (drop === dropped) return;
       dropped = drop;
@@ -132,7 +135,11 @@ export function PwaStatus() {
       keyboardOpen = document.documentElement.dataset.keyboard === "open",
     ) => {
       place(keyboardOpen);
-      const pan = leftoverPan(window.visualViewport, keyboardOpen);
+      const pan = leftoverPan(
+        window.visualViewport,
+        keyboardOpen,
+        window.scrollY,
+      );
       const top = foldTarget(pan, touching, window.scrollY, foldedTo);
       // Forget the last fold once the pan is gone.
       foldedTo = top ?? (pan ? foldedTo : null);
@@ -273,11 +280,17 @@ export function foldTarget(
  * pans on purpose, so it is left alone.
  */
 export function leftoverPan(
-  v: Pick<VisualViewport, "offsetTop" | "scale"> | null | undefined,
+  v:
+    | (Pick<VisualViewport, "offsetTop" | "scale"> &
+        Partial<Pick<VisualViewport, "pageTop">>)
+    | null
+    | undefined,
   keyboardOpen: boolean,
+  scrollY = 0,
 ) {
   if (!v || keyboardOpen || (v.scale || 1) !== 1) return 0;
-  return v.offsetTop >= 1 ? Math.round(v.offsetTop) : 0;
+  const top = visibleViewportTop(v, scrollY);
+  return top >= 1 ? Math.round(top) : 0;
 }
 
 /**
@@ -287,12 +300,19 @@ export function leftoverPan(
  * while pinch-zoomed.
  */
 export function viewportDrop(
-  v: Pick<VisualViewport, "offsetTop" | "height" | "scale"> | null | undefined,
+  v:
+    | (Pick<VisualViewport, "offsetTop" | "height" | "scale"> &
+        Partial<Pick<VisualViewport, "pageTop">>)
+    | null
+    | undefined,
   layoutBottom: number,
   keyboardOpen: boolean,
+  scrollY = 0,
 ) {
   if (!v || keyboardOpen || (v.scale || 1) !== 1 || !(layoutBottom > 0))
     return 0;
-  const drop = Math.round(v.offsetTop + v.height - layoutBottom);
+  const drop = Math.round(
+    visibleViewportTop(v, scrollY) + v.height - layoutBottom,
+  );
   return drop >= 1 ? drop : 0;
 }

@@ -1,5 +1,22 @@
 import { expect, it, vi } from "vitest";
 import { leftoverPan } from "../src/client/Pwa";
+import { visibleViewportTop } from "../src/shared/sheet-viewport";
+
+it("does not count Safari's keyboard page scroll twice", async () => {
+  // Physical iPhone Feed -> Reply capture: 362px visible height, pageTop=337,
+  // scrollY=337, offsetTop=337. The field at y=588 cannot be touched. The
+  // previous offsetTop target placed the sheet at y=345 instead of y=8.
+  const captured = { pageTop: 337, offsetTop: 337, height: 362, scale: 1 };
+  expect(visibleViewportTop(captured, 337)).toBe(0);
+  // Normal panning still keeps the real visual offset.
+  expect(visibleViewportTop({ pageTop: 537, offsetTop: 200 }, 337)).toBe(200);
+  // Keyboard animation briefly reports pageTop before scrollY settles.
+  expect(visibleViewportTop({ pageTop: 0, offsetTop: 0 }, 337)).toBe(0);
+  // A stale offset after keyboard dismissal must not scroll the page again.
+  expect(leftoverPan(captured, false, 337)).toBe(0);
+  const { viewportDrop } = await import("../src/client/Pwa");
+  expect(viewportDrop(captured, 362, false, 337)).toBe(0);
+});
 
 it("folds a pan Safari leaves after the keyboard closes back into the page", () => {
   // Keyboard closed, but the visible area is still panned 240px down: the

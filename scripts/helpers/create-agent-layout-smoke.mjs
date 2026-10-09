@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { mockViewportCoordinates } from "./mock-viewport.mjs";
 import { expect } from "@playwright/test";
 
 export async function createAgentLayoutSmoke(page, fixture, capture) {
+  await mockViewportCoordinates(page);
   fixture.db
     .prepare(
       "UPDATE connections SET status='disconnected' WHERE provider='anthropic'",

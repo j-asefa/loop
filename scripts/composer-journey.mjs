@@ -1,11 +1,13 @@
 import Database from "better-sqlite3";
 import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
+import { mockViewportCoordinates } from "./helpers/mock-viewport.mjs";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 export async function composerJourney(page, api) {
+  await mockViewportCoordinates(page);
   const { agents, folders } = await api("/bootstrap");
   const manager = agents.find((a) => a.name === "creation-idle"),
     worker = agents.find((a) => a.name === "creation-starter");
