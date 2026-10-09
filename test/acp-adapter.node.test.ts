@@ -800,6 +800,7 @@ test("ACP command output survives empty and non-text content replacement", async
           const id = `output-${status}-${replacement}-${combined}`;
           const output = records.get(`output:${id}:output`);
           assert(output?.kind === "output");
+          assert.equal(output.data.command, "gh pr create --fill");
           assert.equal(
             output.data.status,
             status === "completed" ? "exited" : "failed",

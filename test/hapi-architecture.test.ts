@@ -18,7 +18,7 @@ const { submit } = await import("../src/server/agent-runtime");
 const { createAgent } = await import("../src/server/domain");
 const { claim, recoverStale } = await import("../src/server/queue");
 const { gatewayContext } = await import("../src/server/hapi/gateway");
-const { unseal } = await import("../src/server/secrets");
+const { unseal, seal } = await import("../src/server/secrets");
 const { captureMemory, searchMemory, readMemory, recallForRun } =
   await import("../src/server/memory");
 const host = provisionEnvironment("alice", {
@@ -578,5 +578,98 @@ describe("HAPI architecture safety (deterministic protocol fixtures)", () => {
       .prepare("SELECT * FROM runs WHERE idempotency_key='native-second'")
       .get() as any;
     expect(next.state).toBe("queued");
+  });
+  it("registers a HAPI Codex PR creation and wakes its owning thread on failed CI", async () => {
+    const { pollWatch, withGithubFixture } = await import("../src/server/pr-watches");
+    db.prepare("INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'alice','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)")
+      .run(id(), seal(JSON.stringify({ type: "bearer", token: "fixture-github" }), "alice"), now());
+    db.prepare("UPDATE native_dispatches SET native_turn_id='pr-create-turn' WHERE run_id=?").run(run.id);
+    const head = "a".repeat(40);
+    let verified = 0;
+    const restore = withGithubFixture(async (url) => {
+      const path = new URL(url).pathname;
+      let data: unknown = [];
+      if (path.endsWith("/pulls/42")) {
+        verified++;
+        data = { state: "open", created_at: new Date(now()).toISOString(), head: { sha: head } };
+      } else if (path === "/user") data = { login: "author" };
+      else if (path.endsWith("/check-runs")) data = { total_count: 1, check_runs: [{ id: 1, name: "test", status: "completed", conclusion: "failure" }] };
+      else if (path.endsWith("/check-suites")) data = { check_suites: [{ status: "completed", latest_check_runs_count: 1 }] };
+      return new Response(JSON.stringify(data));
+    });
+    const message = (external: string, patch: object = {}) => ({
+      id: external,
+      content: { role: "agent", content: { type: "codex", data: {
+        type: "tool-call-result", callId: external,
+        output: { type: "exec_command_end", turn_id: "pr-create-turn", command: "/bin/zsh -lc 'gh pr create --fill'", output: "https://github.com/acme/api/pull/42\n", exit_code: 0, status: "completed", ...patch },
+      } } },
+    });
+    try {
+      await projectMessages(session, [message("failed-create", { exit_code: 1 }), message("terminal-create", { turn_id: "unowned-turn" }), { ...message("truncated-create"), truncated: true }], 1, { seq: 10, at: now() });
+      expect(verified).toBe(0);
+      const created = message("successful-create");
+      await projectMessages(session, [created], 1, { seq: 11, at: now() });
+      await (await import("../src/server/hapi/pr-watch-registrations")).pollPrWatchRegistrations();
+      const watch = db.prepare("SELECT * FROM pr_watches WHERE conversation_id=?").get(run.conversation_id) as any;
+      expect(watch).toMatchObject({ owner_id: "alice", agent_id: agent.id, number: 42, state: "watching" });
+      await projectMessages(session, [created], 1, { seq: 11, at: now() });
+      expect(verified).toBe(1);
+      expect(await pollWatch(watch.id)).toBe("delivered");
+      const delivery = db.prepare("SELECT r.conversation_id,r.agent_id,r.state,m.content FROM pr_watch_deliveries d JOIN runs r ON r.id=d.run_id JOIN messages m ON m.run_id=r.id AND m.role='user' WHERE d.watch_id=?").get(watch.id) as any;
+      expect(delivery).toMatchObject({ conversation_id: run.conversation_id, agent_id: agent.id, state: "queued" });
+      expect(delivery.content).toContain("CI failed");
+      expect(await pollWatch(watch.id)).toBe("busy");
+    } finally { restore(); }
+  });
+  it.each(["claude", "pi", "opencode"] as const)("automatically watches %s commands and delivers CI and review updates", async (flavor) => {
+    const { pollWatch, withGithubFixture } = await import("../src/server/pr-watches");
+    db.prepare("UPDATE native_sessions SET flavor=? WHERE conversation_id=?").run(flavor, run.conversation_id);
+    const number = { claude: 43, pi: 44, opencode: 45 }[flavor];
+    const reviews: any[] = [];
+    let verifications = 0;
+    const restore = withGithubFixture(async url => {
+      const path = new URL(url).pathname;
+      let data: unknown = [];
+      if (path.endsWith(`/pulls/${number}`)) {
+        verifications++;
+        data = { state: "open", created_at: new Date(now()).toISOString(), head: { sha: "b".repeat(40) } };
+      } else if (path === "/user") data = { login: "author" };
+      else if (path.endsWith("/check-runs")) data = { total_count: 1, check_runs: [{ id: number, name: "test", status: "completed", conclusion: "failure" }] };
+      else if (path.endsWith("/check-suites")) data = { check_suites: [{ status: "completed", latest_check_runs_count: 1 }] };
+      else if (path.endsWith("/reviews")) data = reviews;
+      return new Response(JSON.stringify(data));
+    });
+    const event = (external: string, dispatch: string = localId) => ({
+      id: external, content: { role: "agent", content: { type: "codex", data: {
+        type: "loop-command", localId: dispatch, id: "bash", command: "gh pr create --fill", output: `https://github.com/acme/api/pull/${number}\n`,
+      } } },
+    });
+    const native = { ...session, flavor };
+    try {
+      await projectMessages(native, [event(flavor + "-terminal", "unowned")], 1, { seq: 20, at: now() });
+      await projectMessages({ ...native, generation: native.generation + 1 }, [event(flavor + "-stale")], 1, { seq: 21, at: now() });
+      expect(verifications).toBe(0);
+      const created = event(flavor + "-created");
+      await projectMessages(native, [created], 1, { seq: 22, at: now() });
+      await projectMessages(native, [created], 1, { seq: 22, at: now() });
+      await (await import("../src/server/hapi/pr-watch-registrations")).pollPrWatchRegistrations();
+      expect(verifications).toBe(1);
+      const watch = db.prepare("SELECT * FROM pr_watches WHERE conversation_id=? AND number=?").get(run.conversation_id, number) as any;
+      expect(watch).toMatchObject({ agent_id: agent.id, state: "watching" });
+      expect(await pollWatch(watch.id)).toBe("delivered");
+      const finish = () => db.prepare("UPDATE runs SET state='completed' WHERE id IN (SELECT run_id FROM pr_watch_deliveries WHERE watch_id=?)").run(watch.id);
+      finish();
+      reviews.push({ id: number, user: { login: "reviewer" }, author_association: "COLLABORATOR", state: "CHANGES_REQUESTED", body: "Please fix the parser.", submitted_at: new Date(now()).toISOString() });
+      expect(await pollWatch(watch.id)).toBe("delivered");
+      const messages = db.prepare("SELECT m.content FROM messages m JOIN pr_watch_deliveries d ON d.run_id=m.run_id WHERE d.watch_id=? AND m.role='user' ORDER BY m.rowid").all(watch.id) as any[];
+      expect(messages).toHaveLength(2);
+      expect(messages[0].content).toContain("CI failed");
+      expect(messages[1].content).toContain("> Please fix the parser.");
+      finish();
+      expect(await pollWatch(watch.id)).toBe("quiet");
+    } finally {
+      restore();
+      db.prepare("UPDATE native_sessions SET flavor='codex' WHERE conversation_id=?").run(run.conversation_id);
+    }
   });
 });

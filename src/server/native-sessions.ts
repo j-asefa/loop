@@ -1449,37 +1449,18 @@ export class NativeSessions {
     // those frames are discarded rather than assigned to the bootstrap run or
     // presented as new work. Stored projections remain authoritative.
     if (!live.run && kind !== "settings" && kind !== "commands") return;
-    ingestNativeActivity(live, { ...update, generation: live.generation });
-    const activity = update as {
-      replay?: boolean;
-      patch?: {
-        command?: string;
-        status?: string;
-        exitCode?: number;
-        upstreamTruncated?: boolean;
-        replace?: { text?: string }[];
-      };
-    };
-    if (
-      kind === "output" &&
-      live.run &&
-      !activity.replay &&
-      activity.patch?.status === "exited" &&
-      (activity.patch.exitCode === undefined ||
-        activity.patch.exitCode === 0) &&
-      !activity.patch.upstreamTruncated &&
-      typeof activity.patch.command === "string" &&
-      Array.isArray(activity.patch.replace)
-    ) {
-      const output = activity.patch.replace
-        .map((chunk) => chunk.text || "")
-        .join("");
+    const applied = ingestNativeActivity(live, { ...update, generation: live.generation });
+    if (applied.applied && applied.record.kind === "output" && live.run &&
+        !(update as { replay?: boolean }).replay && !applied.record.replayed) {
       const run = live.run;
-      const command = activity.patch.command;
+      const data = applied.record.data;
+      const generation = live.generation;
       void import("./pr-watches.js")
-        .then(({ watchNativeCreatedPullRequest }) =>
-          watchNativeCreatedPullRequest(run, command, output),
-        )
+        .then(({ watchCompletedOutput }) => watchCompletedOutput(run, data, () => {
+          const current = db.prepare("SELECT generation FROM companion_sessions WHERE conversation_id=?")
+            .get(run.conversation_id) as { generation: string } | undefined;
+          return current?.generation === generation;
+        }))
         .catch(() => {});
     }
   }

@@ -105,6 +105,7 @@ test("extracted provisioner and production loader resolve the same baked identit
     for (const file of [
       "native/apply-hapi-patch.mjs",
       "native/loopManaged.ts",
+      "native/command-results.ts",
       "native/pi-readiness.ts",
       "src/native-auth/pi-customizations.ts",
     ])

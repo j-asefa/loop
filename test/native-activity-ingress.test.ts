@@ -7,10 +7,12 @@ import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import express from "express";
 import { NativeOutput } from "../src/server/native-output";
 const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
 process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
@@ -58,10 +60,10 @@ function turn(conversation: string, key: string) {
 }
 // Installs a live session in NativeSessions exactly as session() does: the
 // map entry plus the companion_sessions generation written before start().
-function start(sessions: InstanceType<typeof NativeSessions>, generation: string, bootstrap: any) {
+function start(sessions: InstanceType<typeof NativeSessions>, generation: string, bootstrap: any, conversation = "conv") {
   const live: Live = {
     binding: {
-      conversation_id: "conv",
+      conversation_id: conversation,
       harness: "codex",
       native_id: null,
       project: dir,
@@ -84,10 +86,10 @@ function start(sessions: InstanceType<typeof NativeSessions>, generation: string
     items: new NativeOutput(),
     closed: false,
   };
-  (sessions as any).live.set("conv", live);
+  (sessions as any).live.set(conversation, live);
   db.prepare(
-    "UPDATE companion_sessions SET generation=?,state='starting' WHERE conversation_id='conv'",
-  ).run(generation);
+    "UPDATE companion_sessions SET generation=?,state='starting' WHERE conversation_id=?",
+  ).run(generation, conversation);
   // The direct adapters' real control publisher, wired to the ingress.
   const controls = new DirectControls("codex", (e: AdapterEvent) => sessions.event(live, e));
   return { live, controls, emit: (e: AdapterEvent) => sessions.event(live, e) };
@@ -117,6 +119,42 @@ const planEvent = (generation: string, statuses: string[]): AdapterEvent => ({
     // The adapter's own notion of generation is never trusted.
     { harness: "codex", generation },
   ),
+});
+
+it.each(["codex", "claude", "pi", "opencode", "acp"])("watches a %s PR through the production native activity ingress", async harness => {
+  const { id, now } = await import("../src/server/db");
+  const { seal } = await import("../src/server/secrets");
+  const { createAgent } = await import("../src/server/domain");
+  const { withGithubFixture } = await import("../src/server/pr-watches");
+  const connection = id();
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'owner','openai','Fixture','','connected','[{\"id\":\"fixture\"}]','{}',?)").run(connection, now());
+  const agent = createAgent("owner", { name: harness + "-watch", connectionId: connection, model: "fixture" });
+  const conversation = id();
+  db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','PR creation',?)").run(conversation, now());
+  db.prepare("INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,?,?,?)").run(conversation, harness, dir, now());
+  db.prepare("INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'owner','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)")
+    .run(id(), seal(JSON.stringify({ type: "bearer", token: "fixture" }), "owner"), now());
+  const run = turn(conversation, "pr-create-" + harness);
+  run.conversation_id = conversation;
+  run.agent_id = agent.id;
+  db.prepare("UPDATE runs SET conversation_id=?,agent_id=? WHERE id=?").run(conversation, agent.id, run.id);
+  const { live, emit } = start(new NativeSessions(), "pr-gen-" + harness, run, conversation);
+  live.binding.harness = harness as any;
+  live.run = run;
+  const number = 50 + ["codex", "claude", "pi", "opencode", "acp"].indexOf(harness);
+  const restore = withGithubFixture(async () => new Response(JSON.stringify({ state: "open", created_at: new Date(now()).toISOString(), head: { sha: "a".repeat(40) } })));
+  const source = { transport: harness === "acp" ? "acp" as const : "native" as const, harness, origin: "direct" };
+  const output = { v: 1 as const, kind: "output" as const, id: "create", source };
+  try {
+    emit({ type: "activity", activity: { ...output, patch: { command: "gh pr create --fill", replace: [{ stream: "combined", text: `https://github.com/acme/api/pull/${number}` }], status: "running" } } });
+    expect(db.prepare("SELECT 1 FROM pr_watches WHERE number=?").get(number)).toBeUndefined();
+    // ACP may send command input, output and completion in separate frames.
+    emit({ type: "activity", activity: { ...output, patch: { status: "exited" } } });
+    const record = db.prepare("SELECT record FROM agent_activities WHERE run_id=? AND kind='output'").get(run.id) as { record: string } | undefined;
+    expect(record && JSON.parse(record.record).data).toMatchObject({ command: "gh pr create --fill", status: "exited" });
+    await expect.poll(() => db.prepare("SELECT agent_id,state FROM pr_watches WHERE number=?").get(number))
+      .toEqual({ agent_id: agent.id, state: "watching" });
+  } finally { restore(); }
 });
 
 it("persists native activity events through restarts and serves them to reloads without leaking payloads", async () => {

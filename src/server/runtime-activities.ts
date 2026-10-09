@@ -65,6 +65,12 @@ export function runtimeActivityMapper(
                 : "plans",
           );
         }
+        if (result.applied && result.record.kind === "output" && !update.replay) {
+          // Verification must not hold up provider stream consumption.
+          void import("./pr-watches.js").then(({ watchCompletedOutput }) =>
+            watchCompletedOutput(run, result.record.data as import("../agent-activities.js").OutputData),
+          ).catch(() => {});
+        }
       }
       return applied;
     },

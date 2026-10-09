@@ -31,6 +31,7 @@ import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
+import { pollPrWatchRegistrations } from "./hapi/pr-watch-registrations.js";
 import { pollWatches } from "./pr-watches.js";
 import { refreshDueFeeds } from "./news.js";
 import { runDueDigests } from "./feed-digests.js";
@@ -209,10 +210,12 @@ export function startWorker() {
   hapiTimers.push(
     setInterval(() => {
       if (stopping) return;
-      const promise = pollWatches()
-        .catch(() => {})
-        .finally(() => inflight.delete(promise));
-      inflight.add(promise);
+      for (const poll of [pollWatches, pollPrWatchRegistrations]) {
+        const promise = poll()
+          .catch(() => {})
+          .finally(() => inflight.delete(promise));
+        inflight.add(promise);
+      }
     }, 15_000),
   );
   hapiTimers.push(

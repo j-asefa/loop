@@ -34,7 +34,7 @@ function imp(path) {
   edit(
     path,
     "import ",
-    "import { managedLaunch, managedBinding, managedCodexArgs, managedThread, managedGuard, managedClaude, managedAcpPrompt, managedAcpServers, managedAcpInstructions, managedOpencodeHttp, managedOpencodeEnvironment, managedOpencodeConfig } from '@/loopManaged';\nimport ",
+    "import { managedLaunch, managedBinding, managedCodexArgs, managedThread, managedGuard, managedClaude, managedClaudeCommands, managedAcpPrompt, managedAcpServers, managedAcpInstructions, managedOpencodeHttp, managedOpencodeEnvironment, managedOpencodeConfig } from '@/loopManaged';\nimport ",
   );
 }
 // Keep managed execution on the same guarded binary as runner authentication.
@@ -59,6 +59,7 @@ copyFileSync(
   new URL("./loopManaged.ts", import.meta.url),
   join(root, "cli/src/loopManaged.ts"),
 );
+copyFileSync(new URL("./command-results.ts", import.meta.url), join(root, "cli/src/command-results.ts"));
 edit(
   "shared/src/apiTypes.ts",
   "export const SpawnSessionRequestSchema = z.object({",
@@ -200,6 +201,7 @@ edit(
         const events = this.converter.handleNotification(method, params);`,
 );
 imp("cli/src/claude/claudeRemote.ts");
+imp("cli/src/claude/claudeRemoteLauncher.ts");
 edit(
   "cli/src/claude/claudeRemote.ts",
   "    const response = query({",
@@ -207,8 +209,14 @@ edit(
 );
 edit(
   "cli/src/claude/claudeRemoteLauncher.ts",
+  "        function onMessage(message: SDKMessage) {",
+  "        const loopCommands = managedClaudeCommands((event, key) => session.client.sendAgentMessage(event, key));\n        function onMessage(message: SDKMessage) {",
+);
+edit(
+  "cli/src/claude/claudeRemoteLauncher.ts",
   "                        onMessage,",
   `                        onMessage: (message) => {
+                            loopCommands(message, (inFlightMessage?.items || []).flatMap(item => item.localId ? [item.localId] : []));
                             onMessage(message);
                             if (message.type === 'result' && inFlightMessage) {
                                 for (const item of inFlightMessage.items) if (item.localId) session.client.sendAgentMessage({type:'loop-turn',localId:item.localId,threadId:session.sessionId,turnId:message.uuid,status:message.is_error ? 'failed' : 'completed',output:'result' in message ? message.result : ''},'loop-result:'+message.uuid+':'+item.localId);

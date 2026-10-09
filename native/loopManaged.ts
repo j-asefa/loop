@@ -2,6 +2,22 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
+import { commandResults } from "./command-results";
+
+/** Claude SDK tool results retain the exact accepted Loop dispatch. */
+export function managedClaudeCommands(send: (event: any, key: string) => void) {
+  let dispatch: string | undefined;
+  const commands = commandResults();
+  return (message: unknown, localIds: string[]) => {
+    // A batched or unowned prompt cannot nominate one originating run.
+    const current = localIds.length === 1 ? localIds[0] : undefined;
+    if (current !== dispatch) commands.clear();
+    dispatch = current;
+    if (process.env.LOOP_MANAGED !== "1" || !dispatch) return;
+    for (const result of commands.claude(message))
+      send({ type: "loop-command", localId: dispatch, ...result }, `loop-command:${dispatch}:${result.id}`);
+  };
+}
 
 export function managedLaunch(
   launchId?: string,
@@ -220,6 +236,7 @@ export async function managedAcpPrompt<
   let stopReason: string | undefined;
   let failed = false;
   const texts = new Map<string, string>();
+  const commands = commandResults();
   emit("loop-turn", { status: "running" });
   try {
     await options.preflight?.();
@@ -236,6 +253,10 @@ export async function managedAcpPrompt<
   }
   try {
     await options.prompt((message) => {
+      for (const result of commands.acp(message)) {
+        if (ids.length === 1)
+          options.send({ type: "loop-command", localId: ids[0], ...result }, `loop-command:${ids[0]}:${result.id}`);
+      }
       if (message.type === "turn_complete") stopReason = message.stopReason;
       if (message.type === "error") failed = true;
       if (message.type === "text" && typeof message.text === "string") {
@@ -667,6 +688,7 @@ export function managedPiDelivery(send: (event: any, key: string) => void) {
   let active: string | undefined;
   let running = false;
   let outcome: { status: string; output: string } | undefined;
+  const commands = commandResults();
   return {
     begin(localId?: string) {
       if (process.env.LOOP_MANAGED !== "1") return;
@@ -674,6 +696,7 @@ export function managedPiDelivery(send: (event: any, key: string) => void) {
       if (active) throw new Error("Managed Pi prompt is still unresolved");
       managedBinding();
       active = localId;
+      commands.clear();
       running = false;
       outcome = undefined;
     },
@@ -692,7 +715,10 @@ export function managedPiDelivery(send: (event: any, key: string) => void) {
       active = undefined;
     },
     observe(event: any) {
-      if (!active || event?.type !== "turn_end") return;
+      if (!active) return;
+      for (const result of commands.pi(event))
+        send({ type: "loop-command", localId: active, ...result }, `loop-command:${active}:${result.id}`);
+      if (event?.type !== "turn_end") return;
       const message = event.message;
       const reason = message?.stopReason;
       // Tool iterations and retry errors are not terminal. The most recent

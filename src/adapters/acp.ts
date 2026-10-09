@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
+import { commandInput } from "../../native/command-results.js";
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -84,6 +85,7 @@ export class Acp implements Adapter {
   };
   private messageId = "";
   private toolKinds = new Map<string, string>();
+  private toolCommands = new Map<string, string>();
   private toolItems = new Map<string, Item>();
   private toolOutputs = new Set<string>();
   // Durable file changes outlive replacement of the ACP display content.
@@ -298,6 +300,7 @@ export class Acp implements Adapter {
     )
       throw new Error("ACP session is unavailable or busy");
     this.active = true;
+    this.toolCommands.clear();
     this.cancelling = false;
     this.terminalReported = false;
     this.messageId = randomUUID();
@@ -687,6 +690,9 @@ export class Acp implements Adapter {
       const old = this.toolItems.get(u.toolCallId);
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
       if (kind) this.toolKinds.set(u.toolCallId, kind);
+      const command = commandInput(u.rawInput);
+      if (kind === "execute" && command && command.length <= 4000)
+        this.toolCommands.set(u.toolCallId, command);
       const item: Item = {
         id: `acp:${this.session}:${u.toolCallId}`,
         kind: "tool",
@@ -820,20 +826,22 @@ export class Acp implements Adapter {
       ) {
         const id = `${tool}:output`;
         this.toolOutputs.add(u.toolCallId);
-        const output = u.content
+        const joined = u.content
           .flatMap((c) =>
             c.type === "content" && c.content.type === "text"
               ? [c.content.text]
               : [],
           )
-          .join("\n")
-          .slice(-64000);
+          .join("\n");
+        const output = joined.slice(-64000);
         this.activity(
           "output",
           id,
           {
             tool,
             replace: [{ stream: "combined", text: output }],
+            ...(this.toolCommands.has(u.toolCallId) && { command: this.toolCommands.get(u.toolCallId) }),
+            ...(joined.length > 64000 && { upstreamTruncated: true }),
             status:
               item.status === "completed"
                 ? "exited"
@@ -854,6 +862,7 @@ export class Acp implements Adapter {
             "output",
             `${tool}:output`,
             {
+              ...(this.toolCommands.has(u.toolCallId) && { command: this.toolCommands.get(u.toolCallId) }),
               status:
                 item.status === "completed"
                   ? "exited"

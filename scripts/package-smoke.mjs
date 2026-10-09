@@ -42,6 +42,11 @@ try {
     ],
     { maxBuffer: 1000000, timeout: 240000 },
   );
+  // Exercise the installed JavaScript module graph without tsx: source-level
+  // adapter fixtures cannot detect missing compiled runtime dependencies.
+  await exec(process.execPath, ["--input-type=module", "-e",
+    'const { Acp } = await import("loop/dist/adapters/acp.js"); if (typeof Acp !== "function") throw new Error("Missing packaged ACP adapter");',
+  ], { cwd: target, timeout: 10000 });
   bin = join(target, "node_modules", ".bin", "loop");
   env = {
     ...process.env,

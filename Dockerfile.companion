@@ -15,7 +15,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY src/hapi-build.ts src/state.ts ./src/
 COPY src/native-auth/pi-customizations.ts ./src/native-auth/
-COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/pi-readiness.ts ./native/
+COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/command-results.ts native/pi-readiness.ts ./native/
 COPY scripts/stage-companion-hapi.mjs ./scripts/
 RUN node_modules/.bin/esbuild src/hapi-build.ts src/state.ts --outdir=dist --platform=node --format=esm && node scripts/stage-companion-hapi.mjs && chmod -R a+rX /opt/loop-hapi-artifact
 

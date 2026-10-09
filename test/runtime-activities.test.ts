@@ -149,6 +149,35 @@ const codexChunks = (turnId: string) =>
     return [...(trace ? [{ trace }] : []), ...(activity ? [{ activity }] : [])];
   });
 
+it.each(["codex", "anthropic"] as const)("automatically registers PR creation from the %s subscription executor", async provider => {
+  const { withGithubFixture } = await import("../src/server/pr-watches");
+  db.prepare("INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'alice','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)")
+    .run(id(), seal(JSON.stringify({ type: "bearer", token: "fixture" }), "alice"), now());
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const restore = withGithubFixture(async () => {
+    await gate;
+    return new Response(JSON.stringify({ state: "open", created_at: new Date(now()).toISOString(), head: { sha: "a".repeat(40) } }));
+  });
+  const agent = subscriptionAgent(provider);
+  const url = "https://github.com/acme/api/pull/42";
+  let chunks: object[];
+  if (provider === "codex") chunks = [{ activity: codexActivity({ method: "item/completed", params: {
+    threadId: "native", turnId: "turn", item: { id: "created", type: "commandExecution", command: "gh pr create --fill", aggregatedOutput: url, status: "completed", exitCode: 0 },
+  } }) }];
+  else chunks = [
+    { activity: { harness: "claude", block: { type: "tool_use", id: "created", name: "Bash", input: { command: "gh pr create --fill" } } } },
+    { activity: { harness: "claude", block: { type: "tool_result", tool_use_id: "created", content: url, is_error: false } } },
+  ];
+  try {
+    serveRuntime(chunks);
+    const run = await runTurn(agent.id);
+    release(); // A GitHub request still in flight did not prevent the turn finishing.
+    await expect.poll(() => db.prepare("SELECT conversation_id,agent_id,number,state FROM pr_watches WHERE conversation_id=?").get(run.conversation_id))
+      .toEqual({ conversation_id: run.conversation_id, agent_id: agent.id, number: 42, state: "watching" });
+  } finally { release(); restore(); }
+});
+
 it("maps Codex runtime command, file and plan results into shared activities", async () => {
   const agent = subscriptionAgent("codex");
   serveRuntime(codexChunks("turn-1"));

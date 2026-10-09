@@ -1,3 +1,4 @@
+import { createdPullRequest } from "../shared/pr-command.js";
 import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -5,6 +6,7 @@ import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { Run } from "./queue.js";
+import type { OutputData } from "../agent-activities.js";
 import {
   GithubError,
   githubRest,
@@ -13,7 +15,6 @@ import {
 } from "./github-api.js";
 import {
   pullRequestKey,
-  parsePullRequestUrls,
   type PullRequestCard,
   type PullRequestRef,
 } from "../shared/github.js";
@@ -112,36 +113,48 @@ export function watchesFor(owner: string, conversation?: string) {
 }
 
 /** Register only a PR created by this run, using the trusted tool result. */
-export function watchCreatedPullRequest(run: Run, pr: PullRequestRef & { headSha?: string }) {
+export function watchCreatedPullRequest(run: Run, pr: PullRequestRef & { headSha?: string; createdAt?: number }) {
   if (!run.conversation_id || !run.agent_id || !githubToken(run.owner_id)) return;
   return db.transaction(() => {
     const existing = db.prepare(
-      "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
+      "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? ORDER BY created_at DESC LIMIT 1",
     ).get(run.owner_id, run.conversation_id, pr.owner, pr.repo, pr.number) as PrWatch | undefined;
+    // Automatic creation detection must also retain an explicit Stop watching.
+    // A person can start a new watch from the card when they want to resume.
     if (existing) return existing;
     const time = now();
     const watchId = id();
     db.prepare(
       "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
     ).run(watchId, run.owner_id, run.conversation_id, run.agent_id,
-      pr.owner, pr.repo, pr.number, pr.headSha ?? null, time, time, time);
+      pr.owner, pr.repo, pr.number, pr.headSha ?? null, pr.createdAt ?? time, time, time);
     return db.prepare("SELECT * FROM pr_watches WHERE id=?").get(watchId) as PrWatch;
   }).immediate();
 }
 
 /** Native harnesses report a completed command, not an MCP create result. */
-export async function watchNativeCreatedPullRequest(run: Run, command: string, output: string) {
-  if (!/^\s*gh\s+pr\s+create(?:\s|$)/.test(command)) return;
-  const refs = parsePullRequestUrls(output, 2);
-  if (refs.length !== 1) return;
+export async function watchCompletedOutput(run: Run, data: OutputData, current = () => true) {
+  if (data.status !== "exited" || data.exitCode !== undefined && data.exitCode !== 0 ||
+      !data.command || data.unavailable || data.truncated.upstream || data.truncated.droppedBytes || data.truncated.droppedChunks) return;
+  await watchNativeCreatedPullRequest(run, data.command, data.chunks.map(chunk => chunk.text).join(""), current);
+}
+
+export async function watchNativeCreatedPullRequest(run: Run, command: string, output: string, current = () => true) {
+  const ref = createdPullRequest(command, output);
+  if (ref) await verifyCreatedPullRequest(run, ref, current);
+}
+
+/** Read-only verification, shared with durable HAPI registration retries. */
+export async function verifyCreatedPullRequest(run: Run, ref: PullRequestRef, current = () => true) {
   const token = githubToken(run.owner_id);
   if (!token) return;
-  const ref = refs[0];
   const path = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`;
   const pr = await github<{ state: string; created_at: string; head?: { sha?: string } }>(token, path);
   const created = Date.parse(pr.created_at);
   if (pr.state !== "open" || !Number.isFinite(created) || created < run.created_at - 60_000) return;
-  watchCreatedPullRequest(run, { ...ref, headSha: pr.head?.sha });
+  db.transaction(() => {
+    if (current()) watchCreatedPullRequest(run, { ...ref, headSha: pr.head?.sha, createdAt: created });
+  }).immediate();
 }
 
 /**

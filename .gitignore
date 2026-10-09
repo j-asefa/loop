@@ -20,3 +20,5 @@ __pycache__/
 .local-native/
 
 native/generated/
+
+native/command-results.js

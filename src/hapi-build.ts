@@ -34,6 +34,7 @@ export async function hapi(root: string) {
   const patchHash = createHash("sha256")
     .update(readFileSync(join(packageRoot, "native/apply-hapi-patch.mjs")))
     .update(readFileSync(join(packageRoot, "native/loopManaged.ts")))
+    .update(readFileSync(join(packageRoot, "native/command-results.ts")))
     .update(readFileSync(join(packageRoot, "native/pi-readiness.ts")))
     .update(
       readFileSync(join(packageRoot, "src/native-auth/pi-customizations.ts")),

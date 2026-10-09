@@ -1,3 +1,4 @@
+import { queuePrWatchRegistration } from "./pr-watch-registrations.js";
 import { selectedContext } from "../carried-context.js";
 import { randomBytes } from "node:crypto";
 import { db, id, now, emit } from "../db.js";
@@ -335,6 +336,7 @@ export function normalizeMessage(message: any): {
     "output",
     "event",
     "loop-turn",
+    "loop-command",
     "loop-delivery-unknown",
     "loop-interrupted",
   ].includes(body.type);
@@ -354,6 +356,7 @@ export function normalizeMessage(message: any): {
 const notInspectable = new Set([
   "ready",
   "loop-turn",
+  "loop-command",
   "token_count",
   "event",
   "error",
@@ -370,6 +373,11 @@ export function projectMessages(
   cursor: { seq: number | null; at: number | null },
   checkpoint = true,
 ) {
+  const currentSession = () => {
+    const current = sessionFor(s.conversation_id);
+    return current?.owner_id === s.owner_id &&
+      current.environment_id === s.environment_id && current.generation === s.generation;
+  };
   db.transaction(() => {
     for (const m of messages) {
       const external = String(m.id),
@@ -388,6 +396,31 @@ export function projectMessages(
         continue;
       }
       const n = normalizeMessage(m);
+      // Other managed harnesses emit the same completed-command envelope with
+      // the accepted local dispatch id, supplied by Loop's native bridge.
+      if (n.role === "tool" && n.body.type === "loop-command" &&
+          (m.content?.data ?? m.content)?.meta?.isTranscriptEcho !== true && !m.truncated &&
+          typeof n.body.localId === "string" && typeof n.body.command === "string" && typeof n.body.output === "string" && !/\[hapi: truncated \d+ chars\]/.test(n.body.output) && currentSession()) {
+        const dispatch = db.prepare(
+          "SELECT run_id FROM native_dispatches WHERE conversation_id=? AND environment_id=? AND generation=? AND local_id=?",
+        ).get(s.conversation_id, s.environment_id, s.generation, n.body.localId) as { run_id: string } | undefined;
+        if (dispatch)
+          queuePrWatchRegistration(s, owned<Run>("runs", dispatch.run_id, s.owner_id), external, n.body.command, n.body.output);
+      }
+      // Codex's completed shell result carries its native turn identity even
+      // when the display envelope has no loop.turnId. Bind it to the durable
+      // dispatch; terminal/history-only work must never nominate an agent.
+      const result = n.body.type === "tool-call-result" ? n.body.output : null;
+      if (s.flavor === "codex" && (m.content?.data ?? m.content)?.meta?.isTranscriptEcho !== true && !m.truncated && result?.type === "exec_command_end" &&
+          result.exit_code === 0 && result.status === "completed" &&
+          typeof result.turn_id === "string" && typeof result.command === "string" && typeof result.output === "string" &&
+          !/\[hapi: truncated \d+ chars\]/.test(result.output)) {
+        const dispatch = db.prepare(
+          "SELECT run_id FROM native_dispatches WHERE conversation_id=? AND environment_id=? AND generation=? AND native_turn_id=?",
+        ).get(s.conversation_id, s.environment_id, s.generation, result.turn_id) as { run_id: string } | undefined;
+        if (dispatch && currentSession())
+          queuePrWatchRegistration(s, owned<Run>("runs", dispatch.run_id, s.owner_id), external, result.command, result.output);
+      }
       // Log no native payload: it can contain private tool output.
       if (n.unrecognized)
         console.warn("[hapi] Unrecognized native activity projected");
@@ -397,7 +430,7 @@ export function projectMessages(
         .prepare(
           "SELECT * FROM native_dispatches WHERE conversation_id=? AND local_id=?",
         )
-        .get(s.conversation_id, m.localId || "") as NativeDispatch | undefined;
+        .get(s.conversation_id, typeof m.localId === "string" ? m.localId : "") as NativeDispatch | undefined;
       if (dispatch && m.invokedAt && !terminal.includes(dispatch.state))
         state(dispatch, "running");
       let messageId = prior?.message_id;
@@ -405,7 +438,7 @@ export function projectMessages(
         messageId ||= id();
         const turnId = n.body.loop?.turnId;
 
-        const turn = turnId
+        const turn = typeof turnId === "string" && turnId
           ? (db
               .prepare(
                 "SELECT run_id FROM native_dispatches WHERE conversation_id=? AND native_turn_id=?",
@@ -489,7 +522,7 @@ export function projectMessages(
         serialized,
       );
       if (n.body.type === "loop-turn") settleTurn(s, n.body);
-      if (["loop-delivery-unknown", "loop-interrupted"].includes(n.body.type)) {
+      if (typeof n.body.localId === "string" && ["loop-delivery-unknown", "loop-interrupted"].includes(n.body.type)) {
         const d = db
           .prepare(
             "SELECT * FROM native_dispatches WHERE conversation_id=? AND local_id=?",
@@ -514,9 +547,10 @@ export function projectMessages(
         "UPDATE native_sessions SET history_epoch=?,cursor_seq=?,cursor_at=? WHERE conversation_id=?",
       ).run(epoch, cursor.seq, cursor.at, s.conversation_id);
   }).immediate();
+  // The worker drains verification independently; projection never waits on GitHub.
 }
 function settleTurn(s: NativeSession, event: any) {
-  if (!event.localId || !event.turnId || !event.threadId) return;
+  if (![event.localId, event.turnId, event.threadId].every(value => typeof value === "string" && value)) return;
   const d = db
     .prepare(
       "SELECT * FROM native_dispatches WHERE conversation_id=? AND local_id=?",

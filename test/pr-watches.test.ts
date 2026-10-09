@@ -566,6 +566,16 @@ it("automatically watches the creating run and deduplicates repeated registratio
   expect(watchCreatedPullRequest({ ...run, conversation_id: null }, { ...pr, number: 44 })).toBeUndefined();
 });
 
+it("keeps a user-stopped watch stopped when native creation is reported again", () => {
+  const { conversation } = setup("stopped-creation");
+  connectGithub("stopped-creation");
+  const run = db.prepare("SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(conversation) as any;
+  const pr = { owner: "acme", repo: "api", number: 42 };
+  const first = watchCreatedPullRequest(run, pr)!;
+  stopWatch(run.owner_id, first.id);
+  expect(watchCreatedPullRequest(run, pr)).toMatchObject({ id: first.id, state: "stopped" });
+});
+
 it("watches a successful native gh create only after GitHub verifies the new PR", async () => {
   const { conversation } = setup("jules");
   connectGithub("jules");
@@ -573,9 +583,29 @@ it("watches a successful native gh create only after GitHub verifies the new PR"
   github.pull = { state: "open", created_at: new Date(now()).toISOString(), head: { sha: HEAD } };
   const url = "https://github.com/acme/api/pull/42";
   await watchNativeCreatedPullRequest(run, "echo gh pr create", url);
+  await watchNativeCreatedPullRequest(run, "/bin/zsh -lc 'echo gh pr create'", url);
+  await watchNativeCreatedPullRequest(run, "gh pr create --fill", url, () => false);
   expect((await api("/pr-watches?conversation=" + conversation, "GET", undefined, "jules")).data.watches).toEqual([]);
   await watchNativeCreatedPullRequest(run, "gh pr create --fill", url);
   expect((await api("/pr-watches?conversation=" + conversation, "GET", undefined, "jules")).data.watches).toMatchObject([{ number: 42, state: "watching" }]);
+});
+
+it.each([
+  "cd /repo && gh pr create --fill",
+  "git push -u origin HEAD && gh pr create --fill",
+  "bash -lc 'git push -u origin HEAD && gh pr create --fill'",
+  String.raw`bash -lc 'gh pr create --title "Don'\''t break"'`,
+  String.raw`bash -lc 'gh pr create --body "Fixed'\!'"'`,
+  "/bin/zsh -lc 'gh pr create --fill'",
+  '/bin/bash -lc "cd /repo && gh pr create --title \\"New PR\\""',
+])("recognizes the native shell command %s", async (command) => {
+  const owner = id();
+  const { conversation } = setup(owner);
+  connectGithub(owner);
+  const run = db.prepare("SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(conversation) as any;
+  github.pull = { state: "open", created_at: new Date(now()).toISOString(), head: { sha: HEAD } };
+  await watchNativeCreatedPullRequest(run, command, "https://github.com/acme/api/pull/42");
+  expect(db.prepare("SELECT number FROM pr_watches WHERE conversation_id=?").get(conversation)).toEqual({ number: 42 });
 });
 
 it.each(["watching", "paused"])("keeps an existing %s watch in another conversation when registering a created PR", async (state) => {

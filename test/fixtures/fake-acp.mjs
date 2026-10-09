@@ -193,6 +193,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
               toolCallId,
               title: "Run command",
               kind: "execute",
+              rawInput: { command: "gh pr create --fill" },
               status: "in_progress",
               content: [
                 {

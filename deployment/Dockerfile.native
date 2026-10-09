@@ -13,7 +13,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 COPY deployment/versions.json /opt/deployment/versions.json
 FROM native-tools AS build
 RUN git clone https://github.com/tiann/hapi.git /opt/hapi && cd /opt/hapi && git checkout "$(node -p 'require("/opt/deployment/versions.json").hapiCommit')" && bun install --frozen-lockfile
-COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/pi-readiness.ts /opt/loop-native/
+COPY native/apply-hapi-patch.mjs native/loopManaged.ts native/command-results.ts native/pi-readiness.ts /opt/loop-native/
 RUN node /opt/loop-native/apply-hapi-patch.mjs /opt/hapi
 WORKDIR /opt/hapi
 RUN bun run typecheck:cli && bun run typecheck:hub && cd cli && bun run build:exe
