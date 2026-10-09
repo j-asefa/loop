@@ -165,8 +165,11 @@ export async function executeHapi(run: Run): Promise<false> {
           directory: mapping.canonical_path,
           agent: s.flavor,
           model: p.model,
-          ...(["claude", "pi"].includes(s.flavor) ? { effort: p.effort ?? null } : {}),
-          ...(["codex", "opencode"].includes(s.flavor) ? { modelReasoningEffort: p.effort ?? null } : {}),
+          // Spawn accepts optional strings, unlike the nullable settings endpoints.
+          // Omit the default so the runner can choose its native effort.
+          ...(p.effort == null ? {} : ["claude", "pi"].includes(s.flavor)
+            ? { effort: p.effort }
+            : { modelReasoningEffort: p.effort }),
           permissionMode: launchPermissionMode(s.flavor, p.permissionMode),
           startingMode: "remote",
           loopLaunchId: s.launch_id,

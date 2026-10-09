@@ -1073,3 +1073,39 @@ it("a run deleted while inspecting the native session returns a recoverable refu
   await expect(reconcile(s)).rejects.toMatchObject({ status: 409, message: "Native run no longer exists" });
   expect(request.mock.calls.some(([path]) => path.endsWith("/messages"))).toBe(false);
 });
+
+
+it.each(["claude", "codex", "opencode", "pi"].flatMap(flavor =>
+  [undefined, "high"].map(effort => ({flavor, effort})),
+))("launches $flavor with effort=$effort using the optional-string spawn contract", async ({flavor, effort}) => {
+  const {claudePolicy, piPolicy} = await import("../src/server/hapi/contracts");
+  const cid = id();
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Spawn effort','','connected',?,?,?)")
+    .run(cid, JSON.stringify([{id:"fixture",effortLevels:[{value:"high"}]}]), JSON.stringify({backend:"hapi",environmentId:host,flavor,billing:flavor === "pi" ? piPolicy : flavor === "claude" ? claudePolicy : billingPolicy}), now());
+  const a = createAgent("alice", {name:"spawn-effort-"+id().slice(0,8),connectionId:cid,model:"fixture",effort});
+  db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(project, a.id);
+  const {run,s} = fixture(a.id);
+  db.prepare("UPDATE native_sessions SET hub_session_id=NULL WHERE conversation_id=?").run(s.conversation_id);
+  const auth = {authenticated:true,managed:true,checkedAt:Date.now(),authMethod:flavor === "pi" ? "existing" : flavor === "claude" ? "claude" : "chatgpt",executionGuard:"loop-subscription-v1"};
+  vi.mocked(workerRequest).mockImplementation(async (_e,path) => path === "/prepare" ? {auth} : auth);
+  const request = vi.spyOn(HapiClient.prototype,"request").mockImplementation(async (path,body:any) => {
+    if (path.endsWith("/spawn")) {
+      // HAPI's pinned SpawnSessionRequestSchema permits omission or a string,
+      // but rejects null before engine.spawnSession is called.
+      for (const field of ["effort", "modelReasoningEffort"])
+        if (field in body && typeof body[field] !== "string") throw new Error("Invalid spawn body");
+      return {type:"success",sessionId:"spawn-effort-"+run.id};
+    }
+    if (path.endsWith("/messages")) return {ok:true};
+    return {session:{active:true,model:"fixture",effort:effort ?? null,modelReasoningEffort:effort ?? null,permissionMode:"default"}};
+  });
+  await executeHapi(run);
+  const body = request.mock.calls.find(([path]) => path.endsWith("/spawn"))?.[1] as any;
+  const field = ["claude", "pi"].includes(flavor) ? "effort" : "modelReasoningEffort";
+  if (effort === undefined) {
+    expect(body).not.toHaveProperty("effort");
+    expect(body).not.toHaveProperty("modelReasoningEffort");
+  } else expect(body[field]).toBe(effort);
+  expect(dispatchFor(run.id)?.state).toBe("accepted");
+  expect(request.mock.calls.filter(([path]) => path.endsWith("/messages"))).toHaveLength(1);
+});
