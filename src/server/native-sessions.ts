@@ -37,6 +37,7 @@ import {
 } from "../protocol.js";
 import type { Snapshot } from "./agent-runtime.js";
 import { replyPrompt } from "../shared/replies.js";
+import { reviewContext } from "./review-access.js";
 import {
   autoApproval,
   DEFAULT_PERMISSION_MODE,
@@ -1604,7 +1605,17 @@ export class NativeSessions {
     live.run = run;
     live.cancelling = false;
     const snapshot = JSON.parse(run.payload) as Snapshot;
-    const input = replyPrompt(run.input, snapshot.replyTo);
+    // The native session keeps the snapshot context after the first review turn.
+    const opensReview =
+      snapshot.reviewId &&
+      !db
+        .prepare(
+          "SELECT 1 FROM runs WHERE conversation_id=? AND rowid<(SELECT rowid FROM runs WHERE id=?)",
+        )
+        .get(run.conversation_id, run.id);
+    const input =
+      replyPrompt(run.input, snapshot.replyTo) +
+      (opensReview ? "\n\n" + reviewContext(run) : "");
     db.transaction(() => {
       const messageId = id();
       db.prepare(

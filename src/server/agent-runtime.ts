@@ -36,11 +36,7 @@ import type { Agent, Connection, Message } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
 import { isArchivedHapi, type NativeSelection } from "./legacy-execution.js";
 import { nativeSessions } from "./native-sessions.js";
-import {
-  assertReviewConnection,
-  assertReviewIdentity,
-  reviewContext,
-} from "./review-access.js";
+import { assertReviewIdentity, reviewContext } from "./review-access.js";
 export type Snapshot = {
   agentId: string;
   name: string;
@@ -296,10 +292,7 @@ export function submit(
           409,
           "Use Review changes to capture a snapshot for this review team first",
         );
-      if (reviewId) {
-        assertReviewIdentity(owner, reviewId, teamId, agent.id);
-        assertReviewConnection(connection);
-      }
+      if (reviewId) assertReviewIdentity(owner, reviewId, teamId, agent.id);
       const snapshot: Snapshot = {
         agentId: agent.id,
         name: agent.name,
@@ -321,7 +314,13 @@ export function submit(
         folderId,
         source: data.source,
         teamId,
-        ...(reviewId ? { reviewId, maxSeconds: 180 } : {}),
+        // Native harnesses start a full session per reviewer, so they get longer.
+        ...(reviewId
+          ? {
+              reviewId,
+              maxSeconds: isNativeConnection(connection) ? 600 : 180,
+            }
+          : {}),
         attachmentIds: attachments.map((file) => file.id),
         replyTo,
       };
@@ -529,9 +528,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
       snapshot.reviewId,
       snapshot.teamId,
       run.agent_id!,
-    );
-    assertReviewConnection(
-      owned<Connection>("connections", snapshot.connectionId, run.owner_id),
     );
     if (snapshot.execution)
       throw new Problem(

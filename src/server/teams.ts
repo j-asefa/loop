@@ -4,10 +4,7 @@ import { db, id, now } from "./db.js";
 import { createAgent, owned, Problem } from "./domain.js";
 import { createHash } from "node:crypto";
 import { suggestAgentName } from "./agent-names.js";
-import {
-  TEAM_PRESETS,
-  supportsSnapshotReview,
-} from "../shared/team-presets.js";
+import { TEAM_PRESETS } from "../shared/team-presets.js";
 import { startCodeReview, reviewStatus } from "./code-reviews.js";
 import { isArchivedHapi } from "./legacy-execution.js";
 import type { Agent, Connection } from "../shared/types.js";
@@ -155,16 +152,7 @@ export function createPresetTeam(owner: string, input: unknown) {
       owned("folders", d.folderId, owner);
       const agents = preset.roles.map((role) => {
         const chosen = d.roles[role.id] || d.selection;
-        const connection = owned<Connection>(
-          "connections",
-          chosen.connectionId,
-          owner,
-        );
-        if (preset.id === "code-review" && !supportsSnapshotReview(connection))
-          throw new Problem(
-            409,
-            "Snapshot reviews require API connections. Native harnesses do not yet enforce read-only review; billing will not be switched automatically.",
-          );
+        owned<Connection>("connections", chosen.connectionId, owner);
         return {
           role: role.id,
           agent: createAgent(owner, {

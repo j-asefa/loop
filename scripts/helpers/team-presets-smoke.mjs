@@ -29,12 +29,15 @@ export async function teamPresetsSmoke(page, fixture, _engine, capture) {
   await dialog()
     .getByLabel("Project", { exact: true })
     .selectOption(project.id);
+  // Subscriptions are offered alongside API connections.
   await expect(
-    dialog().getByLabel("Default for all roles connection"),
-  ).toHaveValue(connection.id);
-  await expect(
-    dialog().getByLabel("Default for all roles connection").locator("option"),
-  ).toHaveCount(2);
+    dialog()
+      .getByLabel("Default for all roles connection")
+      .locator("option", { hasText: "Personal Claude" }),
+  ).toHaveCount(1);
+  await dialog()
+    .getByLabel("Default for all roles connection")
+    .selectOption(connection.id);
   await dialog()
     .getByText("Customize connections by role", { exact: true })
     .click();

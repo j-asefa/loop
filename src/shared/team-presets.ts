@@ -1,5 +1,3 @@
-import type { Connection } from "./types.js";
-
 export type TeamPreset = {
   id: string;
   version: number;
@@ -15,7 +13,7 @@ export const TEAM_PRESETS: readonly TeamPreset[] = [
     version: 1,
     name: "Review code changes",
     description:
-      "Three independent reviewers and one consolidated review. Local snapshots; no PR or CI required. Uses API connections with read-only tools.",
+      "Three independent reviewers and one consolidated review. Local snapshots; no PR or CI required.",
     roles: [
       {
         id: "lead",
@@ -94,21 +92,3 @@ export const TEAM_PRESETS: readonly TeamPreset[] = [
     ],
   },
 ];
-
-// These connections expose only the tools Loop supplies. Harness sessions have
-// native tools of their own and cannot yet enforce this review boundary.
-export function supportsSnapshotReview(
-  c: Pick<Connection, "provider" | "metadata">,
-) {
-  try {
-    const m = JSON.parse(c.metadata);
-    return (
-      ["openai", "anthropic"].includes(c.provider) &&
-      m.backend !== "hapi" &&
-      m.loopHarness == null &&
-      m.authMode !== "subscription"
-    );
-  } catch {
-    return false;
-  }
-}

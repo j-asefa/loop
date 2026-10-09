@@ -1,8 +1,6 @@
 import { z } from "zod";
 import { db } from "./db.js";
 import { owned, Problem } from "./domain.js";
-import { supportsSnapshotReview } from "../shared/team-presets.js";
-import type { Connection } from "../shared/types.js";
 import type { Run } from "./queue.js";
 import type { ReviewSnapshot } from "./review-snapshot.js";
 
@@ -17,13 +15,6 @@ export function reviewRecord(owner: string, id: string) {
     .get(id, owner) as any;
   if (!r) throw new Problem(404, "Review not found");
   return r;
-}
-export function assertReviewConnection(connection: Connection) {
-  if (!supportsSnapshotReview(connection))
-    throw new Problem(
-      409,
-      "Snapshot reviews require an API connection with read-only tools. Native harness billing is never switched automatically.",
-    );
 }
 export function readReview(run: Run, input: unknown) {
   const d = reviewReadSchema.parse(input);

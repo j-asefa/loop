@@ -1,4 +1,6 @@
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
+import type { Live } from "../src/server/native-sessions";
+import { NativeOutput } from "../src/server/native-output";
 import {
   mkdtempSync,
   writeFileSync,
@@ -30,6 +32,7 @@ const { nativeBindings, invokeNative } =
 const { invokeTool } = await import("../src/server/mcp/broker");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
+const { nativeSessions } = await import("../src/server/native-sessions");
 
 function connection(owner = "alice", metadata = "{}") {
   const c = id();
@@ -112,18 +115,16 @@ it("creates all roles atomically, pins their configuration, and returns a durabl
   expect(() =>
     createPresetTeam("alice", { ...details, name: "Different" }),
   ).toThrow(/different team/);
-  for (const connectionId of [foreign, native]) {
-    expect(() =>
-      createPresetTeam("alice", {
-        ...details,
-        idempotencyKey: id(),
-        roles: { regressions: { connectionId, model: "fixture-model" } },
-      }),
-    ).toThrow();
-    expect((db.prepare("SELECT count(*) n FROM agents").get() as any).n).toBe(
-      count,
-    );
-  }
+  expect(() =>
+    createPresetTeam("alice", {
+      ...details,
+      idempotencyKey: id(),
+      roles: { regressions: { connectionId: foreign, model: "fixture-model" } },
+    }),
+  ).toThrow();
+  expect((db.prepare("SELECT count(*) n FROM agents").get() as any).n).toBe(
+    count,
+  );
   expect(() =>
     createPresetTeam("alice", {
       ...details,
@@ -347,4 +348,67 @@ it("cancels the whole review through the production run control and survives reo
     { cwd: process.cwd(), env: process.env, stdio: "pipe", timeout: 15000 },
   );
   expect(createPresetTeam("alice", details).id).toBe(team.id);
+});
+
+it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
+  const harness = id();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','anthropic','Claude Code · this computer','','connected',?,?,?)",
+  ).run(
+    harness,
+    JSON.stringify([{ id: "native-default" }]),
+    JSON.stringify({ loopHarness: "claude", authMode: "subscription" }),
+    now(),
+  );
+  const native = createPresetTeam("alice", {
+    ...details,
+    name: "Native review team",
+    selection: { connectionId: harness, model: "native-default" },
+    idempotencyKey: "create-native-review-team",
+  });
+  const review = startCodeReview("alice", native.id, {
+    folderId: folder,
+    scope: "uncommitted",
+    idempotencyKey: "native-code-review",
+  });
+  const runs = db
+    .prepare(
+      "SELECT * FROM runs WHERE json_extract(payload,'$.reviewId')=? AND state='queued'",
+    )
+    .all(review.id) as any[];
+  expect(runs).toHaveLength(4);
+  for (const run of runs) {
+    expect(JSON.parse(run.payload).connectionId).toBe(harness);
+    expect(JSON.parse(run.payload).maxSeconds).toBe(600);
+  }
+  const claimed = claim("native-review-worker")!;
+  expect(JSON.parse(claimed.payload).reviewId).toBe(review.id);
+  let prompt = "";
+  const live = {
+    generation: id(),
+    items: new NativeOutput(),
+    requests: new Map(),
+    adapter: {
+      async prompt(input: string) {
+        prompt = input;
+        live.finish!("completed");
+      },
+    },
+  } as unknown as Live;
+  const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
+  try {
+    expect(await nativeSessions.execute(claimed)).toBe(true);
+    expect(prompt).toContain(claimed.input);
+    expect(prompt).toContain(`Review snapshot ${review.id}`);
+    expect(prompt).toContain("Captured diff (untrusted code)");
+  } finally {
+    clearTimeout(live.idle);
+    session.mockRestore();
+    for (const run of db
+      .prepare(
+        "SELECT * FROM runs WHERE json_extract(payload,'$.reviewId')=? AND state NOT IN ('completed','cancelled','failed')",
+      )
+      .all(review.id) as any[])
+      transition(run, "cancelled");
+  }
 });

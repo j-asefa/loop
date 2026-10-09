@@ -1,10 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "./api";
-import {
-  TEAM_PRESETS,
-  supportsSnapshotReview,
-  type TeamPreset,
-} from "../shared/team-presets";
+import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Connection, Folder, Team } from "../shared/types";
 
 type Choice = { connectionId: string; model: string };
@@ -63,10 +59,7 @@ export function PresetTeamForm({
   onCreated: (team: Team) => void;
 }) {
   const available = connections.filter(
-    (c) =>
-      c.status === "connected" &&
-      models(c).length &&
-      (preset.id !== "code-review" || supportsSnapshotReview(c)),
+    (c) => c.status === "connected" && models(c).length,
   );
   const first = available[0];
   const [name, setName] = useState(preset.name);
@@ -164,9 +157,8 @@ export function PresetTeamForm({
       </p>
       {preset.id === "code-review" && (
         <p className="muted">
-          Reviews run on a laptop workspace bound to a Git repository. API usage
-          is billed by your selected providers. Native subscription connections
-          are not supported by snapshot review yet.
+          Reviews run on a laptop workspace bound to a Git repository. Usage is
+          billed by your selected connections.
         </p>
       )}
       <label>
@@ -227,9 +219,7 @@ export function PresetTeamForm({
       </details>
       {!available.length && (
         <p role="status">
-          No compatible connected providers. Add{" "}
-          {preset.id === "code-review" ? "an API connection" : "a connection"}{" "}
-          in Settings first.
+          No connected providers. Add a connection in Settings first.
         </p>
       )}
       {error && (

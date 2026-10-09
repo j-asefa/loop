@@ -9,8 +9,8 @@ import {
   snapshotFingerprint,
   type ReviewSnapshot,
 } from "./review-snapshot.js";
-import { assertReviewConnection, reviewRecord } from "./review-access.js";
-import type { Agent, Connection } from "../shared/types.js";
+import { reviewRecord } from "./review-access.js";
+import type { Agent } from "../shared/types.js";
 
 const input = z.object({
   folderId: z.string().min(1),
@@ -65,9 +65,6 @@ export function startCodeReview(owner: string, teamId: string, value: unknown) {
     const agent = owned<Agent>("agents", a.agentId, owner);
     if (agent.retired_at)
       throw new Problem(409, "Restore all reviewers before starting a review");
-    assertReviewConnection(
-      owned<Connection>("connections", agent.connection_id!, owner),
-    );
   }
   const path = directory(owner, d.folderId);
   const snapshot = captureSnapshot(path, d.scope, d.base);
