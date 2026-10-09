@@ -1,3 +1,4 @@
+import { Problem } from "../shared/problem.js";
 import type { NewsStory } from "../shared/news.js";
 
 // One reader for every public feed format in use: RSS 2.0 (and 0.9x), RSS 1.0
@@ -126,7 +127,7 @@ const escapeTag = (tag: string) => tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * with no closing tag after it is skipped, as are any more like it, but a
  * later self-closing one is still found.
  */
-function elements(block: string, tag: string, limit = Infinity) {
+export function elements(block: string, tag: string, limit = Infinity) {
   const name = escapeTag(tag);
   const open = new RegExp(`<${name}(?=[\\s/>])`, "gi");
   const close = new RegExp(`</${name}\\s*>`, "gi");
@@ -173,7 +174,7 @@ function text(block: string, ...tags: string[]) {
   }
   return "";
 }
-function attribute(attrs: string, name: string) {
+export function attribute(attrs: string, name: string) {
   const match = attrs.match(
     new RegExp(
       `(?:^|\\s)${escapeTag(name)}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,
@@ -228,11 +229,72 @@ type Draft = {
   points: number | null;
   comments: number | null;
   summary: string;
+  image: string | null;
+  media: NewsStory["media"];
   /** The item's raw markup, for site extras. */
   source: string;
   /** The item's HTML body, for site extras. */
   body: string;
 };
+
+// A feed's own picture for an item, and an audio or video file it attached.
+// Only web addresses are kept, and an image must be https: a page served over
+// https cannot load an http picture anyway, so a broken box is all it would be.
+const picture = (value: string | null, base?: string) => {
+  const url = webUrl(value, base);
+  return url?.startsWith("https:") ? url : null;
+};
+const seconds = (value: unknown) => {
+  const n = Number(typeof value === "string" ? value.trim() : value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+};
+const playable = (type: string) => /^(audio|video)\//i.test(type);
+
+/** The picture a feed offered: a thumbnail, an image enclosure, or the body's. */
+function imageOf(item: string, body: string, base: string) {
+  for (const tag of ["media:thumbnail", "media:content", "itunes:image"]) {
+    for (const { attrs } of elements(item, tag)) {
+      const type = attribute(attrs, "type");
+      const medium = attribute(attrs, "medium").toLowerCase();
+      if (type && !/^image\//i.test(type)) continue;
+      if (medium && medium !== "image") continue;
+      const found = picture(
+        attribute(attrs, "url") || attribute(attrs, "href"),
+        base,
+      );
+      if (found) return found;
+    }
+  }
+  for (const { attrs } of elements(item, "enclosure"))
+    if (/^image\//i.test(attribute(attrs, "type"))) {
+      const found = picture(attribute(attrs, "url"), base);
+      if (found) return found;
+    }
+  // Last resort: the first picture in the item's own markup.
+  const inline = body.match(/<img\b[^<>]*?\bsrc\s*=\s*"([^"]+)"/i);
+  return inline ? picture(decode(inline[1]), base) : null;
+}
+
+/** An audio or video file a feed attached: a podcast episode, or a video. */
+function mediaOf(item: string, base: string): NewsStory["media"] {
+  for (const { attrs } of [
+    ...elements(item, "enclosure"),
+    ...elements(item, "media:content"),
+  ]) {
+    const type = attribute(attrs, "type");
+    if (!playable(type)) continue;
+    const url = webUrl(attribute(attrs, "url"), base);
+    if (!url) continue;
+    return {
+      url,
+      type: type.slice(0, 60),
+      seconds:
+        seconds(attribute(attrs, "duration")) ??
+        seconds(text(item, "itunes:duration")),
+    };
+  }
+  return null;
+}
 
 function rssItem(item: string, base: string): Draft {
   const body = text(item, "content:encoded", "description");
@@ -261,6 +323,8 @@ function rssItem(item: string, base: string): Draft {
     comments: count(text(item, "slash:comments")),
     // The description is the excerpt; content:encoded is often the whole post.
     summary: text(item, "description") || body,
+    image: imageOf(item, body, base),
+    media: mediaOf(item, base),
     source: item,
     body,
   };
@@ -312,6 +376,19 @@ function atomEntry(entry: string, base: string): Draft {
       atomText(entry, "summary") ||
       body ||
       escapeHtml(text(entry, "media:description")),
+    image: imageOf(entry, body, base),
+    media:
+      mediaOf(entry, base) ||
+      // Atom attaches media with rel="enclosure" rather than <enclosure>.
+      links
+        .filter((link) => link.rel === "enclosure" && link.href)
+        .map((link) =>
+          playable(link.type)
+            ? { url: link.href!, type: link.type.slice(0, 60), seconds: null }
+            : null,
+        )
+        .find(Boolean) ||
+      null,
     source: entry,
     body,
   };
@@ -340,9 +417,35 @@ function jsonItem(item: any, base: string): Draft {
     points: null,
     comments: null,
     summary: typeof item?.summary === "string" ? item.summary : body,
+    image:
+      picture(item?.image, base) ||
+      picture(item?.banner_image, base) ||
+      attachment(item, /^image\//i, base)?.url ||
+      null,
+    media: attachment(item, /^(audio|video)\//i, base),
     source: "",
     body,
   };
+}
+
+/** A JSON Feed attachment of a kind, as a media entry. */
+function attachment(item: any, kind: RegExp, base: string) {
+  const list = Array.isArray(item?.attachments) ? item.attachments : [];
+  for (const found of list) {
+    const type = typeof found?.mime_type === "string" ? found.mime_type : "";
+    if (!kind.test(type)) continue;
+    const url = type.toLowerCase().startsWith("image/")
+      ? picture(found?.url, base) : webUrl(found?.url, base);
+    if (url) {
+      if (type.startsWith("image/")) return { url, type, seconds: null };
+      return {
+        url,
+        type: type.slice(0, 60),
+        seconds: seconds(found?.duration_in_seconds),
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -430,6 +533,8 @@ function finish(drafts: Draft[], home: string | null, feedUrl: string) {
       points: draft.points,
       comments: draft.comments,
       summary: summary ? clip(summary, MAX_SUMMARY) : null,
+      image: draft.image,
+      media: draft.media,
     });
     if (stories.length >= MAX_STORIES) break;
   }
@@ -447,10 +552,10 @@ export function parseFeed(document: string, feedUrl: string): ParsedFeed {
     try {
       json = JSON.parse(trimmed);
     } catch {
-      throw new Error("This isn’t a feed: it isn’t valid JSON.");
+      throw new Problem(400, "This isn’t a feed: it isn’t valid JSON.");
     }
     if (!Array.isArray(json?.items))
-      throw new Error("This isn’t a feed: it has no items.");
+      throw new Problem(400, "This isn’t a feed: it has no items.");
     const home = webUrl(json.home_page_url, feedUrl);
     return {
       title:
@@ -468,7 +573,7 @@ export function parseFeed(document: string, feedUrl: string): ParsedFeed {
   const xml = dropComments(trimmed);
   const atom = /<feed[\s>]/i.test(xml) && !/<(rss|rdf:RDF)[\s>]/i.test(xml);
   if (!atom && !/<(rss|rdf:RDF|channel)[\s>]/i.test(xml))
-    throw new Error("This isn’t an RSS, Atom or JSON feed.");
+    throw new Problem(400, "This isn’t an RSS, Atom or JSON feed.");
   const items = elements(xml, atom ? "entry" : "item", MAX_STORIES * 2);
   const head = xml.slice(0, items[0]?.at ?? xml.length);
   const home = atom

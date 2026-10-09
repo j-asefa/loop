@@ -32,6 +32,9 @@ import { deliverNotifications } from "./notifications.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 import { pollWatches } from "./pr-watches.js";
+import { refreshDueFeeds } from "./news.js";
+import { runDueDigests } from "./feed-digests.js";
+import { matchWatches } from "./feed-watches.js";
 import { sweepAgentMail } from "./agent-mail.js";
 const workerId = id();
 export async function tick(
@@ -218,6 +221,28 @@ export function startWorker() {
         observeEnvironments();
       } catch {}
     }, 5000),
+  );
+  // Social feeds. Reading them here rather than when a page asks means
+  // opening Social is served from the store, and stays fresh with the tab
+  // closed. Digests and watches run once the reads have settled, so they
+  // see what the pass brought in rather than what was there before it; the
+  // whole sequence is one tracked job, so stopping waits for all of it.
+  hapiTimers.push(
+    setInterval(() => {
+      if (stopping) return;
+      const promise = refreshDueFeeds()
+        .then(() => {
+          try {
+            runDueDigests();
+          } catch {}
+          try {
+            matchWatches();
+          } catch {}
+        })
+        .catch(() => {})
+        .finally(() => inflight.delete(promise));
+      inflight.add(promise);
+    }, 60_000),
   );
   hapiTimers.push(setInterval(() => void indexMemory(), 5000));
   hapiTimers.push(

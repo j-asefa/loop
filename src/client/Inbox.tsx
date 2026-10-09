@@ -151,6 +151,7 @@ type Summary = {
   later_due: number;
   scheduled_failed?: number;
   scheduled_pending?: number;
+  social_unread?: number;
 };
 type Brief = {
   sourceId?: string;
@@ -892,6 +893,12 @@ export function Inbox({
               scheduled_pending:
                 (sum.scheduled_pending || 0) +
                 (page.summary.scheduled_pending || 0),
+              // Social feeds belong to the paired app, so the count is one
+              // workspace's, not the sum of every source's.
+              social_unread: Math.max(
+                sum.social_unread || 0,
+                page.summary.social_unread || 0,
+              ),
             }),
             { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary,
           ),
@@ -965,12 +972,15 @@ export function Inbox({
     // The request ticket prevents the older response from replacing this one.
     const update = () => void load();
     window.addEventListener("loop-later-change", update);
+    // Reading a story changes the Social chip's count.
+    window.addEventListener("loop-social-read", update);
     // "Retry connection" asks every source-backed view to reload now.
     window.addEventListener("loop-source-refresh", update);
     // Workspace events already bump `revision`; this is only a fallback.
     const timer = setInterval(() => void load(false, true), 30_000);
     return () => {
       window.removeEventListener("loop-later-change", update);
+      window.removeEventListener("loop-social-read", update);
       window.removeEventListener("loop-source-refresh", update);
       clearInterval(timer);
     };
@@ -1232,6 +1242,7 @@ export function Inbox({
         needs: summary.needs + (summary.scheduled_failed || 0),
         working: summary.working,
         queued: summary.queued,
+        social: summary.social_unread,
       }
     : {};
   return (
@@ -1287,7 +1298,7 @@ export function Inbox({
       )}
       {filter === "needs" && needsSlot}
       {isSocial(filter) ? (
-        <Social onAsk={onAsk} />
+        <Social onAsk={onAsk} agents={agents} />
       ) : (
         <>
           {error && (

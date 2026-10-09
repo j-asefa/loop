@@ -27,6 +27,11 @@ if (
           "test/",
           "--exclude",
           "test/**/*.node.test.ts",
+          // "test/" matches any path containing it, so a nested checkout
+          // under .tmp (deployment fixtures keep sources there) would be
+          // collected as well.
+          "--exclude",
+          "**/.tmp/**",
           ...extra,
         ]
       : [

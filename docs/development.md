@@ -14,16 +14,19 @@ The root build typechecks, builds the Vite UI/service worker and bundles CLI/ser
 
 ## Tests by boundary
 
-| Check                      | Purpose                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `npm run typecheck`        | Root TypeScript                                                               |
-| `npm test`                 | Vitest server/domain and shared client production logic in `test/`            |
-| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing |
-| `npm run test:all`         | Both root suites                                                              |
+| Check                      | Purpose                                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`        | Root TypeScript                                                                                                 |
+| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                              |
+| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                   |
+| `npm run test:all`         | Both root suites                                                                                                |
 | `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service |
-| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                    |
+| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                      |
+| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual, not in CI                                             |
 
 The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime settings and credentials (except explicit `LOOP_TEST_*` fixture controls) from its child environment. Vitest starts with `LOOP_PROFILE=server`; individual companion fixtures still choose their own profile. Native fixtures choose their profiles independently. This prevents a companion-launched terminal from injecting live state or disabling memory tests. Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
+
+`feeds:check` is the exception to fixture-only testing: it fetches the checked-in [feed catalog](../src/shared/news.ts) through [feed-fetch.ts](../src/server/feed-fetch.ts), the same transport Social uses, and exits non-zero for any feed that no longer parses. Run it when changing the catalog and put its output in the PR. The Vitest suite never reaches a feed.
 
 For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
 
@@ -40,6 +43,7 @@ npx playwright install --with-deps chromium webkit
 npm run smoke:design
 npm run smoke:history
 npm run smoke:pulls
+npm run smoke:social
 npm run smoke:companion
 LOOP_BROWSER=webkit npm run smoke:companion
 npm run smoke:reconnect
@@ -50,7 +54,7 @@ npm run smoke:journey
 LOOP_BROWSER=webkit npm run smoke:journey
 ```
 
-`smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. `smoke:pulls` drives the Pull requests tab against a scripted GitHub ([fake-github.mjs](../scripts/helpers/fake-github.mjs)); it does not reach GitHub.
+`smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html`, `smoke:social` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. `smoke:pulls` drives the Pull requests tab against a scripted GitHub ([fake-github.mjs](../scripts/helpers/fake-github.mjs)); it does not reach GitHub. `smoke:social` seeds stories straight into the feed store, so it drives Social's reading, saving, filtering, search and watches without reaching a feed.
 
 `smoke:history` opens a long transcript and verifies that older activity is fetched only when requested, historical file reviews remain available, and live updates keep their own cursor.
 

@@ -19,12 +19,17 @@ import {
 } from "./ThreadTools";
 import type { Artifact } from "../shared/types";
 import { Avatar, RichText, Sheet } from "./components";
-import { dayLabel, relativeTime, reminderReason, timeLabel } from "./threadView";
+import {
+  dayLabel,
+  relativeTime,
+  reminderReason,
+  timeLabel,
+} from "./threadView";
 import { notify } from "./toast";
 
 type LaterView = {
   id: string;
-  kind: "conversation" | "artifact" | "message";
+  kind: "conversation" | "artifact" | "message" | "story";
   target_id: string;
   condition: "time" | "run_finished" | "project_open";
   due_at: number | null;
@@ -39,6 +44,8 @@ type LaterView = {
   message_id: string | null;
   agent_name: string | null;
   project_name: string | null;
+  /** Where a saved story is, which is outside Loop. */
+  url?: string | null;
 };
 export type SavedMessage = {
   message_id: string;
@@ -52,6 +59,8 @@ export type SavedMessage = {
   agent_name: string | null;
   provider: string | null;
   project_name: string | null;
+  /** Where a saved story is, which is outside Loop. */
+  url?: string | null;
 };
 // Results and messages share one Saved list, newest save first.
 type SavedItem = { key: string; saved_at: number; label?: string | null } & (
@@ -111,7 +120,9 @@ function Card({
       id={id}
       tabIndex={-1}
       className={
-        "feed-card later-card" + (due ? " due" : "") + (focused ? " focused" : "")
+        "feed-card later-card" +
+        (due ? " due" : "") +
+        (focused ? " focused" : "")
       }
     >
       <div className="card-byline">
@@ -203,8 +214,8 @@ function LabelSheet({
           />
         </label>
         <p className="field-hint">
-          A few words to recognise this later. Search in Saved finds labels
-          too. Leave empty to remove it.
+          A few words to recognise this later. Search in Saved finds labels too.
+          Leave empty to remove it.
         </p>
         {error && (
           <p role="alert" className="error">
@@ -240,7 +251,10 @@ export function SavedList({
   teams?: string;
   onOpen: (conversation: string, message?: string) => void;
   onReply: (message: SavedMessage) => void;
-  renderResult: (item: Artifact, options: { onUnsave: () => void }) => ReactNode;
+  renderResult: (
+    item: Artifact,
+    options: { onUnsave: () => void },
+  ) => ReactNode;
   onUnsaveResult: (item: Artifact) => Promise<void>;
   searchLabel?: string;
 }) {
@@ -282,7 +296,10 @@ export function SavedList({
     }
   }
   useEffect(() => {
-    const timer = setTimeout(() => void load(), query === (shown?.query || "") ? 0 : 250);
+    const timer = setTimeout(
+      () => void load(),
+      query === (shown?.query || "") ? 0 : 250,
+    );
     return () => clearTimeout(timer);
   }, [revision, project, teams, query]);
   useEffect(() => {
@@ -308,7 +325,11 @@ export function SavedList({
       onExpire: () => {
         const commit =
           item.kind === "message"
-            ? api(`/messages/${item.message.message_id}/saved`, undefined, "DELETE")
+            ? api(
+                `/messages/${item.message.message_id}/saved`,
+                undefined,
+                "DELETE",
+              )
             : onUnsaveResult(item.result);
         void Promise.resolve(commit)
           .then(() => {
@@ -325,9 +346,7 @@ export function SavedList({
   const labelRow = (item: SavedItem) => (
     <div className="saved-label-row">
       <Tag size={14} aria-hidden="true" />
-      {item.label ? (
-        <span className="saved-label">{item.label}</span>
-      ) : null}
+      {item.label ? <span className="saved-label">{item.label}</span> : null}
       <button
         type="button"
         className="text-button"
@@ -455,8 +474,9 @@ export function SavedList({
           onSaved={(label) => {
             setSaved(
               (old) =>
-                old?.map((o) => (o.key === labelling.key ? { ...o, label } : o)) ||
-                null,
+                old?.map((o) =>
+                  o.key === labelling.key ? { ...o, label } : o,
+                ) || null,
             );
             notify({ text: label ? `Labelled “${label}”.` : "Label removed." });
           }}
@@ -489,7 +509,10 @@ export function Later({
   onReply: (message: SavedMessage) => void;
   /** Put a message that could not be sent back into a draft. */
   onDraft: (item: ScheduledSend) => void;
-  renderResult: (item: Artifact, options: { onUnsave: () => void }) => ReactNode;
+  renderResult: (
+    item: Artifact,
+    options: { onUnsave: () => void },
+  ) => ReactNode;
   onUnsaveResult: (item: Artifact) => Promise<void>;
 }) {
   type Reminders = { due: LaterView[]; upcoming: LaterView[] };
@@ -501,9 +524,7 @@ export function Later({
   const [section, setSectionState] = useState<LaterSection>(() => {
     const value = cachedView<string>("later-section");
     // Older links and cached views used "snoozed" for reminders.
-    return value === "snoozed"
-      ? "reminders"
-      : ((value as LaterSection) || "all");
+    return value === "snoozed" ? "reminders" : (value as LaterSection) || "all";
   });
   const [focus, setFocus] = useState<string | null>(
     () => cachedView<string | null>("later-focus") || null,
@@ -564,6 +585,9 @@ export function Later({
   }, [focus, !!later]);
   function open(item: LaterView) {
     if (item.kind === "artifact") onArtifact(item.target_id);
+    // A saved story is on someone else's site, so it opens there.
+    else if (item.kind === "story" && item.url)
+      window.open(item.url, "_blank", "noopener,noreferrer");
     else if (item.conversation_id)
       onOpen(item.conversation_id, item.message_id || undefined);
   }
@@ -615,7 +639,11 @@ export function Later({
           <>
             <button
               type="button"
-              aria-label={due ? `Done with ${item.title}` : `Cancel reminder for ${item.title}`}
+              aria-label={
+                due
+                  ? `Done with ${item.title}`
+                  : `Cancel reminder for ${item.title}`
+              }
               onClick={() => void done(item, due)}
             >
               <Check size={16} /> {due ? "Done" : "Cancel"}
@@ -641,39 +669,45 @@ export function Later({
   return (
     <section className="later-page" aria-label="Later">
       {!only && (
-      <div className="chip-row later-sections" role="tablist" aria-label="Show">
-        {(
-          [
-            ["saved", "Saved"],
-            ["reminders", "Reminders"],
-            ["scheduled", "Scheduled"],
-            ["all", "Everything"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            role="tab"
-            type="button"
-            className={"chip" + (value === "scheduled" && failed ? " attention" : "")}
-            aria-selected={section === value}
-            onClick={() => setSection(value)}
-          >
-            {label}
-            {!!counts[value] && (
-              <span
-                className="chip-count"
-                aria-label={
-                  value === "scheduled"
-                    ? `${counts[value]} not sent`
-                    : `${counts[value]} back now`
-                }
-              >
-                {counts[value]}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+        <div
+          className="chip-row later-sections"
+          role="tablist"
+          aria-label="Show"
+        >
+          {(
+            [
+              ["saved", "Saved"],
+              ["reminders", "Reminders"],
+              ["scheduled", "Scheduled"],
+              ["all", "Everything"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              role="tab"
+              type="button"
+              className={
+                "chip" + (value === "scheduled" && failed ? " attention" : "")
+              }
+              aria-selected={section === value}
+              onClick={() => setSection(value)}
+            >
+              {label}
+              {!!counts[value] && (
+                <span
+                  className="chip-count"
+                  aria-label={
+                    value === "scheduled"
+                      ? `${counts[value]} not sent`
+                      : `${counts[value]} back now`
+                  }
+                >
+                  {counts[value]}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       )}
       {error && (
         <div className="error" role="alert">
@@ -692,7 +726,9 @@ export function Later({
           {!!later?.due.length && (
             <>
               <h3 className="section-subtitle">Back now</h3>
-              <div className="feed">{later.due.map((i) => reminderCard(i, true))}</div>
+              <div className="feed">
+                {later.due.map((i) => reminderCard(i, true))}
+              </div>
             </>
           )}
           {later?.upcoming.length ? (

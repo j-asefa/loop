@@ -179,7 +179,10 @@ function initialPage() {
   return { tab: params.has("folder") ? "profile" : "inbox" };
 }
 function initialFilter(): InboxFilter {
-  const value = new URLSearchParams(location.search).get("filter");
+  const params = new URLSearchParams(location.search);
+  // A notification about a story opens Social on it.
+  if (params.has("social")) return "social";
+  const value = params.get("filter");
   return inboxFilters.some((f) => f.id === value)
     ? (value as InboxFilter)
     : initialPage().filter || "done";
@@ -508,7 +511,16 @@ export default function App() {
     }
     const target = url.searchParams.get("conversation");
     const artifact = url.searchParams.get("artifact");
-    if (target) {
+    const story = url.searchParams.get("social");
+    if (story) {
+      setProfile(null);
+      setConversation(null);
+      setTab("inbox");
+      setInboxFilter("social");
+      // Social reads the story from the address, as it does on a cold open.
+      history.replaceState(null, "", url.pathname + url.search);
+      window.dispatchEvent(new Event("loop-refresh"));
+    } else if (target) {
       setProfile(null);
       setConversation(
         target,

@@ -168,7 +168,14 @@ export function messageActions({
   return {
     primary: [
       ...(canReply
-        ? [{ id: "reply", label: "Reply", icon: <Reply size={20} />, onSelect: onReply }]
+        ? [
+            {
+              id: "reply",
+              label: "Reply",
+              icon: <Reply size={20} />,
+              onSelect: onReply,
+            },
+          ]
         : []),
       {
         id: "save",
@@ -220,7 +227,12 @@ export function messageActions({
         icon: <Sparkles size={20} />,
         onSelect: onSnippet,
       },
-      { id: "copy", label: "Copy text", icon: <Copy size={20} />, onSelect: onCopy },
+      {
+        id: "copy",
+        label: "Copy text",
+        icon: <Copy size={20} />,
+        onSelect: onCopy,
+      },
       {
         id: "share",
         label: "Share link",
@@ -293,7 +305,7 @@ export function LaterSheet({
   onClose,
   onDone,
 }: {
-  kind: "conversation" | "artifact" | "message";
+  kind: "conversation" | "artifact" | "message" | "story";
   targetId: string;
   /** Snooze this existing reminder again instead of creating one. */
   itemId?: string;
@@ -325,7 +337,10 @@ export function LaterSheet({
       projectId: condition === "project_open" ? project?.id : undefined,
     };
     try {
-      const row = await apiInWorkspace<{ id: string; replaced?: string | null }>(
+      const row = await apiInWorkspace<{
+        id: string;
+        replaced?: string | null;
+      }>(
         itemId ? `/later/${itemId}/snooze` : "/later",
         sourceId ?? scopedSource,
         itemId ? trigger : { kind, targetId, ...trigger },
@@ -389,11 +404,7 @@ export function LaterSheet({
                 setError("Choose a time in the future.");
                 return;
               }
-              void save(
-                "time",
-                at,
-                `${dayLabel(at)} at ${timeLabel(at)}`,
-              );
+              void save("time", at, `${dayLabel(at)} at ${timeLabel(at)}`);
             }}
           >
             Set
@@ -413,10 +424,17 @@ export function LaterSheet({
  * Undo a reminder Loop just created: cancel it, and reopen the reminder it
  * replaced, if any. Both are true reversals: nothing was sent anywhere.
  */
-export async function undoReminder(created: CreatedReminder, sourceId = executionSourceId()) {
+export async function undoReminder(
+  created: CreatedReminder,
+  sourceId = executionSourceId(),
+) {
   await apiInWorkspace("/later/" + created.id, sourceId, undefined, "DELETE");
   if (created.replaced)
-    await apiInWorkspace(`/later/${created.replaced}/reopen`, sourceId, {}).catch(() => {});
+    await apiInWorkspace(
+      `/later/${created.replaced}/reopen`,
+      sourceId,
+      {},
+    ).catch(() => {});
   window.dispatchEvent(new Event("loop-later-change"));
 }
 
@@ -633,7 +651,9 @@ export function OutlineSheet({
               previous = item.created_at;
               return (
                 <li key={item.kind + item.message_id} data-kind={item.kind}>
-                  {day && <h3 className="day-label">{dayLabel(item.created_at)}</h3>}
+                  {day && (
+                    <h3 className="day-label">{dayLabel(item.created_at)}</h3>
+                  )}
                   <button type="button" onClick={() => jump(item.message_id)}>
                     <span className="outline-icon" aria-hidden="true">
                       {outlineIcon[item.kind]}
@@ -747,7 +767,9 @@ export function ChangesSheet({
   const folders = [
     ...new Set(commands.map((c) => c.cwd).filter(Boolean)),
   ] as string[];
-  const failedCommands = commands.filter((c) => commandOutcome(c).failed).length;
+  const failedCommands = commands.filter(
+    (c) => commandOutcome(c).failed,
+  ).length;
   const starts = context?.runStartedAt || [];
   const meta = [
     context?.agentName && `@${context.agentName}`,
@@ -823,7 +845,9 @@ export function ChangesSheet({
                   {file.state === "applied" && (
                     <span className="changes-counts">
                       <span className="diff-add-count">+{file.additions}</span>
-                      <span className="diff-remove-count">−{file.deletions}</span>
+                      <span className="diff-remove-count">
+                        −{file.deletions}
+                      </span>
                     </span>
                   )}
                 </summary>
@@ -999,8 +1023,8 @@ export function ForkSheet({
       </p>
       <ul className="fork-notes">
         <li>
-          The new thread starts with the messages up to this point. The
-          original thread is not changed.
+          The new thread starts with the messages up to this point. The original
+          thread is not changed.
         </li>
         <li>
           <strong>Files are not rewound.</strong> The fork copies conversation
@@ -1180,7 +1204,9 @@ export function ScheduledSends({
   const [all, setItems] = useState<ScheduledSend[]>([]);
   // Older messages that could not be sent load a page at a time.
   const [failedNext, setFailedNext] = useState<string | null>(null);
-  const items = failedOnly ? all.filter((item) => item.state === "failed") : all;
+  const items = failedOnly
+    ? all.filter((item) => item.state === "failed")
+    : all;
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<ScheduledSend | null>(null);
@@ -1237,10 +1263,10 @@ export function ScheduledSends({
       if (action === "cancel")
         await api("/scheduled-sends/" + item.id, undefined, "DELETE");
       else {
-        const result = await api<{ run: { id: string } | null; row: ScheduledSend }>(
-          `/scheduled-sends/${item.id}/retry`,
-          {},
-        );
+        const result = await api<{
+          run: { id: string } | null;
+          row: ScheduledSend;
+        }>(`/scheduled-sends/${item.id}/retry`, {});
         if (!result.run)
           setError(result.row.error || "Loop could not send this message.");
       }
@@ -1305,8 +1331,8 @@ export function ScheduledSends({
             <RichText content={item.input} />
             {failed && (
               <p className="error" role="status">
-                Loop could not send this: {item.error || "it was refused."} Nothing
-                was sent, and Loop will not retry it on its own.
+                Loop could not send this: {item.error || "it was refused."}{" "}
+                Nothing was sent, and Loop will not retry it on its own.
               </p>
             )}
             <div className="scheduled-actions">
@@ -1494,12 +1520,13 @@ export function useSwipe({
   };
   return {
     offset,
-    armed:
-      offset >= threshold ? "right" : offset <= -threshold ? "left" : null,
+    armed: offset >= threshold ? "right" : offset <= -threshold ? "left" : null,
     handlers: {
       onPointerDown: (e: React.PointerEvent) => {
         if (e.pointerType === "mouse") return;
-        if ((e.target as HTMLElement).closest("pre,.table-scroll,input,textarea"))
+        if (
+          (e.target as HTMLElement).closest("pre,.table-scroll,input,textarea")
+        )
           return;
         start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
         horizontal.current = null;

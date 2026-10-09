@@ -1,7 +1,9 @@
 // Messages Loop submits on your behalf, not typed by you: a watched pull
-// request, or a teammate agent's message or delegated result.
+// request, a Social feed digest, or a teammate agent's message or delegated
+// result.
 export type Automation =
   | { kind: "github_watch"; watchId: string }
+  | { kind: "feed_digest"; digestId: string }
   | {
       kind: "agent_message" | "agent_result";
       mailId: string;
@@ -15,6 +17,7 @@ export function automationLabel(
   fromName?: string | null,
 ) {
   if (kind === "github_watch") return "GitHub update";
+  if (kind === "feed_digest") return "Feed digest";
   const from = fromName ? `@${fromName}` : "a teammate";
   if (kind === "agent_message") return `Message from ${from}`;
   if (kind === "agent_result") return `Result from ${from}`;

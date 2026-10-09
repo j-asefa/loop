@@ -15,6 +15,7 @@ import { messageReplyContext } from "./message-replies.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
 import { connectionSelection } from "./hapi/contracts.js";
+import { savedStory, unreadCount } from "./news.js";
 import type { Agent, Message } from "../shared/types.js";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads.js";
 
@@ -64,7 +65,8 @@ const conversationFolder = (c: string) =>
 // Delegated and workflow child runs are internal work, not user conversations.
 const internalRun = (r: string) =>
   `(EXISTS(SELECT 1 FROM delegations dl WHERE dl.child_run_id=${r}.id) OR EXISTS(SELECT 1 FROM workflow_steps ws WHERE ws.child_run_id=${r}.id))`;
-const ACTIVE_STATES = "('queued','running','pausing','paused','awaiting_approval')";
+const ACTIVE_STATES =
+  "('queued','running','pausing','paused','awaiting_approval')";
 const publicState = (r: string) =>
   `CASE WHEN ${r}.state IN ('running','pausing') AND ${r}.worker_id IS NULL THEN 'waiting_children' ELSE ${r}.state END`;
 
@@ -79,8 +81,7 @@ function readingPosition(owner: string, conversation: string) {
           "SELECT position_message_id FROM conversation_positions WHERE owner_id=? AND conversation_id=?",
         )
         .get(owner, conversation) as
-        | { position_message_id: string | null }
-        | undefined
+        { position_message_id: string | null } | undefined
     )?.position_message_id ?? null
   );
 }
@@ -113,17 +114,24 @@ function messageSaved(owner: string, message: string) {
     .get({ owner, message });
 }
 
-function conversationMessage(owner: string, conversation: string, message: string) {
+function conversationMessage(
+  owner: string,
+  conversation: string,
+  message: string,
+) {
   return db
     .prepare(
       "SELECT id,created_at FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
     )
     .get(message, owner, conversation) as
-    | { id: string; created_at: number }
-    | undefined;
+    { id: string; created_at: number } | undefined;
 }
 
-export function savePosition(owner: string, conversation: string, body: unknown) {
+export function savePosition(
+  owner: string,
+  conversation: string,
+  body: unknown,
+) {
   const { positionMessageId } = z
     .object({ positionMessageId: z.string().min(1).max(150).nullable() })
     .parse(body ?? {});
@@ -184,7 +192,12 @@ type InboxRow = {
   pending_approvals: number;
 };
 
-function inboxSql(teams: boolean, folders: boolean, agent = false, history = false) {
+function inboxSql(
+  teams: boolean,
+  folders: boolean,
+  agent = false,
+  history = false,
+) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
 base AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
@@ -288,7 +301,9 @@ export function inbox(
   }[filter];
   // Done lists outputs by when they finished, so a follow-up does not move them.
   const sortAt =
-    filter === "done" ? "COALESCE(done_at,last_activity_at)" : "last_activity_at";
+    filter === "done"
+      ? "COALESCE(done_at,last_activity_at)"
+      : "last_activity_at";
   const rows = db
     .prepare(
       `${sql} SELECT *,${sortAt} sort_at FROM flagged WHERE ${where}
@@ -321,7 +336,11 @@ export function inbox(
       inboxItem(
         owner,
         row,
-        filter === "done" ? "done" : filter === "working" ? "working" : "thread",
+        filter === "done"
+          ? "done"
+          : filter === "working"
+            ? "working"
+            : "thread",
       ),
     ),
     next: more && last ? encode([last.sort_at, last.conversation_id]) : null,
@@ -330,6 +349,7 @@ export function inbox(
       working: summary.working,
       queued: summary.queued,
       later_due: laterDue.n,
+      social_unread: unreadCount(owner),
       scheduled_failed: scheduled.failed,
       scheduled_pending: scheduled.pending,
     },
@@ -424,8 +444,7 @@ function inboxItem(
     ? (db
         .prepare("SELECT name,provider FROM agents WHERE id=? AND owner_id=?")
         .get(row.agent_id, owner) as
-        | { name: string; provider: string }
-        | undefined)
+        { name: string; provider: string } | undefined)
     : undefined;
   const project = projectFor(owner, row.folder_id);
   const runId = mode === "done" ? row.done_run_id : row.run_id;
@@ -571,7 +590,13 @@ function inboxItem(
     // While the agent works, its card shows what it has written so far.
     live_preview:
       run &&
-      ["running", "pausing", "waiting_children", "paused", "awaiting_approval"].includes(run.state)
+      [
+        "running",
+        "pausing",
+        "waiting_children",
+        "paused",
+        "awaiting_approval",
+      ].includes(run.state)
         ? livePreview(owner, run.id)
         : null,
     pending_approvals: mode === "done" ? 0 : row.pending_approvals,
@@ -638,7 +663,8 @@ function nextAction(
     return {
       kind: "approve",
       run_id: approval.run_id,
-      message_id: lastMessage(approval.run_id, "final") ?? firstMessage(approval.run_id),
+      message_id:
+        lastMessage(approval.run_id, "final") ?? firstMessage(approval.run_id),
     };
   const decision = resultOnly
     ? undefined
@@ -648,13 +674,13 @@ function nextAction(
           WHERE d.conversation_id=? AND d.state='pending' ORDER BY d.created_at LIMIT 1`,
         )
         .get(owner, conversation) as
-        | { run_id: string; request: string }
-        | undefined);
+        { run_id: string; request: string } | undefined);
   if (decision) {
     let questions = false;
     try {
       const request = JSON.parse(decision.request);
-      questions = Array.isArray(request?.questions) && request.questions.length > 0;
+      questions =
+        Array.isArray(request?.questions) && request.questions.length > 0;
     } catch {}
     // Native decisions are answered at the end of the thread.
     return {
@@ -863,7 +889,11 @@ export function listSaved(
 export function setSavedLabel(owner: string, body: unknown) {
   const d = z
     .object({
-      key: z.string().regex(/^[ma]:/).min(3).max(160),
+      key: z
+        .string()
+        .regex(/^[ma]:/)
+        .min(3)
+        .max(160),
       label: z.string().trim().max(40),
     })
     .parse(body);
@@ -911,7 +941,8 @@ export function conversationOutline(
   q?: string,
 ) {
   owned("conversations", conversation, owner);
-  if (q?.trim()) return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
+  if (q?.trim())
+    return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
   const messages = db
     .prepare(
       "SELECT id,run_id,role,substr(content,1,1000) content,created_at,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at,rowid",
@@ -1031,7 +1062,8 @@ function threadMatches(owner: string, conversation: string, q: string) {
   for (const row of rows) {
     const failed =
       ["failed", "interrupted"].includes(row.run_state || "") && row.last;
-    const inError = failed && (row.run_error || "").toLowerCase().includes(needle);
+    const inError =
+      failed && (row.run_error || "").toLowerCase().includes(needle);
     const inText = row.content.toLowerCase().includes(needle);
     if (inText)
       matches.push({
@@ -1065,7 +1097,11 @@ function excerpt(text: string, needle: string) {
   const at = flat.toLowerCase().indexOf(needle);
   if (at < 0) return flat.slice(0, 160);
   const start = Math.max(0, at - 60);
-  return (start ? "…" : "") + flat.slice(start, start + 160) + (start + 160 < flat.length ? "…" : "");
+  return (
+    (start ? "…" : "") +
+    flat.slice(start, start + 160) +
+    (start + 160 < flat.length ? "…" : "")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1073,7 +1109,7 @@ function excerpt(text: string, needle: string) {
 type LaterItem = {
   id: string;
   owner_id: string;
-  kind: "conversation" | "artifact" | "message";
+  kind: "conversation" | "artifact" | "message" | "story";
   target_id: string;
   condition: "time" | "run_finished" | "project_open";
   due_at: number | null;
@@ -1084,7 +1120,7 @@ type LaterItem = {
   snoozes: number;
 };
 const laterInput = z.object({
-  kind: z.enum(["conversation", "artifact", "message"]),
+  kind: z.enum(["conversation", "artifact", "message", "story"]),
   targetId: z.string().min(1).max(150),
   condition: z.enum(["time", "run_finished", "project_open"]),
   dueAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
@@ -1093,6 +1129,21 @@ const laterInput = z.object({
 const YEAR = 366 * 24 * 60 * 60 * 1000;
 
 function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
+  if (kind === "story") {
+    const story = savedStory(owner, target);
+    if (!story) return null;
+    return {
+      title: story.title,
+      preview: story.summary || story.url,
+      content: story.summary || "",
+      conversation_id: null,
+      message_id: null,
+      agent_name: null,
+      provider: null,
+      folder_id: null,
+      url: story.url,
+    };
+  }
   if (kind === "conversation") {
     const c = db
       .prepare(
@@ -1163,9 +1214,17 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
 }
 
 function validTrigger(
-  d: { condition: LaterItem["condition"]; dueAt?: number; projectId?: string },
+  d: {
+    kind?: LaterItem["kind"];
+    condition: LaterItem["condition"];
+    dueAt?: number;
+    projectId?: string;
+  },
   time: number,
 ) {
+  // A story has no run and belongs to no project: it comes back at a time.
+  if (d.kind === "story" && d.condition !== "time")
+    throw new Problem(400, "Choose when to bring this story back");
   if (d.condition === "time") {
     if (d.dueAt === undefined)
       throw new Problem(400, "Choose when to bring this back");
@@ -1186,12 +1245,21 @@ export function createLater(owner: string, body: unknown) {
   validTrigger(d, time);
   return db
     .transaction(() => {
-      const table = {
-        conversation: "conversations",
-        artifact: "artifacts",
-        message: "messages",
-      }[d.kind];
-      owned(table, d.targetId, owner);
+      if (d.kind === "story") {
+        // A story is not an owned row: it is public feed content, saved only
+        // if this owner follows the feed it came from.
+        if (!savedStory(owner, d.targetId))
+          throw new Problem(404, "Item not found");
+      } else
+        owned(
+          {
+            conversation: "conversations",
+            artifact: "artifacts",
+            message: "messages",
+          }[d.kind],
+          d.targetId,
+          owner,
+        );
       if (d.projectId) owned("folders", d.projectId, owner);
       const replaced = db
         .prepare(
@@ -1300,6 +1368,9 @@ export function listLater(owner: string) {
       message_id: target?.message_id ?? null,
       agent_name: target?.agent_name ?? null,
       project_name: project?.name ?? null,
+      // A saved story lives outside Loop, so Later needs its address to open
+      // it; everything else is opened by its conversation or result.
+      url: item.kind === "story" ? (target?.url ?? null) : null,
     };
   };
   return {
@@ -1380,7 +1451,9 @@ export function surfaceLater(time = now()) {
         enqueuePush(item.owner_id, "later-" + item.id, {
           title: "Back from Later",
           body: target?.title || "An item you deferred is ready",
-          url: target?.url || "/?page=profile",
+          url: item.kind === "story"
+            ? "/?social=" + encodeURIComponent(item.target_id)
+            : target?.url || "/?page=profile",
         });
       }
       return surfaced;
@@ -1391,20 +1464,22 @@ export function surfaceLater(time = now()) {
 // ---------------------------------------------------------------------------
 // 6. Scheduled sends
 const MONTH = 30 * 24 * 60 * 60 * 1000;
-const scheduleInput = z.object({
-  agentId: z.string().min(1).max(150),
-  conversationId: z.string().min(1).max(150).optional(),
-  folderId: z.string().min(1).max(150).nullable().optional(),
-  input: z.string().trim().min(1).max(30000),
-  attachmentIds,
-  replyToMessageId: z.string().min(1).max(150).optional(),
-  replyExcerpt: z.string().trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
-  idempotencyKey: z.string().min(8).max(150),
-  sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-}).refine((d) => !d.replyExcerpt || d.replyToMessageId, {
-  message: "Choose the message the excerpt comes from",
-  path: ["replyExcerpt"],
-});
+const scheduleInput = z
+  .object({
+    agentId: z.string().min(1).max(150),
+    conversationId: z.string().min(1).max(150).optional(),
+    folderId: z.string().min(1).max(150).nullable().optional(),
+    input: z.string().trim().min(1).max(30000),
+    attachmentIds,
+    replyToMessageId: z.string().min(1).max(150).optional(),
+    replyExcerpt: z.string().trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
+    idempotencyKey: z.string().min(8).max(150),
+    sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  })
+  .refine((d) => !d.replyExcerpt || d.replyToMessageId, {
+    message: "Choose the message the excerpt comes from",
+    path: ["replyExcerpt"],
+  });
 type ScheduledSend = {
   id: string;
   owner_id: string;
@@ -1496,7 +1571,10 @@ export function createScheduledSend(owner: string, body: unknown) {
         )
         .get(owner) as { n: number };
       if (pending.n >= 100)
-        throw new Problem(429, "You have 100 scheduled messages. Cancel some first.");
+        throw new Problem(
+          429,
+          "You have 100 scheduled messages. Cancel some first.",
+        );
       const sendId = id();
       db.prepare(
         `INSERT INTO scheduled_sends(id,owner_id,agent_id,conversation_id,folder_id,folder_chosen,input,attachment_ids,reply_to_message_id,reply_excerpt,idempotency_key,send_at,state,created_at)
@@ -1531,7 +1609,11 @@ function scheduledSend(owner: string, sendId: string) {
  * Scheduled messages that still need you: waiting to send, or not sent
  * because Loop refused them when they were due. Owner-wide, or one thread's.
  */
-const failedCursor = z.object({ at: z.number(), created: z.number(), id: z.string() });
+const failedCursor = z.object({
+  at: z.number(),
+  created: z.number(),
+  id: z.string(),
+});
 const FAILED_PAGE = 100;
 export function listScheduledSends(
   owner: string,
@@ -1572,7 +1654,9 @@ export function listScheduledSends(
   const pending = cursor
     ? []
     : db
-        .prepare(`${select} AND s.state='scheduled' ORDER BY s.send_at,s.created_at`)
+        .prepare(
+          `${select} AND s.state='scheduled' ORDER BY s.send_at,s.created_at`,
+        )
         .all({ owner, conversation: conversation ?? null });
   // Descriptors let "Copy to a draft" bring the files back with the text.
   const withFiles = (row: ScheduledSend) => ({
@@ -1610,11 +1694,20 @@ export function cancelScheduledSend(owner: string, sendId: string) {
  * at the chosen time. It was refused, never accepted, so its stored key has
  * no run and cannot duplicate work.
  */
-export function editScheduledSend(owner: string, sendId: string, body: unknown) {
+export function editScheduledSend(
+  owner: string,
+  sendId: string,
+  body: unknown,
+) {
   const d = z
     .object({
       input: z.string().trim().min(1).max(30000).optional(),
-      sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+      sendAt: z
+        .number()
+        .int()
+        .positive()
+        .max(Number.MAX_SAFE_INTEGER)
+        .optional(),
     })
     .parse(body ?? {});
   return db
@@ -1626,15 +1719,17 @@ export function editScheduledSend(owner: string, sendId: string, body: unknown) 
       if (row.state === "failed") {
         if (d.sendAt === undefined)
           throw new Problem(400, "Choose a new time to send it");
-        if (row.run_id)
-          throw new Problem(409, "This message was already sent");
+        if (row.run_id) throw new Problem(409, "This message was already sent");
         const pending = db
           .prepare(
             "SELECT count(*) n FROM scheduled_sends WHERE owner_id=? AND state='scheduled'",
           )
           .get(owner) as { n: number };
         if (pending.n >= 100)
-          throw new Problem(429, "You have 100 scheduled messages. Cancel some first.");
+          throw new Problem(
+            429,
+            "You have 100 scheduled messages. Cancel some first.",
+          );
       }
       if (d.sendAt !== undefined) validSendAt(d.sendAt);
       db.prepare(
@@ -1686,9 +1781,15 @@ export function retryScheduledSend(owner: string, sendId: string) {
       const row = scheduledSend(owner, sendId);
       if (!row) throw new Problem(404, "Item not found");
       if (row.state !== "failed")
-        throw new Problem(409, "Only a message that could not be sent can be retried");
+        throw new Problem(
+          409,
+          "Only a message that could not be sent can be retried",
+        );
       try {
-        return { run: submitScheduled(row), row: scheduledSend(owner, sendId)! };
+        return {
+          run: submitScheduled(row),
+          row: scheduledSend(owner, sendId)!,
+        };
       } catch (error) {
         const reason = refusal(error);
         if (reason === null) throw error;
@@ -1783,7 +1884,10 @@ export function reorderRun(owner: string, runId: string, body: unknown) {
         );
       const keys = peers.map((peer) => peer.queue_key);
       const reordered = [...peers];
-      [reordered[index], reordered[other]] = [reordered[other], reordered[index]];
+      [reordered[index], reordered[other]] = [
+        reordered[other],
+        reordered[index],
+      ];
       // Keep ranks near their original times and strictly increasing, so
       // equal timestamps cannot fall back to insertion order.
       let previous = -Infinity;
@@ -1809,7 +1913,10 @@ export function editQueuedRun(owner: string, runId: string, body: unknown) {
     .transaction(() => {
       const run = owned<QueuedRun>("runs", runId, owner);
       if (!editable(run))
-        throw new Problem(409, "This message has already started. It can no longer be edited.");
+        throw new Problem(
+          409,
+          "This message has already started. It can no longer be edited.",
+        );
       db.prepare(
         "UPDATE runs SET input=?,updated_at=? WHERE id=? AND owner_id=? AND state='queued' AND worker_id IS NULL",
       ).run(input, now(), run.id, owner);
@@ -1962,8 +2069,7 @@ export function forkConversation(
           "SELECT rowid seq,created_at FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
         )
         .get(d.messageId, owner, c.id) as
-        | { seq: number; created_at: number }
-        | undefined;
+        { seq: number; created_at: number } | undefined;
       if (!target)
         throw new Problem(404, "Message not found in this conversation");
       const messages = db

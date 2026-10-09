@@ -10,6 +10,7 @@ import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { connectionSelection } from "./hapi/contracts.js";
 import { readRunFile } from "./uploads.js";
+import { agentFeedAccess, feedForAgent } from "./news.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { applyActivity } from "./activities.js";
 import {
@@ -104,6 +105,13 @@ const schemas = {
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
   }),
   loop_diagram: diagram,
+  loop_feed: z.object({
+    feedId: z.string().max(120).optional(),
+    query: z.string().max(200).optional(),
+    unreadOnly: z.boolean().default(false),
+    since: z.number().int().nonnegative().optional(),
+    limit: z.number().int().min(1).max(50).default(20),
+  }),
   loop_install_mcp: install,
   loop_delegate: delegate,
   loop_message: messageSchema,
@@ -126,6 +134,10 @@ export function nativeBindings(
       "Read an uploaded file attached to this conversation. Offsets and lengths are bytes; use nextOffset to continue. Use utf8 for text or base64 for binary files. Decode base64 locally before using native document/image tools. Reading attached files needs no additional approval.",
     loop_diagram:
       "Create a native Mermaid flowchart or diagram in Loop. No installation needed. Supply plain Mermaid source without HTML, click handlers or directives.",
+    ...(agentFeedAccess(run.owner_id) && {
+      loop_feed:
+        "Read the public feeds the user follows in Loop's Social tab: headlines, excerpts, links and discussion links, newest first. Use it when the user asks what is new, to find a story they half-remember, or to summarize what they have not read. Filter with feedId, query, since or unreadOnly. It reads only the feeds they already follow and only what Loop has already read, so say what it is as of; it fetches nothing, marks nothing read, and needs no approval.",
+    }),
     loop_install_mcp:
       "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
   };
@@ -240,6 +252,10 @@ export async function invokeNative(
       throw new Problem(422, "Plan could not be saved: " + applied.reason);
     const done = steps.filter((s) => s.status === "completed").length;
     text = `Plan updated: ${done}/${steps.length} steps completed.`;
+  } else if (binding.tool === "loop_feed") {
+    text = JSON.stringify(
+      feedForAgent(run.owner_id, schemas.loop_feed.parse(args)),
+    );
   } else if (binding.tool === "loop_read_file") {
     const file = schemas.loop_read_file.parse(args);
     text = JSON.stringify(

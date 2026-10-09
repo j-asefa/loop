@@ -27,7 +27,9 @@
     "smoke:workspace": "node scripts/workspace-lifecycle-smoke.mjs",
     "smoke:html": "node scripts/html-preview-smoke.mjs",
     "smoke:pulls": "node scripts/pull-requests-smoke.mjs",
-    "smoke:reconnect": "node scripts/reconnect-browser-smoke.mjs"
+    "smoke:social": "node scripts/social-browser-smoke.mjs",
+    "smoke:reconnect": "node scripts/reconnect-browser-smoke.mjs",
+    "feeds:check": "node --import tsx scripts/feed-liveness.mjs"
   },
   "repository": {
     "type": "git",

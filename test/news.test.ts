@@ -10,22 +10,53 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { errorHandler } = await import("../src/server/error-handler");
 const { parseFeed } = await import("../src/server/syndication");
-const { news, withNewsFixture, socialStories, feedStories } = await import(
-  "../src/server/news"
-);
-const { feedById, feedCatalog } = await import("../src/shared/news");
+const {
+  news,
+  withNewsFixture,
+  socialStories,
+  feedStories,
+  refreshDueFeeds,
+  forgetAbandoned,
+  forgetCachedStories,
+} = await import("../src/server/news");
+const { db } = await import("../src/server/db");
+const storedFeedStories = (feed: string) =>
+  db
+    .prepare(
+      "SELECT title FROM feed_stories WHERE feed_id=? ORDER BY COALESCE(published_at,first_seen_at) DESC",
+    )
+    .all(feed) as { title: string }[];
+const { feedById, feedCatalog, sameStoryUrl } =
+  await import("../src/shared/news");
 const HACKER_NEWS_RSS = feedById.get("hackernews")!.url;
-const REDDIT_ATOM = feedById.get("reddit-programming")!.url;
+const LOBSTERS_RSS = feedById.get("lobsters")!.url;
+// Reddit is not in the catalog (it answers 429 logged out), but Social still
+// reads a subreddit's shape for anyone who adds one as their own feed.
+const REDDIT_ATOM = "https://www.reddit.com/r/programming/hot/.rss?limit=50";
 
-const app = express();
-app.use((req, res, next) => {
+const { mobile } = await import("../src/server/mobile-routes");
+const owner = (req: any, res: any, next: any) => {
   res.locals.owner = req.get("x-owner") || "alice";
   next();
-});
+};
+const app = express();
+app.use(express.json());
+app.use(owner);
 app.use(news);
 app.use(errorHandler);
 const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
+const laterApp = express();
+laterApp.use(express.json());
+laterApp.use(owner);
+laterApp.use(mobile);
+laterApp.use(errorHandler);
+const later = laterApp.listen(0, "127.0.0.1");
+await Promise.all(
+  [server, later].map(
+    (listener) =>
+      new Promise<void>((resolve) => listener.once("listening", resolve)),
+  ),
+);
 async function call(path: string, method = "GET", owner = "alice") {
   const response = await fetch(
     `http://127.0.0.1:${(server.address() as any).port}${path}`,
@@ -34,10 +65,48 @@ async function call(path: string, method = "GET", owner = "alice") {
   return { status: response.status, data: await response.json() };
 }
 const get = (path: string, owner?: string) => call(path, "GET", owner);
+async function send(
+  path: string,
+  method: string,
+  body?: unknown,
+  owner = "alice",
+) {
+  const response = await fetch(
+    `http://127.0.0.1:${(server.address() as any).port}${path}`,
+    {
+      method,
+      headers: { "x-owner": owner, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+  );
+  return { status: response.status, data: await response.json() };
+}
+/** Later lives on the mobile routes; a saved story is read back through them. */
+async function laterCall(
+  path: string,
+  method: string,
+  body?: unknown,
+  owner = "alice",
+) {
+  const response = await fetch(
+    `http://127.0.0.1:${(later.address() as any).port}${path}`,
+    {
+      method,
+      headers: { "x-owner": owner, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+  );
+  return { status: response.status, data: await response.json() };
+}
 let restore = () => {};
 afterEach(() => restore());
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await Promise.all(
+    [server, later].map(
+      (listener) =>
+        new Promise<void>((resolve) => listener.close(() => resolve())),
+    ),
+  );
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -64,6 +133,8 @@ it("reads stories from the official Hacker News feed", () => {
       points: null,
       comments: null,
       summary: null,
+      image: null,
+      media: null,
     },
     expect.objectContaining({
       id: "49950000",
@@ -106,6 +177,13 @@ const redditAtom = `<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://ww
 <entry><id>t3_1wxoefa</id><link href="https://www.reddit.com/r/programming/comments/1wxoefa/again/" /><title>Repeat</title></entry>
 </feed>`;
 
+// Lobsters: two dated stories and one undated, as a second feed to merge.
+const lobstersRss = `<rss version="2.0"><channel><title>Lobsters</title><link>https://lobste.rs/</link>
+<item><title>Zig 0.15 released</title><link>https://ziglang.org/news/0.15</link><comments>https://lobste.rs/s/abc</comments><pubDate>Sun, 04 Oct 2026 20:00:00 +0000</pubDate></item>
+<item><title>On sorting</title><link>https://example.net/sorting</link><comments>https://lobste.rs/s/def</comments><pubDate>Sat, 03 Oct 2026 10:00:00 +0000</pubDate></item>
+<item><title>Undated musing</title><link>https://example.net/musing</link></item>
+</channel></rss>`;
+
 it("reads posts from Reddit's Atom feed", () => {
   const posts = parseFeed(redditAtom, REDDIT_ATOM).stories;
   expect(posts).toEqual([
@@ -122,6 +200,8 @@ it("reads posts from Reddit's Atom feed", () => {
       points: null,
       comments: null,
       summary: null,
+      image: null,
+      media: null,
     },
     expect.objectContaining({
       id: "t3_1wxd33z",
@@ -142,11 +222,29 @@ it("reads posts from Reddit's Atom feed", () => {
 // Social: the catalog, each owner's added feeds, and the merged list.
 it("lists only public http(s) catalog feeds with unique ids", () => {
   expect(new Set(feedCatalog.map((f) => f.id)).size).toBe(feedCatalog.length);
-  for (const feed of feedCatalog) expect(feed.url).toMatch(/^https:\/\//);
+  const categories = new Set(feedCatalog.map((f) => f.category));
+  for (const feed of feedCatalog) {
+    expect(feed.url).toMatch(/^https:\/\//);
+    // Reddit's logged-out RSS answers 429: it is not a feed Loop can offer.
+    expect(new URL(feed.url).hostname).not.toMatch(/(^|\.)reddit\.com$/);
+    expect(feed.home).toBeTruthy();
+    expect(feed.home).not.toMatch(/^www\./);
+    expect(feed.color).toMatch(/^#[0-9a-f]{6}$/);
+    expect(feed.description.length).toBeGreaterThan(19);
+    expect(feed.description.length).toBeLessThan(141);
+    expect(feed.description.endsWith(".")).toBe(true);
+    expect(categories.has(feed.category)).toBe(true);
+    if (feed.mark)
+      expect(["hn", "reddit", "github", "youtube"]).toContain(feed.mark);
+  }
+  expect(categories).toContain("Communities");
 });
 
 it("adds and removes catalog feeds per owner", async () => {
-  expect((await get("/social/feeds", "bob")).data).toEqual({ added: [] });
+  expect((await get("/social/feeds", "bob")).data).toEqual({
+    added: [],
+    own: [],
+  });
   const added = await call("/social/feeds/hackernews", "PUT", "bob");
   expect(added.data).toEqual({ added: ["hackernews"] });
   // Adding twice is harmless; other owners are unaffected.
@@ -167,11 +265,11 @@ it("merges added feeds newest first, from one shared cache", async () => {
   restore = withNewsFixture(async (url, init) => {
     asked.push(url);
     expect(new Headers(init.headers).get("user-agent")).toMatch(/Loop/);
-    return new Response(url === REDDIT_ATOM ? redditAtom : officialRss);
+    return new Response(url === LOBSTERS_RSS ? lobstersRss : officialRss);
   });
   for (const owner of ["dana", "erin"]) {
     await call("/social/feeds/hackernews", "PUT", owner);
-    await call("/social/feeds/reddit-programming", "PUT", owner);
+    await call("/social/feeds/lobsters", "PUT", owner);
   }
   const { status, data } = await get("/social", "dana");
   expect(status).toBe(200);
@@ -179,16 +277,16 @@ it("merges added feeds newest first, from one shared cache", async () => {
   expect(
     data.stories.map((s: any) => [s.feed, s.title, s.id.split(":")[0]]),
   ).toEqual([
-    ["reddit-programming", '"8-pinski" - EIGHT(!) bytes intro for MSDOS', "reddit-programming"],
+    // An undated story sorts by when Loop first read it, which is now.
+    ["lobsters", "Undated musing", "lobsters"],
+    ["lobsters", "Zig 0.15 released", "lobsters"],
     ["hackernews", "Run a 125B model at 100T/s & more", "hackernews"],
-    ["reddit-programming", "Red, green and mud", "reddit-programming"],
+    ["lobsters", "On sorting", "lobsters"],
     ["hackernews", "Ask HN: What are you working on?", "hackernews"],
-    // Undated stories come last.
-    ["reddit-programming", "Sneaky", "reddit-programming"],
   ]);
   // A second owner with the same feeds is served from the same copies.
   await get("/social", "erin");
-  expect(asked.sort()).toEqual([HACKER_NEWS_RSS, REDDIT_ATOM].sort());
+  expect(asked.sort()).toEqual([HACKER_NEWS_RSS, LOBSTERS_RSS].sort());
 });
 
 it("keeps the last good copy and names feeds it can't load", async () => {
@@ -196,21 +294,22 @@ it("keeps the last good copy and names feeds it can't load", async () => {
   let calls = 0;
   restore = withNewsFixture(async (url) => {
     calls++;
-    if (fail || url === REDDIT_ATOM)
+    if (fail || url === LOBSTERS_RSS)
       return new Response("down", { status: 503 });
     return new Response(officialRss);
   });
   await call("/social/feeds/hackernews", "PUT", "frank");
-  await call("/social/feeds/reddit-programming", "PUT", "frank");
+  await call("/social/feeds/lobsters", "PUT", "frank");
   const first = await get("/social", "frank");
-  expect(first.data.failed).toEqual(["reddit-programming"]);
+  expect(first.data.failed).toEqual(["lobsters"]);
   expect(first.data.stories).toHaveLength(2);
-  // After five minutes Hacker News is refetched; its failure keeps the old list.
+  // After five minutes Hacker News is refetched; its failure keeps the old
+  // list. Lobsters is past its first two-minute backoff, so it is tried again.
   fail = true;
   const later = await socialStories("frank", Date.now() + 6 * 60_000);
   expect(calls).toBe(4);
   expect(later.stories).toHaveLength(2);
-  expect(later.failed).toEqual(["reddit-programming"]);
+  expect(later.failed).toEqual(["lobsters"]);
 });
 
 it("reads a blog's Atom feed, resolving relative links", () => {
@@ -238,6 +337,8 @@ it("reads a blog's Atom feed, resolving relative links", () => {
         points: null,
         comments: 7,
         summary: "We cut CI time — in half.",
+        image: null,
+        media: null,
       },
     ],
   });
@@ -365,23 +466,83 @@ it("remembers a failing feed instead of refetching it on every load", async () =
   expect(calls).toBe(1);
   await expect(feedStories(bluesky, at + 60_000)).rejects.toThrow(/503/);
   expect(calls).toBe(1);
-  // A document that isn't a feed is remembered the same way.
+  // A document that isn't a feed is remembered the same way. The second
+  // failure doubles the wait from two minutes to four.
   answer = () => new Response("<html>Sign in</html>");
-  await expect(feedStories(bluesky, at + 3 * 60_000)).rejects.toThrow(
+  await expect(feedStories(bluesky, at + 2 * 60_000)).rejects.toThrow(
     /isn’t an RSS/,
   );
   await expect(feedStories(bluesky, at + 4 * 60_000)).rejects.toThrow(
     /isn’t an RSS/,
   );
   expect(calls).toBe(2);
-  // Once it works again, the stories replace the failure.
+  // Once the wait is over and it works again, the stories replace the failure.
   answer = () => new Response(officialRss);
   const fixed = await feedStories(bluesky, at + 6 * 60_000);
   expect(fixed.stories.length).toBeGreaterThan(0);
   expect(calls).toBe(3);
 });
 
-it("stops reading a feed as soon as it passes 2 MB", async () => {
+it("widens the wait while a feed keeps failing, and honours Retry-After", async () => {
+  let calls = 0;
+  let header: Record<string, string> = {};
+  restore = withNewsFixture(async () => {
+    calls++;
+    return new Response("no", { status: 503, headers: header });
+  });
+  const at = Date.now();
+  // Two minutes, then four, then eight: a feed that has gone for good is not
+  // asked for every two minutes forever.
+  for (const [minute, expected] of [
+    [0, 1],
+    [1, 1],
+    [2, 2],
+    [5, 2],
+    [6, 3],
+    [13, 3],
+    [14, 4],
+  ] as const) {
+    await expect(feedStories(bluesky, at + minute * 60_000)).rejects.toThrow();
+    expect([minute, calls]).toEqual([minute, expected]);
+  }
+  // A feed that asks to be left alone for longer is.
+  restore();
+  calls = 0;
+  header = { "retry-after": "600" };
+  restore = withNewsFixture(async () => {
+    calls++;
+    return new Response("no", { status: 429, headers: header });
+  });
+  const later = at + 60 * 60_000;
+  await expect(feedStories(bluesky, later)).rejects.toThrow(/429/);
+  await expect(feedStories(bluesky, later + 5 * 60_000)).rejects.toThrow(/429/);
+  expect(calls).toBe(1);
+  await expect(feedStories(bluesky, later + 11 * 60_000)).rejects.toThrow(
+    /429/,
+  );
+  expect(calls).toBe(2);
+});
+
+it("says a feed needs an account when it redirects to a sign-in page", async () => {
+  const asked: string[] = [];
+  restore = withNewsFixture(async (url) => {
+    asked.push(url);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location:
+          "https://bsky.app/login/?reason=lor2&dest=" +
+          encodeURIComponent(bluesky.url),
+      },
+    });
+  });
+  await expect(feedStories(bluesky)).rejects.toThrow(/needs an account/);
+  // The sign-in page itself is never requested, so it cannot be parsed as a
+  // feed and reported as broken markup.
+  expect(asked).toEqual([bluesky.url]);
+});
+
+it("stops reading a feed once it has the stories, and refuses a runaway", async () => {
   let sent = 0;
   let cancelled = false;
   const endless = () =>
@@ -395,9 +556,11 @@ it("stops reading a feed as soon as it passes 2 MB", async () => {
       },
     });
   restore = withNewsFixture(async () => new Response(endless()));
+  // Nothing in it closes an item, so there is no prefix worth parsing: it is
+  // refused at the ceiling rather than read forever.
   await expect(feedStories(bluesky)).rejects.toThrow(/too large/);
   expect(cancelled).toBe(true);
-  expect(sent).toBeLessThan(2_500_000);
+  expect(sent).toBeLessThan(8_500_000);
 
   // A declared length that is too large is refused before reading anything.
   sent = 0;
@@ -411,6 +574,110 @@ it("stops reading a feed as soon as it passes 2 MB", async () => {
   );
   await expect(feedStories(bluesky)).rejects.toThrow(/too large/);
   expect(sent).toBeLessThan(200_000);
+});
+
+it("reads only the start of a feed that ships whole articles", async () => {
+  // A ten-megabyte full-text feed: Substack and most self-hosted blogs are
+  // like this, and the old two-megabyte cap refused them outright.
+  const article = "<p>" + "word ".repeat(4000) + "</p>";
+  const entry = (n: number) =>
+    `<entry><title>Post ${n}</title><link href="https://big.example/${n}"/><id>tag:big,${n}</id>` +
+    `<updated>2026-10-0${(n % 9) + 1}T09:00:00Z</updated>` +
+    `<content type="html">${article.replace(/</g, "&lt;")}</content></entry>`;
+  let sent = 0;
+  let cancelled = false;
+  let n = 0;
+  const feed = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Big</title>`,
+        ),
+      );
+    },
+    pull(controller) {
+      // Split each entry across chunks, including inside its closing tag.
+      const text = entry(n++);
+      for (let at = 0; at < text.length; at += 997) {
+        const slice = new TextEncoder().encode(text.slice(at, at + 997));
+        sent += slice.byteLength;
+        controller.enqueue(slice);
+      }
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  restore = withNewsFixture(async () => new Response(feed));
+  const shown = await feedStories(bluesky);
+  // The parser keeps fifty; reading stopped at a hundred items — about two
+  // megabytes of these, and far short of the ten on offer.
+  expect(shown.stories).toHaveLength(50);
+  expect(shown.stories[0].title).toMatch(/^Post \d+$/);
+  expect(cancelled).toBe(true);
+  expect(sent).toBeLessThan(3_000_000);
+});
+
+it("finds closing tags however the chunks fall", async () => {
+  // A closing tag can be split across more than two chunks. Carrying only the
+  // last chunk forward meant the tag was never assembled, the item count
+  // never advanced, and a perfectly readable feed was read to the ceiling and
+  // refused for being too large.
+  const entry = (n: number) =>
+    `<entry><title>Post ${n}</title><link href="https://b.example/${n}"/>` +
+    `<id>tag:b,${n}</id><updated>2026-10-05T09:00:00Z</updated></entry>`;
+  for (const chunk of [1, 2, 3, 4, 7, 64_000]) {
+    let sent = 0;
+    let n = 0;
+    restore();
+    restore = withNewsFixture(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>B</title>`,
+                ),
+              );
+            },
+            pull(controller) {
+              const text = entry(n++);
+              for (let at = 0; at < text.length; at += chunk) {
+                const slice = new TextEncoder().encode(
+                  text.slice(at, at + chunk),
+                );
+                sent += slice.byteLength;
+                controller.enqueue(slice);
+              }
+            },
+          }),
+        ),
+    );
+    const shown = await feedStories(bluesky);
+    expect([chunk, shown.stories.length]).toEqual([chunk, 50]);
+    // It stopped at the items it needed, not at the eight-megabyte ceiling.
+    expect(sent).toBeLessThan(100_000);
+  }
+});
+
+it("reads a JSON feed whole, and refuses one past the ceiling", async () => {
+  const items = Array.from({ length: 40 }, (_, i) => ({
+    id: String(i),
+    url: `https://json.example/${i}`,
+    title: `Item ${i}`,
+    date_published: "2026-10-05T09:00:00Z",
+    content_text: "x".repeat(60_000),
+  }));
+  restore = withNewsFixture(
+    async () =>
+      new Response(
+        JSON.stringify({ version: "https://jsonfeed.org/version/1.1", items }),
+      ),
+  );
+  // Over two megabytes, and a JSON document cannot be cut: it is read whole.
+  const shown = await feedStories(bluesky);
+  expect(shown.stories).toHaveLength(40);
 });
 
 it("follows redirects only within the feed's own site", async () => {
@@ -459,4 +726,354 @@ it("follows redirects only within the feed's own site", async () => {
     );
   }
   expect(asked).toHaveLength(4);
+});
+
+it("sends what it has and reports the feeds still loading", async () => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  restore = withNewsFixture(async (url) => {
+    if (url !== HACKER_NEWS_RSS) await held;
+    return new Response(url === LOBSTERS_RSS ? lobstersRss : officialRss);
+  });
+  await call("/social/feeds/hackernews", "PUT", "gail");
+  await call("/social/feeds/lobsters", "PUT", "gail");
+  const first = await get("/social", "gail");
+  // Hacker News answered; Lobsters is still loading, not failed.
+  expect(first.data.pending).toEqual(["lobsters"]);
+  expect(first.data.failed).toEqual([]);
+  expect(first.data.stories.map((s: any) => s.feed)).toEqual([
+    "hackernews",
+    "hackernews",
+  ]);
+  release();
+  // Asking again picks up the same request rather than starting another. The
+  // released read finishes on its own schedule, so wait for its stories to
+  // arrive rather than for a fixed moment.
+  let second = await socialStories("gail");
+  for (let tries = 0; tries < 100 && second.stories.length < 5; tries++) {
+    await new Promise((done) => setTimeout(done, 20));
+    second = await socialStories("gail");
+  }
+  expect(second.stories).toHaveLength(5);
+  expect(second.failed).toEqual([]);
+});
+
+it("reads at most four feeds at once", async () => {
+  let open = 0;
+  let most = 0;
+  restore = withNewsFixture(async () => {
+    most = Math.max(most, ++open);
+    await new Promise((done) => setTimeout(done, 5));
+    open--;
+    return new Response(officialRss);
+  });
+  const twelve = feedCatalog.slice(0, 12);
+  for (const feed of twelve)
+    await call(`/social/feeds/${feed.id}`, "PUT", "hank");
+  await socialStories("hank", Date.now(), { wait: true });
+  expect(most).toBe(4);
+});
+
+it("refreshes on request, but not more than twice a minute", async () => {
+  let calls = 0;
+  restore = withNewsFixture(async () => {
+    calls++;
+    return new Response(officialRss);
+  });
+  const at = Date.now();
+  await feedStories(bluesky, at);
+  expect(calls).toBe(1);
+  // Inside the five minutes a plain read is served from the copy already read.
+  await feedStories(bluesky, at + 60_000);
+  expect(calls).toBe(1);
+  // A deliberate refresh ignores that, down to a thirty-second floor.
+  await feedStories(bluesky, at + 60_000, { force: true });
+  expect(calls).toBe(2);
+  await feedStories(bluesky, at + 70_000, { force: true });
+  expect(calls).toBe(2);
+  await feedStories(bluesky, at + 95_000, { force: true });
+  expect(calls).toBe(3);
+});
+
+it("keeps what each feed knew about the same story", async () => {
+  // The Verge carries the article; Hacker News carries the discussion and its
+  // points. Whichever feed was added first must not decide which you see.
+  const verge = `<rss version="2.0"><channel><title>The Verge</title><link>https://www.theverge.com/</link>
+<item><title>A long read about builds</title><link>https://www.theverge.com/2026/builds?utm_source=feed</link><pubDate>Mon, 05 Oct 2026 08:00:00 +0000</pubDate><description>Why builds are slow.</description></item>
+</channel></rss>`;
+  const hn = `<rss version="2.0"><channel><title>Hacker News</title>
+<item><title>A long read about builds</title><link>https://www.theverge.com/2026/builds</link><pubDate>Mon, 05 Oct 2026 09:00:00 +0000</pubDate><comments>https://news.ycombinator.com/item?id=1234</comments><description><![CDATA[<p>Points: 180<br/># Comments: 42]]></description></item>
+</channel></rss>`;
+  for (const [first, second] of [
+    ["the-verge", "hackernews"],
+    ["hackernews", "the-verge"],
+  ] as const) {
+    restore();
+    restore = withNewsFixture(
+      async (url) => new Response(url === HACKER_NEWS_RSS ? hn : verge),
+    );
+    const owner = `merge-${first}`;
+    await call(`/social/feeds/${first}`, "PUT", owner);
+    await call(`/social/feeds/${second}`, "PUT", owner);
+    const { data } = await get("/social", owner);
+    expect(data.stories).toHaveLength(1);
+    expect(data.stories[0]).toMatchObject({
+      title: "A long read about builds",
+      points: 180,
+      comments: 42,
+      comments_url: "https://news.ycombinator.com/item?id=1234",
+    });
+  }
+});
+
+it("treats links that differ only in tracking as one story", () => {
+  expect(sameStoryUrl("https://a.example/post?utm_source=x&id=2#top")).toBe(
+    sameStoryUrl("https://a.example/post/?id=2"),
+  );
+  expect(sameStoryUrl("not a url")).toBe("not a url");
+});
+
+it("keeps stories in the database, so a restart still has them", async () => {
+  let calls = 0;
+  restore = withNewsFixture(async () => {
+    calls++;
+    return new Response(officialRss);
+  });
+  await call("/social/feeds/hackernews", "PUT", "iris");
+  const first = await get("/social", "iris");
+  expect(first.data.stories).toHaveLength(2);
+  expect(calls).toBe(1);
+  // What a restart loses is the in-memory copy, not the stories.
+  forgetCachedStories();
+  const second = await socialStories("iris", Date.now(), { wait: true });
+  expect(second.stories).toHaveLength(2);
+  expect(second.feeds).toEqual([
+    expect.objectContaining({ id: "hackernews", stories: 2, error: null }),
+  ]);
+  expect(calls).toBe(1);
+});
+
+it("asks a feed whether anything changed, and takes 304 for an answer", async () => {
+  const asked: (string | null)[] = [];
+  let modified = true;
+  restore = withNewsFixture(async (_url, init) => {
+    const headers = new Headers(init.headers);
+    asked.push(headers.get("if-none-match"));
+    return modified
+      ? new Response(officialRss, { headers: { etag: '"v1"' } })
+      : new Response(null, { status: 304 });
+  });
+  const at = Date.now();
+  await feedStories(bluesky, at);
+  expect(asked).toEqual([null]);
+  modified = false;
+  const again = await feedStories(bluesky, at + 6 * 60_000);
+  // The validator went out, nothing came back, and the stories are still here.
+  expect(asked).toEqual([null, '"v1"']);
+  expect(again.stories).toHaveLength(2);
+  expect(again.fetched_at).toBe(at + 6 * 60_000);
+});
+
+it("keeps only the newest stories of each feed", async () => {
+  const story = (n: number) =>
+    `<item><title>Story ${n}</title><link>https://x.example/${n}</link><pubDate>${new Date(
+      Date.UTC(2026, 0, 1) + n * 60_000,
+    ).toUTCString()}</pubDate></item>`;
+  let from = 0;
+  restore = withNewsFixture(
+    async () =>
+      new Response(
+        `<rss version="2.0"><channel><title>Lots</title>${Array.from(
+          { length: 60 },
+          (_, i) => story(from + i),
+        ).join("")}</channel></rss>`,
+      ),
+  );
+  // Fifty at a time: the parser reads no more of a document than that.
+  const at = Date.now();
+  for (const [round, start] of [0, 100, 200].entries()) {
+    from = start;
+    await feedStories(bluesky, at + round * 6 * 60_000);
+  }
+  const kept = storedFeedStories(bluesky.id);
+  // A hundred and twenty of the hundred and fifty that arrived, newest first.
+  expect(kept).toHaveLength(120);
+  expect(kept[0].title).toBe("Story 249");
+  // Three batches of fifty: 249-200, 149-100, then twenty of the first fifty.
+  expect(kept.at(-1)!.title).toBe("Story 30");
+});
+
+it("refreshes the feeds someone follows from the worker", async () => {
+  // Only these two feeds are followed, so the pass is this test's alone.
+  db.exec("DELETE FROM feed_subscriptions");
+  const asked: string[] = [];
+  restore = withNewsFixture(async (url) => {
+    asked.push(url);
+    return new Response(url === LOBSTERS_RSS ? lobstersRss : officialRss);
+  });
+  await call("/social/feeds/hackernews", "PUT", "jo");
+  await call("/social/feeds/lobsters", "PUT", "jo");
+  // Nobody has opened Social: the worker reads both feeds anyway.
+  expect(await refreshDueFeeds()).toBe(2);
+  expect(asked.sort()).toEqual([HACKER_NEWS_RSS, LOBSTERS_RSS].sort());
+  // Neither is due again, and a second pass reads nothing.
+  expect(await refreshDueFeeds()).toBe(0);
+  expect(asked).toHaveLength(2);
+  // A page is then served without touching the network.
+  const { data } = await get("/social", "jo");
+  expect(data.stories).toHaveLength(5);
+  expect(data.pending).toEqual([]);
+  expect(asked).toHaveLength(2);
+});
+
+it("drops the stories of a feed nobody follows any more", async () => {
+  db.exec("DELETE FROM feed_subscriptions");
+  restore = withNewsFixture(async () => new Response(officialRss));
+  await call("/social/feeds/hackernews", "PUT", "kit");
+  await get("/social", "kit");
+  expect(storedFeedStories("hackernews")).toHaveLength(2);
+  await call("/social/feeds/hackernews", "DELETE", "kit");
+  db.prepare("INSERT INTO feed_reads(owner_id,feed_id,story_id,read_at) VALUES('kit','hackernews','orphan',0)").run();
+  db.prepare("INSERT INTO feed_watches(id,owner_id,query,created_at,since_at) VALUES('orphan-watch','kit','build',0,0)").run();
+  db.prepare("INSERT INTO feed_watch_hits(watch_id,feed_id,story_id,matched_at) VALUES('orphan-watch','hackernews','orphan',0)").run();
+  // Kept for a month in case it is added back, then dropped.
+  expect(forgetAbandoned(Date.now())).toBe(0);
+  expect(forgetAbandoned(Date.now() + 31 * 24 * 60 * 60_000)).toBe(1);
+  expect(storedFeedStories("hackernews")).toHaveLength(0);
+  expect(db.prepare("SELECT * FROM feed_reads WHERE feed_id='hackernews'").all()).toEqual([]);
+  expect(db.prepare("SELECT * FROM feed_watch_hits WHERE feed_id='hackernews'").all()).toEqual([]);
+});
+
+it("remembers what you have read, per owner", async () => {
+  restore = withNewsFixture(async () => new Response(officialRss));
+  for (const owner of ["lena", "milo"])
+    await call("/social/feeds/hackernews", "PUT", owner);
+  const first = await get("/social", "lena");
+  expect(first.data.unread).toBe(2);
+  expect(first.data.stories.map((s: any) => s.read)).toEqual([false, false]);
+  const id = first.data.stories[0].id;
+  const marked = await send("/social/read", "POST", { stories: ["unknown:gone", id, "hackernews:missing"] }, "lena");
+  expect(marked.data).toEqual({ unread: 1 });
+  const after = await get("/social", "lena");
+  expect(after.data.stories.find((s: any) => s.id === id).read).toBe(true);
+  // Only unread, when that is what was asked for.
+  const only = await get("/social?unread=1", "lena");
+  expect(only.data.stories.map((s: any) => s.id)).not.toContain(id);
+  // Reading is yours: the other owner's list is untouched.
+  expect((await get("/social", "milo")).data.unread).toBe(2);
+  // Marking it unread again brings it back.
+  await send("/social/read", "DELETE", { stories: ["unknown:gone", id, "hackernews:missing"] }, "lena");
+  expect((await get("/social", "lena")).data.unread).toBe(2);
+  // "Mark all read" is one write, and covers everything listed so far.
+  expect((await send("/social/read-all", "POST", {}, "lena")).data).toEqual({
+    unread: 0,
+  });
+  expect(
+    (await get("/social", "lena")).data.stories.every((s: any) => s.read),
+  ).toBe(true);
+  expect((await get("/social", "milo")).data.unread).toBe(2);
+});
+
+it("saves a story for later, and keeps it past retention", async () => {
+  let payload = officialRss;
+  restore = withNewsFixture(async () => new Response(payload));
+  await call("/social/feeds/hackernews", "PUT", "nina");
+  const { data } = await get("/social", "nina");
+  const story = data.stories[0];
+  const saved = await laterCall(
+    "/later",
+    "POST",
+    {
+      kind: "story",
+      targetId: story.id,
+      condition: "time",
+      dueAt: Date.now() + 3600_000,
+    },
+    "nina",
+  );
+  expect(saved.status).toBe(201);
+  // A story has no run and no project: it comes back at a time.
+  const wrong = await laterCall(
+    "/later",
+    "POST",
+    {
+      kind: "story",
+      targetId: story.id,
+      condition: "run_finished",
+    },
+    "nina",
+  );
+  expect(wrong.status).toBe(400);
+  // A story of a feed you don't follow is not yours to save.
+  const other = await laterCall(
+    "/later",
+    "POST",
+    {
+      kind: "story",
+      targetId: story.id,
+      condition: "time",
+      dueAt: Date.now() + 3600_000,
+    },
+    "owen",
+  );
+  expect(other.status).toBe(404);
+  // It shows in Later with its title and link.
+  const listed = await laterCall("/later", "GET", undefined, "nina");
+  expect(listed.data.upcoming).toEqual([
+    expect.objectContaining({
+      kind: "story",
+      title: story.title,
+      target_id: story.id,
+      preview: story.url,
+    }),
+  ]);
+  // A hundred and fifty newer stories arrive, past the hundred and twenty a
+  // feed keeps. Everything else of this feed's is evicted; the saved one stays.
+  const hackernews = feedById.get("hackernews")!;
+  for (let round = 1; round <= 3; round++) {
+    payload =
+      `<rss version="2.0"><channel><title>Hacker News</title>` +
+      Array.from({ length: 50 }, (_, i) => {
+        const n = round * 100 + i;
+        return `<item><title>Filler ${n}</title><link>https://x.example/f${n}</link><pubDate>${new Date(
+          Date.now() + n * 1000,
+        ).toUTCString()}</pubDate></item>`;
+      }).join("") +
+      `</channel></rss>`;
+    await feedStories(hackernews, Date.now() + round * 60_000, { force: true });
+  }
+  const left = storedFeedStories("hackernews");
+  expect(left).toHaveLength(121);
+  expect(left.some((s) => s.title === story.title)).toBe(true);
+  expect(left.some((s) => s.title === "Ask HN: What are you working on?")).toBe(
+    false,
+  );
+});
+
+
+it("opens a due story reminder inside Social", async () => {
+  const { surfaceLater } = await import("../src/server/mobile-return");
+  const { seal } = await import("../src/server/secrets");
+  const owner = "story-push";
+  restore = withNewsFixture(async () => new Response(officialRss));
+  await call("/social/feeds/hackernews", "PUT", owner);
+  const story = (await get("/social", owner)).data.stories[0];
+  const due = Date.now() + 3600_000;
+  const subscription = { endpoint: "https://push.example/story", keys: { p256dh: "fixture", auth: "fixture" } };
+  db.prepare("INSERT INTO push_subscriptions VALUES(?,?,?,?,?)").run("story-sub", owner, subscription.endpoint, seal(JSON.stringify(subscription), owner), Date.now());
+  const saved = await laterCall("/later", "POST", { kind: "story", targetId: story.id, condition: "time", dueAt: due }, owner);
+  expect(saved.status).toBeLessThan(300);
+  surfaceLater(due + 1);
+  expect(db.prepare("SELECT url FROM push_messages WHERE subscription_id='story-sub'").get()).toEqual({ url: "/?social=" + encodeURIComponent(story.id) });
+});
+
+it("retired catalog subscriptions cannot consume the worker refresh batch", async () => {
+  db.exec("DELETE FROM feed_subscriptions; DELETE FROM feed_sources; DELETE FROM feed_state");
+  const add = db.prepare("INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES('retired-test',?,0)");
+  for (let i = 0; i < 10; i++) add.run(`retired-${i}`);
+  for (const feed of feedCatalog.slice(0, 10)) add.run(feed.id);
+  const asked: string[] = [];
+  restore = withNewsFixture(async url => { asked.push(url); return new Response(officialRss); });
+  expect(await refreshDueFeeds()).toBe(8);
+  expect(asked).toHaveLength(8);
 });
