@@ -1,7 +1,8 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { openPull } from "./PullRequests";
 
@@ -18,6 +19,7 @@ const WATCH_CHANGE = "loop-pr-watch-change";
 
 // The thread's watches, kept current while a card shows them.
 function useWatches(conversation: string | null | undefined) {
+  const api = useSourceApi();
   const [watches, setWatches] = useState<Watch[]>([]);
   useEffect(() => {
     if (!conversation) return;
@@ -45,6 +47,7 @@ function useWatches(conversation: string | null | undefined) {
  * the thread as follow-ups. It ends on merge or close.
  */
 function WatchControl({ watch }: { watch?: Watch }) {
+  const api = useSourceApi();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const act = async (work: () => Promise<unknown>) => {

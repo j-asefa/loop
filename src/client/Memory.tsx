@@ -1,6 +1,7 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Bookmark, Info, MessageSquare } from "lucide-react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { Sheet } from "./components";
 import {
   SettingsList,
@@ -17,6 +18,7 @@ export function Memory({
   folders: Folder[];
   onClose: () => void;
 }) {
+  const api = useSourceApi();
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [title, setTitle] = useState(""),
@@ -319,6 +321,7 @@ export function memoryReceiptText(receipt: MemoryReceipt) {
   );
 }
 export function MemoryUsed({ runId }: { runId: string }) {
+  const api = useSourceApi();
   const [receipt, setReceipt] = useState<any>(null),
     [opened, setOpened] = useState(false);
   useEffect(() => {
@@ -341,6 +344,7 @@ export function MemoryUsed({ runId }: { runId: string }) {
   );
 }
 export function NativeConversation({ id }: { id: string }) {
+  const api = useSourceApi();
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [include, setInclude] = useState(true);
@@ -444,6 +448,7 @@ export function NativeConversation({ id }: { id: string }) {
 }
 
 function QueuedNative({ run }: { run: any }) {
+  const api = useSourceApi();
   const [input, setInput] = useState(run.input),
     [notice, setNotice] = useState("");
   return (

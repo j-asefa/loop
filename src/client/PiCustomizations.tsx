@@ -1,6 +1,6 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Search, Sparkles } from "lucide-react";
-import { api } from "./api";
 import { Sheet } from "./components";
 import { SettingsEmpty } from "./SettingsUI";
 import type { Agent } from "../shared/types";
@@ -82,6 +82,7 @@ export function PiCustomizations({
   onClose: () => void;
   onUse?: (agentId: string, token: string) => void;
 }) {
+  const api = useSourceApi();
   const piAgents = agents.filter(
     (agent) => agent.provider === "pi" && !agent.retired_at,
   );

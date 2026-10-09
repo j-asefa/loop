@@ -1,5 +1,28 @@
+// The shell keeps its original source while a thread opens on another source.
+// Read the address separately for navigation; async work must not derive its
+// destination from a URL that can change underneath it.
+let shellSource: string | undefined;
+export function setShellSource(source: string) {
+  shellSource = source;
+}
+// History state belongs to this document/navigation entry and survives reload.
+// A fresh deep link has no saved shell and still opens over the local Feed.
+export function initializeShellSource() {
+  const saved = history.state?.loopShellSource;
+  const source = typeof saved === "string" &&
+    (saved === "" || routeSourceId("?source=" + encodeURIComponent(saved)) === saved)
+    ? saved
+    : new URLSearchParams(location.search).has("conversation") ? "" : routeSourceId();
+  setShellSource(source);
+  history.replaceState({ ...history.state, loopShellSource: source, loopSheet: false }, "");
+}
 export function executionSourceId() {
-  const params = new URLSearchParams(location.search);
+  return shellSource ?? routeSourceId();
+}
+export function routeSourceId(
+  search = typeof location === "undefined" ? "" : location.search,
+) {
+  const params = new URLSearchParams(search);
   // Existing paired links used `workspace=docker:<id>`.
   const value = params.get("source") || params.get("workspace") || "";
   return /^[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128}$/.test(value)
@@ -16,6 +39,7 @@ export function sourceApiPathAt(path: string, id: string) {
   // older linked Docker server has no Social routes.
   return id &&
     path.startsWith("/api/") &&
+    !path.startsWith("/api/agent-sources/") &&
     !/^\/api\/social(?:[/?]|$)/.test(path)
     ? `/api/agent-sources/${encodeURIComponent(id)}/` + path.slice(5)
     : path;

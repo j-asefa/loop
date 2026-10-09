@@ -1,3 +1,4 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -8,7 +9,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { Badge, RichText, Sheet } from "./components";
 import type { Provider } from "../shared/types";
 import { nativeQuestionKey } from "../shared/native-questions";
@@ -109,6 +110,7 @@ export function Approvals({
   runId?: string;
   runIds?: string[];
 }) {
+  const api = useSourceApi();
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");

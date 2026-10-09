@@ -1,3 +1,4 @@
+import { useSourceApi, useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -22,7 +23,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { api, apiInWorkspace } from "./api";
+import { apiInWorkspace } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { RichText, Sheet } from "./components";
 import { FileChangePanel } from "./ActivityPanels";
@@ -303,6 +304,7 @@ export function LaterSheet({
   onClose: () => void;
   onDone: (label: string, created: CreatedReminder) => void;
 }) {
+  const scopedSource = useSourceId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [custom, setCustom] = useState(() =>
@@ -325,7 +327,7 @@ export function LaterSheet({
     try {
       const row = await apiInWorkspace<{ id: string; replaced?: string | null }>(
         itemId ? `/later/${itemId}/snooze` : "/later",
-        sourceId ?? executionSourceId(),
+        sourceId ?? scopedSource,
         itemId ? trigger : { kind, targetId, ...trigger },
       );
       window.dispatchEvent(new Event("loop-later-change"));
@@ -482,6 +484,7 @@ export function OutlineSheet({
   onJump: (messageId: string) => void;
   onClose: () => void;
 }) {
+  const api = useSourceApi();
   const [items, setItems] = useState<OutlineItem[] | null>(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | OutlineItem["kind"]>("all");
@@ -963,6 +966,7 @@ export function ForkSheet({
   onClose: () => void;
   onForked: (conversationId: string, agentId: string) => void;
 }) {
+  const api = useSourceApi();
   const choices = agents.filter((a) => a.connection_id && !a.retired_at);
   const [agentId, setAgentId] = useState(
     choices.find((a) => a.id === defaultAgentId)?.id || choices[0]?.id || "",
@@ -1069,6 +1073,7 @@ function EditScheduled({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const api = useSourceApi();
   const failed = item.state === "failed";
   const [text, setText] = useState(item.input);
   const [at, setAt] = useState(
@@ -1171,6 +1176,7 @@ export function ScheduledSends({
   /** Only messages that could not be sent (for Needs you). */
   failedOnly?: boolean;
 }) {
+  const api = useSourceApi();
   const [all, setItems] = useState<ScheduledSend[]>([]);
   // Older messages that could not be sent load a page at a time.
   const [failedNext, setFailedNext] = useState<string | null>(null);

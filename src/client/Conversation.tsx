@@ -1,3 +1,5 @@
+import { useSourceApi, useSourceId } from "./SourceContext";
+import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
   useConversationActivities,
@@ -40,7 +42,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
@@ -154,6 +156,7 @@ export function Conversation({
   onContinue,
   composer,
   onReady,
+  readyKey,
   onReply,
   onUsePrompt,
   onRestoreDraft,
@@ -177,6 +180,7 @@ export function Conversation({
   onContinue: (id: string) => void;
   composer: ReactNode;
   onReady: (context: ComposerContext) => void;
+  readyKey?: string;
   onReply: (context: ComposerContext) => void;
   onUsePrompt: (text: string) => void;
   /** Put a message back into the composer with its files (nothing is sent). */
@@ -196,6 +200,9 @@ export function Conversation({
    */
   onWork?: (work: ThreadWork | null) => void;
 }) {
+  const api = useSourceApi();
+  const readController = useRef<AbortController | null>(null);
+  const sourceId = useSourceId();
   const [data, setData] = useState<{
       conversation: any;
       messages: ConversationMessage[];
@@ -390,6 +397,7 @@ export function Conversation({
         "/conversations/" +
           id +
           (initial && anchor ? "?message=" + anchor : ""),
+        undefined, undefined, readController.current?.signal,
       );
       if (initial && !anchor) {
         // Reopen where you stopped reading. Fetch the page around that
@@ -399,6 +407,7 @@ export function Conversation({
           if (!fresh.messages.some((m: Message) => m.id === target))
             fresh = await api(
               `/conversations/${id}?message=${encodeURIComponent(target)}`,
+              undefined, undefined, readController.current?.signal,
             );
           if (fresh.messages.some((m: Message) => m.id === target)) {
             followLatest.current = false;
@@ -461,6 +470,7 @@ export function Conversation({
   }, [id, messageId]);
   useEffect(() => {
     generation.current++;
+    readController.current = new AbortController();
     anchoring.current = false;
     followLatest.current = !anchor;
     setAwayFromLatest(false);
@@ -477,6 +487,7 @@ export function Conversation({
     window.addEventListener("loop-workspace-change", update);
     return () => {
       generation.current++;
+      readController.current?.abort();
       clearInterval(timer);
       window.removeEventListener("loop-workspace-change", update);
     };
@@ -503,7 +514,7 @@ export function Conversation({
         title: data.conversation.title,
         projectName: project?.name,
       });
-  }, [id, agent?.id, data?.conversation.title, imported, project?.name]);
+  }, [id, readyKey, agent?.id, data?.conversation.title, imported, project?.name]);
   useLayoutEffect(() => {
     if (data?.conversation.id !== id) return;
     const messages = messagesRef.current;
@@ -906,7 +917,7 @@ export function Conversation({
               label: "Share link",
               icon: <Share2 size={20} />,
               onSelect: () =>
-                void shareLink(`/?conversation=${id}`, title).then(
+                void shareLink(sourceUrl(sourceId, { conversation: id }), title).then(
                   (text) => text && setNotice(text),
                 ),
             },
@@ -946,7 +957,7 @@ export function Conversation({
       )}
       {handoff && (
         <HandoffSheet
-          path={`/?conversation=${id}`}
+          path={sourceUrl(sourceId, { conversation: id })}
           title={title}
           onClose={() => setHandoff(false)}
         />
@@ -968,7 +979,7 @@ export function Conversation({
                 label: "View",
                 onSelect: () => onShowLater("reminders", created.id),
               },
-              undo: () => undoReminder(created),
+              undo: () => undoReminder(created, sourceId),
             });
             if (laterFor.kind === "conversation") onClose();
           }}
@@ -1026,7 +1037,7 @@ export function Conversation({
             },
             onShare: () =>
               void shareLink(
-                `/?conversation=${id}&message=${menuFor.id}`,
+                sourceUrl(sourceId, { conversation: id, message: menuFor.id }),
                 title,
               ).then((text) => text && setNotice(text)),
           });

@@ -3,6 +3,8 @@
 import { spawn } from "node:child_process";
 const names = [
   "core",
+  "withdraw-draft",
+  "upload-destination",
   "inbox",
   "continuity-320",
   "continuity-390",

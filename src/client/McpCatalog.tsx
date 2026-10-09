@@ -1,6 +1,7 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { catalogResults } from "./catalogSearch";
 import type {
   CatalogEntry,
@@ -25,6 +26,7 @@ export function McpCatalog({
   hosts: { id: string; name: string }[];
   onInstalled: () => Promise<void>;
 }) {
+  const api = useSourceApi();
   const [catalog, setCatalog] = useState<CatalogResponse>(),
     [query, setQuery] = useState(""),
     [category, setCategory] = useState("All"),

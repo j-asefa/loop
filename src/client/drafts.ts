@@ -2,6 +2,12 @@ import { parse } from "./api";
 
 export const GLOBAL_DRAFT = "__global__";
 
+// Empty source keeps existing local drafts readable. Remote identities include
+// the source even when two independent servers use the same conversation ID.
+export function sourceDraftId(id: string, source: string) {
+  return source ? JSON.stringify([source, id]) : id;
+}
+
 // Drafts belong to the signed-in owner. Keys carry the owner so one account
 // never reads another's unsent text on a shared device, and with no owner
 // (signed out, expired) drafts are neither read nor written.
@@ -41,4 +47,12 @@ export function saveThreadDraft(
       localStorage.setItem(key(owner, "files", id), JSON.stringify(files));
     else localStorage.removeItem(key(owner, "files", id));
   } catch {}
+}
+
+
+/** Settle the originating composer's draft, even after its view has changed. */
+export function clearAcceptedDraft(id: string, text: string, files: { id: string }[], owner?: string) {
+  const saved = threadDraft(id, owner);
+  if (saved.text === text && JSON.stringify(saved.files.map(file => file.id)) === JSON.stringify(files.map(file => file.id)))
+    saveThreadDraft(id, "", [], owner);
 }

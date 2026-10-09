@@ -1,7 +1,7 @@
+import { useSourceApi, useSourcePath } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Expand, File } from "lucide-react";
-import { api, parse } from "./api";
-import { sourceApiPath } from "./sourceRouting";
+import { parse } from "./api";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
 import { isHtmlFile } from "../shared/file-preview";
@@ -14,6 +14,7 @@ export function PublishedFile({
   item: Published;
   preview?: boolean;
 }) {
+  const sourceApiPath = useSourcePath();
   const [open, setOpen] = useState(false);
   const meta = parse<any>(item.metadata, {});
   const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
@@ -73,6 +74,7 @@ export function RunFiles({
   excludeId?: string;
   active?: boolean;
 }) {
+  const api = useSourceApi();
   const [files, setFiles] = useState<Published[]>([]),
     [error, setError] = useState("");
   useEffect(() => {

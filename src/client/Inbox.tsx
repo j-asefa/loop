@@ -1,3 +1,4 @@
+import { useSourceApi, useSourceId } from "./SourceContext";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -25,8 +26,8 @@ import {
   X,
   ChevronRight,
 } from "lucide-react";
-import { api, apiInWorkspace } from "./api";
-import { executionSourceId, sourceUrl } from "./sourceRouting";
+import { apiInWorkspace } from "./api";
+import { sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
   EnvironmentConnection,
@@ -52,7 +53,7 @@ import {
   type Action,
 } from "./ThreadTools";
 import { shareLink } from "./Handoff";
-import { threadDraft } from "./drafts";
+import { threadDraft, sourceDraftId } from "./drafts";
 import { Social } from "./Social";
 import {
   feedNextAction,
@@ -207,6 +208,7 @@ function InboxCard({
   onArchive: () => void;
   onLater: () => void;
 }) {
+  const scopedSource = useSourceId();
   const swipe = useSwipe({ onLeft: onArchive });
   const press = useLongPress(onMenu);
   const status = runStatus(item.run?.state, item.pending_approvals);
@@ -214,10 +216,7 @@ function InboxCard({
     (swipe.handlers as any)[name]?.(e);
     (press as any)[name]?.(e);
   };
-  const draft =
-    (item.sourceId || "") === executionSourceId()
-      ? threadDraft(item.conversation_id).text
-      : "";
+  const draft = threadDraft(sourceDraftId(item.conversation_id, item.sourceId ?? scopedSource)).text;
   const next = feedNextAction(item.next_action, draft);
   const detail =
     status.tone === "working" && item.run
@@ -577,6 +576,7 @@ export function EditQueued({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const scopedSource = useSourceId();
   const [text, setText] = useState(message.input);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -605,7 +605,7 @@ export function EditQueued({
           try {
             await apiInWorkspace(
               "/runs/" + message.id,
-              message.sourceId ?? executionSourceId(),
+              message.sourceId ?? scopedSource,
               { input: text },
               "PATCH",
             );
@@ -635,13 +635,14 @@ function MoveQueued({
   onClose: () => void;
   onMoved: (conversation?: string) => void;
 }) {
+  const scopedSource = useSourceId();
   const choices = agents.filter(
     (a) =>
       a.connection_id &&
       !a.retired_at &&
       a.id !== message.agentId &&
       ((a as EnvironmentAgent).sourceId || "") ===
-        (message.sourceId ?? executionSourceId()),
+        (message.sourceId ?? scopedSource),
   );
   const [agentId, setAgentId] = useState(choices[0]?.id || "");
   const [error, setError] = useState("");
@@ -675,7 +676,7 @@ function MoveQueued({
           try {
             const result = await apiInWorkspace<{ conversation_id: string }>(
               `/runs/${message.id}/move`,
-              message.sourceId ?? executionSourceId(),
+              message.sourceId ?? scopedSource,
               {
                 agentId,
                 idempotencyKey: key.current,
@@ -741,11 +742,13 @@ export function Inbox({
   /** Present only for the combined top-level Feed. */
   sources?: AgentSource[];
 }) {
+  const api = useSourceApi();
+  const scopedSource = useSourceId();
   type Shown = { items: InboxItem[]; next: string | null; summary: Summary };
   const activeSources =
     sources && !project && !teams && !agent
       ? sources
-      : [{ id: executionSourceId(), name: "" }];
+      : [{ id: scopedSource, name: "" }];
   const sourceKey = JSON.stringify(
     activeSources.map((source) => source.id).sort(),
   );
@@ -990,7 +993,7 @@ export function Inbox({
   }
   async function archive(item: InboxItem) {
     try {
-      const source = item.sourceId ?? executionSourceId();
+      const source = item.sourceId ?? scopedSource;
       await apiInWorkspace(
         `/inbox/${item.conversation_id}`,
         source,
@@ -1039,7 +1042,7 @@ export function Inbox({
   ) {
     await apiInWorkspace(
       `/messages/${messageId}/saved`,
-      item.sourceId ?? executionSourceId(),
+      item.sourceId ?? scopedSource,
       saved ? {} : undefined,
       saved ? "POST" : "DELETE",
     );
@@ -1085,9 +1088,9 @@ export function Inbox({
     const agent = agents.find(
       (a) =>
         a.id === item.agent_id &&
-        (a.sourceId || "") === (item.sourceId ?? executionSourceId()),
+        (a.sourceId || "") === (item.sourceId ?? scopedSource),
     );
-    const source = item.sourceId ?? executionSourceId();
+    const source = item.sourceId ?? scopedSource;
     const state = item.run?.state || "";
     const actions: Action[] = [
       // Nothing written yet is nothing to keep.
@@ -1313,7 +1316,7 @@ export function Inbox({
           ) : items.length ? (
             <ul className="inbox-list feed">
               {items.map((item) => {
-                const source = item.sourceId ?? executionSourceId();
+                const source = item.sourceId ?? scopedSource;
                 const agent = agents.find(
                   (a) =>
                     a.id === item.agent_id && (a.sourceId || "") === source,
@@ -1436,7 +1439,7 @@ export function Inbox({
         <LaterSheet
           kind="conversation"
           targetId={later.conversation_id}
-          sourceId={later.sourceId ?? executionSourceId()}
+          sourceId={later.sourceId ?? scopedSource}
           title={later.title}
           running={[
             "queued",
@@ -1455,7 +1458,7 @@ export function Inbox({
               text: `Reminder set: ${label.toLowerCase()}.`,
               link:
                 onShowReminder &&
-                (later.sourceId ?? executionSourceId()) === executionSourceId()
+                (later.sourceId ?? scopedSource) === scopedSource
                   ? {
                       label: "View",
                       onSelect: () => onShowReminder(created.id),
@@ -1464,7 +1467,7 @@ export function Inbox({
               undo: async () => {
                 await undoReminder(
                   created,
-                  later.sourceId ?? executionSourceId(),
+                  later.sourceId ?? scopedSource,
                 );
                 void load();
               },
@@ -1495,7 +1498,7 @@ export function Inbox({
               onOpen(
                 conversation,
                 undefined,
-                moving.sourceId ?? executionSourceId(),
+                moving.sourceId ?? scopedSource,
               );
           }}
         />

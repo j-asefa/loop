@@ -105,19 +105,27 @@ export function useAgentSources(
     let busy = false;
     let known: AgentSource[] = [];
     const snapshots = new Map<string, Projection>();
-    const controller = new AbortController();
-    // Each request has its own deadline, so one unreachable source can't
-    // hold the single in-flight pass (and every later refresh) forever.
-    const signal = () =>
-      typeof AbortSignal.any === "function"
-        ? AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)])
-        : controller.signal;
+    const requests = new Map<AbortController, ReturnType<typeof setTimeout>>();
+    // Deadline and teardown cancellation also work on older mobile WebKit.
+    const signal = () => {
+      const controller = new AbortController();
+      requests.set(controller, setTimeout(() => controller.abort(), 20_000));
+      return controller.signal;
+    };
+    const clearRequests = () => {
+      for (const [controller, timer] of requests) {
+        clearTimeout(timer);
+        controller.abort();
+      }
+      requests.clear();
+    };
     const load = async () => {
       if (busy || !active) return;
       busy = true;
       try {
         await pass();
       } finally {
+        clearRequests();
         busy = false;
       }
     };
@@ -206,7 +214,7 @@ export function useAgentSources(
     window.addEventListener("loop-source-refresh", retry);
     return () => {
       active = false;
-      controller.abort();
+      clearRequests();
       clearInterval(timer);
       window.removeEventListener("loop-source-refresh", retry);
     };

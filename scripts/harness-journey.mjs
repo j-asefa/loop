@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import Database from "better-sqlite3";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 export async function harnessJourney(page, api, agent, token, expected) {
@@ -75,7 +76,16 @@ export async function harnessJourney(page, api, agent, token, expected) {
       " runtime command discovery, search, slash shortcut, mobile picker, native dispatch, nested conversation picker and draft focus.",
   );
 }
-export async function failureJourney(page, api) {
+export async function failureJourney(page, api, dir) {
+  // This case has its own request budget, independent of how quickly the
+  // preceding provider/setup journeys ran on this machine.
+  const limits = new Database(join(dir, "loop.db"));
+  try {
+    limits.pragma("busy_timeout = 10000");
+    limits.prepare("DELETE FROM request_limits").run();
+  } finally {
+    limits.close();
+  }
   const agent = (await api("/bootstrap")).agents.find(
     (a) => a.name === "creation-idle",
   );

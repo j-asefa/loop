@@ -611,7 +611,7 @@ try {
       `http://127.0.0.1:${brokerPort}/native`,
     );
     await agentCreationJourney(providerPage, providerApi);
-    await failureJourney(providerPage, providerApi);
+    await failureJourney(providerPage, providerApi, dir);
     await composerJourney(providerPage, providerApi);
     await sendCollapseJourney(providerPage, providerApi, dir);
     await scheduledSendJourney(providerPage, providerApi, dir);

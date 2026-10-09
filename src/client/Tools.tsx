@@ -1,6 +1,7 @@
+import { useSourceApi, useSourceCapabilities, useSourceId } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { api, apiInWorkspace, parse } from "./api";
+import { apiInWorkspace, parse } from "./api";
 import { Sheet } from "./components";
 import { SettingsNote } from "./SettingsUI";
 import { McpCatalog } from "./McpCatalog";
@@ -8,8 +9,6 @@ import {
   PERMISSION_MODES,
   type PermissionMode,
 } from "../shared/permission-modes";
-import { executionSourceId } from "./sourceRouting";
-import { capabilities } from "./capabilities";
 export function Tools({
   onClose,
   initialView = "catalog",
@@ -17,6 +16,9 @@ export function Tools({
   onClose: () => void;
   initialView?: "catalog" | "permissions";
 }) {
+  const api = useSourceApi();
+  const capabilities = useSourceCapabilities();
+  const sourceId = useSourceId();
   const [connections, setConnections] = useState<any[]>([]),
     [view, setView] = useState<string>(initialView),
     [query, setQuery] = useState(""),
@@ -52,7 +54,7 @@ export function Tools({
     }
   }
   async function loadSharing() {
-    if (!capabilities.pairedDevices && !executionSourceId()) return;
+    if (!capabilities.pairedDevices && !sourceId) return;
     await read("sharing", async () => {
       setSharingSources(await apiInWorkspace("/mcp-sharing", ""));
     });
@@ -282,7 +284,7 @@ export function Tools({
                     const targets = [
                       "",
                       ...sharingSources.map((source) => source.id),
-                    ].filter((id) => id !== executionSourceId());
+                    ].filter((id) => id !== sourceId);
                     const results = await Promise.allSettled(
                       targets.map((id) =>
                         apiInWorkspace(
@@ -604,7 +606,7 @@ export function Tools({
                     )}
                     {/* A Docker share is revoked from the laptop, including one
                       left behind by a source that is no longer running. */}
-                    {!executionSourceId() &&
+                    {!sourceId &&
                       c.status !== "disconnected" &&
                       /^docker:/.test(
                         String(parse<any>(c.metadata, {}).federatedPeer || ""),

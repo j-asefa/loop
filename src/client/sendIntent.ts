@@ -38,7 +38,8 @@ export function planSend(
     };
   // A new message gets a new key. The same message whose earlier attempt was
   // refused (nothing was accepted) keeps its key with the new choice.
-  const key = receipt.signature === signature && receipt.key ? receipt.key : newKey();
+  const key =
+    receipt.signature === signature && receipt.key ? receipt.key : newKey();
   return {
     receipt: { signature, key, intent: requested, pending: true },
     intent: requested,
@@ -51,8 +52,29 @@ export function planSend(
  * refused and nothing was accepted. Anything else (no response, a server
  * error) leaves it uncertain, so the receipt stays pending.
  */
-export function settleFailure(receipt: SendReceipt, status?: number): SendReceipt {
+export function settleFailure(
+  receipt: SendReceipt,
+  status?: number,
+): SendReceipt {
   return status !== undefined && status < 500
     ? { ...receipt, pending: false }
     : receipt;
+}
+
+/** A late reply must not overwrite a newer send from a reopened composer. */
+export function settleStoredSend(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  storageKey: string,
+  sentKey: string,
+  next: SendReceipt | null,
+) {
+  let current: SendReceipt;
+  try {
+    current = JSON.parse(storage.getItem(storageKey) || "null");
+  } catch {
+    return;
+  }
+  if (!current || current.key !== sentKey) return;
+  if (next) storage.setItem(storageKey, JSON.stringify(next));
+  else storage.removeItem(storageKey);
 }

@@ -1,6 +1,6 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import { api } from "./api";
 import { Sheet } from "./components";
 import { effortName, modelGroups, modelDisplayName } from "./modelChoices";
 import type { Agent, Connection } from "../shared/types";
@@ -52,6 +52,7 @@ export function AgentModelSettings({
   onClose: () => void;
   onSaved: (agent: Agent) => void;
 }) {
+  const api = useSourceApi();
   const [selected, setSelected] = useState(agent);
   const [catalog, setCatalog] = useState<Record<string, ModelOption[]>>({});
   const [error, setError] = useState(""),

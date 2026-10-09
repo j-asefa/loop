@@ -1,3 +1,4 @@
+import { sourceConversationBrowser } from "./source-conversation-browser.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 
@@ -40,7 +41,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         created_at: now,
       };
       const thread = {
-        conversation_id: `remote-thread-${index}`,
+        // Deliberate collision with the laptop: source must qualify identity.
+        conversation_id: index === 0 ? "laptop-thread" : `remote-thread-${index}`,
         title: `Remote thread ${index}`,
         agent_id: agent.id,
         agent_name: agent.name,
@@ -390,6 +392,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await sheet.getByRole("button", { name: "Create & start" }).click();
     await expect.poll(() => creations.length).toBe(2);
     assert.equal(creations[0].idempotencyKey, creations[1].idempotencyKey);
+
+    await sheet.getByRole("button", { name: "Close", exact: true }).click();
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await sourceConversationBrowser(page, workspaceUrl, { sources, records, local, fulfill, unavailable });
 
     // On a Docker source page, the laptop's empty source id still means the
     // laptop: opening its card leaves the Docker source.

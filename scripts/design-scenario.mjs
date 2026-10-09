@@ -22,7 +22,13 @@ import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
 import { threadLayoutSmoke } from "./helpers/thread-layout-smoke.mjs";
 
+import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
+
+import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
+
 const scenarios = {
+  "upload-destination": uploadDestinationSmoke,
+  "withdraw-draft": withdrawDraftSmoke,
   inbox: (p, f, e, c) => inboxFlowsSmoke(p, f, c),
   "continuity-320": async (p, f, e, c) => {
     await p.setViewportSize({ width: 320, height: 844 });

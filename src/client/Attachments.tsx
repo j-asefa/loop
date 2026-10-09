@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useSourceId } from "./SourceContext";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
 import { FilePreview } from "./FilePreview";
-import { authorizedFetch, parse } from "./api";
-import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
+import { authorizedFetch } from "./api";
+import { sourceApiPathAt } from "./sourceRouting";
 import { prepareImage, shouldPrepare } from "./imageUpload";
 import {
   MAX_MESSAGE_FILES,
@@ -11,19 +12,6 @@ import {
   type UploadedFile,
 } from "../shared/uploads";
 
-export function useAttachments(key: string) {
-  const [files, setFiles] = useState<UploadedFile[]>(() =>
-    parse(sessionStorage.getItem(key) || "", []),
-  );
-  useEffect(() => {
-    setFiles(parse(sessionStorage.getItem(key) || "", []));
-  }, [key]);
-  const change = (files: UploadedFile[]) => {
-    setFiles(files);
-    sessionStorage.setItem(key, JSON.stringify(files));
-  };
-  return [files, change] as const;
-}
 // Generous for a slow phone connection; a hung request otherwise spins forever.
 const UPLOAD_TIMEOUT_MS = 120_000;
 const ERROR_MS = 8000;
@@ -36,12 +24,14 @@ const size = (bytes: number) =>
 export function AttachmentList({
   files,
   onRemove,
-  sourceId = executionSourceId(),
+  sourceId: requestedSource,
 }: {
   files: UploadedFile[];
   sourceId?: string;
   onRemove?: (id: string) => void;
 }) {
+  const scopedSource = useSourceId();
+  const sourceId = requestedSource ?? scopedSource;
   const [preview, setPreview] = useState<UploadedFile>();
   if (!files.length) return null;
   return (
@@ -92,7 +82,7 @@ export function UploadButton({
   onBusy,
   folderId,
   agentId,
-  sourceId = executionSourceId(),
+  sourceId: requestedSource,
   disabled,
   remaining,
   label = "Attach files",
@@ -108,6 +98,22 @@ export function UploadButton({
   label?: string;
   menu?: boolean;
 }) {
+  const scopedSource = useSourceId();
+  const sourceId = requestedSource ?? scopedSource;
+  const destination = JSON.stringify([sourceId, agentId ?? null, folderId ?? null]);
+  const destinationRef = useRef(destination);
+  destinationRef.current = destination;
+  const mounted = useRef(true);
+  const pending = useRef<{ controller: AbortController; finish: () => void } | null>(null);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    setBusy(false);
+    return () => {
+      mounted.current = false;
+      pending.current?.controller.abort();
+      pending.current?.finish();
+    };
+  }, [destination]);
   const input = useRef<HTMLInputElement>(null),
     photos = useRef<HTMLInputElement>(null),
     camera = useRef<HTMLInputElement>(null),
@@ -134,13 +140,22 @@ export function UploadButton({
     // Images are checked after they are prepared: most shrink well below
     // the limit.
     if (
-      files.some(
-        (file) => !shouldPrepare(file) && file.size > MAX_UPLOAD_BYTES,
-      )
+      files.some((file) => !shouldPrepare(file) && file.size > MAX_UPLOAD_BYTES)
     ) {
       setError("Files can be up to 25 MB each.");
       return;
     }
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const task = { controller, finish: () => {
+      clearTimeout(timer);
+      if (pending.current !== task) return;
+      pending.current = null;
+      locked.current = false;
+      if (mounted.current) setBusy(false);
+      onBusy?.(false);
+    } };
+    pending.current = task;
     locked.current = true;
     setBusy(true);
     onBusy?.(true);
@@ -148,6 +163,7 @@ export function UploadButton({
     try {
       for (const original of files) {
         const file = await prepareImage(original);
+        if (controller.signal.aborted) return;
         if (file.size > MAX_UPLOAD_BYTES)
           throw new Error("Files can be up to 25 MB each.");
         const form = new FormData();
@@ -155,12 +171,16 @@ export function UploadButton({
         if (folderId) form.append("folderId", folderId);
         if (agentId) form.append("agentId", agentId);
         let response: Response;
+        timer = setTimeout(() => controller.abort(new DOMException("Upload timed out", "TimeoutError")), UPLOAD_TIMEOUT_MS);
         try {
-          response = await authorizedFetch(sourceApiPathAt("/api/uploads", sourceId), {
-            method: "POST",
-            body: form,
-            signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-          });
+          response = await authorizedFetch(
+            sourceApiPathAt("/api/uploads", sourceId),
+            {
+              method: "POST",
+              body: form,
+              signal: controller.signal,
+            },
+          );
         } catch (error) {
           throw new Error(
             (error as Error).name === "TimeoutError"
@@ -169,6 +189,7 @@ export function UploadButton({
           );
         }
         const result = await response.json().catch(() => null);
+        clearTimeout(timer);
         // Loop always answers with JSON; anything else came from the network
         // in between (a tunnel or proxy error page), so name its status.
         if (!response.ok || !result)
@@ -176,14 +197,12 @@ export function UploadButton({
             result?.error ||
               `Upload failed (HTTP ${response.status}${response.statusText ? " " + response.statusText : ""}). Try again.`,
           );
-        onUploaded(result);
+        if (mounted.current && pending.current === task && destinationRef.current === destination && !controller.signal.aborted) onUploaded(result);
       }
     } catch (error) {
-      setError((error as Error).message);
+      if (mounted.current && pending.current === task) setError((error as Error).message);
     } finally {
-      locked.current = false;
-      setBusy(false);
-      onBusy?.(false);
+      task.finish();
     }
   }
   return (

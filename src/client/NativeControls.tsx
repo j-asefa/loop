@@ -1,6 +1,6 @@
-import { capabilities } from "./capabilities";
+import { useSourceApi, useSourceCapabilities } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
-import { api, parse, clearAuthorization } from "./api";
+import { parse, clearAuthorization } from "./api";
 import { RichText } from "./components";
 import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
@@ -114,6 +114,8 @@ export function NativeDecisions({
   conversation?: string;
   onConversation?: (id: string) => void;
 }) {
+  const api = useSourceApi();
+  const capabilities = useSourceCapabilities();
   const [items, setItems] = useState<Decision[]>([]);
   useEffect(() => {
     if (!capabilities.nativeHarnesses) return;
@@ -156,6 +158,7 @@ function DecisionCard({
   item: Decision;
   onConversation?: (id: string) => void;
 }) {
+  const api = useSourceApi();
   const request = parse<Request>(item.request, {} as Request);
   const structured = parse<any>(request.detail, null);
   // Claude nests the shell command in its tool input.

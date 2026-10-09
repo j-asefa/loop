@@ -1,5 +1,5 @@
+import { useSourceId, useSourcePath } from "./SourceContext";
 import { Chart } from "./Chart";
-import { sourceApiPath } from "./sourceRouting";
 import { Diagram } from "./Diagram";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
@@ -239,6 +239,7 @@ export function RichText({
   diagrams?: boolean;
   compact?: boolean;
 }) {
+  const sourceId = useSourceId();
   // Preserve table scroll positions and open file previews during refreshes.
   const renderers = useMemo<Components>(
     () => ({
@@ -271,7 +272,7 @@ export function RichText({
         return <pre>{children}</pre>;
       },
       a: ({ children, href }) => {
-        const file = loopFileUrl(href);
+        const file = loopFileUrl(href, sourceId);
         return file ? (
           <FileLink url={file}>{children}</FileLink>
         ) : (
@@ -281,7 +282,7 @@ export function RichText({
         );
       },
       img: ({ alt, src }) => {
-        const file = loopFileUrl(src);
+        const file = loopFileUrl(src, sourceId);
         return file ? (
           <FileLink url={file} name={alt || "Image preview"}>
             {alt || "View image"}
@@ -294,7 +295,7 @@ export function RichText({
         );
       },
     }),
-    [diagrams, compact],
+    [diagrams, compact, sourceId],
   );
   return (
     <div className="markdown">
@@ -400,6 +401,7 @@ function ArtifactPreview({
   tool?: string;
   web?: ReturnType<typeof webPreview>;
 }) {
+  const sourceApiPath = useSourcePath();
   const metadata = parse<any>(item.metadata, {});
   if (
     metadata.uploaded &&

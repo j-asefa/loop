@@ -322,7 +322,9 @@ export async function sendCollapseJourney(page, api, dir) {
     const prompt = reply
       ? "Collapse after this reply"
       : "Collapse after this message";
-    const storageKey = "loop-draft";
+    const { user } = await api("/auth/get-session");
+    const storageKey = `loop-draft-text:${user.id}:${reply ? conversationId : "__global__"}`;
+    const receiptKey = `loop-send:${JSON.stringify([user.id, "", reply ? conversationId : null])}`;
     await input.fill(prompt);
 
     // A lost acknowledgement must retain the draft and retry the same saved run.
@@ -352,16 +354,27 @@ export async function sendCollapseJourney(page, api, dir) {
       await expect(input).toBeVisible();
       await expect(input).toHaveValue(prompt);
       await expect(send).toBeEnabled();
+      await expect
+        .poll(() =>
+          page.evaluate((key) => localStorage.getItem(key), storageKey),
+        )
+        .toBe(prompt);
       assert.equal(
-        await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
-        prompt,
+        JSON.parse(
+          await page.evaluate((key) => sessionStorage.getItem(key), receiptKey),
+        ).key,
+        attempts[0].idempotencyKey,
       );
 
       if (reply) {
         // Recover a lost acknowledgement across the old conversation composer
         // and the shared composer, without creating a second run.
         await page.evaluate(
-          async ({ conversationId, agentId, prompt, key }) => {
+          async ({ conversationId, agentId, prompt, key, receiptKey }) => {
+            // Force the intentional legacy-receipt migration path instead of
+            // leaving the current scoped receipt to satisfy this retry.
+            sessionStorage.removeItem(receiptKey);
+            sessionStorage.removeItem("loop-draft-receipt:laptop");
             sessionStorage.removeItem("loop-draft");
             sessionStorage.removeItem("loop-draft-context");
             sessionStorage.removeItem("loop-draft-receipt");
@@ -389,12 +402,15 @@ export async function sendCollapseJourney(page, api, dir) {
             agentId: agent.id,
             prompt,
             key: attempts[0].idempotencyKey,
+            receiptKey,
           },
         );
       }
       // A slow thread load must not let the empty composer overwrite the
       // saved draft before it is restored.
-      const threadLoad = new RegExp(`/api/conversations/${conversationId}(\\?|$)`);
+      const threadLoad = new RegExp(
+        `/api/conversations/${conversationId}(\\?|$)`,
+      );
       const slow = async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         // A later navigation may have cancelled the request meanwhile.
@@ -424,7 +440,8 @@ export async function sendCollapseJourney(page, api, dir) {
             page.evaluate(
               (id) =>
                 Object.keys(localStorage).find(
-                  (k) => k.startsWith("loop-draft-text:") && k.endsWith(":" + id),
+                  (k) =>
+                    k.startsWith("loop-draft-text:") && k.endsWith(":" + id),
                 ) ?? null,
               conversationId,
             ),
@@ -446,7 +463,7 @@ export async function sendCollapseJourney(page, api, dir) {
       );
       await expect
         .poll(() =>
-          page.evaluate((key) => sessionStorage.getItem(key) || "", storageKey),
+          page.evaluate((key) => localStorage.getItem(key) || "", storageKey),
         )
         .toBe("");
       assert.equal(attempts.length, 2);
@@ -626,8 +643,8 @@ export async function scheduledSendJourney(page, api, dir) {
     confirmation.getByRole("button", { name: "View", exact: true }),
   ).toBeVisible();
   const everywhere = async () =>
-    (await api("/scheduled-sends")).items.filter(
-      (item) => item.input.startsWith("Global scheduled"),
+    (await api("/scheduled-sends")).items.filter((item) =>
+      item.input.startsWith("Global scheduled"),
     );
   await expect.poll(async () => (await everywhere()).length).toBe(1);
   await page.reload();
@@ -669,7 +686,10 @@ export async function scheduledSendJourney(page, api, dir) {
   await expect.poll(async () => (await everywhere()).length).toBe(0);
   // With your profile already open on another tab, View on a new scheduled
   // message switches it to Scheduled and highlights that message.
-  const profile = page.getByRole("region", { name: "Your profile", exact: true });
+  const profile = page.getByRole("region", {
+    name: "Your profile",
+    exact: true,
+  });
   await profile.getByRole("tab", { name: "Messages", exact: true }).click();
   await page.getByRole("button", { name: "Compose a message" }).click();
   await message.fill("Global scheduled from the profile");

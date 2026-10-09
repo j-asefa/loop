@@ -1,3 +1,4 @@
+import { sourceApiPathAt } from "./sourceRouting";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Download, File as FileIcon, Share2 } from "lucide-react";
@@ -5,15 +6,18 @@ import { authorizedFetch } from "./api";
 import { Sheet } from "./components";
 import { isHtmlFile } from "../shared/file-preview";
 
-export function loopFileUrl(href?: string) {
+export function loopFileUrl(href?: string, source?: string) {
   if (!href) return;
   try {
     const url = new URL(href, location.href);
     if (
       url.origin === location.origin &&
-      /^\/api\/(artifacts\/[^/]+\/file|objects\/[^/]+)$/.test(url.pathname)
+      /^\/api\/(?:agent-sources\/[^/]+\/)?(artifacts\/[^/]+\/file|objects\/[^/]+)$/.test(url.pathname)
     )
-      return url.pathname + url.search;
+      return source === undefined ? url.pathname + url.search : sourceApiPathAt(
+        url.pathname.replace(/^\/api\/agent-sources\/[^/]+\//, "/api/") + url.search,
+        source,
+      );
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }

@@ -7,8 +7,14 @@ const store = new Map<string, string>();
   setItem: (k: string, v: string) => void store.set(k, String(v)),
   removeItem: (k: string) => void store.delete(k),
 };
-const { GLOBAL_DRAFT, saveThreadDraft, setDraftOwner, threadDraft } =
-  await import("../src/client/drafts");
+const {
+  sourceDraftId,
+  clearAcceptedDraft,
+  GLOBAL_DRAFT,
+  saveThreadDraft,
+  setDraftOwner,
+  threadDraft,
+} = await import("../src/client/drafts");
 
 beforeEach(() => {
   store.clear();
@@ -46,4 +52,43 @@ it("clears a thread draft when its text and files are emptied", () => {
   saveThreadDraft("thread-2", "  ", []);
   expect(threadDraft("thread-2")).toEqual({ text: "", files: [] });
   expect(store.size).toBe(0);
+});
+
+it("isolates text and attachments for identical conversation IDs on different sources", () => {
+  setDraftOwner("alice");
+  saveThreadDraft(sourceDraftId("same", ""), "Laptop", [{ id: "local-file" }]);
+  saveThreadDraft(sourceDraftId("same", "docker:alpha"), "Docker", [
+    { id: "remote-file" },
+  ]);
+  expect(threadDraft(sourceDraftId("same", ""))).toEqual({
+    text: "Laptop",
+    files: [{ id: "local-file" }],
+  });
+  expect(threadDraft(sourceDraftId("same", "docker:alpha"))).toEqual({
+    text: "Docker",
+    files: [{ id: "remote-file" }],
+  });
+  expect(threadDraft(sourceDraftId("same", "docker:beta"))).toEqual({
+    text: "",
+    files: [],
+  });
+  setDraftOwner("bob");
+  expect(threadDraft(sourceDraftId("same", "docker:alpha")).text).toBe("");
+});
+
+
+it("settles the original global draft after navigation without clearing newer drafts or another owner", () => {
+  setDraftOwner("alice");
+  const origin = sourceDraftId(GLOBAL_DRAFT, "docker:alpha");
+  saveThreadDraft(origin, "Sent to the existing manager thread", [{ id: "file" }]);
+  saveThreadDraft("resolved-thread", "Different thread draft", []);
+  setDraftOwner("bob");
+  saveThreadDraft(origin, "Bob's draft", []);
+  clearAcceptedDraft(origin, "Sent to the existing manager thread", [{ id: "file" }], "alice");
+  expect(threadDraft(origin, "alice").text).toBe("");
+  expect(threadDraft("resolved-thread", "alice").text).toBe("Different thread draft");
+  expect(threadDraft(origin).text).toBe("Bob's draft");
+  saveThreadDraft(origin, "Newer Alice draft", [], "alice");
+  clearAcceptedDraft(origin, "Sent to the existing manager thread", [{ id: "file" }], "alice");
+  expect(threadDraft(origin, "alice").text).toBe("Newer Alice draft");
 });

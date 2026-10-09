@@ -1,5 +1,5 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
 import { Sheet } from "./components";
 
 type Command = {
@@ -46,6 +46,7 @@ export function HarnessPicker({
   focusInput: () => void;
   compact?: boolean;
 }) {
+  const api = useSourceApi();
   const [snippets, setSnippets] = useState<Snippet[] | null>(null),
     [allSnippets, setAllSnippets] = useState(false);
   const [open, setOpen] = useState(false),

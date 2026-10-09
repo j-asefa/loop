@@ -1,5 +1,5 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
 // Type-only: the client bundle does not ship the zod schemas.
 import type { ActivityRecord } from "../agent-activities";
@@ -80,6 +80,7 @@ export function useConversationActivities(
   conversation: string | undefined,
   runs: string[] = [],
 ) {
+  const api = useSourceApi();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [history, setHistory] = useState<ActivityHistoryState>({
     hasEarlier: false,

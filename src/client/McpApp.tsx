@@ -1,10 +1,9 @@
+import { useSourceApi, useSourcePath } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import {
   AppBridge,
   PostMessageTransport,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { api } from "./api";
-import { sourceApiPath } from "./sourceRouting";
 export function McpApp({
   artifactId,
   metadata,
@@ -12,6 +11,8 @@ export function McpApp({
   artifactId: string;
   metadata: any;
 }) {
+  const api = useSourceApi();
+  const sourceApiPath = useSourcePath();
   const frame = useRef<HTMLIFrameElement>(null),
     [status, setStatus] = useState("Loading isolated app…");
   useEffect(() => {

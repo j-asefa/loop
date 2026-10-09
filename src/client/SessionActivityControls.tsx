@@ -1,3 +1,4 @@
+import { useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import type {
   ActivityCapabilities,
@@ -5,7 +6,6 @@ import type {
   SettingValue,
   ActivityRecord,
 } from "../agent-activities";
-import { api } from "./api";
 import { Sheet } from "./components";
 type Controls = {
   readOnly?: boolean;
@@ -25,6 +25,7 @@ export function SessionActivityControls({
     capabilityGeneration?: string;
   };
 }) {
+  const api = useSourceApi();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Controls>();
   const [pending, setPending] = useState<{ id: string; value: SettingValue }>();

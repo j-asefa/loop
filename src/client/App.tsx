@@ -3,11 +3,14 @@ import { PersonalProfile } from "./PersonalProfile";
 import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName } from "./modelChoices";
-import { AttachmentList, UploadButton, useAttachments } from "./Attachments";
+import { AttachmentList, UploadButton } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 import { capabilities } from "./capabilities";
+import { SourceProvider } from "./SourceContext";
+import { useThreadSource } from "./useThreadSource";
 import {
   executionSourceId,
+  routeSourceId,
   returnToLocalSource,
   sourceUrl,
   sourceApiPath,
@@ -29,7 +32,12 @@ import { AgentMessages } from "./AgentMessages";
 import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
 import { restoreScroll, usePageHistory } from "./usePageHistory";
 import { setViewOwner } from "./viewCache";
-import { planSend, settleFailure, type SendReceipt } from "./sendIntent";
+import {
+  planSend,
+  settleFailure,
+  settleStoredSend,
+  type SendReceipt,
+} from "./sendIntent";
 import { useSwipeBack } from "./useSwipeBack";
 import { usePullToRefresh } from "./usePullToRefresh";
 import type { ComposerContext } from "./composerContext";
@@ -73,9 +81,11 @@ import { Toasts, notify } from "./toast";
 import { VoiceButton } from "./Voice";
 import {
   GLOBAL_DRAFT,
-  saveThreadDraft,
+  sourceDraftId,
+  saveThreadDraft as writeThreadDraft,
+  clearAcceptedDraft,
   setDraftOwner,
-  threadDraft,
+  threadDraft as readThreadDraft,
 } from "./drafts";
 import {
   dayLabel,
@@ -84,7 +94,7 @@ import {
   preview,
   timeLabel,
 } from "./threadView";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import {
   UserRound,
   Orbit,
@@ -109,7 +119,7 @@ import {
   Reply as ReplyIcon,
   X,
 } from "lucide-react";
-import { api, parse } from "./api";
+import { api, apiInWorkspace, parse } from "./api";
 import { Auth } from "./Auth";
 import { Connections } from "./Connections";
 import { CreateAgent } from "./CreateAgent";
@@ -233,9 +243,7 @@ export default function App() {
     [folder, setFolder] = useState(
       new URLSearchParams(location.search).get("folder") || "",
     ),
-    [draft, setDraft] = useState(
-      () => sessionStorage.getItem("loop-draft") || "",
-    ),
+    [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(false),
     [conversation, updateConversation] = useState<string | null>(
       new URLSearchParams(location.search).get("conversation"),
@@ -291,7 +299,7 @@ export default function App() {
     () => new URLSearchParams(location.search).get("folder") ?? undefined,
   );
   const [modelAgent, setModelAgent] = useState<Agent | null>(null);
-  const [attachments, setAttachments] = useAttachments("loop-draft-files");
+  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   const draftRef = useRef(draft);
@@ -329,13 +337,90 @@ export default function App() {
     true,
     { onControls: true },
   );
-  function setConversation(id: string | null, message?: string) {
-    setConversationTarget(null);
+  const [conversationSource, setConversationSource] = useState(routeSourceId);
+  const actionSource = conversation ? conversationSource : executionSourceId();
+  const threadApi = useMemo(
+    () =>
+      ((path, body, method, signal) =>
+        apiInWorkspace(path, actionSource, body, method, signal)) as typeof api,
+    [actionSource],
+  );
+  const threadSource = useThreadSource(
+    conversation ? conversationSource : null,
+    session?.user?.id,
+  );
+  const threadData =
+    conversation && conversationSource !== executionSourceId()
+      ? threadSource.data
+      : data;
+  const composerData = threadData || {
+    agents: [],
+    connections: [],
+    folders: [],
+    teams: [],
+  };
+  const threadIdentity = JSON.stringify([
+    session?.user?.id,
+    actionSource,
+    conversation,
+  ]);
+  const composerIdentityRef = useRef(threadIdentity);
+  composerIdentityRef.current = threadIdentity;
+  const navigationGeneration = useRef(0);
+  const viewIdentity = `${threadIdentity}:${navigationGeneration.current}`;
+  const threadIdentityRef = useRef(viewIdentity);
+  threadIdentityRef.current = viewIdentity;
+  const draftId = (id: string, source = actionSource) =>
+    sourceDraftId(id, source);
+  const threadDraft = (id: string) => readThreadDraft(draftId(id));
+  const saveThreadDraft = (
+    id: string,
+    text: string,
+    files: UploadedFile[],
+    owner = session?.user?.id,
+  ) => writeThreadDraft(draftId(id), text, files, owner);
+  const globalComposer = useRef({
+    selected,
+    replyContext,
+    contextArtifact,
+    folderChoice,
+  });
+  function setConversation(
+    id: string | null,
+    message?: string,
+    source = executionSourceId(),
+  ) {
+    if (!conversation && id)
+      globalComposer.current = {
+        selected,
+        replyContext,
+        contextArtifact,
+        folderChoice,
+      };
+    if (source !== conversationSource) {
+      setReplyContext(null);
+      setContextArtifact(null);
+    }
+    if (id !== conversation || source !== conversationSource) {
+      navigationGeneration.current++;
+      threadIdentityRef.current = "";
+      setModelAgent(null);
+      setSendMenu(false);
+      setScheduleAt(null);
+      if (sheet === "pi-active") setSheet("");
+      setThreadNotice("");
+      setThreadWork(null);
+      setConversationTarget(null);
+    }
+    setConversationSource(source);
     setMessageId(message || null);
     updateConversation(id);
     if (id) {
       const url = new URL(location.href);
       url.searchParams.set("conversation", id);
+      if (source) url.searchParams.set("source", source);
+      else url.searchParams.delete("source");
+      url.searchParams.delete("workspace");
       if (message) url.searchParams.set("message", message);
       else url.searchParams.delete("message");
       history.replaceState(history.state, "", url.pathname + url.search);
@@ -351,6 +436,17 @@ export default function App() {
       }
       const url = new URL(location.href);
       url.searchParams.delete("conversation");
+      if (conversationSource !== executionSourceId()) {
+        const previous = globalComposer.current;
+        setSelected(previous.selected);
+        setReplyContext(previous.replyContext);
+        setContextArtifact(previous.contextArtifact);
+        setFolderChoice(previous.folderChoice);
+      }
+      if (executionSourceId())
+        url.searchParams.set("source", executionSourceId());
+      else url.searchParams.delete("source");
+      url.searchParams.delete("workspace");
       url.searchParams.delete("message");
       history.replaceState(history.state, "", url.pathname + url.search);
     }
@@ -414,7 +510,11 @@ export default function App() {
     const artifact = url.searchParams.get("artifact");
     if (target) {
       setProfile(null);
-      setConversation(target, url.searchParams.get("message") || undefined);
+      setConversation(
+        target,
+        url.searchParams.get("message") || undefined,
+        routeSourceId(url.search),
+      );
     } else if (artifact)
       void api<Artifact>("/artifacts/" + artifact)
         .then((item) => void open(item))
@@ -441,6 +541,31 @@ export default function App() {
     setTab("profile");
   }
   const showScheduled = (focusId?: string) => openLater("scheduled", focusId);
+  // Later still belongs to a workspace page. Carry the destination through a
+  // toast so viewing a remote reminder cannot silently open the local list.
+  function openSourceLater(
+    section: "scheduled" | "reminders",
+    focusId: string | undefined,
+    source: string,
+  ) {
+    if (source === executionSourceId()) return openLater(section, focusId);
+    const url = new URL(sourceUrl(source), location.origin);
+    url.searchParams.set("page", "profile");
+    url.searchParams.set("later", section);
+    if (focusId) url.searchParams.set("laterItem", focusId);
+    location.assign(url.pathname + url.search);
+  }
+  useEffect(() => {
+    if (!session?.user) return;
+    const url = new URL(location.href);
+    const section = url.searchParams.get("later");
+    if (section !== "scheduled" && section !== "reminders") return;
+    openLater(section, url.searchParams.get("laterItem") || undefined);
+    url.searchParams.delete("later");
+    url.searchParams.delete("laterItem");
+    history.replaceState(history.state, "", url.pathname + url.search);
+  }, [session?.user?.id]);
+
   /**
    * A message's text and files added to a draft. Nothing already in the draft
    * is replaced: the text follows it, and files not already attached are
@@ -490,11 +615,33 @@ export default function App() {
    * only if its files fit beside the draft's, so nothing is lost either way.
    */
   async function withdrawToComposer(runId: string) {
-    const held = await api<{ input: string; attachments: UploadedFile[] }>(
-      `/runs/${runId}/withdraw`,
-      { draftAttachmentIds: attachmentsRef.current.map((file) => file.id) },
-    );
-    restoreToComposer(held.input, held.attachments);
+    const identity = threadIdentity;
+    const owner = session?.user?.id;
+    const key = draftKey;
+    const held = await threadApi<{
+      input: string;
+      attachments: UploadedFile[];
+    }>(`/runs/${runId}/withdraw`, {
+      draftAttachmentIds: attachmentsRef.current.map((file) => file.id),
+    });
+    const visible = owner === ownerRef.current && identity === composerIdentityRef.current;
+    const current = visible
+      ? { text: draftRef.current, files: attachmentsRef.current }
+      : readThreadDraft(key, owner);
+    // Cancellation has already succeeded. Preserve every returned attachment,
+    // even if newer edits filled the draft while the response was in flight.
+    const next = {
+      text: current.text.trim() ? `${current.text.trimEnd()}\n\n${held.input}` : held.input,
+      files: [...current.files, ...held.attachments.filter(file => !current.files.some(f => f.id === file.id))],
+    };
+    writeThreadDraft(key, next.text, next.files, owner);
+    if (visible) {
+      draftRef.current = next.text;
+      attachmentsRef.current = next.files;
+      setDraft(next.text);
+      setAttachments(next.files);
+      focusComposer();
+    }
   }
   /**
    * Put a message back into a draft for its agent, text and files: a
@@ -550,9 +697,13 @@ export default function App() {
     const previous =
       text ??
       ((context.messageId &&
-        sessionStorage.getItem("loop-message-reply-" + context.messageId)) ||
+        sessionStorage.getItem(
+          "loop-message-reply-" + draftId(context.messageId),
+        )) ||
         (context.artifactId &&
-          sessionStorage.getItem("loop-result-reply-" + context.artifactId)) ||
+          sessionStorage.getItem(
+            "loop-result-reply-" + draftId(context.artifactId),
+          )) ||
         undefined);
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
@@ -562,7 +713,7 @@ export default function App() {
     else if (!draft.trim() && previous) setDraft(previous);
     setComposerExpanded(true);
     if (context.conversationId && conversation !== context.conversationId) {
-      setConversation(context.conversationId, context.messageId);
+      setConversation(context.conversationId, context.messageId, actionSource);
       focusThreadComposer(context.conversationId);
     } else if (context.conversationId) focusComposer();
     else afterSheetsClose(focusComposer);
@@ -599,9 +750,7 @@ export default function App() {
       setReplyContext(null);
       setContextArtifact(null);
     }
-    afterSheetsClose(() =>
-      window.scrollTo({ top: 0, behavior: "instant" }),
-    );
+    afterSheetsClose(() => window.scrollTo({ top: 0, behavior: "instant" }));
   }
   function messageTeam(team: Team) {
     setReplyContext(null);
@@ -659,6 +808,7 @@ export default function App() {
       projectFilter,
       query,
       conversation,
+      conversationSource,
       messageId,
       activeArtifact,
     },
@@ -675,7 +825,11 @@ export default function App() {
       setTeamSelection(previous.teamSelection);
       setProjectFilter(previous.projectFilter);
       setQuery(previous.query);
-      setConversation(previous.conversation, previous.messageId || undefined);
+      setConversation(
+        previous.conversation,
+        previous.messageId || undefined,
+        previous.conversationSource,
+      );
       setActiveArtifact(previous.activeArtifact);
       afterSheetsClose(() => restoreScroll(scroll));
     },
@@ -777,11 +931,7 @@ export default function App() {
     message?: string,
     sourceId = executionSourceId(),
   ) {
-    if (sourceId !== executionSourceId()) {
-      location.assign(sourceUrl(sourceId, { conversation: id, message }));
-      return;
-    }
-    setConversation(id, message);
+    setConversation(id, message, sourceId);
   }
   function openSourcedAgent(agent: EnvironmentAgent) {
     if ((agent.sourceId || "") !== executionSourceId()) {
@@ -802,17 +952,23 @@ export default function App() {
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
   const initials = initialsOf(displayName);
-  const receiptStorageKey = `loop-draft-receipt:${executionSourceId() || "laptop"}`;
-  const request = useRef(
-    parse<SendReceipt>(
-      sessionStorage.getItem(receiptStorageKey) ||
-        (!executionSourceId()
-          ? sessionStorage.getItem("loop-draft-receipt")
-          : "") ||
-        "",
-      { signature: "", key: "" },
-    ),
-  );
+  const receiptStorageKey = `loop-send:${threadIdentity}`;
+  const receiptBox = useRef<{ key: string; box: { current: SendReceipt } } | null>(null);
+  if (receiptBox.current?.key !== receiptStorageKey) {
+    receiptBox.current = { key: receiptStorageKey, box: { current: parse<SendReceipt>(
+        sessionStorage.getItem(receiptStorageKey) ||
+          (actionSource === executionSourceId()
+            ? sessionStorage.getItem(
+                `loop-draft-receipt:${actionSource || "laptop"}`,
+              )
+            : "") ||
+          (!actionSource ? sessionStorage.getItem("loop-draft-receipt") : "") ||
+          "",
+        { signature: "", key: "" },
+      ) } };
+  }
+  // Each in-flight continuation keeps its originating box after navigation.
+  const request = receiptBox.current.box;
   const ownerRef = useRef<string | undefined>(undefined);
   ownerRef.current = session?.user?.id;
   // Drafts are read and written only for the signed-in owner.
@@ -838,9 +994,9 @@ export default function App() {
   ].join(":");
   const activeAgent =
     selected === "__route__"
-      ? data.agents.find((a) => a.id === routePreview?.agent?.id)
-      : data.agents.find((a) => a.id === selected) ||
-        (!replyContext
+      ? composerData.agents.find((a) => a.id === routePreview?.agent?.id)
+      : composerData.agents.find((a) => a.id === selected) ||
+        (!replyContext && !conversation
           ? availableAgents.find((a) => a.connection_id)
           : undefined);
   const selectedTeams =
@@ -878,44 +1034,64 @@ export default function App() {
   ).size;
   // Each thread keeps its own unsent draft (and the global composer keeps its
   // own), so switching threads never carries text into the wrong one.
-  const draftOwner = useRef<string | null>(conversation);
-  // The thread whose saved draft is in the composer. Until it is, nothing is
-  // saved for it: the empty composer would overwrite the saved draft.
+  const draftKey = draftId(conversation || GLOBAL_DRAFT);
+  const draftOwner = useRef({ key: draftKey, owner: session?.user?.id });
   const draftLoadedFor = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!session?.user?.id) {
+      draftLoadedFor.current = null;
+      return;
+    }
     const previous = draftOwner.current;
-    if (previous === conversation) return;
-    draftOwner.current = conversation;
-    if (previous) saveThreadDraft(previous, draft, attachments);
-    else saveThreadDraft(GLOBAL_DRAFT, draft, attachments);
-    const next = threadDraft(conversation || GLOBAL_DRAFT);
+    if (
+      previous.key === draftKey &&
+      previous.owner === session.user.id &&
+      draftLoadedFor.current === draftKey
+    )
+      return;
+    if (previous.owner && draftLoadedFor.current === previous.key)
+      writeThreadDraft(
+        previous.key,
+        draftRef.current,
+        attachmentsRef.current,
+        previous.owner,
+      );
+    draftOwner.current = { key: draftKey, owner: session.user.id };
+    const next = readThreadDraft(draftKey, session.user.id);
     setDraft(next.text);
     setAttachments(next.files);
     setComposerExpanded(false);
     setComposerError("");
-    draftLoadedFor.current = conversation;
-  }, [conversation]);
-  // A thread opened from the address (a reload, a link) loads its saved
-  // draft once the account is known, not when the thread's data arrives.
+    setBusy(false);
+    setUploading(false);
+    draftLoadedFor.current = draftKey;
+  }, [draftKey, session?.user?.id]);
   useEffect(() => {
-    if (!session?.user?.id || !conversation) return;
-    if (draftLoadedFor.current === conversation) return;
-    const saved = threadDraft(conversation);
-    if (!draftRef.current.trim() && saved.text) setDraft(saved.text);
-    if (!attachmentsRef.current.length && saved.files.length)
-      setAttachments(saved.files);
-    draftLoadedFor.current = conversation;
-  }, [session?.user?.id, conversation]);
-  useEffect(() => {
-    if (!conversation || draftLoadedFor.current !== conversation) return;
-    // Save for the owner who typed it, even if the session changes meanwhile.
+    if (draftLoadedFor.current !== draftKey) return;
     const owner = ownerRef.current;
     const timer = setTimeout(
-      () => saveThreadDraft(conversation, draft, attachments, owner),
+      () => writeThreadDraft(draftKey, draft, attachments, owner),
       400,
     );
     return () => clearTimeout(timer);
-  }, [draft, attachments, conversation]);
+  }, [draft, attachments, draftKey]);
+  // Flush before reload/backgrounding even when the short typing debounce has
+  // not fired. The captured owner/source prevents an unscoped session draft
+  // from being restored into whichever conversation opens next.
+  useEffect(() => {
+    const flush = () => {
+      const previous = draftOwner.current;
+      if (previous.owner && draftLoadedFor.current === previous.key)
+        writeThreadDraft(
+          previous.key,
+          draftRef.current,
+          attachmentsRef.current,
+          previous.owner,
+        );
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
   // Results are not polled while hidden; catch up when they come back.
   useEffect(() => {
     if (session?.user && feedVisible.current) void loadFeed(false, false);
@@ -1046,7 +1222,10 @@ export default function App() {
       if (notify) setRevision((v) => v + 1);
     } catch (e) {
       // While Loop restarts, the status line reports it; keep the feed as is.
-      if (key === feedContext.current && !(e as { reconnecting?: boolean }).reconnecting)
+      if (
+        key === feedContext.current &&
+        !(e as { reconnecting?: boolean }).reconnecting
+      )
         setFeedError((e as Error).message);
     } finally {
       if (key === feedContext.current) setFeedLoading(false);
@@ -1070,8 +1249,7 @@ export default function App() {
     // Loading failures recover independently of action errors. A later
     // successful read must remove its warning without hiding a failed send.
     const failed = [workspace, tasks].find((r) => r.status === "rejected") as
-      | PromiseRejectedResult
-      | undefined;
+      PromiseRejectedResult | undefined;
     // Existing content stays on screen; only the status line changes.
     setWorkspaceLoadError(
       failed?.reason?.reconnecting
@@ -1228,11 +1406,18 @@ export default function App() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [theme]);
-  useEffect(() => {
-    sessionStorage.setItem("loop-draft", draft);
-  }, [draft]);
   async function send(options: { queue?: boolean; sendAt?: number } = {}) {
-    if (busy || uploading || !draft.trim()) return;
+    if (
+      busy ||
+      uploading ||
+      !draft.trim() ||
+      (conversation && !conversationTarget)
+    )
+      return;
+    const currentView = () => viewIdentity === threadIdentityRef.current;
+    const sameComposer = () => threadIdentity === composerIdentityRef.current &&
+      draftRef.current === draft &&
+      JSON.stringify(attachmentsRef.current.map(file => file.id)) === JSON.stringify(attachments.map(file => file.id));
     if (/^@new\b/i.test(draft.trim())) {
       // "@new …" creates an agent and starts it with the rest of the message.
       setNewAgentPrompt(draft.trim().replace(/^@new\s*/i, ""));
@@ -1252,9 +1437,12 @@ export default function App() {
         return;
       }
       try {
-        const result = await api("/artifacts/" + contextArtifact.id + "/move", {
-          command: draft,
-        });
+        const result = await threadApi(
+          "/artifacts/" + contextArtifact.id + "/move",
+          {
+            command: draft,
+          },
+        );
         setFilingResult(result);
         setFiling(contextArtifact);
         setDraft("");
@@ -1270,7 +1458,7 @@ export default function App() {
     ) {
       setBusy(true);
       try {
-        const result = await api("/routing/preview", {
+        const result = await threadApi("/routing/preview", {
           input: draft,
           folderId: folder || undefined,
         });
@@ -1282,7 +1470,7 @@ export default function App() {
       } catch (e) {
         setError((e as Error).message);
       } finally {
-        setBusy(false);
+        if (currentView()) setBusy(false);
       }
       return;
     }
@@ -1294,14 +1482,15 @@ export default function App() {
     setBusy(true);
     setComposerError("");
     const owner = ownerRef.current;
+    let sentReceipt: SendReceipt | undefined;
     try {
       let recipient = activeAgent;
       if (draft.trim().startsWith("@")) {
-        const route = await api("/share/preview", { question: draft });
-        recipient = data.agents.find((a) => a.id === route.agent?.id)!;
+        const route = await threadApi("/share/preview", { question: draft });
+        recipient = composerData.agents.find((a) => a.id === route.agent?.id)!;
         if (!recipient) throw new Error("Choose an accessible @agent.");
       }
-      const managerTeam = data.teams?.find(
+      const managerTeam = composerData.teams?.find(
         (t) =>
           t.manager_id === recipient.id &&
           (profile || !teamSelection.length || teamSelection.includes(t.id)),
@@ -1320,9 +1509,9 @@ export default function App() {
           : contextArtifact?.agent_id === recipient.id
             ? contextArtifact.conversation_id || undefined
             : teamSelection.length === 1 &&
-                data.teams?.find((t) => t.id === teamSelection[0])
+                composerData.teams?.find((t) => t.id === teamSelection[0])
                   ?.manager_id === recipient.id
-              ? data.teams.find((t) => t.id === teamSelection[0])!
+              ? composerData.teams.find((t) => t.id === teamSelection[0])!
                   .conversation_id || undefined
               : undefined);
       const signature = JSON.stringify([
@@ -1340,7 +1529,9 @@ export default function App() {
         const previous =
           conversationId && !reply?.messageId
             ? parse<{ signature?: string; key?: string }>(
-                sessionStorage.getItem("loop-receipt-" + conversationId) || "",
+                sessionStorage.getItem(
+                  "loop-receipt-" + draftId(conversationId),
+                ) || "",
                 {},
               )
             : {};
@@ -1366,6 +1557,7 @@ export default function App() {
         carriedKey,
       );
       request.current = plan.receipt;
+      sentReceipt = plan.receipt;
       sessionStorage.setItem(
         receiptStorageKey,
         JSON.stringify(request.current),
@@ -1397,51 +1589,82 @@ export default function App() {
               ? undefined
               : recipient.folder_id || undefined,
       };
+      const settleAccepted = () => {
+        clearAcceptedDraft(draftKey, draft, attachments, owner);
+        if (request.current.key === sentReceipt!.key)
+          request.current = { signature: "", key: "" };
+        settleStoredSend(
+          sessionStorage,
+          receiptStorageKey,
+          sentReceipt!.key,
+          null,
+        );
+        settleStoredSend(
+          sessionStorage,
+          `loop-draft-receipt:${actionSource || "laptop"}`,
+          sentReceipt!.key,
+          null,
+        );
+        window.dispatchEvent(new Event("loop-source-refresh"));
+        window.dispatchEvent(new Event("loop-later-change"));
+      };
       if (options.sendAt) {
-        const row = await api<{ id: string }>("/scheduled-sends", {
+        const row = await threadApi<{ id: string }>("/scheduled-sends", {
           ...body,
           sendAt: options.sendAt,
         });
+        settleAccepted();
         if (owner !== ownerRef.current) return;
         const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
         const text = draft;
         // Undo cancels it while it is still waiting; once it has been sent,
         // the server refuses and says so.
         notify({
-          text: `Scheduled for @${recipient.name}, ${when}.${reconciled}`,
-          link: { label: "View", onSelect: () => showScheduled(row.id) },
+          text: `Scheduled for @${recipient.name}, ${when}.${!sameComposer() ? " Your current draft has been kept." : ""}${reconciled}`,
+          link: {
+            label: "View",
+            onSelect: () => openSourceLater("scheduled", row.id, actionSource),
+          },
           undo: async () => {
-            await api("/scheduled-sends/" + row.id, undefined, "DELETE");
+            await threadApi("/scheduled-sends/" + row.id, undefined, "DELETE");
             window.dispatchEvent(new Event("loop-scheduled-change"));
-            setDraft((current) => (current.trim() ? current : text));
+            if (currentView())
+              setDraft((current) => (current.trim() ? current : text));
           },
         });
         window.dispatchEvent(new Event("loop-scheduled-change"));
+        if (!sameComposer()) return;
         setDraft("");
         setAttachments([]);
-        request.current = { signature: "", key: "" };
-        sessionStorage.removeItem(receiptStorageKey);
-        if (!executionSourceId())
-          sessionStorage.removeItem("loop-draft-receipt");
+        if (!actionSource) sessionStorage.removeItem("loop-draft-receipt");
         setReplyContext(
           conversation && conversationTarget ? conversationTarget : null,
         );
         if (!conversation) collapseComposer();
         return;
       }
-      const accepted = await api<Run & { steeringId?: string }>("/runs", {
+      const accepted = await threadApi<Run & { steeringId?: string }>("/runs", {
         ...body,
         ...(options.queue ? { queue: true } : {}),
       });
+      settleAccepted();
       if (owner !== ownerRef.current) return;
+      const unchanged = sameComposer();
+      if (!unchanged)
+        notify({ text: `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}. Your current draft has been kept.${reconciled}` });
       // Publish the confirmed receipt before any background refresh. Discard
       // older reads so a response started before this send cannot erase it.
       ++runsGeneration.current;
-      if (accepted.agent_id && accepted.state)
+      if (
+        actionSource === executionSourceId() &&
+        accepted.agent_id &&
+        accepted.state
+      )
         setRuns((old) => [
           { ...old.find((run) => run.id === accepted.id), ...accepted },
           ...old.filter((run) => run.id !== accepted.id),
         ]);
+      if (!unchanged) return;
       if (!conversation)
         setSendNotice({
           runId: accepted.id,
@@ -1452,17 +1675,19 @@ export default function App() {
         });
       setDraft("");
       setAttachments([]);
-      request.current = { signature: "", key: "" };
-      sessionStorage.removeItem(receiptStorageKey);
-      if (!executionSourceId()) sessionStorage.removeItem("loop-draft-receipt");
+      if (!actionSource) sessionStorage.removeItem("loop-draft-receipt");
       if (conversationId) {
         saveThreadDraft(conversationId, "", []);
-        sessionStorage.removeItem("loop-receipt-" + conversationId);
+        sessionStorage.removeItem("loop-receipt-" + draftId(conversationId));
       }
       if (reply?.messageId)
-        sessionStorage.removeItem("loop-message-reply-" + reply.messageId);
+        sessionStorage.removeItem(
+          "loop-message-reply-" + draftId(reply.messageId),
+        );
       if (reply?.artifactId)
-        sessionStorage.removeItem("loop-result-reply-" + reply.artifactId);
+        sessionStorage.removeItem(
+          "loop-result-reply-" + draftId(reply.artifactId),
+        );
       // Stay in the thread after sending; its reply context returns to the
       // conversation itself rather than the quoted message.
       setReplyContext(
@@ -1486,19 +1711,23 @@ export default function App() {
     } catch (e) {
       // A refusal means nothing was accepted, so a different choice may be
       // sent next; anything else stays pending and is retried as first sent.
-      if (request.current.signature) {
-        request.current = settleFailure(
-          request.current,
+      if (sentReceipt) {
+        const failed = settleFailure(
+          sentReceipt,
           (e as { status?: number }).status,
         );
-        sessionStorage.setItem(
+        if (request.current.key === sentReceipt.key) request.current = failed;
+        settleStoredSend(
+          sessionStorage,
           receiptStorageKey,
-          JSON.stringify(request.current),
+          sentReceipt.key,
+          failed,
         );
       }
-      if (owner === ownerRef.current) setComposerError((e as Error).message);
+      if (owner === ownerRef.current && currentView())
+        setComposerError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (currentView()) setBusy(false);
     }
   }
   function openCard(item: Artifact) {
@@ -1700,7 +1929,7 @@ export default function App() {
             : "Send message"
       }
       title="Hold for more send options"
-      disabled={busy || uploading || !draft.trim() || !!activeAgent?.retired_at}
+      disabled={busy || uploading || !draft.trim() || !!activeAgent?.retired_at || !!(conversation && !conversationTarget)}
       onClick={() => void send()}
       {...sendPress}
     >
@@ -1714,7 +1943,7 @@ export default function App() {
     </button>
   );
   const messageComposer =
-    availableAgents.length > 0 ? (
+    (conversation ? composerData.agents : availableAgents).length > 0 ? (
       <section
         ref={composerRef}
         className={
@@ -1952,6 +2181,7 @@ export default function App() {
           )}
           <div className="composer-actions">
             <UploadButton
+              key={threadIdentity}
               menu
               folderId={folderChoice ?? activeAgent?.folder_id}
               agentId={activeAgent?.id}
@@ -1959,6 +2189,7 @@ export default function App() {
               remaining={MAX_MESSAGE_FILES - attachments.length}
               onBusy={setUploading}
               onUploaded={(file) => {
+                if (viewIdentity !== threadIdentityRef.current) return;
                 attachmentsRef.current = [...attachmentsRef.current, file];
                 setAttachments(attachmentsRef.current);
               }}
@@ -1995,7 +2226,7 @@ export default function App() {
                 <>
                   <span className="composer-model-label">
                     <span className="composer-model-name">
-                      {agentModelName(activeAgent, data.connections)}
+                      {agentModelName(activeAgent, composerData.connections)}
                     </span>
                     {!threadMode && (
                       <small className="composer-effort">
@@ -2504,8 +2735,7 @@ export default function App() {
                 onOpen={openSourcedConversation}
                 onReply={(c, source) => {
                   openSourcedConversation(c, undefined, source);
-                  if ((source || "") === executionSourceId())
-                    focusThreadComposer(c);
+                  focusThreadComposer(c);
                 }}
                 connections={unified.connections}
                 onAgent={openSourcedAgent}
@@ -2948,7 +3178,11 @@ export default function App() {
                 className="text-button"
                 onClick={async () => {
                   stopEventsPoll.current();
+                  const previous = draftOwner.current;
+                  if (previous.owner && draftLoadedFor.current === previous.key)
+                    writeThreadDraft(previous.key, draftRef.current, attachmentsRef.current, previous.owner);
                   await api("/auth/sign-out", {});
+                  draftLoadedFor.current = null;
                   sessionStorage.clear();
                   setTeamSelection([]);
                   setArchivedCard(null);
@@ -2966,7 +3200,7 @@ export default function App() {
                   setRoutePreview(null);
                   setFiling(null);
                   setSheet("");
-                  history.replaceState({}, "", "/");
+                  history.replaceState(history.state, "", sourceUrl(executionSourceId()));
                   setDraft("");
                   setFolderChoice(undefined);
                   setConversation(null);
@@ -3287,6 +3521,21 @@ export default function App() {
             setSheet("environments");
           }}
           onCreated={async (a, f, sourceId) => {
+            if (
+              sourceId !== executionSourceId() &&
+              a.initialRun?.conversation_id
+            ) {
+              setSheet("");
+              if (newAgentPrompt) setDraft("");
+              setNewAgentPrompt("");
+              window.dispatchEvent(new Event("loop-source-refresh"));
+              setConversation(
+                a.initialRun.conversation_id,
+                undefined,
+                sourceId,
+              );
+              return;
+            }
             if (sourceId !== executionSourceId()) {
               location.assign(
                 sourceUrl(
@@ -3400,23 +3649,37 @@ export default function App() {
         />
       )}
       {(sheet === "pi-customizations" || sheet === "pi-active") && (
-        <PiCustomizations
-          agents={data.agents}
-          agentId={activeAgent?.provider === "pi" ? activeAgent.id : undefined}
-          conversationId={conversation ?? undefined}
-          mode={sheet === "pi-active" ? "active" : "library"}
-          onClose={closeSheet}
-          onUse={(agentId, token) => {
-            if (agentId !== activeAgent?.id) setConversation(null);
-            setSelected(agentId);
-            setDraft(token + " ");
-            setSettingsParent(false);
-            setSheet("");
-            requestAnimationFrame(() =>
-              document.getElementById("composer")?.focus(),
-            );
-          }}
-        />
+        <SourceProvider
+          sourceId={actionSource}
+          capabilities={threadSource.capabilities || capabilities}
+        >
+          <PiCustomizations
+            agents={composerData.agents}
+            agentId={
+              activeAgent?.provider === "pi" ? activeAgent.id : undefined
+            }
+            conversationId={conversation ?? undefined}
+            mode={sheet === "pi-active" ? "active" : "library"}
+            onClose={closeSheet}
+            onUse={(agentId, token) => {
+              if (agentId !== activeAgent?.id && actionSource !== executionSourceId()) {
+                writeThreadDraft(sourceDraftId(GLOBAL_DRAFT, actionSource), token + " ", [], session?.user?.id);
+                sessionStorage.setItem("loop-draft-agent", agentId);
+                sessionStorage.removeItem("loop-draft-context");
+                location.assign(sourceUrl(actionSource, { agent: agentId }));
+                return;
+              }
+              if (agentId !== activeAgent?.id) setConversation(null);
+              setSelected(agentId);
+              setDraft(token + " ");
+              setSettingsParent(false);
+              setSheet("");
+              requestAnimationFrame(() =>
+                document.getElementById("composer")?.focus(),
+              );
+            }}
+          />
+        </SourceProvider>
       )}
       {sheet === "agents" && (
         <AgentDirectory
@@ -3447,43 +3710,58 @@ export default function App() {
         />
       )}
       {modelAgent && (
-        <AgentModelSettings
-          agent={modelAgent}
-          connections={data.connections}
-          onClose={() => setModelAgent(null)}
-          onSaved={(saved) => {
-            if (saved.connection_id !== modelAgent.connection_id) {
-              setContextArtifact(null);
-              if (
-                replyContext?.agentId === saved.id ||
-                conversationTarget?.agentId === saved.id
-              ) {
-                setReplyContext(null);
-                setConversation(null);
-                setComposerExpanded(true);
+        <SourceProvider
+          sourceId={actionSource}
+          capabilities={threadSource.capabilities || capabilities}
+        >
+          <AgentModelSettings
+            agent={modelAgent}
+            connections={composerData.connections}
+            onClose={() => setModelAgent(null)}
+            onSaved={(saved) => {
+              if (viewIdentity !== threadIdentityRef.current) return;
+              if (actionSource !== executionSourceId()) {
+                if (saved.connection_id !== modelAgent.connection_id) {
+                  openSourcedAgent({ ...saved, sourceId: actionSource });
+                  return;
+                }
+                threadSource.retry();
+                return;
               }
-            }
-            if (profile?.id === saved.id) setProfile(saved);
-            setModelAgent((current) =>
-              current?.id === saved.id ? saved : current,
-            );
-            setData((old) => ({
-              ...old,
-              agents: old.agents.map((agent) =>
-                agent.id === saved.id ? saved : agent,
-              ),
-              teams:
-                saved.connection_id !== modelAgent.connection_id
-                  ? old.teams?.map((team) =>
-                      team.manager_id === saved.id
-                        ? { ...team, conversation_id: null }
-                        : team,
-                    )
-                  : old.teams,
-            }));
-            void bootstrap();
-          }}
-        />
+              if (saved.connection_id !== modelAgent.connection_id) {
+                setContextArtifact(null);
+                if (
+                  replyContext?.agentId === saved.id ||
+                  conversationTarget?.agentId === saved.id
+                ) {
+                  setReplyContext(null);
+                  setConversation(null);
+                  setComposerExpanded(true);
+                }
+              }
+              if (profile?.id === saved.id) setProfile(saved);
+              setModelAgent((current) =>
+                current?.id === saved.id ? saved : current,
+              );
+              setData((old) => ({
+                ...old,
+                agents: old.agents.map((agent) =>
+                  agent.id === saved.id ? saved : agent,
+                ),
+                teams:
+                  saved.connection_id !== modelAgent.connection_id
+                    ? old.teams?.map((team) =>
+                        team.manager_id === saved.id
+                          ? { ...team, conversation_id: null }
+                          : team,
+                      )
+                    : old.teams,
+              }));
+              threadSource.retry();
+              void bootstrap();
+            }}
+          />
+        </SourceProvider>
       )}
       {sheet === "edit-agent" && profile && (
         <Sheet title="Edit agent" onClose={closeSheet}>
@@ -3580,69 +3858,112 @@ export default function App() {
           }}
         />
       )}
-      {conversation && (
-        <Conversation
-          key={conversation}
-          id={conversation}
-          messageId={messageId}
-          revision={revision}
-          onAgentChanged={() => void bootstrap()}
-          onNewConversation={(agent) => {
-            setConversation(null);
-            setSelected(agent.id);
-            setContextArtifact(null);
-            setReplyContext(null);
-            setComposerExpanded(true);
-          }}
-          onProfile={(a) => {
-            setConversation(null);
-            collapseComposer();
-            if (!draft.trim() && !attachments.length) setReplyContext(null);
-            setProfile(a);
-            afterSheetsClose(() =>
-              window.scrollTo({ top: 0, behavior: "instant" }),
-            );
-          }}
-          agents={data.agents}
-          connections={data.connections}
-          teams={data.teams || []}
-          folders={data.folders}
-          onNotice={setDismissNotice}
-          onShowLater={openLater}
-          onWork={setThreadWork}
-          onClose={() => {
-            setConversation(null);
-            setThreadNotice("");
-            collapseComposer();
-            if (!draft.trim() && !attachments.length) setReplyContext(null);
-          }}
-          onContinue={setConversation}
-          composer={messageComposer}
-          onReady={(context) => {
-            setConversationTarget(context);
-            setSelected(context.agentId);
-            setFolderChoice(undefined);
-            setContextArtifact(null);
-            setReplyContext((current) =>
-              current?.agentId === context.agentId &&
-              current.conversationId === context.conversationId
-                ? current
-                : context,
-            );
-            const saved = threadDraft(context.conversationId);
-            if (!draft.trim() && saved.text) setDraft(saved.text);
-            if (!attachments.length && saved.files.length)
-              setAttachments(saved.files);
-          }}
-          onReply={beginReply}
-          onUsePrompt={(text) => {
-            setDraft(text);
-            focusComposer();
-          }}
-          onRestoreDraft={restoreToComposer}
-          onWithdraw={withdrawToComposer}
-          onSubmitted={refresh}
-        />
+      {conversation && !threadData && (
+        <Sheet title="Conversation" onClose={() => setConversation(null)}>
+          {threadSource.error ? (
+            <>
+              <p role="alert">{threadSource.error}</p>
+              <button onClick={threadSource.retry}>Retry connection</button>
+            </>
+          ) : (
+            <p role="status">Loading conversation…</p>
+          )}
+        </Sheet>
+      )}
+      {conversation && threadData && (
+        <SourceProvider
+          key={threadIdentity}
+          sourceId={conversationSource}
+          capabilities={threadSource.capabilities || capabilities}
+        >
+          <Conversation
+            key={threadIdentity}
+            id={conversation}
+            messageId={messageId}
+            revision={revision}
+            onAgentChanged={() => {
+              threadSource.retry();
+              void bootstrap();
+            }}
+            onNewConversation={(agent) => {
+              if (conversationSource !== executionSourceId()) {
+                openSourcedAgent({ ...agent, sourceId: conversationSource });
+                return;
+              }
+              setConversation(null);
+              setSelected(agent.id);
+              setContextArtifact(null);
+              setReplyContext(null);
+              setComposerExpanded(true);
+            }}
+            onProfile={(a) => {
+              if (conversationSource !== executionSourceId()) {
+                openSourcedAgent({ ...a, sourceId: conversationSource });
+                return;
+              }
+              setConversation(null);
+              collapseComposer();
+              if (!draft.trim() && !attachments.length) setReplyContext(null);
+              setProfile(a);
+              afterSheetsClose(() =>
+                window.scrollTo({ top: 0, behavior: "instant" }),
+              );
+            }}
+            agents={threadData.agents}
+            connections={threadData.connections}
+            teams={threadData.teams || []}
+            folders={threadData.folders}
+            onNotice={setDismissNotice}
+            onShowLater={(section, id) =>
+              openSourceLater(section, id, conversationSource)
+            }
+            onWork={setThreadWork}
+            onClose={() => {
+              setConversation(null);
+              setThreadNotice("");
+              collapseComposer();
+              if (!draft.trim() && !attachments.length) setReplyContext(null);
+            }}
+            onContinue={(id) => {
+              if (viewIdentity === threadIdentityRef.current)
+                setConversation(id, undefined, conversationSource);
+            }}
+            composer={messageComposer}
+            readyKey={viewIdentity}
+            onReady={(context) => {
+              if (viewIdentity !== threadIdentityRef.current) return;
+              setConversationTarget(context);
+              setSelected(context.agentId);
+              setFolderChoice(undefined);
+              setContextArtifact(null);
+              setReplyContext((current) =>
+                current?.agentId === context.agentId &&
+                current.conversationId === context.conversationId
+                  ? current
+                  : context,
+              );
+              const saved = threadDraft(context.conversationId);
+              if (!draft.trim() && saved.text) setDraft(saved.text);
+              if (!attachments.length && saved.files.length)
+                setAttachments(saved.files);
+            }}
+            onReply={beginReply}
+            onUsePrompt={(text) => {
+              if (viewIdentity !== threadIdentityRef.current) return;
+              setDraft(text);
+              focusComposer();
+            }}
+            onRestoreDraft={(text, files) => {
+              if (viewIdentity === threadIdentityRef.current)
+                restoreToComposer(text, files);
+            }}
+            onWithdraw={withdrawToComposer}
+            onSubmitted={() => {
+              window.dispatchEvent(new Event("loop-source-refresh"));
+              void refresh();
+            }}
+          />
+        </SourceProvider>
       )}
       {activeArtifact && (
         <ArtifactViewer
