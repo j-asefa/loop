@@ -23,6 +23,7 @@ import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
 import { useSheetViewport } from "./useSheetViewport";
+import { lockSheetPage } from "./sheet-scroll";
 import { registerSheet } from "./sheetHistory";
 import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
 import { FileLink, loopFileUrl } from "./FilePreview";
@@ -160,6 +161,7 @@ export function Sheet({
     // Return focus to what opened the sheet when it closes. The dialog is
     // removed with the component, so the browser cannot restore it.
     const opener = document.activeElement as HTMLElement | null;
+    const unlockPage = lockSheetPage();
     d.showModal();
     openSheets.push(d);
     const unregister = registerSheet(() => closeRef.current());
@@ -168,6 +170,7 @@ export function Sheet({
       const index = openSheets.indexOf(d);
       if (index >= 0) openSheets.splice(index, 1);
       unregister();
+      unlockPage();
       // Only when nothing else took over: no other sheet, or the opener is
       // inside the sheet still open beneath this one.
       if (

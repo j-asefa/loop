@@ -25,10 +25,33 @@ export function PwaStatus() {
           });
         })
         .catch(() => {});
+    // Keep the pre-keyboard height: iOS can resize innerHeight along with the
+    // visual viewport. Their difference alone then reports a closed keyboard.
+    // Reset for width/orientation changes; browser chrome may change the height
+    // at the same width, so retain the largest unzoomed height seen there.
+    let viewportWidth = innerWidth;
+    let layoutHeight = Math.max(
+      innerHeight,
+      document.documentElement.clientHeight,
+    );
     const viewport = () => {
       const v = window.visualViewport;
-      const obscuredHeight = innerHeight - (v?.height || innerHeight);
-      const inset = Math.max(0, obscuredHeight - (v?.offsetTop || 0));
+      const currentHeight = Math.max(
+        innerHeight,
+        document.documentElement.clientHeight,
+      );
+      if (viewportWidth !== innerWidth) {
+        viewportWidth = innerWidth;
+        layoutHeight = currentHeight;
+      } else if (Math.abs((v?.scale || 1) - 1) < 0.01) {
+        layoutHeight = Math.max(layoutHeight, currentHeight);
+      }
+      const obscuredHeight = layoutHeight - (v?.height || innerHeight);
+      // A resized fixed viewport already avoids part (or all) of the keyboard.
+      const inset = Math.max(
+        0,
+        innerHeight - (v?.height || innerHeight) - (v?.offsetTop || 0),
+      );
       const active = document.activeElement;
       const textEntryFocused =
         ((active instanceof HTMLTextAreaElement ||
@@ -51,7 +74,9 @@ export function PwaStatus() {
       // height. Using the bottom inset here expands the sheet off-screen as
       // Safari pans, hiding the original message and agent header.
       const keyboardOpen =
-        textEntryFocused && obscuredHeight > 100 && (v?.scale || 1) === 1;
+        textEntryFocused &&
+        obscuredHeight > 100 &&
+        Math.abs((v?.scale || 1) - 1) < 0.01;
       document.documentElement.dataset.keyboard = keyboardOpen
         ? "open"
         : "closed";
@@ -93,7 +118,10 @@ export function PwaStatus() {
       );
       if (drop === dropped) return;
       dropped = drop;
-      document.documentElement.style.setProperty("--viewport-drop", drop + "px");
+      document.documentElement.style.setProperty(
+        "--viewport-drop",
+        drop + "px",
+      );
     };
     // Safari can leave the visible area panned after the keyboard closes.
     // Fixed bars stay on the page's own bottom edge, so they then float in
@@ -129,11 +157,8 @@ export function PwaStatus() {
     for (const type of touchEvents)
       window.addEventListener(type, touched, { passive: true });
     viewport();
-    const stopWatching = watchViewport(
-      window,
-      document,
-      scheduleViewport,
-      () => fold(),
+    const stopWatching = watchViewport(window, document, scheduleViewport, () =>
+      fold(),
     );
     return () => {
       window.removeEventListener("online", changed);
@@ -143,8 +168,7 @@ export function PwaStatus() {
       probe.remove();
       document.documentElement.style.removeProperty("--viewport-drop");
       document.documentElement.style.removeProperty("--visual-viewport-top");
-      for (const type of touchEvents)
-        window.removeEventListener(type, touched);
+      for (const type of touchEvents) window.removeEventListener(type, touched);
     };
   }, []);
   if (online && !update) return null;

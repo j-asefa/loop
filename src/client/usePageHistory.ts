@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { pageScrollY } from "./sheet-scroll";
 
 type Visit<T> = { key: string; value: T; scroll: number };
 
@@ -10,7 +11,7 @@ export function usePageHistory<T>(
   owner: string | undefined,
   restore: (value: T, scroll: number) => void,
 ) {
-  const current = useRef<Visit<T>>({ key, value, scroll: window.scrollY });
+  const current = useRef<Visit<T>>({ key, value, scroll: pageScrollY() });
   const visits = useRef<Visit<T>[]>([]);
   const returning = useRef(false);
   const previousOwner = useRef(owner);
@@ -24,13 +25,13 @@ export function usePageHistory<T>(
       if (previous >= 0) visits.current.splice(previous);
       else visits.current = [...visits.current.slice(-49), current.current];
     }
-    current.current = { key, value, scroll: window.scrollY };
+    current.current = { key, value, scroll: pageScrollY() };
     previousOwner.current = owner;
     returning.current = false;
   });
   useEffect(() => {
     const scrolled = () => {
-      current.current.scroll = window.scrollY;
+      current.current.scroll = pageScrollY();
     };
     window.addEventListener("scroll", scrolled, { passive: true });
     return () => window.removeEventListener("scroll", scrolled);

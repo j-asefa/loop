@@ -1,4 +1,5 @@
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
+import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -28,6 +29,7 @@ import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),
   "create-agent-layout": (p, f, e, c) => createAgentLayoutSmoke(p, f, c),
   "upload-destination": uploadDestinationSmoke,
   "withdraw-draft": withdrawDraftSmoke,
