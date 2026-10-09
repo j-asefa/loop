@@ -1,8 +1,10 @@
+import { SHEET_SETTLE_MS } from "../../src/shared/sheet-viewport.ts";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { openAgentProfile, openSettings } from "./browser-ui.mjs";
 
 export async function replyKeyboardSmoke(page, fixture, capture) {
+  await page.clock.install();
   const sheet = () => page.locator("dialog[open]").last();
   const thread = () => page.locator("dialog.conversation-sheet[open]");
   const composer = () => thread().locator(".composer");
@@ -19,9 +21,14 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       window.visualViewport.dispatchEvent(new Event("resize"));
     });
   try {
-    for (const kind of ["result", "message"]) {
+    for (const kind of ["conversation", "result", "message"]) {
       await page.setViewportSize({ width: 390, height: 844 });
-      if (kind === "message") {
+      if (kind === "conversation") {
+        await page.goto(
+          fixture.base + "/?conversation=" + fixture.conversations[0].id,
+          { waitUntil: "networkidle" },
+        );
+      } else if (kind === "message") {
         await page.goto(
           fixture.base + "/?conversation=" + fixture.conversations[0].id,
           { waitUntil: "networkidle" },
@@ -53,10 +60,13 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       const input = composer().getByRole("textbox", { name: "Reply to agent" });
       // Replying opens the thread with the original quoted in the composer.
       await expect(page.locator("dialog[open]")).toHaveCount(1);
-      await expect(composer().locator(".composer-reply-chip")).toBeVisible();
+      if (kind !== "conversation")
+        await expect(composer().locator(".composer-reply-chip")).toBeVisible();
       await input.fill("Everything runs locally. Can you clarify this part?");
       // The quote starts as a one-line chip; expanding it shows the original.
-      for (const quote of ["collapsed", "expanded"]) {
+      for (const quote of kind === "conversation"
+        ? ["none"]
+        : ["collapsed", "expanded"]) {
         if (quote === "expanded")
           await composer().locator(".composer-quote-toggle > summary").click();
         for (const width of [390, 320]) {
@@ -96,9 +106,12 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
                       const r = element.getBoundingClientRect();
                       return r.top >= top && r.bottom <= bottom && r.height > 0;
                     };
-                    if (quote === "collapsed")
+                    if (quote !== "expanded")
                       return (
-                        within(dialog.querySelector(".composer-reply-chip")) &&
+                        (quote === "none" ||
+                          within(
+                            dialog.querySelector(".composer-reply-chip"),
+                          )) &&
                         within(dialog.querySelector(".composer-main")) &&
                         within(dialog.querySelector(".composer-actions"))
                       );
@@ -177,34 +190,187 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
           }
         }
       }
+      // A modal's origin can move after the visual viewport event, or with a
+      // page scroll alone. Neither changes its size, so ResizeObserver cannot
+      // recover it. Keep real geometry/hit testing; do not stub the rect.
+      for (const signal of ["late-viewport", "page-scroll"]) {
+        // Test the page-scroll listener independently of earlier settle checks.
+        if (signal === "page-scroll")
+          await page.waitForTimeout(Math.max(...SHEET_SETTLE_MS) + 200);
+        if (signal === "late-viewport") {
+          await page.clock.pauseAt(
+            new Date(await page.evaluate(() => Date.now())),
+          );
+          await page.evaluate(() =>
+            window.visualViewport.dispatchEvent(new Event("scroll")),
+          );
+          // Advance the browser clock, not a wall-clock race with CI load.
+          // The original 600ms recovery horizon has already elapsed.
+          await page.clock.runFor(800);
+        }
+        await thread().evaluate(async (el, signal) => {
+          if (signal === "late-viewport") {
+            el.style.marginTop = "960px";
+          } else {
+            el.style.marginTop = "-480px";
+            window.dispatchEvent(new Event("scroll"));
+          }
+        }, signal);
+        if (signal === "late-viewport") {
+          await page.clock.runFor(800);
+          await page.clock.resume();
+        }
+        await expect
+          .poll(
+            () =>
+              thread().evaluate((el) => {
+                const v = window.visualViewport;
+                const rect = el.getBoundingClientRect();
+                const field = el.querySelector(".composer textarea");
+                const controls = el.querySelector(".composer-actions");
+                const header = el.querySelector(".sheet-head");
+                const inside = (part) => {
+                  const r = part.getBoundingClientRect();
+                  return (
+                    r.height > 0 && r.top >= rect.top && r.bottom <= rect.bottom
+                  );
+                };
+                const r = field.getBoundingClientRect();
+                return (
+                  rect.top >= v.offsetTop &&
+                  rect.bottom <= v.offsetTop + v.height + 1 &&
+                  inside(header) &&
+                  inside(field) &&
+                  inside(controls) &&
+                  field.contains(
+                    document.elementFromPoint(
+                      r.x + r.width / 2,
+                      r.y + r.height / 2,
+                    ),
+                  )
+                );
+              }),
+            {
+              message: `Reply recovers from ${signal} without a modal resize (${kind})`,
+            },
+          )
+          .toBe(true);
+        await expect(input).toBeFocused();
+        await capture(`reply-${kind}-${signal}`);
+      }
       // The whole original message remains independently scrollable while the
       // keyboard is open; scrolling it must not move the author or composer.
-      const headerBefore = await composer()
-        .locator(".composer-reply-chip")
-        .boundingBox();
-      const replyBefore = await input.boundingBox();
-      await composer()
-        .locator(".composer-quote")
-        .evaluate((el) => {
-          el.scrollTop = el.scrollHeight;
-        });
-      assert(
+      if (kind !== "conversation") {
+        const headerBefore = await composer()
+          .locator(".composer-reply-chip")
+          .boundingBox();
+        const replyBefore = await input.boundingBox();
         await composer()
           .locator(".composer-quote")
-          .evaluate((el) => el.scrollTop > 0),
-        "The complete original message can be read while replying",
-      );
-      assert.equal(
-        (await composer().locator(".composer-reply-chip").boundingBox()).y,
-        headerBefore.y,
-      );
-      assert.equal((await input.boundingBox()).y, replyBefore.y);
+          .evaluate((el) => {
+            el.scrollTop = el.scrollHeight;
+          });
+        assert(
+          await composer()
+            .locator(".composer-quote")
+            .evaluate((el) => el.scrollTop > 0),
+          "The complete original message can be read while replying",
+        );
+        assert.equal(
+          (await composer().locator(".composer-reply-chip").boundingBox()).y,
+          headerBefore.y,
+        );
+        assert.equal((await input.boundingBox()).y, replyBefore.y);
+      }
       const draft = await input.inputValue();
+      // A canceled or short grip drag returns through a CSS transform. Its
+      // moving bounds must not be mistaken for a keyboard viewport offset.
+      await thread().evaluate((el) => {
+        el.style.removeProperty("margin-top");
+        Object.defineProperty(window.visualViewport, "offsetTop", {
+          configurable: true,
+          value: 0,
+        });
+        window.visualViewport.dispatchEvent(new Event("scroll"));
+      });
+      await expect
+        .poll(() => thread().evaluate((el) => el.getBoundingClientRect().top))
+        .toBeCloseTo(8, 0);
+      for (const [ending, distance] of [
+        ["touchcancel", 80],
+        ["touchend", 35],
+      ]) {
+        const bounds = await thread().evaluate(
+          async (el, { ending, distance }) => {
+            const grip = el.querySelector(".sheet-grip");
+            const r = grip.getBoundingClientRect();
+            const send = (type, dy) => {
+              const event = new Event(type, {
+                bubbles: true,
+                cancelable: true,
+              });
+              Object.defineProperty(event, "touches", {
+                value:
+                  type === "touchstart" || type === "touchmove"
+                    ? [
+                        {
+                          clientX: r.x + r.width / 2,
+                          clientY: r.y + r.height / 2 + dy,
+                        },
+                      ]
+                    : [],
+              });
+              grip.dispatchEvent(event);
+            };
+            const frame = () =>
+              new Promise((resolve) => requestAnimationFrame(resolve));
+            send("touchstart", 0);
+            send("touchmove", distance);
+            await frame();
+            const dragged = el.getBoundingClientRect().top;
+            send(ending, distance);
+            const tops = [];
+            const started = performance.now();
+            do {
+              await frame();
+              tops.push(el.getBoundingClientRect().top);
+            } while (performance.now() - started < 650);
+            return {
+              dragged,
+              min: Math.min(...tops),
+              last: tops.at(-1),
+              open: el.open,
+            };
+          },
+          { ending, distance },
+        );
+        assert(
+          bounds.dragged >= 8 + distance - 1,
+          `The ${ending} fixture reaches the production drag handler`,
+        );
+        assert(
+          bounds.min >= 7,
+          `The reply stays below its visible top throughout ${ending} (${kind}): ${JSON.stringify(bounds)}`,
+        );
+        assert(
+          Math.abs(bounds.last - 8) < 1 && bounds.open,
+          "The drag returns to its resting position without dismissing",
+        );
+        await expect(input).toBeFocused();
+        await expect(input).toHaveValue(draft);
+      }
       await thread().evaluate((el) => el.style.removeProperty("margin-top"));
       await input.blur();
       await expect(page.locator(".mobile-nav")).toBeVisible();
       await resetViewport();
       await expect(input).toHaveValue(draft);
+      await expect
+        .poll(() =>
+          thread().evaluate((el) =>
+            el.style.getPropertyValue("--sheet-top-correction"),
+          ),
+        )
+        .toBe("");
       // After the keyboard, Safari can leave the layout viewport ending
       // above the screen's bottom. The thread follows the visible bottom
       // instead of leaving the Feed showing beneath it.
@@ -229,9 +395,10 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
       await resetViewport();
       await expect.poll(threadBottom).toBeCloseTo(resting, 0);
       await input.fill("");
-      await composer()
-        .getByRole("button", { name: "Clear reply context" })
-        .click();
+      if (kind !== "conversation")
+        await composer()
+          .getByRole("button", { name: "Clear reply context" })
+          .click();
       await close();
       // Profiles remember their last tab; leave this one on its default
       // Results view for the smokes that follow.

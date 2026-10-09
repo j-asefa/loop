@@ -1,3 +1,4 @@
+import { SHEET_SETTLE_MS } from "../shared/sheet-viewport";
 import { useEffect, type RefObject } from "react";
 
 /** The gap the sheet's keyboard-open rule leaves above the visible top, or
@@ -34,6 +35,7 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
     const viewport = window.visualViewport;
     if (!dialog || !viewport) return;
     let frame = 0;
+    let settling: ReturnType<typeof setTimeout>[] = [];
     let correction = 0;
     const clear = () => {
       correction = 0;
@@ -48,7 +50,11 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
         return clear();
       if (
         dialog.classList.contains("dragging") ||
-        dialog.classList.contains("dismissing")
+        dialog.classList.contains("dismissing") ||
+        // A canceled/short drag removes its class before the return transition
+        // finishes. Its translated bounds are motion, not viewport drift.
+        (dialog.classList.contains("swipe-sheet") &&
+          getComputedStyle(dialog).transform !== "none")
       )
         return;
       const next = sheetCorrection(
@@ -58,12 +64,21 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
         dialog.getBoundingClientRect().top,
       );
       if (next == null) return clear();
+      if (next === correction) return;
       correction = next;
       dialog.style.setProperty("--sheet-top-correction", `${correction}px`);
     };
-    const schedule = () => {
+    const nextFrame = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(align);
+    };
+    const schedule = () => {
+      nextFrame();
+      for (const timer of settling) clearTimeout(timer);
+      // Keyboard/focus panning can finish after the viewport event, without
+      // resizing the sheet or reporting another visualViewport change. Sample
+      // the settled position too; never leave a polling loop running while idle.
+      settling = SHEET_SETTLE_MS.map((ms) => setTimeout(nextFrame, ms));
     };
     const attributes = new MutationObserver(schedule);
     attributes.observe(document.documentElement, {
@@ -72,15 +87,35 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
     });
     const size = new ResizeObserver(schedule);
     size.observe(dialog);
-    viewport.addEventListener("resize", schedule);
-    viewport.addEventListener("scroll", schedule);
+    const events: [EventTarget, string][] = [
+      [viewport, "resize"],
+      [viewport, "scroll"],
+      // The layout viewport may scroll independently of the visual viewport.
+      [window, "scroll"],
+      [window, "scrollend"],
+      [dialog, "focusin"],
+      [dialog, "focusout"],
+      [dialog, "touchend"],
+      [dialog, "touchcancel"],
+    ];
+    for (const [target, type] of events)
+      target.addEventListener(type, schedule, { passive: true });
+    const transition = (event: TransitionEvent) => {
+      if (event.target === dialog && event.propertyName === "transform")
+        schedule();
+    };
+    dialog.addEventListener("transitionend", transition);
+    dialog.addEventListener("transitioncancel", transition);
     schedule();
     return () => {
       cancelAnimationFrame(frame);
+      for (const timer of settling) clearTimeout(timer);
       attributes.disconnect();
       size.disconnect();
-      viewport.removeEventListener("resize", schedule);
-      viewport.removeEventListener("scroll", schedule);
+      for (const [target, type] of events)
+        target.removeEventListener(type, schedule);
+      dialog.removeEventListener("transitionend", transition);
+      dialog.removeEventListener("transitioncancel", transition);
       dialog.style.removeProperty("--sheet-top-correction");
     };
   }, [ref]);
