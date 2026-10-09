@@ -1,6 +1,12 @@
-import { globSync } from "node:fs";
+import { globSync, readdirSync } from "node:fs";
 import { build } from "esbuild";
 import { cp, chmod, rm } from "node:fs/promises";
+// Clear old server code while preserving the freshly built UI.
+for (const entry of readdirSync("dist")) {
+  if (entry !== "client") await rm(`dist/${entry}`, { recursive: true, force: true });
+}
+// Older builds emitted runner bundles here; nothing loads them now.
+await rm("native/generated", {recursive:true,force:true});
 // Preserve module-relative paths used by native fixtures, migration and host assets.
 await build({
   entryPoints: globSync("src/**/*.ts").filter(path => !path.startsWith("src/client/") && !path.endsWith(".d.ts")),
@@ -12,7 +18,7 @@ await build({
   packages: "external",
 });
 // The unbundled ACP adapter imports this portable helper from native/. Ship
-// JavaScript beside the TypeScript source also copied into the HAPI runner.
+// JavaScript beside the TypeScript source.
 await build({
   entryPoints: ["native/command-results.ts"],
   outdir: "native",
@@ -30,7 +36,3 @@ await chmod("dist/cli.js", 0o755);
 
 // Install the CLI with the same dependency graph validated by npm ci.
 await cp("package-lock.json", "npm-shrinkwrap.json");
-
-// Ship one shared sign-in implementation for isolated native/Docker runners.
-const { buildNativeAuth } = await import("./build-native-auth.mjs");
-await buildNativeAuth();

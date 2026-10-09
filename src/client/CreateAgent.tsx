@@ -1,4 +1,3 @@
-import { EnvironmentRuntimes } from "./EnvironmentRuntimes";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { EffortSelect } from "./EffortSelect";
@@ -62,11 +61,9 @@ export function CreateAgent({
           Number(parse<any>(a.metadata, {}).authMode === "subscription"),
     );
   const preferredConnection = connected.find((item) => {
-    const metadata = parse<any>(item.metadata, {});
     return (
       item.provider === preferredProvider &&
-      metadata.backend === "hapi" &&
-      metadata.environmentId === preferredEnvironmentId
+      (!preferredEnvironmentId || item.sourceId === preferredEnvironmentId)
     );
   });
   const [provider, setProvider] = useState(
@@ -85,18 +82,7 @@ export function CreateAgent({
     [attachments, setAttachments] = useState<UploadedFile[]>([]),
     [attachmentSource, setAttachmentSource] = useState(""),
     [uploading, setUploading] = useState(false),
-    [folderChoice, setFolderChoice] = useState(
-      initialFolder ||
-        (parse<any>((preferredConnection || connected[0])?.metadata, {})
-          .backend === "hapi"
-          ? folders.find(
-              (f) =>
-                f.kind === "project" &&
-                (f.sourceId || "") ===
-                  ((preferredConnection || connected[0])?.sourceId || ""),
-            )?.id || ""
-          : ""),
-    ),
+    [folderChoice, setFolderChoice] = useState(initialFolder),
     [suggestedName, setSuggestedName] = useState(""),
     [typedName, setTypedName] = useState(""),
     [nameTouched, setNameTouched] = useState(false),
@@ -136,30 +122,15 @@ export function CreateAgent({
       cancelled = true;
     };
   }, [source]);
-  const nativeConnection =
-    parse<any>(selected?.metadata, {}).backend === "hapi"
-      ? selected?.id || ""
-      : "";
+  const nativeConnection = !!parse<any>(selected?.metadata, {}).loopHarness
+    ? selected?.id || ""
+    : "";
   const [catalog, setCatalog] = useState<{
     connectionId: string;
     models?: ModelOption[];
     error?: string;
   }>();
   const [catalogRevision, setCatalogRevision] = useState(0);
-  const [environments, setEnvironments] = useState<
-    { id: string; name: string; state: string }[]
-  >([]);
-  useEffect(() => {
-    let current = true;
-    void api<{ id: string; name: string; state: string }[]>("/environments")
-      .then((items) => {
-        if (current) setEnvironments(items);
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, []);
   useEffect(() => {
     if (!nativeConnection) return;
     let current = true;
@@ -192,29 +163,6 @@ export function CreateAgent({
     models.find((m) => m.effortLevels?.length)?.id ||
     models[0]?.id ||
     "";
-  const managedFlavor =
-    provider === "anthropic"
-      ? "claude"
-      : ["codex", "pi", "opencode"].includes(provider)
-        ? provider
-        : "";
-  const setupEnvironments = managedFlavor
-    ? environments.filter(
-        (environment) =>
-          environment.state === "online" &&
-          !accounts.some((account) => {
-            const metadata = parse<any>(account.metadata, {});
-            return (
-              // `/environments` lists the current page's source, so match
-              // its accounts, not the laptop's.
-              (account.sourceId || "") === executionSourceId() &&
-              metadata.backend === "hapi" &&
-              metadata.environmentId === environment.id &&
-              metadata.flavor === managedFlavor
-            );
-          }),
-      )
-    : [];
   const setupSources = ["codex", "anthropic", "openai"].includes(provider)
     ? sources.filter(
         (item) =>
@@ -288,8 +236,7 @@ export function CreateAgent({
               const next = updated.find(
                 (c) =>
                   c.status === "connected" &&
-                  parse<any>(c.metadata, {}).backend === "hapi" &&
-                  parse<any>(c.metadata, {}).flavor === runtimeName,
+                  parse<any>(c.metadata, {}).loopHarness === runtimeName,
               );
               if (next && !selected) {
                 setProvider(next.provider);
@@ -300,7 +247,6 @@ export function CreateAgent({
           />
         </div>
       )}
-      <EnvironmentRuntimes />
     </details>
   );
   return (
@@ -364,24 +310,24 @@ export function CreateAgent({
           </span>
         </label>
         <div className="provider-picker">
-          {(["codex", "anthropic", "pi", "opencode", "openai"] as const).map(
-            (p) => (
-              <button
-                type="button"
-                key={p}
-                disabled={busy || uploading}
-                className={provider === p ? "selected" : ""}
-                aria-pressed={provider === p}
-                onClick={() => {
-                  setProvider(p);
-                  setConnection("");
-                  setModel("");
-                }}
-              >
-                <Badge provider={p} />
-              </button>
-            ),
-          )}
+          {(
+            ["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const
+          ).map((p) => (
+            <button
+              type="button"
+              key={p}
+              disabled={busy || uploading}
+              className={provider === p ? "selected" : ""}
+              aria-pressed={provider === p}
+              onClick={() => {
+                setProvider(p);
+                setConnection("");
+                setModel("");
+              }}
+            >
+              <Badge provider={p} />
+            </button>
+          ))}
         </div>
         {selected ? (
           <>
@@ -391,10 +337,6 @@ export function CreateAgent({
                 disabled={busy || uploading}
                 value={connectionKey(selected)}
                 onChange={(e) => {
-                  if (e.target.value.startsWith("setup:")) {
-                    onEnvironmentSetup(e.target.value.slice(6), provider);
-                    return;
-                  }
                   if (e.target.value.startsWith("setup-source:")) {
                     onSourceSetup?.(
                       e.target.value.slice("setup-source:".length),
@@ -411,14 +353,6 @@ export function CreateAgent({
                     {c.label.startsWith(c.executionEnvironment || "This laptop")
                       ? c.label
                       : `${c.executionEnvironment || "This laptop"} · ${c.label}`}
-                  </option>
-                ))}
-                {setupEnvironments.map((environment) => (
-                  <option
-                    key={environment.id}
-                    value={`setup:${environment.id}`}
-                  >
-                    {environment.name} · connect {providerName(provider)}
                   </option>
                 ))}
                 {setupSources.map((item) => (
@@ -486,23 +420,12 @@ export function CreateAgent({
         ) : (
           <div className="note">
             Connect {providerName(provider)} to choose an available model.
-            {setupEnvironments.length === 0 && (
+            {
               <button type="button" className="text-button" onClick={onConnect}>
                 <Plus size={16} />
                 Connect on {currentSourceName}
               </button>
-            )}
-            {setupEnvironments.map((environment) => (
-              <button
-                type="button"
-                className="text-button"
-                key={environment.id}
-                onClick={() => onEnvironmentSetup(environment.id, provider)}
-              >
-                <Plus size={16} />
-                Connect on {environment.name}
-              </button>
-            ))}
+            }
             {setupSources.map((item) => (
               <button
                 type="button"

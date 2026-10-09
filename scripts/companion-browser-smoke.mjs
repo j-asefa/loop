@@ -7,7 +7,6 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
-import { environmentRuntimeBrowser } from "./helpers/environment-runtime-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
@@ -147,7 +146,7 @@ try {
     .click();
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Feed", exact: true }).last().click();
-  // HAPI's catalog has the same display names and effort metadata as its
+  // The native catalog has the same display names and effort metadata as its
   // runner. Network failure must not silently use the old generic aliases.
   const models = [
     { id: "default", name: "Use native default" },
@@ -165,22 +164,22 @@ try {
     },
   ];
   db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('hapi-claude','local-workspace','anthropic','Claude HAPI','','connected',?,?,0)",
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('fixture-claude','local-workspace','anthropic','Claude native','','connected',?,?,0)",
   ).run(
     JSON.stringify(models),
     JSON.stringify({
-      backend: "hapi",
-      environmentId: "fixture-native",
-      flavor: "claude",
+      loopHarness: "claude",
+      authMode: "subscription",
       billing: {
-        mode: "native",
+        mode: "subscription",
+        description: "Native subscription sign-in; no API fallback.",
         requiredAuth: "claude",
         allowApiFallback: false,
       },
     }),
   );
   let requests = 0;
-  await page.route("**/api/connections/hapi-claude/models", (route) =>
+  await page.route("**/api/connections/fixture-claude/models", (route) =>
     ++requests === 1
       ? route.fulfill({
           status: 503,
@@ -197,7 +196,7 @@ try {
     "placeholder",
     "Choose a name",
   );
-  await creation.getByLabel("Unique name").fill("hapi-model-picker");
+  await creation.getByLabel("Unique name").fill("native-model-picker");
   await expect(creation.getByRole("alert")).toContainText(
     "Fixture model refresh failed",
   );
@@ -226,7 +225,7 @@ try {
   );
   await mkdir("test-results", { recursive: true });
   await page.screenshot({
-    path: "test-results/mobile-hapi-models.png",
+    path: "test-results/mobile-native-models.png",
     fullPage: true,
   });
   await creation
@@ -240,7 +239,7 @@ try {
     .toBe(false);
   assert.deepEqual(
     db
-      .prepare("SELECT model,effort FROM agents WHERE name='hapi-model-picker'")
+      .prepare("SELECT model,effort FROM agents WHERE name='native-model-picker'")
       .get(),
     { model: "opus", effort: "max" },
   );
@@ -250,8 +249,7 @@ try {
   );
   assert.equal(db.prepare("SELECT count(*) n FROM native_dispatch").get().n, 0);
   await page.goto(workspaceUrl);
-  await environmentRuntimeBrowser({ browser, host });
-  await nativeAuthBrowser({ browser, host });
+  await nativeAuthBrowser({ browser, host, dir, db });
   const devices = await control(dir, "devices");
   await control(dir, "revoke", { id: devices[0].id });
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();

@@ -45,10 +45,3 @@ target "connection" {
   cache-from = ["type=gha,scope=loop-connection-linux-amd64,version=2"]
   cache-to = CACHE_WRITE == "true" ? ["type=gha,scope=loop-connection-linux-amd64,version=2,mode=min,ignore-error=true,timeout=2m"] : []
 }
-target "native" {
-  context = "."
-  dockerfile = "deployment/Dockerfile.native"
-  tags = ["loop-architecture-native:validation"]
-  cache-from = ["type=gha,scope=loop-native-linux-amd64,version=2"]
-  cache-to = CACHE_WRITE == "true" ? ["type=gha,scope=loop-native-linux-amd64,version=2,mode=min,ignore-error=true,timeout=2m"] : []
-}

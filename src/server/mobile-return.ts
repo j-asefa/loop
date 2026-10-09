@@ -14,7 +14,7 @@ import { attachedFiles, attachmentIds } from "./uploads.js";
 import { messageReplyContext } from "./message-replies.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
-import { connectionSelection } from "./hapi/contracts.js";
+import { isArchivedHapi } from "./legacy-execution.js";
 import { savedStory, unreadCount } from "./news.js";
 import type { Agent, Message } from "../shared/types.js";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads.js";
@@ -2086,15 +2086,18 @@ export function forkConversation(
           target.seq,
         ) as Message[];
       const forkId = id();
-      // Bind the fork to the selected agent's backend now, as a first send to
-      // a new conversation would. HAPI conversations otherwise stay "legacy"
-      // and their first prompt is rejected.
+      // Bind the fork to the selected agent's connection now, as a first send
+      // to a new conversation would. An archived HAPI connection cannot run it.
       const connection = owned<{ id: string; metadata: string }>(
         "connections",
         agent.connection_id,
         owner,
       );
-      const native = !!connectionSelection(connection);
+      if (isArchivedHapi(connection))
+        throw new Problem(
+          409,
+          "This agent uses an archived HAPI connection. Choose a native connection for it before forking.",
+        );
       db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_backend,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
       ).run(
@@ -2106,8 +2109,8 @@ export function forkConversation(
         null,
         now(),
         c.project_id,
-        native ? "hapi" : "legacy",
-        native ? connection.id : null,
+        "legacy",
+        connection.id,
       );
       const insert = db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",

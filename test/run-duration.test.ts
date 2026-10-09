@@ -13,9 +13,6 @@ process.env.LOOP_RUNTIME_TOKEN =
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
-const { seal } = await import("../src/server/secrets");
-const { withTestAdapter } = await import("../src/server/providers");
-let restore: (() => void) | undefined;
 const { claim, transition } = await import("../src/server/queue");
 
 beforeEach(() => {
@@ -28,7 +25,6 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
-  restore?.();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -39,15 +35,14 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function start(maxSeconds?: number) {
+async function start(maxSeconds?: number, failure?: object) {
   const connection = id();
   db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?, ?,?)",
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Fixture','','connected',?, ?,?)",
   ).run(
     connection,
-    seal("fixture", "alice"),
     JSON.stringify([{ id: "fixture" }]),
-    "{}",
+    JSON.stringify({ authMode: "subscription" }),
     now(),
   );
   const agent = createAgent("alice", {
@@ -72,22 +67,32 @@ async function start(maxSeconds?: number) {
   const began = new Promise<void>((resolve) => {
     ready = resolve;
   });
-  restore = withTestAdapter("openai", {
-    async models() {
-      return [];
-    },
-    async *stream(_secret, input) {
-      signal = input.signal;
-      yield { text: "Saved partial. " };
-      await new Promise<void>((resolve, reject) => {
-        finish = resolve;
-        signal.addEventListener("abort", () => reject(signal.reason), {
-          once: true,
-        });
-        ready();
-      });
-      yield { text: "Completed after CI passed." };
-    },
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    expect(url).toBe("http://runtime.fixture/runtime");
+    signal = init.signal!;
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          const emit = (event: object) =>
+            controller.enqueue(
+              new TextEncoder().encode(JSON.stringify(event) + "\n"),
+            );
+          const abort = () => controller.error(signal.reason);
+          signal.addEventListener("abort", abort, { once: true });
+          emit({ chunk: { text: "Saved partial. " } });
+          finish = () => {
+            signal.removeEventListener("abort", abort);
+            if (failure) emit(failure);
+            else {
+              emit({ chunk: { text: "Completed after CI passed." } });
+              emit({ done: true });
+            }
+            controller.close();
+          };
+          ready();
+        },
+      }),
+    );
   });
   const result = executeAgent(run).then(
     (value) => ({ value, error: undefined }),
@@ -98,9 +103,9 @@ async function start(maxSeconds?: number) {
   return { run, result, finish, signal };
 }
 
-it("honors a one-hour API budget beyond the default three minutes without aborting its provider stream", async () => {
-  const running = await start(3600);
-  await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+it("finishes a subscription run beyond 30 minutes without aborting its HTTP stream", async () => {
+  const running = await start();
+  await vi.advanceTimersByTimeAsync(31 * 60 * 1000);
   expect(running.signal.aborted).toBe(false);
   running.finish();
   expect(await running.result).toEqual({ value: true, error: undefined });
@@ -110,9 +115,9 @@ it("honors a one-hour API budget beyond the default three minutes without aborti
   transition(running.run, "completed");
 });
 
-it("still cancels an API run during an extended budget and saves partial output", async () => {
-  const running = await start(3600);
-  await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+it("still cancels a subscription run after the former deadline and saves partial output", async () => {
+  const running = await start();
+  await vi.advanceTimersByTimeAsync(31 * 60 * 1000);
   expect(running.signal.aborted).toBe(false);
   transition(running.run, "cancelled");
   await vi.advanceTimersByTimeAsync(300);
@@ -151,4 +156,56 @@ it("treats a legacy zero budget as the default instead of aborting immediately",
   running.finish();
   expect(await running.result).toEqual({ value: true, error: undefined });
   transition(running.run, "completed");
+});
+
+it("persists a typed broker idle timeout through the subscription client and worker", async () => {
+  const { IDLE_TIMEOUT_MESSAGE } = await import("../runtime/idle-deadline.mjs");
+  const { tick } = await import("../src/server/worker");
+  const running = await start(undefined, {
+    code: "idle_timeout",
+    error: "Untrusted provider text",
+  });
+  running.finish();
+  const { error } = await running.result;
+  expect(error).toMatchObject({ status: 408, message: IDLE_TIMEOUT_MESSAGE });
+  db.prepare("UPDATE runs SET state='queued', worker_id=NULL WHERE id=?").run(
+    running.run.id,
+  );
+  await tick(async (run) => {
+    expect(run.id).toBe(running.run.id);
+    throw error;
+  });
+  expect(
+    db.prepare("SELECT state, error FROM runs WHERE id=?").get(running.run.id),
+  ).toEqual({ state: "failed", error: IDLE_TIMEOUT_MESSAGE });
+  expect(
+    db
+      .prepare(
+        "SELECT content FROM messages WHERE run_id=? AND role='assistant'",
+      )
+      .get(running.run.id),
+  ).toEqual({ content: "Saved partial. " });
+});
+
+it("keeps unknown broker errors generic", async () => {
+  const running = await start(undefined, {
+    code: "unknown",
+    error: "Untrusted provider text",
+  });
+  running.finish();
+  expect((await running.result).error).toMatchObject({
+    status: 422,
+    message: expect.stringContaining("Check sign-in"),
+  });
+});
+
+it("retains typed runtime failures with redacted details", async () => {
+  const running = await start(undefined, {
+    code: "runtime_failure",
+    error: "Codex turn failed: rate limit exceeded; Bearer private-auth-token",
+  });
+  running.finish();
+  const { error } = await running.result;
+  expect(error.message).toContain("rate limit exceeded");
+  expect(error.message).not.toContain("private-auth-token");
 });

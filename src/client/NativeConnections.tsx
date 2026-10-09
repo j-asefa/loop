@@ -1,5 +1,3 @@
-import { capabilities } from "./capabilities";
-import { EnvironmentRuntimes } from "./EnvironmentRuntimes";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { useState } from "react";
@@ -45,18 +43,9 @@ export function NativeConnections({
           API connections
         </button>
       </div>
-      {tab === "harnesses" &&
-        (capabilities.nativeHarnesses ? (
-          <RuntimeSetup onEnabled={onChange} connections={connections} />
-        ) : (
-          <>
-            <p className="settings-intro">
-              Harnesses run through HAPI. Manage sign-in and project mappings in
-              Settings → Execution environments.
-            </p>
-            <EnvironmentRuntimes />
-          </>
-        ))}
+      {tab === "harnesses" && (
+        <RuntimeSetup onEnabled={onChange} connections={connections} />
+      )}
       {tab === "api" && (
         <>
           <p className="settings-intro">
@@ -65,11 +54,7 @@ export function NativeConnections({
           {connections
             .filter((c) => {
               const m = parse<any>(c.metadata, {});
-              return (
-                !m.loopHarness &&
-                m.backend !== "hapi" &&
-                m.authMode !== "subscription"
-              );
+              return !m.loopHarness && m.backend !== "hapi";
             })
             .map((c) => (
               <section key={c.id} className="native-decision">

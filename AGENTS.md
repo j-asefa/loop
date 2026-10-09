@@ -5,7 +5,7 @@ Start with [README.md](README.md) for build and run commands. Load only the guid
 | Task                                                 | Read next                                                                       |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------- |
 | Server, authentication, deployment or remote runtime | [Server operation](docs/server.md)                                              |
-| CLI, harness discovery or managed launcher       | [Harnesses](docs/harnesses.md)                                                  |
+| CLI, harness discovery or native launcher       | [Harnesses](docs/harnesses.md)                                                  |
 | Device authentication, tunnels or reconnect          | [Pairing](docs/pairing.md)                                                      |
 | Runtime routing, persistence, activities or memory   | [Architecture](docs/architecture.md)                                            |
 | MCP, workflows, teams or workspace features          | [Workspace](docs/workspace.md)                                                  |

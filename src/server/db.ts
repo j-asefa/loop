@@ -123,6 +123,11 @@ db.transaction(() => {
     if (!table("pr_watch_registrations"))
       db.exec("DELETE FROM schema_version WHERE version=68");
   }
+  // The native-restoration preview used 70 before team presets landed on main.
+  // Identify that preview by schema and preserve its completed recovery without
+  // skipping the team tables or running account recovery a second time.
+  if (version(70) && !version(71) && !table("team_creations"))
+    db.exec("UPDATE schema_version SET version=71 WHERE version=70");
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

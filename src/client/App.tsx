@@ -17,6 +17,7 @@ import {
   sourceApiPath,
 } from "./sourceRouting";
 import { useAgentSources, type EnvironmentAgent } from "./agentSources";
+import { NativeHistory } from "./NativeHistory";
 import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
 import { HarnessPicker } from "./HarnessPicker";
 import { AgentDirectory } from "./AgentDirectory";
@@ -3905,6 +3906,18 @@ export default function App() {
             </button>
           </form>
         </Sheet>
+      )}
+      {sheet === "native-history" && (
+        <NativeHistory
+          onClose={closeSheet}
+          onOpen={(id) => {
+            // Opening a thread leaves Settings, which this can be opened from.
+            setSettingsParent(false);
+            setSheet("");
+            setConversation(id);
+            void bootstrap();
+          }}
+        />
       )}
       {conversation && !threadData && (
         <Sheet title="Conversation" onClose={() => setConversation(null)}>

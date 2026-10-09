@@ -1,21 +1,13 @@
-# Start once, use installed harnesses through HAPI
+# Start once, use installed harnesses
 
-Run `loop` in your project directory. It starts the workspace in the background and prints a two-minute, single-use pairing QR and link. Scan with your phone's camera or open the link in a browser. The workspace remains available while HAPI prepares.
+Run `loop` in your project directory. It starts one workspace in the background and prints a two-minute, single-use pairing QR and link. Scan with your phone's camera or open it in a browser. Pairing is available while installed harnesses are checked independently.
 
-Loop discovers supported installed harnesses and verifies their existing native account through HAPI. In **New agent**, choose a connected runtime, model, effort and project, then enter an initial prompt. If account verification fails, use **Settings → Execution environments** to inspect sign-in and retry. See [harnesses](../harnesses.md) for discovery, billing and model catalogs.
+Loop connects supported Codex, Claude Code, Pi and OpenCode installations through their direct adapters. In **New agent**, choose a connected account, model, effort and project. Use **Settings → Provider connections** to sign in, refresh models or enable another harness. See [harnesses](../harnesses.md) for billing, team handoffs and upgrade recovery.
 
-`loop pair` shows a fresh code for the running workspace. It replaces an unused code, not existing device trust. `loop status --json` distinguishes workspace readiness from HAPI setup readiness; a saved connection is not a fresh sign-in guarantee. Use `loop logs --follow` for setup diagnostics and `loop stop` for shutdown. `--foreground` keeps the process attached to the terminal; `--local-only` is for desktop testing.
+`loop start --providers codex,claude` limits discovery; the default is all supported installed harnesses. Saved provider choices and projects are reused. Explicit `loop codex|claude|pi|opencode|acp` commands can register custom paths and native options in the same workspace.
 
-`loop start --providers codex,claude --execution native` limits selected runtimes. Saved provider/execution choices are reused. There are no harness-specific commands or direct-execution fallback. Setup failures leave the workspace available and harness execution unavailable until HAPI is repaired and restarted.
+`loop pair` makes a fresh code without revoking existing devices. `loop status --json` distinguishes workspace readiness from verified execution availability. `loop logs --follow` shows diagnostics; `loop stop` shuts down. `--foreground` stays attached to the terminal; `--local-only` serves a desktop workspace without a tunnel.
 
-Restarting retains workspace data and paired-device credentials. A Quick Tunnel can change address: run `loop pair`, scan with your phone and add the new page to your home screen. See [pairing and recovery](../pairing.md).
+The CLI owns startup and its process identity lock. `WorkspaceHost` owns the workspace, pairing and private tool bridge; native adapters own harness processes and session context. Loop persists dispatch receipts and never automatically replays an uncertain send. HAPI is no longer an execution dependency.
 
-## Ownership
-
-The CLI owns startup and the process identity lock. `WorkspaceHost` owns the Express workspace and pairing gateway; `LocalRuntime` provisions HAPI and its runner. Discovery and enablement are runner-scoped and never accept executable paths from the browser. HAPI owns harness processes, context and sessions. Loop records dispatch intent before external work and never automatically replays an uncertain send.
-
-Older direct conversations keep their history but cannot run. Reconnect their agents to HAPI and start new conversations. This does not take over live terminal sessions or copy credentials. Existing HAPI conversations retain their immutable session bindings.
-
-The separate [Docker companion](../pairing.md#docker-companion) supports pairing. Linking a [local Docker server](../pairing.md#unified-agents-and-feed) does not move its data. Local startup does not import arbitrary external HAPI deployments.
-
-See [development](../development.md) for checks. Deterministic fixtures verify Loop's boundaries; they do not certify authenticated provider or physical-phone behavior.
+The [Docker companion](../pairing.md#docker-companion) also supports pairing. Linking a [local Docker server](../pairing.md#unified-agents-and-feed) aggregates its agents without moving its data.

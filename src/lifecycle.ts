@@ -46,6 +46,13 @@ function dead(owner: Owner) {
     if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
     return false;
   }
+  // A zombie has exited even if PID 1 has not reaped it yet.
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${owner.pid}/stat`, "utf8");
+      if (stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] === "Z") return true;
+    } catch { /* Identity verification below remains conservative. */ }
+  }
   const live = identity(owner.pid);
   return !!live && live !== owner.identity;
 }

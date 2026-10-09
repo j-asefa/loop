@@ -42,31 +42,27 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const base = await mkdtemp(join(resolve(".tmp"), "loop-daemon-"));
   const project = join(base, "project");
   await mkdir(project);
-  const preload = join(base, "managed-fixture.ts");
-  await writeFile(preload, `
-    import { LocalRuntime } from ${JSON.stringify(pathToFileURL(resolve("src/local-runtime.ts")).href)};
-    import { own, killOwned } from ${JSON.stringify(pathToFileURL(resolve("src/processes.ts")).href)};
-    import { spawn } from "node:child_process";
-    let child;
-    LocalRuntime.prototype.prepare = async function () {};
-    LocalRuntime.prototype.start = async function () {
-      child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {detached:true, stdio:"ignore"});
-      own(child);
-      return { billing: {description: "Fixture HAPI coordinator"} };
-    };
-    LocalRuntime.prototype.close = async function () { if (child) killOwned(child, "SIGTERM"); };
-  `);
+  const fixture = join(base, "codex");
+  await copyFile(resolve("test/harness.mjs"), fixture);
+  await chmod(fixture, 0o755);
   const env = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_"))),
-    LOOP_MEMORY_ENABLED: "0",
+    ...process.env,
     LOOP_HOME: join(base, "state"),
     LOOP_TEST_HARNESS: "codex",
     ...extraEnv,
   };
-  const cli = ["--import", "tsx", "--import", preload, "src/cli.ts"];
+  const cli = ["--import", "tsx", "src/cli.ts"];
   const loop = (args: string[], timeout = 30000) =>
     exec(process.execPath, [...cli, ...args], { env, timeout });
-  const harness = ["start", "--project", project];
+  const harness = [
+    "codex",
+    "--executable",
+    fixture,
+    "--project",
+    project,
+    "--billing",
+    "existing",
+  ];
   const status = async () =>
     JSON.parse((await loop(["status", "--json"])).stdout);
   const pids = new Set<number>();
@@ -234,7 +230,7 @@ test("a relaunch retires the old log with pairing secrets redacted", async () =>
   }
 });
 
-test("loop backgrounds after pairing; status, pair, stop and bare loop", async () => {
+test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop", async () => {
   const w = await workspace();
   try {
     const started = Date.now();
@@ -242,8 +238,8 @@ test("loop backgrounds after pairing; status, pair, stop and bare loop", async (
     assert.equal(
       JSON.parse(await readFile(join(w.dir, "preferences.json"), "utf8"))
         .project,
-      w.harness[2],
-      "the launcher remembers the project",
+      undefined,
+      "a one-off harness launch does not replace the start project's default",
     );
     assert(
       Date.now() - started < 20000,
@@ -252,7 +248,6 @@ test("loop backgrounds after pairing; status, pair, stop and bare loop", async (
     const url = new URL(stdout.match(PAIR_URL)![0]);
     assert.match(stdout, /running in the background/);
     assert.equal((await w.status()).state, "ready");
-    assert.equal((await w.status()).executionBackend, "hapi");
     assert(alive(pid), "workspace outlives the command that started it");
     assert.equal(
       JSON.parse(await readFile(join(w.dir, "control.json"), "utf8")).pid,
@@ -734,8 +729,56 @@ test("loop logs --follow keeps the old file's tail across a rotation", async () 
   }
 });
 
-// Returns the managed coordinator child registered by the launcher fixture.
-async function nativeChild(dir: string, _url: URL) {
+// Pairs, starts a native conversation, and returns the harness process it spawned.
+async function nativeChild(dir: string, url: URL) {
+  const paired = await fetch(url.origin + "/pair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: url.origin },
+    body: JSON.stringify({
+      secret: new URLSearchParams(url.hash.slice(1)).get("pair"),
+    }),
+  });
+  const cookie = paired.headers.get("set-cookie")!.split(";")[0];
+  const { csrf } = await fetch(url.origin + "/session", {
+    headers: { Cookie: cookie },
+  }).then((r) => r.json() as Promise<{ csrf: string }>);
+  const api = (path: string, body: object) =>
+    fetch(url.origin + "/api" + path, {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        Origin: url.origin,
+        "x-loop-csrf": csrf,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }).then(
+      (r) => r.json() as Promise<{ id: string; conversation_id: string }>,
+    );
+  // Agent names are unique, and the workspace outlives a daemon restart.
+  const agent = await api("/agents", {
+    name: "daemon-agent-" + crypto.randomUUID().slice(0, 8),
+    connectionId: "native-codex",
+    model: "native-default",
+  });
+  const run = await api("/runs", {
+    agentId: agent.id,
+    input: "daemon task",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  // Wait for the turn to finish, so the harness is idle like a real orphan
+  // (a write mid-turn to a dead workspace's pipe would end it by itself).
+  let done = false;
+  const deadline = Date.now() + 15000;
+  while (!done && Date.now() < deadline) {
+    const history = (await fetch(
+      url.origin + "/api/conversations/" + run.conversation_id,
+      { headers: { Cookie: cookie } },
+    ).then((r) => r.json())) as { messages?: { content: string }[] };
+    done = !!history.messages?.some((m) => m.content === "Fixture done");
+    if (!done) await new Promise((r) => setTimeout(r, 100));
+  }
+  assert(done, "the native turn completed");
   let pid = 0;
   await until(() => {
     try {
@@ -769,11 +812,25 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
   }
 });
 
-test("loop start pairs through managed setup, reuses the host and survives restart", async () => {
+test("loop acp refuses a relative or missing executable with setup guidance", async () => {
+  const w = await workspace();
+  try {
+    for (const executable of ["./missing-agent", "/missing/acp-agent"])
+      await assert.rejects(
+        w.loop(["acp", "--executable", executable, "--local-only"]),
+        /Choose an executable local ACP agent file/,
+      );
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test("loop start --direct pairs without enabling a harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
     const first = await w.loop([
       "start",
+      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -781,26 +838,43 @@ test("loop start pairs through managed setup, reuses the host and survives resta
     assert.match(first.stdout, PAIR_URL);
     const status = await w.status();
     assert.equal(status.serverReady, true);
-    assert.equal(status.executionReady, true);
+    assert.equal(status.executionReady, false);
     assert.deepEqual(status.harnesses, []);
-    const resumed = await w.loop(["start", "--local-only"]);
+    const resumed = await w.loop(["start", "--direct", "--local-only"]);
     assert.match(resumed.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const again = await w.loop([
       "start",
+      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
     ]);
     assert.match(again.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
-    const bare = await w.loop(["--local-only"]);
+    await assert.rejects(
+      w.loop(["start", "--local-only", "--providers", "pi"]),
+      /Run loop stop before changing the running workspace's providers/,
+    );
+    // The same set in another order or spelling is not a change.
+    assert.match(
+      (
+        await w.loop([
+          "start",
+          "--local-only",
+          "--providers",
+          "opencode,pi,claude,codex",
+        ])
+      ).stdout,
+      PAIR_URL,
+    );
+    const bare = await w.loop(["--direct", "--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const otherProject = join(w.env.LOOP_HOME, "other-project");
     await mkdir(otherProject);
     await assert.rejects(
-      w.loop(["start", "--local-only", "--project", otherProject]),
+      w.loop(["start", "--direct", "--local-only", "--project", otherProject]),
       /Run loop stop before changing the running workspace/,
     );
     await assert.rejects(
@@ -812,7 +886,7 @@ test("loop start pairs through managed setup, reuses the host and survives resta
         "--execution",
         "docker",
       ]),
-      /Run loop stop before changing the running workspace/,
+      /Use docker compose/,
     );
     assert.equal((await w.status()).pid, status.pid);
     // Each pairing request replaces only the unused prior code.
@@ -843,7 +917,7 @@ test("loop start pairs through managed setup, reuses the host and survives resta
     );
     await w.loop(["stop"]);
     await assert.rejects(w.loop(["pair"]), /loop start/);
-    const restarted = await w.loop(["--local-only"]);
+    const restarted = await w.loop(["--direct", "--local-only"]);
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
@@ -865,6 +939,7 @@ test("bare loop restores a saved managed project from another directory", async 
   try {
     await w.loop([
       "start",
+      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -884,102 +959,6 @@ test("bare loop restores a saved managed project from another directory", async 
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, running.pid);
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
-  } finally {
-    await w.cleanup();
-  }
-});
-
-for (const explicit of [false, true])
-test(`${explicit ? "explicit managed" : "automatic"} daemon startup retains pairing after preparation fails`, async () => {
-  const w = await workspace();
-  const preload = join(w.env.LOOP_HOME, "managed-fixture.ts");
-  const selected = join(w.env.LOOP_HOME, "selected.json");
-  const release = join(w.env.LOOP_HOME, "release");
-  const closed = join(w.env.LOOP_HOME, "closed");
-  await mkdir(w.env.LOOP_HOME, { recursive: true });
-  // Mock provisioning only; run real CLI forwarding, HTTP pairing and storage.
-  await writeFile(
-    preload,
-    `
-    import { LocalRuntime } from ${JSON.stringify(pathToFileURL(resolve("src/local-runtime.ts")).href)};
-    import { writeFileSync, existsSync } from "node:fs";
-    LocalRuntime.prototype.prepare = async function () {
-      writeFileSync(${JSON.stringify(selected)}, JSON.stringify(this.selection));
-      const deadline = Date.now() + 20000;
-      while (!existsSync(${JSON.stringify(release)})) {
-        if (Date.now() > deadline) throw new Error("fixture preparation timeout");
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      throw new Error("fixture private preparation detail");
-    };
-    LocalRuntime.prototype.start = async function () { throw new Error("unexpected start"); };
-    LocalRuntime.prototype.close = async function () { writeFileSync(${JSON.stringify(closed)}, "closed"); };
-  `,
-  );
-  w.cli.splice(w.cli.length - 1, 0, "--import", preload);
-  try {
-    const first = await w.loop([
-      "start",
-      "--local-only",
-      "--project",
-      w.env.LOOP_HOME,
-      ...(explicit ? ["--providers", "claude,pi", "--execution", "native"] : []),
-    ]);
-    await until(() => existsSync(selected));
-    assert.deepEqual(JSON.parse(await readFile(selected, "utf8")), {
-      providers: explicit ? ["claude", "pi"] : ["codex", "claude", "opencode", "pi"],
-      execution: "native",
-      project: w.env.LOOP_HOME,
-    });
-    assert(!existsSync(release), "parent returns before preparation finishes");
-    const pendingPreferences = JSON.parse(
-      await readFile(join(w.dir, "preferences.json"), "utf8"),
-    );
-    assert.equal(pendingPreferences.project, w.env.LOOP_HOME);
-    assert.equal(pendingPreferences.providers, explicit ? "claude,pi" : "installed");
-    assert.equal(pendingPreferences.execution, "native");
-    const repeated = await w.loop(["start", "--local-only"]);
-    assert(
-      !existsSync(release),
-      "repeated start reuses the preparing workspace",
-    );
-    const url = new URL(repeated.stdout.match(PAIR_URL)![0]);
-    const paired = await fetch(url.origin + "/pair", {
-      method: "POST",
-      headers: { Origin: url.origin, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        secret: url.hash.slice(6),
-        credential: "cookie",
-        name: "setup fixture",
-      }),
-    });
-    assert.equal(paired.status, 200);
-    const cookie = paired.headers.get("set-cookie")!.split(";")[0];
-    const inventory = () =>
-      fetch(url.origin + "/api/workspace/runtimes", {
-        headers: { cookie },
-      }).then((r) => r.json()) as Promise<{ setup: string }>;
-    assert.equal((await inventory()).setup, "preparing");
-    await writeFile(release, "continue");
-    await until(() => existsSync(closed));
-    await until(() => existsSync(join(w.dir, "preferences.json")));
-    assert.equal((await inventory()).setup, "failed");
-    const status = await w.status();
-    assert.equal(status.serverReady, true);
-    assert.deepEqual(status.harnesses, [], "failed setup must not enable placeholder Codex");
-    const preferences = JSON.parse(
-      await readFile(join(w.dir, "preferences.json"), "utf8"),
-    );
-    assert.equal(preferences.providers, explicit ? "claude,pi" : "installed");
-    assert.equal(preferences.execution, "native");
-    const logs = (await w.loop(["logs"])).stdout;
-    assert.equal((logs.match(/preparation failed/g) ?? []).length, 1);
-    assert.doesNotMatch(logs, /fixture private preparation detail/);
-    await w.loop(["stop"]);
-    await rm(selected);
-    await assert.rejects(w.loop(["start", "--direct", "--local-only"]), /Unknown option/);
-    assert(!existsSync(selected), "retired flags cannot provision or launch a harness");
-
   } finally {
     await w.cleanup();
   }

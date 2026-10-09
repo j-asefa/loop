@@ -350,7 +350,7 @@ export function NativeConversation({ id }: { id: string }) {
     [include, setInclude] = useState(true);
   useEffect(() => {
     const load = () =>
-      api("/conversations/" + id + "/native")
+      api("/conversations/" + id + "/memory")
         .then((v) => {
           setData(v);
           setInclude(v.memoryIncluded);
@@ -363,11 +363,7 @@ export function NativeConversation({ id }: { id: string }) {
   if (!data) return null;
   return (
     <details className="native-conversation">
-      <summary>
-        {data.backend === "hapi"
-          ? `${data.environment?.name || "Execution environment"} · ${data.flavor || "native"} · ${data.environment?.state || "waiting"}`
-          : "Conversation memory"}
-      </summary>
+      <summary>Conversation memory</summary>
       {error && <p role="alert">{error}</p>}
       <label className="native-toggle">
         <input
@@ -386,98 +382,6 @@ export function NativeConversation({ id }: { id: string }) {
         />
         Include in shared memory
       </label>
-      {data.backend === "hapi" && (
-        <>
-          <p>
-            {data.billing?.requiredAuth === "chatgpt"
-              ? "ChatGPT authentication required · API fallback disabled"
-              : "Native Claude authentication"}
-            <br />
-            Thread: {data.threadId || "Not yet established"}
-          </p>
-          {(data.pending || []).map((r: any) => (
-            <QueuedNative key={r.id} run={r} />
-          ))}
-          {data.dispatches.map((d: any) => (
-            <p key={d.run_id}>
-              <strong>{d.state.replaceAll("-", " ")}</strong>
-              {d.cancel_requested
-                ? " · cancellation pending acknowledgement"
-                : ""}
-              {d.error && (
-                <>
-                  <br />
-                  {d.error}
-                </>
-              )}
-            </p>
-          ))}
-          <div className="native-actions">
-            <button
-              onClick={() =>
-                void api("/conversations/" + id + "/reconcile", {}).catch((e) =>
-                  setError(e.message),
-                )
-              }
-            >
-              Reconcile status
-            </button>
-            <button
-              onClick={() =>
-                void api("/conversations/" + id + "/resume-native", {}).catch(
-                  (e) => setError(e.message),
-                )
-              }
-            >
-              Resume native thread
-            </button>
-            <button
-              onClick={() =>
-                void api("/conversations/" + id + "/release-native", {}).catch(
-                  (e) => setError(e.message),
-                )
-              }
-            >
-              Release idle process
-            </button>
-          </div>
-        </>
-      )}
     </details>
-  );
-}
-
-function QueuedNative({ run }: { run: any }) {
-  const api = useSourceApi();
-  const [input, setInput] = useState(run.input),
-    [notice, setNotice] = useState("");
-  return (
-    <div className="native-card">
-      <label>
-        Waiting for execution
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} />
-      </label>
-      <div className="native-actions">
-        <button
-          onClick={() =>
-            void api("/runs/" + run.id + "/queued-input", { input }, "PATCH")
-              .then(() => setNotice("Queued prompt updated"))
-              .catch((e) => setNotice(e.message))
-          }
-        >
-          Save queued prompt
-        </button>
-        <button
-          onClick={() =>
-            void api("/runs/" + run.id + "/cancel", {})
-              .then(() => setNotice("Cancelled before dispatch"))
-              .catch((e) => setNotice(e.message))
-          }
-        >
-          Cancel queued prompt
-        </button>
-      </div>
-      <p role="status">{notice}</p>
-    </div>
   );
 }

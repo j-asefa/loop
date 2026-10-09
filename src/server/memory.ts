@@ -2,7 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
-import { digest } from "./hapi/contracts.js";
+import { createHash } from "node:crypto";
+const digest = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
 import type { Run } from "./queue.js";
 
 export function enabled(
@@ -362,6 +364,20 @@ export async function recallForRun(run: Run) {
   return run.input + text;
 }
 export const memoryRoutes = Router();
+memoryRoutes.get("/conversations/:id/memory", (req, res) => {
+  const conversation = owned<any>(
+    "conversations",
+    req.params.id,
+    res.locals.owner,
+  );
+  res.json({
+    memoryIncluded: enabled(
+      res.locals.owner,
+      "conversation:" + conversation.id,
+      conversation.execution_backend === "hapi",
+    ),
+  });
+});
 memoryRoutes.get("/memory", async (_req, res) => {
   const owner = res.locals.owner;
   let readiness: any = { ready: false, mode: "lexical-degraded" };

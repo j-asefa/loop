@@ -20,7 +20,6 @@ on:
       - "docker-bake.hcl"
       - "deployment/**"
       - "native/**"
-      - "src/hapi-build.ts"
       - ".github/**"
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
@@ -180,9 +179,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Reclaim hosted runner disk for native source builds
-        # The companion bakes both guarded OpenCode and HAPI. Its source-build
-        # peak exceeds the default free disk on the preloaded Ubuntu image.
+      - name: Reclaim hosted runner disk for the companion image
+        # The companion includes four pinned native CLIs and build dependencies.
+        # Leave room for intermediate layers on the preloaded Ubuntu image.
         # This isolated job uses none of the Android, .NET, Haskell or CodeQL SDKs.
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -206,48 +205,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Reclaim disk for native source builds
-        # Cold source builds need the same headroom as companion.
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
       - uses: ./.github/actions/node
-      - uses: ./.github/actions/docker
-      - uses: docker/bake-action@v6
-        with:
-          files: docker-bake.hcl
-          targets: native
-      - name: Patched OpenCode ACP boundaries
-        timeout-minutes: 5
-        shell: bash
+      - run: npm run build
+      - name: Native adapter and cross-harness contracts
         run: |
-          set -euo pipefail
-          hapi_fixture=$(mktemp -d)
-          trap 'rm -rf "$hapi_fixture"' EXIT
-          git -C "$hapi_fixture" init
-          git -C "$hapi_fixture" remote add origin https://github.com/tiann/hapi.git
-          hapi_commit=$(node -p 'require("./deployment/versions.json").hapiCommit')
-          git -C "$hapi_fixture" fetch --depth=1 origin "$hapi_commit"
-          git -C "$hapi_fixture" checkout --detach FETCH_HEAD
-          node native/apply-hapi-patch.mjs "$hapi_fixture"
-          node native/check-codex-mcp-approvals.mjs "$hapi_fixture"
-          node --import tsx native/check-opencode-launch.mjs "$hapi_fixture"
-          node native/check-opencode-http.mjs "$hapi_fixture"
-          node native/check-pi-transport.mjs "$hapi_fixture"
-          node native/check-pi-lifecycle.mjs "$hapi_fixture"
-      - run: node scripts/native-transport-smoke.mjs
-      - run: docker run --rm --network none loop-architecture-native:validation node /opt/loop-native/compatibility.mjs
-
-      - name: Guarded OpenCode shipped runner compatibility
-        timeout-minutes: 5
-        run: docker run --rm --network none loop-architecture-native:validation node /opt/loop-native/check-opencode-discovery.mjs /usr/local/bin/opencode /opt/loop-native/generated/native-auth/service.mjs
-
-      - name: Pi shipped runner compatibility
-        timeout-minutes: 5
-        run: docker run --rm --network none loop-architecture-native:validation node /opt/loop-native/check-pi-discovery.mjs /opt/native/node_modules/.bin/pi /opt/loop-native/generated/native-auth/service.mjs
-      - name: Pi shipped workspace tools
-        timeout-minutes: 5
-        run: docker run --rm --network none loop-architecture-native:validation node /opt/loop-native/check-pi-managed-tools.mjs /opt/native/node_modules/.bin/pi /opt/loop-native/generated/pi-managed-extension.mjs
+          node --import tsx --test test/adapters.node.test.ts test/native-auth-api.node.test.ts test/workspace.node.test.ts
+          LOOP_PROFILE=server npx vitest run test/agent-mail.test.ts test/native-model-switch.test.ts test/harness-routing.test.ts test/steering.test.ts --maxWorkers=1
 
   ci-success:
     if: always()

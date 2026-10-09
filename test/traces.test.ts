@@ -1097,7 +1097,6 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
     input: "Inspect public output",
     idempotencyKey: id(),
   });
-  const { normalizeMessage } = await import("../src/server/hapi/adapter");
   const bodies = [
     { type: "ready" },
     { type: "loop-turn", status: "completed", output: "Public answer" },
@@ -1108,13 +1107,7 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
     },
   ];
   for (let i = 0; i < 65; i++) {
-    const n = normalizeMessage({
-      content: {
-        role: "agent",
-        content: { type: "codex", data: bodies[i % bodies.length] },
-      },
-    });
-    expect(n.role).toBe("tool");
+    const n = {role:"tool", content:JSON.stringify(bodies[i % bodies.length])};
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,'{}',?)",
     ).run(id(), run.conversation_id, run.id, n.role, n.content, now());

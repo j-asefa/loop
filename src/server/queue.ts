@@ -103,10 +103,7 @@ SELECT r.* FROM candidates r WHERE
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id AND delegated.background=0) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id AND waiting.background=0)))))
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
- AND (json_extract(r.payload,'$.execution.backend') IS NULL OR (${process.env.LOOP_NATIVE_ADMISSION === "0" ? 0 : 1}=1 AND (
-  EXISTS(SELECT 1 FROM execution_environments e WHERE e.host_id=json_extract(r.payload,'$.execution.environmentId') AND e.revoked_at IS NULL AND e.state='online' AND e.last_seen > (unixepoch()*1000-30000)
-    AND (EXISTS(SELECT 1 FROM native_sessions s WHERE s.conversation_id=r.conversation_id)
-      OR (SELECT count(*) FROM native_sessions s WHERE s.environment_id=e.host_id AND s.state NOT IN ('closed','inactive'))<e.capacity)))))
+ AND json_extract(r.payload,'$.execution.backend') IS NULL
  ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`,
         )
         .all() as Run[];
@@ -184,12 +181,38 @@ export function transition(run: Run, state: string, payload: unknown = {}) {
     })
     .immediate();
 }
+const HAPI_ARCHIVED =
+  "HAPI execution was removed. This work was not replayed; start a new native conversation to continue it.";
+// HAPI runs can no longer be claimed, observed or cancelled remotely. Stop any
+// left active at upgrade so they leave the queue and the agent's lane without
+// replaying their input or an uncertain dispatch.
+export function archiveHapiRuns() {
+  const time = now();
+  const runs = db
+    .prepare(
+      `SELECT id,owner_id FROM runs WHERE state IN ('queued','running','pausing','paused','awaiting_approval')
+    AND (json_extract(payload,'$.execution.backend') IS 'hapi' OR EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=runs.id))`,
+    )
+    .all() as { id: string; owner_id: string }[];
+  for (const run of runs)
+    db.transaction(() => {
+      const changed = db
+        .prepare(
+          `UPDATE runs SET state='interrupted',worker_id=NULL,heartbeat=NULL,error=?,updated_at=?,
+        active_ms=active_ms+CASE WHEN active_since IS NULL THEN 0 ELSE max(0,min(?,COALESCE(heartbeat,?))-active_since) END,
+        active_since=NULL
+      WHERE id=? AND state IN ('queued','running','pausing','paused','awaiting_approval')`,
+        )
+        .run(HAPI_ARCHIVED, time, time, time, run.id).changes;
+      if (!changed) return;
+      db.prepare(
+        "UPDATE approvals SET state='rejected' WHERE run_id=? AND state='pending'",
+      ).run(run.id);
+      emit(run.owner_id, run.id, "interrupted", { message: HAPI_ARCHIVED });
+    }).immediate();
+}
 export function recoverStale() {
-  // No dispatch receipt means no native side effect was attempted. Once a
-  // receipt exists the independent observer owns recovery, never queue replay.
-  db.prepare(
-    "UPDATE runs SET state='queued',worker_id=NULL,heartbeat=NULL WHERE state='running' AND heartbeat<? AND json_extract(payload,'$.execution.backend')='hapi' AND NOT EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=runs.id)",
-  ).run(now() - 60000);
+  archiveHapiRuns();
   const stale = db
     .prepare(
       "SELECT * FROM runs WHERE state IN ('running','pausing') AND worker_id IS NOT NULL AND heartbeat<? AND json_extract(payload,'$.execution.backend') IS NULL",

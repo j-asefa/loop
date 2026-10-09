@@ -9,7 +9,7 @@ import {
   supportsSnapshotReview,
 } from "../shared/team-presets.js";
 import { startCodeReview, reviewStatus } from "./code-reviews.js";
-import { connectionSelection } from "./hapi/contracts.js";
+import { isArchivedHapi } from "./legacy-execution.js";
 import type { Agent, Connection } from "../shared/types.js";
 
 export function listTeams(owner: string) {
@@ -66,10 +66,15 @@ export function createTeam(owner: string, input: unknown) {
         409,
         "Restore retired agents before adding them to a team",
       );
-    if (
-      !a.connection_id ||
-      owned<any>("connections", a.connection_id, owner).status !== "connected"
-    )
+    const connection = a.connection_id
+      ? owned<any>("connections", a.connection_id, owner)
+      : undefined;
+    if (connection && isArchivedHapi(connection))
+      throw new Problem(
+        409,
+        "Choose a native connection for agents on an archived HAPI connection before adding them to a team",
+      );
+    if (connection?.status !== "connected")
       throw new Problem(409, "Every team member needs a connected provider");
   }
   return db
@@ -80,11 +85,10 @@ export function createTeam(owner: string, input: unknown) {
         "INSERT INTO teams(id,owner_id,name,manager_id,created_at) VALUES(?,?,?,?,?)",
       ).run(teamId, owner, d.name, d.managerId, now());
       const manager = owned<Agent>("agents", d.managerId, owner);
-      const managed = connectionSelection(owned<any>("connections", manager.connection_id!, owner));
       db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,execution_backend,execution_connection_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
       ).run(conversation, owner, d.managerId, d.name, teamId,
-        managed ? "hapi" : "legacy", manager.connection_id, now());
+        "legacy", manager.connection_id, now());
       db.prepare("UPDATE teams SET conversation_id=? WHERE id=?").run(
         conversation,
         teamId,
@@ -149,12 +153,6 @@ export function createPresetTeam(owner: string, input: unknown) {
       )
         throw new Problem(400, "Unknown preset role");
       owned("folders", d.folderId, owner);
-      const managerConnection = owned<Connection>(
-        "connections",
-        (d.roles[preset.roles[0].id] || d.selection).connectionId,
-        owner,
-      );
-      const managerEnvironment = connectionSelection(managerConnection);
       const agents = preset.roles.map((role) => {
         const chosen = d.roles[role.id] || d.selection;
         const connection = owned<Connection>(
@@ -162,15 +160,6 @@ export function createPresetTeam(owner: string, input: unknown) {
           chosen.connectionId,
           owner,
         );
-        if (
-          managerEnvironment &&
-          connectionSelection(connection)?.environmentId !==
-            managerEnvironment.environmentId
-        )
-          throw new Problem(
-            409,
-            "A native team manager and its workers must use the same execution environment",
-          );
         if (preset.id === "code-review" && !supportsSnapshotReview(connection))
           throw new Problem(
             409,

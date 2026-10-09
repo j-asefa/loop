@@ -31,7 +31,6 @@ export function classify(paths) {
       "Dockerfile.companion": ["companion"],
       "Dockerfile.connection": ["companion", "service"],
       "compose.companion.yaml": ["companion"],
-      "deployment/Dockerfile.native": ["native", "companion"],
       "scripts/compose-smoke.mjs": ["containers"],
       "scripts/compose-companion-smoke.mjs": ["companion"],
       "scripts/service-lifecycle-smoke.mjs": ["service"],

@@ -6,11 +6,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { request } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 const exec = promisify(execFile);
 assert.equal(process.platform, "linux", "systemd smoke runs on Linux");
@@ -19,117 +18,44 @@ const base = await mkdtemp(resolve(".tmp/service-smoke-"));
 const prefix = join(base, "prefix");
 const project = join(base, "project");
 await mkdir(project);
-const env = {
-  ...process.env,
-  npm_config_prefix: prefix,
-  LOOP_HOME: join(base, "state"),
-};
+const fixture = join(base, "codex");
+await copyFile("test/harness.mjs", fixture);
+await chmod(fixture, 0o755);
+const env = { ...process.env, npm_config_prefix: prefix, LOOP_HOME: join(base, "state") };
 delete env.LOOP_TEST_CLOUDFLARED;
 const units = join(homedir(), ".config/systemd/user");
 const systemctl = (...args) => exec("systemctl", ["--user", ...args], { env });
 const mainPid = async (unit) =>
-  Number(
-    (await systemctl("show", "-p", "MainPID", "--value", unit)).stdout.trim(),
-  );
+  Number((await systemctl("show", "-p", "MainPID", "--value", unit)).stdout.trim());
 const active = async (unit) =>
   (await systemctl("is-active", unit).catch((e) => e)).stdout.trim();
 const cgroup = (pid) => readFileSync(`/proc/${pid}/cgroup`, "utf8");
 const alive = (pid) => existsSync(`/proc/${pid}`);
 let loop;
 try {
-  const { stdout } = await exec(
-    "npm",
-    ["pack", "--ignore-scripts", "--json", "--pack-destination", base],
-    { maxBuffer: 1e6 },
-  );
-  await exec(
-    "npm",
-    [
-      "install",
-      "-g",
-      "--omit=optional",
-      "--no-audit",
-      "--no-fund",
-      join(base, JSON.parse(stdout)[0].filename),
-    ],
-    { env, maxBuffer: 1e6, timeout: 600000 },
-  );
-  // Patch only this disposable installed CLI's provisioning boundary. Service
-  // launches do not inherit NODE_OPTIONS, so import the fixture in the artifact
-  // they actually execute; CLI, saved launch, relay and systemd remain real.
-  const dist = join(prefix, "lib/node_modules/loop/dist");
-  const fixture = join(base, "managed-fixture.mjs");
-  await writeFile(
-    fixture,
-    `
-    import { LocalRuntime } from ${JSON.stringify(pathToFileURL(join(dist, "local-runtime.js")).href)};
-    import { own, killOwned } from ${JSON.stringify(pathToFileURL(join(dist, "processes.js")).href)};
-    import { spawn } from "node:child_process";
-    let child;
-    LocalRuntime.prototype.prepare = async function () {};
-    LocalRuntime.prototype.start = async function () {
-      child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { detached: true, stdio: "ignore" });
-      own(child);
-      return { billing: { description: "Fixture HAPI coordinator" } };
-    };
-    LocalRuntime.prototype.close = async function () { if (child) killOwned(child, "SIGTERM"); };
-  `,
-  );
-  const cli = join(dist, "cli.js");
-  const contents = readFileSync(cli, "utf8");
-  const firstLine = contents.indexOf("\n") + 1;
-  await writeFile(
-    cli,
-    contents.slice(0, firstLine) +
-      `import ${JSON.stringify(pathToFileURL(fixture).href)};\n` +
-      contents.slice(firstLine),
-  );
-  loop = (...args) =>
-    exec(join(prefix, "bin", "loop"), args, { env, timeout: 300000 });
-  const status = async () =>
-    JSON.parse((await loop("status", "--json")).stdout);
+  const { stdout } = await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", base], { maxBuffer: 1e6 });
+  await exec("npm", ["install", "-g", "--omit=optional", "--no-audit", "--no-fund", join(base, JSON.parse(stdout)[0].filename)], { env, maxBuffer: 1e6, timeout: 600000 });
+  loop = (...args) => exec(join(prefix, "bin", "loop"), args, { env, timeout: 300000 });
+  const status = async () => JSON.parse((await loop("status", "--json")).stdout);
   const ready = async (previous) => {
     for (let i = 0; i < 240; i++) {
       const s = await status().catch(() => undefined);
-      if (
-        s?.pid &&
-        s.pid !== previous &&
-        s.connection?.registered &&
-        s.supervisor === "systemd"
-      )
-        return s;
+      if (s?.pid && s.pid !== previous && s.connection?.registered && s.supervisor === "systemd") return s;
       await new Promise((r) => setTimeout(r, 500));
     }
     throw new Error("The service-managed application did not become ready");
   };
 
-  // Save a managed launch, then exercise both installed services.
-  await loop(
-    "start",
-    "--providers",
-    "codex",
-    "--execution",
-    "native",
-    "--project",
-    project,
-  );
+  // A saved launch (fixture harness, existing billing), then the services.
+  await loop("codex", "--executable", fixture, "--project", project, "--billing", "existing");
   await loop("service", "install");
   const before = await ready();
   const service = before.connection.service;
   assert.equal(await mainPid("loop.service"), before.pid);
   assert.equal(await mainPid("loop-connection.service"), service.pid);
-  assert.match(
-    cgroup(service.tunnel.pid),
-    /loop-connection\.service/,
-    "cloudflared lives in the connection unit",
-  );
+  assert.match(cgroup(service.tunnel.pid), /loop-connection\.service/, "cloudflared lives in the connection unit");
   assert.doesNotMatch(cgroup(before.pid), /loop-connection\.service/);
-  assert.equal(
-    before.executionBackend,
-    "hapi",
-    "the unit repeats the managed launch",
-  );
-  assert.equal(before.project, project);
+  assert.equal(before.harnesses[0]?.name, "codex", "the unit repeats the saved launch");
   assert.match(before.url, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/);
 
   // Pair through the relay as cloudflared delivers requests.
@@ -138,35 +64,20 @@ try {
   let cookie = "";
   const send = (method, path, body) =>
     new Promise((resolve, reject) => {
-      const req = request(
-        {
-          host: relay.hostname,
-          port: Number(relay.port),
-          method,
-          path,
-          headers: {
-            host: new URL(before.url).host,
-            origin: before.url,
-            ...(cookie ? { cookie } : {}),
-            ...(body ? { "content-type": "application/json" } : {}),
-          },
-        },
-        (res) => {
-          res.resume();
-          res.on("end", () => {
-            if (res.headers["set-cookie"])
-              cookie = res.headers["set-cookie"][0].split(";")[0];
-            resolve(res.statusCode);
-          });
-        },
-      );
+      const req = request({ host: relay.hostname, port: Number(relay.port), method, path, headers: {
+        host: new URL(before.url).host, origin: before.url,
+        ...(cookie ? { cookie } : {}), ...(body ? { "content-type": "application/json" } : {}),
+      } }, (res) => {
+        res.resume();
+        res.on("end", () => {
+          if (res.headers["set-cookie"]) cookie = res.headers["set-cookie"][0].split(";")[0];
+          resolve(res.statusCode);
+        });
+      });
       req.on("error", reject);
       req.end(body ? JSON.stringify(body) : undefined);
     });
-  assert.equal(
-    await send("POST", "/pair", { secret: code, name: "Service fixture" }),
-    200,
-  );
+  assert.equal(await send("POST", "/pair", { secret: code, name: "Service fixture" }), 200);
   assert.equal(await send("GET", "/api/bootstrap"), 200);
 
   let previous = before.pid;
@@ -182,11 +93,7 @@ try {
     assert.equal(after.connection.service.pid, service.pid);
     assert.equal(after.connection.service.tunnel.pid, service.tunnel.pid);
     assert.equal(await mainPid("loop-connection.service"), service.pid);
-    assert.equal(
-      await send("GET", "/api/bootstrap"),
-      200,
-      "the paired cookie still works",
-    );
+    assert.equal(await send("GET", "/api/bootstrap"), 200, "the paired cookie still works");
     previous = after.pid;
   }
 
