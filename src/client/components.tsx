@@ -137,6 +137,7 @@ export function Sheet({
   wide = false,
   titleRef,
   swipeToClose = false,
+  footer,
   className = "",
 }: {
   title: string;
@@ -146,6 +147,7 @@ export function Sheet({
   wide?: boolean;
   titleRef?: Ref<HTMLHeadingElement>;
   swipeToClose?: boolean;
+  footer?: ReactNode;
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -226,6 +228,7 @@ export function Sheet({
         </div>
         <ConnectionNotice />
         <div className="sheet-body">{children}</div>
+        {footer && <div className="sheet-footer">{footer}</div>}
       </div>
     </dialog>
   );

@@ -3544,6 +3544,28 @@ fieldset {
   overscroll-behavior: contain;
   padding: 20px 22px calc(22px + env(safe-area-inset-bottom));
 }
+.sheet-footer {
+  flex: 0 0 auto;
+  padding: 14px 22px max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.sheet-footer > .primary {
+  width: 100%;
+}
+.create-agent-sheet .sheet-body,
+.create-agent-sheet form,
+.create-agent-sheet .input-prefix input {
+  min-width: 0;
+}
+.create-agent-sheet .provider-picker {
+  flex-wrap: wrap;
+}
+.create-agent-sheet .provider-picker > button {
+  flex: 1 1 100px;
+  min-width: 0;
+  padding: 12px 10px;
+}
 .file-preview-sheet {
   height: min(88dvh, calc(var(--visual-viewport-height, 100dvh) - 16px));
 }

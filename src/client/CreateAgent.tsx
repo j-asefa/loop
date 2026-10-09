@@ -103,6 +103,7 @@ export function CreateAgent({
     [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const formId = useId();
   const instructionsHint = useId(),
     promptHint = useId();
   const locked = useRef(false),
@@ -303,13 +304,40 @@ export function CreateAgent({
     </details>
   );
   return (
-    <Sheet title="Meet your next agent" onClose={onClose}>
+    <Sheet
+      title="Meet your next agent"
+      onClose={onClose}
+      className="create-agent-sheet"
+      footer={
+        <button
+          className="primary"
+          type="submit"
+          form={formId}
+          disabled={
+            busy ||
+            uploading ||
+            refreshingModels ||
+            !chosen ||
+            !name.trim() ||
+            (!!attachments.length && !initialPrompt.trim()) ||
+            crossSource
+          }
+        >
+          {busy
+            ? "Creating…"
+            : initialPrompt.trim()
+              ? "Create & start"
+              : "Create agent"}
+          <ArrowRight size={18} />
+        </button>
+      }
+    >
       <p className="muted">
         Pick a project and a model. Everything else is optional and can change
         later.
       </p>
       {!connected.length && setupBlock}
-      <form onSubmit={create}>
+      <form id={formId} onSubmit={create}>
         <label>
           Project
           <select
@@ -458,10 +486,12 @@ export function CreateAgent({
         ) : (
           <div className="note">
             Connect {providerName(provider)} to choose an available model.
-            <button type="button" className="text-button" onClick={onConnect}>
-              <Plus size={16} />
-              Connect on {currentSourceName}
-            </button>
+            {setupEnvironments.length === 0 && (
+              <button type="button" className="text-button" onClick={onConnect}>
+                <Plus size={16} />
+                Connect on {currentSourceName}
+              </button>
+            )}
             {setupEnvironments.map((environment) => (
               <button
                 type="button"
@@ -595,25 +625,6 @@ export function CreateAgent({
             {error}
           </p>
         )}
-        <button
-          className="primary"
-          disabled={
-            busy ||
-            uploading ||
-            refreshingModels ||
-            !chosen ||
-            !name.trim() ||
-            (!!attachments.length && !initialPrompt.trim()) ||
-            crossSource
-          }
-        >
-          {busy
-            ? "Creating…"
-            : initialPrompt.trim()
-              ? "Create & start"
-              : "Create agent"}
-          <ArrowRight size={18} />
-        </button>
       </form>
       {connected.length > 0 && setupBlock}
     </Sheet>
