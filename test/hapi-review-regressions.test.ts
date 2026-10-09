@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -163,7 +163,7 @@ it("defers inactive sends without taking a delivery lease and permits explicit r
       if (path.endsWith("/queued-state"))
         return { invokedLocalMessages: [], queuedLocalIds: [] };
       if (path.endsWith("/messages")) return { ok: true };
-      return { session: { active, agentState: {} } };
+      return { session: { active, model: "fixture", agentState: {} } };
     });
   await executeHapi(run);
   expect(dispatchFor(run.id)).toMatchObject({
@@ -189,7 +189,7 @@ it("clears the lease only for a confirmed inactive rejection, not transport unce
           throw confirmed
             ? new InactiveSessionError()
             : new Error("connection reset");
-        return { session: { active: true } };
+        return { session: { active: true, model: "fixture" } };
       },
     );
     await executeHapi(run);
@@ -223,7 +223,7 @@ it("does not reopen or abort terminal dispatches when cancellation is retried", 
   const { run } = fixture();
   const request = vi
     .spyOn(HapiClient.prototype, "request")
-    .mockResolvedValue({ session: { active: true }, ok: true });
+    .mockResolvedValue({ session: { active: true, model: "fixture" }, ok: true });
   await executeHapi(run);
   for (const state of ["completed", "failed", "cancelled"]) {
     db.prepare("UPDATE native_dispatches SET state=? WHERE run_id=?").run(
@@ -241,7 +241,7 @@ it("reconciles submitted decisions with the original answers after transport fai
   const { run, s } = fixture();
   const request = vi
     .spyOn(HapiClient.prototype, "request")
-    .mockResolvedValue({ session: { active: true }, ok: true });
+    .mockResolvedValue({ session: { active: true, model: "fixture" }, ok: true });
   await executeHapi(run);
   const approval = id(),
     requestId = id(),
@@ -499,7 +499,7 @@ it("cancels before the send lease without sending and requests abort after the l
           reached();
           await gate;
         }
-        return { ok: true, session: { active: true } };
+        return { ok: true, session: { active: true, model: "fixture" } };
       });
     const sending = executeHapi(run);
     await ready;
@@ -713,7 +713,7 @@ it("persists attachments and quoted replies in the exact HAPI delivery envelope"
         sent = options;
         return { ok: true };
       }
-      return { session: { active: true } };
+      return { session: { active: true, model: "fixture" } };
     },
   );
   await executeHapi(run);
@@ -802,4 +802,274 @@ it("fences connection registration when the runner changes during authentication
     expect(db.prepare("SELECT * FROM connections ORDER BY id").all()).toEqual(before);
   }
   db.prepare("UPDATE execution_environments SET state='online',revoked_at=NULL WHERE host_id=?").run(host);
+});
+
+it("Never ask reconciles confirmed approvals while preserving questions and unresolved delivery", async () => {
+  const { setAgentPermissionMode } = await import("../src/server/mcp/approval-policy");
+  setAgentPermissionMode("alice", "bypassPermissions");
+  try {
+    const { run, s } = fixture();
+    let state: any = {};
+    const request = snapshotMock(s, () => state);
+    await executeHapi(run);
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+    state = { requests: {
+      bash: { tool: "CodexBash", arguments: { command: "pwd" } },
+      question: { tool: "request_user_input", arguments: { questions: [] } },
+      plan: { tool: "ExitPlanMode", arguments: {} },
+    } };
+    await reconcile(s);
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/bash/approve"))).toHaveLength(2);
+    expect(request.mock.calls.filter(([path]) => /\/(question|plan)\/approve$/.test(path))).toHaveLength(0);
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=? AND request_id='bash'").get(s.conversation_id)).toEqual({ state: "auto-confirmed" });
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "awaiting_approval" });
+
+    const delivered = request.getMockImplementation()!;
+    request.mockImplementation(async (path, body) => {
+      if (path.endsWith("/bash/approve")) throw new Error("lost retry acknowledgement");
+      return delivered(path, body);
+    });
+    await reconcile(s);
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/bash/approve"))).toHaveLength(3);
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=? AND request_id='bash'").get(s.conversation_id)).toEqual({ state: "unknown" });
+    request.mockImplementation(delivered);
+    state = { completedRequests: { bash: {}, question: {}, plan: {} } };
+    await reconcile(s);
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "running" });
+
+    const normal = request.getMockImplementation()!;
+    request.mockImplementation(async (path, body) => {
+      if (path.endsWith("/uncertain/approve")) throw new Error("lost response");
+      return normal(path, body);
+    });
+    state = { requests: { uncertain: { tool: "Bash", arguments: { command: "pwd" } } } };
+    await reconcile(s);
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/uncertain/approve"))).toHaveLength(1);
+    const decision = db.prepare("SELECT approval_id,state FROM native_permissions WHERE conversation_id=? AND request_id='uncertain'").get(s.conversation_id) as any;
+    expect(decision.state).toBe("unknown");
+    await expect(nativeDecision("alice", decision.approval_id, "approve")).rejects.toThrow(/already sent/);
+    const surfaced = db.prepare("SELECT request FROM approvals WHERE id=?").get(decision.approval_id) as any;
+    expect(JSON.parse(surfaced.request).deliveryUnknown).toBe(true);
+    // An explicit retry first checks current native state, and an uncertain
+    // retry is never repeated by reconciliation either.
+    await expect(nativeDecision("alice", decision.approval_id, "approve", undefined, true)).rejects.toThrow("lost response");
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/uncertain/approve"))).toHaveLength(2);
+    request.mockImplementation(normal);
+    await nativeDecision("alice", decision.approval_id, "approve", undefined, true);
+    expect(db.prepare("SELECT state FROM native_permissions WHERE approval_id=?").get(decision.approval_id)).toEqual({ state: "auto-confirmed" });
+    state = { completedRequests: { uncertain: {} } };
+    await reconcile(s);
+    expect(db.prepare("SELECT state FROM native_permissions WHERE approval_id=?").get(decision.approval_id)).toEqual({ state: "resolved" });
+  } finally {
+    setAgentPermissionMode("alice", "default");
+  }
+});
+
+it("Never ask does not answer a pre-existing decision or a cancelling turn", async () => {
+  const { setAgentPermissionMode } = await import("../src/server/mcp/approval-policy");
+  const { run, s } = fixture();
+  let state: any = {};
+  const request = snapshotMock(s, () => state);
+  await executeHapi(run);
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+  state = { requests: { existing: { tool: "Bash" } } };
+  await reconcile(s);
+  setAgentPermissionMode("alice", "bypassPermissions");
+  try {
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.includes("/permissions/"))).toHaveLength(0);
+    db.prepare("UPDATE runs SET payload=json_set(payload,'$.permissionMode','bypassPermissions') WHERE id=?").run(run.id);
+    db.prepare("UPDATE native_dispatches SET cancel_requested=1,state='cancellation-requested' WHERE run_id=?").run(run.id);
+    state = { requests: { existing: { tool: "Bash" }, cancelled: { tool: "CodexBash" } } };
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.includes("/permissions/"))).toHaveLength(0);
+  } finally {
+    setAgentPermissionMode("alice", "default");
+  }
+});
+
+it.each(["claude", "codex", "opencode", "pi"])("applies the %s run's model and effort before sending a reused session", async (flavor) => {
+  const { claudePolicy, piPolicy } = await import("../src/server/hapi/contracts");
+  const cid = id();
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Settings','','connected',?, ?,?)")
+    .run(cid, JSON.stringify([{id:"fixture",effortLevels:[{value:"high"}]}]), JSON.stringify({backend:"hapi",environmentId:host,flavor,billing:flavor === "pi" ? piPolicy : flavor === "claude" ? claudePolicy : billingPolicy}), now());
+  const a = createAgent("alice", {name:"settings-"+id().slice(0,8),connectionId:cid,model:"fixture",effort:"high"});
+  db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(project, a.id);
+  const {run, s} = fixture(a.id);
+  const auth = {authenticated:true,managed:true,checkedAt:Date.now(),authMethod:flavor === "pi" ? "existing" : flavor === "claude" ? "claude" : "chatgpt",executionGuard:"loop-subscription-v1"};
+  vi.mocked(workerRequest).mockImplementation(async (_e, path) => path === "/prepare" ? {auth} : auth);
+  const request = vi.spyOn(HapiClient.prototype,"request").mockImplementation(async (path) => {
+    if (path.endsWith("/model") || path.endsWith("/effort") || path.endsWith("/model-reasoning-effort") || path.endsWith("/permission-mode")) return {ok:true};
+    if (path.endsWith("/messages")) return {ok:true};
+    return {session:{active:true,model:"old",permissionMode:"bypassPermissions"}};
+  });
+  await executeHapi(run);
+  const calls = request.mock.calls;
+  expect(calls.find(([path]) => path.endsWith("/model"))?.[1]).toEqual({model:"fixture"});
+  expect(calls.find(([path]) => path.endsWith(["claude", "pi"].includes(flavor) ? "/effort" : "/model-reasoning-effort"))?.[1])
+    .toEqual(["claude", "pi"].includes(flavor) ? {effort:"high"} : {modelReasoningEffort:"high"});
+  if (flavor === "claude") expect(calls.find(([path]) => path.endsWith("/permission-mode"))?.[1]).toEqual({mode:"default"});
+  expect(calls.at(-1)?.[0]).toBe(`/api/sessions/${s.hub_session_id}/messages`);
+});
+
+
+it.each([
+  ["default", "claude-resolved"], ["native-default", "claude-resolved"], ["fixture", undefined],
+])("does not repeatedly set model %s from a resolved or omitted native value", async (wanted, liveModel) => {
+  const auth = { authenticated: true, managed: true, checkedAt: Date.now(), authMethod: "chatgpt" };
+  vi.mocked(workerRequest).mockImplementation(async (_e, path) => path === "/prepare" ? { auth } : auth);
+  const { run, s } = fixture();
+  const payload = JSON.parse(run.payload);
+  payload.model = wanted;
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(JSON.stringify(payload), run.id);
+  run.payload = JSON.stringify(payload);
+  const request = vi.spyOn(HapiClient.prototype, "request").mockImplementation(async path => {
+    if (path.endsWith("/model")) throw new Error("unexpected model mutation");
+    if (path.includes("/messages")) return { ok: true, messages: [], hasMore: false };
+    return { ok: true, session: { active: true, model: liveModel } };
+  });
+  await executeHapi(run);
+  expect(request.mock.calls.some(([path]) => path.endsWith("/model"))).toBe(false);
+  expect(dispatchFor(run.id)?.state).toBe("accepted");
+});
+
+
+it("reapplies the HAPI retirement migration after either branch recorded version 066", () => {
+  db.prepare("DELETE FROM schema_version WHERE version=67").run();
+  db.prepare("INSERT OR IGNORE INTO schema_version VALUES(66,0)").run();
+  const legacy = id();
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Legacy','','connected','[]',?,0)")
+    .run(legacy, JSON.stringify({ authMode: "subscription" }));
+  const identities = db.prepare("SELECT run_id,local_id,generation FROM native_dispatches ORDER BY run_id").all();
+  db.exec(readFileSync("migrations/067-hapi-only-harnesses.sql", "utf8"));
+  expect(db.prepare("SELECT status FROM connections WHERE id=?").get(legacy)).toEqual({ status: "disconnected" });
+  expect(db.prepare("SELECT status FROM connections WHERE id=?").get(connection)).toEqual({ status: "connected" });
+  expect(db.prepare("SELECT run_id,local_id,generation FROM native_dispatches ORDER BY run_id").all()).toEqual(identities);
+});
+
+
+it("confirmed automatic permission leaves the run running without a phantom approval", async () => {
+  const { setAgentPermissionMode } = await import("../src/server/mcp/approval-policy");
+  setAgentPermissionMode("alice", "bypassPermissions");
+  try {
+    const { run, s } = fixture();
+    let state: any = {};
+    snapshotMock(s, () => state);
+    await executeHapi(run);
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+    state = { requests: { bash: { tool: "CodexBash", arguments: { command: "pwd" } } } };
+    await reconcile(s);
+    await reconcile(s);
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=? AND request_id='bash'").get(s.conversation_id)).toEqual({ state: "auto-confirmed" });
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "running" });
+  } finally { setAgentPermissionMode("alice", "default"); }
+});
+
+it("a failed Claude catalog refresh preserves saved models and exposes its error", async () => {
+  const e = db.prepare("SELECT * FROM execution_environments WHERE host_id=?").get(host) as any;
+  const models = [{ id: "sonnet", name: "Sonnet" }];
+  vi.mocked(workerRequest).mockResolvedValueOnce({ authenticated: true, managed: true, checkedAt: Date.now(), authMethod: "claude", models });
+  const connected = await connectProvider(e, "claude");
+  vi.mocked(workerRequest).mockResolvedValueOnce({ authenticated: true, managed: true, checkedAt: Date.now(), authMethod: "claude", modelsError: "Claude model discovery is unavailable. Refresh to try again." });
+  const refreshed = await connectProvider(e, "claude");
+  expect(refreshed.modelsError).toContain("unavailable");
+  expect(JSON.parse((db.prepare("SELECT models FROM connections WHERE id=?").get(connected.id) as any).models)).toEqual(models);
+});
+
+it("overlapping observers preserve a live automatic permission delivery", async () => {
+  const { setAgentPermissionMode } = await import("../src/server/mcp/approval-policy");
+  setAgentPermissionMode("alice", "bypassPermissions");
+  let release!: () => void;
+  try {
+    const { run, s } = fixture();
+    let state: any = {};
+    const request = snapshotMock(s, () => state);
+    await executeHapi(run);
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+    const original = request.getMockImplementation()!;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    request.mockImplementation(async (path, body) => {
+      if (path.endsWith("/bash/approve")) {
+        entered();
+        await new Promise<void>(resolve => { release = resolve; });
+        return { ok: true };
+      }
+      return original(path, body);
+    });
+    state = { requests: { bash: { tool: "Bash", arguments: { command: "pwd" } } } };
+    const first = reconcile(s);
+    await started;
+    await reconcile({ ...s });
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=?").get(s.conversation_id)).toEqual({ state: "auto-submitted" });
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/bash/approve"))).toHaveLength(1);
+    release();
+    await first;
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=?").get(s.conversation_id)).toEqual({ state: "auto-confirmed" });
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "running" });
+    // Crash recovery is still conservative once a persisted delivery expires.
+    db.prepare("UPDATE native_permissions SET state='auto-submitted',delivery_expires_at=0 WHERE conversation_id=?").run(s.conversation_id);
+    await reconcile({ ...s });
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=?").get(s.conversation_id)).toEqual({ state: "unknown" });
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/bash/approve"))).toHaveLength(1);
+  } finally { release?.(); setAgentPermissionMode("alice", "default"); }
+});
+
+it("unknown human-input tools remain pending under Never ask", async () => {
+  const { setAgentPermissionMode } = await import("../src/server/mcp/approval-policy");
+  setAgentPermissionMode("alice", "bypassPermissions");
+  try {
+    const { run, s } = fixture();
+    let state: any = {};
+    const request = snapshotMock(s, () => state);
+    await executeHapi(run);
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+    state = { requests: Object.fromEntries(["AskForClarification", "UserChoice", "Confirm"].map(tool => [tool, { tool, arguments: {} }])) };
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.includes("/permissions/"))).toHaveLength(0);
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "awaiting_approval" });
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=?").all(s.conversation_id)).toEqual(Array(3).fill({ state: "pending" }));
+  } finally { setAgentPermissionMode("alice", "default"); }
+});
+
+it("matching live settings avoid mutation requests before dispatch", async () => {
+  const { run, s } = fixture();
+  const request = snapshotMock(s, () => ({}));
+  const original = request.getMockImplementation()!;
+  request.mockImplementation(async (path, body) => {
+    const result = await original(path, body);
+    if (path === "/api/sessions/" + s.hub_session_id)
+      return { session: { ...result.session, model: "fixture", modelReasoningEffort: null } };
+    return result;
+  });
+  await executeHapi(run);
+  expect(request.mock.calls.filter(([path]) => /\/(model|effort|model-reasoning-effort|permission-mode)$/.test(path))).toHaveLength(0);
+  expect(request.mock.calls.some(([path]) => path.endsWith("/messages"))).toBe(true);
+});
+
+it("a run deleted while inspecting the native session returns a recoverable refusal", async () => {
+  const { run, s } = fixture();
+  const request = snapshotMock(s, () => ({}));
+  await executeHapi(run);
+  db.prepare("UPDATE native_dispatches SET state='prepared',send_started_at=NULL WHERE run_id=?").run(run.id);
+  request.mockClear();
+  const original = request.getMockImplementation()!;
+  let reads = 0;
+  request.mockImplementation(async (path, body) => {
+    const result = await original(path, body);
+    if (path === "/api/sessions/" + s.hub_session_id && ++reads === 2) {
+      // Simulate a missing row from concurrent pruning/legacy corruption;
+      // ordinary deletion is prevented by the current foreign keys.
+      db.pragma("foreign_keys = OFF");
+      try { db.prepare("DELETE FROM runs WHERE id=?").run(run.id); }
+      finally { db.pragma("foreign_keys = ON"); }
+    }
+    return result;
+  });
+  await expect(reconcile(s)).rejects.toMatchObject({ status: 409, message: "Native run no longer exists" });
+  expect(request.mock.calls.some(([path]) => path.endsWith("/messages"))).toBe(false);
 });

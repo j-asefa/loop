@@ -60,18 +60,12 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
         .get(agent.id),
   );
   assert(recipient, "Fixture needs an idle Claude agent for model selection");
-  const connection = fixture.db
-    .prepare("SELECT * FROM connections WHERE provider='codex'")
-    .get();
-  const models = JSON.parse(connection.models);
-  models[1].effortLevels = [
-    { value: "low" },
-    { value: "xhigh", description: "Take more time to check difficult work." },
-  ];
-  models[1].defaultEffort = "low";
-  fixture.db
-    .prepare("UPDATE connections SET models=? WHERE id=?")
-    .run(JSON.stringify(models), connection.id);
+  // Model/effort and upload submission are API behavior in this fixture. A
+  // historical direct Codex connection is no longer a runnable destination.
+  const created = await fixture.api("/connections", {
+    provider: "openai", label: "Workspace API", secret: "fixture-workspace-models",
+  });
+  const connection = fixture.db.prepare("SELECT * FROM connections WHERE id=?").get(created.id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(fixture.base);
   // The Feed tab carries the Running tab's badge: agents working right now.
@@ -169,7 +163,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     exact: true,
   });
   const astra = modelsGroup.getByRole("radio", {
-    name: "GPT-6 Astra · Codex · Personal ChatGPT",
+    name: "GPT-6 Astra · OpenAI API · Workspace API",
     exact: true,
   });
   const sonnet = modelsGroup.getByRole("radio", {

@@ -22,6 +22,8 @@ import WebSocket from "ws";
 import {
   runnerLoginApi,
   discoverOpencode,
+  discoverClaudeModels,
+  claudeAuthStatus,
   logoutOpencode,
   discoverPi,
   logoutPi,
@@ -107,7 +109,7 @@ async function command(flavor, args) {
     clearTimeout(timer);
   }
 }
-export async function authStatus(flavor) {
+export async function authStatus(flavor, includeModels = false) {
   validFlavor(flavor);
   if (flavor === "opencode")
     return discoverOpencode({
@@ -125,21 +127,9 @@ export async function authStatus(flavor) {
   }
   if (flavor === "claude") {
     const s = JSON.parse(await command("claude", ["auth", "status", "--json"]));
-    return {
-      authenticated:
-        s.loggedIn === true &&
-        ["claude.ai", "oauth"].includes(s.authMethod) &&
-        s.apiProvider === "firstParty",
-      authMethod: "claude",
-      managed: true,
-      checkedAt: Date.now(),
-      models: ["default", "sonnet", "opus", "haiku"].map((id) => ({
-        id,
-        name: id,
-        capabilities:
-          "Native Claude alias; availability depends on your account",
-      })),
-    };
+    return claudeAuthStatus(s, includeModels ? () => discoverClaudeModels({
+      executable: binary("claude"), project: root, env: env(),
+    }) : undefined);
   }
   return inspectCodexAppServer({
     endpoint: process.env.LOOP_CODEX_APP_SERVER_ENDPOINT,
@@ -281,7 +271,7 @@ const server = https.createServer(
         return;
       }
       if (req.url === "/auth") {
-        res.end(JSON.stringify(await authStatus(validFlavor(data.flavor))));
+        res.end(JSON.stringify(await authStatus(validFlavor(data.flavor), true)));
         return;
       }
       if (data.generation !== generation)

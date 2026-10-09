@@ -76,7 +76,12 @@ db.transaction(() => {
     db.prepare("SELECT 1 FROM schema_version WHERE version=?").get(n);
   const table = (name: string) =>
     db.prepare("SELECT 1 FROM sqlite_master WHERE name=?").get(name);
-  if (version(42) && version(43) && !version(44) && table("pi_package_recovery"))
+  if (
+    version(42) &&
+    version(43) &&
+    !version(44) &&
+    table("pi_package_recovery")
+  )
     db.exec(
       "UPDATE schema_version SET version=44 WHERE version=43; UPDATE schema_version SET version=43 WHERE version=42",
     );
@@ -105,6 +110,19 @@ db.transaction(() => {
     )
   )
     db.exec("UPDATE schema_version SET version=52 WHERE version=51");
+  // HAPI's permission lease used 68 before main assigned it to PR-watch
+  // registrations. Preserve preview databases and let both migrations run.
+  if (
+    version(68) &&
+    !version(69) &&
+    (db.pragma("table_info(native_permissions)") as { name: string }[]).some(
+      (column) => column.name === "delivery_expires_at",
+    )
+  ) {
+    db.exec("INSERT INTO schema_version VALUES(69,unixepoch()*1000)");
+    if (!table("pr_watch_registrations"))
+      db.exec("DELETE FROM schema_version WHERE version=68");
+  }
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

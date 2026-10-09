@@ -46,11 +46,11 @@ it("registers four managed flavors with their required billing policy", async ()
   }
   expect(db.prepare("SELECT canonical_path FROM environment_projects").get()).toEqual({ canonical_path: "/project" });
 });
-it("falls back only without an online binding, never on billing or worker failure", async () => {
-  expect(await enableManagedWorkspace("owner", "codex", "project", "/project", "existing")).toBeUndefined();
+it("requires an online HAPI binding and never falls back on billing or worker failure", async () => {
+  await expect(enableManagedWorkspace("owner", "codex", "project", "/project", "existing")).rejects.toThrow(/HAPI is not ready/);
   release = bindManagedWorkspace("owner", "native");
   fixture.state = "offline";
-  expect(await enableManagedWorkspace("owner", "codex", "project", "/project", "existing")).toBeUndefined();
+  await expect(enableManagedWorkspace("owner", "codex", "project", "/project", "existing")).rejects.toThrow(/HAPI is not ready/);
   fixture.state = "online";
   await expect(enableManagedWorkspace("owner", "codex", "project", "/project", "existing")).rejects.toThrow(/billing/);
   fixture.verify.mockRejectedValueOnce(new Error("runner unavailable"));

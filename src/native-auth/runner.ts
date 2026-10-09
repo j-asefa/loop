@@ -1,3 +1,4 @@
+export { discoverClaudeModels, claudeAuthStatus } from "./claude-discovery.js";
 export { discoverOpencode, logoutOpencode } from "./opencode-discovery.js";
 export { inspectPiAuth, discoverPi, logoutPi } from "./pi-status.js";
 export { inspectOpencodeNativeAuth } from "../../native/loopManaged.js";

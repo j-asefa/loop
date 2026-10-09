@@ -42,27 +42,31 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const base = await mkdtemp(join(resolve(".tmp"), "loop-daemon-"));
   const project = join(base, "project");
   await mkdir(project);
-  const fixture = join(base, "codex");
-  await copyFile(resolve("test/harness.mjs"), fixture);
-  await chmod(fixture, 0o755);
+  const preload = join(base, "managed-fixture.ts");
+  await writeFile(preload, `
+    import { LocalRuntime } from ${JSON.stringify(pathToFileURL(resolve("src/local-runtime.ts")).href)};
+    import { own, killOwned } from ${JSON.stringify(pathToFileURL(resolve("src/processes.ts")).href)};
+    import { spawn } from "node:child_process";
+    let child;
+    LocalRuntime.prototype.prepare = async function () {};
+    LocalRuntime.prototype.start = async function () {
+      child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {detached:true, stdio:"ignore"});
+      own(child);
+      return { billing: {description: "Fixture HAPI coordinator"} };
+    };
+    LocalRuntime.prototype.close = async function () { if (child) killOwned(child, "SIGTERM"); };
+  `);
   const env = {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_"))),
+    LOOP_MEMORY_ENABLED: "0",
     LOOP_HOME: join(base, "state"),
     LOOP_TEST_HARNESS: "codex",
     ...extraEnv,
   };
-  const cli = ["--import", "tsx", "src/cli.ts"];
+  const cli = ["--import", "tsx", "--import", preload, "src/cli.ts"];
   const loop = (args: string[], timeout = 30000) =>
     exec(process.execPath, [...cli, ...args], { env, timeout });
-  const harness = [
-    "codex",
-    "--executable",
-    fixture,
-    "--project",
-    project,
-    "--billing",
-    "existing",
-  ];
+  const harness = ["start", "--project", project];
   const status = async () =>
     JSON.parse((await loop(["status", "--json"])).stdout);
   const pids = new Set<number>();
@@ -230,7 +234,7 @@ test("a relaunch retires the old log with pairing secrets redacted", async () =>
   }
 });
 
-test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop", async () => {
+test("loop backgrounds after pairing; status, pair, stop and bare loop", async () => {
   const w = await workspace();
   try {
     const started = Date.now();
@@ -238,8 +242,8 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     assert.equal(
       JSON.parse(await readFile(join(w.dir, "preferences.json"), "utf8"))
         .project,
-      undefined,
-      "a one-off harness launch does not replace the start project's default",
+      w.harness[2],
+      "the launcher remembers the project",
     );
     assert(
       Date.now() - started < 20000,
@@ -248,6 +252,7 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     const url = new URL(stdout.match(PAIR_URL)![0]);
     assert.match(stdout, /running in the background/);
     assert.equal((await w.status()).state, "ready");
+    assert.equal((await w.status()).executionBackend, "hapi");
     assert(alive(pid), "workspace outlives the command that started it");
     assert.equal(
       JSON.parse(await readFile(join(w.dir, "control.json"), "utf8")).pid,
@@ -729,56 +734,8 @@ test("loop logs --follow keeps the old file's tail across a rotation", async () 
   }
 });
 
-// Pairs, starts a native conversation, and returns the harness process it spawned.
-async function nativeChild(dir: string, url: URL) {
-  const paired = await fetch(url.origin + "/pair", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: url.origin },
-    body: JSON.stringify({
-      secret: new URLSearchParams(url.hash.slice(1)).get("pair"),
-    }),
-  });
-  const cookie = paired.headers.get("set-cookie")!.split(";")[0];
-  const { csrf } = await fetch(url.origin + "/session", {
-    headers: { Cookie: cookie },
-  }).then((r) => r.json() as Promise<{ csrf: string }>);
-  const api = (path: string, body: object) =>
-    fetch(url.origin + "/api" + path, {
-      method: "POST",
-      headers: {
-        Cookie: cookie,
-        Origin: url.origin,
-        "x-loop-csrf": csrf,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }).then(
-      (r) => r.json() as Promise<{ id: string; conversation_id: string }>,
-    );
-  // Agent names are unique, and the workspace outlives a daemon restart.
-  const agent = await api("/agents", {
-    name: "daemon-agent-" + crypto.randomUUID().slice(0, 8),
-    connectionId: "native-codex",
-    model: "native-default",
-  });
-  const run = await api("/runs", {
-    agentId: agent.id,
-    input: "daemon task",
-    idempotencyKey: crypto.randomUUID(),
-  });
-  // Wait for the turn to finish, so the harness is idle like a real orphan
-  // (a write mid-turn to a dead workspace's pipe would end it by itself).
-  let done = false;
-  const deadline = Date.now() + 15000;
-  while (!done && Date.now() < deadline) {
-    const history = (await fetch(
-      url.origin + "/api/conversations/" + run.conversation_id,
-      { headers: { Cookie: cookie } },
-    ).then((r) => r.json())) as { messages?: { content: string }[] };
-    done = !!history.messages?.some((m) => m.content === "Fixture done");
-    if (!done) await new Promise((r) => setTimeout(r, 100));
-  }
-  assert(done, "the native turn completed");
+// Returns the managed coordinator child registered by the launcher fixture.
+async function nativeChild(dir: string, _url: URL) {
   let pid = 0;
   await until(() => {
     try {
@@ -812,12 +769,11 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
   }
 });
 
-test("loop start --direct pairs without enabling a harness, reuses the host and survives restart", async () => {
+test("loop start pairs through managed setup, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
     const first = await w.loop([
       "start",
-      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -825,27 +781,26 @@ test("loop start --direct pairs without enabling a harness, reuses the host and 
     assert.match(first.stdout, PAIR_URL);
     const status = await w.status();
     assert.equal(status.serverReady, true);
-    assert.equal(status.executionReady, false);
+    assert.equal(status.executionReady, true);
     assert.deepEqual(status.harnesses, []);
-    const resumed = await w.loop(["start", "--direct", "--local-only"]);
+    const resumed = await w.loop(["start", "--local-only"]);
     assert.match(resumed.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const again = await w.loop([
       "start",
-      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
     ]);
     assert.match(again.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
-    const bare = await w.loop(["--direct", "--local-only"]);
+    const bare = await w.loop(["--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const otherProject = join(w.env.LOOP_HOME, "other-project");
     await mkdir(otherProject);
     await assert.rejects(
-      w.loop(["start", "--direct", "--local-only", "--project", otherProject]),
+      w.loop(["start", "--local-only", "--project", otherProject]),
       /Run loop stop before changing the running workspace/,
     );
     await assert.rejects(
@@ -888,7 +843,7 @@ test("loop start --direct pairs without enabling a harness, reuses the host and 
     );
     await w.loop(["stop"]);
     await assert.rejects(w.loop(["pair"]), /loop start/);
-    const restarted = await w.loop(["--direct", "--local-only"]);
+    const restarted = await w.loop(["--local-only"]);
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
@@ -910,7 +865,6 @@ test("bare loop restores a saved managed project from another directory", async 
   try {
     await w.loop([
       "start",
-      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -962,7 +916,7 @@ test(`${explicit ? "explicit managed" : "automatic"} daemon startup retains pair
     LocalRuntime.prototype.close = async function () { writeFileSync(${JSON.stringify(closed)}, "closed"); };
   `,
   );
-  w.cli.splice(2, 0, "--import", preload);
+  w.cli.splice(w.cli.length - 1, 0, "--import", preload);
   try {
     const first = await w.loop([
       "start",
@@ -982,8 +936,8 @@ test(`${explicit ? "explicit managed" : "automatic"} daemon startup retains pair
       await readFile(join(w.dir, "preferences.json"), "utf8"),
     );
     assert.equal(pendingPreferences.project, w.env.LOOP_HOME);
-    assert.equal(pendingPreferences.providers, explicit ? "claude,pi" : undefined);
-    assert.equal(pendingPreferences.execution, explicit ? "native" : undefined);
+    assert.equal(pendingPreferences.providers, explicit ? "claude,pi" : "installed");
+    assert.equal(pendingPreferences.execution, "native");
     const repeated = await w.loop(["start", "--local-only"]);
     assert(
       !existsSync(release),
@@ -1009,26 +963,23 @@ test(`${explicit ? "explicit managed" : "automatic"} daemon startup retains pair
     await writeFile(release, "continue");
     await until(() => existsSync(closed));
     await until(() => existsSync(join(w.dir, "preferences.json")));
-    assert.equal((await inventory()).setup, "fallback");
+    assert.equal((await inventory()).setup, "failed");
     const status = await w.status();
     assert.equal(status.serverReady, true);
-    assert.deepEqual(status.harnesses, [], "fallback must not enable placeholder Codex");
+    assert.deepEqual(status.harnesses, [], "failed setup must not enable placeholder Codex");
     const preferences = JSON.parse(
       await readFile(join(w.dir, "preferences.json"), "utf8"),
     );
-    assert.equal(preferences.providers, explicit ? "claude,pi" : undefined);
-    assert.equal(preferences.execution, explicit ? "native" : undefined);
+    assert.equal(preferences.providers, explicit ? "claude,pi" : "installed");
+    assert.equal(preferences.execution, "native");
     const logs = (await w.loop(["logs"])).stdout;
     assert.equal((logs.match(/preparation failed/g) ?? []).length, 1);
     assert.doesNotMatch(logs, /fixture private preparation detail/);
     await w.loop(["stop"]);
     await rm(selected);
-    await w.loop(["start", "--direct", "--local-only"]);
-    assert(
-      !existsSync(selected),
-      "--direct survives daemon argument forwarding",
-    );
-    assert.equal((await w.status()).serverReady, true);
+    await assert.rejects(w.loop(["start", "--direct", "--local-only"]), /Unknown option/);
+    assert(!existsSync(selected), "retired flags cannot provision or launch a harness");
+
   } finally {
     await w.cleanup();
   }

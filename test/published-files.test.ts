@@ -30,7 +30,7 @@ process.env.LOOP_PROFILE = "server";
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
-const { submit } = await import("../src/server/agent-runtime");
+const { enqueue } = await import("../src/server/queue");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
 const { publishRunFile } = await import("../src/server/published-files");
@@ -97,10 +97,10 @@ function fixture() {
     connectionId: connection,
     model: "gpt-6-astra",
   });
-  const run = submit("alice", {
-    agentId: agent.id,
-    input: "Create a mockup and publish it",
-    idempotencyKey: id(),
+  const conversation = id();
+  db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,execution_backend,created_at) VALUES(?,'alice',?,'Archived','legacy',?)").run(conversation, agent.id, now());
+  const run = enqueue("alice", "Publish a file", id(), {
+    agent: agent.id, conversation, payload: { connectionId: connection, model: "gpt-6-astra" },
   });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   const binding = nativeBindings(run).find(

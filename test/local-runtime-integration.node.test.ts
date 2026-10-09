@@ -37,9 +37,13 @@ if(process.argv[2]==='hub') {
   await writeFile(
     join(bin, "claude"),
     `#!/usr/bin/env node
-if(process.env.CLI_API_TOKEN || Object.keys(process.env).some(key => key.startsWith("LOOP_") && key !== "LOOP_SESSION_TOKEN")) throw new Error('Coordinator credential leaked to provider');
+if(!process.argv.includes('--version') && (process.env.CLI_API_TOKEN || Object.keys(process.env).some(key => key.startsWith("LOOP_") && key !== "LOOP_SESSION_TOKEN"))) throw new Error('Coordinator credential leaked to provider');
 if(process.argv.includes('--version'))console.log('2.1.282');
-else console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty'}));
+else if(process.argv.includes('auth')) console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty'}));
+else require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+ const m=JSON.parse(line); if(m.type!=='control_request'||m.request.subtype!=='initialize') process.exit(2);
+ console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:{models:[{value:'opus',displayName:'Claude Opus fixture',supportedEffortLevels:['high','max']}]}}}));
+});
 `,
     { mode: 0o755 },
   );
@@ -196,7 +200,7 @@ test("a failed sole native runtime rejects preparation before starting HAPI", as
     async () => { throw new Error("fixture guarded build failed"); },
   );
   try {
-    await assert.rejects(runtime.prepare(), /No selected managed native runtime is available/);
+    await assert.rejects(runtime.prepare(), /No supported harness is installed/);
     assert.equal(hapiBuilds, 0);
     const { readdir } = await import("node:fs/promises");
     assert.equal((await readdir(join(root, "managed"))).some((name) => name.startsWith("native-")), false);
@@ -230,6 +234,41 @@ test("an unavailable native runtime retains Docker execution without an empty na
   } finally {
     await runtime.close();
     process.env.PATH = oldPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+ for (const bakedArtifact of [true, false]) test(`uses guarded OpenCode with ${bakedArtifact ? "a baked artifact and no PATH installation" : "an outdated PATH installation"}`, async () => {
+  const root = await mkdtemp(join(tmpdir(), "loop-baked-opencode-"));
+  const oldBaked = process.env.LOOP_BAKED_OPENCODE;
+  const oldPath = process.env.PATH;
+  if (bakedArtifact) process.env.LOOP_BAKED_OPENCODE = "/fixture/baked";
+  else {
+    delete process.env.LOOP_BAKED_OPENCODE;
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    await writeFile(join(bin, "opencode"), "#!/bin/sh\necho 1.0.0\n", { mode: 0o755 });
+    process.env.PATH = bin + ":" + oldPath;
+  }
+  let builds = 0;
+  const runtime = new LocalRuntime(root, { providers: ["opencode"], execution: "native", project: root },
+    async () => "/fixture/hapi", async (_root: string, _unused: unknown, baked: string | undefined) => {
+      builds++;
+      assert.equal(baked, bakedArtifact ? "/fixture/baked" : undefined);
+      return "/fixture/guarded-opencode";
+    });
+  try {
+    await runtime.prepare();
+    assert.equal(builds, 1);
+    const { readdir } = await import("node:fs/promises");
+    const native = (await readdir(join(root, "managed"))).find(name => name.startsWith("native-"))!;
+    const settings = JSON.parse(await readFile(join(root, "managed", native, "worker.json"), "utf8"));
+    assert.deepEqual(settings.providers, ["opencode"]);
+  } finally {
+    await runtime.close();
+    process.env.PATH = oldPath;
+    if (oldBaked === undefined) delete process.env.LOOP_BAKED_OPENCODE;
+    else process.env.LOOP_BAKED_OPENCODE = oldBaked;
     await rm(root, { recursive: true, force: true });
   }
 });

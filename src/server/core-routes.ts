@@ -1,9 +1,10 @@
+import { connectionSelection } from "./hapi/contracts.js";
+import { connectProvider } from "./hapi/routes.js";
 import { environment, hub, workerRequest } from "./hapi/environments.js";
 import {
   isNativeConnection,
   NATIVE_CONNECTION_SQL,
 } from "./native-connections.js";
-import { nativeSessions } from "./native-sessions.js";
 import {
   feedRevision,
   feedUpdates,
@@ -113,11 +114,12 @@ core.post("/connections", async (req, res) => {
 });
 core.post("/connections/:id/refresh", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner);
-  if (isNativeConnection(c)) {
-    const harness = JSON.parse(c.metadata).loopHarness;
-    return res.json(
-      await nativeSessions.enable(nativeSessions.registration(harness)),
-    );
+  if (isNativeConnection(c))
+    throw new Problem(409, "Direct harness connections are retired. Enable this harness through HAPI.");
+  const selection = connectionSelection(c);
+  if (selection) {
+    res.json(await connectProvider(environment(res.locals.owner, selection.environmentId), selection.flavor));
+    return;
   }
   if (isSubscription(c))
     throw new Problem(
@@ -147,12 +149,13 @@ core.get("/connections/:id/models", async (req, res) => {
   if (c.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
   let models;
-  if (isNativeConnection(c)) {
-    const harness = JSON.parse(c.metadata).loopHarness;
-    await nativeSessions.enable(nativeSessions.registration(harness));
-    models = JSON.parse(
-      owned<Connection>("connections", c.id, res.locals.owner).models,
-    );
+  if (isNativeConnection(c))
+    throw new Problem(409, "Direct harness connections are retired. Enable this harness through HAPI.");
+  const selection = connectionSelection(c);
+  if (selection) {
+    const refreshed = await connectProvider(environment(res.locals.owner, selection.environmentId), selection.flavor);
+    if (refreshed.modelsError) throw new Problem(502, refreshed.modelsError);
+    models = JSON.parse(owned<Connection>("connections", c.id, res.locals.owner).models);
   } else if (isSubscription(c)) {
     const result = await runtimeAction(c, "status");
     if (!result.authenticated)
@@ -224,7 +227,7 @@ core.delete("/connections/:id", async (req, res) => {
       "/logout",
       { flavor: metadata.flavor },
     );
-  else if (isSubscription(c)) await runtimeAction(c, "logout");
+  // Retired direct connections are disconnected locally; their native account is untouched.
   res.json({ ok: true });
 });
 core.get("/agents/suggest-name", (_req, res) =>
@@ -437,17 +440,7 @@ core.get("/agents/:id/harness", async (req, res) => {
     });
     return;
   }
-  const catalog = isNativeConnection(connection)
-    ? await nativeSessions.catalog(catalogAgent, conversationKey)
-    : await runtimeAction(connection, "capabilities", {
-        workspaceKey: runtimeWorkspaceKey(res.locals.owner, agent.id),
-      });
-  if (!Array.isArray(catalog.commands))
-    throw new Problem(
-      422,
-      "This runtime does not support command discovery. Update the runtime on that machine and try again.",
-    );
-  res.json(catalog);
+  throw new Problem(409, "Harness commands require a HAPI connection.");
 });
 // The managed session whose catalog describes a conversation's next turn. A
 // selected conversation reports only its own session, launched or not; a new
@@ -480,7 +473,7 @@ function managedPi(agent: Agent, owner: string) {
     owner,
   );
   const metadata = JSON.parse(connection.metadata);
-  if (metadata.backend !== "hapi") return null;
+  if (metadata.backend !== "hapi") throw new Problem(409, "Pi customizations require a HAPI connection.");
   if (metadata.flavor !== "pi") throw new Problem(422, "Choose a Pi agent.");
   const e = environment(owner, metadata.environmentId);
   const latest = db
@@ -564,7 +557,7 @@ core.get("/agents/:id/pi-packages", async (req, res) => {
   res.json(
     (await managedPiRequest(agent, res.locals.owner, {
       action: "configuration",
-    })) ?? nativeSessions.piConfiguration(agent),
+    })),
   );
 });
 core.post("/agents/:id/pi-trust", async (req, res) => {
@@ -581,7 +574,7 @@ core.post("/agents/:id/pi-trust", async (req, res) => {
       action: "trust",
       trusted,
       fingerprint,
-    })) ?? (await nativeSessions.piTrustDecision(agent, trusted, fingerprint)),
+    })),
   );
 });
 core.post("/agents/:id/pi-package-filters", async (req, res) => {
@@ -609,14 +602,7 @@ core.post("/agents/:id/pi-package-filters", async (req, res) => {
       scope,
       filters,
       settingsHash,
-    })) ??
-      nativeSessions.piPackageFilters(
-        agent,
-        source,
-        scope,
-        filters,
-        settingsHash,
-      ),
+    })),
   );
 });
 core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
@@ -669,15 +655,7 @@ core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
         path: prompt.sourceInfo.path,
       }),
     );
-  } else
-    res.json(
-      await nativeSessions.piPromptPreview(
-        agent,
-        input.name,
-        input.args,
-        input.conversation,
-      ),
-    );
+  }
 });
 core.post("/agents/:id/pi-package-inspect", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -689,7 +667,7 @@ core.post("/agents/:id/pi-package-inspect", async (req, res) => {
     (await managedPiRequest(agent, res.locals.owner, {
       action: "inspect",
       source,
-    })) ?? (await nativeSessions.piInspectPackage(agent, source)),
+    })),
   );
 });
 core.post("/agents/:id/pi-package-rollback", async (req, res) => {
@@ -706,7 +684,7 @@ core.post("/agents/:id/pi-package-rollback", async (req, res) => {
       action: "rollback",
       source,
       scope,
-    })) ?? (await nativeSessions.piRollbackPackage(agent, source, scope)),
+    })),
   );
 });
 core.post("/agents/:id/pi-packages", async (req, res) => {
@@ -725,13 +703,7 @@ core.post("/agents/:id/pi-packages", async (req, res) => {
       operation: input.action,
       source: input.source,
       scope: input.scope,
-    })) ??
-      (await nativeSessions.piPackageAction(
-        agent,
-        input.action,
-        input.source,
-        input.scope,
-      )),
+    })),
   );
 });
 core.get("/agents/:id/traces", (req, res) => {

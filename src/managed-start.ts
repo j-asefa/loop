@@ -35,13 +35,13 @@ export async function prepareManagedRuntime<T>(
     return result;
   } catch {
     // Raw subprocess failures can contain configuration or sign-in output.
-    // Cleanup failure must not be hidden: fallback is safe only after cleanup.
+    // Cleanup failure must not be hidden; harness execution stays unavailable.
     setRuntimeSetupState("failed");
     await runtime.close();
-    setRuntimeSetupState(stopping() ? "stopped" : "fallback");
+    setRuntimeSetupState(stopping() ? "stopped" : "failed");
     if (!stopping())
       notice(
-        `Managed execution ${stage} failed. Installed runtimes remain available through direct execution.`,
+        `Managed execution ${stage} failed. Harness execution is unavailable. Check loop logs and restart Loop to retry HAPI setup.`,
       );
     return undefined;
   }

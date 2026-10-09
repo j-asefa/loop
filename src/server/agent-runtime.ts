@@ -3,7 +3,6 @@ import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
 import { agentPermissionMode } from "./mcp/approval-policy.js";
 import type { PermissionMode } from "../shared/permission-modes.js";
-import { nativeSessions } from "./native-sessions.js";
 import {
   nativeBindings,
   invokeNative,
@@ -88,6 +87,8 @@ export function nextTurnConnection(
       "This conversation belongs to its original backend. Start a new native conversation.",
     );
   const execution = connectionSelection(connection);
+  if (!execution && (isNativeConnection(connection) || isSubscription(connection)))
+    throw new Problem(409, "This connection used direct harness execution, which is no longer supported. Choose its HAPI connection and start a new conversation; existing history is preserved.");
   if (connection.status !== "connected" && !execution)
     throw new Problem(409, "Reconnect the provider to run this agent");
   return { connection, execution };
@@ -150,12 +151,31 @@ export function submit(
       const steered = steeringReceipt(owner, data.idempotencyKey, request);
       if (steered) return steered;
       const agent = owned<Agent>("agents", data.agentId, owner);
+      let conversation = data.conversationId,
+        teamId = data.teamId;
+      if (data.steer && !conversation) {
+        const active = db
+          .prepare(
+            "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC",
+          )
+          .all(owner, agent.id) as Run[];
+        if (active.length > 1)
+          throw new Problem(
+            409,
+            "This agent has several active conversations. Open the one you want to steer and reply there.",
+          );
+        conversation = active[0]?.conversation_id || undefined;
+      }
       const attachments = attachedFiles(owner, data.attachmentIds || []);
+      const live = data.steer && conversation ? activeRun(owner, conversation, agent.id) : undefined;
+      // Steering belongs to the running task, even if its agent now selects
+      // another provider for future conversations.
+      const steeringConnection = live?.liveInput ? JSON.parse(live.run.payload).connectionId : undefined;
       const { connection, execution } = nextTurnConnection(
         owner,
-        agent,
-        data.conversationId
-          ? owned<any>("conversations", data.conversationId, owner)
+        steeringConnection ? { connection_id: steeringConnection } : agent,
+        conversation && !steeringConnection
+          ? owned<any>("conversations", conversation, owner)
           : undefined,
       );
       if (data.folderId) owned("folders", data.folderId, owner);
@@ -195,21 +215,6 @@ export function submit(
           : undefined);
       if (agent.retired_at)
         throw new Problem(409, "This agent is retired. Restore it from its profile before sending new work.");
-      let conversation = data.conversationId,
-        teamId = data.teamId;
-      if (data.steer && !conversation) {
-        const active = db
-          .prepare(
-            "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC",
-          )
-          .all(owner, agent.id) as Run[];
-        if (active.length > 1)
-          throw new Problem(
-            409,
-            "This agent has several active conversations. Open the one you want to steer and reply there.",
-          );
-        conversation = active[0]?.conversation_id || undefined;
-      }
       if (!conversation && !teamId) {
         const managerTeam = db
           .prepare(
@@ -499,14 +504,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
   );
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect this provider before continuing.");
-  if (isNativeConnection(connection)) {
-    if (!companionMode)
-      throw new Problem(
-        409,
-        "This conversation belongs to a companion deployment.",
-      );
-    return nativeSessions.execute(run);
-  }
+  if (isNativeConnection(connection) || isSubscription(connection))
+    throw new Problem(409, "Harness execution requires HAPI. This old run was not dispatched; choose a HAPI connection and start a new conversation.");
   let cp = db
     .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
     .get(run.id) as any;

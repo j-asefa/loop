@@ -400,41 +400,7 @@ async function executeWithDeadline(work: Promise<boolean>) {
   }
 }
 
-it("steers a running Pi turn, which takes live input", async () => {
-  const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
-  ).run(
-    connection,
-    seal("fixture", "alice"),
-    JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({ loopHarness: "pi" }),
-    now(),
-  );
-  const agent = createAgent("alice", {
-    name: "pi-steer-" + id().slice(0, 8),
-    connectionId: connection,
-    model: "fixture",
-  });
-  const active = submit("alice", {
-    agentId: agent.id,
-    input: "Investigate",
-    idempotencyKey: id(),
-  });
-  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(active.id);
-  const reply = await send({
-    agentId: agent.id,
-    conversationId: active.conversation_id,
-    input: "Also check the tests",
-    idempotencyKey: id(),
-  });
-  expect(reply.status).toBe(202);
-  expect(reply.data.id).toBe(active.id);
-  expect(reply.data.steeringId).toBeTruthy();
-  db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(active.id);
-});
-
-it.each(["opencode", "acp"])(
+it.each(["codex", "claude", "pi", "opencode"])(
   "queues a mid-run reply to a %s turn, which cannot take live input",
   async (harness) => {
     const connection = id();
@@ -444,7 +410,7 @@ it.each(["opencode", "acp"])(
       connection,
       seal("fixture", "alice"),
       JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify({ loopHarness: harness }),
+      JSON.stringify(managed(harness)),
       now(),
     );
     const agent = createAgent("alice", {
@@ -476,6 +442,11 @@ it.each(["opencode", "acp"])(
   },
 );
 
+function managed(flavor: string) {
+  return {backend:"hapi", environmentId:"fixture-env", flavor,
+    billing: flavor === "claude" ? {mode:"native",requiredAuth:"claude",allowApiFallback:false} : flavor === "pi" ? {mode:"existing",requiredAuth:"pi",allowApiFallback:false}
+      : {mode:"subscription",requiredAuth:"chatgpt",allowApiFallback:false}};
+}
 function harnessConnection(harness: string | null) {
   const connection = id();
   db.prepare(
@@ -484,7 +455,7 @@ function harnessConnection(harness: string | null) {
     connection,
     seal("fixture", "alice"),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loopHarness: harness } : {}),
+    JSON.stringify(harness ? managed(harness) : {}),
     now(),
   );
   return connection;

@@ -1,27 +1,21 @@
-# Start once, choose runtimes in the app
+# Start once, use installed harnesses through HAPI
 
-Run `loop start` in your project directory. It starts the workspace in the background and prints a two-minute, single-use pairing QR and link. Scan with your phone’s camera, or open the link in a browser. Choose **New agent → Choose or enable a runtime on this computer**, select the bound project directory and billing policy, and enable Codex, Claude Code, Pi or OpenCode. Then choose that connection/model and project and enter an initial prompt to create and start the agent. Leaving the prompt empty creates an idle agent.
+Run `loop` in your project directory. It starts the workspace in the background and prints a two-minute, single-use pairing QR and link. Scan with your phone's camera or open the link in a browser. The workspace remains available while HAPI prepares.
 
-Install the desired harness on the execution computer. [Sign in to its provider in Loop](../harnesses.md#provider-sign-in), or use its native CLI. Discovery runs on that computer and validates the supported executable version. Installed does not mean authenticated: enablement checks the adapter's account/billing contract. Existing configuration is an explicit choice and may use API credits; subscription mode never falls back. Enabled runtimes preserve their billing choice. Settings → Provider connections offers the same setup controls.
+Loop discovers supported installed harnesses and verifies their existing native account through HAPI. In **New agent**, choose a connected runtime, model, effort and project, then enter an initial prompt. If account verification fails, use **Settings → Execution environments** to inspect sign-in and retry. See [harnesses](../harnesses.md) for discovery, billing and model catalogs.
 
-`loop pair` displays a fresh code for the running instance; it does not start services or agents. It supersedes an unused pairing code, not already paired devices. If stopped, run `loop start`. `loop status --json` distinguishes server readiness from whether any native harness is registered. Registration is not a fresh authentication guarantee. Use `loop logs` for diagnostics and `loop stop` for shutdown. `--foreground` keeps startup attached to the terminal. `--local-only` is for desktop testing; mobile pairing requires HTTPS. `--public-url` uses your externally configured HTTPS tunnel; named-tunnel options are unchanged.
+`loop pair` shows a fresh code for the running workspace. It replaces an unused code, not existing device trust. `loop status --json` distinguishes workspace readiness from HAPI setup readiness; a saved connection is not a fresh sign-in guarantee. Use `loop logs --follow` for setup diagnostics and `loop stop` for shutdown. `--foreground` keeps the process attached to the terminal; `--local-only` is for desktop testing.
 
-Restarting retains workspace data and paired-device credentials. A Quick Tunnel can change address: run `loop pair`, scan with your phone’s camera and add the new page to your home screen.
+`loop start --providers codex,claude --execution native` limits selected runtimes. Saved provider/execution choices are reused. There are no harness-specific commands or direct-execution fallback. Setup failures leave the workspace available and harness execution unavailable until HAPI is repaired and restarted.
 
-## Ownership and compatibility
+Restarting retains workspace data and paired-device credentials. A Quick Tunnel can change address: run `loop pair`, scan with your phone and add the new page to your home screen. See [pairing and recovery](../pairing.md).
 
-- `src/cli.ts` owns startup, preferences and daemon launch; `lifecycle.ts` owns the process-identity lock. Concurrent starts cannot acquire a second host lock; the loser receives retry guidance. It does not stop the winner.
-- `WorkspaceHost` owns the existing Express workspace, worker and native tool bridge. Runtime-neutral startup binds the initial project without probing or launching a harness.
-- `Host` owns pairing, persistent device trust, transport origin, local control authentication and browser CSRF. New discovery/enable endpoints are behind the same gateway.
-- `companion-routes.ts` performs host-side discovery. App enablement accepts a bound project and explicit billing policy, never arbitrary executable arguments. Saved desktop executable overrides remain authoritative.
-- `NativeSessions` owns registration, account probing and native sessions. Existing `CreateAgent`, agent-creation receipts, queue and adapters own task dispatch, retry deduplication, native IDs, streaming, approvals and cancellation. No second task queue or agent loop was added.
-- Existing managed laptop preferences (providers/execution) cause `loop start` to reuse that managed HAPI topology. Bare `loop` is an alias for `loop start`; pass provider and execution options to configure managed native/Docker setup. Existing server deployments retain their documented commands; the separate [Docker companion](../pairing.md#docker-companion) supports QR pairing. The paired app can [link a running local Docker server](../pairing.md#unified-agents-and-feed) without moving its data; `loop start` does not import arbitrary external HAPI deployments.
-- `loop codex`, `loop claude`, `loop pi`, `loop opencode` and `loop acp` remain terminal shortcuts. They are not prerequisites for app enablement. Existing companion registrations survive runtime-neutral restarts.
+## Ownership
 
-Provider login links open in a new browser tab. The current paired companion is the execution computer; managed HAPI connections retain their environment selector. The [harness guide](../harnesses.md) describes each adapter's authentication and billing checks.
+The CLI owns startup and the process identity lock. `WorkspaceHost` owns the Express workspace and pairing gateway; `LocalRuntime` provisions HAPI and its runner. Discovery and enablement are runner-scoped and never accept executable paths from the browser. HAPI owns harness processes, context and sessions. Loop records dispatch intent before external work and never automatically replays an uncertain send.
 
-## Verification
+Older direct conversations keep their history but cannot run. Reconnect their agents to HAPI and start new conversations. This does not take over live terminal sessions or copy credentials. Existing HAPI conversations retain their immutable session bindings.
 
-The new tests exercise runtime-neutral CLI startup, reuse, stopped pairing guidance and bearer trust after restart, authenticated runtime discovery, executable-input rejection and billing preservation. A four-runtime fixture journey enables each adapter over the paired HTTP API, creates an initial task, retries creation with the same receipt, and sends a subsequent turn. These are simulated provider protocols, not authenticated provider acceptance.
+The separate [Docker companion](../pairing.md#docker-companion) supports pairing. Linking a [local Docker server](../pairing.md#unified-agents-and-feed) does not move its data. Local startup does not import arbitrary external HAPI deployments.
 
-Existing daemon, lock, tunnel, host, adapter and workspace tests cover crash recovery, duplicate starts, pairing expiration/replay, address changes, cancellation and native decisions. See the PR for actual check results and remaining live prerequisites.
+See [development](../development.md) for checks. Deterministic fixtures verify Loop's boundaries; they do not certify authenticated provider or physical-phone behavior.

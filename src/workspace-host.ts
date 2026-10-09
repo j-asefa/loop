@@ -1,14 +1,12 @@
+import { runtimeSetupState } from "./runtime-setup.js";
 import { companionMode } from "./server/profile.js";
-import { NativeToolBridge } from "./server/native-tool-bridge.js";
 import { Host } from "./host.js";
 import type { Options } from "./adapters/types.js";
 import { app } from "./server/index.js";
 import { db } from "./server/db.js";
 import { config } from "./server/config.js";
 import { nativeSessions, OWNER } from "./server/native-sessions.js";
-import { nativeSignIns } from "./server/native-auth.js";
 import { startWorker } from "./server/worker.js";
-import { z } from "zod";
 import { WebSocket } from "ws";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -26,19 +24,9 @@ const BUILD = (() => {
     return "development";
   }
 })();
-const registration = z
-  .object({
-    harness: z.enum(["pi", "claude", "codex", "opencode", "acp"]),
-    executable: z.string().min(1).max(4096),
-    project: z.string().min(1).max(4096),
-    version: z.string().max(100),
-    billing: z.enum(["subscription", "existing"]),
-    args: z.array(z.string().max(4096)).max(32).optional(),
-  })
-  .strict();
+
 export class WorkspaceHost {
   gateway: Host;
-  private tools = new NativeToolBridge();
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private closing = false;
@@ -72,8 +60,13 @@ export class WorkspaceHost {
         state: "ready",
         project: options.project,
         serverReady: true,
-        executionReady: nativeSessions.registrations().length > 0,
-        harnesses: nativeSessions.registrations(),
+        executionReady: runtimeSetupState() === "ready",
+        executionBackend: "hapi",
+        harnesses: db
+          .prepare(
+            "SELECT json_extract(metadata,'$.flavor') name FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.backend')='hapi'",
+          )
+          .all(OWNER),
         activeRuns: db
           .prepare(
             "SELECT count(*) n FROM runs WHERE state IN ('running','awaiting_approval')",
@@ -84,8 +77,6 @@ export class WorkspaceHost {
         ...this.statusExtras(),
       }),
       admin: async (action, input) => {
-        if (action === "/enable")
-          return nativeSessions.enable(registration.parse(input));
         throw new Error("Unknown workspace control command");
       },
       shareTools: (sourceId, action) =>
@@ -162,17 +153,8 @@ export class WorkspaceHost {
     onListening?: () => Promise<void>,
   ) {
     if (this.closing) throw new Error("Workspace is stopping");
-    nativeSignIns.open();
-    await this.tools.start();
-    if (this.closing) {
-      await this.tools.close();
-      throw new Error("Workspace is stopping");
-    }
-    nativeSessions.tools = (conversation, generation) =>
-      this.tools.issue(conversation, generation);
-    nativeSessions.revokeTools = (conversation, generation) =>
-      this.tools.revoke(conversation, generation);
     await this.gateway.listen(this.listenOptions);
+
     this.mcpSharing.start();
     if (this.closing) {
       await this.gateway.close();
@@ -183,19 +165,12 @@ export class WorkspaceHost {
     nativeSessions.addProject(options.project);
     await onListening?.();
     if (this.closing) throw new Error("Workspace is stopping");
-    const account =
-      (await managed?.()) ??
-      // A managed launcher carries placeholder direct options. Failed managed
-      // setup must leave runtime selection to the user, including laptop children.
-      (runtimeNeutral || managed
-        ? (nativeSessions.addProject(options.project),
-          {
-            billing: {
-              description:
-                "Execution host ready. Choose and enable an installed runtime in the app; authentication is checked when enabling.",
-            },
-          })
-        : await nativeSessions.enable(options));
+    const account = (await managed?.()) ?? {
+      billing: {
+        description:
+          "Workspace ready. Harness execution requires a working HAPI runner. Check loop logs and restart Loop to retry setup.",
+      },
+    };
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
     this.stopWorker = startWorker();
@@ -204,10 +179,8 @@ export class WorkspaceHost {
   async close() {
     this.closing = true;
     this.mcpSharing.close();
-    await nativeSignIns.close();
     await this.stopWorker?.();
     if (!this.stopWorker) await nativeSessions.close();
-    await this.tools.close();
     await this.gateway.close();
   }
 }

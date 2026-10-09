@@ -89,6 +89,7 @@ function describe(a: Approval) {
 function quickDecision(item: Approval) {
   const { request, args } = describe(item);
   return (
+    !request.deliveryUnknown &&
     request.type !== "mcp_install" &&
     !(request.type === "hapi_native" && (args.questions || []).length) &&
     item.expires_at > Date.now()
@@ -197,6 +198,7 @@ export function Approvals({
       );
       await api("/approvals/" + target.id, {
         decision,
+        ...(detail.request.deliveryUnknown ? { confirmUnknown: true } : {}),
         ...(decision === "approve" && questions.length
           ? { answers: normalized }
           : {}),
@@ -354,6 +356,12 @@ export function Approvals({
               <span>{selected.name ? "@" + selected.name : "Workflow"}</span>
               {detail.request.server && <span>{detail.request.server}</span>}
             </div>
+            {detail.request.deliveryUnknown && (
+              <p role="alert" className="approval-description">
+                The previous approval may already have reached the agent. Check the native session first.
+                Choosing a decision below explicitly retries it once, only if the session still reports this request pending.
+              </p>
+            )}
             {detail.request.message && (
               <p className="approval-description">{detail.request.message}</p>
             )}

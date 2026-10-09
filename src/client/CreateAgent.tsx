@@ -135,9 +135,10 @@ export function CreateAgent({
       cancelled = true;
     };
   }, [source]);
-  const nativeConnection = parse<any>(selected?.metadata, {}).loopHarness
-    ? selected?.id || ""
-    : "";
+  const nativeConnection =
+    parse<any>(selected?.metadata, {}).backend === "hapi"
+      ? selected?.id || ""
+      : "";
   const [catalog, setCatalog] = useState<{
     connectionId: string;
     models?: ModelOption[];
@@ -282,7 +283,8 @@ export function CreateAgent({
               const next = updated.find(
                 (c) =>
                   c.status === "connected" &&
-                  parse<any>(c.metadata, {}).loopHarness === runtimeName,
+                  parse<any>(c.metadata, {}).backend === "hapi" &&
+                  parse<any>(c.metadata, {}).flavor === runtimeName,
               );
               if (next && !selected) {
                 setProvider(next.provider);
@@ -330,13 +332,8 @@ export function CreateAgent({
           </span>
         </label>
         <div className="provider-picker">
-          {(["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const)
-            .filter(
-              (p) =>
-                capabilities.nativeHarnesses ||
-                !["pi", "opencode", "acp"].includes(p),
-            )
-            .map((p) => (
+          {(["codex", "anthropic", "pi", "opencode", "openai"] as const).map(
+            (p) => (
               <button
                 type="button"
                 key={p}
@@ -351,7 +348,8 @@ export function CreateAgent({
               >
                 <Badge provider={p} />
               </button>
-            ))}
+            ),
+          )}
         </div>
         {selected ? (
           <>
@@ -546,7 +544,11 @@ export function CreateAgent({
           <UploadButton
             menu
             sourceId={source}
-            folderId={availableFolders.some((folder) => folder.id === folderChoice) ? folderChoice : undefined}
+            folderId={
+              availableFolders.some((folder) => folder.id === folderChoice)
+                ? folderChoice
+                : undefined
+            }
             disabled={busy || crossSource}
             remaining={MAX_MESSAGE_FILES - attachments.length}
             onBusy={setUploading}

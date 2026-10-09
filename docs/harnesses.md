@@ -1,120 +1,72 @@
-# Harnesses and laptop execution
+# Harnesses and HAPI execution
 
-Build and optionally link the CLI as described in the [README](../README.md). Commands here use `loop`; `node dist/cli.js` is equivalent from the checkout. Use `loop --help` for the complete option list.
+Build and optionally link the CLI as described in the [README](../README.md). Run `loop` or `loop start` in a project directory. Every harness task runs through HAPI; there are no `loop codex|claude|pi|opencode|acp` commands, `--direct` mode, or direct-execution fallback. API-key agents use Loop's provider API runtime and do not launch a harness.
 
-## Direct harnesses
+## Discovery and existing sign-in
 
-Install the harness on your computer. Complete its provider sign-in in Loop or in the native CLI. Loop discovers it on PATH or accepts `--executable PATH`. Direct adapters do not install missing harnesses. Installed harnesses can be upgraded from Loop’s runtime controls. `loop doctor --json` reports discovery and version compatibility.
+Loop discovers Codex, Claude Code, OpenCode and Pi on PATH, checks their versions, and registers available selected harnesses with its HAPI runner. Missing or unsupported installations are reported and are not installed automatically. `loop doctor --json` shows installation checks without making a model request. Restart Loop after installing a new harness.
 
-Run `loop start` in a project directory to start and pair the workspace before selecting a harness. In **New agent → Choose or enable a runtime on this computer**, choose the bound project and billing policy, enable the installed harness, then select its connection and model. `loop start` returns after startup; `loop pair` issues a fresh code for the running workspace. Runtime-specific commands below remain available as shortcuts. See [start and runtime selection](companion/START-PAIR.md) for behavior and compatibility.
+The native runner runs as your OS user, preserves native credential homes and uses existing sign-in. It verifies the account before enabling a connection and again before dispatch. This is reuse of the account, not takeover of a live terminal conversation. Docker runners have their own credential homes and need sign-in in that environment. Credentials remain on the runner and are never returned to the browser.
 
-| Command                                                            | Transport                             | Billing behavior                                                                                                                       |
-| ------------------------------------------------------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `loop codex`                                                       | Codex App Server                      | Default subscription mode requires ChatGPT login and the built-in OpenAI provider; no API fallback                                     |
-| `loop pi`                                                          | Pi RPC with a process-local extension | Subscription mode requires effective OAuth metadata and a subscription declaration                                                     |
-| `loop claude`                                                      | Claude bidirectional stream JSON      | Subscription mode requires verified native Claude login and the first-party provider; existing mode permits explicit API configuration |
-| `loop opencode --billing existing`                                 | Local authenticated HTTP/SSE          | Existing-provider mode; subscription billing cannot be established from native metadata                                                |
-| `loop acp --executable /absolute/path/to/agent --billing existing` | Local ACP v1 subprocess               | The agent owns authentication and billing                                                                                              |
+| Harness | Managed account policy |
+| --- | --- |
+| Codex | ChatGPT authentication and the built-in OpenAI provider; no API fallback |
+| Claude Code | Verified native Claude account and first-party provider |
+| OpenCode | Native ChatGPT OAuth and Loop's guarded build; no API fallback |
+| Pi | Existing native provider configuration; provider charges may apply |
 
-Direct version checks in [src/host-control.ts](../src/host-control.ts) accept stable releases at or above these minimums, with no upper version cap:
+Installed does not mean authenticated. If verification fails, check **Settings → Execution environments → Check installation and sign-in**. In **New agent → Choose or enable a runtime on this computer**, select the project and enable the HAPI connection. Provider connections exposes the same local runner. An unavailable HAPI runner never enables a direct adapter.
 
-| Harness     | Minimum version |
-| ----------- | --------------- |
-| Codex       | 0.157.0         |
-| Claude Code | 2.1.237         |
-| Pi          | 0.87.1          |
-| OpenCode    | 1.18.32         |
+Discovery minimums are owned by [host-control.ts](../src/host-control.ts): Codex 0.157.0, Claude Code 2.1.237, Pi 0.87.1 and OpenCode 1.18.32. Stable releases at or above those floors are admitted; startup still validates the account and runtime contract. Pins in [deployment/versions.json](../deployment/versions.json) and [deployment/native](../deployment/native/) are reproducible build inputs, not an upper version limit. The guarded OpenCode binary is managed separately from the user's PATH installation.
 
-This includes the latest stable releases and future updates without requiring a Loop release for each version. Prereleases, unreadable versions and older releases are rejected with installation guidance. Version admission does not certify every future release: adapter startup still checks its protocol and account/billing requirements. Upgrades are explicit; Loop never automatically upgrades installed harnesses. ACP uses protocol negotiation instead of a CLI version floor.
+## Models and effort
 
-Managed image pins in [deployment/versions.json](../deployment/versions.json) and the helper lockfile in [deployment/native](../deployment/native/) remain reproducible build inputs, separate from these compatibility ranges. The managed laptop launcher retains installed provider CLIs rather than replacing them with its bundled versions.
+Model catalogs come from the runner's provider discovery. Claude Code's initialization response supplies model IDs, display names and supported effort levels; Loop does not substitute a fixed list of family names. Initialization does not submit a model prompt. The native-default option follows the harness default and has no inferred effort choices. Claude, Codex, OpenCode and Pi model and effort selections are sent through HAPI before the turn is dispatched. Unsupported choices are not silently substituted.
 
-Pi's subscription model catalog includes only routes whose effective OAuth metadata declares subscription support. API routes for the same named model are omitted; existing-provider mode retains them. New agent creation refreshes native model choices before submission, including catalogs saved by an older Loop version. Existing agents keep their saved selection: use the model picker to change an incompatible route before sending again. A stale agent selection that conflicts with this policy fails before dispatch with setup guidance. This metadata check does not guarantee included allowance: a provider can still require usage credits for a third-party client, as described in [Anthropic's authentication guidance](https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account).
+## Conversations and permissions
 
-Pass `--project /absolute/path/to/project` to choose a directory. New conversations bind their original connection, directory and native session. Later changes to an agent's settings do not move an existing native conversation. Multiple invocations enable harnesses in the same workspace. `--foreground` keeps the host attached to the terminal; otherwise it runs in the background. See [pairing](pairing.md) for connection, status and stop commands.
+HAPI owns native context, tools and session lifecycle. Loop stores display history, dispatch receipts and approval decisions. Each conversation keeps its original connection, project and native session; changing an agent does not move an existing conversation. Follow-up messages queue for the next HAPI turn.
 
-Harnesses retain their own tools, permissions, instructions, skills and plugins. **Commands & skills** lists the harness the conversation's next turn will use: a managed conversation keeps its HAPI connection; any other conversation follows the agent's current connection, in the project it is bound to or its last run's project. A conversation that belongs to another agent is ignored, and the agent's new-task catalog is listed. A new task uses the agent's current connection and its newest launched managed session. Probed catalogs are reused for 15 seconds, or until Pi trust or packages change. A selected managed conversation shows only its own HAPI session, so another conversation's catalog cannot replace one that has not launched yet. Loop tools are supplied through a private per-generation MCP bridge (Pi uses its extension). Catalog support varies by harness. Workflows can bound native steps and elapsed time, but cannot enforce the harness's internal model-call/token counts. Native work can be cancelled, not paused mid-turn. Codex, Claude Code and Pi turns take input mid-turn (Pi reads it after its current tool calls, before its next model call; if Pi finishes first, Loop takes the input back only when it is Pi's sole queued input, and otherwise leaves it for Pi's next prompt and reports it unconfirmed); OpenCode and ACP follow-ups queue for the next turn.
+**Tools & permissions → Agent tool calls → Never ask** automatically answers new HAPI tool approvals using the run's saved preference. Human questions and plan reviews still require an answer. Decisions already waiting remain pending. Automatic answers are recorded before delivery; an uncertain answer is not automatically retried, and the session must be reconciled to establish its outcome.
 
-For a direct `loop pi` agent, **Settings → Pi customizations** shows Pi's configured user/project packages and the commands and tools reported by the loaded Pi session. **Active in this chat** beside the composer opens the session view; **Commands & skills** inserts Pi's invocable commands into the draft. Package install, update and remove run through the registered Pi executable on the computer, with project scope bound to the agent's project. These changes apply to a new or reloaded Pi session; the current running session is not silently replaced. Pi RPC reports loaded commands, and Loop's process-local extension reports a bounded tool catalog. A configured package can therefore appear before its resources are loaded; an extension may also use terminal-only UI that Loop cannot render. Pi session settings expose model, thinking level, automatic compaction, steering and follow-up modes through RPC.
-
-Managed Pi agents started from plain `loop` use the same Pi customizations screen. Configuration, trust decisions, package operations, and prompt preview run in the selected HAPI execution environment, including Docker. Before a conversation exists, Loop probes Pi RPC in that environment for its resource catalog. Once a HAPI session exists, its reported commands and skills determine what is shown as active; Pi RPC supplies source metadata when available. HAPI does not currently report the active session's tool catalog, so managed tool inventory remains unavailable. Package changes apply to a new session; an existing HAPI Pi session does not reload automatically. If a project has multiple mapped environments or paths, select an agent bound to the intended project.
-
-Saved Codex desktop history read/fork and `loop codex --resume NATIVE_ID` retain the direct Codex adapter even when HAPI is the default. History discovery and forks require an enabled direct Codex connection; existing direct connections are preserved. The resume command is an explicit handoff after stopping the original owner and workspace; it is not takeover of an arbitrary live desktop process. Arbitrary `loop acp` executables also retain the direct ACP adapter.
-
-Codex permits one writer per native conversation. If another client holds it,
-Loop reports that the session is in use before sending the prompt. Stop or
-release the session in that client, then explicitly retry in Loop. Loop keeps
-the native conversation binding and does not kill the other client, remove its
-lock, fork the conversation, or automatically resend the request.
-
-Claude's streaming connection also carries results for background notifications
-and other injected turns. Loop stamps its prompts with human origin and only
-uses results for user turns to finish the run. Background results do not clear
-pending approvals or complete an interrupt used for steering. Older CLIs that
-omit origin on user results remain supported.
-
-## Upgrade installed harnesses
-
-In **Settings → Provider connections → Harnesses**, choose **Upgrade** beside Codex, Pi, Claude Code or OpenCode. The same action appears in New agent’s runtime controls. Managed native runtimes also expose it under **Settings → Execution environments → Check installation and sign-in**.
-
-Loop detects the installation that owns the executable and updates only that harness: supported npm global installations use their existing prefix, Loop’s private native helpers update their private manifest and lockfile, Homebrew installations use their matching formula or cask, native Claude uses `claude update`, and direct OpenCode uses `opencode upgrade`. Custom/project-local installations require their own package manager on the computer. The installation must be writable by the workspace’s OS user; Loop never runs sudo. Finish or cancel active runs and sign-in before upgrading. While an upgrade runs, only that harness refuses new runs, sessions and sign-in. New sessions use the updated executable; refresh the runtime’s models before creating an agent. Existing chats retain their native context and billing policy.
-
-npm installations resolve the latest release first and install that exact version. Loop reports success only after the executable’s `--version` reaches that release (or, for other installers, is not older than before; an unchanged version is reported as already up to date). An installer error, a timeout (10 minutes) or a failed version check ends the operation as failed, and Loop makes one attempt to reinstall the version it replaced, reporting whether that rollback succeeded. Homebrew cannot reinstall a chosen earlier version, so it is not rolled back.
-
-Progress remains available after a phone reconnect. Each explicit click has an operation identity; repeating that request returns its recorded outcome. **Dismiss** clears a finished outcome; **Upgrade** again is a new operation. Undispatched prompts stay queued while their runtime is held for maintenance; other runtimes can continue. Loop never resumes an upgrade after a workspace/runner restart. A timed-out or interrupted operation remains unconfirmed and holds that runtime: stop remaining installer processes and check the installation on the computer, then use **Confirm recovery** in its upgrade controls. Loop does not automatically roll back an interrupted installer. Recovery retains the operation identity and does not replay the upgrade. If a rollback is interrupted, the same recovery applies.
-
-Managed Codex runs through a shared app-server. After installing its upgrade, Loop shows a workspace restart requirement and holds Codex prompts until that restart replaces the server. A version check of the executable alone does not make the running server current. Direct Codex uses the updated executable when its next session starts. Existing chats retain their native context and billing policy.
-
-Loop-shipped pins for the private native helpers are restored on every managed start, so a pin bumped by a Loop release reaches existing installations. A helper upgraded in the app is reapplied only while it is newer than the shipped pin; a newer shipped pin replaces it.
-
-Managed OpenCode retains Loop’s guarded, pinned build. Its controls explain that updating Loop and restarting the workspace updates that artifact; running the upstream self-upgrader would lose the subscription execution guard. Container image runtimes require rebuilding the image. These controls do not change image pins or turn a managed runtime into a direct one.
-
-### Session permission choices
-
-In a native conversation, **Session settings** shows the harness’s confirmed value and any pending request separately. A confirmed Claude permission choice is saved for that conversation and restored when its idle process restarts. It takes precedence over the workspace default; a rejected or superseded request is not saved. Permission mode can be changed while a turn is waiting for a tool decision. That existing decision still needs an answer and is never replayed automatically. Launch-only settings, such as Claude reasoning effort, are labelled as launch values rather than pending confirmations.
+Migration 067 permanently disconnects older direct and subscription connections on upgrade. Finish or cancel work on those connections before upgrading. Queued legacy runs are not dispatched: the worker marks them failed with a visible “requires HAPI” error in their conversation and Feed. Already accepted or uncertain native work is never replayed. Downgrading the executable does not reconnect these connections; restoring the pre-upgrade database from a backup is the rollback path. Their conversations and native history are preserved, but cannot execute through a direct adapter. Select the corresponding HAPI connection and start a new conversation. Loop does not automatically migrate native context, take over a live CLI/Desktop session, or resend accepted or uncertain work. Desktop-history discovery/fork and arbitrary ACP executables are no longer execution entry points.
 
 ## Provider sign-in
 
-Direct runtime setup and Settings → Execution environments use the same sign-in form. In environment settings, choose the environment and runtime, open **Manage sign-in**, complete the provider flow, then choose **Use in Loop** to verify the account and load its models. The account stays in the selected runner’s native credential store. Closing the form leaves an active attempt available to resume; **Cancel sign-in** cancels it.
+Loop tries existing native sign-in before asking for a new login. If needed, open **Settings → Execution environments**, select the runner and runtime, and choose **Manage sign-in**. Complete the provider flow, then **Use in Loop** to verify the account and refresh models. Closing the form leaves an active attempt available to resume; **Cancel sign-in** cancels it. A login link alone is not proof of a connected account.
 
-In a paired native workspace, open **Settings → Provider connections → Harnesses**, or expand the runtime controls in **New agent**. Choose **Sign in** beside an installed, supported harness, select its provider and sign-in method, and start sign-in. Open the provider link in your phone's browser and return to Loop; enter a verification code or API key when requested. After success, the panel shows **Signed in** with an **Enable** (or **Refresh**) button to load the harness's models. **Manage account** lets you change accounts later.
-
-Codex uses its device-code login. Claude Code uses `claude auth login` with the selected Claude or Console account. Pi exposes its installed SDK's provider login methods through a dedicated extension. OpenCode exposes its native provider authentication methods through a private local server. For cross-device OAuth, choose a device/headless method when a provider offers one; methods that require a browser callback to the computer's localhost still require that computer's browser. ACP authentication remains owned by its executable.
-
-Closing the panel leaves an unfinished sign-in available when reopened. Cancel stops the dedicated sign-in process; attempts expire after 15 minutes or a workspace restart. Loop never restarts a login automatically or replays a submitted verification step. Sign-in makes no model request. Credentials are saved by the harness in its native store on the computer; Loop does not put them into workspace messages, traces or events. Only paired devices can access these controls.
-
-Signing in does not change an enabled runtime's billing policy. Native Claude Code subscription verification uses the CLI's account status and initialized provider; conflicting API configuration still blocks subscription mode. This native CLI route is covered by [Anthropic's Claude Agent SDK and `claude -p` guidance](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan). Pi's Anthropic login instead requires separately billed extra usage and does not establish access to the included Claude plan allowance. API-key methods require explicitly choosing existing-provider billing. Loop never switches billing methods after a failure.
-
-## ACP
-
-The absolute executable must exist and be executable. Repeat `--acp-arg ARG` for agent arguments. The first executable/arguments are pinned to the workspace's `native-acp` connection; the browser cannot choose executable paths. Registration probes `initialize` only. Session creation/loading happens when a conversation starts.
-
-The adapter uses the pinned SDK in [package.json](../package.json). Resume requires advertised `session/load`; failed loading never creates a replacement session. Commands are discovered from a live session's `available_commands_update`, not registration. Setting changes wait for agent confirmation. Only advertised one-shot permission choices are exposed.
-
-Loop advertises neither ACP filesystem nor terminal host methods. Agents may still execute their own local tools: ACP is not a sandbox. HTTP MCP tools are offered only when the agent advertises that transport. Protocol fixtures cover the Loop boundary; a particular executable still needs authenticated prompt, cancel, permission, tool and resume validation. Pi RPC is not ACP.
+Use device/headless authentication when the provider offers it for a phone; localhost callback flows may require the computer's browser. Sign-in attempts expire after 15 minutes or a workspace restart. Loop never restarts a login automatically or replays an uncertain submitted step. Signing in does not change billing policy.
 
 ## Managed launcher
 
-`loop start` without runtime preferences prepares one native HAPI runner for Codex, Claude Code, OpenCode and Pi. The automatic choice is not saved as a provider or execution preference. Use `loop start --direct` to use installed direct adapters without managed preparation; this also bypasses saved managed choices for that invocation. Explicit provider/execution options and saved choices retain their existing meaning. That setup requires Node 24, Git and OpenSSL; Docker execution also requires Docker. The workspace and pairing are available while managed execution prepares. Runtime setup shows preparation and runner startup progress and refreshes automatically. If preparation or startup fails, Loop reports the failed stage once and retains direct execution after managed resources are cleaned up. The initial build downloads pinned HAPI/Bun inputs. Missing selected provider CLIs are installed in Loop's private helper directory; existing host installations are retained.
-
 ```sh
+loop
+loop start --providers codex,claude,pi --execution native
 loop start --providers both --execution both --project /absolute/path/to/project
 ```
 
-Provider choices are `openai`, `anthropic`, `both`, or a comma-separated list of `codex`, `claude`, `opencode`, `pi`. The legacy `both` alias keeps selecting Codex and Claude. Execution choices are `native`, `docker`, `both`. If you provide only one choice on an interactive terminal, Loop asks for the other; noninteractive startup defaults to both providers and native execution. Preferences persist under `LOOP_HOME`. Stop the workspace before changing execution configuration.
+The default provider selection is `installed`, which discovers all four supported harnesses; explicit lists and saved selections can limit it. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. Execution is `native`, `docker` or `both`, defaulting to native. Docker uses the image's installed harnesses and a separate account store. The Docker companion supports native execution inside its container.
 
-In Settings → Execution environments, complete sign-in, then create an agent choosing provider, Run on, model and project. Native runners use your OS identity and project access. Docker runners use separate provider homes and mount the selected project at `/workspaces/project`; they receive neither the host Docker socket nor host provider credentials. Model inference still occurs at the provider.
+Startup requires Node 24, Git and OpenSSL; Docker execution also requires Docker. Pairing and the workspace are available during preparation. If preparation or runner startup fails, Loop cleans up managed resources and reports failed setup. Execution remains unavailable until HAPI is repaired and Loop restarted. It never switches to direct execution. See [start and pairing](companion/START-PAIR.md).
 
-The managed Codex path enforces ChatGPT authentication without API fallback. Managed Claude uses its own native authentication policy. The direct adapter checks above remain separate. The [architecture guide](architecture.md) explains dispatch and recovery boundaries.
+Native runners use the OS user's project access. Docker runners mount the approved project at `/workspaces/project` and receive neither the host Docker socket nor host provider credentials. Project selection is not shell confinement. Existing provider sign-in remains owned by the selected runner.
 
-For startup at login after configuration:
+## Upgrade installed harnesses
+
+**Settings → Execution environments → Check installation and sign-in** offers upgrades for supported installations. The local runtime controls offer the same runner-scoped action. Loop uses the installation's package manager without sudo. Finish or cancel active runs and sign-in before upgrading. An operation has a durable identity; repeated requests return its recorded outcome.
+
+A successful upgrade must pass its version check. A failed upgrade attempts rollback to the previous version where the package manager supports it. A timed-out or interrupted operation remains unconfirmed and holds that runtime until the user checks remaining installer processes and confirms recovery. Loop never resumes an interrupted installer automatically.
+
+Managed Codex requires a workspace restart after upgrade to replace its shared app-server. Guarded OpenCode and container runtimes are updated with Loop or the corresponding image. See [development](development.md) for fixture versus live-provider validation.
+
+## Startup at login
 
 ```sh
 loop service install
-loop pair
+loop service uninstall
 ```
 
-This installs two per-user launchd agents on macOS (`dev.loop.connection`, `dev.loop.workspace`) or systemd units on Linux (`loop-connection.service`, `loop.service`) using the current Node/CLI/PATH and the workspace's last launch (project, harness or providers, billing and tunnel settings), as `loop restart` repeats it. A local-only or `--public-url` workspace gets only the application unit. The [connection service](pairing.md#connection-service-one-address-across-restarts) owns cloudflared in its own unit, so restarting the application unit (`loop restart`, `systemctl --user restart loop.service` or `launchctl kickstart -k gui/$(id -u)/dev.loop.workspace`) keeps the address and paired devices. Both restart only after a failure, so `loop stop` stays stopped until the next login or until you start the services again (`systemctl --user start loop-connection.service loop.service`, or `loop service install` on macOS). Installing replaces the running workspace and any earlier single-unit service, which changes the Quick Tunnel address once. Use `loop service uninstall` to stop and remove both while retaining workspace data.
+This installs two per-user launchd agents on macOS (`dev.loop.connection`, `dev.loop.workspace`) or systemd units on Linux (`loop-connection.service`, `loop.service`) using the current Node/CLI/PATH and the workspace's last launch (project, providers, execution and tunnel settings), as `loop restart` repeats it. A local-only or `--public-url` workspace gets only the application unit. The [connection service](pairing.md#connection-service-one-address-across-restarts) owns cloudflared in its own unit, so restarting the application unit (`loop restart`, `systemctl --user restart loop.service` or `launchctl kickstart -k gui/$(id -u)/dev.loop.workspace`) keeps the address and paired devices. Both restart only after a failure, so `loop stop` stays stopped until the next login or until you start the services again (`systemctl --user start loop-connection.service loop.service`, or `loop service install` on macOS). Installing replaces the running workspace and any earlier single-unit service, which changes the Quick Tunnel address once. Use `loop service uninstall` to stop and remove both while retaining workspace data.
 
 Settings → Execution environments and New agent share managed runtime status cards. “Check installation and sign-in” checks the configured executable and native account on that runner; it does not use pinned version numbers as installation evidence. Failed account checks remain unknown. Billing text describes the required launch policy, not proof of an active subscription. Results are timestamped snapshots; launch still validates authentication.
 
@@ -131,7 +83,7 @@ its audited Bun version, and retains the upstream license, source archive and
 patch. It uses the runner’s native credential home. For a private laptop build, run `node native/provision-opencode.mjs LOOP_HOME`.
 The installer retains source and the license, verifies cached binary integrity,
 and never replaces an installed CLI or redirects its credential home. Managed
-startup selects this guarded build for explicit OpenCode selections. Managed
+startup selects this guarded build when an installed OpenCode is selected. Managed
 OpenCode requires native ChatGPT OAuth and executing-process guard evidence;
 incompatible configuration fails closed before model dispatch.
 The companion image bakes the same private artifact into `/opt/loop-opencode`.

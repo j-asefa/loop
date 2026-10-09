@@ -82,14 +82,14 @@ test("managed startup failure retains the paired workspace even without the neut
     const runtimes = (await fetch(host.origin + "/api/workspace/runtimes", {
       headers: { cookie },
     }).then((r) => r.json())) as any;
-    assert.equal(runtimes.setup, "fallback");
+    assert.equal(runtimes.setup, "failed");
     assert(!JSON.stringify(runtimes).includes("private configuration"));
     assert.equal(
       notices.filter((message) => message.includes("failed")).length,
       1,
     );
     assert(!notices.join(" ").includes("private configuration"));
-    assert.match(account.billing.description, /Choose and enable/);
+    assert.match(account.billing.description, /requires a working HAPI runner/);
     assert.deepEqual((await fetch(host.origin + "/api/workspace", {
       headers: { cookie },
     }).then((r) => r.json()) as any).harnesses, []);

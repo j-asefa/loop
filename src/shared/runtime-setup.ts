@@ -4,18 +4,15 @@ export type RuntimeSetupState =
   | "preparing"
   | "starting"
   | "ready"
-  | "fallback"
   | "failed"
   | "stopped";
 export const runtimeSetupMessages: Record<RuntimeSetupState, string> = {
-  idle: "Use installed runtimes on this computer.",
+  idle: "Start Loop to connect installed harnesses through HAPI.",
   preparing:
     "Setting up managed execution. First setup may take several minutes; you can continue using the workspace.",
   starting: "Starting the managed runner. Your workspace is available.",
   ready: "Managed runner startup completed.",
-  fallback:
-    "Managed execution could not start. Installed runtimes remain available through direct execution.",
   failed:
-    "Managed execution cleanup failed. Restart the workspace before enabling runtimes.",
+    "HAPI setup failed. Harness execution is unavailable. Check loop logs and restart Loop to retry.",
   stopped: "Managed execution stopped.",
 };

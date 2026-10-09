@@ -9,12 +9,15 @@ import {
   copyFile,
   rm,
   readFile,
+  writeFile,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
 import { request } from "node:http";
 import { existsSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
+
 import { WebSocket } from "ws";
 const exec = promisify(execFile),
   base = await mkdtemp(join(tmpdir(), "loop-package-"));
@@ -49,42 +52,66 @@ try {
   ], { cwd: target, timeout: 10000 });
   bin = join(target, "node_modules", ".bin", "loop");
   env = {
-    ...process.env,
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
+    ),
+    LOOP_MEMORY_ENABLED: "0",
+    NODE_ENV: "test",
     LOOP_HOME: join(base, "loop-state"),
     LOOP_TEST_HARNESS: "codex",
   };
-  const fixture = join(base, "fixture-harness");
-  await copyFile("test/harness.mjs", fixture);
-  await chmod(fixture, 0o755);
+  const fixture = join(base, "fixture-managed.mjs");
+  const dist = join(target, "node_modules", "loop", "dist");
+  await writeFile(
+    fixture,
+    `
+    import { realpathSync } from "node:fs";
+    import { dirname, join } from "node:path";
+    import { pathToFileURL } from "node:url";
+    let entry = "";
+    try { entry = realpathSync(process.argv[1] || ""); } catch {}
+    const dist = entry.endsWith("/dist/cli.js") ? dirname(entry) : ${JSON.stringify(dist)};
+    const { LocalRuntime } = await import(pathToFileURL(join(dist, "local-runtime.js")).href);
+    LocalRuntime.prototype.prepare = async function () {};
+    LocalRuntime.prototype.start = async function () {
+      const {db} = await import(pathToFileURL(join(dist, "server/db.js")).href);
+      const {seal} = await import(pathToFileURL(join(dist, "server/secrets.js")).href);
+      const {withTestAdapter} = await import(pathToFileURL(join(dist, "server/providers.js")).href);
+      db.prepare("INSERT OR IGNORE INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('fixture-api','local-workspace','openai','Fixture API',?,'connected',?,0)").run(seal("fixture", "local-workspace"), JSON.stringify([{id:"fixture"}]));
+      withTestAdapter("openai", {async models(){return [{id:"fixture"}]},async *stream(){yield {text:"Fixture done"}}});
+      return {billing:{description:"Fixture setup"}};
+    };
+    LocalRuntime.prototype.close = async function () {};
+  `,
+  );
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import ${pathToFileURL(fixture).href}`;
   assert.equal(
     (await exec(bin, ["--version"], { env })).stdout.trim(),
     JSON.parse(await readFile("package.json", "utf8")).version,
   );
-  // `loop codex` shows the pairing code, then returns while the workspace keeps
+  // `loop` shows the pairing code, then returns while the workspace keeps
   // running in the background.
   const launch = async () => {
     const { stdout } = await exec(
       bin,
-      [
-        "codex",
-        "--executable",
-        fixture,
-        "--project",
-        project,
-        "--billing",
-        "existing",
-        "--local-only",
-      ],
+      ["start", "--project", project, "--local-only"],
       { env, timeout: 30000 },
     );
-    const match = stdout.match(/http:\/\/127\.0\.0\.1:\d+\/#pair=[A-Za-z0-9_-]+/);
+    const match = stdout.match(
+      /http:\/\/127\.0\.0\.1:\d+\/#pair=[A-Za-z0-9_-]+/,
+    );
     if (!match) throw new Error("Packed CLI did not show pairing: " + stdout);
     return new URL(match[0]);
   };
   let url = await launch();
-  const html = await fetch(url.origin).then(r => r.text());
-  const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"\s]+)"/g)].map(m => m[1]);
-  assert(assets.some(p => p.endsWith(".js")) && assets.some(p => p.endsWith(".css")));
+  const html = await fetch(url.origin).then((r) => r.text());
+  const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"\s]+)"/g)].map(
+    (m) => m[1],
+  );
+  assert(
+    assets.some((p) => p.endsWith(".js")) &&
+      assets.some((p) => p.endsWith(".css")),
+  );
   for (const path of [
     "/",
     ...assets,
@@ -93,8 +120,11 @@ try {
     "/icon-512.png",
     "/apple-touch-icon.png",
     "/sw.js",
-  ])
-    assert.equal((await fetch(url.origin + path)).status, 200, path);
+  ]) {
+    const response = await fetch(url.origin + path);
+    assert.equal(response.status, 200, path);
+    await response.arrayBuffer();
+  }
   const pair = async () => {
     const r = await fetch(url.origin + "/pair", {
       method: "POST",
@@ -131,8 +161,8 @@ try {
   let { cookie, api } = await pair();
   const agent = await api("/agents", {
     name: "packed-agent",
-    connectionId: "native-codex",
-    model: "native-default",
+    connectionId: "fixture-api",
+    model: "fixture",
   });
   const run = await api("/runs", {
     agentId: agent.id,
@@ -168,20 +198,14 @@ try {
   assert(!JSON.stringify(status).includes(cookie.split("=")[1]));
   const repeated = await exec(
     bin,
-    [
-      "codex",
-      "--executable",
-      fixture,
-      "--project",
-      project,
-      "--billing",
-      "existing",
-      "--local-only",
-    ],
+    ["start", "--project", project, "--local-only"],
     { env },
   );
-  assert.match(repeated.stdout, /existing workspace/);
-  assert(!repeated.stdout.includes("#pair="));
+  assert.equal(
+    JSON.parse((await exec(bin, ["status", "--json"], { env })).stdout).pid,
+    status.pid,
+  );
+  assert(repeated.stdout.includes("#pair="));
   // Waits for the background workspace process to exit.
   const stop = () => exec(bin, ["stop"], { env });
   ws.close();
@@ -195,39 +219,64 @@ try {
   await stop();
   // The very same installed distribution runs the full server with `loop server`.
   const reservation = createServer();
-  await new Promise(resolve => reservation.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
-  await new Promise(resolve => reservation.close(resolve));
+  await new Promise((resolve) => reservation.close(resolve));
   const serverOrigin = "http://127.0.0.1:" + port;
   child = spawn(bin, ["server"], {
     cwd: target,
-    env: { ...env, PORT: String(port), LOOP_URL: serverOrigin, LOOP_DATA_DIR: join(base, "server-state"),
-      LOOP_AUTH_MODE: "single-user", BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-      LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex") },
+    env: {
+      ...env,
+      PORT: String(port),
+      LOOP_URL: serverOrigin,
+      LOOP_DATA_DIR: join(base, "server-state"),
+      LOOP_AUTH_MODE: "single-user",
+      BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+      LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let serverErrors = "";
   child.stdout.resume();
-  child.stderr.on("data", b => serverErrors += b);
+  child.stderr.on("data", (b) => (serverErrors += b));
   const deadline = Date.now() + 20000;
-  while (!(await fetch(serverOrigin + "/api/health").then(r => r.ok).catch(() => false))) {
-    if (Date.now() > deadline || child.exitCode !== null) throw new Error("Packed server did not start: " + serverErrors);
-    await new Promise(resolve => setTimeout(resolve, 50));
+  while (
+    !(await fetch(serverOrigin + "/api/health")
+      .then((r) => r.ok)
+      .catch(() => false))
+  ) {
+    if (Date.now() > deadline || child.exitCode !== null)
+      throw new Error("Packed server did not start: " + serverErrors);
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  assert.equal((await fetch(serverOrigin + "/api/capabilities").then(r => r.json())).profile, "server");
+  assert.equal(
+    (await fetch(serverOrigin + "/api/capabilities").then((r) => r.json()))
+      .profile,
+    "server",
+  );
   assert.equal((await fetch(serverOrigin + "/api/bootstrap")).status, 200);
-  const serverHtml = await fetch(serverOrigin).then(r => r.text());
+  const serverHtml = await fetch(serverOrigin).then((r) => r.text());
   assert.match(serverHtml, /<div id="root">/);
-  for (const asset of assets) assert.equal((await fetch(serverOrigin + asset)).status, 200);
+  for (const asset of assets) {
+    const response = await fetch(serverOrigin + asset);
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
+  }
   child.kill("SIGTERM");
-  await new Promise(resolve => child.exitCode !== null ? resolve() : child.once("exit", resolve));
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Packed server did not stop")), 15000);
+    const done = () => { clearTimeout(timer); resolve(); };
+    child.exitCode !== null ? done() : child.once("exit", done);
+  });
+  assert.equal(child.exitCode, 0);
   await exec(bin, ["uninstall"], { env });
   assert(
     (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
   );
   await upgradeBehindConnection();
   console.log(
-    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
+    "Clean tarball install: UI assets, pairing, API fixture run with managed startup, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
+
   );
 } finally {
   ws?.terminate();
@@ -250,7 +299,7 @@ async function upgradeBehindConnection() {
   await mkdir(prefix);
   await mkdir(work);
   const upgradeEnv = {
-    ...process.env,
+    ...env,
     npm_config_prefix: prefix,
     LOOP_HOME: state,
     LOOP_TEST_HARNESS: "codex",
@@ -276,8 +325,7 @@ async function upgradeBehindConnection() {
     env: upgradeEnv, maxBuffer: 1000000, timeout: 240000,
   });
   const loop = (...args) => exec(join(prefix, "bin", "loop"), args, { env: upgradeEnv, timeout: 300000, maxBuffer: 4000000 });
-  const fixture = join(base, "fixture-harness");
-  const started = await loop("codex", "--executable", fixture, "--project", work, "--billing", "existing");
+  const started = await loop("start", "--providers", "codex", "--project", work);
   const code = started.stdout.match(/#pair=([\w-]+)/)[1];
   const status = async () => JSON.parse((await loop("status", "--json")).stdout);
   const before = await status();
@@ -320,8 +368,7 @@ async function upgradeBehindConnection() {
   assert.equal(after.url, before.url);
   assert.equal(after.connection.service.pid, before.connection.service.pid);
   assert.equal(after.connection.service.tunnel.pid, before.connection.service.tunnel.pid);
-  assert.equal(after.harnesses[0].name, "codex", "the saved runtime was restored, not Pi");
-  assert.equal(after.harnesses[0].billing.mode, "existing");
+  assert.equal(after.executionBackend, "hapi");
   assert.equal(after.project, before.project);
   assert.equal((await send("GET", "/api/bootstrap")).status, 200, "the same cookie still works");
   assert.equal((await send("GET", "/api/workspace/devices")).body, devices);

@@ -47,7 +47,19 @@ export async function continuitySmoke(page, fixture, capture) {
   const db = fixture.db;
   const owner = fixture.owner;
   const now = Date.now();
-  const agent = fixture.agents[0];
+  // This journey submits/steers API work. The design catalog also contains
+  // historical direct harness connections, which can no longer accept runs.
+  const connection = await fixture.api("/connections", {
+    provider: "openai",
+    label: "Continuity API",
+    secret: "fixture-only",
+  });
+  const agent = await fixture.api("/agents", {
+    name: "continuity-" + randomUUID().slice(0, 8),
+    connectionId: connection.id,
+    model: connection.models[0].id,
+    folderId: fixture.projects[0].id,
+  });
   const project = fixture.projects[0];
   // Each run (one per viewport) has its own words to find.
   const tag = "zebra" + randomUUID().slice(0, 6);

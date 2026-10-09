@@ -16,7 +16,11 @@ export function ConnectionDetails({ connection }: { connection: Connection }) {
       : typeof metadata.billing?.description === "string" &&
           metadata.billing.description.trim()
         ? metadata.billing.description
-        : "Billing not reported. Refresh this connection before use.";
+        : metadata.backend === "hapi"
+          ? metadata.billing?.mode === "existing"
+            ? "Existing harness billing; provider charges may apply."
+            : "Native subscription sign-in; no API fallback."
+          : "Billing not reported. Refresh this connection before use.";
   const location = connectionLocation(connection).label;
   const local = !metadata.backend && !!metadata.loopHarness;
   return (

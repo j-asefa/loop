@@ -23,6 +23,7 @@ import { InactiveSessionError } from "./client.js";
 import { attachedFiles, attachmentPrompt } from "../uploads.js";
 import { replyPrompt } from "../../shared/replies.js";
 import { launchPermissionMode } from "../../shared/permission-modes.js";
+import { hapiAutoApproval } from "./permission-policy.js";
 import { recallForRun } from "../memory.js";
 
 export const sessionFor = (conversation: string) =>
@@ -164,6 +165,8 @@ export async function executeHapi(run: Run): Promise<false> {
           directory: mapping.canonical_path,
           agent: s.flavor,
           model: p.model,
+          ...(["claude", "pi"].includes(s.flavor) ? { effort: p.effort ?? null } : {}),
+          ...(["codex", "opencode"].includes(s.flavor) ? { modelReasoningEffort: p.effort ?? null } : {}),
           permissionMode: launchPermissionMode(s.flavor, p.permissionMode),
           startingMode: "remote",
           loopLaunchId: s.launch_id,
@@ -233,6 +236,15 @@ function attachSession(s: NativeSession, sessionId: string) {
   s.hub_session_id = sessionId;
   return true;
 }
+function currentEnvironment(s: NativeSession) {
+  const e = environment(s.owner_id, s.environment_id);
+  const current = sessionFor(s.conversation_id);
+  if (e.generation !== s.generation || current?.generation !== s.generation ||
+      current.owner_id !== s.owner_id || current.environment_id !== s.environment_id ||
+      current.launch_id !== s.launch_id || current.hub_session_id !== s.hub_session_id)
+    throw new Problem(409, "Native session identity is fenced; reconcile the current environment");
+  return e;
+}
 async function sendPrepared(s: NativeSession, d: NativeDispatch, e: any) {
   if (process.env.LOOP_NATIVE_ADMISSION === "0")
     throw new Problem(409, "Native admission is disabled for maintenance");
@@ -247,13 +259,48 @@ async function sendPrepared(s: NativeSession, d: NativeDispatch, e: any) {
       "Reconnect the selected native provider before sending work",
     );
   const detail = await hub(e).request("/api/sessions/" + s.hub_session_id);
-  if (!(detail.session || detail).active) throw new InactiveSessionError();
+  const live = detail.session || detail;
+  if (!live.active) throw new InactiveSessionError();
+  const pendingRun = db.prepare("SELECT payload FROM runs WHERE id=? AND owner_id=?").get(d.run_id, s.owner_id) as Pick<Run, "payload"> | undefined;
+  if (!pendingRun) throw new Problem(409, "Native run no longer exists");
+  const snapshot = JSON.parse(pendingRun.payload);
+  const client = hub(e);
+  const permissionMode = launchPermissionMode(s.flavor, snapshot.permissionMode);
+  if (s.flavor === "claude" && (live.permissionMode ?? "default") !== permissionMode) {
+    const result = await client.request(`/api/sessions/${s.hub_session_id}/permission-mode`, { mode: permissionMode });
+    if (result.ok !== true) throw new Error("Unconfirmed permission setting");
+  }
+  const previous = db.prepare(`SELECT r.payload FROM native_dispatches d JOIN runs r ON r.id=d.run_id
+    WHERE d.conversation_id=? AND d.environment_id=? AND d.generation=? AND d.run_id<>?
+      AND d.send_started_at IS NOT NULL ORDER BY d.created_at DESC LIMIT 1`)
+    .get(s.conversation_id, s.environment_id, s.generation, d.run_id) as { payload: string } | undefined;
+  const normalizeModel = (model: unknown) => !model || model === "native-default" || model === "default" ? "default" : model;
+  const desired = normalizeModel(snapshot.model);
+  const priorModel = previous && normalizeModel(JSON.parse(previous.payload).model);
+  // Native defaults resolve to concrete IDs, and some session snapshots omit
+  // model entirely. Only a reported explicit mismatch or a changed Loop
+  // selection needs the settings endpoint. Resetting an explicit choice to
+  // default remains a real settings change.
+  if ((priorModel !== undefined && priorModel !== desired) ||
+      (desired !== "default" && typeof live.model === "string" && normalizeModel(live.model) !== desired)) {
+    const result = await client.request(`/api/sessions/${s.hub_session_id}/model`, { model: desired });
+    if (result.ok !== true) throw new Error("Unconfirmed model setting");
+  }
+  if (["claude", "pi"].includes(s.flavor) && (live.effort ?? null) !== (snapshot.effort ?? null)) {
+    const result = await client.request(`/api/sessions/${s.hub_session_id}/effort`, { effort: snapshot.effort ?? null });
+    if (result.ok !== true) throw new Error("Unconfirmed effort setting");
+  }
+  if (["codex", "opencode"].includes(s.flavor) && (live.modelReasoningEffort ?? null) !== (snapshot.effort ?? null)) {
+    const result = await client.request(`/api/sessions/${s.hub_session_id}/model-reasoning-effort`, { modelReasoningEffort: snapshot.effort ?? null });
+    if (result.ok !== true) throw new Error("Unconfirmed effort setting");
+  }
   const auth = await workerRequest(e, "/verify", {
     launchId: s.launch_id,
     generation: s.generation,
     flavor: s.flavor,
   });
   verifyAuth(s.flavor, auth);
+  currentEnvironment(s);
   // CAS is the durable send lease. A crash after this point is uncertain,
   // including a crash before HTTP; neither another process nor a retry sends it.
   const claimed = db
@@ -741,16 +788,39 @@ export async function reconcile(s: NativeSession) {
     }
   }
 }
+// Longer than HapiClient's 10s authentication + 35s request deadlines. Shared
+// SQLite state fences observers in other API/worker processes as well.
+const DECISION_DELIVERY_MS = 60_000;
+function unconfirmedDecision(active: Run, approvalId: string, expiredOnly = false) {
+  if (!db.prepare("UPDATE native_permissions SET state='unknown',delivery_expires_at=0 WHERE approval_id=? AND state='auto-submitted' AND (?=0 OR delivery_expires_at<=?)").run(approvalId, Number(expiredOnly), now()).changes) return;
+  const approval = db.prepare("SELECT request FROM approvals WHERE id=?").get(approvalId) as any;
+  const recovery = { ...JSON.parse(approval.request), deliveryUnknown: true };
+  db.prepare("UPDATE approvals SET state='pending',request=?,result=? WHERE id=?").run(
+    JSON.stringify(recovery), JSON.stringify({ error: "Automatic approval delivery is unconfirmed. Check the native session before explicitly retrying." }), approvalId);
+  emit(active.owner_id, active.id, "approval.requested", { approvalId, request: recovery });
+  transition(active, "awaiting_approval");
+}
+async function deliverAutomatic(s: NativeSession, p: any, active: Run) {
+  // A confirmed acknowledgement permits idempotent reconciliation, but an
+  // interrupted or failed redelivery must again require explicit recovery.
+  if (p.state === "auto-confirmed" && !db.prepare("UPDATE native_permissions SET state='auto-submitted',delivery_expires_at=? WHERE approval_id=? AND state='auto-confirmed'").run(now() + DECISION_DELIVERY_MS, p.approval_id).changes)
+    return;
+  try {
+    await deliverDecision(s, p);
+    db.prepare("UPDATE native_permissions SET state='auto-confirmed',delivery_expires_at=0 WHERE approval_id=? AND state='auto-submitted'").run(p.approval_id);
+  } catch { unconfirmedDecision(active, p.approval_id); }
+}
 async function syncPermissions(s: NativeSession, session: any) {
+  currentEnvironment(s);
   const active = db
     .prepare(
-      "SELECT r.* FROM native_dispatches d JOIN runs r ON r.id=d.run_id WHERE d.conversation_id=? AND d.state IN ('accepted','running','cancellation-requested') ORDER BY r.created_at LIMIT 1",
+      "SELECT r.* FROM native_dispatches d JOIN runs r ON r.id=d.run_id WHERE d.conversation_id=? AND d.environment_id=? AND d.generation=? AND r.owner_id=? AND r.state IN ('running','awaiting_approval') AND d.state IN ('accepted','running','cancellation-requested') ORDER BY r.created_at LIMIT 1",
     )
-    .get(s.conversation_id) as Run | undefined;
+    .get(s.conversation_id, s.environment_id, s.generation, s.owner_id) as Run | undefined;
   for (const [requestId, request] of Object.entries(
     session.agentState?.requests || {},
   )) {
-    if (!active) continue;
+    if (!active || session.agentState?.completedRequests?.[requestId]) continue;
     const old = db
       .prepare(
         "SELECT * FROM native_permissions WHERE conversation_id=? AND hub_session_id=? AND request_id=?",
@@ -761,6 +831,8 @@ async function syncPermissions(s: NativeSession, session: any) {
       !session.agentState?.completedRequests?.[requestId]
     )
       await deliverDecision(s, old);
+    if (old?.state === "auto-confirmed") await deliverAutomatic(s, old, active);
+    if (old?.state === "auto-submitted") unconfirmedDecision(active, old.approval_id, true);
     if (old?.state === "pending") {
       const expiry = db
         .prepare("SELECT expires_at FROM approvals WHERE id=?")
@@ -777,17 +849,24 @@ async function syncPermissions(s: NativeSession, session: any) {
       }
     }
     if (!old) {
+      const automatic = !dispatchFor(active.id)?.cancel_requested &&
+        hapiAutoApproval(JSON.parse(active.payload).permissionMode, request);
       const approval = requestApproval(active, {
         ...(request as any),
         type: "hapi_native",
         origin: "native",
         sessionId: s.hub_session_id,
         requestId,
-      });
+      }, automatic);
+      // Persist the one-shot decision before contacting the harness. An
+      // unconfirmed automatic answer is never retried by reconciliation.
       db.prepare(
-        "INSERT INTO native_permissions(approval_id,conversation_id,hub_session_id,request_id) VALUES(?,?,?,?)",
-      ).run(approval.id, s.conversation_id, s.hub_session_id, requestId);
-      transition(active, "awaiting_approval");
+        "INSERT INTO native_permissions(approval_id,conversation_id,hub_session_id,request_id,state,decision,delivery_expires_at) VALUES(?,?,?,?,?,?,?)",
+      ).run(approval.id, s.conversation_id, s.hub_session_id, requestId,
+        automatic ? "auto-submitted" : "pending", automatic ? "approve" : null, automatic ? now() + DECISION_DELIVERY_MS : 0);
+      if (automatic) {
+        await deliverAutomatic(s, { approval_id: approval.id, hub_session_id: s.hub_session_id, request_id: requestId, decision: "approve" }, active);
+      } else transition(active, "awaiting_approval");
     }
   }
   for (const [requestId, completion] of Object.entries(
@@ -811,7 +890,7 @@ async function syncPermissions(s: NativeSession, session: any) {
   if (active) {
     const unresolved = db
       .prepare(
-        "SELECT 1 FROM native_permissions p JOIN approvals a ON a.id=p.approval_id WHERE a.run_id=? AND p.state != 'resolved' LIMIT 1",
+        "SELECT 1 FROM native_permissions p JOIN approvals a ON a.id=p.approval_id WHERE a.run_id=? AND p.state NOT IN ('resolved','auto-submitted','auto-confirmed') LIMIT 1",
       )
       .get(active.id);
     db.prepare(
@@ -820,7 +899,10 @@ async function syncPermissions(s: NativeSession, session: any) {
   }
 }
 async function deliverDecision(s: NativeSession, p: any) {
-  await hub(environment(s.owner_id, s.environment_id)).request(
+  const e = currentEnvironment(s);
+  if (s.hub_session_id !== p.hub_session_id)
+    throw new Problem(409, "Native decision identity is fenced; reconcile the current session");
+  await hub(e).request(
     `/api/sessions/${p.hub_session_id}/permissions/${encodeURIComponent(p.request_id)}/${p.decision === "approve" ? "approve" : "deny"}`,
     {
       decision: p.decision === "approve" ? "approved" : "denied",
@@ -833,12 +915,40 @@ export async function nativeDecision(
   approvalId: string,
   decision: "approve" | "reject",
   answers?: Record<string, string[] | { answers: string[] }>,
+  confirmUnknown = false,
 ) {
   const a = owned<any>("approvals", approvalId, owner),
     p = db
       .prepare("SELECT * FROM native_permissions WHERE approval_id=?")
       .get(approvalId) as any;
   if (!p) return false;
+  if (p.state === "unknown" && confirmUnknown) {
+    if (a.expires_at < now()) throw new Problem(409, "Native approval expired");
+    const s = sessionFor(p.conversation_id)!;
+    const e = currentEnvironment(s);
+    if (s.hub_session_id !== p.hub_session_id) throw new Problem(409, "Native decision identity is fenced");
+    const detail = await hub(e).request("/api/sessions/" + s.hub_session_id);
+    const live = detail.session || detail;
+    await syncPermissions(s, live);
+    if (live.agentState?.completedRequests?.[p.request_id]) return true;
+    if (!live.active || !live.agentState?.requests?.[p.request_id])
+      throw new Problem(409, "The native session has not confirmed this request is still pending. Check its outcome before retrying.");
+    // This explicit, informed retry is one shot too. Reconciliation must not
+    // resend it if its acknowledgement is lost.
+    if (!db.prepare("UPDATE native_permissions SET state='auto-submitted',decision=?,answers=?,delivery_expires_at=? WHERE approval_id=? AND state='unknown'")
+      .run(decision, answers ? JSON.stringify(answers) : null, now() + DECISION_DELIVERY_MS, approvalId).changes)
+      throw new Problem(409, "Native decision already changed");
+    try {
+      await deliverDecision(s, { ...p, decision, answers: answers ? JSON.stringify(answers) : null });
+      db.prepare("UPDATE native_permissions SET state='auto-confirmed',delivery_expires_at=0 WHERE approval_id=? AND state='auto-submitted'").run(approvalId);
+    } catch (error) {
+      db.prepare("UPDATE native_permissions SET state='unknown',delivery_expires_at=0 WHERE approval_id=? AND state='auto-submitted'").run(approvalId);
+      throw error;
+    }
+    return true;
+  }
+  if (["unknown", "auto-submitted", "auto-confirmed"].includes(p.state))
+    throw new Problem(409, "An automatic decision was already sent. Check its outcome in HAPI before explicitly retrying.");
   if (p.state === "resolved" || (p.state === "pending" && a.expires_at < now()))
     throw new Problem(409, "Native approval is no longer pending");
   const serialized = answers ? JSON.stringify(answers) : null;

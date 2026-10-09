@@ -4,7 +4,7 @@ import { config } from "./config.js";
 import { companionMode } from "./profile.js";
 if (companionMode)
   throw new Error(
-    "Start companion mode using loop <harness> so device authorization is installed.",
+    "Start companion mode using loop so device authorization is installed.",
   );
 const { app } = await import("./index.js");
 export function startServer() {

@@ -6,7 +6,7 @@
 | -------------------------------------------- | ----------------------------------------------------------------- |
 | [Server operation](server.md)                | API/worker, Docker, authentication, runtime machines and backups  |
 | [Remote server runtimes](remote-runtimes.md) | Remote broker, native host and Codex app-server                   |
-| [Harnesses](harnesses.md)                    | App runtime selection, direct adapters, ACP, managed launcher and services |
+| [Harnesses](harnesses.md)                    | HAPI discovery, existing sign-in, models, managed launcher and services |
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels and workspace recovery        |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |

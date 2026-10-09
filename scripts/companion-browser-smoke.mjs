@@ -6,8 +6,8 @@ import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
-import { environmentRuntimeBrowser } from "./helpers/environment-runtime-browser.mjs";
 import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import { environmentRuntimeBrowser } from "./helpers/environment-runtime-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
@@ -15,7 +15,6 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");
 const { db } = await import("../dist/server/db.js");
-const { nativeSessions } = await import("../dist/server/native-sessions.js");
 const { control } = await import("../dist/host-control.js");
 await chmod(resolve("test/harness.mjs"), 0o755);
 const options = {
@@ -88,14 +87,18 @@ try {
   assert(!page.url().includes("#"));
   const workspaceUrl = page.url();
   await agentSourcesBrowser(page, workspaceUrl);
-  await settingsReliabilityBrowser(page, workspaceUrl, undefined, { companion: true });
+  await settingsReliabilityBrowser(page, workspaceUrl, undefined, {
+    companion: true,
+  });
   // The rest of this fixture starts with no linked agents. A developer's
   // running Docker Loop must not change its first-agent assertions.
-  await page.route("**/api/agent-sources", (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: "[]",
-  }));
+  await page.route("**/api/agent-sources", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "[]",
+    }),
+  );
   await page.goto(workspaceUrl);
   await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
   await page.goto(`http://localhost:${provider.address().port}/`);
@@ -116,7 +119,9 @@ try {
   await oldDockerLink.goto(
     host.gateway.origin + "/?workspace=docker:" + "a".repeat(64),
   );
-  await oldDockerLink.getByRole("heading", { name: "Pair this device" }).waitFor();
+  await oldDockerLink
+    .getByRole("heading", { name: "Pair this device" })
+    .waitFor();
   await unpaired.close();
   await page.goto(workspaceUrl);
   const otherProject = join(dir, "second-project");
@@ -142,216 +147,104 @@ try {
     .click();
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "Feed", exact: true }).last().click();
-  for (let i = 0; i < 3; i++) {
-    await page
-      .getByRole("button", {
-        name: i === 0 ? "Create your first agent" : "New agent",
-        exact: true,
-      })
-      .first()
-      .click();
-    await page.getByLabel("Unique name").fill("browser-" + i);
-    await page
-      .getByText("Instructions & advanced options", { exact: true })
-      .click();
-    await page
-      .getByLabel("Agent instructions", { exact: true })
-      .fill("Keep this native instruction " + i);
-    await page
-      .getByRole("dialog")
-      .getByLabel("Project", { exact: true })
-      .selectOption({
-        label: i === 2 ? "Second project" : basename(process.cwd()),
-      });
-    await page
-      .getByLabel("Initial prompt", { exact: true })
-      .fill(i === 0 ? "approve" : "wait");
-    await page
-      .getByRole("button", { name: "Create & start", exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: "Meet your next agent" })
-      .waitFor({ state: "hidden" });
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-  }
-  // The Running tab became the Feed "Needs you" filter, which lists native
-  // decisions above the threads that need attention.
-  await page.getByRole("button", { name: "Feed", exact: true }).last().click();
-  await page
-    .locator(".inbox")
-    .getByRole("tab", { name: /^Needs you/ })
-    .click();
-  await page.getByRole("button", { name: "Decline", exact: true }).waitFor();
-  await mkdir("test-results", { recursive: true });
-  await page.screenshot({
-    path: "test-results/mobile-workspace-running.png",
-    fullPage: true,
-  });
-  assert.equal(
-    db.prepare("SELECT count(*) n FROM companion_sessions").get().n,
-    3,
+  // HAPI's catalog has the same display names and effort metadata as its
+  // runner. Network failure must not silently use the old generic aliases.
+  const models = [
+    { id: "default", name: "Use native default" },
+    {
+      id: "opus",
+      name: "Claude Opus 5 (1M)",
+      resolvedModel: "claude-opus-5[1m]",
+      effortLevels: [{ value: "low" }, { value: "high" }, { value: "max" }],
+      defaultEffort: "high",
+    },
+    {
+      id: "sonnet",
+      name: "Claude Sonnet fixture",
+      effortLevels: [{ value: "low" }, { value: "high" }],
+    },
+  ];
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('hapi-claude','local-workspace','anthropic','Claude HAPI','','connected',?,?,0)",
+  ).run(
+    JSON.stringify(models),
+    JSON.stringify({
+      backend: "hapi",
+      environmentId: "fixture-native",
+      flavor: "claude",
+      billing: {
+        mode: "native",
+        requiredAuth: "claude",
+        allowApiFallback: false,
+      },
+    }),
   );
-  await page.getByRole("button", { name: "Decline", exact: true }).click();
-  // Native conversations open from the settings drawer.
-  const nativeConversations = async () => {
-    await page
-      .getByRole("button", { name: "Open settings", exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: "Settings", exact: true })
-      .getByRole("button", { name: "Native conversations", exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: "Native conversations", exact: true })
-      .getByRole("button")
-      .filter({ hasText: "approve" })
-      .last()
-      .click();
-  };
-  await nativeConversations();
-  await page
-    .getByLabel("Reply to agent")
-    .fill("Follow-up keeps native context");
-  await page.getByRole("button", { name: "Send reply", exact: true }).click();
-  // Sending from a thread now keeps it open with the reply in place.
-  await expect(page.getByLabel("Reply to agent")).toHaveValue("");
-  await expect(
-    page
-      .locator("article.message")
-      .filter({ hasText: "Follow-up keeps native context" }),
-  ).toBeVisible();
-  assert(new URL(page.url()).searchParams.has("conversation"));
-  await page
-    .locator("dialog[open]")
-    .last()
-    .getByRole("button", { name: "Close", exact: true })
-    .click();
-  await expect(page.locator("dialog[open]")).toHaveCount(0);
-  await nativeConversations();
-  await page.getByLabel("Reply to agent").fill("Draft survives reconnect");
-  await context.setOffline(true);
-  await context.setOffline(false);
+  let requests = 0;
+  await page.route("**/api/connections/hapi-claude/models", (route) =>
+    ++requests === 1
+      ? route.fulfill({
+          status: 503,
+          json: { error: "Fixture model refresh failed" },
+        })
+      : route.fulfill({ json: { models } }),
+  );
   await page.reload();
   await page
-    .getByRole("status")
-    .filter({ hasText: "Connected to desktop" })
-    .waitFor();
-  // A restored conversation loads after the desktop connection. Its composer
-  // label can still be loading, so check the route before opening another sheet.
-  if (!new URL(page.url()).searchParams.has("conversation"))
-    await nativeConversations();
-  await expect(page.getByLabel("Reply to agent")).toHaveValue(
-    "Draft survives reconnect",
+    .getByRole("button", { name: "Create your first agent", exact: true })
+    .click();
+  const creation = page.getByRole("dialog", { name: "Meet your next agent" });
+  await expect(creation.getByLabel("Unique name")).toHaveAttribute(
+    "placeholder",
+    "Choose a name",
   );
+  await creation.getByLabel("Unique name").fill("hapi-model-picker");
+  await expect(creation.getByRole("alert")).toContainText(
+    "Fixture model refresh failed",
+  );
+  await expect(
+    creation.getByRole("button", { name: "Create agent", exact: true }),
+  ).toBeDisabled();
+  await creation
+    .getByRole("button", { name: "Refresh models", exact: true })
+    .click();
+  await expect(creation.getByLabel("Model", { exact: true })).toBeEnabled();
+  await expect(creation.getByLabel("Model", { exact: true })).toContainText(
+    "Claude Opus 5 (1M)",
+  );
+  await creation.getByLabel("Model", { exact: true }).selectOption("opus");
+  await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
+  await creation.getByLabel("Effort", { exact: true }).selectOption("max");
+  await expect(creation).toContainText(
+    "Native subscription sign-in; no API fallback.",
+  );
+  await mkdir("test-results", { recursive: true });
   await page.screenshot({
-    path: "test-results/mobile-workspace-conversation.png",
+    path: "test-results/mobile-hapi-models.png",
     fullPage: true,
   });
-  assert.equal(await page.locator('a[href^="javascript:"]').count(), 0);
-  // Older Pi catalogs included identical model names for API and subscription
-  // routes. Creation must refresh, fail closed, and persist the supported route.
-  const piExecutable = join(dir, "pi-fixture");
-  await writeFile(
-    piExecutable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexport LOOP_TEST_PI_API_MODEL=1\nexec '${process.execPath}' '${resolve("test/harness.mjs")}' "$@"\n`,
-    { mode: 0o755 },
+  await creation
+    .getByRole("button", { name: "Create agent", exact: true })
+    .click();
+  await creation.waitFor({ state: "hidden" });
+  // Closing the sheet schedules history.back(). Let that navigation settle
+  // before the explicit workspace reload, which it can otherwise abort.
+  await expect
+    .poll(() => page.evaluate(() => history.state?.loopSheet === true))
+    .toBe(false);
+  assert.deepEqual(
+    db
+      .prepare("SELECT model,effort FROM agents WHERE name='hapi-model-picker'")
+      .get(),
+    { model: "opus", effort: "max" },
   );
-  const pi = await nativeSessions.enable({
-    ...options,
-    harness: "pi",
-    executable: piExecutable,
-    billing: "subscription",
-  });
-  const staleModels = [{ id: "openai/fixture", name: "Fixture" }, ...pi.models];
-  db.prepare("UPDATE connections SET models=? WHERE id='native-pi'").run(
-    JSON.stringify(staleModels),
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM companion_sessions").get().n,
+    0,
   );
-  const modelContext = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    isMobile: true,
-    hasTouch: true,
-    serviceWorkers: "block",
-  });
-  try {
-    const modelPage = await modelContext.newPage();
-    modelPage.on("pageerror", (error) => errors.push(error.message));
-    let requests = 0;
-    let releaseModels;
-    const delayedModels = new Promise((resolve) => (releaseModels = resolve));
-    await modelPage.route(
-      "**/api/connections/native-pi/models",
-      async (route) => {
-        if (++requests === 1)
-          return route.fulfill({
-            status: 503,
-            contentType: "application/json",
-            body: JSON.stringify({ error: "Fixture model refresh failed" }),
-          });
-        await delayedModels;
-        await route.continue();
-      },
-    );
-    await modelPage.goto(host.pair().url);
-    await modelPage.getByRole("button", { name: "Pair and open Loop" }).click();
-    await modelPage
-      .getByRole("button", { name: "New agent", exact: true })
-      .first()
-      .click();
-    const creation = modelPage.getByRole("dialog", {
-      name: "Meet your next agent",
-    });
-    await creation.getByLabel("Unique name").fill("subscription-picker");
-    await expect(creation.getByRole("alert")).toContainText(
-      "Fixture model refresh failed",
-    );
-    await expect(
-      creation.getByRole("button", { name: "Create agent", exact: true }),
-    ).toBeDisabled();
-    await creation
-      .getByRole("button", { name: "Refresh models", exact: true })
-      .click();
-    await expect.poll(() => requests).toBe(2);
-    await expect(creation.getByLabel("Model", { exact: true })).toBeDisabled();
-    await expect(
-      creation.getByRole("button", { name: "Create agent", exact: true }),
-    ).toBeDisabled();
-    releaseModels();
-    await expect(creation.getByLabel("Model", { exact: true })).toBeEnabled();
-    await expect(
-      creation.locator('option[value="openai/fixture"]'),
-    ).toHaveCount(0);
-    await creation
-      .getByLabel("Model", { exact: true })
-      .selectOption({ value: "openai-codex/fixture" });
-    await expect(creation.getByLabel("Model", { exact: true })).toHaveValue(
-      "openai-codex/fixture",
-    );
-    await creation
-      .getByRole("button", { name: "Create agent", exact: true })
-      .click();
-    await creation.waitFor({ state: "hidden" });
-    assert.equal(
-      db
-        .prepare("SELECT model FROM agents WHERE name='subscription-picker'")
-        .get().model,
-      "openai-codex/fixture",
-    );
-    const refreshed = db
-      .prepare("SELECT models FROM connections WHERE id='native-pi'")
-      .get();
-    assert(
-      !JSON.parse(refreshed.models).some(
-        (model) => model.id === "openai/fixture",
-      ),
-    );
-  } finally {
-    await modelContext.close();
-  }
+  assert.equal(db.prepare("SELECT count(*) n FROM native_dispatch").get().n, 0);
+  await page.goto(workspaceUrl);
   await environmentRuntimeBrowser({ browser, host });
-  await nativeAuthBrowser({ browser, host, dir, db });
+  await nativeAuthBrowser({ browser, host });
   const devices = await control(dir, "devices");
   await control(dir, "revoke", { id: devices[0].id });
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();

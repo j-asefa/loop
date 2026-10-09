@@ -42,7 +42,7 @@ export function importSession(
   );
   db.prepare("INSERT INTO handles VALUES(?,?,?)").run(name, agent, now());
   db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,'native',?)",
+    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,execution_backend,created_at) VALUES(?,?,?,?,'native','legacy',?)",
   ).run(conversation, OWNER, agent, title, now());
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,state,updated_at) VALUES(?,?,?,?,'disconnected',?)",

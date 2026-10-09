@@ -143,7 +143,7 @@ export function ExecutionEnvironments({
         {!items.length && (
           <>
             <SettingsEmpty icon={Monitor} title="No environment connected yet">
-              Agents run on the Loop server until you connect one.
+              Connect a HAPI environment to run harness agents.
             </SettingsEmpty>
             <SettingsList>
               <SettingsRow
@@ -155,7 +155,7 @@ export function ExecutionEnvironments({
               <SettingsRow
                 icon={TriangleAlert}
                 title="Environment not appearing?"
-                description="Check runtime setup for progress or fallback"
+                description="Check runtime setup for progress or setup errors"
                 onClick={() => setHelp(help === "setup" ? "" : "setup")}
               />
             </SettingsList>
@@ -172,7 +172,7 @@ export function ExecutionEnvironments({
                 <p className="field-hint">
                   A managed environment appears here once its Runner connects
                   and authenticates. Until then, check runtime setup for
-                  preparation progress or direct fallback.
+                  HAPI preparation progress or setup errors.
                 </p>
               </div>
             )}

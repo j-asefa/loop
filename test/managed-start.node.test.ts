@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { runtimeSetupState } from "../src/runtime-setup.js";
 import { prepareManagedRuntime } from "../src/managed-start.js";
 
-test("runner failure cleans up before offering direct fallback", async () => {
+test("runner failure cleans up without offering direct execution", async () => {
   const events: string[] = [];
   const result = await prepareManagedRuntime(
     {
@@ -24,7 +24,7 @@ test("runner failure cleans up before offering direct fallback", async () => {
     (message) => events.push(message),
   );
   assert.equal(result, undefined);
-  assert.equal(runtimeSetupState(), "fallback");
+  assert.equal(runtimeSetupState(), "failed");
   assert.deepEqual(events.slice(1, 4), ["prepare", "start", "close"]);
   assert.match(events[4], /runner startup failed/);
   assert(!events.join(" ").includes("secret"));
@@ -97,10 +97,10 @@ test("startup status reports ready only after a runner returns an account", asyn
     () => false,
     () => {},
   );
-  assert.equal(runtimeSetupState(), "fallback");
+  assert.equal(runtimeSetupState(), "failed");
 });
 
-test("missing runner account cleans up before announcing fallback", async () => {
+test("missing runner account cleans up before reporting failure", async () => {
   const events: string[] = [];
   const result = await prepareManagedRuntime(
     {
@@ -119,7 +119,7 @@ test("missing runner account cleans up before announcing fallback", async () => 
     },
   );
   assert.equal(result, undefined);
-  assert.equal(runtimeSetupState(), "fallback");
+  assert.equal(runtimeSetupState(), "failed");
   assert.deepEqual(events, ["start", "close", "notice"]);
 });
 

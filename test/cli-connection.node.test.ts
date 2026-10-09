@@ -6,6 +6,7 @@ import { createServer, request } from "node:http";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { alive } from "../src/daemon.js";
 import { identity, pidNamespace } from "../src/lifecycle.js";
@@ -21,13 +22,32 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const base = await mkdtemp(join(resolve(".tmp"), "loop-cli-connection-"));
   const project = join(base, "project");
   await mkdir(project);
-  const fixture = join(base, "codex");
-  await copyFile(resolve("test/harness.mjs"), fixture);
-  await chmod(fixture, 0o755);
   const tunnels = join(base, "tunnels.log");
   const audit = join(base, "prompts.log");
+  const preload = join(base, "managed-fixture.ts");
+  writeFileSync(preload, `
+    import { LocalRuntime } from ${JSON.stringify(pathToFileURL(resolve("src/local-runtime.ts")).href)};
+    import { appendFileSync } from "node:fs";
+    LocalRuntime.prototype.prepare = async function () {};
+    LocalRuntime.prototype.start = async function () {
+      const {db} = await import(${JSON.stringify(pathToFileURL(resolve("src/server/db.ts")).href)});
+      const {seal} = await import(${JSON.stringify(pathToFileURL(resolve("src/server/secrets.ts")).href)});
+      const {withTestAdapter} = await import(${JSON.stringify(pathToFileURL(resolve("src/server/providers.ts")).href)});
+      db.prepare("INSERT OR IGNORE INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('fixture-api','local-workspace','openai','Fixture API',?,'connected',?,0)").run(seal("fixture", "local-workspace"), JSON.stringify([{id:"fixture"}]));
+      withTestAdapter("openai", { async models(){return []}, async *stream(_secret,input){
+        appendFileSync(${JSON.stringify(audit)}, "prompt\\n");
+        yield {text:"Fixture started"};
+        await new Promise(resolve => { if(input.signal.aborted) resolve(); else input.signal.addEventListener("abort", resolve, {once:true}); });
+      }});
+      return {billing:{description:"Fixture HAPI startup"}};
+    };
+    LocalRuntime.prototype.close = async function () {};
+  `);
   const env = {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_"))),
+    NODE_ENV: "test",
+    LOOP_MEMORY_ENABLED: "0",
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import ${import.meta.resolve("tsx")} --import ${pathToFileURL(preload).href}`,
     LOOP_HOME: join(base, "state"),
     LOOP_TEST_HARNESS: "codex",
     LOOP_TEST_CLOUDFLARED: FAKE,
@@ -38,7 +58,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   };
   const loop = (args: string[], timeout = 60000) =>
     exec(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], { env, timeout });
-  const harness = ["codex", "--executable", fixture, "--project", project, "--billing", "existing"];
+  const harness = ["start", "--providers", "codex", "--project", project];
   const status = async () => JSON.parse((await loop(["status", "--json"])).stdout);
   const tunnelPids = () =>
     existsSync(tunnels)
@@ -143,12 +163,11 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.equal(after.connection.service.tunnel.pid, service.tunnel.pid);
     assert.equal(after.connection.generation, before.connection.generation + 1);
     assert.equal(w.tunnelPids().length, 1, "cloudflared was never restarted");
-    // The saved launch was repeated: same harness, billing and project.
-    assert.equal(after.harnesses[0].name, "codex");
-    assert.equal(after.harnesses[0].billing.mode, "existing");
+    // The saved launch was repeated: same HAPI backend and project.
+    assert.equal(after.executionBackend, "hapi");
     assert.equal(after.project, before.project);
     const launch = JSON.parse(readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"));
-    assert.deepEqual(launch.args.slice(0, 1), ["codex"]);
+    assert.deepEqual(launch.args.slice(0, 1), ["start"]);
 
     // The same browser credential works; nothing re-paired.
     assert.equal((await phone.send("GET", "/api/bootstrap")).status, 200);
@@ -196,7 +215,7 @@ test("restart refuses active runs, and a forced restart never resends interrupte
     w.pids.add(before.pid);
     const phone = browser(before.connection.service.relay, before.url);
     await phone.pair(pairCode(started.stdout));
-    const agent = (await phone.send("POST", "/api/agents", { name: "held", connectionId: "native-codex", model: "native-default" })).json;
+    const agent = (await phone.send("POST", "/api/agents", { name: "held", connectionId: "fixture-api", model: "fixture" })).json;
     const run = (await phone.send("POST", "/api/runs", { agentId: agent.id, input: "approve", idempotencyKey: randomUUID() })).json;
     await until(() => existsSync(w.audit) && readFileSync(w.audit, "utf8").includes("prompt"), 20000);
     let active = 0;
@@ -325,7 +344,7 @@ test("loop start restores a crashed connection service behind the running applic
     }
 
     const project = w.harness[w.harness.indexOf("--project") + 1];
-    const { stdout } = await w.loop(["start", "--direct", "--project", project]);
+    const { stdout } = await w.loop(["start", "--project", project]);
     const after = await w.status();
     assert.equal(after.pid, before.pid, "the application kept running");
     const service = after.connection.service;
@@ -378,7 +397,7 @@ test("loop pair refuses a code once the connection service is gone", async () =>
 
     // Recovering the service makes pairing available again, at its address.
     const project = w.harness[w.harness.indexOf("--project") + 1];
-    await w.loop(["start", "--direct", "--project", project]);
+    await w.loop(["start", "--project", project]);
     const paired = await w.loop(["pair"]);
     const serving = await w.status();
     assert.equal(serving.connection.registered, true);
@@ -393,10 +412,10 @@ test("restart from another directory repeats a foreground launch's project and p
   try {
     const project = await realpath(w.harness[w.harness.indexOf("--project") + 1]);
     const log = join(w.base, "foreground.log");
-    // Implicit project and a relative executable, from the project directory.
+    // Implicit project and explicit provider selection, from the project directory.
     const app = spawn(
       process.execPath,
-      ["--import", import.meta.resolve("tsx"), resolve("src/cli.ts"), "codex", "--executable", "../codex", "--billing", "existing", "--local-only", "--foreground"],
+      ["--import", import.meta.resolve("tsx"), resolve("src/cli.ts"), "start", "--providers", "codex", "--local-only", "--foreground"],
       { cwd: project, detached: true, stdio: ["ignore", openSync(log, "a"), openSync(log, "a")], env: w.env },
     );
     app.unref();
@@ -410,8 +429,14 @@ test("restart from another directory repeats a foreground launch's project and p
     assert.equal(before.project, project);
     const launch = JSON.parse(readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8")).args;
     assert.equal(launch[launch.indexOf("--project") + 1], project);
-    assert.equal(launch[launch.indexOf("--executable") + 1], join(w.base, "codex"));
+    assert.equal(launch[launch.indexOf("--providers") + 1], "codex");
     assert(!launch.includes("--foreground"));
+    // An older release saved direct launch flags. Upgrade must retain its
+    // project/provider while discarding all direct-execution entry points.
+    writeFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), JSON.stringify({
+      schema: 1,
+      args: ["start", "--providers", "codex", "--project", project, "--direct", "--local-only"],
+    }));
 
     // This test runs from the repository, not the project directory.
     assert.notEqual(process.cwd(), project);
@@ -420,8 +445,7 @@ test("restart from another directory repeats a foreground launch's project and p
     w.pids.add(after.pid);
     assert.notEqual(after.pid, before.pid);
     assert.equal(after.project, project);
-    assert.equal(after.harnesses[0].name, "codex");
-    assert.equal(after.harnesses[0].billing.mode, "existing");
+    assert.equal(after.executionBackend, "hapi");
     assert.equal(after.connection.mode, "local");
   } finally {
     await w.cleanup();

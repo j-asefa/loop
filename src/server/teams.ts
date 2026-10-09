@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
+import { connectionSelection } from "./hapi/contracts.js";
 import type { Agent } from "../shared/types.js";
 
 export function listTeams(owner: string) {
@@ -71,9 +72,12 @@ export function createTeam(owner: string, input: unknown) {
       db.prepare(
         "INSERT INTO teams(id,owner_id,name,manager_id,created_at) VALUES(?,?,?,?,?)",
       ).run(teamId, owner, d.name, d.managerId, now());
+      const manager = owned<Agent>("agents", d.managerId, owner);
+      const managed = connectionSelection(owned<any>("connections", manager.connection_id!, owner));
       db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,created_at) VALUES(?,?,?,?,?,?)",
-      ).run(conversation, owner, d.managerId, d.name, teamId, now());
+        "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,execution_backend,execution_connection_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(conversation, owner, d.managerId, d.name, teamId,
+        managed ? "hapi" : "legacy", manager.connection_id, now());
       db.prepare("UPDATE teams SET conversation_id=? WHERE id=?").run(
         conversation,
         teamId,

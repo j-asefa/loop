@@ -1,6 +1,6 @@
 import { globSync } from "node:fs";
 import { build } from "esbuild";
-import { cp, chmod } from "node:fs/promises";
+import { cp, chmod, rm } from "node:fs/promises";
 // Preserve module-relative paths used by native fixtures, migration and host assets.
 await build({
   entryPoints: globSync("src/**/*.ts").filter(path => !path.startsWith("src/client/") && !path.endsWith(".d.ts")),
@@ -23,6 +23,8 @@ await build({
 await import("./build-connection.mjs");
 await cp("src/pi-extension.mjs", "dist/pi-extension.mjs");
 await cp("src/pi-auth-extension.mjs", "dist/pi-auth-extension.mjs");
+// Remove stale hashed assets before copying the current UI into the package.
+await rm("dist/web", { recursive: true, force: true });
 await cp("dist/client", "dist/web", { recursive: true });
 await chmod("dist/cli.js", 0o755);
 

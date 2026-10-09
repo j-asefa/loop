@@ -194,7 +194,7 @@ it("server execution rejects a native harness connection before dispatch", async
     JSON.stringify({ loopHarness: "codex" }),
     connectionId,
   );
-  await expect(executeAgent(run)).rejects.toThrow("companion deployment");
+  await expect(executeAgent(run)).rejects.toThrow("requires HAPI");
   expect(
     db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
   ).toBeUndefined();

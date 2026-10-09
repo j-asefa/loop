@@ -17,7 +17,14 @@ export async function profileWorkSmoke(page, capture) {
   };
   try {
     await workspaceRecoverySmoke(page, fixture);
-    const agent = fixture.agents[0];
+    // This scenario verifies API steering and receipts, independently of native
+    // lifecycle. Retired direct harness connections cannot accept new work.
+    const connection = await fixture.api("/connections", {
+      provider: "openai", label: "Profile work API", secret: "fixture-only",
+    });
+    const agent = await fixture.api(`/agents/${fixture.agents[0].id}`, {
+      connectionId: connection.id, model: connection.models[0].id,
+    }, "PATCH");
     const team = (await fixture.api("/teams")).find((team) =>
       team.members.includes(agent.id),
     );

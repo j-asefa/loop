@@ -15,21 +15,13 @@ This starts the compiled API and worker together in the foreground. The source e
 
 Open http://localhost:3000. `GET /api/health` reports readiness. [src/server/config.ts](../src/server/config.ts) and [.env.example](../.env.example) define configuration. Setup creates/preserves secrets; do not commit `.env`.
 
-## Docker and subscription connections
+## Docker and harness connections
 
-```sh
-node scripts/setup.mjs
-docker compose up --build -d
-docker compose logs -f loop runtime-broker
-```
+Run the [local HAPI stack](#local-hapi-and-memsearch-stack) for server-side harness execution. In Settings → Execution environments, select a provisioned environment, connect its provider and map the project directory. The runner verifies existing native sign-in before asking for authentication. Docker runners have a separate persistent home; they do not automatically share a laptop's account.
 
-The default published port is loopback-only. The private broker controls runtime containers through the Docker socket; the web application and model containers do not receive that socket. `LOOP_RUNTIME_TOKEN` authenticates broker access and identifies its deployment namespace. Preserve it across upgrades.
+All harness turns go through HAPI. Direct subscription connections, native-host inference and direct Codex app-server connections are retired. Existing conversations and files remain stored; reconnect the agent to its HAPI connection and start a new conversation. Loop does not move native context or replay queued or uncertain legacy work. API-key connections remain separate choices.
 
-In Settings → Provider connections, add ChatGPT or Claude, keep Subscription selected, select the runtime machine and follow the provider sign-in flow. A displayed login URL is not a connected account: wait for confirmation. Create an agent with the resulting connection and model. API connections are separate, explicit choices; subscription paths do not fall back to API billing. Provider limits and extra-usage settings still apply.
-
-The Docker broker retains per-connection native credential volumes. Codex operations share a persistent app-server; Claude operations use their own containers. Loop supplies conversation context for managed subscription turns, distinct from direct companion conversations that retain native session context. Native tools run inside these environments; Loop-connected tools follow the workspace approval preference. Disconnect disables new submissions and invokes logout; if the runtime is unreachable, retry to complete logout. Credential volumes are retained and require separate lifecycle management.
-
-[Remote server runtimes](remote-runtimes.md) covers a remote broker, a native host for Codex/Claude and direct Codex app-server. Those modes expose different host access than isolated containers.
+The base Compose stack also supplies the private broker for workspace command MCPs. Its Docker socket stays off the web application and model containers. Keep the broker token stable across upgrades. It is not a harness execution alternative.
 
 ### Automatic storage maintenance
 
@@ -43,7 +35,7 @@ Storage maintenance applies to managed Docker subscription homes, including lega
 
 ### Cleanup after a pull request merges
 
-Managed Docker agents receive a workspace lifecycle instruction: reuse a primary clone, create a linked Git worktree and branch per job, and register each job when opening or taking ownership of a GitHub PR:
+Legacy managed Docker agents registered jobs when opening or taking ownership of a GitHub PR, using a primary clone and a linked Git worktree and branch per job. Those registrations remain eligible for cleanup after HAPI migration:
 
 ```sh
 node /runtime/workspace-cleanup.mjs track /home/node/workspaces/AGENT_KEY /home/node/workspaces/AGENT_KEY/job https://github.com/owner/repo/pull/123
@@ -86,7 +78,7 @@ Point the hostname at the host, then run `docker compose --profile https up --bu
 
 ## Local HAPI and MemSearch stack
 
-This optional server stack runs the private HAPI Hub, runner and memory service locally:
+This server stack runs the private HAPI Hub, runner and memory service locally:
 
 ```sh
 node scripts/setup.mjs
@@ -94,7 +86,7 @@ node deployment/local/setup-native.mjs
 docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml up --build -d
 ```
 
-Open the workspace and connect the **This laptop** environment in Settings → Provider connections. Sign in using the provider flow. Generated identities are in `.local-native/`; databases, provider homes, projects and indexes also use persistent volumes. The native image uses the platform and versions in [deployment/versions.json](../deployment/versions.json); nonmatching hosts may require emulation.
+Open Settings → Execution environments and select the provisioned environment. Connect a provider using its existing runner account, or use the provider sign-in flow if needed. Generated identities are in `.local-native/`; databases, provider homes, projects and indexes also use persistent volumes. The native image uses the platform and versions in [deployment/versions.json](../deployment/versions.json); nonmatching hosts may require emulation.
 
 Stop with `docker compose -p loop-local-native -f compose.yaml -f deployment/local/compose.yaml down`. Omit `-v` to preserve declared volumes. This is separate from the CLI's [managed laptop launcher](harnesses.md#managed-launcher).
 

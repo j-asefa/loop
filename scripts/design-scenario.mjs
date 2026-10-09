@@ -747,21 +747,9 @@ for (const engine of selectedEngines()) {
         await dialog()
           .getByRole("button", { name: /Provider connections/ })
           .click();
-        await dialog()
-          .getByRole("button", { name: "Add a provider", exact: true })
-          .click();
-        await dialog()
-          .getByRole("button", { name: "Claude", exact: true })
-          .click();
-        await dialog()
-          .getByRole("button", { name: "Add a remote machine", exact: true })
-          .click();
-        await expect(dialog().getByLabel("Connection type")).toHaveValue(
-          "native-host",
-        );
+        await expect(dialog()).toHaveAttribute("aria-label", "Provider connections");
+        await expect(dialog().getByText("Harnesses run through HAPI.", { exact: false })).toBeVisible();
         await capture("remote");
-        await close();
-        await expect(dialog()).toHaveAttribute("aria-label", "Connect Claude");
         await close();
         await close();
         await nav("Projects");

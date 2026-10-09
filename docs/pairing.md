@@ -119,4 +119,4 @@ docker compose -f compose.companion.yaml stop
 
 Use Compose logs for foreground service output. `loop logs` remains available for any CLI daemon log in the persistent workspace. Stop through Compose to avoid its restart policy restarting an intentionally stopped CLI. Preserve the volumes when upgrading; do not use `down --volumes` for real workspaces. The server's `compose.yaml` and its data volume remain separate.
 
-The companion prepares Codex, Claude Code, guarded OpenCode and Pi using native execution inside the container. Sign in through the app on that runner. Codex, Claude Code and managed OpenCode require subscription authentication; Pi uses its existing billing configuration. Preparation failures retain the direct fallback and report the setup failure.
+The companion prepares Codex, Claude Code, guarded OpenCode and Pi using native execution inside the container. Sign in through the app on that runner. Codex, Claude Code and managed OpenCode require subscription authentication; Pi uses its existing billing configuration. Preparation failures report the setup failure and keep harness execution unavailable until HAPI is repaired and restarted.

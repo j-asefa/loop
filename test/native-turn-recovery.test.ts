@@ -62,126 +62,78 @@ function submit(conversation: string, harness: string, key: string) {
   });
 }
 
-it("keeps the user run open across injected Claude results and saves its actual final reply", async () => {
-  process.env.LOOP_TEST_HARNESS = "claude";
-  process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS = "1";
-  const audit = join(dir, "claude-prompts");
-  process.env.LOOP_TEST_AUDIT = audit;
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  const run = submit("claude-recovery", "claude", "claude-recovery");
-  expect(await tick(execute)).toBe(true);
-  // Ignoring a result is what keeps the run open, so it can also be what
-  // leaves a run open forever if Claude relabels real user turns. Every drop
-  // names its reason: a stalled turn has no other symptom to go on.
-  const dropped = warn.mock.calls.map(([line]) => String(line));
-  warn.mockRestore();
-  for (const reason of [
-    'origin.kind="task-notification" is not human',
-    'origin.kind="peer" is not human',
-    'origin.kind="channel" is not human',
-    'origin.kind="future-origin" is not human',
-    "it belongs to a different native session",
-    "it belongs to a child tool session",
-  ])
-    expect(dropped.filter((line) => line.includes(reason)).length).toBeGreaterThan(0);
-  expect(
-    db.prepare("SELECT state,result,error FROM runs WHERE id=?").get(run.id),
-  ).toEqual({ state: "completed", result: "Fixture done", error: null });
-  expect(
-    db
-      .prepare(
-        "SELECT content FROM messages WHERE run_id=? AND role='assistant'",
-      )
-      .get(run.id),
-  ).toEqual({ content: "Fixture done" });
-  expect(
-    db
-      .prepare(
-        "SELECT content FROM run_traces WHERE run_id=? AND json_extract(metadata,'$.final')=1",
-      )
-      .get(run.id),
-  ).toEqual({ content: "Fixture done" });
-  expect(
-    db
-      .prepare(
-        "SELECT count(*) n FROM native_items WHERE conversation_id=? AND run_id IS NULL",
-      )
-      .get("claude-recovery"),
-  ).toEqual({ n: 0 });
-  expect(readFileSync(audit, "utf8")).toBe("prompt\n");
-});
+it.each(["claude", "codex"])(
+  "never resumes an archived %s conversation or replays its uncertain work",
+  async (harness) => {
+    const conversation = `${harness}-archived`;
+    const audit = join(dir, `${harness}-prompts`);
+    process.env.LOOP_TEST_HARNESS = harness;
+    process.env.LOOP_TEST_AUDIT = audit;
+    const first = submit(conversation, harness, `${harness}-first`);
+    db.prepare(
+      "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation) VALUES(?,?,?,'private-native-thread','unknown',0,'old')",
+    ).run(conversation, harness, dir);
+    const before = db
+      .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
+      .get(conversation);
+    for (const run of [
+      first,
+      submit(conversation, harness, `${harness}-explicit-retry`),
+    ]) {
+      expect(await tick(execute)).toBe(true);
+      expect(
+        db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
+      ).toMatchObject({
+        state: "failed",
+        error: expect.stringContaining("requires HAPI"),
+      });
+      expect(
+        db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
+      ).toBeUndefined();
+    }
+    expect(
+      db
+        .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
+        .get(conversation),
+    ).toEqual(before);
+    expect(existsSync(audit)).toBe(false);
+  },
+);
 
-it("reports a Codex writer conflict without dispatch, takeover or raw native error disclosure", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_CODEX_WRITER_BUSY = "1";
-  const audit = join(dir, "codex-prompts");
-  process.env.LOOP_TEST_AUDIT = audit;
-  const run = submit("codex-busy", "codex", "codex-busy");
-  db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation) VALUES(?,'codex',?,'private-native-thread','idle',0,'old')",
-  ).run("codex-busy", dir);
-  expect(await tick(execute)).toBe(true);
-  const result = db
-    .prepare("SELECT state,error FROM runs WHERE id=?")
-    .get(run.id) as any;
-  expect(result.state).toBe("failed");
-  expect(result.error).toContain("in use by another Codex client");
-  expect(result.error).toContain("No prompt was sent");
-  expect(result.error).not.toContain("private-native-thread");
-  expect(
-    db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
-  ).toBeUndefined();
-  expect(existsSync(audit)).toBe(false);
-  const trace = db
-    .prepare(
-      "SELECT metadata FROM run_traces WHERE run_id=? AND trace_key='run:failure'",
-    )
-    .get(run.id) as any;
-  expect(JSON.parse(trace.metadata).failure).toMatchObject({
-    phase: "native startup",
-    code: "native_session_in_use",
-  });
+it("upgrade disconnects only retired execution connections and preserves their history and identities", () => {
+  for (const [key, metadata] of [
+    ["old-sub", { authMode: "subscription" }],
+    ["managed", { backend: "hapi", flavor: "codex" }],
+    ["api", {}],
+  ] as const)
+    db.prepare(
+      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'other-owner','openai','Fixture','saved-secret','connected','[]',?,0)",
+    ).run(key, JSON.stringify(metadata));
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('user-disconnected','other-owner','codex','Fixture','','disconnected','[]','{\"authMode\":\"subscription\"}',0)").run();
+  const sessions = db
+    .prepare("SELECT * FROM companion_sessions ORDER BY conversation_id")
+    .all();
+  const runs = db.prepare("SELECT * FROM runs ORDER BY id").all();
+  db.transaction(() => {
+    db.prepare("DELETE FROM schema_version WHERE version=67").run();
+    db.exec(
+      readFileSync(resolve("migrations/067-hapi-only-harnesses.sql"), "utf8"),
+    );
+  })();
+  for (const key of ["old-sub", "native-codex", "native-claude"])
+    expect(
+      db.prepare("SELECT status FROM connections WHERE id=?").get(key),
+    ).toEqual({ status: "disconnected" });
+  expect(JSON.parse((db.prepare("SELECT metadata FROM connections WHERE id='old-sub'").get() as any).metadata).retiredDirectRuntime).toBe(true);
+  expect(JSON.parse((db.prepare("SELECT metadata FROM connections WHERE id='user-disconnected'").get() as any).metadata).retiredDirectRuntime).toBeUndefined();
+  for (const key of ["managed", "api"])
+    expect(
+      db.prepare("SELECT status,secret FROM connections WHERE id=?").get(key),
+    ).toEqual({ status: "connected", secret: "saved-secret" });
   expect(
     db
-      .prepare(
-        "SELECT native_id FROM companion_sessions WHERE conversation_id='codex-busy'",
-      )
-      .get(),
-  ).toEqual({ native_id: "private-native-thread" });
-  // Once its other owner releases it, only an explicit new request resumes
-  // that same conversation. The rejected posting request is never replayed.
-  delete process.env.LOOP_TEST_CODEX_WRITER_BUSY;
-  const retry = submit("codex-busy", "codex", "codex-explicit-retry");
-  expect(await tick(execute)).toBe(true);
-  expect(
-    db.prepare("SELECT state,result FROM runs WHERE id=?").get(retry.id),
-  ).toEqual({ state: "completed", result: "Fixture done" });
-  expect(readFileSync(audit, "utf8")).toBe("prompt\n");
-});
-
-it("recognises a reworded Codex writer conflict instead of leaking the native error", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  // Loop does not own this message, so it matches the phrase rather than the
-  // exact sentence: a prefix or suffix upstream must not drop the person back
-  // to the raw native error.
-  process.env.LOOP_TEST_CODEX_WRITER_BUSY = "reworded";
-  const audit = join(dir, "codex-reworded-prompts");
-  process.env.LOOP_TEST_AUDIT = audit;
-  const run = submit("codex-reworded", "codex", "codex-reworded");
-  db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation) VALUES(?,'codex',?,'other-native-thread','idle',0,'old')",
-  ).run("codex-reworded", dir);
-  expect(await tick(execute)).toBe(true);
-  const result = db
-    .prepare("SELECT state,error FROM runs WHERE id=?")
-    .get(run.id) as any;
-  expect(result.state).toBe("failed");
-  expect(result.error).toContain("in use by another Codex client");
-  expect(result.error).toContain("No prompt was sent");
-  expect(result.error).not.toContain("other-native-thread");
-  expect(result.error).not.toContain("pid 4121");
-  expect(existsSync(audit)).toBe(false);
-  expect(
-    db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
-  ).toBeUndefined();
+      .prepare("SELECT * FROM companion_sessions ORDER BY conversation_id")
+      .all(),
+  ).toEqual(sessions);
+  expect(db.prepare("SELECT * FROM runs ORDER BY id").all()).toEqual(runs);
 });

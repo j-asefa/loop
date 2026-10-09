@@ -89,7 +89,7 @@ it("rejects executable overrides, foreign projects and billing mismatch before r
   expect(fixture.direct).not.toHaveBeenCalled();
 });
 
-it("does not fall back after a managed worker failure but retains direct Enable when offline", async () => {
+it("does not fall back after a managed worker failure or when offline", async () => {
   fixture.worker.mockRejectedValueOnce(new Error("runner unavailable"));
   const failure = await enable("pi", { projectId: "project", billing: "existing" });
   expect(failure.status).toBe(500);
@@ -97,31 +97,25 @@ it("does not fall back after a managed worker failure but retains direct Enable 
   expect(fixture.direct).not.toHaveBeenCalled();
   fixture.state = "offline";
   const response = await enable("pi", { projectId: "project", billing: "existing" });
-  expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ id: "native-pi" });
-  expect(fixture.direct).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ executable: "/host/pi", project: "/project", billing: "existing" }));
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toMatch(/HAPI is not ready/);
+  expect(fixture.direct).not.toHaveBeenCalled();
 });
 
-it("combines an online runner with direct runtimes it does not serve without billing fallback", async () => {
+it("does not expose or enable a direct runtime missing from HAPI inventory", async () => {
   fixture.state = "online";
   fixture.direct.mockClear(); fixture.discover.mockClear(); fixture.connect.mockClear();
   fixture.worker.mockImplementation(async (_e, path) => path === "/runtimes"
     ? { runtimes: [{ flavor: "codex", installed: true, authentication: "signed_in" }] }
     : { path: "/project" });
   const inventory = await fetch(`${origin}/workspace/runtimes`).then((r) => r.json());
-  expect(inventory.runtimes.find((r: any) => r.name === "codex")).toMatchObject({ backend: "hapi", available: true });
-  expect(inventory.runtimes.find((r: any) => r.name === "opencode")).toMatchObject({ backend: "direct", available: true });
-  const direct = await enable("opencode", { projectId: "project", billing: "existing" });
-  expect(direct.status).toBe(200);
-  expect(await direct.json()).toEqual({ id: "native-opencode" });
-  expect(fixture.direct).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ harness: "opencode", executable: "/host/opencode", billing: "existing" }));
-  for (const name of ["codex", "opencode"]) {
-    const rejected = await enable(name, { projectId: "project", billing: name === "codex" ? "existing" : "subscription" });
-    expect(rejected.status).toBe(422);
-    await rejected.body?.cancel();
-  }
-  expect(fixture.direct).toHaveBeenCalledTimes(1);
-  expect(fixture.connect).not.toHaveBeenCalled();
+  expect(inventory.runtimes).toHaveLength(1);
+  expect(inventory.runtimes[0]).toMatchObject({ backend: "hapi", available: true });
+  const response = await enable("opencode", { projectId: "project", billing: "existing" });
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toMatch(/unavailable on HAPI/);
+  expect(fixture.direct).not.toHaveBeenCalled();
+  expect(fixture.discover).not.toHaveBeenCalled();
 });
 
 it("does not substitute direct execution when the online runner returns malformed inventory", async () => {

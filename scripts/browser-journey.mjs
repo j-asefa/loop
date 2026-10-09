@@ -31,9 +31,6 @@ const port = await freePort(),
 import { spawn } from "node:child_process";
 import { feedbackJourney } from "./feedback-journey.mjs";
 import { catalogJourney } from "./catalog-journey.mjs";
-import { providerJourney } from "./provider-journey.mjs";
-import { remoteCodexJourney } from "./remote-codex-journey.mjs";
-import { remoteClaudeJourney } from "./remote-claude-journey.mjs";
 import { agentCreationJourney } from "./agent-creation-journey.mjs";
 import {
   composerJourney,
@@ -116,21 +113,12 @@ try {
   await page.getByRole("heading", { name: "Feed", exact: true }).waitFor();
   await openSettings(page);
   await page.getByRole("button", { name: /Provider connections/ }).click();
-  await page.getByRole("heading", { name: "Choose a provider" }).waitFor();
-  await page.getByRole("button", { name: "ChatGPT", exact: true }).click();
-  await page.getByRole("radio", { name: "API key", exact: true }).check();
-  await page.locator(".connection-options summary").click();
-  await page
-    .getByLabel("Account name", { exact: true })
-    .fill("Deterministic fixture account");
-  await page
-    .getByLabel("OpenAI API key", { exact: true })
-    .fill("test-only-do-not-use");
-  await page
-    .getByRole("button", { name: "Connect ChatGPT", exact: true })
-    .click();
-  await page.getByRole("heading", { name: "ChatGPT connected" }).waitFor();
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", {name:"API connections",exact:true}).click();
+  await page.getByRole("button", {name:"Connect an API key for Loop's own agent runtime",exact:true}).click();
+  await page.getByLabel("Label",{exact:true}).fill("Deterministic fixture account");
+  await page.getByLabel("API key",{exact:true}).fill("test-only-do-not-use");
+  await page.getByRole("button",{name:"Connect API key",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Deterministic fixture account",exact:true})).toBeVisible();
   await closeSheets(page);
   await page
     .getByRole("button", { name: "Create your first agent", exact: true })
@@ -430,94 +418,12 @@ try {
     [...new Set(ids)].sort((a, b) => a - b),
   );
   await closeSheets(page);
-  // Subscription-first UI, native auth handoff shapes and actual durable worker/tool broker.
-  const subs = [];
-  for (const runtime of ["codex", "claude"]) {
-    await openSettings(page);
-    await page.getByRole("button", { name: /Provider connections/ }).click();
-    const providerName = runtime === "codex" ? "ChatGPT" : "Claude";
-    await page
-      .getByRole("button", { name: "Add a provider", exact: true })
-      .click();
-    await page.getByRole("button", { name: providerName, exact: true }).click();
-    assert.equal(
-      await page.getByLabel(/^(OpenAI|Anthropic) API key$/).count(),
-      0,
-    );
-    await page.locator(".connection-options summary").click();
-    await page
-      .getByLabel("Account name", { exact: true })
-      .fill(runtime + " subscription fixture");
-    await page
-      .getByRole("button", {
-        name: "Continue with " + providerName,
-        exact: true,
-      })
-      .click();
-    await page
-      .getByRole("heading", { name: "Sign in to " + providerName, exact: true })
-      .waitFor();
-    const link = page.getByRole("link", {
-      name: "Open " + providerName + " sign-in",
-    });
-    await link.waitFor();
-    assert.match(
-      await link.getAttribute("href"),
-      runtime === "codex"
-        ? /^https:\/\/auth\.openai\.com\//
-        : /^https:\/\/claude\.com\/cai\/oauth\/authorize/,
-    );
-    if (runtime === "claude") {
-      await page.getByLabel("One-time sign-in code").fill("fixture-code");
-      await page
-        .getByRole("button", { name: "Complete sign-in", exact: true })
-        .click();
-    }
-    await page
-      .getByRole("heading", { name: providerName + " connected", exact: true })
-      .waitFor({ timeout: 15000 });
-    await page.getByRole("button", { name: "Done", exact: true }).click();
-    await closeSheets(page);
-    const bootstrap = await api("/bootstrap");
-    const conn = bootstrap.connections.find(
-      (c) => c.label === runtime + " subscription fixture",
-    );
-    subs.push(conn);
-    assert.equal(conn.status, "connected");
-    assert.equal(conn.secret, undefined);
-    const agent = await api("/agents", {
-      name: runtime + "-subscription",
-      connectionId: conn.id,
-      model: "subscription-fixture",
-    });
-    if (runtime === "codex") {
-      await api("/mcp/" + conns[0].id, { action: "enable" }, "PATCH");
-    }
-    const run = await api("/runs", {
-      agentId: agent.id,
-      input: "Use subscription allowance",
-      idempotencyKey: crypto.randomUUID(),
-    });
-    let final;
-    for (let i = 0; i < 60; i++) {
-      final = (await api("/runs")).find((r) => r.id === run.id);
-      if (final.state === "awaiting_approval") {
-        const approval = (await api("/approvals")).find(
-          (a) => a.run_id === run.id,
-        );
-        assert.ok(approval, "subscription tool requires explicit approval");
-        await api("/approvals/" + approval.id, { decision: "approve" });
-      }
-      if (["completed", "failed"].includes(final.state)) break;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    assert.equal(final.state, "completed");
-    assert.match(
-      (await api("/conversations/" + run.conversation_id)).messages.at(-1)
-        .content,
-      /Subscription fixture response/,
-    );
-  }
+  // Direct subscription enrollment is retired; harnesses use execution environments.
+  await openSettings(page);
+  await page.getByRole("button", {name:/Provider connections/}).click();
+  await expect(page.getByText("Harnesses run through HAPI.",{exact:false})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Add a provider",exact:true})).toHaveCount(0);
+  await closeSheets(page);
   const stranger = await browser.newContext();
   const other = await stranger.request.post(base + "/api/auth/sign-up/email", {
     headers: { origin: base },
@@ -543,22 +449,6 @@ try {
     await stranger.request.get(base + "/api/search?q=resting")
   ).json();
   assert.equal(otherSearch.items.length, 0);
-  for (const conn of subs) {
-    assert.equal(
-      (
-        await stranger.request.post(
-          base + "/api/subscriptions/" + conn.id + "/status",
-          { headers: { origin: base }, data: {} },
-        )
-      ).status(),
-      404,
-    );
-  }
-  await api("/connections/" + subs[0].id, {}, "DELETE");
-  assert.equal(
-    (await api("/subscriptions/" + subs[0].id + "/status", {})).authenticated,
-    false,
-  );
   await stranger.close();
   // Run network-failure injection in its own context without a service worker.
   // Keep real service workers in the main journey.
@@ -603,13 +493,6 @@ try {
         },
         { path, body, method },
       );
-    await providerJourney(providerPage, providerApi);
-    await remoteCodexJourney(providerPage, providerApi, remoteCodex);
-    await remoteClaudeJourney(
-      providerPage,
-      providerApi,
-      `http://127.0.0.1:${brokerPort}/native`,
-    );
     await agentCreationJourney(providerPage, providerApi);
     await failureJourney(providerPage, providerApi, dir);
     await composerJourney(providerPage, providerApi);
@@ -680,7 +563,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: labeled fixture provider connection → chosen model → streamed artifact → natural filing/Undo → project search → original conversation; workspace MCP connect/discover → model approval → native chart without app resource; disabled tools; client-close completion/reconnect without duplicate messages; direct second-user artifact/app/conversation/agent/search denial; both subscription sign-in UIs, subscription worker completion, disconnect and cross-user auth denial (fixtures).",
+    "PASS: HAPI connection guidance; labeled API fixture connection → chosen model → streamed artifact → natural filing/Undo → project search → original conversation; workspace MCP connect/discover → model approval → native chart without app resource; disabled tools; client-close completion/reconnect without duplicate messages; second-user artifact/app/conversation/agent/search denial (fixtures).",
   );
 } catch (e) {
   console.log(

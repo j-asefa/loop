@@ -79,7 +79,8 @@ function agent(owner: string, name: string, metadata: object = {}) {
     instructions: name,
   });
 }
-const harness = (loopHarness: string) => ({ loopHarness });
+const harness = (flavor: string) => ({ backend: "hapi", environmentId: "env-local", flavor,
+  billing: flavor === "pi" ? { mode: "existing", requiredAuth: "pi", allowApiFallback: false } : billingPolicy });
 // A run the worker is executing: invokeNative and loop_message require it.
 function running(
   owner: string,
@@ -158,7 +159,7 @@ it("gives every team member the tool and a roster, and refuses anyone outside th
   expect(tool.description).toContain(manager.id);
   expect(tool.description).toContain(piWorker.id);
   expect(tool.description).not.toContain(`"agentId":"${coder.id}"`);
-  expect(tool.description).toContain('"runtime":"Pi"');
+  expect(tool.description).toContain('"runtime":"Pi (HAPI)"');
   expect(tool.description).toContain('"role":"manager"');
   // Workers still don't delegate; only the manager does.
   expect(binding(task, "loop_delegate")).toBeUndefined();
@@ -272,8 +273,8 @@ it("steers only runtimes that take live input, and never a manager waiting on it
   const urgent = (to: string) =>
     message(lead, { to, body: "Stop: the schema changed.", interrupt: true });
   for (const [worker, delivery] of [
-    [coder, "steered"],
-    [piWorker, "steered"],
+    [coder, "queued"],
+    [piWorker, "queued"],
     [openWorker, "queued"],
   ] as const) {
     const busy = running(owner, worker.id, { teamId: team.id });
@@ -282,26 +283,7 @@ it("steers only runtimes that take live input, and never a manager waiting on it
     expect(sent.delivery).toBe(delivery);
     const row = mail(sent.messageId);
     expect(row.recipient_conversation_id).toBe(busy.conversation_id);
-    if (delivery === "steered") {
-      expect(row.run_id).toBe(busy.id);
-      expect(
-        db
-          .prepare("SELECT state FROM run_steering WHERE id=?")
-          .get(row.steering_id),
-      ).toEqual({ state: "pending" });
-      // The steered input is labelled as a teammate's message too.
-      expect(
-        JSON.parse(
-          (
-            db
-              .prepare(
-                "SELECT m.metadata FROM run_steering s JOIN messages m ON m.id=s.message_id WHERE s.id=?",
-              )
-              .get(row.steering_id) as any
-          ).metadata,
-        ).automation.kind,
-      ).toBe("agent_message");
-    } else expect(row.steering_id).toBeNull();
+    expect(row.steering_id).toBeNull();
   }
   // Without interrupt, a busy Codex worker still gets it after its task.
   const calm = await message(lead, { to: coder.id, body: "When you're done" });
@@ -411,6 +393,8 @@ it("pauses a thread at the pair limit, holds what follows, and sends it in order
 it("requeues a mid-task message its task ended without reading, once, and never resends an unconfirmed one", async () => {
   const owner = "requeue";
   const { manager, coder, team } = mixedTeam(owner);
+  // API runs still support live steering; HAPI follow-ups are queued.
+  db.prepare("UPDATE connections SET metadata='{}' WHERE id=?").run(coder.connection_id);
   const lead = running(owner, manager.id, {
     conversationId: team.conversation_id!,
   });
@@ -825,6 +809,8 @@ it("retries a result the manager can't take yet, and holds it while the manager 
 it("doesn't restart a cancelled task with its unread messages, and cancels results waiting for a cancelled manager", async () => {
   const owner = "cancel-reads";
   const { manager, coder, piWorker, team } = mixedTeam(owner);
+  // API runs still support live steering; HAPI follow-ups are queued.
+  db.prepare("UPDATE connections SET metadata='{}' WHERE id=?").run(coder.connection_id);
   const lead = running(owner, manager.id, {
     conversationId: team.conversation_id!,
   });

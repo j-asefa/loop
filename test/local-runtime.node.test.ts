@@ -257,9 +257,8 @@ test("an upgrade points the application unit at the new build", () => {
     assert(next, "the unit named a different build");
     assert(next.includes(installed), "the new build is the launch's executable");
     assert(!next.includes(checkout), "the old build is gone from the launch");
-    // Only the executable moves: the saved launch, node, environment, working
-    // directory and supervision all survive the rewrite.
-    assert.equal(next, units.app.contents.replace(checkout, installed));
+    const expected = serviceDefinitions(platform, "/usr/local/bin/node", installed, "/state", "/project", "/bin", [], ["start", "--providers", "codex"]);
+    assert.equal(next, expected.app.contents);
     // Pointing it again is a no-op, so a plain restart is left to the manager.
     assert.equal(repointUnit(platform, next, installed), null);
     // A definition Loop cannot read is refused with recovery guidance rather
@@ -342,5 +341,19 @@ test("an upgrade repoints both units but only reloads the application", async ()
     else process.env.HOME = HOME;
     process.env.PATH = path;
     await rm(home, { recursive: true, force: true });
+  }
+});
+
+ test("upgrades saved direct and ACP service launches on both service managers", () => {
+  for (const platform of ["darwin", "linux"]) {
+    for (const launch of [
+      ["start", "--project=/project", "--direct", "--local-only"],
+      ["acp", "--project", "/project", "--executable", "/retired", "--acp-arg=x", "--billing", "existing", "--local-only"],
+    ]) {
+      const old = serviceDefinitions(platform, "/node", "/old", "/state", "/project", "/bin", null, launch);
+      const actual = repointUnit(platform, old.app.contents, "/new");
+      const expected = serviceDefinitions(platform, "/node", "/new", "/state", "/project", "/bin", null, ["start", "--project", "/project", "--local-only"]);
+      assert.equal(actual, expected.app.contents);
+    }
   }
 });

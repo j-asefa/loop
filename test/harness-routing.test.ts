@@ -150,110 +150,6 @@ function piCommands(this: InstanceType<typeof Pi>) {
   return {} as any;
 }
 
-it("probes the agent's new harness in the chat's project after a switch to Pi", async () => {
-  // session() rebinds the chat to Pi on its next turn and keeps the project,
-  // so the catalog must list the commands that turn will accept.
-  const aid = agent(),
-    cid = directChat(aid);
-  const codex = vi.spyOn(Codex.prototype, "start");
-  const pi = vi
-    .spyOn(Pi.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Pi>) {
-      expect((this as any).options).toMatchObject({
-        harness: "pi",
-        project: originalProject,
-        probeOnly: true,
-      });
-      return piCommands.call(this);
-    });
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
-  expect(await catalog(aid, cid)).toMatchObject({
-    status: 200,
-    data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
-  });
-  expect(pi).toHaveBeenCalledOnce();
-  expect(codex).not.toHaveBeenCalled();
-});
-
-it("probes the bound project when the chat stays on its harness", async () => {
-  const aid = agent(codexConnection),
-    cid = directChat(aid);
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      expect((this as any).options).toMatchObject({
-        harness: "codex",
-        project: originalProject,
-      });
-      this.commands = [];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  expect(await catalog(aid, cid)).toMatchObject({
-    status: 200,
-    data: { runtime: "Codex" },
-  });
-  expect(start).toHaveBeenCalledOnce();
-});
-
-it("uses the live chat catalog only while the agent stays on that harness", async () => {
-  const live = (nativeSessions as any).live as Map<string, any>;
-  const session = {
-    closed: false,
-    adapter: {
-      commandCatalog: { revision: 7 },
-      commands: [
-        {
-          name: "review",
-          token: "/review",
-          kind: "command",
-          description: "Codex review",
-        },
-      ],
-    },
-  };
-  const same = agent(codexConnection),
-    kept = directChat(same);
-  const switched = agent(),
-    moved = directChat(switched);
-  live.set(kept, session);
-  live.set(moved, session);
-  const pi = vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
-  try {
-    expect(await catalog(same, kept)).toMatchObject({
-      status: 200,
-      data: { runtime: "Codex", revision: 7, commands: [{ token: "/review" }] },
-    });
-    expect(pi).not.toHaveBeenCalled();
-    expect(await catalog(switched, moved)).toMatchObject({
-      status: 200,
-      data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
-    });
-  } finally {
-    live.delete(kept);
-    live.delete(moved);
-  }
-});
-
-it("ignores a stale execution connection on a non-managed chat", async () => {
-  const aid = agent(codexConnection);
-  const stale = connection({ backend: "runtime" });
-  const cid = conversation(aid, stale);
-  db.prepare("DELETE FROM connections WHERE id=?").run(stale);
-  vi.spyOn(Codex.prototype, "start").mockImplementation(async function (
-    this: InstanceType<typeof Codex>,
-  ) {
-    this.commands = [];
-    return {} as any;
-  });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  expect(await catalog(aid, cid)).toMatchObject({
-    status: 200,
-    data: { runtime: "Codex" },
-  });
-});
-
 it("reports a disconnected agent connection instead of probing a bound chat", async () => {
   const disconnected = connection({ loopHarness: "codex" });
   db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
@@ -264,18 +160,6 @@ it("reports a disconnected agent connection instead of probing a bound chat", as
   const start = vi.spyOn(Codex.prototype, "start");
   expect((await catalog(aid, cid)).status).toBe(409);
   expect(start).not.toHaveBeenCalled();
-});
-
-it("uses the agent's current harness for a new task", async () => {
-  const aid = agent();
-  directChat(aid);
-  const pi = vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
-  expect(await catalog(aid)).toMatchObject({
-    status: 200,
-    data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
-  });
-  expect(pi).toHaveBeenCalledOnce();
 });
 
 it("fetches the requested managed Codex chat, not the agent's newer Pi chat", async () => {
@@ -367,55 +251,6 @@ it("refuses a legacy chat after the agent moves to a managed runtime", async () 
   expect((await catalog(aid, cid)).status).toBe(409);
 });
 
-it("shares one recent probe across polls", async () => {
-  const aid = agent(codexConnection),
-    cid = directChat(aid);
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      this.commands = [];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  (nativeSessions as any).clearProbes();
-  expect((await catalog(aid, cid)).status).toBe(200);
-  expect((await catalog(aid, cid)).status).toBe(200);
-  expect(start).toHaveBeenCalledOnce();
-  (nativeSessions as any).clearProbes();
-});
-
-it("probes the folder the next turn uses, not the agent's newer folder", async () => {
-  const folder = id(),
-    elsewhere = join(dir, "elsewhere");
-  mkdirSync(elsewhere);
-  db.prepare(
-    "INSERT INTO folders(id,owner_id,name,kind,created_at) VALUES(?,?,'Elsewhere','project',?)",
-  ).run(folder, OWNER, now());
-  db.prepare("INSERT INTO project_paths(folder_id,path) VALUES(?,?)").run(
-    folder,
-    elsewhere,
-  );
-  const aid = agent(codexConnection),
-    cid = conversation(aid, codexConnection);
-  // The conversation's last run had no folder; the agent got one later.
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'earlier','completed',?,'{}',?,?)",
-  ).run(id(), OWNER, aid, cid, id(), now(), now());
-  db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(folder, aid);
-  (nativeSessions as any).clearProbes();
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      expect((this as any).options.project).toBe(dir);
-      this.commands = [];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  expect((await catalog(aid, cid)).status).toBe(200);
-  expect(start).toHaveBeenCalledOnce();
-  (nativeSessions as any).clearProbes();
-});
-
 it("lists a managed catalog while its connection reports disconnected, as runs still proceed", async () => {
   const disconnected = connection({
     backend: "hapi",
@@ -448,8 +283,8 @@ it("keeps discovery within the requested owner and agent", async () => {
   vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
   vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
   expect(await catalog(aid, directChat(other))).toMatchObject({
-    status: 200,
-    data: { runtime: "Pi" },
+    status: 409,
+    data: { error: expect.stringContaining("direct harness execution") },
   });
   expect(codex).not.toHaveBeenCalled();
   expect(
@@ -457,4 +292,16 @@ it("keeps discovery within the requested owner and agent", async () => {
       .status,
   ).toBe(404);
   expect((await catalog(aid, "invalid")).status).not.toBe(200);
+});
+
+it("never probes a direct harness when listing legacy connection commands", async () => {
+  for (const connectionId of [codexConnection, piConnection]) {
+    const aid = agent(connectionId);
+    const codex = vi.spyOn(Codex.prototype, "start");
+    const pi = vi.spyOn(Pi.prototype, "start");
+    expect((await catalog(aid)).status).toBe(409);
+    expect((await catalog(aid, directChat(aid))).status).toBe(409);
+    expect(codex).not.toHaveBeenCalled(); expect(pi).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  }
 });

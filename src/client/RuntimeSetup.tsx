@@ -14,8 +14,8 @@ import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
 type Runtime = {
   name: string;
-  backend?: "hapi" | "direct";
-  environmentId?: string;
+  backend: "hapi";
+  environmentId: string;
   generation?: number;
   installed: boolean;
   available: boolean;
@@ -39,23 +39,17 @@ const labels: Record<string, string> = {
   opencode: "OpenCode",
 };
 function authBase(runtime: Runtime) {
-  return runtime.backend === "hapi"
-    ? `/environments/${encodeURIComponent(runtime.environmentId!)}/provider/${runtime.name}`
-    : `/workspace/runtimes/${runtime.name}/auth`;
+  return `/environments/${encodeURIComponent(runtime.environmentId)}/provider/${runtime.name}`;
 }
 function authStatus(runtime: Runtime) {
-  return api<NativeAuthView>(
-    `${authBase(runtime)}/status`,
-    runtime.backend === "hapi" ? {} : undefined,
-  );
+  return api<NativeAuthView>(`${authBase(runtime)}/status`, {});
 }
 function matchesRuntime(connection: Connection, runtime: Runtime) {
   const metadata = parse<any>(connection.metadata, {});
   return (
-    metadata.loopHarness === runtime.name ||
-    (metadata.backend === "hapi" &&
-      metadata.environmentId === runtime.environmentId &&
-      metadata.flavor === runtime.name)
+    metadata.backend === "hapi" &&
+    metadata.environmentId === runtime.environmentId &&
+    metadata.flavor === runtime.name
   );
 }
 export function RuntimeSetup({
@@ -70,7 +64,6 @@ export function RuntimeSetup({
     { folder_id: string; path: string }[]
   >([]);
   const [project, setProject] = useState("");
-  const [billing, setBilling] = useState("subscription");
   const [enabling, setEnabling] = useState<string>();
   const busy = !!enabling;
   const [error, setError] = useState("");
@@ -134,13 +127,10 @@ export function RuntimeSetup({
     setEnableError(undefined);
     setError("");
     try {
-      const projectId =
-        runtime.enabled && runtime.backend !== "hapi"
-          ? projects.find((p) => p.path === runtime.project)?.folder_id
-          : project;
+      const projectId = project;
       await api(`/workspace/runtimes/${runtime.name}/enable`, {
         projectId,
-        billing: runtime.billing || billing,
+        billing: runtime.billing,
       });
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
@@ -238,21 +228,6 @@ export function RuntimeSetup({
           Add a desktop directory in Projects before enabling a runtime.
         </p>
       )}
-      <label>
-        Billing policy for new runtimes
-        <select
-          value={billing}
-          onChange={(e) => setBilling(e.target.value)}
-          disabled={busy || authInProgress}
-        >
-          <option value="subscription">
-            Require verified native subscription
-          </option>
-          <option value="existing">
-            Use existing native configuration (may incur API charges)
-          </option>
-        </select>
-      </label>
       <p className="field-hint">
         No automatic billing fallback. Pi uses existing billing and may incur
         API charges.
@@ -274,7 +249,10 @@ export function RuntimeSetup({
           {runtimeSetupMessages[discovery.setup]}
         </p>
       )}
-      <p className="settings-intro">Use your coding accounts in Loop.</p>
+      <p className="settings-intro">
+        Installed harnesses run through HAPI using their existing sign-in on
+        this computer.
+      </p>
       {error && (
         <div className="settings-error" role="alert">
           {error}
@@ -291,12 +269,7 @@ export function RuntimeSetup({
           const authenticating = ["starting", "waiting"].includes(
             authStates[scope] || "",
           );
-          const projectId =
-            runtime.enabled && runtime.backend !== "hapi"
-              ? projects.find((p) => p.path === runtime.project)?.folder_id
-              : project;
-          // Direct sign-in runs the harness in a project directory.
-          const needsProject = !projectId && runtime.backend !== "hapi";
+          const projectId = project;
           const state = !discovery.online
             ? "Offline"
             : authenticating
@@ -360,11 +333,7 @@ export function RuntimeSetup({
               <button
                 type="button"
                 className="settings-next"
-                disabled={
-                  busy ||
-                  !runtime.installed ||
-                  (needsProject && runtime.available && discovery.online)
-                }
+                disabled={busy || !runtime.installed}
                 onClick={() => setSigningIn(runtime.name)}
                 aria-label={
                   !runtime.available || !discovery.online
@@ -386,13 +355,6 @@ export function RuntimeSetup({
               {!runtime.available && (
                 <p className="field-hint">{runtime.help}</p>
               )}
-              {needsProject && runtime.available && discovery.online && (
-                <p className="field-hint">
-                  {runtime.enabled
-                    ? `${label} is bound to a directory that is no longer in Projects. Add it back to manage this account.`
-                    : "Add a desktop directory in Projects before signing in."}
-                </p>
-              )}
               {open && (
                 <Sheet
                   className="settings-sheet"
@@ -400,17 +362,12 @@ export function RuntimeSetup({
                   onClose={() => setSigningIn(undefined)}
                 >
                   <p className="settings-intro">
-                    {discovery.computer} ·{" "}
-                    {runtime.backend === "hapi"
-                      ? "Managed runner"
-                      : "Native harness"}
+                    {discovery.computer} · HAPI runner
                   </p>
                   {runtime.available && discovery.online ? (
                     <RuntimeSignIn
                       base={authBase(runtime)}
-                      backend={
-                        runtime.backend === "hapi" ? "environment" : "direct"
-                      }
+                      backend="environment"
                       location={discovery.computer}
                       key={scope}
                       name={runtime.name}
@@ -422,14 +379,7 @@ export function RuntimeSetup({
                       connectionSetup={
                         <section className="settings-card">
                           <h3>Connection setup</h3>
-                          {runtime.enabled && runtime.backend !== "hapi" ? (
-                            <p>
-                              Project:{" "}
-                              <code>{runtime.project || "Unknown"}</code>
-                            </p>
-                          ) : (
-                            setupFields
-                          )}
+                          {setupFields}
                           {runtime.billing && (
                             <p className="field-hint">
                               Saved billing policy: {runtime.billing}.{" "}
@@ -463,17 +413,9 @@ export function RuntimeSetup({
                       ))}
                     {runtime.version && <p>Version {runtime.version}</p>}
                     <HarnessUpgrade
-                      base={
-                        runtime.backend === "hapi"
-                          ? `/environments/${runtime.environmentId}/runtimes/${runtime.name}/upgrade`
-                          : `/workspace/runtimes/${runtime.name}/upgrade`
-                      }
+                      base={`/environments/${runtime.environmentId}/runtimes/${runtime.name}/upgrade`}
                       label={label}
-                      generation={
-                        runtime.backend === "hapi"
-                          ? runtime.generation
-                          : undefined
-                      }
+                      generation={runtime.generation}
                       disabled={
                         busy ||
                         settingUp ||

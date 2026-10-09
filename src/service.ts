@@ -102,33 +102,47 @@ export function serviceDefinitions(
     },
   };
 }
-/**
- * The same unit definition with the CLI it launches replaced, or null when it
- * already names `cli`. The launch is `node`, then the CLI: only the second
- * argument moves, so the saved launch, environment and working directory this
- * installation was given are all preserved.
- */
-export function repointUnit(
-  platform: string,
-  contents: string,
-  cli: string,
-  where = "its service definition",
-) {
+/** Translate retired launch verbs without preserving direct execution flags. */
+export function migrateLaunchArgs(args: string[]) {
+  const native = ["codex", "claude", "pi", "opencode"].includes(args[0]);
+  if (!native && !["laptop", "acp", "start"].includes(args[0])) return args;
+  const launch = ["start"];
+  if (native && !args.some(arg => arg === "--providers" || arg.startsWith("--providers="))) launch.push("--providers", args[0]);
+  for (const name of ["--project", "--providers", "--execution", "--public-url", "--tunnel-name", "--tunnel-config"]) {
+    const i = args.indexOf(name);
+    const inline = args.find(arg => arg.startsWith(name + "="));
+    if (inline) launch.push(name, inline.slice(name.length + 1));
+    else if (i >= 0 && args[i + 1]) launch.push(name, args[i + 1]);
+  }
+  for (const flag of ["--local-only", "--foreground"])
+    if (args.includes(flag)) launch.push(flag);
+  return launch;
+}
+
+/** Repoint the executable and migrate legacy argv in installed service units. */
+export function repointUnit(platform: string, contents: string, cli: string, where = "its service definition") {
   const mac = platform === "darwin";
-  const pattern = mac
-    ? /(<key>ProgramArguments<\/key><array><string>[^<]*<\/string><string>)([^<]*)(<\/string>)/
-    : /^(ExecStart="(?:\\.|[^"\\])*" ")((?:\\.|[^"\\])*)(")/m;
+  const pattern = mac ? /(<key>ProgramArguments<\/key><array>)(.*?)(<\/array>)/s : /^(ExecStart=)([^\n]*)(.*)$/m;
   const found = contents.match(pattern);
-  if (!found)
-    throw new Error(
-      `Loop could not read the executable from ${where}, so it cannot point that service at this build. Run loop service install from the new build, then loop restart.`,
-    );
-  const encoded = mac ? xml(cli) : unit(cli).slice(1, -1);
-  if (found[2] === encoded) return null;
-  return contents.replace(
-    pattern,
-    (_m, before, _old, after) => before + encoded + after,
-  );
+  const unreadable = () => new Error(`Loop could not read the executable from ${where}, so it cannot point that service at this build. Run loop service install from the new build, then loop restart.`);
+  if (!found) throw unreadable();
+  let args: string[];
+  try {
+    if (mac) {
+      const entries = [...found[2].matchAll(/<string>([^<]*)<\/string>/g)];
+      if (entries.map(entry => entry[0]).join("") !== found[2]) throw unreadable();
+      args = entries.map(entry => entry[1].replace(/&(amp|lt|gt|quot|apos);/g, (_match, entity: string) => ({ amp: "&", lt: "<", gt: ">", quot: '\"', apos: "'" }[entity]!)));
+    } else {
+      const entries = found[2].match(/"(?:\\.|[^"\\])*"/g) || [];
+      if (entries.join(" ") !== found[2]) throw unreadable();
+      args = entries.map(entry => (JSON.parse(entry) as string).replaceAll("%%", "%"));
+    }
+    if (args.length < 3) throw unreadable();
+  } catch { throw unreadable(); }
+  const next = [args[0], cli, ...migrateLaunchArgs(args.slice(2))];
+  if (JSON.stringify(next) === JSON.stringify(args)) return null;
+  return contents.replace(pattern, (_match, before, _old, after) => before +
+    (mac ? next.map(arg => `<string>${xml(arg)}</string>`).join("") : next.map(unit).join(" ")) + after);
 }
 
 /**

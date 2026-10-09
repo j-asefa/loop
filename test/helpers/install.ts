@@ -12,7 +12,15 @@ if (process.env.NODE_ENV !== "test")
   throw new Error("Fixtures require NODE_ENV=test");
 for (const provider of ["openai", "anthropic"] as const)
   withTestAdapter(provider, {
-    async models() {
+    async models(key) {
+      if (provider === "openai" && key === "fixture-workspace-models")
+        return [
+          { id: "gpt-6-sol", name: "GPT-6 Sol", capabilities: "Fixture only" },
+          { id: "gpt-6-astra", name: "GPT-6 Astra", capabilities: "Fixture only", effortLevels: [
+            { value: "low" },
+            { value: "xhigh", description: "Take more time to check difficult work." },
+          ], defaultEffort: "low" },
+        ];
       return [
         {
           id: provider + "-fixture",

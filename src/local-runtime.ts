@@ -1,11 +1,7 @@
 /** Laptop provisioning reuses the PR's patched HAPI runner and mTLS gateway. */
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -17,7 +13,6 @@ import {
   createHash,
 } from "node:crypto";
 import { atomic, privateDir } from "./state.js";
-import { nativeHelperInstall } from "./harness-upgrades.js";
 import { own, killOwned } from "./processes.js";
 import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
 import { LOCAL_ENVIRONMENT_NAMES } from "./server/execution-location.js";
@@ -44,16 +39,19 @@ export function choices(
     anthropic: ["claude"],
     both: ["codex", "claude"],
   };
-  const selected = Object.hasOwn(aliases, providers)
-    ? aliases[providers]
-    : providers.split(",").map((value) => value.trim());
+  const selected =
+    providers === "installed"
+      ? ["codex", "claude", "opencode", "pi"]
+      : Object.hasOwn(aliases, providers)
+        ? aliases[providers]
+        : providers.split(",").map((value) => value.trim());
   if (
     selected.some(
       (value) => !["codex", "claude", "opencode", "pi"].includes(value),
     )
   )
     throw new Error(
-      "--providers must be openai, anthropic, both or a comma-separated list of codex, claude, opencode, pi",
+      "--providers must be installed, openai, anthropic, both or a comma-separated list of codex, claude, opencode, pi",
     );
   if (!["native", "docker", "both"].includes(execution))
     throw new Error("--execution must be native, docker or both");
@@ -150,17 +148,23 @@ export class LocalRuntime {
     this.hubPort = await port();
     this.gatewayPort = await port();
     const nativeBins: Record<string, string> = {};
+    let opencodeInstalled = false;
     const unavailable = new Set<string>();
     if (this.selection.execution !== "docker") {
       const { discover } = await import("./host-control.js");
       for (const provider of this.selection.providers) {
         const found = await discover(provider);
-        if (found.installed && found.executable)
+        if (provider === "opencode") opencodeInstalled = found.installed;
+        if (found.installed && found.supported && found.executable)
           nativeBins[provider] = found.executable;
+        else {
+          unavailable.add(provider);
+          console.log(`${provider}: ${found.help}`);
+        }
       }
       // Managed subscription execution requires the guarded build; keep the
       // user's PATH installation and native credential home intact.
-      if (this.selection.providers.includes("opencode")) {
+      if (this.selection.providers.includes("opencode") && (opencodeInstalled || process.env.LOOP_BAKED_OPENCODE)) {
         // Never fall back to an unguarded PATH binary after a build failure.
         delete nativeBins.opencode;
         try {
@@ -169,6 +173,7 @@ export class LocalRuntime {
             undefined,
             process.env.LOOP_BAKED_OPENCODE,
           );
+          unavailable.delete("opencode");
         } catch (error) {
           unavailable.add("opencode");
           console.warn(
@@ -176,34 +181,13 @@ export class LocalRuntime {
           );
         }
       }
-      if (
-        this.selection.providers.some(
-          (p) => !unavailable.has(p) && !nativeBins[p],
-        )
-      ) {
-        const directory = join(this.root, "helpers", "native");
-        privateDir(directory);
-        await run(
-          "npm",
-          nativeHelperInstall(directory, join(packageRoot, "deployment/native")),
-          directory,
-        );
-        for (const provider of this.selection.providers.filter(
-          (p) => !unavailable.has(p),
-        ))
-          nativeBins[provider] ||= join(
-            directory,
-            "node_modules/.bin",
-            provider,
-          );
-      }
     }
     const nativeProviders = this.selection.providers.filter(
       (p) => !unavailable.has(p),
     );
     if (this.selection.execution === "native" && nativeProviders.length === 0)
       throw new Error(
-        "No selected managed native runtime is available. Resolve the runtime setup error or select another provider.",
+        "No supported harness is installed. Install Codex, Claude Code, Pi or OpenCode, then run loop again.",
       );
     // An unavailable native runtime must not disable its baked Docker sibling.
     const executionKinds: ("native" | "docker")[] =
@@ -648,7 +632,7 @@ export class LocalRuntime {
           await connectProvider(e, flavor);
         } catch {
           console.log(
-            `${e.name}: sign in to ${flavor} in Settings → Execution environments on your paired phone.`,
+            `${e.name}: ${flavor} could not be verified. Check its installation and existing sign-in in Settings → Execution environments.`,
           );
         }
       }

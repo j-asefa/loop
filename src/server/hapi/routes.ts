@@ -373,7 +373,7 @@ export async function connectProvider(
     throw new Problem(409, "The execution environment changed. Retry after it is ready.");
   const prior = db
     .prepare(
-      "SELECT id FROM connections WHERE owner_id=? AND json_extract(metadata,'$.backend')='hapi' AND json_extract(metadata,'$.environmentId')=? AND json_extract(metadata,'$.flavor')=?",
+      "SELECT id,models FROM connections WHERE owner_id=? AND json_extract(metadata,'$.backend')='hapi' AND json_extract(metadata,'$.environmentId')=? AND json_extract(metadata,'$.flavor')=?",
     )
     .get(e.owner_id, e.host_id, flavor) as any;
   const connectionId = prior?.id || id();
@@ -395,11 +395,11 @@ export async function connectProvider(
     e.owner_id,
     flavor === "claude" ? "anthropic" : flavor,
     `${e.name} · ${flavor === "codex" ? "ChatGPT / Codex" : flavor === "opencode" ? "opencode (ChatGPT)" : flavor === "pi" ? "Pi" : "Claude Code"}`,
-    JSON.stringify(auth.models || []),
+    JSON.stringify(auth.models ?? JSON.parse(prior?.models || "[]")),
     metadata,
     now(),
   );
-  return { id: connectionId, authenticated: true, authMethod: auth.authMethod };
+  return { id: connectionId, authenticated: true, authMethod: auth.authMethod, modelsError: auth.modelsError };
 }
 
 executionRoutes.get("/artifacts/:id/file", (req, res) => {

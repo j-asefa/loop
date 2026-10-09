@@ -16,7 +16,7 @@ export async function architectureSettingsJourney(page) {
   await page.getByRole("button", { name: /Environment not appearing/ }).click();
   await expect(
     page.getByText(
-      /check runtime setup for preparation progress or direct fallback\./,
+      /check runtime setup for HAPI preparation progress or setup errors\./,
     ),
   ).toBeVisible();
   for (const width of [320, 390, 1024]) {
