@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
-import { openSync, closeSync } from "node:fs";
+import { openSync, closeSync, statSync } from "node:fs";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { createInterface } from "node:readline/promises";
 import qr from "qrcode-terminal";
 import { Harness } from "./protocol.js";
 import { privateDir, atomic } from "./state.js";
@@ -42,7 +43,7 @@ const PACKAGE = JSON.parse(
 const { version: VERSION } = PACKAGE;
 const names = Harness.options;
 const REMOTE_MAIN = `${String(PACKAGE.repository?.url ?? "https://github.com/j-asefa/loop.git").replace(/^git\+/, "")}#main`;
-// First launch may compile pinned HAPI before the managed runner is ready.
+// Native account discovery is bounded; pairing is available before discovery.
 const STARTUP_TIMEOUT_MS = 1800000;
 // Tests shorten these waits; they never change which stop path runs.
 const testWait = (name: string, fallback: number) => {
@@ -53,7 +54,7 @@ const STOP_WAIT_MS = testWait("LOOP_TEST_STOP_WAIT_MS", 20000);
 // How long a workspace that stopped answering gets to exit after SIGTERM.
 const stopGraceMs = () => testWait("LOOP_TEST_STOP_GRACE_MS", 5000);
 const LOG_POLL_MS = 500;
-// Set only on the detached workspace process spawned by `loop start`.
+// Set only on the detached workspace process spawned by `loop start` or `loop <harness>`.
 const daemonChild =
   process.env.LOOP_DAEMON_CHILD === "1" && typeof process.send === "function";
 type Pair = { url: string; expiresIn: number };
@@ -123,8 +124,6 @@ export async function forceStop(
       `${unresolved.length} recorded native process(es) (${unresolved.map((r) => r.pid).join(", ")}) could not be confirmed as Loop's, or led a process group that outlived them, so they were left running. They stay on record: check them with ps, then run loop stop again.`,
     );
   }
-  const { stopManagedContainers } = await import("./local-runtime.js");
-  await stopManagedContainers(dirname(dir));
   await forgetWorkspace(dir);
 }
 /** Stops the application, its runners and managed containers; never the connection service. */
@@ -139,8 +138,6 @@ async function stopWorkspace(dir: string) {
       // A previous stop may have left records it couldn't resolve.
       if ((await recordedChildren(dir)).length)
         return forceStop(dir, undefined, "exited");
-      const { stopManagedContainers } = await import("./local-runtime.js");
-      if (await stopManagedContainers(dirname(dir))) return;
       throw new Error("No workspace is running.");
     }
     if (recorded.state === "unknown")
@@ -206,16 +203,17 @@ async function launchArgs(dir: string) {
     saved?.schema === 1 &&
     Array.isArray(saved.args) &&
     saved.args.every((a: unknown) => typeof a === "string")
-  ) {
-    const { migrateLaunchArgs } = await import("./service.js");
-    return migrateLaunchArgs(saved.args);
-  }
+  )
+    return (await import("./service.js")).migrateLaunchArgs(saved.args);
   // Launched by a release without launch records: its saved start project and
   // preferences (providers, execution, tunnel and billing) still apply.
   const preferences = await readFile(join(dir, "preferences.json"), "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
-  return ["start", ...(preferences.project ? ["--project", preferences.project] : [])];
+  return [
+    "start",
+    ...(preferences.project ? ["--project", preferences.project] : []),
+  ];
 }
 
 /**
@@ -297,11 +295,13 @@ async function restartWorkspace(
 /** An installed service restarts only its application unit. */
 async function restartService(dir: string, status: any, upgradedFrom?: string) {
   const uid = process.getuid!();
-  // Repoint on every restart, including after an out-of-band npm update.
-  // This also migrates retired direct harness selections in an existing unit.
-  // The connection service and its public address stay up.
-  const { repointAppService } = await import("./service.js");
-  const pointed = await repointAppService(fileURLToPath(import.meta.url));
+  // An upgrade installs the new build in npm's global prefix while the service
+  // entry still names the build it was installed from, often a checkout.
+  // Restarting that entry would relaunch the old code, so point it at this CLI
+  // first. The connection unit, its cloudflared and the address stay up.
+  const pointed = await import("./service.js").then((m) =>
+    m.repointAppService(fileURLToPath(import.meta.url)),
+  );
   if (pointed === "repointed")
     console.log("Pointed the Loop service at the newly installed build.");
   else if (status.supervisor === "launchd")
@@ -341,7 +341,10 @@ async function restartService(dir: string, status: any, upgradedFrom?: string) {
     }
     if (Date.now() > end)
       throw new Error(
-        upgradedFrom && last?.pid && last.pid !== status.pid && last.release !== VERSION
+        upgradedFrom &&
+          last?.pid &&
+          last.pid !== status.pid &&
+          last.release !== VERSION
           ? `The service restarted Loop ${last.release}, not the installed ${VERSION}: its service entry launches a different installation. Run loop service install from the new build, then loop restart.`
           : "The restarted service did not become ready. See loop logs.",
       );
@@ -448,9 +451,18 @@ async function upgradeWorkspace(
   console.log(`Installing Loop from ${source}…`);
   await runCommand("npm", ["install", "-g", source], process.cwd());
   const prefix = (await execFileAsync("npm", ["prefix", "-g"])).stdout.trim();
-  const cli = join(prefix, "lib", "node_modules", PACKAGE.name, "dist", "cli.js");
+  const cli = join(
+    prefix,
+    "lib",
+    "node_modules",
+    PACKAGE.name,
+    "dist",
+    "cli.js",
+  );
   const installed = (
-    await execFileAsync(process.execPath, [cli, "--version"], { timeout: 60000 })
+    await execFileAsync(process.execPath, [cli, "--version"], {
+      timeout: 60000,
+    })
   ).stdout.trim();
   console.log(`Installed Loop ${installed}.`);
   const service = await inspectConnection(connection);
@@ -460,13 +472,7 @@ async function upgradeWorkspace(
   }
   await runCommand(
     process.execPath,
-    [
-      cli,
-      "restart",
-      "--upgraded-from",
-      VERSION,
-      ...(force ? ["--force"] : []),
-    ],
+    [cli, "restart", "--upgraded-from", VERSION, ...(force ? ["--force"] : [])],
     process.cwd(),
   );
 }
@@ -489,7 +495,9 @@ async function daemonize(
         env: {
           ...process.env,
           LOOP_DAEMON_CHILD: "1",
-          ...(restart && !restart.legacy ? { LOOP_LAUNCH_REASON: "restart" } : {}),
+          ...(restart && !restart.legacy
+            ? { LOOP_LAUNCH_REASON: "restart" }
+            : {}),
         },
       },
     );
@@ -604,9 +612,14 @@ async function main() {
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
       project: { type: "string" },
+      executable: { type: "string" },
+      "acp-arg": { type: "string", multiple: true },
+      billing: { type: "string" },
+      resume: { type: "string" },
       json: { type: "boolean" },
       follow: { type: "boolean", short: "f" },
       foreground: { type: "boolean" },
+      direct: { type: "boolean" },
       "local-only": { type: "boolean" },
       "public-url": { type: "string" },
       providers: { type: "string" },
@@ -626,12 +639,22 @@ async function main() {
     console.log(`Loop ${VERSION} — one workspace for your native agents
 
 loop start              Start this computer and show a pairing QR code.
-                        Discover installed harnesses and connect them through HAPI.
+                        Discovers installed harnesses and reuses their native sign-in.
 loop                    Alias for loop start.
-loop start [--providers installed|openai|anthropic|both|codex,claude,opencode,pi]
-     [--execution native|docker|both]
+loop start [--providers installed|codex,claude,opencode,pi]
+     [--execution native]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
 loop server             Start the full server in the foreground.
+loop codex|claude|pi|opencode [--project PATH] [--executable PATH]
+     [--billing subscription|existing] [--resume NATIVE_SESSION]
+     [--local-only | --public-url https://stable-origin] [--foreground]
+                        Start this computer's workspace with that harness,
+                        show a pairing code, then keep running in the
+                        background. If the workspace is already running, the
+                        harness is added to it; no new pairing is required.
+loop acp --executable ABSOLUTE_PATH [--acp-arg ARG]...
+                        Add a local ACP v1 agent. Sign in with the agent's
+                        own CLI first; its own account pays for model use.
 loop pair               Show a fresh pairing code. Scan it to pair a new
                         device, or scan it from the Loop app to reconnect
                         after the tunnel address changed.
@@ -642,7 +665,6 @@ loop upgrade [--from PACKAGE] [--force]
                         Install remote main (or PACKAGE) while Loop keeps
                         running, then restart into it with the same
                         projects, runtimes, billing and address.
-
 loop status [--json] | devices | devices revoke ID | doctor [--json]
 loop logs [--follow] | stop | uninstall
 loop stop               Stop Loop completely, including its tunnel. The next
@@ -661,7 +683,8 @@ When that happens, run loop pair and scan the code from the Loop app.
 Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
 --foreground keeps the workspace attached to this terminal (for service
 managers and debugging).
-Existing native sign-in is reused on this computer. Harness execution requires HAPI.
+--resume is an explicit desktop handoff of a native session you have stopped
+elsewhere. The UI does not take over arbitrary live Desktop/TUI sessions.
 Uninstall removes the package separately; workspace/native history is retained.`);
     return;
   }
@@ -669,6 +692,9 @@ Uninstall removes the package separately; workspace/native history is retained.`
     const companion = (
       [
         "project",
+        "executable",
+        "billing",
+        "resume",
         "local-only",
         "public-url",
         "foreground",
@@ -678,7 +704,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
         "tunnel-config",
       ] as const
     ).find((k) => values[k] !== undefined);
-    if (companion) throw new Error(`--${companion} applies to loop start.`);
+    if (companion)
+      throw new Error(
+        `--${companion} applies to loop start or loop codex|claude|pi|opencode.`,
+      );
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
     process.env.LOOP_PROFILE = "server";
@@ -715,7 +744,9 @@ Uninstall removes the package separately; workspace/native history is retained.`
       : positionals[0];
   if (action === "doctor") {
     const harnesses = await Promise.all(
-      names.filter((n) => n !== "acp").map((n) => discover(n)),
+      names
+        .filter((n) => n !== "acp")
+        .map((n) => discover(n, values.executable)),
     );
     console.log(
       JSON.stringify(
@@ -733,7 +764,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           checks: [
             "No model request made.",
             "Native billing is checked when enabling and starting sessions.",
-            "All harness execution runs through HAPI.",
+            "ACP agents require --executable and negotiate their protocol at startup.",
             "Quick Tunnel needs outbound Cloudflare connectivity.",
           ],
         },
@@ -783,7 +814,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
     // one stops too; the Quick Tunnel address changes once.
     if (positionals[1] === "install")
       await stopAll(dir, connection).catch((error) => {
-        if ((error as Error).message !== "No workspace is running.") throw error;
+        if ((error as Error).message !== "No workspace is running.")
+          throw error;
       });
     // The service repeats the saved launch, as loop restart does.
     const launch = await launchArgs(dir);
@@ -824,13 +856,24 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (action === "upgrade") {
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
-    await upgradeWorkspace(dir, connection, values.from ?? REMOTE_MAIN, !!values.force);
+    await upgradeWorkspace(
+      dir,
+      connection,
+      values.from ?? REMOTE_MAIN,
+      !!values.force,
+    );
     return;
   }
   if (action === "restart") {
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
-    await restartWorkspace(dir, connection, root, !!values.force, values["upgraded-from"]);
+    await restartWorkspace(
+      dir,
+      connection,
+      root,
+      !!values.force,
+      values["upgraded-from"],
+    );
     return;
   }
   if (["pair", "status", "devices", "stop", "uninstall"].includes(action)) {
@@ -881,7 +924,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
           managed &&
           current &&
           !(
-            current.url === service.hello.origin && current.connection.registered
+            current.url === service.hello.origin &&
+            current.connection.registered
           )
         )
           throw new Error(
@@ -936,7 +980,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
       }
       throw new Error("No responsive workspace host. Run loop start first.");
     });
-    if (action === "status" && output.pid && output.connection?.mode !== "local")
+    if (
+      action === "status" &&
+      output.pid &&
+      output.connection?.mode !== "local"
+    )
       output.connection = {
         ...output.connection,
         service: publicConnection(await inspectConnection(connection)),
@@ -945,27 +993,46 @@ Uninstall removes the package separately; workspace/native history is retained.`
     else console.log(JSON.stringify(output, null, values.json ? 0 : 2));
     return;
   }
-  if (positionals.length > 1 || action !== "start")
-    throw new Error(
-      "Unknown command. Run loop to discover harnesses through HAPI. See loop --help.",
-    );
+  if (
+    positionals.length > 1 ||
+    (action !== "start" &&
+      action !== "laptop" &&
+      !names.includes(action as Harness))
+  )
+    throw new Error("Unknown command. See loop --help.");
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
+  const neutral = action === "start" || action === "laptop";
+  if (
+    neutral &&
+    (values.resume ||
+      values.executable ||
+      values.billing ||
+      values["acp-arg"]?.length)
+  )
+    throw new Error(
+      "Runtime options belong to loop codex|claude|pi|opencode|acp. Use loop start without a runtime, then choose it in the app.",
+    );
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
+  if (values.direct && !neutral)
+    throw new Error("Use --direct with loop start.");
+  const neutralStart = neutral || action === "laptop";
+  const selected = (neutralStart ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
-  if (!values.project && preferences.project)
+  if (neutralStart && !values.project && preferences.project)
     project = await realpath(preferences.project);
-  const providers = values.providers ?? preferences.providers ?? "installed";
-  const execution = values.execution ?? preferences.execution ?? "native";
-  if (process.env.LOOP_COMPANION_CONTAINER === "1" && execution !== "native")
+  const execution = values.execution ?? "native";
+  if (execution !== "native")
     throw new Error(
-      "Docker companion supports --execution native only; the container is the isolation boundary.",
+      "Use docker compose -f compose.companion.yaml up -d for Docker execution. Local loop starts native harnesses.",
     );
-  const { choices } = await import("./local-runtime.js");
-  const managedChoices = choices(providers, execution, project);
+  const { selectedHarnesses } = await import("./start-selection.js");
+  const providers = selectedHarnesses(
+    values.providers ?? preferences.providers ?? "installed",
+  );
   if (!values["local-only"]) {
     values["public-url"] ??= preferences.publicUrl;
     values["tunnel-name"] ??= preferences.tunnelName;
@@ -978,58 +1045,176 @@ Uninstall removes the package separately; workspace/native history is retained.`
     throw new Error(
       "A named tunnel requires --public-url https://your-hostname.",
     );
+  if (selected === "acp" && !values.executable)
+    throw new Error(
+      "ACP setup requires --executable with an absolute local executable path.",
+    );
+  const probe =
+    selected === "acp"
+      ? (() => {
+          const executable = statSync(values.executable!).isFile()
+            ? values.executable!
+            : "";
+          if (
+            !executable ||
+            !isAbsolute(executable) ||
+            !(statSync(executable).mode & 0o111)
+          )
+            throw new Error("Choose an executable local ACP agent file.");
+          return {
+            installed: true,
+            supported: true,
+            version: "ACP v1",
+            executable,
+            help: "",
+          };
+        })()
+      : neutral
+        ? {
+            installed: true,
+            supported: true,
+            version: "workspace",
+            executable: "codex",
+            help: "",
+          }
+        : await discover(selected, values.executable);
+  if (!probe.installed || !probe.supported || !probe.version)
+    throw new Error(probe.help);
+  let billing =
+    values.billing ??
+    preferences.billing?.[selected] ??
+    (selected === "acp" ? "existing" : "subscription");
+  if (selected === "acp" && billing !== "existing")
+    throw new Error(
+      "ACP uses the agent's own authentication and billing; choose --billing existing.",
+    );
+  if (!["subscription", "existing"].includes(billing))
+    throw new Error("Billing must be subscription or existing.");
+  if (
+    selected === "opencode" &&
+    billing === "subscription" &&
+    !values.billing &&
+    process.stdin.isTTY
+  ) {
+    const input = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      console.log(
+        "OpenCode cannot prove effective subscription billing through its server.",
+      );
+      if (
+        !/^y(es)?$/i.test(
+          (
+            await input.question(
+              "Keep the existing OpenCode provider, which may use API credits? [y/N] ",
+            )
+          ).trim(),
+        )
+      )
+        throw new Error("No billing mode selected.");
+      billing = "existing";
+    } finally {
+      input.close();
+    }
+  }
   const options: Options = {
-    harness: "codex",
-    executable: "codex",
-    version: "workspace",
+    harness: selected,
+    executable: probe.executable,
+    version: probe.version,
     project,
-    billing: "subscription",
+    billing,
+    ...(selected === "acp" ? { args: values["acp-arg"] || [] } : {}),
   };
   const remember = () =>
     atomic(preferencesPath, {
       ...preferences,
-      project,
-      ...(values.providers ? { providers } : {}),
-      ...(values.execution ? { execution } : {}),
+      ...(neutral ? { project } : {}),
+      ...(neutral
+        ? {
+            providers: values.providers ?? preferences.providers ?? "installed",
+            execution: "native",
+          }
+        : {}),
       publicUrl: values["public-url"],
       tunnelName: values["tunnel-name"],
       tunnelConfig: values["tunnel-config"],
+      billing: neutral
+        ? preferences.billing
+        : { ...preferences.billing, [selected]: billing },
     });
   if (running) {
-    await recoverConnection(dir, root, connection, running, tunnelModeOf(values));
-    if (running.executionBackend !== "hapi")
+    await recoverConnection(
+      dir,
+      root,
+      connection,
+      running,
+      tunnelModeOf(values),
+    );
+    if (neutral) {
+      if (project !== (running.project ?? preferences.project))
+        throw new Error(
+          "Run loop stop before changing the running workspace's providers, execution or project.",
+        );
+      showPair(await control(dir, "pair"));
+      return;
+    }
+    if (values.resume)
       throw new Error(
-        "This workspace is running an older launcher. Run loop stop, then loop to restart it through HAPI. History and pairing are retained.",
+        "Open native history in Loop, or stop the host before an explicit --resume handoff.",
       );
-    if (
-      (values.providers &&
-        providers !== (preferences.providers ?? "installed")) ||
-      (values.execution && execution !== (preferences.execution ?? "native")) ||
-      project !== (running.project ?? preferences.project)
-    )
-      throw new Error(
-        "Run loop stop before changing the running workspace's providers, execution or project.",
-      );
-    showPair(await control(dir, "pair"));
+    const enabled = await control(dir, "enable", options);
+    remember();
+    console.log(
+      "Enabled " +
+        selected +
+        " in your existing workspace. " +
+        enabled.billing.description,
+    );
+    console.log(
+      "Your paired phone can create agents immediately; no new pairing is required.",
+    );
     return;
   }
-  // Save the HAPI launch so restart and upgrade keep the project and runner selection.
+  // The resolved launch (absolute project, executable and tunnel config):
+  // repeated by the background child, loop restart and loop upgrade from any
+  // working directory. A --resume handoff is one-time and not repeated.
   const launch = [
-    "start", "--project", project,
-    "--providers", providers, "--execution", execution,
+    neutral ? "start" : selected,
+    "--project",
+    project,
+    ...(neutral
+      ? []
+      : ["--executable", probe.executable, "--billing", billing]),
+    ...(selected === "acp"
+      ? (values["acp-arg"] ?? []).map((arg) => "--acp-arg=" + arg)
+      : []),
+    ...(neutral
+      ? ["--providers", providers.join(","), "--execution", "native"]
+      : []),
     ...(values["local-only"] ? ["--local-only"] : []),
     ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
     ...(values["tunnel-name"] ? ["--tunnel-name", values["tunnel-name"]] : []),
-    ...(values["tunnel-config"] ? ["--tunnel-config", values["tunnel-config"]] : []),
+    ...(values["tunnel-config"]
+      ? ["--tunnel-config", values["tunnel-config"]]
+      : []),
   ];
-  if (!values.foreground && !daemonChild) return daemonize(dir, launch);
+  if (!values.foreground && !daemonChild)
+    return daemonize(dir, [
+      ...launch,
+      ...(values.resume ? ["--resume", values.resume] : []),
+    ]);
   const { workspaceLock } = await import("./lifecycle.js");
   const release = workspaceLock(dir);
   recordOwnedProcesses(join(dir, "children.json"));
-  atomic(join(dir, LAUNCH_RECORD), { schema: 1, args: launch, version: VERSION });
+  atomic(join(dir, LAUNCH_RECORD), {
+    schema: 1,
+    args: launch,
+    version: VERSION,
+  });
   const tunnelMode = tunnelModeOf(values);
   const restarting = process.env.LOOP_LAUNCH_REASON === "restart";
-  let runtime: import("./local-runtime.js").LocalRuntime | undefined;
   let host: import("./workspace-host.js").WorkspaceHost | undefined;
   let lease: BackendLease | undefined,
     connectionCreated = false,
@@ -1041,7 +1226,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
       // Withdraw first: new requests get the relay's 503 while this drains.
       await lease?.withdraw();
       await host?.close();
-      await runtime?.close();
     } finally {
       release();
     }
@@ -1053,16 +1237,15 @@ Uninstall removes the package separately; workspace/native history is retained.`
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => {
       void stop(
-        !!values.foreground && !daemonChild && !externalConnection && connectionCreated,
+        !!values.foreground &&
+          !daemonChild &&
+          !externalConnection &&
+          connectionCreated,
       );
     });
   try {
     process.env.LOOP_DATA_DIR = dir;
     process.env.LOOP_PROFILE = "companion";
-    const { LocalRuntime } = await import("./local-runtime.js");
-    runtime = new LocalRuntime(root, managedChoices);
-    const { setRuntimeSetupState } = await import("./runtime-setup.js");
-    setRuntimeSetupState("preparing");
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
     host = new WorkspaceHost(dir, options);
@@ -1098,9 +1281,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
           }
         : { mode: values["local-only"] ? "local" : "external-proxy" },
     });
-    const { migrateLegacy } =
+    const { migrateLegacy, resumeFromDesktop } =
       await import("./server/migration.js");
-
     const onListening = async (description: string) => {
       // Single-use pairing codes are shown on a terminal or sent over IPC, never
       // written to a log file or a service manager's journal.
@@ -1147,16 +1329,23 @@ Uninstall removes the package separately; workspace/native history is retained.`
       options,
       async () => {
         await migrateLegacy(root);
+        if (!stopping && values.resume)
+          resumeFromDesktop(options, values.resume);
       },
-      async () => {
-        const { prepareManagedRuntime } = await import("./managed-start.js");
-        return prepareManagedRuntime(runtime!, () => stopping);
-      },
-      true,
-      () =>
-        onListening(
-          "Workspace ready; execution is setting up. See loop logs --follow.",
-        ),
+      neutral
+        ? async () => {
+            const { prepareLocalHarnesses } =
+              await import("./server/local-harnesses.js");
+            return prepareLocalHarnesses(project, providers, () => stopping);
+          }
+        : undefined,
+      neutral,
+      neutral
+        ? () =>
+            onListening(
+              "Discovering installed harnesses; your workspace is ready.",
+            )
+        : undefined,
     );
     if (stopping) {
       await host.close();
@@ -1164,7 +1353,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
     }
     remember();
     if (stopping) return;
-    console.log(enabled.billing.description);
+    if (neutral) console.log(enabled.billing.description);
+    else await onListening(enabled.billing.description);
   } catch (error) {
     await stop(!daemonChild && !externalConnection && connectionCreated);
     throw error;

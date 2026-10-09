@@ -1,6 +1,6 @@
 # 🔁 Loop
 
-Loop is a phone-first agent web app. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. The same workspace UI also runs on desktop, and agents run through provider API connections or HAPI-managed coding harnesses.
+Loop is a phone-first agent web app. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. The same workspace UI also runs on desktop, and agents run through provider API connections or native coding harnesses.
 
 ## Why Loop
 
@@ -8,8 +8,8 @@ Loop is a phone-first agent web app. Open Loop in your phone's browser and add i
 - 🎯 **Results, not logs.** Final answers appear as cards; plans, diffs, command output and traces stay one tap away. Search an agent's traces for a command, tool or update, and download a whole run as JSON. Phone notifications arrive when a result is ready, not for every tool call. See [notifications](docs/feedback/SAVED-NOTIFICATIONS.md).
 - 🗂️ **A feed, not one endless chat.** Run several agents and conversations at once, then follow them through the Feed (**Done**, **Needs you**, **Working**, **Queued**), Projects and Search. Review and merge your GitHub pull requests in the Pull requests tab. Saved results and messages live under You. See [workspace](docs/workspace.md).
 - ⏱️ **Built for checking in, not sitting in.** Each Feed card offers the one action its thread is waiting for (approve, answer, continue a draft or review a result) and opens at that message. A "while you were away" card sums up what finished, failed or needs you. **Remind me**, **Send later** and **Queue after this task** pick work up when the agent is free, and scheduled sends reuse their idempotency key, so a retry after a crash never sends twice.
-- ↩️ **Reply to any message, or just part of it.** Loop quotes the message you picked, or only the lines you highlight, in front of your reply. Intermediate updates may be missing from the harness's own history, so this puts that exact update back in front of the agent. Long quotes are trimmed to their start and end. Mid-run, API agents take your reply in the live turn; HAPI-managed harness sessions queue it for the next turn.
-- 🔌 **Your harnesses, your subscriptions.** Codex, Claude Code, OpenCode and Pi agents keep their own context, tools and sign-in. `loop` runs them through a managed HAPI runner; Loop adds the phone workspace on top: the Feed, result cards, quoted replies, reminders, scheduled sends and approvals across every harness. Loop verifies the harness billing policy and never switches billing methods after a failure. See [harnesses](docs/harnesses.md).
+- ↩️ **Reply to any message, or just part of it.** Loop quotes the message you picked, or only the lines you highlight, in front of your reply. Intermediate updates may be missing from the harness's own history, so this puts that exact update back in front of the agent. Long quotes are trimmed to their start and end. Mid-run, API, Codex, Claude Code and Pi agents support live replies; OpenCode and ACP queue replies for the next turn.
+- 🔌 **Your harnesses, your subscriptions.** Codex, Claude Code, OpenCode and Pi agents keep their own context, tools and sign-in. `loop` discovers and connects their native adapters in one workspace; Loop adds the phone workspace on top: the Feed, result cards, quoted replies, reminders, scheduled sends and approvals across every harness. Loop verifies the harness billing policy and never switches billing methods after a failure. See [harnesses](docs/harnesses.md).
 - 📶 **Built for flaky phone connections.** Loop records each send before dispatching it, never automatically replays an uncertain one, and catches up on missed updates after a reconnect. See [architecture](docs/architecture.md).
 - 🏠 **Your code stays on your computer.** Agents run on your machine and keep working after your phone disconnects; reopen Loop to check progress, steer a run or approve the next step. Only paired devices can sign in, and you can revoke them. Traffic is HTTPS but not end-to-end encrypted: with the default Quick Tunnel, Cloudflare terminates TLS, so use `--public-url` with your own TLS proxy if that matters to you. See [SECURITY.md](SECURITY.md).
 
@@ -51,22 +51,22 @@ npm run setup
 docker compose up --build -d
 ```
 
-See [server operation](docs/server.md) for accounts, remote access, runtime machines, backups and the local HAPI/MemSearch stack.
+See [server operation](docs/server.md) for accounts, remote access, runtime machines, backups and subscription runtimes.
 
 ## Use a coding harness
 
-Install Codex, Claude Code, Pi or OpenCode on your computer, sign in with its CLI, then run `loop` in your project directory. Loop discovers supported installed harnesses and connects them through HAPI. The local runner uses your existing native account and credential home; you only need to sign in again if that account cannot be verified. Sign-in and runtime status are also available in Settings → Execution environments.
+Install Codex, Claude Code, Pi or OpenCode on your computer, sign in with its CLI, then run `loop` in your project directory. Loop discovers supported installed harnesses and connects their direct native adapters. Each harness uses your existing native account and credential home; you only need to sign in again if that account cannot be verified. Sign-in and runtime status are also available in Settings → Provider connections.
 
 ```sh
 loop
 loop start --project /absolute/path/to/project
 ```
 
-There are no `loop <harness>` commands or direct execution mode. All harness tasks run through HAPI, including native and Docker runners. API-key agents remain a separate option using Loop's provider API runtime. See [harnesses](docs/harnesses.md) for discovery, account checks, billing and existing conversation compatibility.
+Each harness keeps its native tools and context. Agents in a team can message, delegate and hand work to one another across harnesses, with shared file references and durable delivery receipts. Codex, Claude Code and Pi support live steering; OpenCode and ACP queue follow-ups.
 
-The workspace and pairing are available while HAPI starts. First setup may build pinned HAPI and, for an installed OpenCode, Loop's guarded OpenCode build; this can take several minutes with network access and build tools. Missing harnesses are not installed automatically. If setup fails, the workspace stays available and reports the failure; harness execution waits for HAPI to be repaired and restarted.
+The workspace and pairing are available while each harness is verified independently. Missing harnesses are not installed automatically. A failed account check leaves that harness unavailable without blocking the others. No HAPI build or service is required.
 
-Use `loop start --providers codex,claude,pi --execution native` to limit the selected harnesses, or select `docker`/`both` for container execution. Saved selections are reused. Bare `loop` is an alias for `loop start`. See [start and runtime selection](docs/companion/START-PAIR.md).
+Use `loop start --providers codex,claude,pi` to limit discovery. Explicit `loop codex|claude|pi|opencode|acp` commands support custom executables and native options. Use the Docker companion or server Compose stack for container execution. See [harnesses](docs/harnesses.md) for billing and recovery of connections retired by the HAPI-only release.
 
 ## Pair your phone
 

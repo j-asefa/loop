@@ -1,6 +1,11 @@
-import { globSync } from "node:fs";
+import { globSync, readdirSync } from "node:fs";
 import { build } from "esbuild";
 import { cp, chmod, rm } from "node:fs/promises";
+// Clear old server code while preserving the freshly built UI.
+for (const entry of readdirSync("dist")) {
+  if (entry !== "client") await rm(`dist/${entry}`, { recursive: true, force: true });
+}
+await rm("native/generated", {recursive:true,force:true});
 // Preserve module-relative paths used by native fixtures, migration and host assets.
 await build({
   entryPoints: globSync("src/**/*.ts").filter(path => !path.startsWith("src/client/") && !path.endsWith(".d.ts")),
@@ -12,7 +17,7 @@ await build({
   packages: "external",
 });
 // The unbundled ACP adapter imports this portable helper from native/. Ship
-// JavaScript beside the TypeScript source also copied into the HAPI runner.
+// JavaScript beside the TypeScript source.
 await build({
   entryPoints: ["native/command-results.ts"],
   outdir: "native",

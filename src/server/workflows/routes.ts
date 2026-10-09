@@ -7,7 +7,6 @@ import { compile, bind } from "./compiler.js";
 import { startWorkflow } from "./runtime.js";
 import { saveArtifact } from "../artifacts.js";
 import { decide } from "../approvals.js";
-import { nativeDecision } from "../hapi/adapter.js";
 export const workflows = Router();
 workflows.get("/workflows", (_req, res) =>
   res.json(
@@ -154,11 +153,15 @@ workflows.post("/approvals/:id", async (req, res) => {
         .optional(),
     })
     .parse(req.body);
-  if (
-    await nativeDecision(res.locals.owner, req.params.id, d.decision, d.answers, d.confirmUnknown)
-  ) {
-    res.json({ ok: true, pendingNativeAcknowledgement: true });
-    return;
-  }
+  const approval = owned<{ request: string }>(
+    "approvals",
+    req.params.id,
+    res.locals.owner,
+  );
+  if (JSON.parse(approval.request).type === "hapi_native")
+    throw new Problem(
+      410,
+      "This approval belongs to an archived HAPI session.",
+    );
   res.json(decide(res.locals.owner, req.params.id, d.decision));
 });

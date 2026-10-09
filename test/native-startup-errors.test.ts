@@ -44,7 +44,7 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-it("rejects a queued legacy harness run at the worker boundary without dispatch", async () => {
+it("preserves safe subscription setup guidance through the real worker and trace boundary without dispatch", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   process.env.LOOP_TEST_PI_AUTH = "api";
   const audit = join(dir, "prompts.log");
@@ -70,14 +70,28 @@ it("rejects a queued legacy harness run at the worker boundary without dispatch"
     .prepare("SELECT state,error FROM runs WHERE id=?")
     .get(run.id) as any;
   expect(result.state).toBe("failed");
-  expect(result.error).toContain("requires HAPI");
+  expect(result.error).toContain("subscription login");
+  expect(result.error).toContain("openai-codex");
+  expect(result.error).toContain(
+    "No prompt was sent and no API fallback occurred",
+  );
   const trace = db
     .prepare(
       "SELECT content,metadata FROM run_traces WHERE run_id=? AND trace_key='run:failure'",
     )
     .get(run.id) as any;
   expect(trace.content).toBe(result.error);
-  expect(db.prepare("SELECT 1 FROM companion_sessions WHERE conversation_id='startup'").get()).toBeUndefined();
+  expect(JSON.parse(trace.metadata).failure).toMatchObject({
+    phase: "native startup",
+    code: "native_billing_mismatch",
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT state FROM companion_sessions WHERE conversation_id='startup'",
+      )
+      .get(),
+  ).toEqual({ state: "failed" });
   expect(
     db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
   ).toBeUndefined();

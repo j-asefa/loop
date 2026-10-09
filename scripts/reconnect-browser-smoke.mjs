@@ -7,48 +7,21 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer as createNet, connect } from "node:net";
 import { createServer as createTls } from "node:tls";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 const exec = promisify(execFile);
 await mkdir(".tmp", { recursive: true });
 const base = await mkdtemp(resolve(".tmp/reconnect-browser-"));
 const project = join(base, "project");
 await mkdir(project);
-const fixture = join(base, "managed-fixture.mjs");
-const dist = resolve("dist");
-// Mock provisioning only. The compiled CLI, worker, application, connection
-// service and browser reconnect all run their production implementations.
-await writeFile(fixture, `
-  import { LocalRuntime } from ${JSON.stringify(pathToFileURL(join(dist, "local-runtime.js")).href)};
-  LocalRuntime.prototype.prepare = async function () {};
-  LocalRuntime.prototype.start = async function () {
-    const { db } = await import(${JSON.stringify(pathToFileURL(join(dist, "server/db.js")).href)});
-    const { seal } = await import(${JSON.stringify(pathToFileURL(join(dist, "server/secrets.js")).href)});
-    const { withTestAdapter } = await import(${JSON.stringify(pathToFileURL(join(dist, "server/providers.js")).href)});
-    db.prepare("INSERT OR IGNORE INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('fixture-api','local-workspace','openai','Fixture API',?,'connected',?,0)")
-      .run(seal("fixture", "local-workspace"), JSON.stringify([{id:"fixture",name:"Fixture"}]));
-    withTestAdapter("openai", {
-      async models() { return [{id:"fixture",name:"Fixture",capabilities:"Fixture only"}]; },
-      async *stream() { yield {text:"Fixture done"}; },
-    });
-    return {billing:{description:"Fixture managed setup"}};
-  };
-  LocalRuntime.prototype.close = async function () {};
-`);
+const fixture = join(base, "codex");
+await copyFile("test/harness.mjs", fixture);
+await chmod(fixture, 0o755);
 await chmod("test/fixtures/fake-cloudflared.mjs", 0o755);
-// Keep local Docker workspaces out of this isolated browser fixture.
-const bin = join(base, "bin");
-await mkdir(bin);
-await writeFile(join(bin, "docker"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 const env = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_"))),
-  NODE_ENV: "test",
-  PATH: `${bin}:${process.env.PATH || ""}`,
+  ...process.env,
   LOOP_HOME: join(base, "state"),
-  LOOP_MEMORY_ENABLED: "0",
-  NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import ${pathToFileURL(fixture).href}`,
   LOOP_TEST_HARNESS: "codex",
   LOOP_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
 };
@@ -90,10 +63,9 @@ const proxy = createNet((client) => {
 await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
 let browser;
 try {
-  const started = await loop("start", "--providers", "codex", "--execution", "native", "--project", project);
+  const started = await loop("codex", "--executable", fixture, "--project", project, "--billing", "existing");
   const pairUrl = started.stdout.match(/https:\/\/[\w-]+\.trycloudflare\.com\/#pair=[\w-]+/)[0];
   const before = await status();
-  assert.equal(before.executionBackend, "hapi");
   relayPort = Number(new URL(before.connection.service.relay).port);
   const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
   browser = await engine.launch({
@@ -125,15 +97,11 @@ try {
   const csrf = await page.evaluate(async () => (await (await fetch("/session")).json()).csrf);
   const post = (path, body) =>
     page.evaluate(
-      async ([p, b, token]) => {
-        const response = await fetch(p, { method: "POST", headers: { "content-type": "application/json", "x-loop-csrf": token }, body: JSON.stringify(b) });
-        const body = await response.json();
-        if (!response.ok) throw new Error(`${p}: ${JSON.stringify(body)}`);
-        return body;
-      },
+      async ([p, b, token]) =>
+        (await fetch(p, { method: "POST", headers: { "content-type": "application/json", "x-loop-csrf": token }, body: JSON.stringify(b) })).json(),
       [path, body, csrf],
     );
-  const agent = await post("/api/agents", { name: "reconnect-agent", connectionId: "fixture-api", model: "fixture" });
+  const agent = await post("/api/agents", { name: "reconnect-agent", connectionId: "native-codex", model: "native-default" });
   const run = await post("/api/runs", { agentId: agent.id, input: "hello from the phone", idempotencyKey: crypto.randomUUID() });
   await page.goto(new URL("/?conversation=" + run.conversation_id, pairUrl).href);
   const reply = page.getByLabel("Reply to agent");

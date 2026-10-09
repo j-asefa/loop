@@ -26,15 +26,6 @@ export async function buildNativeAuth(
   );
   await build({
     absWorkingDir: root,
-    entryPoints: ["native/pi-managed-extension.ts"],
-    outfile: join(outdir, "pi-managed-extension.mjs"),
-    bundle: true,
-    platform: "node",
-    format: "esm",
-    target: "node22",
-  });
-  await build({
-    absWorkingDir: root,
     entryPoints: ["src/native-auth/pi-customizations.ts"],
     outfile: join(outdir, "pi-customizations.mjs"),
     bundle: true,

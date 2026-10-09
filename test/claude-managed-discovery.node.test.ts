@@ -8,7 +8,7 @@ import {
   claudeAuthStatus,
 } from "../src/native-auth/claude-discovery.js";
 
-test("HAPI Claude discovery preserves native model names and effort without login or a model prompt", async () => {
+test("Native Claude discovery preserves native model names and effort without login or a model prompt", async () => {
   const root = await mkdtemp(join(tmpdir(), "loop-claude-catalog-"));
   const executable = join(root, "claude");
   await writeFile(

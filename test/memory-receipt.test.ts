@@ -116,3 +116,19 @@ it("tells an empty search apart from memory being off", () => {
     }),
   ).toBe("Added 1 saved source, about 1 token of context.");
 });
+
+it("reports conversation memory policy without requiring a HAPI session and isolates owners", async () => {
+  const owner = id(),
+    rid = runFor(owner);
+  const { conversation_id: conversation } = db
+    .prepare("SELECT conversation_id FROM runs WHERE id=?")
+    .get(rid) as { conversation_id: string };
+  const url = `http://127.0.0.1:${(server.address() as any).port}/api/conversations/${conversation}/memory`;
+  const get = (who: string) => fetch(url, { headers: { "x-owner": who } });
+  expect(await (await get(owner)).json()).toEqual({ memoryIncluded: false });
+  expect((await get(id())).status).toBe(404);
+  db.prepare(
+    "INSERT INTO memory_policy(owner_id,scope,enabled) VALUES(?,?,1)",
+  ).run(owner, "conversation:" + conversation);
+  expect(await (await get(owner)).json()).toEqual({ memoryIncluded: true });
+});

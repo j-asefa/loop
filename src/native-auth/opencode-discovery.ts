@@ -8,7 +8,7 @@ import {
   inspectOpencodeNativeAuth,
   inspectOpencodeCatalog,
   opencodeSubscriptionEnvironment,
-} from "../../native/loopManaged.js";
+} from "./account-policy.js";
 
 type NativeOptions = {
   executable: string;

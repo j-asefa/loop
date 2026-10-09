@@ -30,7 +30,7 @@ process.env.LOOP_PROFILE = "server";
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
-const { enqueue } = await import("../src/server/queue");
+const { submit } = await import("../src/server/agent-runtime");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
 const { publishRunFile } = await import("../src/server/published-files");
@@ -38,7 +38,6 @@ const { runtimeKey, runtimeWorkspaceKey } =
   await import("../src/server/subscriptions");
 const { core } = await import("../src/server/core-routes");
 const { workspace: routes } = await import("../src/server/workspace-routes");
-const { executionRoutes } = await import("../src/server/hapi/routes");
 const { feedRevision, feedUpdates } = await import("../src/server/feed");
 const { agentMessages } = await import("../src/server/agent-messages");
 const requests: any[] = [];
@@ -74,7 +73,7 @@ app.post("/runtime", (req, res) => {
   }
   res.json(changeTransfer ? changeTransfer(chunk) : chunk);
 });
-app.use("/api", core, routes, executionRoutes);
+app.use("/api", core, routes);
 app.use((error: any, _req: any, res: any, _next: any) =>
   res.status(error.status || 400).json({ error: error.message }),
 );
@@ -97,10 +96,10 @@ function fixture() {
     connectionId: connection,
     model: "gpt-6-astra",
   });
-  const conversation = id();
-  db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,execution_backend,created_at) VALUES(?,'alice',?,'Archived','legacy',?)").run(conversation, agent.id, now());
-  const run = enqueue("alice", "Publish a file", id(), {
-    agent: agent.id, conversation, payload: { connectionId: connection, model: "gpt-6-astra" },
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "Create a mockup and publish it",
+    idempotencyKey: id(),
   });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   const binding = nativeBindings(run).find(

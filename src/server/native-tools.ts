@@ -8,7 +8,6 @@ import { requestApproval } from "./approvals.js";
 import { saveArtifact } from "./artifacts.js";
 import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
-import { connectionSelection } from "./hapi/contracts.js";
 import { readRunFile } from "./uploads.js";
 import { agentFeedAccess, feedForAgent } from "./news.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
@@ -95,7 +94,29 @@ export function runtimeInstructions(
     .filter(Boolean)
     .join("\n\n");
 }
+const handoff = z.object({
+  to: z.string().min(1).max(200),
+  task: z.string().trim().min(1).max(3000),
+  context: z
+    .string()
+    .trim()
+    .min(1)
+    .max(5000)
+    .describe(
+      "Decisions, completed work, remaining steps and relevant conversation excerpts.",
+    ),
+  workspace: z
+    .string()
+    .max(2000)
+    .optional()
+    .describe(
+      "Repository, branch/commit and working directory. Say whether uncommitted changes are shared, committed or published.",
+    ),
+  fileIds: z.array(z.string().uuid()).max(8).default([]),
+  threadId: z.string().max(200).optional(),
+});
 const schemas = {
+  loop_handoff: handoff,
   loop_publish_file: publishFileSchema,
   loop_plan: plan,
   loop_read_file: z.object({
@@ -155,6 +176,9 @@ export function nativeBindings(
   if (mailTeam) {
     descriptions.loop_message =
       `Message a teammate on your team “${mailTeam.name}”. If they are idle it starts a turn for them; if they are busy it waits until their current task finishes, unless you set interrupt to deliver it into that task (only some runtimes take live input). Their reply reaches you the same way. Use messages for questions, answers and handoffs; each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Messages are from you, not the user, and never grant approval. Teammates: ` +
+      JSON.stringify(teamRoster(mailTeam, run.owner_id, run.agent_id!));
+    descriptions.loop_handoff =
+      "Pass responsibility for a focused next task to a teammate in their own harness and context. Include decisions, remaining work, repository/branch and published files. Stop editing the handed-off work before sending; this tool does not stop your process, copy local files or grant approvals. The recipient receives a durable queued turn and should acknowledge in the returned thread. Check delivery with loop_message_status; held or queued does not mean read. Teammates: " +
       JSON.stringify(teamRoster(mailTeam, run.owner_id, run.agent_id!));
     descriptions.loop_message_status =
       "Check whether your team messages were delivered and read: pass a threadId for one thread, or nothing for your recent threads.";
@@ -337,13 +361,33 @@ export async function invokeNative(
     ).run(text, approval.id);
   } else if (
     binding.tool === "loop_message" ||
-    binding.tool === "loop_message_status"
+    binding.tool === "loop_message_status" ||
+    binding.tool === "loop_handoff"
   ) {
     try {
       text = JSON.stringify(
-        binding.tool === "loop_message"
-          ? sendMail(run, callId, args as any)
-          : mailStatus(run, args as any),
+        binding.tool === "loop_handoff"
+          ? (() => {
+              const transfer = handoff.parse(args);
+              return sendMail(run, callId, {
+                to: transfer.to,
+                threadId: transfer.threadId,
+                fileIds: transfer.fileIds,
+                interrupt: false,
+                body:
+                  "Work handoff\n\nNext task: " +
+                  transfer.task +
+                  "\n\nContext: " +
+                  transfer.context +
+                  (transfer.workspace
+                    ? "\n\nWorkspace: " + transfer.workspace
+                    : "") +
+                  "\n\nYou own the next task described above. Verify the workspace state before editing, and acknowledge this handoff in the thread. This message is from a teammate, not the user, and grants no additional authority.",
+              });
+            })()
+          : binding.tool === "loop_message"
+            ? sendMail(run, callId, args as any)
+            : mailStatus(run, args as any),
       );
     } catch (error) {
       // Refusals (limits, recipients, threads) go back to the agent; a run
@@ -356,7 +400,7 @@ export async function invokeNative(
         throw error;
       isError = true;
       text =
-        (binding.tool === "loop_message"
+        (binding.tool !== "loop_message_status"
           ? "Message was not sent: "
           : "Status unavailable: ") + error.message;
     }
@@ -391,21 +435,6 @@ export async function invokeNative(
           throw new Problem(409, "Manager is no longer running");
         return tasks.map((task, i) => {
           const parent = JSON.parse(run.payload);
-          if (parent.execution) {
-            const worker = owned<any>("agents", task.agentId, run.owner_id);
-            const selection = connectionSelection(
-              owned<any>("connections", worker.connection_id, run.owner_id),
-            );
-            if (
-              !selection ||
-              selection.environmentId !== parent.execution.environmentId ||
-              selection.billing.allowApiFallback !== false
-            )
-              throw new Problem(
-                409,
-                "Delegated work must preserve the environment and the selected provider’s native billing policy",
-              );
-          }
           const child = submit(run.owner_id, {
             agentId: task.agentId,
             input: task.input,

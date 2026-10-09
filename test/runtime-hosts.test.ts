@@ -216,9 +216,31 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
     label: "Remote Claude",
     runtimeHostId: host.data.id,
   });
-  expect(connection.status).toBe(410);
-  expect(connection.data.error).toContain("HAPI");
-
+  expect(connection.status).toBe(201);
+  const login = await api(
+    "/subscriptions/" + connection.data.id + "/login",
+    {},
+  );
+  expect(login.data.login.url).toContain("claude.ai");
+  expect(requests.at(-1).provider).toBe("claude");
+  const status = await api(
+    "/subscriptions/" + connection.data.id + "/status",
+    {},
+  );
+  expect(status.data.authenticated).toBe(true);
+  expect(
+    (
+      await api(
+        "/subscriptions/" + connection.data.id + "/status",
+        {},
+        "POST",
+        "bob",
+      )
+    ).status,
+  ).toBe(404);
+  expect(
+    (await api("/runtime-hosts/" + host.data.id, {}, "DELETE")).status,
+  ).toBe(409);
 });
 it("rejects private runtime addresses without explicit administrator configuration", async () => {
   const result = await api("/runtime-hosts", {
@@ -268,9 +290,18 @@ it("pairs native hosts separately from isolated brokers and keeps their tools ou
     label: "Native Claude",
     runtimeHostId: host!.data.id,
   });
-  expect(connection.status).toBe(410);
+  expect(connection.status).toBe(201);
+  expect(
+    JSON.parse(
+      (
+        db
+          .prepare("SELECT metadata FROM connections WHERE id=?")
+          .get(connection.data.id) as any
+      ).metadata,
+    ).runtimeKind,
+  ).toBe("native-host");
+  await api(`/connections/${connection.data.id}`, {}, "DELETE");
   await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE");
-
 });
 it("clears signing_in after a failed login so retry starts a new flow", async () => {
   const host = id(),
@@ -298,14 +329,293 @@ it("clears signing_in after a failed login so retry starts a new flow", async ()
   ).toEqual({ status: "needs_sign_in" });
 });
 
-it("retired subscription endpoints never contact the registered runtime", async () => {
-  const before = requests.length;
-  for (const path of ["/subscriptions", "/subscriptions/old/login", "/subscriptions/old/status"]) {
-    const response = await api(path, {provider:"codex",label:"Old"});
-    expect(response.status).toBe(410);
-    expect(response.data.error).toContain("HAPI");
+it("clears a stalled sign-in and returns the runtime's retry message when polling reports its deadline", async () => {
+  const host = await api("/runtime-hosts", {
+    name: "Login deadline",
+    url: brokerUrl,
+    token,
+  });
+  const created = await api("/subscriptions", {
+    provider: "claude",
+    label: "Stalled Claude",
+    runtimeHostId: host.data.id,
+  });
+  const path = "/subscriptions/" + created.data.id;
+  await api(path + "/login", {});
+  nextStatus = {
+    state: "failed",
+    error:
+      "The provider did not return a sign-in link within 45 seconds. Try sign-in again.",
+  };
+  const failed = await api(path + "/status", {});
+  expect(failed.data).toMatchObject({
+    state: "failed",
+    error: expect.stringContaining("Try sign-in again"),
+  });
+  expect(
+    db
+      .prepare("SELECT status FROM connections WHERE id=?")
+      .get(created.data.id),
+  ).toEqual({ status: "needs_sign_in" });
+  const retry = await api(path + "/login", {});
+  expect(retry.data.state).toBe("waiting");
+});
+
+it("pairs Codex app-server, uses the host account, scopes access and never logs that account out", async () => {
+  const host = await api("/runtime-hosts", {
+    name: "Remote Codex",
+    url: codex.url,
+    token: codex.token,
+    kind: "codex-app-server",
+  });
+  expect(host.status).toBe(201);
+  expect(
+    (await api("/runtime-hosts")).data.find((h: any) => h.id === host.data.id),
+  ).toMatchObject({ kind: "codex-app-server" });
+  expect(JSON.stringify((await api("/runtime-hosts")).data)).not.toContain(
+    codex.token,
+  );
+  expect(() => runtimeEndpoint("bob", host.data.id, "codex")).toThrow(
+    "Item not found",
+  );
+  expect(
+    (
+      await api("/subscriptions", {
+        provider: "claude",
+        label: "Invalid",
+        runtimeHostId: host.data.id,
+      })
+    ).status,
+  ).toBe(400);
+  await expect(
+    installConfig(
+      "alice",
+      { mcpServers: { test: { command: "npx", args: [] } } },
+      undefined,
+      "",
+      host.data.id,
+    ),
+  ).rejects.toThrow("only runs Codex");
+  const created = await api("/subscriptions", {
+    provider: "codex",
+    label: "Existing account",
+    runtimeHostId: host.data.id,
+  });
+  expect(created.status).toBe(201);
+  const login = await api(`/subscriptions/${created.data.id}/login`, {});
+  expect(login.status).toBe(200);
+  expect(login.data).toMatchObject({
+    authenticated: true,
+    authMode: "subscription",
+  });
+  const connection = db
+    .prepare("SELECT * FROM connections WHERE id=?")
+    .get(created.data.id) as any;
+  expect(connection.status).toBe("connected");
+  const input = {
+    model: "fixture",
+    instructions: "Be clear",
+    messages: [{ role: "user" as const, content: "Do the work" }],
+    signal: new AbortController().signal,
+    tools: [
+      {
+        name: "lookup",
+        description: "Fixture",
+        inputSchema: { type: "object" },
+      },
+    ],
+  };
+  const chunks = [];
+  for await (const chunk of subscriptionStream(connection, input))
+    chunks.push(chunk);
+  expect(chunks).toEqual([
+    { text: "Remote Codex fixture response." },
+    { externalId: expect.stringMatching(/^fixture-thread-/) },
+  ]);
+  const thread = codex.calls.findLast((c: any) => c.method === "thread/start");
+  expect(thread.params).toMatchObject({
+    ephemeral: true,
+    modelProvider: "openai",
+    sandbox: "danger-full-access",
+    config: { forced_login_method: "chatgpt" },
+  });
+  expect(Object.keys(thread.params.config)).toEqual(["forced_login_method"]);
+  expect(
+    codex.calls.some(
+      (c: any) => c.id === 1000 && c.result?.decision === "accept",
+    ),
+  ).toBe(true);
+  expect(
+    codex.calls.some(
+      (c: any) => c.id === 1001 && c.result?.decision === "accept",
+    ),
+  ).toBe(true);
+  expect(
+    codex.calls.some(
+      (c: any) => c.id === 1002 && c.result?.permissions.network.enabled,
+    ),
+  ).toBe(true);
+  expect(codex.calls.some((c: any) => c.id === 1003 && c.error)).toBe(true);
+  expect(
+    codex.calls.findLast((c: any) => c.method === "turn/start").params.input[0]
+      .text,
+  ).toContain("all native tools");
+  const tools = [];
+  for await (const chunk of subscriptionStream(connection, {
+    ...input,
+    model: "tool",
+  }))
+    tools.push(chunk);
+  expect(tools[0]).toMatchObject({
+    toolCall: { name: "lookup", arguments: {} },
+  });
+  for (const [model, message] of [
+    ["wrong-provider", "did not use the ChatGPT provider"],
+    ["ungranted", "ungranted tool"],
+    ["quota", "Usage limit reached"],
+    ["disconnect", "Remote Codex connection"],
+    ["rejected", "Remote Codex rejected thread/start: Model access denied"],
+  ]) {
+    const failure = await (async () => {
+      for await (const _chunk of subscriptionStream(connection, {
+        ...input,
+        model,
+      })) {
+        /* drain */
+      }
+    })().catch((error) => error);
+    expect(failure).toBeInstanceOf(Problem);
+    expect(failure.message).toContain(message);
+    expect(JSON.stringify(failure)).not.toContain(fixtureToken);
+    if (model === "quota")
+      expect(failure.diagnostic).toEqual({
+        phase: "turn",
+        code: "usage_limit",
+      });
   }
-  expect(requests).toHaveLength(before);
+  const controller = new AbortController();
+  const cancelled = (async () => {
+    for await (const _chunk of subscriptionStream(connection, {
+      ...input,
+      model: "wait",
+      signal: controller.signal,
+    })) {
+      /* drain */
+    }
+  })();
+  // Attach the rejection handler before aborting.
+  const stopped = expect(cancelled).rejects.toThrow();
+  await expect
+    .poll(() =>
+      codex.calls.some(
+        (c: any) => c.method === "thread/start" && c.params.model === "wait",
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(
+      () => codex.calls.filter((c: any) => c.method === "turn/start").length,
+    )
+    .toBe(6);
+  controller.abort();
+  await stopped;
+  expect(
+    codex.calls.findLast((c: any) => c.method === "turn/interrupt")?.params,
+  ).toMatchObject({
+    threadId: expect.stringMatching(/^fixture-thread-/),
+    turnId: expect.stringMatching(/^fixture-turn-/),
+  });
+  expect(
+    (await api(`/connections/${created.data.id}`, {}, "DELETE")).status,
+  ).toBe(200);
+  expect(
+    codex.calls.some((c: any) =>
+      ["account/login/start", "account/logout"].includes(c.method),
+    ),
+  ).toBe(false);
+  expect(
+    (await api(`/runtime-hosts/${host.data.id}`, {}, "DELETE")).status,
+  ).toBe(200);
+});
+
+it("discovers only the selected owner’s skills and dispatches native review and skill input", async () => {
+  const host = await api("/runtime-hosts", {
+    name: "Harness machine",
+    url: codex.url,
+    token: codex.token,
+    kind: "codex-app-server",
+  });
+  const created = await api("/subscriptions", {
+    provider: "codex",
+    label: "Harness account",
+    runtimeHostId: host.data.id,
+  });
+  await api(`/subscriptions/${created.data.id}/login`, {});
+  const agent = await api("/agents", {
+    name: "harness-discovery",
+    connectionId: created.data.id,
+    model: "fixture",
+  });
+  const before = codex.calls.length;
+  const catalog = await api(`/agents/${agent.data.id}/harness`);
+  expect(catalog.data).toMatchObject({
+    available: true,
+    commands: expect.arrayContaining([
+      expect.objectContaining({ token: "$fixture-skill" }),
+      expect.objectContaining({ token: "/review" }),
+    ]),
+  });
+  expect(
+    catalog.data.commands.some((c: any) => c.token === "$disabled-skill"),
+  ).toBe(false);
+  expect(
+    codex.calls.slice(before).some((c: any) => c.method === "turn/start"),
+  ).toBe(false);
+  expect(
+    (await api(`/agents/${agent.data.id}/harness`, undefined, undefined, "bob"))
+      .status,
+  ).toBe(404);
+  const connection = db
+    .prepare("SELECT * FROM connections WHERE id=?")
+    .get(created.data.id) as any;
+  const run = async (content: string) => {
+    const chunks = [];
+    for await (const c of subscriptionStream(connection, {
+      model: "fixture",
+      instructions: "Be clear",
+      messages: [{ role: "user", content }],
+      signal: new AbortController().signal,
+    }))
+      chunks.push(c);
+    return chunks;
+  };
+  await run("$fixture-skill check this project");
+  expect(
+    codex.calls.findLast((c: any) => c.method === "turn/start").params.input,
+  ).toContainEqual({
+    type: "skill",
+    name: "fixture-skill",
+    path: "/fixture/SKILL.md",
+  });
+  expect((await run("/review"))[0]).toEqual({
+    text: "Native review completed.",
+  });
+  expect(
+    codex.calls.findLast((c: any) => c.method === "review/start").params.target,
+  ).toEqual({ type: "uncommittedChanges" });
+  await run("/review check error handling");
+  expect(
+    codex.calls.findLast((c: any) => c.method === "review/start").params.target,
+  ).toEqual({ type: "custom", instructions: "check error handling" });
+  await run("Inspect $HOME and $PATH; $disabled-skill is ordinary text");
+  const textOnly = codex.calls.findLast((c: any) => c.method === "turn/start")
+    .params.input;
+  expect(textOnly).toHaveLength(1);
+  expect(textOnly[0].text).toContain(
+    "Inspect $HOME and $PATH; $disabled-skill is ordinary text",
+  );
+  await api(`/connections/${created.data.id}`, {}, "DELETE");
+  await api(`/runtime-hosts/${host.data.id}`, {}, "DELETE");
 });
 
 it("rejects inaccessible, unauthenticated and API-key app-servers before saving a host", async () => {

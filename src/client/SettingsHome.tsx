@@ -168,7 +168,13 @@ export function SettingsHome({
       <section className="settings-navigation" aria-labelledby="settings-more">
         <h3 id="settings-more">More</h3>
         <div className="settings-row-group">
-
+          {capabilities.nativeHarnesses &&
+            row(
+              "native-history",
+              "Native conversations",
+              "Browse existing harness history",
+              MessageSquare,
+            )}
           {row(
             "import",
             "Import conversations",

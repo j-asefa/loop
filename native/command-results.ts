@@ -1,4 +1,4 @@
-// Pure native protocol correlation, also copied into the pinned HAPI runner.
+// Pure native protocol correlation.
 // Commands come from invocation input, never a tool title or result prose.
 export type CompletedCommand = { id: string; command: string; output: string };
 export function commandInput(input: any): string | undefined {

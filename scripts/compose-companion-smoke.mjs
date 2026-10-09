@@ -75,24 +75,6 @@ try {
     1_500_000,
   );
   compose(["exec", "-T", "loop-companion", "loop", "status", "--json"]);
-  compose(
-    ["exec", "-T", "loop-companion", "node", "--input-type=module"],
-    `
-    import assert from "node:assert/strict";
-    import { execFileSync } from "node:child_process";
-    import { existsSync } from "node:fs";
-    import { dirname, resolve } from "node:path";
-    import { hapi } from "/app/dist/local-runtime.js";
-    // Resolve the shipped artifact through the production loader. Baked mode
-    // refuses a rebuild, so this also checks the retained readiness/layout.
-    const binary = await hapi("/unused-build-root");
-    execFileSync(binary, ["--version"], { stdio: "ignore" });
-    const source = resolve(dirname(binary), "../../..");
-    assert.equal(existsSync(source + "/node_modules"), false);
-    assert.equal(existsSync(source + "/.git"), false);
-    assert.equal(existsSync(source + "/hapi-source.tar.gz"), true);
-    `,
-  );
   // No cloudflared, Docker socket, provider home or project in the connection container.
   inConnection(`
     import assert from "node:assert/strict";

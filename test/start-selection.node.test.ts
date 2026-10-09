@@ -1,48 +1,57 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { choices } from "../src/local-runtime.js";
+import { selectedHarnesses } from "../src/start-selection.js";
+import { migrateLaunchArgs } from "../src/service.js";
 
-test("CLI rejects every direct harness entry point before starting execution", async () => {
-  const root = await mkdtemp(join(tmpdir(), "loop-cli-hapi-only-"));
-  const exec = promisify(execFile);
-  const run = (args: string[]) =>
-    exec(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], {
-      env: { ...process.env, LOOP_HOME: root },
-      timeout: 10000,
-    });
-  try {
-    for (const action of [
-      "codex",
-      "claude",
-      "claude-code",
-      "pi",
-      "opencode",
-      "acp",
+test("one launch selects all installed harnesses, with explicit opt-in subsets", () => {
+  assert.deepEqual(selectedHarnesses(), ["codex", "claude", "pi", "opencode"]);
+  assert.deepEqual(selectedHarnesses("both"), ["codex", "claude"]);
+  assert.deepEqual(selectedHarnesses("pi,codex,pi"), ["pi", "codex"]);
+  assert.throws(() => selectedHarnesses("acp"), /Register custom ACP/);
+});
+test("saved HAPI launcher options migrate to native while retaining project and pairing settings", () => {
+  assert.deepEqual(
+    migrateLaunchArgs([
+      "start",
+      "--providers",
+      "both",
+      "--execution",
+      "docker",
+      "--project",
+      "/project",
+      "--public-url",
+      "https://loop.example",
+    ]),
+    [
+      "start",
+      "--providers",
+      "both",
+      "--project",
+      "/project",
+      "--public-url",
+      "https://loop.example",
+      "--execution",
+      "native",
+    ],
+  );
+  assert.deepEqual(
+    migrateLaunchArgs([
       "laptop",
-    ])
-      await assert.rejects(run([action]), /Unknown command/);
-    for (const option of [
-      "--direct",
+      "--billing=existing",
       "--executable",
-      "--resume",
-      "--billing",
-      "--acp-arg",
-    ])
-      await assert.rejects(run(["start", option]), /Unknown option/);
-    const { stdout } = await run(["--help"]);
-    assert.match(stdout, /Discover installed harnesses/);
-    assert.doesNotMatch(stdout, /loop codex|--direct|loop acp/);
-    assert.deepEqual(choices("installed", "native", "/project"), {
-      providers: ["codex", "claude", "opencode", "pi"],
-      execution: "native",
-      project: "/project",
-    });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+      "/old",
+      "--local-only",
+    ]),
+    ["start", "--local-only", "--execution", "native"],
+  );
+  const args = [
+    "acp",
+    "--executable",
+    "/custom",
+    "--acp-arg",
+    "serve",
+    "--billing",
+    "existing",
+  ];
+  assert.deepEqual(migrateLaunchArgs(args), args);
 });

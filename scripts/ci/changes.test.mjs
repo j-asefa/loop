@@ -42,7 +42,7 @@ test("every deployment/shared/unknown input fails open to full coverage", () => 
     "src/native-auth/runner.ts",
     "src/service.ts",
     "runtime/broker.mjs",
-    "native/loopManaged.ts",
+    "src/native-auth/account-policy.ts",
     "migrations/064.sql",
     "package-lock.json",
     "package.json",

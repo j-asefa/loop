@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
-import { connectionSelection } from "./hapi/contracts.js";
+import { connectionSelection } from "./legacy-execution.js";
 import type { Agent } from "../shared/types.js";
 
 export function listTeams(owner: string) {

@@ -1,5 +1,0 @@
-ARG NGINX_IMAGE
-FROM ${NGINX_IMAGE}
-USER 10001:10001
-ENTRYPOINT ["nginx"]
-CMD ["-g", "daemon off;", "-c", "/config/nginx.conf"]

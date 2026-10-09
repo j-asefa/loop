@@ -148,7 +148,7 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
         assert.equal(harness?.supported, true, name);
         assert.equal(harness.version, latest);
       }
-      assert(report.checks.some((check: string) => check.includes("HAPI")));
+      assert(!report.checks.some((check: string) => check.includes("HAPI")));
     },
   );
 });

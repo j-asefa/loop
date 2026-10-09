@@ -1220,7 +1220,6 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
 });
 
 it("binds a fork to a native agent's backend and carries the copied turns", async () => {
-  const { billingPolicy } = await import("../src/server/hapi/contracts");
   const { selectedContext } = await import("../src/server/carried-context");
   const w = workspaceFor(),
     source = w.agent();
@@ -1231,7 +1230,7 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
     nativeConnection,
     w.owner,
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({ backend: "hapi", environmentId: "env", flavor: "codex", billing: billingPolicy }),
+    JSON.stringify({loopHarness:"codex",authMode:"subscription"}),
     now(),
   );
   const native = createAgent(w.owner, {
@@ -1246,7 +1245,7 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
   const fork = await api(w.owner, `/conversations/${cid}/fork`, "POST", { messageId: answer, agentId: native.id });
   expect(fork.status).toBe(200);
   expect(db.prepare("SELECT execution_backend,execution_connection_id FROM conversations WHERE id=?").get(fork.data.id)).toEqual({
-    execution_backend: "hapi",
+    execution_backend: "legacy",
     execution_connection_id: nativeConnection,
   });
   const context = selectedContext(fork.data.id);

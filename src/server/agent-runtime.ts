@@ -34,8 +34,8 @@ import {
 } from "./steering.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
-import { connectionSelection, type NativeSelection } from "./hapi/contracts.js";
-import { executeHapi } from "./hapi/adapter.js";
+import { connectionSelection, type NativeSelection } from "./legacy-execution.js";
+import { nativeSessions } from "./native-sessions.js";
 export type Snapshot = {
   agentId: string;
   name: string;
@@ -87,8 +87,7 @@ export function nextTurnConnection(
       "This conversation belongs to its original backend. Start a new native conversation.",
     );
   const execution = connectionSelection(connection);
-  if (!execution && (isNativeConnection(connection) || isSubscription(connection)))
-    throw new Problem(409, "This connection used direct harness execution, which is no longer supported. Choose its HAPI connection and start a new conversation; existing history is preserved.");
+  if (execution) throw new Problem(409, "This archived HAPI conversation cannot execute. Choose a native connection and start a new conversation; its history is preserved.");
   if (connection.status !== "connected" && !execution)
     throw new Problem(409, "Reconnect the provider to run this agent");
   return { connection, execution };
@@ -496,7 +495,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const snapshot = JSON.parse(run.payload) as Snapshot & {
     workflowRun?: string;
   };
-  if (snapshot.execution?.backend === "hapi") return executeHapi(run);
+  if (snapshot.execution?.backend === "hapi") throw new Problem(409, "HAPI execution has been removed. This recorded work was not replayed.");
   const connection = owned<Connection>(
     "connections",
     snapshot.connectionId,
@@ -504,8 +503,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
   );
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect this provider before continuing.");
-  if (isNativeConnection(connection) || isSubscription(connection))
-    throw new Problem(409, "Harness execution requires HAPI. This old run was not dispatched; choose a HAPI connection and start a new conversation.");
+  if (isNativeConnection(connection)) {
+    if (!companionMode) throw new Problem(409, "This conversation belongs to a companion deployment.");
+    return nativeSessions.execute(run);
+  }
   let cp = db
     .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
     .get(run.id) as any;

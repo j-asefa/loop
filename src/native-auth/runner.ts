@@ -1,8 +1,8 @@
 export { discoverClaudeModels, claudeAuthStatus } from "./claude-discovery.js";
 export { discoverOpencode, logoutOpencode } from "./opencode-discovery.js";
 export { inspectPiAuth, discoverPi, logoutPi } from "./pi-status.js";
-export { inspectOpencodeNativeAuth } from "../../native/loopManaged.js";
-import { piExistingEnvironment } from "../../native/loopManaged.js";
+export { inspectOpencodeNativeAuth } from "./account-policy.js";
+import { piExistingEnvironment } from "./account-policy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createAuthDriver } from "./drivers.js";

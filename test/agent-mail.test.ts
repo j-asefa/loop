@@ -24,7 +24,6 @@ const { core } = await import("../src/server/core-routes");
 const { withTestAdapter } = await import("../src/server/providers");
 const { storePublishedFile } = await import("../src/server/published-files");
 const { readRunFile } = await import("../src/server/uploads");
-const { billingPolicy } = await import("../src/server/hapi/contracts");
 type Run = import("../src/server/queue").Run;
 
 const app = express();
@@ -79,8 +78,7 @@ function agent(owner: string, name: string, metadata: object = {}) {
     instructions: name,
   });
 }
-const harness = (flavor: string) => ({ backend: "hapi", environmentId: "env-local", flavor,
-  billing: flavor === "pi" ? { mode: "existing", requiredAuth: "pi", allowApiFallback: false } : billingPolicy });
+const harness = (loopHarness: string) => ({ loopHarness });
 // A run the worker is executing: invokeNative and loop_message require it.
 function running(
   owner: string,
@@ -159,7 +157,7 @@ it("gives every team member the tool and a roster, and refuses anyone outside th
   expect(tool.description).toContain(manager.id);
   expect(tool.description).toContain(piWorker.id);
   expect(tool.description).not.toContain(`"agentId":"${coder.id}"`);
-  expect(tool.description).toContain('"runtime":"Pi (HAPI)"');
+  expect(tool.description).toContain('"runtime":"Pi"');
   expect(tool.description).toContain('"role":"manager"');
   // Workers still don't delegate; only the manager does.
   expect(binding(task, "loop_delegate")).toBeUndefined();
@@ -273,8 +271,8 @@ it("steers only runtimes that take live input, and never a manager waiting on it
   const urgent = (to: string) =>
     message(lead, { to, body: "Stop: the schema changed.", interrupt: true });
   for (const [worker, delivery] of [
-    [coder, "queued"],
-    [piWorker, "queued"],
+    [coder, "steered"],
+    [piWorker, "steered"],
     [openWorker, "queued"],
   ] as const) {
     const busy = running(owner, worker.id, { teamId: team.id });
@@ -283,7 +281,26 @@ it("steers only runtimes that take live input, and never a manager waiting on it
     expect(sent.delivery).toBe(delivery);
     const row = mail(sent.messageId);
     expect(row.recipient_conversation_id).toBe(busy.conversation_id);
-    expect(row.steering_id).toBeNull();
+    if (delivery === "steered") {
+      expect(row.run_id).toBe(busy.id);
+      expect(
+        db
+          .prepare("SELECT state FROM run_steering WHERE id=?")
+          .get(row.steering_id),
+      ).toEqual({ state: "pending" });
+      // The steered input is labelled as a teammate's message too.
+      expect(
+        JSON.parse(
+          (
+            db
+              .prepare(
+                "SELECT m.metadata FROM run_steering s JOIN messages m ON m.id=s.message_id WHERE s.id=?",
+              )
+              .get(row.steering_id) as any
+          ).metadata,
+        ).automation.kind,
+      ).toBe("agent_message");
+    } else expect(row.steering_id).toBeNull();
   }
   // Without interrupt, a busy Codex worker still gets it after its task.
   const calm = await message(lead, { to: coder.id, body: "When you're done" });
@@ -393,8 +410,6 @@ it("pauses a thread at the pair limit, holds what follows, and sends it in order
 it("requeues a mid-task message its task ended without reading, once, and never resends an unconfirmed one", async () => {
   const owner = "requeue";
   const { manager, coder, team } = mixedTeam(owner);
-  // API runs still support live steering; HAPI follow-ups are queued.
-  db.prepare("UPDATE connections SET metadata='{}' WHERE id=?").run(coder.connection_id);
   const lead = running(owner, manager.id, {
     conversationId: team.conversation_id!,
   });
@@ -510,15 +525,14 @@ it("passes a published file to a teammate, who reads it with loop_read_file", as
   ).toBe("# Migration plan\nStep one.");
 });
 
-it("tells a teammate in another environment that files aren't shared, and never steers HAPI", async () => {
+it("tells a teammate in another environment that files aren't shared, and queues OpenCode", async () => {
   const owner = "places";
   const manager = agent(owner, "manager");
   const coder = agent(owner, "coder", harness("codex"));
   const remote = agent(owner, "remote", {
-    backend: "hapi",
-    environmentId: "env-remote",
-    flavor: "codex",
-    billing: billingPolicy,
+    authMode: "subscription",
+    runtime: "codex",
+    runtimeHostId: "remote",
   });
   const team = createTeam(owner, {
     name: "Split",
@@ -530,9 +544,6 @@ it("tells a teammate in another environment that files aren't shared, and never 
   if ("error" in first) throw new Error(first.error);
   expect(first.delivery).toBe("new_turn");
   const wake = runOf(mail(first.messageId).run_id);
-  expect(JSON.parse(wake.payload).execution).toMatchObject({
-    backend: "hapi",
-  });
   expect(wake.input).toContain("runs in a different environment");
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(wake.id);
   const urgent = await message(task, {
@@ -540,7 +551,7 @@ it("tells a teammate in another environment that files aren't shared, and never 
     body: "Stop",
     interrupt: true,
   });
-  expect(urgent).toMatchObject({ delivery: "queued" });
+  expect(urgent).toMatchObject({ delivery: "steered" });
   // An API agent and a companion harness don't share files either.
   const lead = running(owner, manager.id, {
     conversationId: team.conversation_id!,
@@ -809,8 +820,6 @@ it("retries a result the manager can't take yet, and holds it while the manager 
 it("doesn't restart a cancelled task with its unread messages, and cancels results waiting for a cancelled manager", async () => {
   const owner = "cancel-reads";
   const { manager, coder, piWorker, team } = mixedTeam(owner);
-  // API runs still support live steering; HAPI follow-ups are queued.
-  db.prepare("UPDATE connections SET metadata='{}' WHERE id=?").run(coder.connection_id);
   const lead = running(owner, manager.id, {
     conversationId: team.conversation_id!,
   });
@@ -849,4 +858,71 @@ it("doesn't restart a cancelled task with its unread messages, and cancels resul
   expect(runOf(result.run_id).state).toBe("queued");
   expect((await http(owner, `/runs/${lead.id}/cancel`, {})).status).toBe(200);
   expect(runOf(result.run_id).state).toBe("cancelled");
+});
+
+it("hands work from Claude to Codex to Pi with context, files and durable retry identities", async () => {
+  const owner = "handoff";
+  const claude = agent(owner, "planner", harness("claude"));
+  const codex = agent(owner, "implementer", harness("codex"));
+  const pi = agent(owner, "reviewer", harness("pi"));
+  const team = createTeam(owner, {
+    name: "Handoff",
+    managerId: claude.id,
+    members: [codex.id, pi.id],
+  });
+  const source = running(owner, claude.id, {
+    conversationId: team.conversation_id!,
+  });
+  const binding = nativeBindings(source).find(
+    (b) => b.tool === "loop_handoff",
+  )!;
+  expect(binding).toBeDefined();
+  const file = storePublishedFile(source, "handoff-design", {
+    name: "design.md",
+    title: "Design",
+    mime: "text/markdown",
+    bytes: Buffer.from("Streaming parser design"),
+  });
+  const input = {
+    to: codex.id,
+    fileIds: [file.artifactId],
+    task: "Implement the parser",
+    context:
+      "The accepted design uses a streaming parser. Review edge cases next.",
+    workspace:
+      "repo acme/parser; branch parser-fix; commit abc123. No uncommitted edits remain.",
+  };
+  const sent = await invokeNative(source, binding, "handoff-1", input);
+  const retry = await invokeNative(source, binding, "handoff-1", input);
+  expect(retry).toEqual(sent);
+  const row = db
+    .prepare("SELECT * FROM agent_mail WHERE sender_run_id=?")
+    .get(source.id) as any;
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM agent_mail WHERE sender_run_id=?")
+      .get(source.id),
+  ).toEqual({ n: 1 });
+  const received = runOf(row.run_id);
+  expect(received.input).toContain("Work handoff");
+  expect(received.input).toContain("branch parser-fix");
+  expect(received.input).toContain("grants no additional authority");
+  expect(JSON.parse(received.payload).connectionId).toBe(codex.connection_id);
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(received.id);
+  expect(
+    readRunFile(runOf(received.id), file.artifactId, 0, 1000, "utf8").content,
+  ).toBe("Streaming parser design");
+  const next = nativeBindings(received).find((b) => b.tool === "loop_handoff")!;
+  await invokeNative(received, next, "handoff-2", {
+    to: pi.id,
+    task: "Review the parser",
+    context: "Implementation completed, all parser tests pass.",
+    threadId: row.thread_id,
+  });
+  const final = db
+    .prepare("SELECT run_id FROM agent_mail WHERE sender_run_id=?")
+    .get(received.id) as any;
+  expect(JSON.parse(runOf(final.run_id).payload).connectionId).toBe(
+    pi.connection_id,
+  );
 });

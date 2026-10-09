@@ -108,11 +108,29 @@ export async function runtimeAction(
   action: string,
   extra: object = {},
   signal?: AbortSignal,
-): Promise<any> {
-  // Archived workspace files remain readable without launching a provider.
-  if (["read-file", "write-upload", "cleanup"].includes(action))
-    return (await request(c, action, extra, signal)).json();
-  throw new Problem(410, "Direct subscription runtimes are retired. Connect the harness through HAPI.");
+) {
+  const harness = JSON.parse(c.metadata).loopHarness;
+  if (harness) {
+    if (!companionMode)
+      throw new Problem(409, "Native harnesses require the companion profile.");
+    if (action === "logout" || action === "cancel") return { ok: true };
+    if (action === "status")
+      return nativeSessions.enable(nativeSessions.registration(harness));
+    throw new Problem(
+      409,
+      "Sign in with the native harness on this computer, then run loop " +
+        harness,
+    );
+  }
+  try {
+    return await (await request(c, action, extra, signal)).json();
+  } catch (e) {
+    if (e instanceof Problem) throw e;
+    throw new Problem(
+      503,
+      "Cannot reach the subscription runtime. Check the selected machine and its runtime service.",
+    );
+  }
 }
 // Workspace copies already made by this process. Uploads are immutable, but
 // a runtime restart or recreated workspace can remove the copy, so each use
@@ -330,10 +348,10 @@ export async function* subscriptionStream(
   }
 }
 export async function* streamConnection(c: Connection, input: ChatInput) {
-  if (isNativeConnection(c) || isSubscription(c))
+  if (isNativeConnection(c))
     throw new Problem(
       409,
-      "Harness execution requires HAPI.",
+      "Native conversations execute through their durable session.",
     );
   // Resolve attachment bytes only at the provider boundary. Checkpoints store
   // references, so large documents are not copied into every history snapshot.
@@ -343,7 +361,9 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
       messages: inlineAttachments(c.owner_id, input.messages),
     };
   try {
-    yield* adapter(c.provider).stream(unseal(c.secret, c.owner_id), input);
+    yield* isSubscription(c)
+      ? subscriptionStream(c, input)
+      : adapter(c.provider).stream(unseal(c.secret, c.owner_id), input);
   } catch (error) {
     // Only failures from the provider stream can invalidate its credentials.
     // MCP ownership and approvals are checked outside this boundary.
@@ -360,5 +380,145 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
   }
 }
 export const subscriptions = Router();
-subscriptions.use("/subscriptions", (_req, _res, next) =>
-  next(new Problem(410, "Direct subscription runtimes are retired. Connect the harness through HAPI.")));
+subscriptions.post("/subscriptions", (req, res) => {
+  const d = z
+    .object({
+      provider: z.enum(["codex", "claude"]),
+      label: z.string().trim().min(1).max(80),
+      runtimeHostId: z.string().optional(),
+    })
+    .parse(req.body);
+  const endpoint = runtimeEndpoint(
+    res.locals.owner,
+    d.runtimeHostId,
+    d.provider === "codex" ? "codex" : "claude",
+  );
+  const owner = res.locals.owner;
+  const record = db
+    .transaction(() => {
+      const count = db
+        .prepare(
+          "SELECT count(*) n FROM connections WHERE owner_id=? AND json_extract(metadata,'$.authMode')='subscription'",
+        )
+        .get(owner) as { n: number };
+      if (count.n >= 8)
+        throw new Problem(
+          409,
+          "Use an existing subscription connection; this workspace already has eight.",
+        );
+      const key = id();
+      db.prepare(
+        "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
+      ).run(
+        key,
+        owner,
+        d.provider === "codex" ? "codex" : "anthropic",
+        d.label,
+        JSON.stringify({
+          authMode: "subscription",
+          runtime: d.provider,
+          runtimeHostId: d.runtimeHostId,
+          runtimeKind: endpoint.kind,
+          billing: "Subscription allowance",
+          scope:
+            "Official runtime sign-in; no API fallback. Past chats are imported separately.",
+        }),
+        now(),
+      );
+      return owned<Connection>("connections", key, owner);
+    })
+    .immediate();
+  res.status(201).json({ id: record.id });
+});
+subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
+  const c = owned<Connection>(
+    "connections",
+    String(req.params.id),
+    res.locals.owner,
+  );
+  if (!isSubscription(c))
+    throw new Problem(400, "This connection uses an API key");
+  const action = z
+    .enum(["login", "status", "code", "cancel"])
+    .parse(req.params.action);
+  if (action === "status" && c.status === "disconnected") {
+    res.json({ authenticated: false });
+    return;
+  }
+  if (action === "code") {
+    const code = z
+      .string()
+      .trim()
+      .min(1)
+      .max(4096)
+      .regex(/^[^\r\n]+$/)
+      .parse(req.body.code);
+    res.json(await runtimeAction(c, action, { code }));
+    return;
+  }
+  if (action === "login")
+    db.prepare("UPDATE connections SET status='signing_in' WHERE id=?").run(
+      c.id,
+    );
+  let result;
+  try {
+    result = await runtimeAction(c, action);
+  } catch (error) {
+    if (action === "login")
+      db.prepare(
+        "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
+      ).run(c.id);
+    throw error;
+  }
+  if (
+    owned<Connection>("connections", c.id, c.owner_id).status === "disconnected"
+  ) {
+    res.json({ authenticated: false });
+    return;
+  }
+  // Only expose the native runtime's auth result. A login URL is never proof of connection.
+  if (result.authenticated === true && result.authMode === "subscription") {
+    const models = z
+      .array(
+        z.object({
+          id: z.string().max(200),
+          name: z.string().max(200),
+          resolvedModel: z.string().min(1).max(200).optional(),
+          capabilities: z.string().max(500),
+          effortLevels: z
+            .array(
+              z.object({
+                value: z.string().max(32),
+                description: z.string().max(1000).optional(),
+              }),
+            )
+            .max(20)
+            .optional(),
+          defaultEffort: z.string().max(32).optional(),
+        }),
+      )
+      .max(300)
+      .parse(result.models);
+    db.prepare(
+      "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
+    ).run(
+      JSON.stringify(models),
+      JSON.stringify({
+        ...JSON.parse(c.metadata),
+        plan: result.plan,
+        limits: result.limits,
+        checkedAt: now(),
+      }),
+      c.id,
+    );
+  } else if (
+    result.authenticated === false ||
+    ["failed", "cancelled"].includes(result.state) ||
+    action === "cancel"
+  ) {
+    db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(
+      c.id,
+    );
+  }
+  res.json(result);
+});

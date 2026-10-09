@@ -158,7 +158,7 @@ try {
   );
   const outfile = resolve(root, "guard.mjs");
   await build({
-    entryPoints: [new URL("./loopManaged.ts", import.meta.url).pathname],
+    entryPoints: [new URL("../src/native-auth/account-policy.ts", import.meta.url).pathname],
     outfile,
     bundle: true,
     platform: "node",

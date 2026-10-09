@@ -21,7 +21,8 @@ const unit = (s: string) =>
 // WorkingDirectory= takes its value literally: quotes would become part of
 // the path. Only specifiers need escaping.
 const literalPath = (s: string) => {
-  if (/[\n\r]/.test(s)) throw new Error("Service paths cannot contain newlines");
+  if (/[\n\r]/.test(s))
+    throw new Error("Service paths cannot contain newlines");
   return s.replaceAll("%", "%%");
 };
 export const SERVICES = {
@@ -48,8 +49,15 @@ export function serviceDefinitions(
 ): { connection?: Definition; app: Definition } {
   // The saved launch, as loop restart repeats it. Without a tunnel (local-only
   // or a user-managed proxy) there is no connection service to supervise.
-  const app = [node, cli, ...launch.filter((a) => a !== "--foreground"), "--foreground"];
-  const connection = tunnel ? [node, cli, "connection", "--foreground", ...tunnel] : undefined;
+  const app = [
+    node,
+    cli,
+    ...launch.filter((a) => a !== "--foreground"),
+    "--foreground",
+  ];
+  const connection = tunnel
+    ? [node, cli, "connection", "--foreground", ...tunnel]
+    : undefined;
   if (platform === "darwin") {
     const plist = (
       label: string,
@@ -102,47 +110,71 @@ export function serviceDefinitions(
     },
   };
 }
-/** Translate retired launch verbs without preserving direct execution flags. */
+/** Preserve native adapter options across upgrades; laptop was the old launcher alias. */
 export function migrateLaunchArgs(args: string[]) {
-  const native = ["codex", "claude", "pi", "opencode"].includes(args[0]);
-  if (!native && !["laptop", "acp", "start"].includes(args[0])) return args;
-  const launch = ["start"];
-  if (native && !args.some(arg => arg === "--providers" || arg.startsWith("--providers="))) launch.push("--providers", args[0]);
-  for (const name of ["--project", "--providers", "--execution", "--public-url", "--tunnel-name", "--tunnel-config"]) {
-    const i = args.indexOf(name);
-    const inline = args.find(arg => arg.startsWith(name + "="));
-    if (inline) launch.push(name, inline.slice(name.length + 1));
-    else if (i >= 0 && args[i + 1]) launch.push(name, args[i + 1]);
+  if (!["start", "laptop"].includes(args[0])) return args;
+  const next = ["start"];
+  for (let i = 1; i < args.length; i++) {
+    const key = args[i].split("=")[0];
+    if (["--executable", "--billing", "--execution"].includes(key)) {
+      if (!args[i].includes("=")) i++;
+    } else next.push(args[i]);
   }
-  for (const flag of ["--local-only", "--foreground"])
-    if (args.includes(flag)) launch.push(flag);
-  return launch;
+  return [...next, "--execution", "native"];
 }
 
 /** Repoint the executable and migrate legacy argv in installed service units. */
-export function repointUnit(platform: string, contents: string, cli: string, where = "its service definition") {
+export function repointUnit(
+  platform: string,
+  contents: string,
+  cli: string,
+  where = "its service definition",
+) {
   const mac = platform === "darwin";
-  const pattern = mac ? /(<key>ProgramArguments<\/key><array>)(.*?)(<\/array>)/s : /^(ExecStart=)([^\n]*)(.*)$/m;
+  const pattern = mac
+    ? /(<key>ProgramArguments<\/key><array>)(.*?)(<\/array>)/s
+    : /^(ExecStart=)([^\n]*)(.*)$/m;
   const found = contents.match(pattern);
-  const unreadable = () => new Error(`Loop could not read the executable from ${where}, so it cannot point that service at this build. Run loop service install from the new build, then loop restart.`);
+  const unreadable = () =>
+    new Error(
+      `Loop could not read the executable from ${where}, so it cannot point that service at this build. Run loop service install from the new build, then loop restart.`,
+    );
   if (!found) throw unreadable();
   let args: string[];
   try {
     if (mac) {
       const entries = [...found[2].matchAll(/<string>([^<]*)<\/string>/g)];
-      if (entries.map(entry => entry[0]).join("") !== found[2]) throw unreadable();
-      args = entries.map(entry => entry[1].replace(/&(amp|lt|gt|quot|apos);/g, (_match, entity: string) => ({ amp: "&", lt: "<", gt: ">", quot: '\"', apos: "'" }[entity]!)));
+      if (entries.map((entry) => entry[0]).join("") !== found[2])
+        throw unreadable();
+      args = entries.map((entry) =>
+        entry[1].replace(
+          /&(amp|lt|gt|quot|apos);/g,
+          (_match, entity: string) =>
+            ({ amp: "&", lt: "<", gt: ">", quot: '\"', apos: "'" })[entity]!,
+        ),
+      );
     } else {
       const entries = found[2].match(/"(?:\\.|[^"\\])*"/g) || [];
       if (entries.join(" ") !== found[2]) throw unreadable();
-      args = entries.map(entry => (JSON.parse(entry) as string).replaceAll("%%", "%"));
+      args = entries.map((entry) =>
+        (JSON.parse(entry) as string).replaceAll("%%", "%"),
+      );
     }
     if (args.length < 3) throw unreadable();
-  } catch { throw unreadable(); }
+  } catch {
+    throw unreadable();
+  }
   const next = [args[0], cli, ...migrateLaunchArgs(args.slice(2))];
   if (JSON.stringify(next) === JSON.stringify(args)) return null;
-  return contents.replace(pattern, (_match, before, _old, after) => before +
-    (mac ? next.map(arg => `<string>${xml(arg)}</string>`).join("") : next.map(unit).join(" ")) + after);
+  return contents.replace(
+    pattern,
+    (_match, before, _old, after) =>
+      before +
+      (mac
+        ? next.map((arg) => `<string>${xml(arg)}</string>`).join("")
+        : next.map(unit).join(" ")) +
+      after,
+  );
 }
 
 /**
@@ -219,9 +251,7 @@ export async function installedSupervisor(root: string) {
   const contents = await readFile(file, "utf8").catch(() => undefined);
   if (contents === undefined) return undefined;
   const home = mac
-    ? contents.match(
-        /<key>LOOP_HOME<\/key><string>([^<]*)<\/string>/,
-      )?.[1]
+    ? contents.match(/<key>LOOP_HOME<\/key><string>([^<]*)<\/string>/)?.[1]
     : contents.match(/^Environment="LOOP_HOME=((?:\\.|[^"\\])*)"/m)?.[1];
   if (home !== (mac ? xml(root) : unit(root).slice(1, -1))) return undefined;
   return mac ? "launchd" : "systemd";

@@ -1,3 +1,4 @@
+import { alive } from "../src/daemon.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
@@ -180,12 +181,7 @@ it("cancels the native process tree when the caller disconnects", async () => {
   await running;
   await expect
     .poll(() => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
+      return alive(pid);
     })
     .toBe(false);
   expect(readFileSync(join(home, "signed-in"), "utf8")).toBe("subscription");
@@ -229,12 +225,7 @@ it("keeps a quiet native turn alive beyond the old broker deadline and sends tra
     if (pid)
       await expect
         .poll(() => {
-          try {
-            process.kill(pid!, 0);
-            return true;
-          } catch {
-            return false;
-          }
+          return alive(pid!);
         })
         .toBe(false);
     longHost.service.kill();

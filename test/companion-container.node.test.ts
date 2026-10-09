@@ -1,26 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LocalRuntime, choices } from "../src/local-runtime.js";
-
-test("companion refuses nested Docker before preparing helpers or credentials", async () => {
-  const previous = process.env.LOOP_COMPANION_CONTAINER;
-  process.env.LOOP_COMPANION_CONTAINER = "1";
-  try {
-    for (const execution of ["docker", "both"]) {
-      const runtime = new LocalRuntime(
-        "/unused-fixture",
-        choices("both", execution, "/workspaces"),
-      );
-      await assert.rejects(
-        runtime.prepare(),
-        /supports --execution native only/,
-      );
-    }
-  } finally {
-    if (previous === undefined) delete process.env.LOOP_COMPANION_CONTAINER;
-    else process.env.LOOP_COMPANION_CONTAINER = previous;
-  }
-});
+import { selectedHarnesses } from "../src/start-selection.js";
 
 test("a corrupt baked tunnel binary is never executed and falls back to the pinned download", async () => {
   const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
@@ -79,11 +59,6 @@ test("the shipped Docker command selects all four runtimes with empty preference
     },
   });
   assert.equal(positionals[0], "start");
-  const selection = choices(
-    values.providers ?? "both",
-    values.execution ?? "native",
-    "/workspaces",
-  );
-  assert.deepEqual(selection.providers, ["codex", "claude", "opencode", "pi"]);
-  assert.equal(selection.execution, "native");
+  assert.deepEqual(selectedHarnesses(values.providers), ["codex", "claude", "opencode", "pi"]);
+  assert.equal(values.execution, "native");
 });

@@ -198,8 +198,7 @@ export async function publishRunFile(
   );
   const metadata = JSON.parse(connection.metadata);
   if (metadata.backend === "hapi") {
-    const { publishFile } = await import("./hapi/artifact-storage.js");
-    return publishFile(run, callId, { path: args.path!, title: args.title });
+    throw new Problem(410, "HAPI execution has been removed; recorded files remain available.");
   }
   const binding =
     companionMode && metadata.loopHarness
@@ -268,4 +267,24 @@ export async function publishRunFile(
     mime: first!.mime,
     bytes: Buffer.concat(chunks),
   });
+}
+
+export function localArtifact(owner: string, artifactId: string) {
+  owned("artifacts", artifactId, owner);
+  const object = db
+    .prepare(
+      "SELECT * FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
+    )
+    .get(artifactId, owner) as any;
+  if (!object) throw new Problem(404, "Local file unavailable");
+  if (
+    !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(
+      object.object_key,
+    )
+  )
+    throw new Problem(409, "Invalid artifact identity");
+  const bytes = readFileSync(join(config.data, object.object_key));
+  if (createHash("sha256").update(bytes).digest("base64") !== object.checksum)
+    throw new Problem(409, "Artifact integrity check failed");
+  return { bytes, mime: object.mime };
 }

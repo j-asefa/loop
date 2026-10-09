@@ -18,20 +18,13 @@ import {
   type Run,
 } from "./queue.js";
 import { RunDeferred } from "./run-deferred.js";
-import { harnessUpgrades, environmentUpgrades } from "./harness-upgrades.js";
+import { harnessUpgrades } from "./harness-upgrades.js";
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
-import {
-  observeEnvironments,
-  stopObservingEnvironments,
-} from "./hapi/observe.js";
-import { reconcileNative } from "./hapi/adapter.js";
-import { refreshEnvironment, environment } from "./hapi/environments.js";
 import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
-import { pollPrWatchRegistrations } from "./hapi/pr-watch-registrations.js";
 import { pollWatches } from "./pr-watches.js";
 import { refreshDueFeeds } from "./news.js";
 import { runDueDigests } from "./feed-digests.js";
@@ -50,25 +43,6 @@ export async function tick(
   recoverStale();
   const run = claim(workerId, (candidate) => {
     const p = JSON.parse(candidate.payload);
-    if (p.execution?.backend === "hapi") {
-      if (
-        environmentUpgrades.has(
-          p.execution.environmentId + ":" + p.execution.flavor,
-        )
-      )
-        return false;
-      const e = db
-        .prepare(
-          "SELECT health,generation FROM execution_environments WHERE host_id=? AND owner_id=?",
-        )
-        .get(p.execution.environmentId, candidate.owner_id) as
-        { health: string; generation: number } | undefined;
-      const health = JSON.parse(e?.health || "{}");
-      return (
-        health.generation !== e?.generation ||
-        !health.maintenance?.includes(p.execution.flavor)
-      );
-    }
     const c = db
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
       .get(p.connectionId || "", candidate.owner_id) as
@@ -161,10 +135,10 @@ export function startWorker() {
       .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
       .run(workerId, now());
   heartbeat();
-  const hapiTimers: ReturnType<typeof setInterval>[] = [];
+  const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
   let cleaning = false;
   const cleanupController = new AbortController();
-  hapiTimers.push(
+  maintenanceTimers.push(
     setInterval(
       () => {
         if (cleaning || stopping) return;
@@ -181,7 +155,7 @@ export function startWorker() {
     ),
   );
   let notifying = false;
-  hapiTimers.push(
+  maintenanceTimers.push(
     setInterval(() => {
       if (notifying || stopping) return;
       notifying = true;
@@ -205,12 +179,11 @@ export function startWorker() {
         });
     }, 3000),
   );
-  hapiTimers.push(setInterval(() => void reconcileNative(), 2500));
   // Watched pull requests; each one is read about once a minute.
-  hapiTimers.push(
+  maintenanceTimers.push(
     setInterval(() => {
       if (stopping) return;
-      for (const poll of [pollWatches, pollPrWatchRegistrations]) {
+      for (const poll of [pollWatches]) {
         const promise = poll()
           .catch(() => {})
           .finally(() => inflight.delete(promise));
@@ -218,19 +191,12 @@ export function startWorker() {
       }
     }, 15_000),
   );
-  hapiTimers.push(
-    setInterval(() => {
-      try {
-        observeEnvironments();
-      } catch {}
-    }, 5000),
-  );
   // Social feeds. Reading them here rather than when a page asks means
   // opening Social is served from the store, and stays fresh with the tab
   // closed. Digests and watches run once the reads have settled, so they
   // see what the pass brought in rather than what was there before it; the
   // whole sequence is one tracked job, so stopping waits for all of it.
-  hapiTimers.push(
+  maintenanceTimers.push(
     setInterval(() => {
       if (stopping) return;
       const promise = refreshDueFeeds()
@@ -247,21 +213,7 @@ export function startWorker() {
       inflight.add(promise);
     }, 60_000),
   );
-  hapiTimers.push(setInterval(() => void indexMemory(), 5000));
-  hapiTimers.push(
-    setInterval(() => {
-      const environments = db
-        .prepare(
-          "SELECT owner_id,host_id FROM execution_environments WHERE revoked_at IS NULL",
-        )
-        .all() as any[];
-      void Promise.allSettled(
-        environments.map((e) =>
-          refreshEnvironment(environment(e.owner_id, e.host_id)),
-        ),
-      );
-    }, 10000),
-  );
+  maintenanceTimers.push(setInterval(() => void indexMemory(), 5000));
   const health = setInterval(heartbeat, 5000);
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
   const scheduling = setInterval(
@@ -281,8 +233,7 @@ export function startWorker() {
   return async () => {
     stopping = true;
     cleanupController.abort();
-    hapiTimers.forEach(clearInterval);
-    stopObservingEnvironments();
+    maintenanceTimers.forEach(clearInterval);
     clearInterval(health);
     clearInterval(index);
     clearInterval(scheduling);

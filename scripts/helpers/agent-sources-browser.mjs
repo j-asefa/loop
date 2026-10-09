@@ -35,7 +35,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         status: "connected",
         models: JSON.stringify([{ id: "gpt-5.5", name: "GPT-5.5" }]),
         metadata: JSON.stringify({
-          backend: "hapi",
+          authMode: "subscription",
           environmentName: source.name,
         }),
         created_at: now,
@@ -89,7 +89,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       status: "connected",
       models: JSON.stringify([{ id: "gpt-5.5", name: "GPT-5.5" }]),
       metadata: JSON.stringify({
-        backend: "hapi",
+        authMode: "subscription",
         environmentName: "This laptop",
       }),
       created_at: now,
@@ -181,8 +181,6 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         response: await route.fetch({ url: url.toString() }),
       });
     }
-    if (match[2] === `connections/${record.connection.id}/models`)
-      return fulfill(route, {models: JSON.parse(record.connection.models)});
     if (match[2] === "bootstrap")
       return fulfill(route, {
         agents: [record.agent],
@@ -217,8 +215,6 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       });
     return route.fulfill({ status: 404, body: "{}" });
   };
-  const localModels = route => fulfill(route, {models:JSON.parse(local.connection.models)});
-  await page.route("**/api/connections/laptop-connection/models", localModels);
   await page.route("**/api/agent-sources", list);
   await page.route("**/api/agent-sources/**", detail);
   await page.route("**/api/bootstrap", localBootstrap);
@@ -448,7 +444,6 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   } finally {
     releaseInbox();
     for (const release of hung.splice(0)) release();
-    await page.unroute("**/api/connections/laptop-connection/models", localModels);
     await page.unroute("**/api/agent-sources", list);
     await page.unroute("**/api/agent-sources/**", detail);
     await page.unroute("**/api/bootstrap", localBootstrap);

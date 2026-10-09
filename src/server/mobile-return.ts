@@ -14,7 +14,7 @@ import { attachedFiles, attachmentIds } from "./uploads.js";
 import { messageReplyContext } from "./message-replies.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
-import { connectionSelection } from "./hapi/contracts.js";
+import { connectionSelection } from "./legacy-execution.js";
 import { savedStory, unreadCount } from "./news.js";
 import type { Agent, Message } from "../shared/types.js";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads.js";
@@ -2107,7 +2107,7 @@ export function forkConversation(
         now(),
         c.project_id,
         native ? "hapi" : "legacy",
-        native ? connection.id : null,
+        connection.id,
       );
       const insert = db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
