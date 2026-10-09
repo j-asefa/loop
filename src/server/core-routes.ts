@@ -52,7 +52,9 @@ import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { nativeCancel, dispatchFor } from "./hapi/adapter.js";
 import { piInventory } from "../adapters/pi-inventory.js";
+import { viewportDiagnostics } from "./viewport-diagnostics.js";
 export const core = Router();
+core.use(viewportDiagnostics);
 core.get("/bootstrap", (_req, res) =>
   res.json({
     teams: listTeams(res.locals.owner),
