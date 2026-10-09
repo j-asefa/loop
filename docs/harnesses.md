@@ -50,7 +50,7 @@ Finish active runs and sign-in before upgrading a harness. Loop uses the install
 
 ## Recovering from the HAPI-only release
 
-Migration 070 makes direct connections retired by migration 067 eligible for verification again, preserving their IDs, agents, teams, conversation history and native bindings. Local startup verifies saved native registrations before reconnecting them. Server subscription accounts can be checked through Provider connections. Intentionally disconnected accounts remain disconnected. Failed or uncertain work is not automatically replayed.
+Migration 071 makes direct connections retired by migration 067 eligible for verification again, preserving their IDs, agents, teams, conversation history and native bindings. Local startup verifies saved native registrations before reconnecting them. Server subscription accounts can be checked through Provider connections. Intentionally disconnected accounts remain disconnected. Failed or uncertain work is not automatically replayed.
 
 HAPI execution has been removed. Old HAPI connections are disconnected, and their recorded conversations, files and dispatch receipts are retained for reference. Start a new conversation on a native connection for that work. No HAPI process, context or credentials are migrated. Previously saved launcher execution flags are normalized on restart; explicit `--execution docker`/`both` is replaced by the Docker deployments below.
 

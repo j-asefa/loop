@@ -7,4 +7,4 @@ WHERE status='disconnected' AND json_extract(metadata,'$.retiredDirectRuntime')=
 -- HAPI is no longer executable. Retain its history and uncertain receipts.
 UPDATE connections SET status='disconnected'
 WHERE json_extract(metadata,'$.backend')='hapi';
-INSERT INTO schema_version VALUES(70,unixepoch()*1000);
+INSERT INTO schema_version VALUES(71,unixepoch()*1000);

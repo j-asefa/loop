@@ -96,12 +96,12 @@ it("recovers retired connections only after account verification, preserving tea
     "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,state,updated_at) VALUES(?,'codex','original-native-thread',?,'disconnected',?)",
   ).run(team.conversation_id, root, now());
   db.exec(
-    "UPDATE connections SET status='disconnected',metadata=json_set(metadata,'$.retiredDirectRuntime',json('true')); DELETE FROM schema_version WHERE version=70",
+    "UPDATE connections SET status='disconnected',metadata=json_set(metadata,'$.retiredDirectRuntime',json('true')); DELETE FROM schema_version WHERE version=71",
   );
   db.exec(
     readFileSync(
       new URL(
-        "../migrations/070-restore-native-harnesses.sql",
+        "../migrations/071-restore-native-harnesses.sql",
         import.meta.url,
       ),
       "utf8",

@@ -36,6 +36,11 @@ import type { Agent, Connection, Message } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
 import { isArchivedHapi, type NativeSelection } from "./legacy-execution.js";
 import { nativeSessions } from "./native-sessions.js";
+import {
+  assertReviewConnection,
+  assertReviewIdentity,
+  reviewContext,
+} from "./review-access.js";
 export type Snapshot = {
   agentId: string;
   name: string;
@@ -51,6 +56,7 @@ export type Snapshot = {
   maxSeconds?: number;
   source?: { url: string; title: string; excerpt: string };
   teamId?: string;
+  reviewId?: string;
   execution?: NativeSelection;
   attachmentIds?: string[];
   replyTo?: ReplyContext;
@@ -117,6 +123,8 @@ export function submit(
     folderId?: string | null;
     source?: { url: string; title: string; excerpt: string };
     teamId?: string;
+    /** Internal snapshot review binding; never accepted from ordinary sends. */
+    reviewId?: string;
     attachmentIds?: string[];
     replyToMessageId?: string;
     /** The highlighted part of the replied-to message to quote. */
@@ -267,6 +275,31 @@ export function submit(
             "UPDATE teams SET conversation_id=? WHERE id=? AND owner_id=? AND manager_id=? AND conversation_id IS NULL AND deleted_at IS NULL",
           ).run(conversation, teamId, owner, agent.id);
       }
+      const reviewId =
+        data.reviewId ||
+        (
+          db
+            .prepare(
+              "SELECT json_extract(payload,'$.reviewId') reviewId FROM runs WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1",
+            )
+            .get(conversation) as { reviewId?: string } | undefined
+        )?.reviewId;
+      if (
+        !reviewId &&
+        db
+          .prepare(
+            "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=? OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?))",
+          )
+          .get(owner, agent.id, agent.id)
+      )
+        throw new Problem(
+          409,
+          "Use Review changes to capture a snapshot for this review team first",
+        );
+      if (reviewId) {
+        assertReviewIdentity(owner, reviewId, teamId, agent.id);
+        assertReviewConnection(connection);
+      }
       const snapshot: Snapshot = {
         agentId: agent.id,
         name: agent.name,
@@ -288,6 +321,7 @@ export function submit(
         folderId,
         source: data.source,
         teamId,
+        ...(reviewId ? { reviewId, maxSeconds: 180 } : {}),
         attachmentIds: attachments.map((file) => file.id),
         replyTo,
       };
@@ -489,6 +523,22 @@ export async function executeAgent(run: Run): Promise<boolean> {
     workflowRun?: string;
   };
   if (snapshot.execution?.backend === "hapi") throw new Problem(409, "HAPI execution has been removed. This recorded work was not replayed.");
+  if (snapshot.reviewId) {
+    assertReviewIdentity(
+      run.owner_id,
+      snapshot.reviewId,
+      snapshot.teamId,
+      run.agent_id!,
+    );
+    assertReviewConnection(
+      owned<Connection>("connections", snapshot.connectionId, run.owner_id),
+    );
+    if (snapshot.execution)
+      throw new Problem(
+        409,
+        "Snapshot reviews cannot use a native execution binding",
+      );
+  }
   const connection = owned<Connection>(
     "connections",
     snapshot.connectionId,
@@ -522,6 +572,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
         ? { attachments: JSON.parse(m.metadata).attachments }
         : {}),
     }));
+    if (snapshot.reviewId)
+      history.push({ role: "user", content: reviewContext(run) });
     // Bound total context explicitly; oversized histories require an intentional continuation.
     if (Buffer.byteLength(JSON.stringify(history)) > 500000)
       throw new Problem(
@@ -842,7 +894,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
         throw new Problem(409, "Provider was disconnected.");
       const bindings = snapshot.workflowRun
         ? []
-        : [
+        : snapshot.reviewId
+          ? nativeBindings(run)
+          : [
             ...toolBindings(run.owner_id, run.agent_id!),
             ...nativeBindings(run, { plans: true }),
           ];

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reviewReadSchema, readReview } from "./review-access.js";
 import { createHash } from "node:crypto";
 import { db, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -117,6 +118,7 @@ const handoff = z.object({
 });
 const schemas = {
   loop_handoff: handoff,
+  loop_review_read: reviewReadSchema,
   loop_publish_file: publishFileSchema,
   loop_plan: plan,
   loop_read_file: z.object({
@@ -142,6 +144,17 @@ export function nativeBindings(
   run: Run,
   options: { plans?: boolean } = {},
 ): ToolBinding[] {
+  if (JSON.parse(run.payload).reviewId)
+    return [
+      {
+        name: "loop_review_read",
+        tool: "loop_review_read",
+        connectionId: "__loop__",
+        description:
+          "Read immutable captured repository context for this review. Omit path to list files, changed paths and omissions (offset paginates the list). Supply path to read text; version before reads the baseline of a changed file. Text offsets are character offsets; use nextOffset to continue. This tool cannot read live files, execute commands or edit anything.",
+        inputSchema: z.toJSONSchema(reviewReadSchema),
+      },
+    ];
   const teamId = JSON.parse(run.payload).teamId;
   const team = teamId ? owned<any>("teams", teamId, run.owner_id) : null;
   const descriptions: Record<string, string> = {
@@ -404,6 +417,8 @@ export async function invokeNative(
           ? "Message was not sent: "
           : "Status unavailable: ") + error.message;
     }
+  } else if (binding.tool === "loop_review_read") {
+    text = JSON.stringify(readReview(run, args));
   } else {
     const { tasks, wait } = delegate.parse(args);
     const background = wait === false;

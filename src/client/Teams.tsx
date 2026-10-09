@@ -12,7 +12,9 @@ import {
   Mail,
   UserPlus,
 } from "lucide-react";
-import type { Agent, Connection, Team } from "../shared/types";
+import { PresetPicker, PresetTeamForm } from "./TeamPresets";
+import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
+import type { Agent, Connection, Team, Folder } from "../shared/types";
 import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
 
 export function TeamDirectory({
@@ -23,6 +25,7 @@ export function TeamDirectory({
   onOpen,
   onCreate,
   onChanged,
+  onReview,
 }: {
   teams: Team[];
   agents: Agent[];
@@ -31,6 +34,7 @@ export function TeamDirectory({
   onOpen: (team: Team) => void;
   onCreate: () => void;
   onChanged: () => void;
+  onReview?: (team: Team) => void;
 }) {
   const [adding, setAdding] = useState<Team | null>(null);
   const [busy, setBusy] = useState(false);
@@ -135,19 +139,29 @@ export function TeamDirectory({
                     </span>
                     <ArrowUpRight size={18} aria-hidden="true" />
                   </button>
+                  {team.preset_id === "code-review" && onReview && (
+                    <button
+                      className="secondary"
+                      onClick={() => onReview(team)}
+                    >
+                      Review changes
+                    </button>
+                  )}
                   <p className="muted">
                     {workers.map((id) => `@${name(id)}`).join(" · ")}
                   </p>
-                  <button
-                    className="text-button"
-                    disabled={workers.length >= 8}
-                    onClick={() => {
-                      setAdding(team);
-                      setError("");
-                    }}
-                  >
-                    <UserPlus size={16} /> Add worker
-                  </button>
+                  {team.preset_id !== "code-review" && (
+                    <button
+                      className="text-button"
+                      disabled={workers.length >= 8}
+                      onClick={() => {
+                        setAdding(team);
+                        setError("");
+                      }}
+                    >
+                      <UserPlus size={16} /> Add worker
+                    </button>
+                  )}
                 </section>
               );
             })}
@@ -701,13 +715,22 @@ export function CreateTeam({
   onClose,
   onCreated,
   onCreateAgent,
+  folders = [],
+  initialFolder,
+  initialPreset,
 }: {
   agents: Agent[];
   connections: Connection[];
   onClose: () => void;
   onCreated: (t: Team) => void;
   onCreateAgent: () => void;
+  folders?: Folder[];
+  initialFolder?: string;
+  initialPreset?: string;
 }) {
+  const [preset, setPreset] = useState<TeamPreset | null>(
+    TEAM_PRESETS.find((p) => p.id === initialPreset) || null,
+  );
   const available = agents.filter(
     (agent) =>
       !agent.retired_at &&
@@ -724,89 +747,109 @@ export function CreateTeam({
     [error, setError] = useState("");
   return (
     <Sheet title="Create an agent team" onClose={onClose}>
-      <p>
-        Talk to the manager. It delegates tasks to workers, whose updates appear
-        in this team's feed and in All teams.
-      </p>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            onCreated(
-              await api("/teams", { name, managerId: manager, members }),
-            );
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Team name
-          <input
-            required
-            maxLength={80}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label>
-          Manager
-          <select
-            aria-label="Manager"
-            value={manager}
-            onChange={(e) => {
-              setManager(e.target.value);
-              setMembers((v) => v.filter((id) => id !== e.target.value));
+      <PresetPicker selected={preset?.id || null} onSelect={setPreset} />
+      {preset ? (
+        <PresetTeamForm
+          key={preset.id}
+          preset={preset}
+          connections={connections}
+          folders={folders}
+          initialFolder={initialFolder}
+          onCreated={onCreated}
+        />
+      ) : (
+        <>
+          <p>
+            Talk to the manager. It delegates tasks to workers, whose updates
+            appear in this team's feed and in All teams.
+          </p>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setError("");
+              try {
+                onCreated(
+                  await api("/teams", { name, managerId: manager, members }),
+                );
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
             }}
           >
-            <option value="">Choose a manager</option>
-            {available.map((a) => (
-              <option key={a.id} value={a.id}>
-                @{a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset>
-          <legend>Workers</legend>
-          {available
-            .filter((a) => a.id !== manager)
-            .map((a) => (
-              <label className="checkbox-row" key={a.id}>
-                <input
-                  type="checkbox"
-                  checked={members.includes(a.id)}
-                  onChange={(e) =>
-                    setMembers(
-                      e.target.checked
-                        ? [...members, a.id]
-                        : members.filter((id) => id !== a.id),
-                    )
-                  }
-                />
-                @{a.name}
-              </label>
-            ))}
-        </fieldset>
-        <button type="button" className="text-button" onClick={onCreateAgent}>
-          Create another agent
-        </button>
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
-        <button
-          className="primary"
-          disabled={busy || !manager || !members.length || members.length > 8}
-        >
-          {busy ? "Creating…" : "Create team & talk to manager"}
-        </button>
-      </form>
+            <label>
+              Team name
+              <input
+                required
+                maxLength={80}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label>
+              Manager
+              <select
+                aria-label="Manager"
+                value={manager}
+                onChange={(e) => {
+                  setManager(e.target.value);
+                  setMembers((v) => v.filter((id) => id !== e.target.value));
+                }}
+              >
+                <option value="">Choose a manager</option>
+                {available.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    @{a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <fieldset>
+              <legend>Workers</legend>
+              {available
+                .filter((a) => a.id !== manager)
+                .map((a) => (
+                  <label className="checkbox-row" key={a.id}>
+                    <input
+                      type="checkbox"
+                      checked={members.includes(a.id)}
+                      onChange={(e) =>
+                        setMembers(
+                          e.target.checked
+                            ? [...members, a.id]
+                            : members.filter((id) => id !== a.id),
+                        )
+                      }
+                    />
+                    @{a.name}
+                  </label>
+                ))}
+            </fieldset>
+            <button
+              type="button"
+              className="text-button"
+              onClick={onCreateAgent}
+            >
+              Create another agent
+            </button>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <button
+              className="primary"
+              disabled={
+                busy || !manager || !members.length || members.length > 8
+              }
+            >
+              {busy ? "Creating…" : "Create team & talk to manager"}
+            </button>
+          </form>
+        </>
+      )}
     </Sheet>
   );
 }

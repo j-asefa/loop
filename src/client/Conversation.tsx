@@ -1,3 +1,4 @@
+import { CodeReviewStatus } from "./CodeReview";
 import { useSourceApi, useSourceId } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
@@ -833,6 +834,7 @@ export function Conversation({
       heading={heading}
       onClose={onClose}
     >
+      <CodeReviewStatus key={`${sourceId}:${id}`} conversationId={id} revision={revision} />
       {titleOpen && agent && (
         <p className="thread-details">
           {title}

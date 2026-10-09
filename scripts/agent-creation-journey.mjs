@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { mockViewportCoordinates } from "./helpers/mock-viewport.mjs";
 import { expect } from "@playwright/test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 export async function agentCreationJourney(page, api) {
+  await mockViewportCoordinates(page);
   const project = await api("/folders", {
     name: "First tasks",
     kind: "project",

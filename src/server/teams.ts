@@ -1,9 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { createAgent, owned, Problem } from "./domain.js";
+import { createHash } from "node:crypto";
+import { suggestAgentName } from "./agent-names.js";
+import {
+  TEAM_PRESETS,
+  supportsSnapshotReview,
+} from "../shared/team-presets.js";
+import { startCodeReview, reviewStatus } from "./code-reviews.js";
 import { isArchivedHapi } from "./legacy-execution.js";
-import type { Agent } from "../shared/types.js";
+import type { Agent, Connection } from "../shared/types.js";
 
 export function listTeams(owner: string) {
   return (
@@ -93,6 +100,111 @@ export function createTeam(owner: string, input: unknown) {
     })
     .immediate();
 }
+
+export function createPresetTeam(owner: string, input: unknown) {
+  const selection = z.object({
+    connectionId: z.string(),
+    model: z.string().min(1),
+    effort: z.string().nullable().optional(),
+  });
+  const d = z
+    .object({
+      presetId: z.string(),
+      name: z.string().trim().min(1).max(80),
+      folderId: z.string().min(1),
+      selection,
+      roles: z.record(z.string(), selection).default({}),
+      idempotencyKey: z.string().min(8).max(150),
+    })
+    .parse(input);
+  const { idempotencyKey, ...details } = d;
+  const hash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        ...details,
+        roles: Object.fromEntries(Object.entries(d.roles).sort()),
+      }),
+    )
+    .digest("hex");
+  return db
+    .transaction(() => {
+      const prior = db
+        .prepare(
+          "SELECT * FROM team_creations WHERE owner_id=? AND request_key=?",
+        )
+        .get(owner, idempotencyKey) as any;
+      if (prior) {
+        if (prior.request_hash !== hash)
+          throw new Problem(
+            409,
+            "This request key belongs to different team details",
+          );
+        const team = listTeams(owner).find((t) => t.id === prior.team_id);
+        if (!team)
+          throw new Problem(409, "This team was deleted; start a new creation");
+        return team;
+      }
+      const preset = TEAM_PRESETS.find((p) => p.id === d.presetId);
+      if (!preset) throw new Problem(400, "Choose an available team preset");
+      if (
+        Object.keys(d.roles).some(
+          (role) => !preset.roles.some((r) => r.id === role),
+        )
+      )
+        throw new Problem(400, "Unknown preset role");
+      owned("folders", d.folderId, owner);
+      const agents = preset.roles.map((role) => {
+        const chosen = d.roles[role.id] || d.selection;
+        const connection = owned<Connection>(
+          "connections",
+          chosen.connectionId,
+          owner,
+        );
+        if (preset.id === "code-review" && !supportsSnapshotReview(connection))
+          throw new Problem(
+            409,
+            "Snapshot reviews require API connections. Native harnesses do not yet enforce read-only review; billing will not be switched automatically.",
+          );
+        return {
+          role: role.id,
+          agent: createAgent(owner, {
+            ...chosen,
+            name: suggestAgentName(),
+            folderId: d.folderId,
+            instructions: role.instructions,
+          }),
+        };
+      });
+      const team = createTeam(owner, {
+        name: d.name,
+        managerId: agents[0].agent.id,
+        members: agents.slice(1).map((a) => a.agent.id),
+      });
+      db.prepare(
+        "UPDATE teams SET preset_id=?,preset_version=?,preset_config=?,folder_id=? WHERE id=?",
+      ).run(
+        preset.id,
+        preset.version,
+        JSON.stringify({
+          ...preset,
+          assignments: agents.map((a) => ({
+            role: a.role,
+            agentId: a.agent.id,
+          })),
+        }),
+        d.folderId,
+        team.id,
+      );
+      db.prepare("INSERT INTO team_creations VALUES(?,?,?,?)").run(
+        owner,
+        idempotencyKey,
+        hash,
+        team.id,
+      );
+      return listTeams(owner).find((t) => t.id === team.id)!;
+    })
+    .immediate();
+}
 export function addTeamMember(owner: string, teamId: string, input: unknown) {
   const { agentId } = z.object({ agentId: z.string().min(1) }).parse(input);
   return db
@@ -100,6 +212,11 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
       const team = owned<any>("teams", teamId, owner);
       if (team.deleted_at != null)
         throw new Problem(404, "Team no longer exists");
+      if (team.preset_id === "code-review")
+        throw new Problem(
+          409,
+          "Review teams have three fixed reviewer roles. Edit their agents or create a custom team.",
+        );
       if (team.manager_id === agentId)
         throw new Problem(400, "The manager is already on this team");
       const agent = owned<Agent>("agents", agentId, owner);
@@ -169,6 +286,32 @@ export function deleteTeam(owner: string, teamId: string) {
   }).immediate();
 }
 teams.get("/teams", (_req, res) => res.json(listTeams(res.locals.owner)));
+teams.get("/team-presets", (_req, res) => res.json(TEAM_PRESETS));
+teams.post("/teams/from-preset", (req, res) =>
+  res.status(201).json(createPresetTeam(res.locals.owner, req.body)),
+);
+teams.post("/teams/:id/reviews", (req, res) =>
+  res
+    .status(201)
+    .json(startCodeReview(res.locals.owner, req.params.id, req.body)),
+);
+teams.get("/reviews/conversation/:id", (req, res) => {
+  owned("conversations", req.params.id, res.locals.owner);
+  const run = db
+    .prepare(
+      "SELECT json_extract(payload,'$.reviewId') reviewId FROM runs WHERE conversation_id=? AND owner_id=? ORDER BY rowid DESC LIMIT 1",
+    )
+    .get(req.params.id, res.locals.owner) as any;
+  res.json(
+    run?.reviewId
+      ? reviewStatus(
+          res.locals.owner,
+          run.reviewId,
+          req.query.freshness === "true",
+        )
+      : null,
+  );
+});
 teams.post("/teams", (req, res) =>
   res.status(201).json(createTeam(res.locals.owner, req.body)),
 );

@@ -1,4 +1,4 @@
-import { SHEET_SETTLE_MS } from "../shared/sheet-viewport";
+import { SHEET_SETTLE_MS, visibleViewportTop } from "../shared/sheet-viewport";
 import { useEffect, type RefObject } from "react";
 
 /** The gap the sheet's keyboard-open rule leaves above the visible top, or
@@ -18,11 +18,11 @@ export function sheetGap(dialog: Element) {
 export function sheetCorrection(
   previous: number,
   gap: number | null,
-  offsetTop: number,
+  visibleTop: number,
   top: number,
 ) {
   if (gap == null) return null;
-  const delta = offsetTop + gap - top;
+  const delta = visibleTop + gap - top;
   if (!Number.isFinite(delta) || Math.abs(delta) < 1) return previous;
   return previous + delta;
 }
@@ -60,7 +60,7 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
       const next = sheetCorrection(
         correction,
         sheetGap(dialog),
-        viewport.offsetTop,
+        visibleViewportTop(viewport, window.scrollY),
         dialog.getBoundingClientRect().top,
       );
       if (next == null) return clear();

@@ -88,6 +88,9 @@ export type Team = {
   manager_id: string;
   conversation_id: string | null;
   members: string[];
+  preset_id?: string | null;
+  preset_version?: number | null;
+  folder_id?: string | null;
   // Message threads between its agents that hit a limit and await Resume.
   paused_threads?: number;
 };

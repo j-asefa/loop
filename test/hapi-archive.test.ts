@@ -200,7 +200,7 @@ it("refuses to fork to, or build a team around, an agent on an archived HAPI con
   ).toEqual({ execution_backend: "legacy" });
 });
 
-it("migration 067 marks every retired direct connection so 070 restores it, but not an intentional disconnect", () => {
+it("migration 067 marks every retired direct connection so 071 restores it, but not an intentional disconnect", () => {
   const rows = { connected: id(), needs_sign_in: id(), disconnected: id() };
   for (const [status, key] of Object.entries(rows))
     db.prepare(
@@ -208,7 +208,7 @@ it("migration 067 marks every retired direct connection so 070 restores it, but 
     ).run(key, OWNER, status, JSON.stringify({ loopHarness: "codex" }), now());
   for (const migration of [
     "067-hapi-only-harnesses.sql",
-    "070-restore-native-harnesses.sql",
+    "071-restore-native-harnesses.sql",
   ])
     db.exec(
       readFileSync(

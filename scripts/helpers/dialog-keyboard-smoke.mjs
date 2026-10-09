@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { mockViewportCoordinates } from "./mock-viewport.mjs";
 import { expect } from "@playwright/test";
 import { openSettings } from "./browser-ui.mjs";
 
 // Exercise the production Sheet + PwaStatus boundary. Desktop browser runners
 // cannot open an iPhone keyboard, so simulate its visual and fixed viewports.
 export async function dialogKeyboardSmoke(page, fixture, capture) {
+  await mockViewportCoordinates(page);
   const draft = '{ "mcpServers": {} }';
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await openSettings(page);
