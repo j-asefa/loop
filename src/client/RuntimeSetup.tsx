@@ -87,7 +87,7 @@ export function RuntimeSetup({
   async function refresh() {
     const revision = authRevision.current;
     const [host, workspace] = await Promise.all([
-      api<Discovery>("/workspace/runtimes"),
+      api<Discovery>("/workspace/runtimes?fresh=1"),
       api<{ projectPaths: { folder_id: string; path: string }[] }>(
         "/workspace",
       ),

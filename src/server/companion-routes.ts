@@ -120,14 +120,36 @@ companion.get("/workspace", (_req, res) =>
     projectPaths: db.prepare("SELECT * FROM project_paths").all(),
   }),
 );
+// The setup screen polls runtimes while harnesses are prepared. Reuse a recent
+// probe instead of running every harness's --version on each poll; an explicit
+// refresh (?fresh=1) probes again.
+const PROBE_TTL_MS = 10_000;
+const probes = new Map<
+  string,
+  { at: number; probe: ReturnType<typeof discover> }
+>();
+function recentDiscover(
+  name: z.infer<typeof authHarness>,
+  executable?: string,
+  fresh = false,
+) {
+  const key = name + "\0" + (executable ?? "");
+  const hit = probes.get(key);
+  if (!fresh && hit && Date.now() - hit.at < PROBE_TTL_MS) return hit.probe;
+  const probe = discover(name, executable);
+  probes.set(key, { at: Date.now(), probe });
+  probe.catch(() => probes.delete(key));
+  return probe;
+}
 // Runs on the paired execution computer. Never accepts executable paths from the app.
-companion.get("/workspace/runtimes", async (_req, res) => {
+companion.get("/workspace/runtimes", async (req, res) => {
+  const fresh = req.query.fresh === "1";
   const registered = nativeSessions.registrations();
   const runtimes = await Promise.all(
     (["codex", "claude", "pi", "opencode"] as const).map(async (name) => {
       const enabled = registered.find((r) => r.name === name);
       const saved = enabled ? nativeSessions.registration(name) : undefined;
-      const probe = await discover(name, saved?.executable);
+      const probe = await recentDiscover(name, saved?.executable, fresh);
       return {
         name,
         backend: "direct",
@@ -180,6 +202,7 @@ companion.post("/workspace/runtimes/:name/upgrade", async (req, res) => {
       // Hand the hold to the upgrade in the same tick.
       release();
       upgrade = upgrades.start(name, executable, commandId);
+      probes.clear();
     } catch (error) { throw new Problem(409, (error as Error).message); }
     if (saved && saved.executable !== executable)
       db.prepare("UPDATE harnesses SET options=? WHERE name=?").run(JSON.stringify({ ...saved, executable }), name);

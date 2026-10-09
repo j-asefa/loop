@@ -9,8 +9,7 @@ RUN npm run build \
     && chmod -R a+rX /opt/loop-tunnel \
     && npm ci --prefix deployment/native --omit=dev \
     && npm prune --omit=dev \
-    && npm cache clean --force \
-    && rm scripts/build-native-auth.mjs
+    && npm cache clean --force
 
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git openssl ca-certificates \

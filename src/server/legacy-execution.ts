@@ -12,11 +12,6 @@ export const nativeSelection = z.object({
   }),
 });
 export type NativeSelection = z.infer<typeof nativeSelection>;
-export function connectionSelection(connection: {
-  metadata: string;
-}): NativeSelection | undefined {
-  const m = JSON.parse(connection.metadata);
-  if (m.backend !== "hapi") return;
-  const s = nativeSelection.parse(m);
-  return s;
+export function isArchivedHapi(connection: { metadata: string }) {
+  return JSON.parse(connection.metadata).backend === "hapi";
 }

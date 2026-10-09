@@ -1017,12 +1017,13 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
+  // --direct once opted out of the managed launcher. Every start is native now;
+  // it is still accepted so existing service units and scripts keep working.
   if (values.direct && !neutral)
     throw new Error("Use --direct with loop start.");
-  const neutralStart = neutral || action === "laptop";
-  const selected = (neutralStart ? "codex" : action) as Harness;
+  const selected = (neutral ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
-  if (neutralStart && !values.project && preferences.project)
+  if (neutral && !values.project && preferences.project)
     project = await realpath(preferences.project);
   const execution = values.execution ?? "native";
   if (execution !== "native")
@@ -1052,14 +1053,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const probe =
     selected === "acp"
       ? (() => {
-          const executable = statSync(values.executable!).isFile()
-            ? values.executable!
-            : "";
-          if (
-            !executable ||
-            !isAbsolute(executable) ||
-            !(statSync(executable).mode & 0o111)
-          )
+          const executable = values.executable!;
+          const stat = isAbsolute(executable)
+            ? statSync(executable, { throwIfNoEntry: false })
+            : undefined;
+          if (!stat?.isFile() || !(stat.mode & 0o111))
             throw new Error("Choose an executable local ACP agent file.");
           return {
             installed: true,
@@ -1153,9 +1151,16 @@ Uninstall removes the package separately; workspace/native history is retained.`
       tunnelModeOf(values),
     );
     if (neutral) {
-      if (project !== (running.project ?? preferences.project))
+      if (
+        (values.providers &&
+          [...providers].sort().join() !==
+            selectedHarnesses(preferences.providers ?? "installed")
+              .sort()
+              .join()) ||
+        project !== (running.project ?? preferences.project)
+      )
         throw new Error(
-          "Run loop stop before changing the running workspace's providers, execution or project.",
+          "Run loop stop before changing the running workspace's providers or project.",
         );
       showPair(await control(dir, "pair"));
       return;

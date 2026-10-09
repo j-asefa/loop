@@ -46,7 +46,6 @@ import { transition, type Run } from "./queue.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
-import { piInventory } from "../adapters/pi-inventory.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
 export const core = Router();
 core.use(viewportDiagnostics);
@@ -531,10 +530,15 @@ core.post("/runs", (req, res) => {
 core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
   const action = req.params.action;
-  if (db.prepare("SELECT 1 FROM native_dispatches WHERE run_id=?").get(run.id))
+  // Archived HAPI work can still be cancelled or dismissed, never replayed.
+  if (
+    ["retry", "resume", "pause"].includes(action) &&
+    (JSON.parse(run.payload).execution?.backend === "hapi" ||
+      db.prepare("SELECT 1 FROM native_dispatches WHERE run_id=?").get(run.id))
+  )
     throw new Problem(
       409,
-      "Reconcile native execution before changing this run. An uncertain action cannot be replayed.",
+      "HAPI execution was removed. This work cannot be replayed; start a new native conversation to continue it.",
     );
   if (
     action === "pause" &&

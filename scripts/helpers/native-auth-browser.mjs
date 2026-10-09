@@ -227,7 +227,8 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
     };
     await context.route("**/api/workspace/runtimes/claude/auth?*", fresh);
     await context.route("**/api/workspace/runtimes/claude/auth/status", fresh);
-    await context.route("**/api/workspace/runtimes", discovered);
+    const runtimesUrl = /\/api\/workspace\/runtimes(\?.*)?$/;
+    await context.route(runtimesUrl, discovered);
     await login.getByRole("button", { name: "Done", exact: true }).click();
     await settings.getByRole("button", { name: "Close", exact: true }).click();
     await page
@@ -247,7 +248,7 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
     ).toHaveCount(0);
     await context.unroute("**/api/workspace/runtimes/claude/auth?*", fresh);
     await context.unroute("**/api/workspace/runtimes/claude/auth/status", fresh);
-    await context.unroute("**/api/workspace/runtimes", discovered);
+    await context.unroute(runtimesUrl, discovered);
 
     assert.equal(enables, 1);
     assert.equal(signInsStarted, 2);

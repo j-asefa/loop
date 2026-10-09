@@ -32,7 +32,7 @@ API connections use Loop's model loop. Native connections dispatch through nativ
 
 The private native tool bridge gives every harness the same owner-scoped team, mail, delegation, handoff, memory and published-file tools. Handoffs transfer an explicit task and context summary, not a provider session or additional authority. Team membership and file ownership are checked on delivery.
 
-HAPI transport, Hub and runner provisioning have been removed. Migration 070 restores verification eligibility for direct connections retired by 067, while retaining archived HAPI history and uncertain receipts. No uncertain external effect is replayed automatically.
+HAPI transport, Hub and runner provisioning have been removed. Migration 070 restores verification eligibility for direct connections retired by 067, while retaining archived HAPI history and uncertain receipts. The worker marks HAPI runs still queued or active as interrupted and rejects their pending approvals; they can be cancelled or dismissed but not retried or resumed. Forks and teams refuse agents still bound to an archived HAPI connection. No uncertain external effect is replayed automatically.
 
 ## Activities
 

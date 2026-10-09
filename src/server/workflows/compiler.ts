@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { connectionSelection } from "../legacy-execution.js";
 import { Problem, owned } from "../domain.js";
 import type { Agent, Connection } from "../../shared/types.js";
 import type { Snapshot } from "../agent-runtime.js";
@@ -137,7 +136,6 @@ export function bind(owner: string, spec: Workflow) {
       instructions: agent.instructions,
       connectionId: connection.id,
       folderId: spec.folderId,
-      execution: connectionSelection(connection),
     };
   }
   return snapshots;

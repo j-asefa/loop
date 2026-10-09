@@ -812,6 +812,19 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
   }
 });
 
+test("loop acp refuses a relative or missing executable with setup guidance", async () => {
+  const w = await workspace();
+  try {
+    for (const executable of ["./missing-agent", "/missing/acp-agent"])
+      await assert.rejects(
+        w.loop(["acp", "--executable", executable, "--local-only"]),
+        /Choose an executable local ACP agent file/,
+      );
+  } finally {
+    await w.cleanup();
+  }
+});
+
 test("loop start --direct pairs without enabling a harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
@@ -839,6 +852,22 @@ test("loop start --direct pairs without enabling a harness, reuses the host and 
     ]);
     assert.match(again.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
+    await assert.rejects(
+      w.loop(["start", "--local-only", "--providers", "pi"]),
+      /Run loop stop before changing the running workspace's providers/,
+    );
+    // The same set in another order or spelling is not a change.
+    assert.match(
+      (
+        await w.loop([
+          "start",
+          "--local-only",
+          "--providers",
+          "opencode,pi,claude,codex",
+        ])
+      ).stdout,
+      PAIR_URL,
+    );
     const bare = await w.loop(["--direct", "--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);

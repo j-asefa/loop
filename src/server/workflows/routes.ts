@@ -139,19 +139,7 @@ workflows.get("/approvals", (req, res) => {
 });
 workflows.post("/approvals/:id", async (req, res) => {
   const d = z
-    .object({
-      decision: z.enum(["approve", "reject"]),
-      confirmUnknown: z.boolean().optional(),
-      answers: z
-        .record(
-          z.string(),
-          z.union([
-            z.array(z.string().max(4000)),
-            z.object({ answers: z.array(z.string().max(4000)) }),
-          ]),
-        )
-        .optional(),
-    })
+    .object({ decision: z.enum(["approve", "reject"]) })
     .parse(req.body);
   const approval = owned<{ request: string }>(
     "approvals",
