@@ -1,3 +1,5 @@
+import { agentWorktree } from "../src/server/agent-worktree.js";
+import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
@@ -12,7 +14,9 @@ import { join, resolve } from "node:path";
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-turn-recovery-")));
 process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
+gitProject(dir);
 const { db } = await import("../src/server/db");
+db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)").run();
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
@@ -53,7 +57,7 @@ function submit(conversation: string, harness: string, key: string) {
     "INSERT OR IGNORE INTO conversations(id,owner_id,title,created_at) VALUES(?,'local-workspace','Recovery',0)",
   ).run(conversation);
   return enqueue("local-workspace", "Check the review", key, {
-    conversation,
+    conversation, agent: "worktree-fixture",
     payload: {
       connectionId: `native-${harness}`,
       model: "fixture",
@@ -118,8 +122,8 @@ it("reports a Codex writer conflict without dispatch, takeover or raw native err
   process.env.LOOP_TEST_AUDIT = audit;
   const run = submit("codex-busy", "codex", "codex-busy");
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation) VALUES(?,'codex',?,'private-native-thread','idle',0,'old')",
-  ).run("codex-busy", dir);
+    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'private-native-thread','idle',0,'old',?,'worktree-fixture')",
+  ).run("codex-busy", agentWorktree(dir, dir, {ownerId:"local-workspace",agentId:"worktree-fixture",environmentId:dir,projectId:dir}), dir);
   expect(await tick(execute)).toBe(true);
   const result = db
     .prepare("SELECT state,error FROM runs WHERE id=?")
@@ -169,8 +173,8 @@ it("recognises a reworded Codex writer conflict instead of leaking the native er
   process.env.LOOP_TEST_AUDIT = audit;
   const run = submit("codex-reworded", "codex", "codex-reworded");
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation) VALUES(?,'codex',?,'other-native-thread','idle',0,'old')",
-  ).run("codex-reworded", dir);
+    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'other-native-thread','idle',0,'old',?,'worktree-fixture')",
+  ).run("codex-reworded", agentWorktree(dir, dir, {ownerId:"local-workspace",agentId:"worktree-fixture",environmentId:dir,projectId:dir}), dir);
   expect(await tick(execute)).toBe(true);
   const result = db
     .prepare("SELECT state,error FROM runs WHERE id=?")

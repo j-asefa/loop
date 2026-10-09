@@ -1,4 +1,6 @@
 import { harnessUpgrades } from "./harness-upgrades.js";
+import { agentWorktree } from "./agent-worktree.js";
+import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
 import { NativeOutput } from "./native-output.js";
@@ -113,6 +115,8 @@ type Binding = {
   harness: Harness;
   native_id: string | null;
   project: string;
+  worktree_source?: string | null;
+  worktree_agent_id?: string | null;
   model: string | null;
   effort?: string | null;
   permission_mode?: string | null;
@@ -1015,6 +1019,15 @@ export class NativeSessions {
       .get(conversation) as Binding | undefined;
     let previousProject: string | undefined;
     if (binding && binding.harness !== harness) {
+      // Verify the destination before retiring the old binding. A missing
+      // checkout must not discard native context during a harness switch.
+      const source = binding.worktree_source ?? binding.project;
+      if (!run.agent_id || (binding.worktree_agent_id && binding.worktree_agent_id !== run.agent_id))
+        throw new Problem(409, "Native worktree agent identity changed.");
+      agentWorktree(source, source, {
+        ownerId: run.owner_id, agentId: run.agent_id,
+        environmentId: realpathSync(config.data), projectId: source,
+      }, binding.worktree_source ? binding.project : undefined);
       // A native session cannot move between harnesses. Start a fresh one
       // on the new harness and carry Loop's transcript over as context.
       if (current && !current.closed) {
@@ -1029,11 +1042,16 @@ export class NativeSessions {
       db.prepare("DELETE FROM companion_sessions WHERE conversation_id=?").run(
         conversation,
       );
-      previousProject = binding.project;
+      previousProject = binding.worktree_source ?? binding.project;
       binding = undefined;
     }
     if (!binding) {
-      const project = previousProject ?? this.project(snapshot, registration);
+      const source = previousProject ?? this.project(snapshot, registration);
+      if (!run.agent_id) throw new Problem(409, "Native work requires an agent identity.");
+      const project = agentWorktree(source, source, {
+        ownerId: run.owner_id, agentId: run.agent_id,
+        environmentId: realpathSync(config.data), projectId: source,
+      });
       const transfer = selectedContext(conversation);
       const earlier = transfer
         ? []
@@ -1051,7 +1069,7 @@ export class NativeSessions {
             JSON.stringify(earlier).slice(0, 100000)
           : "";
       db.prepare(
-        "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,updated_at,effort) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,updated_at,effort,worktree_source,worktree_agent_id) VALUES(?,?,?,?,?,?,?,?,?)",
       ).run(
         conversation,
         harness,
@@ -1060,11 +1078,19 @@ export class NativeSessions {
         snapshot.instructions + context,
         now(),
         snapshot.effort || null,
+        source,
+        run.agent_id,
       );
       binding = db
         .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
         .get(conversation) as Binding;
     }
+    if (!binding.worktree_source || !run.agent_id || binding.worktree_agent_id !== run.agent_id)
+      throw new Problem(409, "Start a new conversation to use this agent's worktree. The old session and checkout are preserved.");
+    agentWorktree(binding.worktree_source, binding.worktree_source, {
+      ownerId: run.owner_id, agentId: run.agent_id,
+      environmentId: realpathSync(config.data), projectId: binding.worktree_source,
+    }, binding.project);
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
     const permissionMode = isPermissionMode(snapshot.permissionMode)

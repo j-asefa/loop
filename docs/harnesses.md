@@ -10,6 +10,12 @@ loop start --providers codex,claude
 
 The default selection is `installed` (all four supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
 
+## Agent worktrees
+
+Each native harness agent gets a persistent Git worktree and branch per project on first use. Its conversations reuse that worktree, including uncommitted changes, across turns, harness switches and restarts. Different agents, owners and Loop data directories get separate worktrees. New worktrees start from the project’s committed `HEAD`; edits and untracked files in the original checkout are not copied. Projects need a Git repository with an initial commit.
+
+Worktrees live under the repository’s Git common directory in `loop-agent-worktrees`, with branches named `loop/agent-<identity hash>`. Loop does not automatically remove or merge them. Existing native sessions in the shared checkout require a new conversation; their context and files are preserved. Missing or mismatched worktrees block execution. API-provider agents do not launch a local harness or have a local checkout.
+
 ## Native behavior and billing
 
 Harnesses own their context, tools, configuration and credential homes. Loop invokes their native protocols and adds pairing, durable work, approvals, files and team communication. It does not take over a live terminal session. Project selection is not shell confinement: native processes have their OS user's access.

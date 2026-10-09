@@ -1,3 +1,4 @@
+import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it } from "vitest";
 import {
   chmodSync,
@@ -12,7 +13,9 @@ import { join, resolve } from "node:path";
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-native-startup-")));
 process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
+gitProject(dir);
 const { db } = await import("../src/server/db");
+db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)").run();
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
@@ -57,7 +60,7 @@ it("preserves safe subscription setup guidance through the real worker and trace
     "What folders can you access?",
     "startup",
     {
-      conversation: "startup",
+      conversation: "startup", agent: "worktree-fixture",
       payload: {
         connectionId: "native-pi",
         model: "openai/fixture",

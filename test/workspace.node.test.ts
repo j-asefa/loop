@@ -1,3 +1,4 @@
+import { gitProject } from "./git-project.js";
 process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -32,6 +33,8 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     projectB = join(dir, "b");
   await mkdir(projectA);
   await mkdir(projectB);
+  gitProject(projectA);
+  gitProject(projectB);
   process.env.LOOP_TEST_HISTORY_PROJECT = projectB;
   const executable = resolve("test/harness.mjs");
   await chmod(executable, 0o755);
@@ -273,9 +276,11 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       .all() as any[];
     assert.equal(new Set(bindings.map((b) => b.native_id)).size, 3);
     assert.deepEqual(
-      bindings.map((b) => b.project).sort(),
+      bindings.map((b) => b.worktree_source).sort(),
       [projectA, projectA, projectB].sort(),
     );
+    assert.equal(new Set(bindings.map((b) => b.project)).size, 3);
+    assert.ok(bindings.every((b) => b.project !== b.worktree_source));
     await t.test("native decisions are isolated and idempotent", async () => {
       const decisions = await api("/native/decisions");
       assert.equal(decisions.length, 1);
