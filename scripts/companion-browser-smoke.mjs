@@ -211,6 +211,13 @@ try {
   await expect(creation.getByLabel("Model", { exact: true })).toContainText(
     "Claude Opus 5 (1M)",
   );
+  await expect(creation.getByLabel("Model", { exact: true })).toHaveValue("opus");
+  await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
+  await creation.getByLabel("Model", { exact: true }).selectOption("default");
+  await expect(creation.getByLabel("Effort", { exact: true })).toBeDisabled();
+  await expect(creation).toContainText(
+    "Choose a specific model to see its available effort levels.",
+  );
   await creation.getByLabel("Model", { exact: true }).selectOption("opus");
   await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
   await creation.getByLabel("Effort", { exact: true }).selectOption("max");

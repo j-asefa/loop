@@ -186,7 +186,11 @@ export function CreateAgent({
   const models = nativeConnection
     ? currentCatalog?.models || []
     : parse<ModelOption[]>(selected?.models, []);
-  const chosen = models.find((m) => m.id === model)?.id || models[0]?.id || "";
+  const chosen =
+    models.find((m) => m.id === model)?.id ||
+    models.find((m) => m.effortLevels?.length)?.id ||
+    models[0]?.id ||
+    "";
   const managedFlavor =
     provider === "anthropic"
       ? "claude"

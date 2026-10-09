@@ -35,7 +35,9 @@ export function EffortSelect({
         {levels.find((level) => level.value === value)?.description ||
           (levels.length
             ? "Options reported by this model’s provider."
-            : "This provider hasn’t reported adjustable effort levels for this model.")}
+            : model?.id === "default" || model?.id === "native-default"
+              ? "Choose a specific model to see its available effort levels."
+              : "This provider hasn’t reported adjustable effort levels for this model.")}
       </span>
     </label>
   );

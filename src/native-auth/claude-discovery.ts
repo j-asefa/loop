@@ -77,7 +77,10 @@ export async function discoverClaudeModels(options: {
     if (!models.length)
       throw new Error("Claude Code reported no usable models");
     return [
-      { id: "default", name: "Use native default" },
+      models.find((model: { id: string }) => model.id === "default") || {
+        id: "default",
+        name: "Use native default",
+      },
       ...models.filter((model: { id: string }) => model.id !== "default"),
     ];
   } finally {
