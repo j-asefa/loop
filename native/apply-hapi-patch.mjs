@@ -138,6 +138,13 @@ edit(
   "developerInstructions: getCodexSystemPrompt()\n        }",
   "developerInstructions: getCodexSystemPrompt()\n        })",
 );
+// Preserve Codex's validated MCP-tool approval type across HAPI's display
+// projection. Names/descriptions alone cannot distinguish it from elicitation.
+edit(
+  "cli/src/codex/utils/appServerPermissionAdapter.ts",
+  "if (serverName) input.serverName = serverName;",
+  "input.approvalKind = 'mcp_tool_call';\n    if (serverName) input.serverName = serverName;",
+);
 imp("cli/src/codex/codexAppServerClient.ts");
 edit(
   "cli/src/codex/codexAppServerClient.ts",

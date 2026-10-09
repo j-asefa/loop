@@ -1109,3 +1109,29 @@ it.each(["claude", "codex", "opencode", "pi"].flatMap(flavor =>
   expect(dispatchFor(run.id)?.state).toBe("accepted");
   expect(request.mock.calls.filter(([path]) => path.endsWith("/messages"))).toHaveLength(1);
 });
+
+
+it.each(["default", "acceptEdits", "bypassPermissions"])("handles typed MCP tool approvals under %s without answering elicitations", async (mode) => {
+  const { setAgentPermissionMode } = await import("../src/server/mcp/approval-policy");
+  setAgentPermissionMode("alice", mode as any);
+  const auth = {authenticated:true,managed:true,checkedAt:Date.now(),authMethod:"chatgpt"};
+  vi.mocked(workerRequest).mockImplementation(async (_e,path) => path === "/prepare" ? {auth} : auth);
+  try {
+    const {run,s} = fixture();
+    let state:any = {};
+    const request = snapshotMock(s, () => state);
+    await executeHapi(run);
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+    state = {requests:{
+      mcp:{tool:"loop",arguments:{approvalKind:"mcp_tool_call",serverName:"loop",toolParams:{fileId:"fixture",offset:16384,length:16384}}},
+      untyped:{tool:"loop",arguments:{serverName:"loop",message:'Allow the loop MCP server to run tool "loop_read_file"?'}},
+      question:{tool:"loop",arguments:{approvalKind:"mcp_tool_call",serverName:"loop",questions:[]}},
+      elicitation:{tool:"McpElicitation",arguments:{serverName:"loop",message:"Choose a destination"}},
+    }};
+    await reconcile(s);
+    expect(request.mock.calls.filter(([path]) => path.endsWith("/mcp/approve"))).toHaveLength(mode === "bypassPermissions" ? 1 : 0);
+    expect(request.mock.calls.filter(([path]) => /\/(untyped|question|elicitation)\/approve$/.test(path))).toHaveLength(0);
+    expect(db.prepare("SELECT state FROM native_permissions WHERE conversation_id=? AND request_id='mcp'").get(s.conversation_id))
+      .toEqual({state:mode === "bypassPermissions" ? "auto-confirmed" : "pending"});
+  } finally { setAgentPermissionMode("alice", "default"); }
+});

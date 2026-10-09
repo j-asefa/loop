@@ -230,6 +230,7 @@ jobs:
           git -C "$hapi_fixture" fetch --depth=1 origin "$hapi_commit"
           git -C "$hapi_fixture" checkout --detach FETCH_HEAD
           node native/apply-hapi-patch.mjs "$hapi_fixture"
+          node native/check-codex-mcp-approvals.mjs "$hapi_fixture"
           node --import tsx native/check-opencode-launch.mjs "$hapi_fixture"
           node native/check-opencode-http.mjs "$hapi_fixture"
           node native/check-pi-transport.mjs "$hapi_fixture"

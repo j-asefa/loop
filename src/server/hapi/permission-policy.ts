@@ -21,8 +21,22 @@ export function hapiAutoApproval(mode: unknown, request: unknown): boolean {
     }
   }
   if (args && typeof args === "object" && "questions" in args) return false;
+  // The patched Codex adapter adds this only after validating the protocol's
+  // mcp_tool_call metadata and excluding elicitation forms with input fields.
+  // The display name may be only the server name (for example "loop").
+  if (
+    args &&
+    typeof args === "object" &&
+    "approvalKind" in args &&
+    args.approvalKind === "mcp_tool_call" &&
+    "serverName" in args &&
+    typeof args.serverName === "string" &&
+    args.serverName.trim()
+  )
+    return true;
   // Only known execution tools qualify. Revisit this list with the HAPI pin
   // in deployment/versions.json; newly introduced human-input tools must wait.
-  return /^(?:Bash|CodexBash|CodexPatch|Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|WebFetch|WebSearch|TodoWrite|Task|apply_patch)$/i.test(r.tool);
-
+  return /^(?:Bash|CodexBash|CodexPatch|Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|WebFetch|WebSearch|TodoWrite|Task|apply_patch)$/i.test(
+    r.tool,
+  );
 }
