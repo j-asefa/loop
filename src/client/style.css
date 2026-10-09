@@ -9401,3 +9401,25 @@ label.catalog-filter-chip {
 .news-card .news-media {
   margin-top: 4px;
 }
+
+.team-preset-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.team-preset-option {
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+}
+.team-preset-option[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: -2px; }
+.team-preset-option small { font-weight: normal; line-height: 1.5; }
+.code-review-status { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.code-review-status p { font-size: 0.9rem; margin: 6px 0; }
+.code-review-status ul { max-height: 180px; overflow: auto; }

@@ -1,3 +1,4 @@
+import { StartCodeReview } from "./CodeReview";
 import { SettingsHome } from "./SettingsHome";
 import { PersonalProfile } from "./PersonalProfile";
 import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
@@ -201,6 +202,11 @@ export default function App() {
   const [returnTo, setReturnTo] = useState(
     new URLSearchParams(location.search).has("connect") ? "create" : "",
   );
+  const [reviewTarget, setReviewTarget] = useState<{
+    team?: string;
+    folder?: string;
+  } | null>(null);
+  const [teamPreset, setTeamPreset] = useState<string | undefined>();
   const [returnToTeamDirectory, setReturnToTeamDirectory] = useState(false);
   const [environmentToOpen, setEnvironmentToOpen] = useState("");
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
@@ -3106,6 +3112,10 @@ export default function App() {
                 setSheet("workflows");
               }}
               onTeams={() => setSheet("teamDirectory")}
+              onReview={(id) => {
+                setReviewTarget({ folder: id });
+                setSheet("codeReview");
+              }}
             />
           )}
           {dismissNotice && (
@@ -3606,12 +3616,25 @@ export default function App() {
         <CreateTeam
           agents={data.agents}
           connections={data.connections}
+          folders={data.folders}
+          initialFolder={reviewTarget?.folder || project || undefined}
+          initialPreset={teamPreset}
           onClose={closeSheet}
           onCreateAgent={() => {
             setReturnTo("teams");
             setSheet("create");
           }}
           onCreated={(team) => {
+            setTeamPreset(undefined);
+            if (team.preset_id === "code-review") {
+              setReviewTarget({
+                team: team.id,
+                folder: team.folder_id || undefined,
+              });
+              setSheet("codeReview");
+              void bootstrap();
+              return;
+            }
             setReturnToTeamDirectory(false);
             setSettingsParent(false);
             setSheet("");
@@ -3620,6 +3643,25 @@ export default function App() {
             setContextArtifact(null);
             setTab("inbox");
             setConversation(team.conversation_id);
+            void bootstrap();
+          }}
+        />
+      )}
+      {sheet === "codeReview" && (
+        <StartCodeReview
+          teams={data.teams || []}
+          folders={data.folders}
+          initialTeam={reviewTarget?.team}
+          initialFolder={reviewTarget?.folder}
+          local={capabilities.localProjects}
+          onClose={closeSheet}
+          onCreateTeam={() => {
+            setTeamPreset("code-review");
+            setSheet("teams");
+          }}
+          onStarted={(id) => {
+            setSheet("");
+            setConversation(id);
             void bootstrap();
           }}
         />
@@ -3635,6 +3677,13 @@ export default function App() {
             setSheet("teams");
           }}
           onOpen={openTeamFeed}
+          onReview={(team) => {
+            setReviewTarget({
+              team: team.id,
+              folder: team.folder_id || undefined,
+            });
+            setSheet("codeReview");
+          }}
           onChanged={() => void bootstrap()}
         />
       )}

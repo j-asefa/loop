@@ -58,6 +58,7 @@ export function Projects({
   onNewTask,
   onWorkflows,
   onTeams,
+  onReview,
   revision,
 }: {
   folders: Project[];
@@ -76,6 +77,7 @@ export function Projects({
   onNewTask: (id: string) => void;
   onWorkflows: () => void;
   onTeams: () => void;
+  onReview?: (id: string) => void;
   revision: number;
 }) {
   const [adding, setAdding] = useState(false),
@@ -173,6 +175,14 @@ export function Projects({
             </button>
           </div>
           <div className="project-actions">
+            {onReview && (
+              <button
+                className="secondary"
+                onClick={() => onReview(current.id)}
+              >
+                Review changes
+              </button>
+            )}
             <button
               className="primary"
               disabled={!projectAgents.length}

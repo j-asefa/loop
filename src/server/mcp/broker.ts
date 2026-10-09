@@ -123,6 +123,11 @@ export async function invokeTool(
   callId: string,
   args: Record<string, unknown>,
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
+  if (JSON.parse(run.payload).reviewId)
+    throw new Problem(
+      403,
+      "Snapshot reviews can only read their captured repository",
+    );
   if (!run.agent_id) throw new Problem(400, "Tool calls require an agent");
   const agentId = run.agent_id;
   // An unpinned merge is refused before approval and never sent. Returning a

@@ -16,6 +16,7 @@ const names = [
   "settings",
   "workspace",
   "teams",
+  "team-presets",
   "profile",
   "models",
   "swipe",
