@@ -69,6 +69,7 @@ import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
 import { OPEN_PULL, PullRequests, TOOLS_CLOSED } from "./PullRequests";
 import { Inbox, inboxFilters, type InboxFilter } from "./Inbox";
+import { useComposerViewport } from "./useSheetViewport";
 import { Later, SavedList, showLater, type SavedMessage } from "./Later";
 import {
   ActionSheet,
@@ -331,6 +332,7 @@ export default function App() {
   } | null>(null);
   const [archivedCard, setArchivedCard] = useState<string | null>(null);
   const composerRef = useRef<HTMLElement>(null);
+  useComposerViewport(composerRef, !!session?.user && !conversation && availableAgents.length > 0);
   const [sendMenu, setSendMenu] = useState(false);
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
@@ -2024,179 +2026,181 @@ export default function App() {
           </button>
         )}
         <div className="composer" hidden={!composerExpanded && !threadMode}>
-          {!threadMode && (
-            <div className="composer-heading">
-              <label className="composer-field">
-                <span className="sr-only">Send to</span>
-                <select
-                  aria-label="Agent recipient"
-                  disabled={busy || uploading}
-                  value={
-                    selected === "__route__"
-                      ? "__route__"
-                      : activeAgent?.id || ""
-                  }
-                  onChange={(e) => {
-                    setSelected(e.target.value);
-                    setReplyContext(null);
-                    setContextArtifact(null);
-                    setFolderChoice(undefined);
-                    const agent = data.agents.find(
-                      (a) => a.id === e.target.value,
-                    );
-                    if (agent) setFolder(agent.folder_id || "");
+          <div className="composer-body">
+            {!threadMode && (
+              <div className="composer-heading">
+                <label className="composer-field">
+                  <span className="sr-only">Send to</span>
+                  <select
+                    aria-label="Agent recipient"
+                    disabled={busy || uploading}
+                    value={
+                      selected === "__route__"
+                        ? "__route__"
+                        : activeAgent?.id || ""
+                    }
+                    onChange={(e) => {
+                      setSelected(e.target.value);
+                      setReplyContext(null);
+                      setContextArtifact(null);
+                      setFolderChoice(undefined);
+                      const agent = data.agents.find(
+                        (a) => a.id === e.target.value,
+                      );
+                      if (agent) setFolder(agent.folder_id || "");
+                    }}
+                  >
+                    {!availableAgents.length && (
+                      <option value="">Choose your first agent</option>
+                    )}
+                    <option value="__route__">Let Loop route this</option>
+                    {activeAgent?.retired_at && (
+                      <option value={activeAgent.id} disabled>
+                        @{activeAgent.name} · Retired
+                      </option>
+                    )}
+                    {availableAgents.map((a) => (
+                      <option value={a.id} key={a.id}>
+                        @{a.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="composer-collapse text-button"
+                  onPointerDown={(event) => {
+                    // Keep the keyboard layout until the click; an early blur
+                    // can move Minimize away from mouseup in mobile WebKit.
+                    if (event.pointerType === "mouse" && event.button === 0)
+                      event.preventDefault();
                   }}
+                  onClick={collapseComposer}
+                  aria-label="Collapse composer"
                 >
-                  {!availableAgents.length && (
-                    <option value="">Choose your first agent</option>
-                  )}
-                  <option value="__route__">Let Loop route this</option>
-                  {activeAgent?.retired_at && (
-                    <option value={activeAgent.id} disabled>
-                      @{activeAgent.name} · Retired
-                    </option>
-                  )}
-                  {availableAgents.map((a) => (
-                    <option value={a.id} key={a.id}>
-                      @{a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="composer-collapse text-button"
-                onPointerDown={(event) => {
-                  // Keep the keyboard layout until the click; an early blur
-                  // can move Minimize away from mouseup in mobile WebKit.
-                  if (event.pointerType === "mouse" && event.button === 0)
-                    event.preventDefault();
+                  <ChevronDown size={18} /> Minimize
+                </button>
+              </div>
+            )}
+            {!threadMode && activeAgent && selected !== "__route__" && (
+              <p className="composer-destination">
+                To <strong>@{destination.agent}</strong> · Project{" "}
+                <strong>{destination.project}</strong> ·{" "}
+                {steersActive
+                  ? "Sending now steers its current task"
+                  : destination.thread}
+              </p>
+            )}
+            {activeAgent?.retired_at && (
+              <p className="note">
+                This agent is retired. Restore it from its profile to send new
+                work.
+              </p>
+            )}
+            {selected === "__route__" && routePreview && (
+              <p className="route-preview">
+                {routePreview.agent
+                  ? "Recipient: @" + routePreview.agent.name + " · "
+                  : ""}
+                {routePreview.reason}
+              </p>
+            )}
+            {quoted && (
+              <div className="composer-reply-chip">
+                <ReplyIcon size={16} aria-hidden="true" />
+                <details className="composer-quote-toggle">
+                  <summary>
+                    Replying to {quoted.excerpt ? "part of " : ""}
+                    {quoted.mine
+                      ? "your message"
+                      : "@" +
+                        (activeAgent?.name || "agent") +
+                        (quoted.excerpt ? "'s message" : "")}
+                    : <span>{preview(quoted.content!, 80)}</span>
+                  </summary>
+                  <div
+                    className="composer-quote"
+                    role="region"
+                    aria-label="Original message"
+                    tabIndex={0}
+                  >
+                    <RichText content={quoted.content!} compact />
+                  </div>
+                </details>
+                <button
+                  className="icon-button"
+                  aria-label="Clear reply context"
+                  onClick={() =>
+                    setReplyContext(
+                      conversation && conversationTarget
+                        ? conversationTarget
+                        : null,
+                    )
+                  }
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            {!replyContext && contextArtifact && (
+              <div className="context-strip">
+                <span>About: {contextArtifact.title}</span>
+                <button
+                  aria-label="Clear conversation context"
+                  onClick={() => setContextArtifact(null)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <div className="composer-main">
+              <textarea
+                id="composer"
+                aria-label={
+                  replyContext || conversation
+                    ? "Reply to agent"
+                    : "Message your agent"
+                }
+                disabled={busy}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onFocus={() => {
+                  if (threadMode) setComposerExpanded(true);
                 }}
-                onClick={collapseComposer}
-                aria-label="Collapse composer"
-              >
-                <ChevronDown size={18} /> Minimize
-              </button>
-            </div>
-          )}
-          {!threadMode && activeAgent && selected !== "__route__" && (
-            <p className="composer-destination">
-              To <strong>@{destination.agent}</strong> · Project{" "}
-              <strong>{destination.project}</strong> ·{" "}
-              {steersActive
-                ? "Sending now steers its current task"
-                : destination.thread}
-            </p>
-          )}
-          {activeAgent?.retired_at && (
-            <p className="note">
-              This agent is retired. Restore it from its profile to send new
-              work.
-            </p>
-          )}
-          {selected === "__route__" && routePreview && (
-            <p className="route-preview">
-              {routePreview.agent
-                ? "Recipient: @" + routePreview.agent.name + " · "
-                : ""}
-              {routePreview.reason}
-            </p>
-          )}
-          {quoted && (
-            <div className="composer-reply-chip">
-              <ReplyIcon size={16} aria-hidden="true" />
-              <details className="composer-quote-toggle">
-                <summary>
-                  Replying to {quoted.excerpt ? "part of " : ""}
-                  {quoted.mine
-                    ? "your message"
-                    : "@" +
-                      (activeAgent?.name || "agent") +
-                      (quoted.excerpt ? "'s message" : "")}
-                  : <span>{preview(quoted.content!, 80)}</span>
-                </summary>
-                <div
-                  className="composer-quote"
-                  role="region"
-                  aria-label="Original message"
-                  tabIndex={0}
-                >
-                  <RichText content={quoted.content!} compact />
-                </div>
-              </details>
-              <button
-                className="icon-button"
-                aria-label="Clear reply context"
-                onClick={() =>
-                  setReplyContext(
-                    conversation && conversationTarget
-                      ? conversationTarget
-                      : null,
-                  )
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setComposerExpanded(false);
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                placeholder={
+                  threadMode
+                    ? `Reply to @${activeAgent?.name || "agent"}…`
+                    : "An idea, a question, a ‘what if’… (@new creates an agent)"
                 }
-              >
-                <X size={16} />
-              </button>
+                rows={threadMode ? 1 : 2}
+              />
+              {threadMode && sendButton}
             </div>
-          )}
-          {!replyContext && contextArtifact && (
-            <div className="context-strip">
-              <span>About: {contextArtifact.title}</span>
-              <button
-                aria-label="Clear conversation context"
-                onClick={() => setContextArtifact(null)}
-              >
-                ×
-              </button>
-            </div>
-          )}
-          <div className="composer-main">
-            <textarea
-              id="composer"
-              aria-label={
-                replyContext || conversation
-                  ? "Reply to agent"
-                  : "Message your agent"
+            <AttachmentList
+              files={attachments}
+              onRemove={(id) =>
+                setAttachments(attachments.filter((file) => file.id !== id))
               }
-              disabled={busy}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onFocus={() => {
-                if (threadMode) setComposerExpanded(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setComposerExpanded(false);
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              placeholder={
-                threadMode
-                  ? `Reply to @${activeAgent?.name || "agent"}…`
-                  : "An idea, a question, a ‘what if’… (@new creates an agent)"
-              }
-              rows={threadMode ? 1 : 2}
             />
-            {threadMode && sendButton}
+            {composerError && (
+              <div className="composer-error error" role="alert">
+                {composerError}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => setComposerError("")}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
-          <AttachmentList
-            files={attachments}
-            onRemove={(id) =>
-              setAttachments(attachments.filter((file) => file.id !== id))
-            }
-          />
-          {composerError && (
-            <div className="composer-error error" role="alert">
-              {composerError}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => setComposerError("")}
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
           <div className="composer-actions">
             <UploadButton
               key={threadIdentity}

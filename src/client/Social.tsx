@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Bookmark,
   Check,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   Download,
   MessageSquare,
   MessageSquarePlus,
@@ -941,6 +943,8 @@ export function Social({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [choosing, setChoosing] = useState(false);
+  const headerId = useId();
+  const [headerHidden, setHeaderHidden] = useState(() => localStorage.getItem("loop-social-header-hidden") === "1");
   // The story being saved for later, if its sheet is open.
   const [saving, setSaving] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -1201,107 +1205,125 @@ export function Social({
   });
   return (
     <>
-      <div className="social-toolbar">
-        <span className="field-hint">
-          {plural(followed, "feed")}
-          {!!view.unread &&
-            ` · ${view.unread}${view.unread > 98 ? "+" : ""} unread`}
-        </span>
-        <button
-          type="button"
-          className="chip"
-          aria-pressed={unreadOnly}
-          onClick={() => {
-            unread.current = !unreadOnly;
-            setUnreadOnly(!unreadOnly);
-            void load();
-          }}
-        >
-          Unread
-        </button>
-        {!!view.unread && (
+      <button
+        type="button"
+        className="text-button social-header-toggle"
+        aria-expanded={!headerHidden}
+        aria-controls={headerId}
+        onClick={() => {
+          localStorage.setItem("loop-social-header-hidden", headerHidden ? "0" : "1");
+          setHeaderHidden(!headerHidden);
+        }}
+      >
+        {headerHidden ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+        {headerHidden ? "Show feed header" : "Hide feed header"}
+      </button>
+      <div id={headerId} className="social-controls" hidden={headerHidden}>
+        <div className="social-toolbar">
+          <span className="field-hint">
+            {plural(followed, "feed")}
+            {!!view.unread &&
+              ` · ${view.unread}${view.unread > 98 ? "+" : ""} unread`}
+          </span>
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={unreadOnly}
+            onClick={() => {
+              unread.current = !unreadOnly;
+              setUnreadOnly(!unreadOnly);
+              void load();
+            }}
+          >
+            Unread
+          </button>
+          {!!view.unread && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void readEverything()}
+            >
+              <CheckCheck size={16} />
+              Mark all read
+            </button>
+          )}
           <button
             type="button"
             className="text-button"
-            onClick={() => void readEverything()}
+            onClick={() => setWatching(true)}
           >
-            <CheckCheck size={16} />
-            Mark all read
+            <Bell size={16} />
+            Follow a word
           </button>
-        )}
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => setWatching(true)}
-        >
-          <Bell size={16} />
-          Follow a word
-        </button>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => setDigesting(true)}
-        >
-          <Sparkles size={16} />
-          Digest
-        </button>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => setChoosing(true)}
-        >
-          <Plus size={16} />
-          Add feeds
-        </button>
-      </div>
-      <div className="social-search">
-        <Search size={16} aria-hidden="true" />
-        <input
-          type="search"
-          aria-label="Search your feeds"
-          placeholder="Search your feeds"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-      {chipCategories.length > 2 && (
-        <div className="chip-row" role="group" aria-label="Category">
-          {chipCategories.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className="chip"
-              aria-pressed={!chosenFeed && chosenCategory === value}
-              onClick={() => {
-                setChosenCategory(value);
-                setChosenFeed("");
-              }}
-            >
-              {value}
-            </button>
-          ))}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => setDigesting(true)}
+          >
+            <Sparkles size={16} />
+            Digest
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => setChoosing(true)}
+          >
+            <Plus size={16} />
+            Add feeds
+          </button>
         </div>
-      )}
-      <div className="chip-row" role="group" aria-label="Feed">
-        {followedFeeds
-          .filter(
-            (feed) =>
-              chosenCategory === "All" || feed.category === chosenCategory,
-          )
-          .map((feed) => (
-            <button
-              key={feed.id}
-              type="button"
-              className="chip"
-              aria-pressed={chosenFeed === feed.id}
-              onClick={() =>
-                setChosenFeed(chosenFeed === feed.id ? "" : feed.id)
-              }
-            >
-              {feed.name}
-            </button>
-          ))}
+        <div className="social-search">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="Search your feeds"
+            placeholder="Search your feeds"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        {chipCategories.length > 2 && (
+          <div className="chip-row" role="group" aria-label="Category">
+            {chipCategories.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="chip"
+                aria-pressed={!chosenFeed && chosenCategory === value}
+                onClick={() => {
+                  setChosenCategory(value);
+                  setChosenFeed("");
+                }}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="chip-row" role="group" aria-label="Feed">
+          {followedFeeds
+            .filter(
+              (feed) =>
+                chosenCategory === "All" || feed.category === chosenCategory,
+            )
+            .map((feed) => (
+              <button
+                key={feed.id}
+                type="button"
+                className="chip"
+                aria-pressed={chosenFeed === feed.id}
+                onClick={() =>
+                  setChosenFeed(chosenFeed === feed.id ? "" : feed.id)
+                }
+              >
+                {feed.name}
+              </button>
+            ))}
+        </div>
       </div>
+      {headerHidden && (query || chosenFeed || chosenCategory !== "All" || unreadOnly) && (
+        <p className="field-hint">Filters active · {onPage.length} stories shown. Expand the feed header to change them.</p>
+      )}
       {!!view.hidden && !showMuted && (
         <p className="field-hint" role="status">
           {plural(view.hidden, "story")} hidden by a word you muted.

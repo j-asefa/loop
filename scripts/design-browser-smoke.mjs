@@ -2,6 +2,7 @@
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
 import { spawn } from "node:child_process";
 const names = [
+  "main-composer-keyboard",
   "feed-reply-keyboard",
   "safari-sheet-keyboard",
   "create-agent-layout",

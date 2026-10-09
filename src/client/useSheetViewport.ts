@@ -30,10 +30,24 @@ export function sheetCorrection(
 /** Measure the modal's own viewport origin: iOS can pan the top layer
  * independently of the page when focusing a field in a tall conversation. */
 export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
+  useKeyboardViewport(ref, true);
+}
+
+export function useComposerViewport(
+  ref: RefObject<HTMLElement | null>,
+  enabled: boolean,
+) {
+  useKeyboardViewport(ref, enabled);
+}
+
+function useKeyboardViewport(
+  ref: RefObject<HTMLElement | null>,
+  enabled: boolean,
+) {
   useEffect(() => {
     const dialog = ref.current;
     const viewport = window.visualViewport;
-    if (!dialog || !viewport) return;
+    if (!enabled || !dialog || !viewport) return;
     let frame = 0;
     let settling: ReturnType<typeof setTimeout>[] = [];
     let correction = 0;
@@ -43,7 +57,9 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
     };
     const align = () => {
       if (
-        !dialog.open ||
+        (dialog instanceof HTMLDialogElement
+          ? !dialog.open
+          : !dialog.classList.contains("expanded")) ||
         dialog.classList.contains("side-panel") ||
         document.documentElement.dataset.keyboard !== "open"
       )
@@ -85,6 +101,10 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
       attributes: true,
       attributeFilter: ["data-keyboard", "style"],
     });
+    attributes.observe(dialog, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
     const size = new ResizeObserver(schedule);
     size.observe(dialog);
     const events: [EventTarget, string][] = [
@@ -118,5 +138,5 @@ export function useSheetViewport(ref: RefObject<HTMLDialogElement | null>) {
       dialog.removeEventListener("transitioncancel", transition);
       dialog.style.removeProperty("--sheet-top-correction");
     };
-  }, [ref]);
+  }, [ref, enabled]);
 }

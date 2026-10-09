@@ -453,6 +453,9 @@ small,
   box-shadow: 0 5px 25px #0000000b;
   pointer-events: auto;
 }
+.composer-body {
+  display: contents;
+}
 .composer-reply-context {
   margin: 10px 14px 0;
   border-left: 3px solid var(--brass);
@@ -3154,6 +3157,30 @@ pre {
     bottom: var(--keyboard-inset, 0px);
     max-height: var(--visual-viewport-height, 100dvh);
   }
+  :root[data-keyboard="open"] .composer-dock.expanded:not(.thread-mode) {
+    --sheet-top-gap: 8px;
+    top: calc(var(--visual-viewport-top, 0px) + var(--sheet-top-gap) + var(--sheet-top-correction, 0px));
+    bottom: auto;
+    translate: none;
+    padding: 0 8px;
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 16px);
+  }
+  :root[data-keyboard="open"] .composer-dock.expanded:not(.thread-mode) > .composer {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 16px);
+    overflow: hidden;
+  }
+  :root[data-keyboard="open"] .composer-dock:not(.thread-mode) .composer-body {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  :root[data-keyboard="open"] .composer-dock:not(.thread-mode) .composer-actions {
+    flex: 0 0 auto;
+  }
 }
 
 .run-prompt {
@@ -3309,7 +3336,7 @@ pre {
 .composer-error {
   margin: 4px 12px;
 }
-.composer > .attachment-list {
+.composer-body > .attachment-list {
   margin-inline: 14px;
 }
 .attachment-options {
@@ -7326,9 +7353,9 @@ html:has(.sheet.side-panel[open]) {
 }
 
 /* Composer notes line up with the agent picker and message box (14px inset). */
-.composer > .composer-destination,
-.composer > .note,
-.composer > .route-preview {
+.composer-body > .composer-destination,
+.composer-body > .note,
+.composer-body > .route-preview {
   margin: 8px 14px 0;
 }
 
@@ -8335,6 +8362,19 @@ html:has(.sheet.side-panel[open]) {
   flex-wrap: wrap;
   gap: 4px 12px;
   margin-bottom: 10px;
+}
+.social-header-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-bottom: 8px;
+}
+.workspace-content:has(.social-controls[hidden]) > .page-heading,
+.workspace-content:has(.social-controls[hidden]) > .workspace-scope,
+.workspace-content:has(.social-controls[hidden]) > .your-agents,
+.inbox:has(.social-controls[hidden]) > .away-card {
+  display: none;
 }
 .social-toolbar > .field-hint {
   flex: 1 0 100%;

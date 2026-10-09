@@ -1,6 +1,7 @@
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
 import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
 import { feedReplyKeyboardSmoke } from "./helpers/feed-reply-keyboard-smoke.mjs";
+import { mainComposerKeyboardSmoke } from "./helpers/main-composer-keyboard-smoke.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -31,6 +32,7 @@ import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  "main-composer-keyboard": (p, f, e, c) => mainComposerKeyboardSmoke(p, f, c),
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
   "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),
   "create-agent-layout": (p, f, e, c) => createAgentLayoutSmoke(p, f, c),

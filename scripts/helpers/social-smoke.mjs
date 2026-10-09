@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expect } from "@playwright/test";
 
 // Social, driven against stories already in the store: Loop reads a feed from
 // feed_stories, so this needs no network and no feed fixture server. It checks
@@ -72,6 +73,22 @@ export async function socialSmoke(page, fixture, shot) {
   const cards = social.locator(".news-card");
   await cards.first().waitFor();
   assert.equal(await cards.count(), total, "Every stored story must show");
+  const agents = page.getByRole("region", { name: "Your agents", exact: true });
+  await page.getByRole("button", { name: "Hide feed header", exact: true }).click();
+  await expect(page.locator(".social-controls")).toBeHidden();
+  await expect(agents).toBeHidden();
+  await shot("rss-header-hidden");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show feed header", exact: true })).toBeVisible();
+  await expect(page.locator(".social-controls")).toBeHidden();
+  await expect(cards).toHaveCount(total);
+  await page.getByRole("tab", { name: "Done", exact: true }).click();
+  await expect(agents).toBeVisible();
+  await page.getByRole("tab", { name: /^Social/ }).click();
+  await expect(agents).toBeHidden();
+  await page.getByRole("button", { name: "Show feed header", exact: true }).click();
+  await expect(page.locator(".social-controls")).toBeVisible();
+  await expect(agents).toBeVisible();
   // Stories are unread until read, and the Social chip says how many.
   assert.equal(
     await social.locator(".news-card[data-unread]").count(),
