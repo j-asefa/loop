@@ -306,7 +306,7 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
   );
 }
 
-/** A story card that can be swiped right to remove it from Social. */
+/** A story card that can be swiped left to remove it from Social. */
 function SwipeAway({
   onRemove,
   children,
@@ -314,7 +314,7 @@ function SwipeAway({
   onRemove: () => void;
   children: ReactNode;
 }) {
-  const swipe = useSwipe({ onRight: onRemove });
+  const swipe = useSwipe({ onLeft: onRemove });
   return (
     <div
       className={
@@ -324,7 +324,7 @@ function SwipeAway({
       }
       {...swipe.handlers}
     >
-      <span className="swipe-under left" aria-hidden="true">
+      <span className="swipe-under right" aria-hidden="true">
         <X size={20} /> Remove
       </span>
       <div
