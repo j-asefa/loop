@@ -8472,36 +8472,102 @@ html:has(.sheet.side-panel[open]) {
   color: #fff;
   font-size: 18px;
 }
-.social-toolbar {
-  display: flex;
-  align-items: center;
-  /* Six controls do not fit a phone in one row: the count takes the first
-     line and the rest wrap under it rather than running off the screen. */
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-bottom: 10px;
+/* Feed options: one card that opens to search, filters and feed actions. */
+.social-options {
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
 }
-.social-header-toggle {
+.social-options-toggle {
   display: flex;
   align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 14px;
+  border-radius: 16px;
+  text-align: left;
+}
+.social-options-toggle > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.social-options-label {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.social-options-label strong {
+  font-size: 15px;
+}
+.social-options-label .field-hint {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.social-options-chevron {
+  transition: transform 0.15s ease;
+}
+.social-options-toggle[aria-expanded="true"] .social-options-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .social-options-chevron {
+    transition: none;
+  }
+}
+.social-controls {
+  display: grid;
+  gap: 12px;
+  padding: 2px 14px 14px;
+}
+.social-controls[hidden] {
+  display: none;
+}
+.social-controls .chip-row {
+  margin: 0;
+}
+.social-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.social-filters > .chip-row {
+  flex: 1;
+  min-width: 0;
+}
+.social-filters-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 24px;
+  background: var(--line);
+}
+.social-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.social-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
   min-height: 44px;
-  margin-bottom: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  white-space: nowrap;
 }
 .workspace-content:has(.social-controls[hidden]) > .page-heading,
 .workspace-content:has(.social-controls[hidden]) > .workspace-scope,
 .workspace-content:has(.social-controls[hidden]) > .your-agents,
 .inbox:has(.social-controls[hidden]) > .away-card {
   display: none;
-}
-.social-toolbar > .field-hint {
-  flex: 1 0 100%;
-}
-.social-toolbar .text-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
 }
 .social-intro {
   margin-bottom: 14px;
@@ -9538,15 +9604,9 @@ label.catalog-filter-chip {
 }
 
 /* Searching and narrowing the feed, and what a feed offered with a story. */
-.social-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0 4px;
-}
-.social-search input {
-  flex: 1;
-  min-width: 0;
+.social-controls .search-box {
+  margin: 0;
+  background: var(--bg);
 }
 .news-image {
   width: 100%;

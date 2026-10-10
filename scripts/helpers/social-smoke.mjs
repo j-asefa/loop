@@ -74,39 +74,48 @@ export async function socialSmoke(page, fixture, shot) {
   await cards.first().waitFor();
   assert.equal(await cards.count(), total, "Every stored story must show");
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
-  // Toggling the header keeps your place partway down the page, even without
-  // scroll anchoring (Safari has none).
+  // Feed options start closed: Social is the stories alone, without the page
+  // heading and agents above them.
+  const toggle = page.locator(".social-options-toggle");
+  const controls = page.locator(".social-controls");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toContainText("Feed options");
+  await expect(controls).toBeHidden();
+  await expect(agents).toBeHidden();
+  await shot("rss-options-closed");
+  // Toggling keeps your place partway down the page, even without scroll
+  // anchoring (Safari has none).
   const noAnchoring = await page.addStyleTag({
     content: "* { overflow-anchor: none !important; }",
   });
-  const toggle = page.locator(".social-header-toggle");
-  for (const name of ["Hide feed header", "Show feed header"]) {
+  for (const expanded of ["true", "false"]) {
     await toggle.evaluate((el) =>
       window.scrollBy(0, el.getBoundingClientRect().top - 120),
     );
     const before = Math.round((await toggle.boundingBox()).y);
-    await page.getByRole("button", { name, exact: true }).click();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", expanded);
     await expect
       .poll(async () => Math.round((await toggle.boundingBox()).y))
       .toBe(before);
   }
   await noAnchoring.evaluate((el) => el.remove());
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.getByRole("button", { name: "Hide feed header", exact: true }).click();
-  await expect(page.locator(".social-controls")).toBeHidden();
-  await expect(agents).toBeHidden();
-  await shot("rss-header-hidden");
+  // Opening is not remembered: every visit starts closed.
+  await toggle.click();
+  await expect(controls).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("button", { name: "Show feed header", exact: true })).toBeVisible();
-  await expect(page.locator(".social-controls")).toBeHidden();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(controls).toBeHidden();
   await expect(cards).toHaveCount(total);
   await page.getByRole("tab", { name: "Done", exact: true }).click();
   await expect(agents).toBeVisible();
   await page.getByRole("tab", { name: /^Social/ }).click();
   await expect(agents).toBeHidden();
-  await page.getByRole("button", { name: "Show feed header", exact: true }).click();
-  await expect(page.locator(".social-controls")).toBeVisible();
+  await toggle.click();
+  await expect(controls).toBeVisible();
   await expect(agents).toBeVisible();
+  await shot("rss-options-open");
   // Stories are unread until read, and the Social chip says how many.
   assert.equal(
     await social.locator(".news-card[data-unread]").count(),
