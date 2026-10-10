@@ -1,7 +1,5 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db } from "./db.js";
-import { Problem } from "./domain.js";
 import { teamFilter } from "./teams.js";
 import {
   INBOX_FILTERS,
@@ -29,6 +27,7 @@ import {
   reorderRun,
   setSaved,
   setSavedLabel,
+  setDoneCardHidden,
   snoozeLater,
   withdrawQueuedRun,
 } from "./mobile-return.js";
@@ -62,14 +61,9 @@ mobile.get("/inbox", (req, res) => {
     }),
   );
 });
-mobile.patch("/inbox/:id", (req, res) => {
-  const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
-  const changed = db.prepare(
-    "UPDATE conversations SET feed_hidden=? WHERE id=? AND owner_id=?",
-  ).run(Number(hidden), req.params.id, res.locals.owner);
-  if (!changed.changes) throw new Problem(404, "Conversation not found");
-  res.json({ ok: true });
-});
+mobile.patch("/inbox/:id", (req, res) =>
+  res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
+);
 mobile.get("/inbox/away", (req, res) =>
   res.json(
     awaySummary(res.locals.owner, timestamp.default(0).parse(req.query.since)),

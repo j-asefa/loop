@@ -178,6 +178,7 @@ type InboxRow = {
   folder_id: string | null;
   run_id: string | null;
   done_run_id: string | null;
+  done_card_key: string;
   last_activity_at: number;
   sort_at: number;
   position_message_id: string | null;
@@ -185,12 +186,7 @@ type InboxRow = {
   pending_approvals: number;
 };
 
-function inboxSql(
-  teams: boolean,
-  folders: boolean,
-  agent = false,
-  history = false,
-) {
+function inboxSql(teams: boolean, folders: boolean, agent = false) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
 base AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
@@ -210,7 +206,7 @@ base AS (
     EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed
   FROM conversations c
   LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id
-  WHERE c.owner_id=@owner ${history ? "" : "AND c.feed_hidden=0"}
+  WHERE c.owner_id=@owner
     ${teams ? "AND c.team_id IN (SELECT value FROM json_each(@teams))" : ""}
     ${agent ? "AND c.agent_id=@agent" : ""}
     AND (EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id)
@@ -229,6 +225,9 @@ inbox AS (
 ),
 flagged AS (
   SELECT i.*,
+    COALESCE('run:'||i.done_run_id,
+      (SELECT 'message:'||m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=i.conversation_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
+      'run:'||i.run_id) done_card_key,
     (i.run_state IN ('awaiting_approval','paused') OR (i.raw_state IN ('failed','interrupted') AND i.attention_dismissed_at IS NULL) OR i.pending_approvals>0) is_needs,
     (i.run_state IN ('running','pausing','waiting_children')) is_working,
     (i.raw_state='completed') is_done
@@ -273,18 +272,13 @@ export function inbox(
     at: cursor?.[0] ?? null,
     after: cursor?.[1] ?? null,
   };
-  const sql = inboxSql(
-    !!teams,
-    !!folders,
-    !!options.agent,
-    filter === "outcomes" || filter === "unfinished",
-  );
+  const sql = inboxSql(!!teams, !!folders, !!options.agent);
   const where = {
     all: "NOT snoozed",
     // Every finished output stays done, even while a follow-up works, queues
     // or needs you; so does a thread with nothing open (imported history has
     // no runs, so NULL flags).
-    done: "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed",
+    done: "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)",
     needs: "is_needs",
     working: "is_working",
     queued: "has_queued",
@@ -306,6 +300,7 @@ export function inbox(
     .all(params) as InboxRow[];
   const more = rows.length > 40;
   if (more) rows.pop();
+  // Dismissing a Done card changes neither run state nor any activity count.
   const summary = db
     .prepare(
       `${sql} SELECT COALESCE(sum(is_needs),0) needs,COALESCE(sum(is_working),0) working,
@@ -347,6 +342,44 @@ export function inbox(
       scheduled_pending: scheduled.pending,
     },
   };
+}
+
+export function setDoneCardHidden(
+  owner: string,
+  conversation: string,
+  body: unknown,
+) {
+  const { hidden, cardKey } = z
+    .object({
+      hidden: z.boolean(),
+      cardKey: z.string().regex(/^(run|message):.+$/).max(200),
+    })
+    .parse(body);
+  return db
+    .transaction(() => {
+      owned("conversations", conversation, owner);
+      const isRun = cardKey.startsWith("run:");
+      const target = cardKey.slice(cardKey.indexOf(":") + 1);
+      const record = db
+        .prepare(
+          isRun
+            ? "SELECT 1 FROM runs WHERE id=? AND owner_id=? AND conversation_id=? AND state IN ('completed','cancelled','failed','interrupted')"
+            : "SELECT 1 FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
+        )
+        .get(target, owner, conversation);
+      if (!record) throw new Problem(404, "Done card not found");
+      if (hidden) {
+        db.prepare(
+          "INSERT OR IGNORE INTO done_card_dismissals(owner_id,conversation_id,card_key,created_at) VALUES(?,?,?,?)",
+        ).run(owner, conversation, cardKey, now());
+      } else {
+        db.prepare(
+          "DELETE FROM done_card_dismissals WHERE owner_id=? AND conversation_id=? AND card_key=?",
+        ).run(owner, conversation, cardKey);
+      }
+      return { ok: true };
+    })
+    .immediate();
 }
 
 function projectFor(owner: string, folder: string | null | undefined) {
@@ -509,6 +542,7 @@ function inboxItem(
     : undefined;
   return {
     conversation_id: row.conversation_id,
+    ...(mode === "done" ? { done_card_key: row.done_card_key } : {}),
     // The thread keeps the title from its first prompt, but a card is named
     // by the prompt of the run it shows: a Done card by the prompt its answer
     // replies to, a Working card by the task in progress. Imported history

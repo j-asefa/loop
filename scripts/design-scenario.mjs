@@ -16,6 +16,7 @@ import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
 import { profileNavigationSmoke } from "./helpers/profile-navigation-smoke.mjs";
 import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
 import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
+import { doneCardDismissalSmoke } from "./helpers/done-card-dismissal-smoke.mjs";
 import { resultFilesSmoke } from "./helpers/result-files-smoke.mjs";
 import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
@@ -56,6 +57,7 @@ const scenarios = {
   profile: profileNavigationSmoke,
   models: (p, f, e, c) => modelLabelsSmoke(p, f, c),
   swipe: swipeBackSmoke,
+  "done-card-dismissal": doneCardDismissalSmoke,
   messages: (p, f) => messageNavigationSmoke(p, f),
   files: (p, f, e, c) => resultFilesSmoke(p, f, c),
   "profile-work": (p, f, e, c) => profileWorkSmoke(p, c),

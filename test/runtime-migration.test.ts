@@ -5,6 +5,39 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
+it("clears legacy conversation hiding without guessing which Done card was dismissed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-done-card-migration-"));
+  try {
+    const db = new Database(join(dir, "loop.db"));
+    db.exec("CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)");
+    for (const file of readdirSync("migrations").filter((name) => name.endsWith(".sql")).sort()) {
+      if (Number(file.split("-")[0]) >= 76) continue;
+      db.exec(readFileSync(join("migrations", file), "utf8"));
+    }
+    db.exec(`
+      INSERT INTO deployment_profile VALUES(1,'server');
+      INSERT INTO conversations(id,owner_id,title,created_at,feed_hidden) VALUES('thread','owner','Keep the thread',1,1);
+      INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('answer','owner','thread','assistant','Keep the result',2);
+    `);
+    db.close();
+    const result = execFileSync(process.execPath, [
+      "--import", "tsx", "--input-type=module", "-e",
+      `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({thread:db.prepare("SELECT title,feed_hidden FROM conversations WHERE id='thread'").get(),message:db.prepare("SELECT content FROM messages WHERE id='answer'").get(),dismissals:db.prepare('SELECT * FROM done_card_dismissals').all()}));db.close();`,
+    ], {
+      cwd: resolve("."),
+      env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+      encoding: "utf8",
+    });
+    expect(JSON.parse(result)).toEqual({
+      thread: { title: "Keep the thread", feed_hidden: 0 },
+      message: { content: "Keep the result" },
+      dismissals: [],
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 for (const branch of ["main", "hapi"] as const)
   it(`migrates the ${branch} session schema without losing its history`, () => {
     const dir = mkdtempSync(join(tmpdir(), "loop-schema-"));

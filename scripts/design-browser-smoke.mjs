@@ -21,6 +21,7 @@ const names = [
   "profile",
   "models",
   "swipe",
+  "done-card-dismissal",
   "messages",
   "files",
   "profile-work",

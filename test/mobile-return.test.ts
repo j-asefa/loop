@@ -388,30 +388,94 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   });
 });
 
-it("archives a thread from the feed without changing its run or history", async () => {
+it("dismisses only the selected Done card, with exact-card retry and Undo", async () => {
   const w = workspaceFor(), a = w.agent();
-  const cid = conversation(w.owner, a.id, "Archive me");
-  const rid = run(w.owner, a.id, cid, "running");
-  message(w.owner, cid, "user", "Keep working", rid);
-  expect((await api(w.owner, "/inbox?filter=working")).data.items.some(
-    (item: any) => item.conversation_id === cid,
-  )).toBe(true);
-  expect((await api("intruder", `/inbox/${cid}`, "PATCH", { hidden: true })).status).toBe(404);
-  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true })).status).toBe(200);
-  for (const filter of ["all", "working", "queued", "done"]) {
-    expect((await api(w.owner, `/inbox?filter=${filter}`)).data.items.some(
-      (item: any) => item.conversation_id === cid,
-    )).toBe(false);
-  }
-  expect((await api(w.owner, "/inbox?filter=unfinished")).data.items.some(
-    (item: any) => item.conversation_id === cid,
-  )).toBe(true);
+  const cid = conversation(w.owner, a.id, "Several results");
+  const first = run(w.owner, a.id, cid, "completed");
+  const answer = message(w.owner, cid, "assistant", "First result", first);
+  await api(w.owner, `/messages/${answer}/saved`, "POST");
+  const page = async (filter: string) => (await api(w.owner, "/inbox?filter=" + filter)).data;
+  const card = (await page("done")).items[0];
+  expect(card.done_card_key).toBe("run:" + first);
+  const dismiss = (hidden: boolean, cardKey = card.done_card_key, owner: string = w.owner, conversationId = cid) =>
+    api(owner, `/inbox/${conversationId}`, "PATCH", { hidden, cardKey });
+
+  expect((await dismiss(true, card.done_card_key, "intruder")).status).toBe(404);
+  const other = conversation(w.owner, a.id);
+  expect((await dismiss(true, card.done_card_key, w.owner, other)).status).toBe(404);
+  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true })).status).toBe(400);
+  expect((await dismiss(true)).status).toBe(200);
+  expect((await dismiss(true)).status).toBe(200);
+  expect((await page("done")).items).toEqual([]);
+  expect((await page("all")).items.map((i: any) => i.conversation_id)).toEqual([cid]);
+  expect((await page("outcomes")).items.map((i: any) => i.conversation_id)).toEqual([cid]);
   expect((await api(w.owner, `/conversations/${cid}`)).status).toBe(200);
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(rid)).toEqual({ state: "running" });
-  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: false })).status).toBe(200);
-  expect((await api(w.owner, "/inbox?filter=working")).data.items.some(
-    (item: any) => item.conversation_id === cid,
-  )).toBe(true);
+  expect(db.prepare("SELECT content FROM messages WHERE id=?").get(answer)).toEqual({ content: "First result" });
+  expect(db.prepare("SELECT count(*) n FROM message_bookmarks WHERE owner_id=? AND message_id=?").get(w.owner, answer)).toEqual({ n: 1 });
+  expect((await dismiss(false)).status).toBe(200);
+  expect((await page("done")).items[0].done_card_key).toBe(card.done_card_key);
+
+  const second = run(w.owner, a.id, cid, "completed");
+  message(w.owner, cid, "assistant", "Second result", second);
+  // The result can change between rendering a card and swiping it.
+  expect((await dismiss(true)).status).toBe(200);
+  const nextCard = (await page("done")).items[0];
+  expect(nextCard.done_card_key).toBe("run:" + second);
+  expect(nextCard.last_message.content).toBe("Second result");
+  expect((await dismiss(true, nextCard.done_card_key)).status).toBe(200);
+  expect((await dismiss(false)).status).toBe(200);
+  expect((await page("done")).items).toEqual([]);
+  expect((await dismiss(false, nextCard.done_card_key)).status).toBe(200);
+  expect((await page("done")).items[0].done_card_key).toBe(nextCard.done_card_key);
+  expect(db.prepare("SELECT feed_hidden FROM conversations WHERE id=?").get(cid)).toEqual({ feed_hidden: 0 });
+});
+
+it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting_approval", "failed", "interrupted"])(
+  "Done dismissal has no effect on %s work, other lists or counts",
+  async (state) => {
+    const w = workspaceFor(), a = w.agent();
+    const cid = conversation(w.owner, a.id);
+    const first = run(w.owner, a.id, cid, "completed");
+    message(w.owner, cid, "assistant", "Prior result", first);
+    const active = run(w.owner, a.id, cid, state === "waiting_children" ? "running" : state);
+    db.prepare("UPDATE runs SET worker_id=? WHERE id=?").run(state === "waiting_children" ? null : "worker", active);
+    // Even a legacy client writing this obsolete flag cannot hide a thread.
+    db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
+    const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
+    const before = await Promise.all(filters.map(async (filter) =>
+      (await api(w.owner, "/inbox?filter=" + filter)).data));
+    const done = (await api(w.owner, "/inbox?filter=done")).data;
+    expect(done.items[0].done_card_key).toBe("run:" + first);
+    const working = ["running", "pausing", "waiting_children"].includes(state);
+    expect(done.summary).toMatchObject({
+      working: working ? 1 : 0,
+      queued: state === "queued" ? 1 : 0,
+      needs: ["paused", "awaiting_approval", "failed", "interrupted"].includes(state) ? 1 : 0,
+    });
+    expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
+    expect((await api(w.owner, "/inbox?filter=done")).data).toMatchObject({ items: [], summary: done.summary });
+    for (const [index, filter] of filters.entries()) {
+      expect((await api(w.owner, "/inbox?filter=" + filter)).data).toEqual(before[index]);
+    }
+    expect((await api("intruder", "/inbox?filter=working")).data.items).toEqual([]);
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(active)).toEqual({ state: state === "waiting_children" ? "running" : state });
+    db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(active);
+    message(w.owner, cid, "assistant", "New result", active);
+    expect((await api(w.owner, "/inbox?filter=done")).data.items[0].done_card_key).toBe("run:" + active);
+  },
+);
+
+it("dismisses a message-only Done card without suppressing later imported messages", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Imported history");
+  const first = message(w.owner, cid, "assistant", "Imported answer");
+  const key = (await api(w.owner, "/inbox?filter=done")).data.items[0].done_card_key;
+  expect(key).toBe("message:" + first);
+  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true, cardKey: key })).status).toBe(200);
+  expect((await api(w.owner, "/inbox?filter=done")).data.items).toEqual([]);
+  expect((await api(w.owner, "/inbox")).data.items[0].last_message.id).toBe(first);
+  const second = message(w.owner, cid, "assistant", "Next imported answer");
+  expect((await api(w.owner, "/inbox?filter=done")).data.items[0].done_card_key).toBe("message:" + second);
 });
 
 it("heads Working cards with the active task's prompt instead of the thread's first prompt or newer queued input", async () => {

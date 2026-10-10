@@ -242,7 +242,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       await expect(cards.first().locator("h2").first()).toHaveText(archived);
     }
 
-    // Feed threads own their left swipe too: archive removes the card and
+    // Done cards own their left swipe too: dismissal removes the card and
     // Undo restores it without opening Remind me.
     if (client) {
       await page.goto(fixture.base, { waitUntil: "networkidle" });
@@ -255,7 +255,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       await expect(page.locator("dialog[open]")).toHaveCount(0);
       const toast = page
         .getByRole("status")
-        .filter({ hasText: "Archived from feed" });
+        .filter({ hasText: "Removed from Done" });
       await expect(toast).toBeVisible();
       await toast.getByRole("button", { name: "Undo", exact: true }).click();
       await expect(row).toHaveCount(1);

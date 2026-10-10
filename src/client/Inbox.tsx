@@ -88,6 +88,7 @@ export type InboxItem = {
   sourceId?: string;
   executionEnvironment?: string;
   conversation_id: string;
+  done_card_key?: string;
   title: string;
   agent_id: string | null;
   connection_id: string | null;
@@ -200,7 +201,7 @@ function InboxCard({
   onNext,
   onAgent,
   onMenu,
-  onArchive,
+  onDismiss,
   onLater,
 }: {
   item: InboxItem;
@@ -213,11 +214,11 @@ function InboxCard({
   onNext: (action: FeedNextAction) => void;
   onAgent?: () => void;
   onMenu: () => void;
-  onArchive: () => void;
+  onDismiss?: () => void;
   onLater: () => void;
 }) {
   const scopedSource = useSourceId();
-  const swipe = useSwipe({ onLeft: onArchive });
+  const swipe = useSwipe({ onLeft: onDismiss });
   const press = useLongPress(onMenu);
   const status = runStatus(item.run?.state, item.pending_approvals);
   const merged = (name: string) => (e: any) => {
@@ -243,9 +244,11 @@ function InboxCard({
         (swipe.offset ? " swiping" : "")
       }
     >
-      <span className="swipe-under right" aria-hidden="true">
-        <Archive size={20} /> Archive
-      </span>
+      {onDismiss && (
+        <span className="swipe-under right" aria-hidden="true">
+          <Archive size={20} /> Remove from Done
+        </span>
+      )}
       <article
         className="feed-card inbox-card"
         style={
@@ -1135,29 +1138,31 @@ export function Inbox({
       setError((e as Error).message);
     }
   }
-  async function archive(item: InboxItem) {
+  async function dismissDoneCard(item: InboxItem) {
+    if (filter !== "done" || !item.done_card_key) return;
     try {
       const source = item.sourceId ?? scopedSource;
       await apiInWorkspace(
         `/inbox/${item.conversation_id}`,
         source,
-        { hidden: true },
+        { hidden: true, cardKey: item.done_card_key },
         "PATCH",
       );
       setItems((old) =>
         old.filter(
           (row) =>
             row.conversation_id !== item.conversation_id ||
-            (row.sourceId || "") !== (item.sourceId || ""),
+            (row.sourceId || "") !== (item.sourceId || "") ||
+            row.done_card_key !== item.done_card_key,
         ),
       );
       notify({
-        text: "Archived from feed. Still in history and search.",
+        text: "Removed from Done.",
         undo: async () => {
           await apiInWorkspace(
             `/inbox/${item.conversation_id}`,
             source,
-            { hidden: false },
+            { hidden: false, cardKey: item.done_card_key },
             "PATCH",
           );
           await load();
@@ -1433,7 +1438,11 @@ export function Inbox({
         }
         onAgent={agent ? () => onAgent(agent) : undefined}
         onMenu={() => setMenu(item)}
-        onArchive={() => void archive(item)}
+        onDismiss={
+          filter === "done" && item.done_card_key
+            ? () => void dismissDoneCard(item)
+            : undefined
+        }
         onLater={() => setLater(item)}
       />
     );
