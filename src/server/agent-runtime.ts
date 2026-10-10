@@ -784,7 +784,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
             // Release the lease only after the checkpoint is saved. A fast
             // worker must not resume this manager while it still persists.
             if (
-              invocation.binding.tool === "loop_delegate" &&
+              ["loop_delegate", "loop_request_review"].includes(
+                invocation.binding.tool,
+              ) &&
               invocation.binding.connectionId === "__loop__"
             ) {
               db.transaction(() => {

@@ -604,12 +604,20 @@ core.post("/runs/:id/:action", async (req, res) => {
   if (!next || !transition(run, next))
     throw new Problem(409, "That action is not available in the current state");
   if (action === "cancel") {
-    const children = db
-      .prepare(
-        "SELECT r.* FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
-      )
-      .all(run.id) as Run[];
-    children.forEach((child) => transition(child, "cancelled"));
+    // Cancel nested delegations too: an agent-requested review delegates to
+    // its lead, which delegates to the reviewers.
+    const cancel = (parent: string) =>
+      (
+        db
+          .prepare(
+            "SELECT r.* FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
+          )
+          .all(parent) as Run[]
+      ).forEach((child) => {
+        transition(child, "cancelled");
+        cancel(child.id);
+      });
+    cancel(run.id);
     // Results of its background delegations already waiting to be read.
     (
       db

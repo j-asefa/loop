@@ -350,6 +350,91 @@ it("cancels the whole review through the production run control and survives reo
   expect(createPresetTeam("alice", details).id).toBe(team.id);
 });
 
+it("lets a working agent request a review of its own worktree, waits for the lead's report and cancels the whole review with the requester", async () => {
+  const builder = id();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice','Builder','builder','openai',?,'fixture-model',?)",
+  ).run(builder, c, now());
+  const worktree = join(dir, "builder-worktree");
+  git("worktree", "add", "-b", "builder-feature", worktree, "HEAD");
+  writeFileSync(join(worktree, "feature.ts"), "export const feature = 1;\n");
+  execFileSync("git", ["add", "feature.ts"], { cwd: worktree });
+  execFileSync("git", ["commit", "-m", "feature"], { cwd: worktree });
+  const start = (project: string) => {
+    const run = submit("alice", {
+      agentId: builder,
+      folderId: folder,
+      input: "Get the review team to review before opening a PR",
+      idempotencyKey: id(),
+    });
+    db.prepare(
+      "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,'claude',?,?)",
+    ).run(run.conversation_id, project, now());
+    db.prepare("UPDATE runs SET state='running',worker_id='fixture' WHERE id=?").run(run.id);
+    return { ...run, state: "running" } as any;
+  };
+  const binding = (run: any) =>
+    nativeBindings(run).find((b) => b.tool === "loop_request_review")!;
+  const run = start(worktree);
+  expect(binding(run).description).toContain(team.id);
+  const lead = db
+    .prepare("SELECT * FROM agents WHERE id=?")
+    .get(team.manager_id) as any;
+  expect(
+    nativeBindings({ ...run, agent_id: lead.id }).map((b) => b.tool),
+  ).not.toContain("loop_request_review");
+  const request = { teamId: team.id, scope: "branch", base: "main" };
+  expect(await invokeNative(run, binding(run), "ask", request)).toEqual({
+    pending: "ask",
+  });
+  expect(await invokeNative(run, binding(run), "ask", request)).toEqual({
+    pending: "ask",
+  });
+  const review = db
+    .prepare("SELECT * FROM code_reviews WHERE run_id=(SELECT child_run_id FROM delegations WHERE parent_run_id=?)")
+    .get(run.id) as any;
+  expect(review.source_path).toBe(worktree);
+  expect(JSON.parse(review.snapshot).changed).toEqual(["feature.ts"]);
+  expect(
+    (db.prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?").get(run.id) as any).n,
+  ).toBe(1);
+  db.prepare(
+    "UPDATE runs SET state='completed' WHERE id IN (SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
+  ).run(review.run_id);
+  db.prepare(
+    "UPDATE runs SET state='completed',result='Consolidated fixture report' WHERE id=?",
+  ).run(review.run_id);
+  const done = (await invokeNative(run, binding(run), "ask", request)) as any;
+  const report = JSON.parse(done.result.content[0].text);
+  expect(done.result.isError).toBeUndefined();
+  expect(report.report).toBe("Consolidated fixture report");
+  expect(report.reviewers).toHaveLength(3);
+
+  const stranger = mkdtempSync(join(dir, "stranger-"));
+  execFileSync("git", ["init"], { cwd: stranger });
+  const outside = start(stranger);
+  const refused = (await invokeNative(outside, binding(outside), "ask", request)) as any;
+  expect(refused.result.isError).toBe(true);
+  expect(refused.result.content[0].text).toMatch(/not part of this project/);
+
+  const cancelled = start(worktree);
+  await invokeNative(cancelled, binding(cancelled), "ask", request);
+  const response = await fetch(`${url}/runs/${cancelled.id}/cancel`, {
+    method: "POST",
+    headers: { "x-owner": "alice", "content-type": "application/json" },
+    body: "{}",
+  });
+  expect(response.status).toBe(200);
+  const second = db
+    .prepare("SELECT child_run_id id FROM delegations WHERE parent_run_id=?")
+    .get(cancelled.id) as any;
+  const states = db
+    .prepare(
+      "SELECT state FROM runs WHERE id=? UNION ALL SELECT r.state FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
+    )
+    .all(second.id, second.id) as any[];
+  expect(states.map((r) => r.state)).toEqual(Array(4).fill("cancelled"));
+});
 it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
   const harness = id();
   db.prepare(

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { reviewReadSchema, readReview } from "./review-access.js";
+import {
+  reviewReadSchema,
+  readReview,
+  requestReviewSchema,
+} from "./review-access.js";
 import { createHash } from "node:crypto";
 import { db, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -13,6 +17,7 @@ import { readRunFile } from "./uploads.js";
 import { agentFeedAccess, feedForAgent } from "./news.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { applyActivity } from "./activities.js";
+import { requestableReviewTeams, requestReview } from "./code-reviews.js";
 import {
   MAIL_LIMITS,
   mailStatus,
@@ -139,6 +144,7 @@ const schemas = {
   loop_delegate: delegate,
   loop_message: messageSchema,
   loop_message_status: statusSchema,
+  loop_request_review: requestReviewSchema,
 };
 export function nativeBindings(
   run: Run,
@@ -175,6 +181,13 @@ export function nativeBindings(
     loop_install_mcp:
       "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
   };
+  const reviewTeams = run.agent_id
+    ? requestableReviewTeams(run.owner_id, run.agent_id)
+    : [];
+  if (reviewTeams.length)
+    descriptions.loop_request_review =
+      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. This call waits for the consolidated report, which can take several minutes. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
+      JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
     const workers = db
       .prepare(
@@ -417,6 +430,25 @@ export async function invokeNative(
           ? "Message was not sent: "
           : "Status unavailable: ") + error.message;
     }
+  } else if (binding.tool === "loop_request_review") {
+    let outcome: ReturnType<typeof requestReview>;
+    try {
+      outcome = requestReview(run, callId, requestReviewSchema.parse(args));
+    } catch (error) {
+      // Refusals (team, repository, capture) go back to the agent.
+      if (
+        !(error instanceof Problem) ||
+        owned<Run>("runs", run.id, run.owner_id).state !== "running"
+      )
+        throw error;
+      outcome = {
+        failed: true,
+        report: { error: "Review was not started: " + error.message },
+      };
+    }
+    if ("pending" in outcome) return outcome;
+    isError = outcome.failed;
+    text = JSON.stringify(outcome.report);
   } else if (binding.tool === "loop_review_read") {
     text = JSON.stringify(readReview(run, args));
   } else {

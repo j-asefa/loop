@@ -9,6 +9,11 @@ export const reviewReadSchema = z.object({
   version: z.enum(["current", "before"]).default("current"),
   offset: z.number().int().nonnegative().default(0),
 });
+export const requestReviewSchema = z.object({
+  teamId: z.string().min(1).max(200),
+  scope: z.enum(["uncommitted", "staged", "branch"]).default("branch"),
+  base: z.string().trim().min(1).max(200).default("main"),
+});
 export function reviewRecord(owner: string, id: string) {
   const r = db
     .prepare("SELECT * FROM code_reviews WHERE id=? AND owner_id=?")
