@@ -74,6 +74,24 @@ export async function socialSmoke(page, fixture, shot) {
   await cards.first().waitFor();
   assert.equal(await cards.count(), total, "Every stored story must show");
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
+  // Toggling the header keeps your place partway down the page, even without
+  // scroll anchoring (Safari has none).
+  const noAnchoring = await page.addStyleTag({
+    content: "* { overflow-anchor: none !important; }",
+  });
+  const toggle = page.locator(".social-header-toggle");
+  for (const name of ["Hide feed header", "Show feed header"]) {
+    await toggle.evaluate((el) =>
+      window.scrollBy(0, el.getBoundingClientRect().top - 120),
+    );
+    const before = Math.round((await toggle.boundingBox()).y);
+    await page.getByRole("button", { name, exact: true }).click();
+    await expect
+      .poll(async () => Math.round((await toggle.boundingBox()).y))
+      .toBe(before);
+  }
+  await noAnchoring.evaluate((el) => el.remove());
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.getByRole("button", { name: "Hide feed header", exact: true }).click();
   await expect(page.locator(".social-controls")).toBeHidden();
   await expect(agents).toBeHidden();

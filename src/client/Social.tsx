@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Bookmark,
@@ -945,6 +945,17 @@ export function Social({
   const [choosing, setChoosing] = useState(false);
   const headerId = useId();
   const [headerHidden, setHeaderHidden] = useState(() => localStorage.getItem("loop-social-header-hidden") === "1");
+  // Toggling the header also hides or shows the page heading and agents above
+  // it. Keep the toggle where it was tapped so the stories don't jump; Safari
+  // has no scroll anchoring to do this for us.
+  const headerToggle = useRef<HTMLButtonElement>(null);
+  const toggleTop = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const before = toggleTop.current;
+    toggleTop.current = null;
+    if (before === null || !headerToggle.current) return;
+    window.scrollBy(0, headerToggle.current.getBoundingClientRect().top - before);
+  }, [headerHidden]);
   // The story being saved for later, if its sheet is open.
   const [saving, setSaving] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -1207,10 +1218,12 @@ export function Social({
     <>
       <button
         type="button"
+        ref={headerToggle}
         className="text-button social-header-toggle"
         aria-expanded={!headerHidden}
         aria-controls={headerId}
-        onClick={() => {
+        onClick={(event) => {
+          toggleTop.current = event.currentTarget.getBoundingClientRect().top;
           localStorage.setItem("loop-social-header-hidden", headerHidden ? "0" : "1");
           setHeaderHidden(!headerHidden);
         }}
