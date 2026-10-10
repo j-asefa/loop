@@ -19,6 +19,19 @@ type Prompt = {
   attachments: UploadedFile[];
 };
 type Page = { items: Prompt[]; next: string | null };
+/** Plain clicks on a sent-message card open its conversation, but controls,
+ * links and text selection inside the card keep their own behavior. */
+export function opensConversationFromCard(
+  target: EventTarget | null,
+  card: Pick<Element, "contains">,
+  selection = "",
+) {
+  if (selection) return false;
+  const control = (target as Partial<Element> | null)?.closest?.(
+    "a, button, input, textarea, select, summary, label, video, audio, [role=button]",
+  );
+  return !control || !card.contains(control);
+}
 export type PromptReply = {
   id: string;
   content: string;
@@ -135,7 +148,26 @@ export function PersonalProfile({
       {page.items.map((item) => {
         const agent = agents.find((candidate) => candidate.id === item.agent_id);
         return (
-        <article className="feed-card personal-message-card" key={item.id}>
+        <article
+          className="feed-card personal-message-card"
+          key={item.id}
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              !opensConversationFromCard(
+                event.target,
+                event.currentTarget,
+                window.getSelection()?.toString(),
+              )
+            )
+              return;
+            onConversation(item.conversation_id, item.id);
+          }}
+        >
           <div className="personal-recipient">
             {agent ? (
               <button className="personal-agent-avatar" aria-label={`Open ${agent.name} profile`} onClick={() => onAgent(agent)}>

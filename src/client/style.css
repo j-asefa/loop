@@ -5498,6 +5498,7 @@ select {
 }
 .personal-message-card {
   min-width: 0;
+  cursor: pointer;
 }
 .personal-message-card .personal-message-context {
   color: var(--muted);
