@@ -57,8 +57,8 @@ export function Traces(props: Props) {
     <section className="trace-list" aria-label="Agent traces">
       {!props.runId && (
         <p className="field-hint">
-          Updates and tool activity from this agent. Final answers appear in
-          Results.
+          Tool activity and execution details from this agent. Public messages
+          appear in conversations.
         </p>
       )}
       <label className="directory-search">
@@ -66,7 +66,7 @@ export function Traces(props: Props) {
         <input
           type="search"
           aria-label="Search traces"
-          placeholder="Search commands, tools and updates…"
+          placeholder="Search commands and tools…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />

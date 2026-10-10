@@ -231,3 +231,32 @@ it("offers older activity and legacy traces only when the reader would see them"
     ).body.items,
   ).toEqual([]);
 });
+
+it("serves conversation controls without reading traces or returning tool history", async () => {
+  // If the conversation request touches legacy storage, fail at the database
+  // boundary. Restore it before subsequent fixture teardown.
+  db.exec("ALTER TABLE run_traces RENAME TO unavailable_traces");
+  try {
+    const initial = await get("?view=recent&tools=0");
+    expect(initial.status).toBe(200);
+    expect(initial.body.items.length).toBeGreaterThan(0);
+    expect(
+      initial.body.items.every((i: any) =>
+        ["settings", "commands", "capabilities"].includes(i.kind),
+      ),
+    ).toBe(true);
+    expect(initial.body.legacyAvailable).toBeUndefined();
+    const updates = await get("?view=updates&tools=0&after=0");
+    expect(updates.status).toBe(200);
+    expect(
+      updates.body.items.every((i: any) =>
+        ["settings", "commands", "capabilities", "file_change"].includes(
+          i.kind,
+        ),
+      ),
+    ).toBe(true);
+    expect((await get("?view=recent&tools=0", "bob")).status).toBe(404);
+  } finally {
+    db.exec("ALTER TABLE unavailable_traces RENAME TO run_traces");
+  }
+});

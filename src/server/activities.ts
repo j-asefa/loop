@@ -385,10 +385,54 @@ export function listActivities(
     run?: string;
     before?: number;
     view?: "recent" | "updates" | "legacy" | "files";
+    tools?: "0" | "1";
     runs?: string[];
   } = {},
 ) {
   owned("conversations", conversation, owner);
+  // Conversation chrome needs controls and file summaries, never tool history
+  // or legacy trace discovery. Tool activity has its own lazy snapshot/cursor.
+  if (
+    options.tools === "0" &&
+    (options.view === "recent" || options.view === "updates")
+  ) {
+    const initial = options.view === "recent";
+    const rows = initial
+      ? ["settings", "commands", "capabilities"].flatMap(
+          (kind) =>
+            db
+              .prepare(
+                `SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND kind=?
+           ORDER BY sequence DESC LIMIT 16`,
+              )
+              .all(owner, conversation, kind) as Row[],
+        )
+      : (db
+          .prepare(
+            `SELECT * FROM agent_activities WHERE owner_id=? AND scope=?
+          AND kind IN ('settings','commands','capabilities','file_change') AND sequence>?
+          ORDER BY sequence LIMIT 501`,
+          )
+          .all(owner, conversation, options.after ?? 0) as Row[]);
+    const more = !initial && rows.length > 500;
+    if (more) rows.pop();
+    const cursor = initial
+      ? ((
+          db
+            .prepare(
+              "SELECT max(sequence) cursor FROM agent_activities WHERE owner_id=? AND scope=?",
+            )
+            .get(owner, conversation) as { cursor: number | null }
+        ).cursor ?? 0)
+      : (rows.at(-1)?.sequence ?? options.after ?? 0);
+    return {
+      version: ACTIVITY_VERSION,
+      items: rows.map(activityItem),
+      cursor,
+      more,
+      earlier: null,
+    };
+  }
   if (options.view === "legacy") {
     const page = legacyTools(
       owner,
@@ -538,6 +582,7 @@ activityRoutes.get("/conversations/:id/activities", (req, res) => {
         .max(Number.MAX_SAFE_INTEGER)
         .optional(),
       view: z.enum(["recent", "updates", "legacy", "files"]).optional(),
+      tools: z.enum(["0", "1"]).optional(),
       runs: z
         .string()
         .max(7600)

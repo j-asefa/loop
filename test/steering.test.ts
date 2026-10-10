@@ -103,20 +103,20 @@ it("steers an active API response without creating a second run and keeps the se
       .poll(() =>
         db
           .prepare(
-            "SELECT content FROM run_traces WHERE run_id=? AND trace_key='turn:0'",
+            "SELECT content FROM messages WHERE run_id=? AND update_key='turn:0'",
           )
           .get(run.id),
       )
       .toMatchObject({ content: "I will investigate the shared table." });
     const trace = db
       .prepare(
-        "SELECT id FROM run_traces WHERE run_id=? AND trace_key='turn:0'",
+        "SELECT id FROM messages WHERE run_id=? AND update_key='turn:0'",
       )
-      .get(run.id) as { id: number };
+      .get(run.id) as { id: string };
     const body = {
       agentId: agent.id,
       conversationId: run.conversation_id,
-      replyToMessageId: "trace:" + trace.id,
+      replyToMessageId: trace.id,
       input: "Keep it local",
       idempotencyKey: id(),
     };

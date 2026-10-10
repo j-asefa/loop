@@ -245,7 +245,7 @@ it("makes small text files downloadable, with safe names and no inline active co
   });
   expect(artifact.content).toBe("<script>alert(1)</script>");
   const messagesId = id();
-  db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)").run(
+  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
     messagesId,
     "alice",
     f.run.conversation_id,

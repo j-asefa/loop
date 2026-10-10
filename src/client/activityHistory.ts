@@ -1,6 +1,7 @@
 import type { ActivityPage } from "./activityView";
 
 export type ActivityHistoryState = {
+  loading: boolean;
   hasEarlier: boolean;
   loadingEarlier: boolean;
   error: string;
@@ -21,6 +22,7 @@ export class ActivityHistory {
   private runs: string[] = [];
   private loadedRuns = new Set<string>();
   private state: ActivityHistoryState = {
+    loading: true,
     hasEarlier: false,
     loadingEarlier: false,
     error: "",
@@ -31,6 +33,7 @@ export class ActivityHistory {
     private fetch: (url: string) => Promise<ActivityPage>,
     private receive: (page: ActivityPage) => void,
     private changed: (state: ActivityHistoryState) => void,
+    private tools = true,
   ) {}
 
   stop() {
@@ -82,7 +85,9 @@ export class ActivityHistory {
     }
     this.refreshing = this.enqueue(async () => {
       if (!this.initialized) {
-        const page = await this.page("view=recent");
+        const page = await this.page(
+          this.tools ? "view=recent" : "view=recent&tools=0",
+        );
         if (!page) return;
         this.supportsPaging = "earlier" in page;
         this.cursor = page.cursor;
@@ -94,7 +99,9 @@ export class ActivityHistory {
         // that contract until the server also supports recent snapshots.
         let current = page;
         while (current.more && !this.stopped) {
-          const next = await this.page(`view=updates&after=${this.cursor}`);
+          const next = await this.page(
+            `view=updates${this.tools ? "" : "&tools=0"}&after=${this.cursor}`,
+          );
           if (!next) return;
           this.cursor = next.cursor;
           current = next;
@@ -103,13 +110,16 @@ export class ActivityHistory {
       } else {
         let page: ActivityPage | null;
         do {
-          page = await this.page(`view=updates&after=${this.cursor}`);
+          page = await this.page(
+            `view=updates${this.tools ? "" : "&tools=0"}&after=${this.cursor}`,
+          );
           if (!page) return;
           this.cursor = page.cursor;
         } while (page.more && !this.stopped);
       }
       await this.files();
     }).finally(() => {
+      this.publish({ loading: false });
       this.refreshing = null;
       if (this.again && !this.stopped) {
         this.again = false;

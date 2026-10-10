@@ -139,14 +139,7 @@ export function savePosition(
     .transaction(() => {
       const c = owned<{ id: string }>("conversations", conversation, owner);
       if (positionMessageId) {
-        // Progress updates are shown in the transcript as trace:<id> items.
-        const valid = positionMessageId.startsWith("trace:")
-          ? db
-              .prepare(
-                "SELECT 1 FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id WHERE 'trace:'||t.id=? AND t.owner_id=? AND r.conversation_id=?",
-              )
-              .get(positionMessageId, owner, c.id)
-          : conversationMessage(owner, c.id, positionMessageId);
+        const valid = conversationMessage(owner, c.id, positionMessageId);
         if (!valid)
           throw new Problem(404, "Message not found in this conversation");
       }
@@ -751,9 +744,9 @@ function resultFor(owner: string, messageId: string) {
 export function setSaved(owner: string, messageId: string, on: boolean) {
   return db
     .transaction(() => {
-      if (messageId.startsWith("trace:"))
+      const message = owned<Message>("messages", messageId, owner);
+      if (JSON.parse(message.metadata).progress)
         throw new Problem(400, "Only saved messages can be kept");
-      owned<Message>("messages", messageId, owner);
       const result = resultFor(owner, messageId);
       if (result)
         db.prepare(
@@ -945,7 +938,7 @@ export function conversationOutline(
     return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
   const messages = db
     .prepare(
-      "SELECT id,run_id,role,substr(content,1,1000) content,created_at,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at,rowid",
+      "SELECT id,run_id,role,substr(content,1,1000) content,created_at,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? AND json_extract(metadata,'$.progress') IS NOT 1 ORDER BY created_at,rowid",
     )
     .all(owner, conversation) as {
     id: string;
@@ -1041,6 +1034,7 @@ function threadMatches(owner: string, conversation: string, q: string) {
           ORDER BY l.created_at DESC,l.rowid DESC LIMIT 1) last
       FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
       WHERE m.owner_id=@owner AND m.conversation_id=@conversation
+        AND NOT (json_extract(m.metadata,'$.progress') IS 1 AND json_extract(m.metadata,'$.final') IS 1)
         AND (m.content LIKE @q ESCAPE '\\' OR (r.state IN ('failed','interrupted') AND r.error LIKE @q ESCAPE '\\'))
       ORDER BY m.created_at DESC,m.rowid DESC LIMIT 100`,
     )

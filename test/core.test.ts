@@ -122,7 +122,7 @@ describe("durable agent contract", () => {
     ).toEqual({ n: 2 });
     expect(
       db
-        .prepare("SELECT count(*) n FROM messages WHERE conversation_id=?")
+        .prepare("SELECT count(*) n FROM messages WHERE conversation_id=? AND update_key IS NULL")
         .get(first.conversation_id),
     ).toEqual({ n: 4 });
   });

@@ -50,10 +50,16 @@ export function mergeConversationMessages(
           message.role === "assistant" &&
           !parse<any>(message.metadata, {}).progress,
       )
-      .map(
-        (message) =>
-          "trace:" + parse<any>(message.metadata, {}).completedTraceId,
-      ),
+      .map((message) => {
+        const metadata = parse<any>(message.metadata, {});
+        // Linked sources can still serve the older completion metadata.
+        return (
+          metadata.completedMessageId ??
+          (metadata.completedTraceId == null
+            ? undefined
+            : `trace:${metadata.completedTraceId}`)
+        );
+      }),
   );
   return messages
     .filter((message) => !completed.has(message.id))

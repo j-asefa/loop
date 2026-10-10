@@ -330,7 +330,7 @@ it("preserves separate files and repeated messages while deduplicating only a li
   ).run(conversation, owner, a.id, "Repeated content", now());
   const messages = ["user", "assistant", "assistant"].map((role) => {
     const message = id();
-    db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)").run(
+    db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
       message,
       owner,
       conversation,

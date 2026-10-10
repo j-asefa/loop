@@ -19,6 +19,7 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { recordTrace } = await import("../src/server/traces");
+const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { core } = await import("../src/server/core-routes");
 const app = express();
@@ -81,6 +82,7 @@ function trace(
   content: string,
   kind: "message" | "tool" = "message",
 ) {
+  if (kind === "message") return recordConversationUpdate(run, key, { content })!.id;
   recordTrace(run, key, { kind, title: "Agent update", content });
   return (
     "trace:" +
@@ -378,9 +380,8 @@ it("bounds a long whole-message quote to its start and end", () => {
 
 it("opens and replies to progress from an imported run without a user prompt", async () => {
   const { agent, run, message } = source();
-  db.prepare("DELETE FROM messages WHERE run_id=?").run(run.id);
-  // A trace can arrive before its first imported message; the link must still
-  // open the owning conversation while the transcript has no position for it.
+  db.prepare("DELETE FROM messages WHERE run_id=? AND update_key IS NULL").run(run.id);
+  // Public updates can exist without an imported prompt or final answer.
   const path = `/conversations/${run.conversation_id}?message=${message}`;
   expect((await request(path)).status).toBe(200);
   db.prepare(

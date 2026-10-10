@@ -22,8 +22,8 @@ for (const engine of selectedEngines()) {
     const addMessage = db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?,?)",
     );
-    const addTrace = db.prepare(
-      "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,created_at) VALUES(?,?,'progress','message','Update',?,?)",
+    const addUpdate = db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at,update_key) VALUES(?,?,?,?,'assistant',?,'{\"progress\":true}',?,'progress')",
     );
     let lastRun;
     db.transaction(() => {
@@ -40,7 +40,14 @@ for (const engine of selectedEngines()) {
           `History prompt ${i}`,
           time,
         );
-        addTrace.run(owner, run, `History progress ${i}`, time);
+        addUpdate.run(
+          randomUUID(),
+          owner,
+          conversation.id,
+          run,
+          `History progress ${i}`,
+          time,
+        );
         addMessage.run(
           randomUUID(),
           owner,
@@ -148,7 +155,19 @@ for (const engine of selectedEngines()) {
         .first(),
     ).toBeVisible();
     assert.equal(
-      reads.filter((url) => url.searchParams.get("view") === "recent").length,
+      reads.filter(
+        (url) =>
+          url.searchParams.get("view") === "recent" &&
+          url.searchParams.get("tools") !== "0",
+      ).length,
+      0,
+    );
+    assert.equal(
+      reads.filter(
+        (url) =>
+          url.searchParams.get("view") === "recent" &&
+          url.searchParams.get("tools") === "0",
+      ).length,
       1,
     );
     assert.equal(
@@ -189,12 +208,17 @@ for (const engine of selectedEngines()) {
     await expect
       .poll(
         () =>
-          reads.filter((url) => url.searchParams.get("view") === "updates")
-            .length,
+          reads.filter(
+            (url) =>
+              url.searchParams.get("view") === "updates" &&
+              url.searchParams.get("tools") !== "0",
+          ).length,
       )
       .toBeGreaterThan(0);
     const update = reads.find(
-      (url) => url.searchParams.get("view") === "updates",
+      (url) =>
+        url.searchParams.get("view") === "updates" &&
+        url.searchParams.get("tools") !== "0",
     );
     assert.equal(update.searchParams.get("after"), "1201");
     assert.deepEqual(errors, []);

@@ -423,7 +423,7 @@ workspace.post("/conversations/:id/continue", (req, res) => {
       now(),
     );
     for (const m of messages)
-      db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)").run(
+      db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
         id(),
         res.locals.owner,
         newId,

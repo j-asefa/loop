@@ -255,6 +255,7 @@ export function Conversation({
     [editQueued, setEditQueued] = useState<QueuedMessage | null>(null);
   const activityHistory = useConversationActivities(
     id, (data?.messages || []).flatMap(message => message.run_id ? [message.run_id] : []),
+    showToolActivity,
   );
   const activityItems = activityHistory.items;
   const allActivities = visibleActivities(activityItems);
@@ -881,16 +882,12 @@ export function Conversation({
                   },
                 ]
               : []),
-            ...(toolRecords().length || activityHistory.hasEarlier
-              ? [
-                  {
-                    id: "tools",
-                    label: "Tool activity",
-                    icon: <Wrench size={20} />,
-                    onSelect: () => setShowToolActivity(true),
-                  },
-                ]
-              : []),
+            {
+              id: "tools",
+              label: "Tool activity",
+              icon: <Wrench size={20} />,
+              onSelect: () => setShowToolActivity(true),
+            },
             ...(agent
               ? [
                   {
@@ -1112,6 +1109,10 @@ export function Conversation({
       {showToolActivity && (
         <Sheet title="Tool activity" onClose={() => setShowToolActivity(false)}>
           <ActivityRecords records={toolRecords()} />
+          {activityHistory.loading && <p role="status">Loading tool activity…</p>}
+          {!activityHistory.loading && !activityHistory.error && !toolRecords().length && !activityHistory.hasEarlier && (
+            <p className="field-hint">No tool activity yet.</p>
+          )}
           {activityHistory.error && <p className="error" role="alert">{activityHistory.error}</p>}
           {activityHistory.hasEarlier && (
             <button type="button" disabled={activityHistory.loadingEarlier}

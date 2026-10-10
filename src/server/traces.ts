@@ -108,11 +108,23 @@ export function runTraceExport(owner: string, agent: string, runId: string) {
     ORDER BY t.id LIMIT ?`,
     )
     .all(owner, runId, exportLimit + 1) as { metadata: string }[];
+  const messages = db
+    .prepare(
+      `SELECT m.id,m.role,m.content,m.metadata,m.created_at
+    FROM conversation_transcript p JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
+    WHERE p.owner_id=? AND p.run_id=? AND length(trim(m.content))>0
+    ORDER BY p.position,p.phase,p.ordinal LIMIT ?`,
+    )
+    .all(owner, runId, exportLimit + 1) as { metadata: string }[];
   return {
     exported_at: now(),
     agent: { id: a.id, name: a.name },
     run,
-    truncated: rows.length > exportLimit,
+    truncated: rows.length > exportLimit || messages.length > exportLimit,
+    messages: messages.slice(0, exportLimit).map((row) => ({
+      ...row,
+      metadata: JSON.parse(row.metadata),
+    })),
     traces: rows.slice(0, exportLimit).map((row) => ({
       ...row,
       metadata: JSON.parse(row.metadata),

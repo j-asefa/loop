@@ -17,6 +17,7 @@ const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { feedRevision, feedUpdates } = await import("../src/server/feed");
 const { recordTrace, agentTraces } = await import("../src/server/traces");
+const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const { listRuns } = await import("../src/server/run-attention");
 const { search } = await import("../src/server/search");
 const { saveArtifact } = await import("../src/server/artifacts");
@@ -160,7 +161,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     expect(traces.items.filter((t: any) => t.kind === "tool")).toHaveLength(24);
     expect(
       traces.items.filter((t: any) => t.title === "Agent update"),
-    ).toHaveLength(12);
+    ).toHaveLength(0);
     const messages = await get(`/agents/${a.id}/messages`);
     expect(messages.items[0].final).toBe(1);
     expect(messages.items.filter((m: any) => !m.final)).toHaveLength(12);
@@ -169,9 +170,14 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     );
     const conversation = await get(`/conversations/${run.conversation_id}`);
     expect(
-      conversation.messages.filter((m: any) => m.id.startsWith("trace:")),
+      conversation.messages.filter((m: any) => JSON.parse(m.metadata).progress),
     ).toHaveLength(12);
     expect(conversation.messages[0].role).toBe("user");
+    const exported = await get(`/agents/${a.id}/traces/export?run=${run.id}`);
+    expect(exported.messages.at(-1)).toMatchObject({
+      role: "assistant", content: "Final heliotrope answer.",
+    });
+    expect(exported.traces.every((t: any) => t.kind === "tool")).toBe(true);
     expect(conversation.messages.at(-1).content).toBe(
       "Final heliotrope answer.",
     );
@@ -189,7 +195,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
   }
 });
 
-it("pages all public agent messages and keeps a final response's identity and completion order", async () => {
+it("pages public agent messages and links final responses by message identity in completion order", async () => {
   const a = agent();
   const run = submit("alice", {
     agentId: a.id,
@@ -201,9 +207,7 @@ it("pages all public agent messages and keeps a final response's identity and co
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','Streaming answer','{\"partial\":true}',1000)",
   ).run(messageId, run.conversation_id, run.id);
   for (let i = 0; i < 220; i++)
-    recordTrace(run, "message:" + i, {
-      kind: "message",
-      title: "Agent update",
+    recordConversationUpdate(run, "message:" + i, {
       content: "Public update " + i,
     });
   recordTrace(run, "tool", {
@@ -211,30 +215,24 @@ it("pages all public agent messages and keeps a final response's identity and co
     title: "Command",
     content: "Raw command log",
   });
-  recordTrace(run, "empty", {
-    kind: "message",
-    title: "Empty update",
+  recordConversationUpdate(run, "empty", {
     content: "  ",
   });
-  db.prepare("UPDATE run_traces SET created_at=2000 WHERE run_id=?").run(
+  db.prepare("UPDATE messages SET created_at=2000 WHERE run_id=?").run(
     run.id,
   );
-  recordTrace(run, "answer", {
-    kind: "message",
-    title: "Agent update",
+  recordConversationUpdate(run, "answer", {
     content: "Streaming answer",
   });
   db.prepare(
-    "UPDATE run_traces SET created_at=3000 WHERE run_id=? AND trace_key='answer'",
+    "UPDATE messages SET created_at=3000 WHERE run_id=? AND update_key='answer'",
   ).run(run.id);
   const streaming = await get(`/agents/${a.id}/messages`);
   expect(streaming.items[0]).toMatchObject({
     content: "Streaming answer",
     final: 0,
   });
-  recordTrace(run, "answer", {
-    kind: "message",
-    title: "Final answer",
+  recordConversationUpdate(run, "answer", {
     content: "Complete final answer",
     metadata: { final: true },
   });
@@ -259,7 +257,7 @@ it("pages all public agent messages and keeps a final response's identity and co
   expect(items).toHaveLength(222);
   expect(new Set(items.map((item) => item.id)).size).toBe(222);
   expect(items[0]).toMatchObject({
-    id: streaming.items[0].id,
+    id: messageId,
     content: "Complete final answer",
     final: 1,
     created_at: 3000,
@@ -480,7 +478,7 @@ it("hides already-saved Claude formatting receipts from traces and Running previ
       listRuns("alice", [], true).find((r) => r.id === run.id)
         ?.preview_artifact,
     ).toMatchObject({ content: "Checking the existing review" });
-    db.prepare("DELETE FROM run_traces WHERE run_id=? AND kind='message'").run(
+    db.prepare("DELETE FROM messages WHERE run_id=? AND update_key IS NOT NULL").run(
       run.id,
     );
     expect(
@@ -953,6 +951,9 @@ it("exports a whole run's public traces, including its final answer", async () =
     ["turn:2", "Done"],
   ]);
   expect(data.traces[1].metadata).toEqual({ state: "completed" });
+  expect(data.messages).toEqual(expect.arrayContaining([
+    expect.objectContaining({ role: "user", content: run.input }),
+  ]));
   const denied = [
     [`/agents/${a.id}/traces/export?run=${run.id}`, "bob"],
     [`/agents/${foreign.id}/traces/export?run=${run.id}`, "bob"],
@@ -1117,9 +1118,7 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
     title: "exec_command",
     content: "private fixture command",
   });
-  recordTrace(run, "fixture-update", {
-    kind: "message",
-    title: "Agent update",
+  recordConversationUpdate(run, "fixture-update", {
     content: "Public progress",
   });
   db.prepare(

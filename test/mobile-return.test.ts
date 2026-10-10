@@ -10,7 +10,7 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, emit } = await import("../src/server/db");
 const { createAgent, owned, Problem } = await import("../src/server/domain");
-const { recordTrace } = await import("../src/server/traces");
+const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
@@ -488,9 +488,7 @@ it("shows a working agent's output so far on its feed card", async () => {
   expect((await card()).run.automation).toBeUndefined();
   // The card's model badge uses the run's model, like its environment badge.
   expect((await card()).run.model).toBe("run-model");
-  recordTrace(owned("runs", live, w.owner) as any, "update-1", {
-    kind: "message",
-    title: "Agent update",
+  recordConversationUpdate(owned("runs", live, w.owner) as any, "update-1", {
     content: "Reading the diff and checking the queue changes.",
   });
   expect((await card()).live_preview).toBe(

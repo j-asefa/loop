@@ -112,7 +112,7 @@ it("performs tenant-scoped FTS retrieval across 10,000 messages", () => {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
   ).run(c, "scale-user", null, "Scale fixture", "fixture", null, now());
-  const insert = db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)");
+  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)");
   const begin = performance.now();
   db.transaction(() => {
     for (let i = 0; i < 10000; i++)

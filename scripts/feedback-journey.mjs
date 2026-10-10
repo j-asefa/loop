@@ -215,7 +215,7 @@ export async function feedbackJourney(page, api, base, dir) {
             ? "Anchor marker\n\n```mermaid\nflowchart TD\nA[Plan] --> B[Build]\n```"
             : "Long conversation message " + i;
         fixture
-          .prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)")
+          .prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)")
           .run(
             id,
             owner,

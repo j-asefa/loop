@@ -392,7 +392,7 @@ export async function executeImport(run: Run) {
         )
           continue;
         const messageId = id();
-        db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)").run(
+        db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
           messageId,
           run.owner_id,
           conversation.id,

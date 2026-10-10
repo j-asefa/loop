@@ -101,7 +101,7 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
   ).run(c, "feedback", a.id, "Conversation", now());
-  db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)").run(
+  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
     m,
     "feedback",
     c,
@@ -158,7 +158,7 @@ it("loads an older deep-linked message and paginates before its window", async (
     for (let i = 0; i < 160; i++) {
       const m = id();
       messages.push(m);
-      db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?)").run(
+      db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
         m,
         "feedback",
         c,

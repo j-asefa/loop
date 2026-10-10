@@ -377,7 +377,7 @@ export async function search(
           `SELECT 'message:'||m.id AS id FROM artifacts a
       JOIN messages m ON (m.id=json_extract(a.metadata,'$.messageId') OR (a.run_id IS NOT NULL AND m.run_id=a.run_id))
         AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id
-        AND m.role='assistant' AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))
+        AND m.role='assistant' AND json_extract(m.metadata,'$.progress') IS NOT 1 AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))
       WHERE a.owner_id=? AND a.id IN (SELECT value FROM json_each(?))`,
         )
         .all(owner, JSON.stringify(artifactIds)) as { id: string }[]
@@ -399,7 +399,7 @@ export async function search(
                 `SELECT m.id AS message_id FROM artifacts a
                  JOIN messages m ON (m.id=json_extract(a.metadata,'$.messageId') OR (a.run_id IS NOT NULL AND m.run_id=a.run_id))
                    AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id
-                   AND m.role='assistant' AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))
+                   AND m.role='assistant' AND json_extract(m.metadata,'$.progress') IS NOT 1 AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))
                  WHERE a.id=? AND a.owner_id=?`,
               )
               .get(d.id.slice(9), owner) as any

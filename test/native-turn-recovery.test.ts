@@ -101,7 +101,7 @@ it("keeps the user run open across injected Claude results and saves its actual 
   expect(
     db
       .prepare(
-        "SELECT content FROM run_traces WHERE run_id=? AND json_extract(metadata,'$.final')=1",
+        "SELECT content FROM messages WHERE run_id=? AND update_key IS NOT NULL AND json_extract(metadata,'$.final')=1",
       )
       .get(run.id),
   ).toEqual({ content: "Fixture done" });

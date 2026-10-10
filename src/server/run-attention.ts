@@ -1,7 +1,6 @@
 import { db, emit, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
-import { publicTraceFilter } from "./traces.js";
 
 export function dismissRun(owner: string, runId: string) {
   return db
@@ -102,7 +101,7 @@ export function runPreview(owner: string, runId: string) {
     ? (
         db
           .prepare(
-            `SELECT t.content FROM run_traces t WHERE t.owner_id=? AND t.run_id=? AND t.kind='message' AND length(trim(t.content))>0 AND ${publicTraceFilter} ORDER BY t.id DESC LIMIT 1`,
+            `SELECT content FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 ORDER BY created_at DESC,rowid DESC LIMIT 1`,
           )
           .get(owner, runId) as { content: string } | undefined
       )?.content

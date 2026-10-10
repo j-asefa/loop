@@ -79,7 +79,7 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     event({ id: "two", kind: "assistant", text: "second" });
     sessions.projectOutput(live, true);
     db.exec(
-      "CREATE TEMP TABLE aggregate_writes(id TEXT); CREATE TEMP TRIGGER audit_message_updates AFTER UPDATE ON messages BEGIN INSERT INTO aggregate_writes VALUES(new.id); END;",
+      "CREATE TEMP TABLE aggregate_writes(id TEXT); CREATE TEMP TRIGGER audit_message_updates AFTER UPDATE ON messages WHEN new.update_key IS NULL BEGIN INSERT INTO aggregate_writes VALUES(new.id); END;",
     );
     sessions.projectOutput(live, true);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toEqual([]);
@@ -92,7 +92,7 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     expect(
       db
         .prepare(
-          "SELECT content FROM run_traces WHERE trace_key='native-message:two'",
+          "SELECT content FROM messages WHERE update_key='native-message:two'",
         )
         .get(),
     ).toEqual({ content: "updated" });
@@ -108,7 +108,7 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     expect(
       db
         .prepare(
-          "SELECT content FROM run_traces WHERE kind='message' AND json_extract(metadata,'$.final') IS NOT 1 ORDER BY id",
+          "SELECT content FROM messages WHERE update_key IS NOT NULL AND json_extract(metadata,'$.final') IS NOT 1 ORDER BY rowid",
         )
         .all(),
     ).toEqual([{ content: "first" }]);

@@ -217,3 +217,26 @@ it("follows a change signalled during a read with one more read", async () => {
     "/activities?view=updates&after=200",
   ]);
 });
+
+it("loads conversation controls and displayed files without requesting tool or legacy history", async () => {
+  const requests: string[] = [];
+  const loader = new ActivityHistory(
+    "/activities",
+    async (url) => {
+      requests.push(url);
+      return page(200, [], { earlier: null });
+    },
+    () => {},
+    () => {},
+    false,
+  );
+  await loader.refresh();
+  await loader.setRuns(["run"]);
+  await loader.refresh();
+  await loader.loadEarlier();
+  expect(requests).toEqual([
+    "/activities?view=recent&tools=0",
+    "/activities?view=files&runs=run&after=0",
+    "/activities?view=updates&tools=0&after=200",
+  ]);
+});

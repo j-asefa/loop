@@ -21,26 +21,21 @@ export function agentMessages(owner: string, agent: string, before?: string) {
   const items = db
     .prepare(
       `WITH entries AS (
-    SELECT 'trace:'||t.id id,t.content,t.created_at,
-    r.conversation_id,r.id run_id,0 final FROM run_traces t
-    JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-    WHERE t.owner_id=? AND r.agent_id=? AND t.kind='message'
-    AND json_extract(t.metadata,'$.final') IS NOT 1 AND length(trim(t.content))>0
-    UNION ALL
-    SELECT COALESCE('trace:'||answer.id,m.id) id,m.content,
-    COALESCE(answer.created_at,m.created_at) created_at,m.conversation_id,
-    m.run_id,1 final FROM messages m JOIN conversations c ON c.id=m.conversation_id
-    LEFT JOIN run_traces answer ON answer.id=(
-      SELECT max(t.id) FROM run_traces t WHERE t.owner_id=m.owner_id
-      AND t.run_id=m.run_id AND t.kind='message' AND json_extract(t.metadata,'$.final')=1
-    )
+    SELECT m.id,m.content,COALESCE((SELECT f.created_at FROM messages f
+        WHERE json_extract(m.metadata,'$.progress') IS NOT 1
+          AND f.owner_id=m.owner_id AND f.run_id=m.run_id AND f.update_key IS NOT NULL
+          AND json_extract(f.metadata,'$.final')=1
+        ORDER BY f.rowid DESC LIMIT 1),m.created_at) created_at,m.conversation_id,m.run_id,
+      CASE WHEN json_extract(m.metadata,'$.progress')=1 THEN 0 ELSE 1 END final
+    FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
     WHERE m.owner_id=? AND c.agent_id=? AND m.role='assistant'
-    AND json_extract(m.metadata,'$.partial') IS NOT 1
-    AND length(trim(m.content))>0
+      AND json_extract(m.metadata,'$.partial') IS NOT 1
+      AND NOT (json_extract(m.metadata,'$.progress') IS 1 AND json_extract(m.metadata,'$.final') IS 1)
+      AND length(trim(m.content))>0
     ) SELECT *, (SELECT json_extract(r.payload,'$.model') FROM runs r WHERE r.id=entries.run_id AND r.owner_id=?) model FROM entries WHERE (created_at,final,id)<(?,?,?)
     ORDER BY created_at DESC,final DESC,id DESC LIMIT 51`,
     )
-    .all(owner, agent, owner, agent, owner, ...cursor) as {
+    .all(owner, agent, owner, ...cursor) as {
     id: string;
     content: string;
     created_at: number;

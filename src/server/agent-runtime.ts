@@ -18,6 +18,7 @@ import {
   runtimeWorkspaceKey,
 } from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
+import { recordConversationUpdate } from "./conversation-updates.js";
 import { recordTrace } from "./traces.js";
 import { applyActivity, setActivityCapabilities } from "./activities.js";
 import { runtimeActivityMapper } from "./runtime-activities.js";
@@ -552,7 +553,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   if (!cp) {
     const turns = db
       .prepare(
-        "SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid",
+        "SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid",
       )
       .all(run.conversation_id, run.owner_id, run.id, run.id) as Message[];
     const history: ChatMessage[] = turns.map((m) => ({
@@ -905,14 +906,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
         );
       }).immediate();
       let turnText = "";
-      // Each provider round is a trace. Only the round with no tool calls
+      // Each provider round has a public message. Only the round with no tool calls
       // becomes the saved answer; earlier commentary must not accumulate in it.
       output = "";
-      const traceKey = "turn:" + round;
+      const messageKey = "turn:" + round;
       const saveTurn = (final = false) =>
-        recordTrace(run, traceKey, {
-          kind: "message",
-          title: final ? "Final answer" : "Agent update",
+        recordConversationUpdate(run, messageKey, {
           content: turnText,
           metadata: { final, round },
         });
@@ -947,12 +946,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
         })) {
           if (chunk.trace) {
             const trace = chunk.trace;
-            recordTrace(run, `runtime:${round}:${trace.id}`, {
-              kind: trace.kind,
-              title: trace.title,
+            const output = {
               content: trace.content,
               metadata: { native: true, state: trace.state },
-            });
+            };
+            const key = `runtime:${round}:${trace.id}`;
+            if (trace.kind === "message") recordConversationUpdate(run, key, output);
+            else recordTrace(run, key, { ...output, kind: "tool", title: trace.title });
             emit(run.owner_id, run.id, "trace.updated", { round });
           }
           if (chunk.activity && runtime) {

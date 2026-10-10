@@ -79,10 +79,12 @@ export function recordedSessionControls(items: ActivityItem[]) {
 export function useConversationActivities(
   conversation: string | undefined,
   runs: string[] = [],
+  tools = true,
 ) {
   const api = useSourceApi();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [history, setHistory] = useState<ActivityHistoryState>({
+    loading: true,
     hasEarlier: false,
     loadingEarlier: false,
     error: "",
@@ -91,13 +93,19 @@ export function useConversationActivities(
   const runKey = [...new Set(runs)].sort().join(",");
   useEffect(() => {
     setItems([]);
-    setHistory({ hasEarlier: false, loadingEarlier: false, error: "" });
+    setHistory({
+      loading: true,
+      hasEarlier: false,
+      loadingEarlier: false,
+      error: "",
+    });
     if (!conversation) return;
     const current = new ActivityHistory(
       `/conversations/${encodeURIComponent(conversation)}/activities`,
       (url) => api<ActivityPage>(url),
       (page) => setItems((old) => mergeActivities(old, page)),
       setHistory,
+      tools,
     );
     loader.current = current;
     void current.refresh();
@@ -112,10 +120,10 @@ export function useConversationActivities(
       clearInterval(timer);
       window.removeEventListener("loop-workspace-change", update);
     };
-  }, [conversation]);
+  }, [conversation, tools]);
   useEffect(() => {
     void loader.current?.setRuns(runKey ? runKey.split(",") : []);
-  }, [conversation, runKey]);
+  }, [conversation, runKey, tools]);
   return {
     items,
     ...history,

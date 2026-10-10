@@ -9,6 +9,8 @@ process.env.LOOP_DATA_DIR = dir;
 const { db, id } = await import("../src/server/db");
 const { conversationMessages, transcriptPageSql } =
   await import("../src/server/conversation-messages");
+const { recordConversationUpdate } =
+  await import("../src/server/conversation-updates");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -42,13 +44,13 @@ function message(
   return message;
 }
 function trace(run: string, metadata = "{}", owner = "alice") {
-  return Number(
-    db
-      .prepare(
-        "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES(?,?,?,'message','Update','progress',?,10)",
-      )
-      .run(owner, run, id(), metadata).lastInsertRowid,
-  );
+  const result =
+    recordConversationUpdate({ id: run, owner_id: owner }, id(), {
+      content: "progress",
+      metadata: JSON.parse(metadata),
+    })?.id || "not-owned";
+  db.prepare("UPDATE messages SET created_at=10 WHERE id=?").run(result);
+  return result;
 }
 function all(conversation: string) {
   const entries: ReturnType<typeof conversationMessages>["messages"] = [];
@@ -95,7 +97,8 @@ it("range-reads only a transcript page without scanning source history, before o
     expect(plan).toMatch(
       /SEARCH conversation_transcript USING INDEX conversation_transcript_page/,
     );
-    expect(plan).toMatch(/run_traces_final_message/);
+    expect(plan).toMatch(/messages_final_update/);
+    expect(plan).not.toMatch(/run_traces/);
     expect(plan).not.toMatch(
       /SCAN (messages|run_traces|conversation_transcript)|personal_message_history/,
     );
@@ -123,8 +126,8 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
   const entries = all(c);
   expect(entries.map((entry) => entry.id)).toEqual([
     prompt,
-    `trace:${progress}`,
-    `trace:${progress2}`,
+    progress,
+    progress2,
     steering,
     answer,
     queued,
@@ -132,7 +135,7 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
   ]);
   expect(
     JSON.parse(entries.find((entry) => entry.id === answer)!.metadata)
-      .completedTraceId,
+      .completedMessageId,
   ).toBe(finalTrace);
   db.prepare(
     "UPDATE runs SET state='failed',error='updated state' WHERE id=?",
@@ -142,13 +145,8 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
       (entry) => entry.id === answer,
     ),
   ).toMatchObject({ run_state: "failed", run_error: "updated state" });
-  const anchored = conversationMessages(
-    "alice",
-    c,
-    undefined,
-    `trace:${progress2}`,
-  );
-  expect(anchored.messages.at(-1)?.id).toBe(`trace:${progress2}`);
+  const anchored = conversationMessages("alice", c, undefined, progress2);
+  expect(anchored.messages.at(-1)?.id).toBe(progress2);
   expect(() => conversationMessages("bob", c, undefined, answer)).toThrow(
     "Message not found",
   );
@@ -159,22 +157,18 @@ it("tracks replay before the prompt, changed visibility and prompt deletion with
     r = run(c);
   const answer = message(c, r, "assistant"),
     update = trace(r);
-  expect(all(c).map((entry) => entry.id)).toEqual([`trace:${update}`, answer]);
+  expect(all(c).map((entry) => entry.id)).toEqual([update, answer]);
   const prompt = message(c, r);
-  expect(all(c).map((entry) => entry.id)).toEqual([
-    prompt,
-    `trace:${update}`,
-    answer,
-  ]);
+  expect(all(c).map((entry) => entry.id)).toEqual([prompt, update, answer]);
   db.prepare(
-    "UPDATE run_traces SET metadata='{\"final\":true}' WHERE id=?",
+    'UPDATE messages SET metadata=\'{"progress":true,"final":true}\' WHERE id=?',
   ).run(update);
   expect(all(c).map((entry) => entry.id)).toEqual([prompt, answer]);
-  db.prepare("UPDATE run_traces SET metadata='{}',content=' ' WHERE id=?").run(
-    update,
-  );
+  db.prepare(
+    "UPDATE messages SET metadata='{\"progress\":true}',content=' ' WHERE id=?",
+  ).run(update);
   expect(all(c).map((entry) => entry.id)).toEqual([prompt, answer]);
-  db.prepare("UPDATE run_traces SET content='visible again' WHERE id=?").run(
+  db.prepare("UPDATE messages SET content='visible again' WHERE id=?").run(
     update,
   );
   const hidden = message(c, r, "tool");
@@ -199,13 +193,9 @@ it("tracks replay before the prompt, changed visibility and prompt deletion with
   db.prepare("DELETE FROM messages WHERE id=?").run(steering);
   // Losing every prompt leaves the run's progress with its first remaining
   // entry rather than without a position, so its saved links still open.
-  expect(all(c).map((entry) => entry.id)).toEqual([
-    `trace:${update}`,
-    answer,
-    hidden,
-  ]);
+  expect(all(c).map((entry) => entry.id)).toEqual([update, answer, hidden]);
   db.prepare("DELETE FROM messages WHERE id=?").run(answer);
-  expect(all(c).map((entry) => entry.id)).toEqual([hidden, `trace:${update}`]);
+  expect(all(c).map((entry) => entry.id)).toEqual([hidden, update]);
   expect(all(c).map((entry) => entry.id)).not.toContain(answer);
   expect(() => conversationMessages("alice", c, "bad cursor")).toThrow(
     "Invalid conversation cursor",
@@ -220,14 +210,14 @@ it("opens progress whose run never stored a prompt, as agent links still do", ()
   const answer = message(c, r, "assistant"),
     update = trace(r);
   expect(
-    conversationMessages("alice", c, undefined, `trace:${update}`).messages.map(
+    conversationMessages("alice", c, undefined, update).messages.map(
       (entry) => entry.id,
     ),
-  ).toEqual([`trace:${update}`]);
-  expect(all(c).map((entry) => entry.id)).toEqual([`trace:${update}`, answer]);
-  expect(() =>
-    conversationMessages("bob", c, undefined, `trace:${update}`),
-  ).toThrow("Message not found");
+  ).toEqual([update]);
+  expect(all(c).map((entry) => entry.id)).toEqual([update, answer]);
+  expect(() => conversationMessages("bob", c, undefined, update)).toThrow(
+    "Message not found",
+  );
 });
 
 it("reprojects a moved run and scopes progress by both run owner and conversation", () => {
@@ -237,15 +227,13 @@ it("reprojects a moved run and scopes progress by both run owner and conversatio
   message(c, r);
   const progress = trace(r);
   const alien = trace(r, "{}", "bob");
-  expect(all(c).map((entry) => entry.id)).not.toContain(`trace:${alien}`);
+  expect(all(c).map((entry) => entry.id)).not.toContain(alien);
   db.prepare("UPDATE runs SET conversation_id=? WHERE id=?").run(
     destination,
     r,
   );
-  expect(all(c).map((entry) => entry.id)).not.toContain(`trace:${progress}`);
-  expect(all(destination).map((entry) => entry.id)).toEqual([
-    `trace:${progress}`,
-  ]);
+  expect(all(c).map((entry) => entry.id)).not.toContain(progress);
+  expect(all(destination).map((entry) => entry.id)).toEqual([progress]);
 });
 
 it("backfills a populated database, preserves legacy cursors and keeps new sequences stable through VACUUM", () => {
@@ -274,6 +262,10 @@ it("backfills a populated database, preserves legacy cursors and keeps new seque
     old.exec(
       readFileSync("migrations/065-conversation-transcript.sql", "utf8"),
     );
+    for (const file of files.filter(
+      (file) => file > "065-conversation-transcript.sql",
+    ))
+      old.exec(readFileSync(`migrations/${file}`, "utf8"));
     const page = (conversation = "c") =>
       old
         .prepare(transcriptPageSql)
@@ -305,6 +297,12 @@ it("backfills a populated database, preserves legacy cursors and keeps new seque
       ["trace:2", 30, 35],
     ]);
     const before = page();
+    // Copied updates survive trace retention/deletion and keep legacy links.
+    old.exec("DELETE FROM run_traces");
+    expect(page()).toEqual(before);
+    expect(
+      old.prepare("SELECT content FROM messages WHERE id='trace:1'").get(),
+    ).toEqual({ content: "progress" });
     old.exec("VACUUM");
     expect(page()).toEqual(before);
     old.exec(
@@ -322,5 +320,41 @@ it("backfills a populated database, preserves legacy cursors and keeps new seque
     ).toEqual({ n: 0 });
   } finally {
     old.close();
+  }
+});
+
+it("persists idempotent public messages independently of traces and scopes their writer", () => {
+  const c = thread(),
+    r = run(c);
+  message(c, r);
+  const first = recordConversationUpdate(
+    { id: r, owner_id: "alice" },
+    "update",
+    { content: "First" },
+  )!;
+  const revised = recordConversationUpdate(
+    { id: r, owner_id: "alice" },
+    "update",
+    { content: "Revised" },
+  )!;
+  expect(revised.id).toBe(first.id);
+  expect(
+    recordConversationUpdate({ id: r, owner_id: "bob" }, "update", {
+      content: "Wrong owner",
+    }),
+  ).toBeUndefined();
+  expect(
+    db.prepare("SELECT count(*) n FROM run_traces WHERE run_id=?").get(r),
+  ).toEqual({ n: 0 });
+  db.exec("ALTER TABLE run_traces RENAME TO unavailable_traces");
+  try {
+    expect(all(c).filter((m) => m.id === first.id)).toMatchObject([
+      { content: "Revised" },
+    ]);
+    expect(
+      conversationMessages("alice", c, undefined, first.id).messages.at(-1)?.id,
+    ).toBe(first.id);
+  } finally {
+    db.exec("ALTER TABLE unavailable_traces RENAME TO run_traces");
   }
 });
