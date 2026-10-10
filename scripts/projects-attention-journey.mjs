@@ -276,11 +276,12 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await openNeeds(page);
     const row = (title) =>
       page.locator(".inbox-row").filter({ hasText: title }).first();
-    // A dismissed failure leaves the stack; its history stays in Done.
+    // A dismissed failure leaves the stack; its history stays in Done. Its
+    // card is headed by the failed run's prompt, not the thread title.
     const needsRow = (title) =>
       needs.locator(".inbox-row").filter({ hasText: title }).first();
     // Dismiss moved from a Running card button to the row's action menu.
-    await expect(needsRow("Dismissal fixture history")).toBeVisible();
+    await expect(needsRow("Dismissible failure")).toBeVisible();
     await page.route(
       `**/api/runs/${failed}/dismiss`,
       (route) =>
@@ -293,7 +294,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     );
     await inboxRowAction(
       page,
-      "Dismissal fixture history",
+      "Dismissible failure",
       "Dismiss from Needs you",
     );
     await expect(
@@ -301,13 +302,13 @@ export async function projectsAttentionJourney(page, api, base, dir) {
         .getByRole("alert")
         .filter({ hasText: "Fixture dismissal unavailable" }),
     ).toBeVisible();
-    await expect(needsRow("Dismissal fixture history")).toBeVisible();
+    await expect(needsRow("Dismissible failure")).toBeVisible();
     await inboxRowAction(
       page,
-      "Dismissal fixture history",
+      "Dismissible failure",
       "Dismiss from Needs you",
     );
-    await expect(needsRow("Dismissal fixture history")).toBeHidden();
+    await expect(needsRow("Dismissible failure")).toBeHidden();
     await page
       .getByRole("button", {
         name: "Cancel task: Project attention fixture",

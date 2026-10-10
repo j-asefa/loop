@@ -239,7 +239,8 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   });
   const doneItem = all.data.items.find((i: any) => i.conversation_id === done);
   expect(doneItem).toMatchObject({
-    title: "Done",
+    // Named by its run's prompt, not the thread title.
+    title: "prompt",
     agent_name: a.name,
     last_message: { role: "assistant", preview: "Hi there", content: "  Hi\n\n there  " },
     run: { id: dr, state: "completed", queue_position: null },
@@ -460,6 +461,34 @@ it("heads Working cards with the active task's prompt instead of the thread's fi
   expect((await card("working")).title).toHaveLength(200);
   db.prepare("UPDATE runs SET input='  ' WHERE id=?").run(active);
   expect((await card("working")).title).toBe(title);
+});
+
+it("heads a Done card with the prompt its answer replies to, not the thread's first prompt", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    title = "How can we redesign the top bar",
+    cid = conversation(w.owner, a.id, title);
+  const first = run(w.owner, a.id, cid, "completed", { input: title });
+  message(w.owner, cid, "user", title, first);
+  message(w.owner, cid, "assistant", "Here is a mockup.", first);
+  const latest = run(w.owner, a.id, cid, "completed", {
+    input: " Yes, push\nto main ",
+  });
+  message(w.owner, cid, "user", " Yes, push\nto main ", latest);
+  message(w.owner, cid, "assistant", "Pushed.", latest);
+  const card = async (filter: string) =>
+    (await api(w.owner, "/inbox?filter=" + filter)).data.items.find(
+      (i: any) => i.conversation_id === cid,
+    );
+  for (const filter of ["done", "all"])
+    expect(await card(filter)).toMatchObject({
+      title: "Yes, push to main",
+      run: { id: latest },
+      last_message: { role: "assistant", content: "Pushed." },
+    });
+  // A run without a prompt keeps the thread title.
+  db.prepare("UPDATE runs SET input='  ' WHERE id=?").run(latest);
+  expect((await card("done")).title).toBe(title);
 });
 
 it("shows a working agent's output so far on its feed card", async () => {

@@ -509,14 +509,11 @@ function inboxItem(
     : undefined;
   return {
     conversation_id: row.conversation_id,
-    // A follow-up keeps the thread's title, but its Working card names the
-    // prompt that started this run, not an earlier task or a queued message.
-    title:
-      mode !== "done" &&
-      run &&
-      ["running", "pausing", "waiting_children"].includes(run.state)
-        ? collapse(run.input, 200) || row.title
-        : row.title,
+    // The thread keeps the title from its first prompt, but a card is named
+    // by the prompt of the run it shows: a Done card by the prompt its answer
+    // replies to, a Working card by the task in progress. Imported history
+    // has no runs and keeps the thread title.
+    title: (run && collapse(run.input, 200)) || row.title,
     agent_id: row.agent_id,
     connection_id: row.execution_connection_id,
     agent_name: agent?.name ?? null,
