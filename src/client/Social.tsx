@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
+  AlarmClock,
   ArrowUpRight,
   Bookmark,
   Check,
@@ -306,15 +307,17 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
   );
 }
 
-/** A story card that can be swiped left to remove it from Social. */
+/** A story card: swipe left to remove it from Social, right to set a reminder. */
 function SwipeAway({
   onRemove,
+  onRemind,
   children,
 }: {
   onRemove: () => void;
+  onRemind: () => void;
   children: ReactNode;
 }) {
-  const swipe = useSwipe({ onLeft: onRemove });
+  const swipe = useSwipe({ onLeft: onRemove, onRight: onRemind });
   return (
     <div
       className={
@@ -324,9 +327,16 @@ function SwipeAway({
       }
       {...swipe.handlers}
     >
-      <span className="swipe-under right" aria-hidden="true">
-        <X size={20} /> Remove
-      </span>
+      {swipe.offset > 0 && (
+        <span className="swipe-under left" aria-hidden="true">
+          <AlarmClock size={20} /> Remind me
+        </span>
+      )}
+      {swipe.offset < 0 && (
+        <span className="swipe-under right" aria-hidden="true">
+          <X size={20} /> Remove
+        </span>
+      )}
       <div
         className="story-swipe-card"
         style={
@@ -1076,6 +1086,9 @@ export function Social({
   }
   /** Takes stories out of Social at once, before the server confirms. */
   async function dismiss(ids: string[], removed: boolean) {
+    // A list already on its way was read before this change: drop it, and
+    // ask again once the server has the change.
+    request.current++;
     if (removed) {
       setFound((old) => old?.filter((story) => !ids.includes(story.id)) ?? null);
       setView(
@@ -1093,7 +1106,7 @@ export function Social({
         removed ? "POST" : "DELETE",
       );
       setView((old) => old && { ...old, unread });
-      if (!removed) void load();
+      void load();
       setSearchRevision((revision) => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
       if (removed)
@@ -1523,7 +1536,10 @@ export function Social({
             if (!feed) return null;
             return (
               <li key={story.id}>
-                <SwipeAway onRemove={() => void dismiss([story.id], true)}>
+                <SwipeAway
+                  onRemove={() => void dismiss([story.id], true)}
+                  onRemind={() => setSaving(story.id)}
+                >
                 <article
                   className="feed-card news-card"
                   data-unread={story.read ? undefined : "true"}

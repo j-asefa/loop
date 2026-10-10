@@ -1523,6 +1523,9 @@ export function useSwipe({
     armed: offset >= threshold ? "right" : offset <= -threshold ? "left" : null,
     handlers: {
       onPointerDown: (e: React.PointerEvent) => {
+        // Any new press, even a mouse click after a touch swipe, is a tap
+        // until it drags.
+        dragged.current = false;
         if (e.pointerType === "mouse") return;
         if (
           (e.target as HTMLElement).closest("pre,.table-scroll,input,textarea")
@@ -1530,7 +1533,6 @@ export function useSwipe({
           return;
         start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
         horizontal.current = null;
-        dragged.current = false;
       },
       onPointerMove: (e: React.PointerEvent) => {
         const s = start.current;

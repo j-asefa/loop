@@ -6743,7 +6743,7 @@ details > summary {
 .card-swipe.swiping .feed-card {
   transition: none;
 }
-/* Social stories: swipe left to remove one. */
+/* Social stories: swipe left to remove one, right to set a reminder. */
 .story-swipe,
 .story-swipe .swipe-under {
   border-radius: 15px;

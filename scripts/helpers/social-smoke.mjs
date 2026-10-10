@@ -223,31 +223,38 @@ export async function socialSmoke(page, fixture, shot) {
   await page.getByRole("button", { name: "Unread", exact: true }).click();
 
   // Swiping a story left removes it, and Undo brings it back.
+  const swipeStory = (card, dx) =>
+    card.evaluate(async (card, dx) => {
+      const box = card.getBoundingClientRect();
+      const x = dx < 0 ? box.right - 30 : box.left + 30,
+        y = box.top + box.height / 2;
+      const send = (type, offset) =>
+        card.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            pointerId: 7,
+            pointerType: "touch",
+            isPrimary: true,
+            clientX: x + offset,
+            clientY: y,
+          }),
+        );
+      // A frame between moves, as a finger gives, so each one renders.
+      const frame = () => new Promise((done) => requestAnimationFrame(done));
+      send("pointerdown", 0);
+      for (let step = 1; step <= 8; step++) {
+        send("pointermove", (dx * step) / 8);
+        await frame();
+      }
+      send("pointerup", dx);
+    }, dx);
+  // Turning Unread off brings the read story back first; wait for it.
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".news-card").length === n,
+    total,
+  );
   const swiped = await cards.first().getAttribute("data-story");
-  await cards.first().evaluate(async (card) => {
-    const box = card.getBoundingClientRect();
-    const x = box.right - 30,
-      y = box.top + box.height / 2;
-    const send = (type, dx) =>
-      card.dispatchEvent(
-        new PointerEvent(type, {
-          bubbles: true,
-          pointerId: 7,
-          pointerType: "touch",
-          isPrimary: true,
-          clientX: x + dx,
-          clientY: y,
-        }),
-      );
-    // A frame between moves, as a finger gives, so each one renders.
-    const frame = () => new Promise((done) => requestAnimationFrame(done));
-    send("pointerdown", 0);
-    for (let step = 1; step <= 8; step++) {
-      send("pointermove", step * -20);
-      await frame();
-    }
-    send("pointerup", -160);
-  });
+  await swipeStory(page.locator(`[data-story="${swiped}"]`), -160);
   await page.waitForFunction(
     (n) => document.querySelectorAll(".news-card").length === n,
     total - 1,
@@ -262,6 +269,13 @@ export async function socialSmoke(page, fixture, shot) {
     (n) => document.querySelectorAll(".news-card").length === n,
     total,
   );
+
+  // Swiping a story right offers the same reminders as Save.
+  await swipeStory(cards.first(), 160);
+  await page.getByRole("dialog").waitFor();
+  assert.equal(await cards.count(), total, "A reminder swipe keeps the story");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
 
   // Saving a story opens the Later sheet and keeps it.
   await cards
