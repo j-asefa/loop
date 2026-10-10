@@ -5613,6 +5613,106 @@ select {
   line-height: 20px;
   text-align: center;
 }
+/* The four Feed filters fit a phone without scrolling: they share the row
+   and their counts sit on the corner instead of widening the chip. */
+.inbox-filters {
+  gap: 6px;
+  padding-top: 9px;
+}
+.inbox-filters .chip {
+  position: relative;
+  flex: 1 0 auto;
+  justify-content: center;
+  padding: 6px 10px;
+}
+.inbox-filters .chip-count {
+  position: absolute;
+  top: -8px;
+  right: 2px;
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 18px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+/* Needs you: the cards waiting on you, stacked above the Feed filters. The
+   cards come from several components; their wrappers step aside so every
+   card is one item in the stack. */
+.needs-stack {
+  margin: 0 0 14px;
+}
+.needs-stack-cards {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.needs-stack-cards .run-list,
+.needs-stack-cards .scheduled-sends,
+.needs-stack-cards .inbox-list {
+  display: contents;
+}
+.needs-stack-cards :is(.approval-card, .native-decision, .scheduled-message) {
+  margin: 0;
+  background: var(--surface);
+}
+.needs-stack-cards .native-decision {
+  border-color: var(--brass);
+}
+.needs-stack-cards > p,
+.needs-stack-cards .run-list > p {
+  margin: 0;
+}
+.needs-stack.stacked [data-stack-rest] {
+  display: none;
+}
+/* The edges of the cards behind the first one. */
+.needs-stack.stacked .needs-stack-cards {
+  margin-bottom: 16px;
+}
+.needs-stack.stacked .needs-stack-cards::before,
+.needs-stack.stacked .needs-stack-cards::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  height: 24px;
+  border: 1px solid var(--brass);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--surface);
+}
+.needs-stack.stacked .needs-stack-cards::before {
+  left: 10px;
+  right: 10px;
+  bottom: -8px;
+}
+.needs-stack.stacked .needs-stack-cards::after {
+  left: 20px;
+  right: 20px;
+  bottom: -15px;
+  opacity: 0.7;
+}
+.needs-stack-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 10px;
+  font-size: 14px;
+}
+.needs-stack-cards + .needs-stack-bar {
+  margin: 4px 4px 0;
+  color: var(--brass-text);
+  font-weight: 600;
+}
+.needs-stack-bar .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--brass-text);
+  font-weight: 600;
+}
 .chip-select {
   position: relative;
   padding: 0;

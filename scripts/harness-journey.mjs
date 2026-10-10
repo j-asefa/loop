@@ -3,6 +3,14 @@ import { expect } from "@playwright/test";
 import Database from "better-sqlite3";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+// What needs you stacks above the Feed filters; show every card.
+async function openNeeds(page) {
+  const stack = page.getByRole("region", { name: "Needs you" });
+  await expect(stack).toBeVisible();
+  const all = stack.getByRole("button", { name: "Show all" });
+  if (await all.isVisible()) await all.click();
+}
 export async function harnessJourney(page, api, agent, token, expected) {
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -98,10 +106,10 @@ export async function failureJourney(page, api, dir) {
     .poll(async () => (await api("/runs")).find((r) => r.id === run.id)?.state)
     .toBe("failed");
   await page.goto(new URL("/", page.url()).href);
-  // The "needs attention" banner became the Feed's "Needs you" filter.
+  // Failures surface in the Feed's "Needs you" bar.
   const nav = page.getByRole("navigation").last();
   await nav.getByRole("button", { name: "Feed", exact: true }).click();
-  await page.getByRole("tab", { name: /^Needs you/ }).click();
+  await openNeeds(page);
   const failedRow = page
     .locator(".inbox-row")
     .filter({ hasText: "failure-visibility-fixture" });
@@ -152,6 +160,6 @@ export async function failureJourney(page, api, dir) {
     .toBe(2);
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   console.log(
-    "PASS: failed empty response kept out of results and shown in the Needs you badge/filter, agent traces and conversation, and explicit retry.",
+    "PASS: failed empty response kept out of results and shown in the Needs you stack, agent traces and conversation, and explicit retry.",
   );
 }

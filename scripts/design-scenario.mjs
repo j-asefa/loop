@@ -146,7 +146,9 @@ for (const engine of selectedEngines()) {
       if (scenario === "core") {
         await page.goto(fixture.base);
         const inbox = page.getByRole("region", { name: "Feed", exact: true });
-        const inboxRows = inbox.locator(".inbox-row");
+        // The filtered list, not the Needs you stack above the filters.
+        const inboxRows = inbox.locator(":scope > .inbox-list .inbox-row");
+        const needsStack = inbox.getByRole("region", { name: "Needs you" });
         await inboxRows.first().waitFor();
         await capture("feed");
         await expect(
@@ -173,14 +175,14 @@ for (const engine of selectedEngines()) {
             launch.x > viewport.width / 2,
           `The minimized composer must be a corner button: ${JSON.stringify({ launch, viewport })}`,
         );
+        // What needs you leads the Feed; its first card stays in view.
         await checkAboveComposer(
-          inbox.locator(".inbox-card .card-byline").first(),
-          "First thread author",
+          needsStack.locator(".approval-card").first(),
+          "First card that needs you",
         );
         const inboxFilters = inbox.getByRole("tablist", { name: "Show" });
         await expect(inboxFilters.getByRole("tab")).toHaveText([
           "Done",
-          /^Needs you/,
           /^Working/,
           /^Queued/,
           "Social",
@@ -188,6 +190,13 @@ for (const engine of selectedEngines()) {
         await expect(
           inboxFilters.getByRole("tab", { name: "Done", exact: true }),
         ).toHaveAttribute("aria-selected", "true");
+        // Every Feed filter fits a small phone, so Social is never off-screen.
+        await page.setViewportSize({ width: 360, height: 780 });
+        assert.ok(
+          await inboxFilters.evaluate((el) => el.scrollWidth <= el.clientWidth),
+          "The Feed filters fit a 360px phone",
+        );
+        await page.setViewportSize({ width: 390, height: 844 });
         // Done holds only finished threads: none working, queued or needing you.
         const finished = fixture.conversations.filter(
           (c) => c.state === "completed",
@@ -600,12 +609,8 @@ for (const engine of selectedEngines()) {
           .getByLabel("Filter by project")
           .selectOption(fixture.projects[0].id);
         await expect(shortcuts.locator(".agent-strip button")).toHaveCount(5);
-        // The attention banner became the Needs you count on the filter chip.
-        await expect(
-          inboxFilters
-            .getByRole("tab", { name: /^Needs you/ })
-            .locator(".chip-count"),
-        ).toHaveText("2");
+        // What needs you stacks above the filters: one card, the rest behind.
+        await expect(needsStack).toContainText("1 more needs you");
         // The Running tab became the Feed Working filter.
         await inboxFilters.getByRole("tab", { name: /^Working/ }).click();
         await expect(page).toHaveURL(/filter=working/);
@@ -628,8 +633,9 @@ for (const engine of selectedEngines()) {
           /^Review GitHub pull request #42 .*Working$/,
         );
         // Failed runs need you: the thread row shows the failure and opens it.
-        await inboxFilters.getByRole("tab", { name: /^Needs you/ }).click();
-        const failedRow = inboxRows.filter({
+        await needsStack.getByRole("button", { name: "Show all" }).click();
+        await expect(needsStack).toContainText(/\d+ need you/);
+        const failedRow = needsStack.locator(".inbox-row").filter({
           hasText: "Check why the GitHub review could not be posted",
         });
         await expect(failedRow).toHaveAccessibleName(/, Failed$/);
@@ -637,7 +643,7 @@ for (const engine of selectedEngines()) {
           "The tool could not complete the request",
         );
         await capture("needs-you");
-        await page
+        await needsStack
           .locator(".inbox-card")
           .filter({
             hasText: "Check why the GitHub review could not be posted",

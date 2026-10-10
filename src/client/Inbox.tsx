@@ -1,5 +1,12 @@
 import { useSourceApi, useSourceId } from "./SourceContext";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { automationLabel } from "../shared/agent-mail";
 import {
   AlarmClock,
@@ -25,6 +32,7 @@ import {
   Users,
   X,
   ChevronRight,
+  ChevronUp,
 } from "lucide-react";
 import { apiInWorkspace } from "./api";
 import { sourceUrl } from "./sourceRouting";
@@ -68,7 +76,6 @@ import { notify } from "./toast";
 export type InboxFilter =
   | "all"
   | "done"
-  | "needs"
   | "working"
   | "queued"
   // Stories from the public feeds you added, not threads.
@@ -165,8 +172,8 @@ type Brief = {
 
 export const inboxFilters: { id: InboxFilter; label: string }[] = [
   // Done holds only threads with nothing open; open work has its own chip.
+  // What needs you has no chip: it stacks above the row (NeedsStack).
   { id: "done", label: "Done" },
-  { id: "needs", label: "Needs you" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
   { id: "social", label: "Social" },
@@ -422,10 +429,13 @@ const nextIcon = {
 /** "While you were away": what finished, failed or needs you since the last visit. */
 function AwaySummary({
   onFilter,
+  onNeeds,
   onOpen,
   sources,
 }: {
   onFilter: (filter: InboxFilter) => void;
+  /** Show everything waiting on you (the expanded NeedsStack). */
+  onNeeds: () => void;
   onOpen: (conversation: string, sourceId: string) => void;
   sources: AgentSource[];
 }) {
@@ -500,8 +510,8 @@ function AwaySummary({
     away.failed.length && `${away.failed.length} failed`,
   ].filter(Boolean);
   // A summary only: the threads themselves are the full cards below. One
-  // thread opens directly; several show the filter that holds them. Failed
-  // runs wait in Needs you.
+  // thread opens directly; several show where they wait. Failed runs wait in
+  // the Needs you stack.
   const threads = [
     ...new Set(
       [...away.needs, ...away.failed, ...away.completed].map(
@@ -520,11 +530,12 @@ function AwaySummary({
       onOpen(single.conversation_id, single.sourceId || "");
       return;
     }
-    onFilter(attention ? "needs" : "done");
+    if (attention) onNeeds();
+    else onFilter("done");
     // The card leaves, so bring the threads it summarized into view.
     requestAnimationFrame(() =>
       document
-        .querySelector(".inbox-filters")
+        .querySelector(attention ? ".needs-stack" : ".inbox-filters")
         ?.scrollIntoView({ behavior: "smooth", block: "start" }),
     );
   };
@@ -696,6 +707,85 @@ function MoveQueued({
   );
 }
 
+// Every card that waits on you, whichever component renders it.
+const NEEDS_CARDS =
+  ".approval-card, .native-decision, .scheduled-message, .inbox-card-wrap";
+
+/**
+ * What needs you, above the Feed filters. One card shows with the rest
+ * stacked behind it, so acting on it brings up the next; "Show all" lists
+ * every card. The cards come from separate components that load their own
+ * requests, so the stack counts what they render.
+ */
+function NeedsStack({
+  open,
+  onOpen,
+  children,
+}: {
+  open: boolean;
+  onOpen: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const cards = useRef<HTMLDivElement>(null);
+  const [count, setCount] = useState(0);
+  useLayoutEffect(() => {
+    const root = cards.current!;
+    const mark = () => {
+      const found = [...root.querySelectorAll(NEEDS_CARDS)];
+      found.forEach((card, i) =>
+        card.toggleAttribute("data-stack-rest", i > 0),
+      );
+      setCount(found.length);
+    };
+    mark();
+    const observer = new MutationObserver(mark);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+  // Acting on the last cards folds the list back into a stack.
+  useEffect(() => {
+    if (count < 2 && open) onOpen(false);
+  }, [count, open]);
+  const stacked = count > 1 && !open;
+  return (
+    <section
+      className={"needs-stack" + (stacked ? " stacked" : "")}
+      aria-label="Needs you"
+      hidden={!count && !open}
+    >
+      {open && count > 1 && (
+        <div className="needs-stack-bar">
+          <strong>{count} need you</strong>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => onOpen(false)}
+          >
+            Collapse <ChevronUp size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      <div className="needs-stack-cards" ref={cards}>
+        {children}
+      </div>
+      {stacked && (
+        <div className="needs-stack-bar">
+          <span>
+            {count - 1} more {count === 2 ? "needs" : "need"} you
+          </span>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => onOpen(true)}
+          >
+            Show all <ChevronRight size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Inbox({
   filter,
   onFilter,
@@ -728,6 +818,7 @@ export function Inbox({
   onAgent: (agent: Agent) => void;
   onChanged: () => void;
   header?: ReactNode;
+  /** Approval, decision and unsent-message cards for the Needs you stack. */
   needsSlot?: ReactNode;
   emptyAction?: ReactNode;
   hideFilters?: boolean;
@@ -795,12 +886,21 @@ export function Inbox({
   const [later, setLater] = useState<InboxItem | null>(null);
   const [editing, setEditing] = useState<QueuedMessage | null>(null);
   const [moving, setMoving] = useState<QueuedMessage | null>(null);
+  // Threads waiting on you, whichever filter is shown, for the stack above
+  // the filters.
+  const needsKey = () =>
+    "inbox-needs:" + JSON.stringify([project, agent, teams, sourceKey]);
+  const [needs, setNeeds] = useState<InboxItem[]>(
+    () => cachedView<InboxItem[]>(needsKey()) || [],
+  );
+  const [needsOpen, setNeedsOpen] = useState(false);
+  const needsRequest = useRef(0);
   const request = useRef(0);
-  const query = (before?: string) => {
+  const query = (before?: string, which: string = filter) => {
     const q = new URLSearchParams({
       // Social is not a thread filter; the request only keeps the chip
       // counts current, from the smallest list.
-      filter: isSocial(filter) ? "needs" : filter,
+      filter: isSocial(which as InboxFilter) ? "needs" : which,
     });
     if (project) q.set("folder", project);
     if (agent) q.set("agent", agent);
@@ -813,7 +913,40 @@ export function Inbox({
     key: "",
     pages: new Map(),
   });
+  async function loadNeeds() {
+    if (hideFilters) return;
+    const ticket = ++needsRequest.current;
+    const owner = viewOwner();
+    const key = needsKey();
+    const combined = !!sources && !project && !teams && !agent;
+    const settled = await Promise.allSettled(
+      activeSources.map(async (source) => {
+        const page = combined
+          ? await apiInWorkspace<{ items: InboxItem[] }>(
+              query(undefined, "needs"),
+              source.id,
+            )
+          : await api<{ items: InboxItem[] }>(query(undefined, "needs"));
+        return combined
+          ? page.items.map((item) => ({
+              ...item,
+              sourceId: source.id,
+              executionEnvironment: source.id ? source.name : undefined,
+            }))
+          : page.items;
+      }),
+    );
+    if (ticket !== needsRequest.current || owner !== viewOwner()) return;
+    // The Feed's own error covers an unreachable source; keep what loaded.
+    if (settled.every((entry) => entry.status === "rejected")) return;
+    const loaded = settled
+      .flatMap((entry) => (entry.status === "fulfilled" ? entry.value : []))
+      .sort((a, b) => b.last_activity_at - a.last_activity_at);
+    cacheView(key, loaded, owner);
+    setNeeds(loaded);
+  }
   async function load(append = false, background = false) {
+    if (!append) void loadNeeds();
     // Background refreshes never overlap; filter changes and actions always load.
     if (background && inFlight.current) return;
     inFlight.current = true;
@@ -958,6 +1091,7 @@ export function Inbox({
       setItems(cached?.items || []);
       setNext(cached?.next || null);
       setSummary(cached?.summary || null);
+      setNeeds(cachedView<InboxItem[]>(needsKey()) || []);
       setLoading(!cached);
     }
     firstLoad.current = false;
@@ -1236,10 +1370,87 @@ export function Inbox({
     });
     return actions;
   }
+  function card(item: InboxItem) {
+    const source = item.sourceId ?? scopedSource;
+    const agent = agents.find(
+      (a) => a.id === item.agent_id && (a.sourceId || "") === source,
+    );
+    // Both badges describe the connection that ran (or will run)
+    // this thread on its own source, so an agent reconfiguration
+    // doesn't relabel it.
+    const sourceConnections = (connections || []).filter(
+      (connection) => (connection.sourceId || "") === source,
+    );
+    const connectionId =
+      item.run?.connection_id ||
+      item.connection_id ||
+      agent?.connection_id ||
+      null;
+    const model = !connections
+      ? undefined
+      : item.run?.model
+        ? runModelName(
+            {
+              model: item.run.model,
+              resolvedModel: item.run.resolved_model,
+              connectionId,
+            },
+            sourceConnections,
+          )
+        : agent
+          ? agentModelName(
+              { connection_id: connectionId, model: agent.model },
+              sourceConnections,
+            )
+          : undefined;
+    return (
+      <InboxCard
+        key={`${source}:${item.conversation_id}`}
+        item={item}
+        agent={agent}
+        model={model}
+        environment={cardEnvironment(
+          source,
+          connectionId,
+          agent?.executionEnvironment || item.executionEnvironment,
+        )}
+        onOpen={() => onOpen(item.conversation_id, undefined, source)}
+        onReply={() =>
+          onReply
+            ? onReply(item.conversation_id, source)
+            : onOpen(item.conversation_id, undefined, source)
+        }
+        onNext={(action) =>
+          action.kind === "draft"
+            ? onReply
+              ? onReply(item.conversation_id, source)
+              : onOpen(item.conversation_id, undefined, source)
+            : onOpen(
+                item.conversation_id,
+                action.message_id || undefined,
+                source,
+              )
+        }
+        onAgent={agent ? () => onAgent(agent) : undefined}
+        onMenu={() => setMenu(item)}
+        onArchive={() => void archive(item)}
+        onLater={() => setLater(item)}
+      />
+    );
+  }
+  // Approvals and native decisions from this workspace have their own cards
+  // in the stack (needsSlot); other threads waiting on you show as threads.
+  const needsThreads = needs.filter(
+    (item) =>
+      !(
+        needsSlot &&
+        (item.sourceId ?? scopedSource) === scopedSource &&
+        (item.next_action?.kind === "approve" ||
+          item.next_action?.kind === "answer")
+      ),
+  );
   const counts: Partial<Record<InboxFilter, number>> = summary
     ? {
-        // Messages that could not be sent need you too.
-        needs: summary.needs + (summary.scheduled_failed || 0),
         working: summary.working,
         queued: summary.queued,
         social: summary.social_unread,
@@ -1251,10 +1462,41 @@ export function Inbox({
         <AwaySummary
           sources={activeSources}
           onFilter={onFilter}
+          onNeeds={() => setNeedsOpen(true)}
           onOpen={(id, source) => onOpen(id, undefined, source)}
         />
       )}
       {header}
+      {!hideFilters && (
+        <NeedsStack open={needsOpen} onOpen={setNeedsOpen}>
+          {needsSlot}
+          {!!needsThreads.length && (
+            <ul className="inbox-list feed">{needsThreads.map(card)}</ul>
+          )}
+          {needsOpen && !!summary?.scheduled_failed && onScheduled && (
+            <p className="scheduled-summary" role="status">
+              <strong>
+                {summary.scheduled_failed} scheduled{" "}
+                {summary.scheduled_failed === 1 ? "message" : "messages"} not
+                sent
+              </strong>
+              {!!summary.scheduled_pending && (
+                <span>
+                  {" "}
+                  · {summary.scheduled_pending} still waiting to send
+                </span>
+              )}
+              <button
+                type="button"
+                className="text-button"
+                onClick={onScheduled}
+              >
+                Open Scheduled
+              </button>
+            </p>
+          )}
+        </NeedsStack>
+      )}
       {!hideFilters && (
         <div
           className="chip-row inbox-filters"
@@ -1267,9 +1509,7 @@ export function Inbox({
               role="tab"
               type="button"
               aria-selected={filter === f.id}
-              className={
-                "chip" + (f.id === "needs" && counts.needs ? " attention" : "")
-              }
+              className="chip"
               onClick={() => onFilter(f.id)}
             >
               {f.label}
@@ -1280,23 +1520,6 @@ export function Inbox({
           ))}
         </div>
       )}
-      {filter === "needs" && !!summary?.scheduled_failed && (
-        <p className="scheduled-summary" role="status">
-          <strong>
-            {summary.scheduled_failed} scheduled{" "}
-            {summary.scheduled_failed === 1 ? "message" : "messages"} not sent
-          </strong>
-          {!!summary.scheduled_pending && (
-            <span> · {summary.scheduled_pending} still waiting to send</span>
-          )}
-          {onScheduled && (
-            <button type="button" className="text-button" onClick={onScheduled}>
-              Open Scheduled
-            </button>
-          )}
-        </p>
-      )}
-      {filter === "needs" && needsSlot}
       {isSocial(filter) ? (
         <Social onAsk={onAsk} agents={agents} />
       ) : (
@@ -1325,79 +1548,7 @@ export function Inbox({
               <span />
             </div>
           ) : items.length ? (
-            <ul className="inbox-list feed">
-              {items.map((item) => {
-                const source = item.sourceId ?? scopedSource;
-                const agent = agents.find(
-                  (a) =>
-                    a.id === item.agent_id && (a.sourceId || "") === source,
-                );
-                // Both badges describe the connection that ran (or will run)
-                // this thread on its own source, so an agent reconfiguration
-                // doesn't relabel it.
-                const sourceConnections = (connections || []).filter(
-                  (connection) => (connection.sourceId || "") === source,
-                );
-                const connectionId =
-                  item.run?.connection_id ||
-                  item.connection_id ||
-                  agent?.connection_id ||
-                  null;
-                const model = !connections
-                  ? undefined
-                  : item.run?.model
-                    ? runModelName(
-                        {
-                          model: item.run.model,
-                          resolvedModel: item.run.resolved_model,
-                          connectionId,
-                        },
-                        sourceConnections,
-                      )
-                    : agent
-                      ? agentModelName(
-                          { connection_id: connectionId, model: agent.model },
-                          sourceConnections,
-                        )
-                      : undefined;
-                return (
-                  <InboxCard
-                    key={`${source}:${item.conversation_id}`}
-                    item={item}
-                    agent={agent}
-                    model={model}
-                    environment={cardEnvironment(
-                      source,
-                      connectionId,
-                      agent?.executionEnvironment || item.executionEnvironment,
-                    )}
-                    onOpen={() =>
-                      onOpen(item.conversation_id, undefined, source)
-                    }
-                    onReply={() =>
-                      onReply
-                        ? onReply(item.conversation_id, source)
-                        : onOpen(item.conversation_id, undefined, source)
-                    }
-                    onNext={(action) =>
-                      action.kind === "draft"
-                        ? onReply
-                          ? onReply(item.conversation_id, source)
-                          : onOpen(item.conversation_id, undefined, source)
-                        : onOpen(
-                            item.conversation_id,
-                            action.message_id || undefined,
-                            source,
-                          )
-                    }
-                    onAgent={agent ? () => onAgent(agent) : undefined}
-                    onMenu={() => setMenu(item)}
-                    onArchive={() => void archive(item)}
-                    onLater={() => setLater(item)}
-                  />
-                );
-              })}
-            </ul>
+            <ul className="inbox-list feed">{items.map(card)}</ul>
           ) : (
             !error && (
               <div className="inbox-empty">
@@ -1407,15 +1558,13 @@ export function Inbox({
                       ? "Nothing here yet."
                       : filter === "done"
                         ? "Nothing finished yet."
-                        : filter === "needs"
-                          ? "Nothing needs you right now."
-                          : filter === "working"
-                            ? "No agents are working right now."
-                            : filter === "outcomes"
-                              ? "No finished work here yet."
-                              : filter === "unfinished"
-                                ? "Nothing unfinished here."
-                                : "Nothing is queued."}
+                        : filter === "working"
+                          ? "No agents are working right now."
+                          : filter === "outcomes"
+                            ? "No finished work here yet."
+                            : filter === "unfinished"
+                              ? "Nothing unfinished here."
+                              : "Nothing is queued."}
                   </strong>
                 </p>
                 {(filter === "all" || filter === "done") && emptyAction}

@@ -9,6 +9,14 @@ import Database from "better-sqlite3";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+// What needs you stacks above the Feed filters; show every card.
+async function openNeeds(page) {
+  const stack = page.getByRole("region", { name: "Needs you" });
+  await expect(stack).toBeVisible();
+  const all = stack.getByRole("button", { name: "Show all" });
+  if (await all.isVisible()) await all.click();
+}
+
 export async function projectsAttentionJourney(page, api, base, dir) {
   // The fixture runs many independent journeys as one user. Keep this one
   // from inheriting earlier journeys' per-minute request budget.
@@ -256,22 +264,23 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       );
     })();
     await page.goto(base);
-    // The "needs attention" banner became a counted "Needs you" filter chip.
-    const needs = page.getByRole("tab", { name: /^Needs you\s*\d+$/ });
+    // What needs you stacks above the filters, shown only while needed.
+    const needs = page.getByRole("region", { name: "Needs you" });
     await expect(needs).toBeVisible();
-    assert.ok((await needs.boundingBox()).height >= 32);
     await page.screenshot({
       path: join(
         tmpdir(),
         `loop-attention-${process.env.LOOP_BROWSER || "chromium"}.png`,
       ),
     });
-    await needs.click();
-    await expect(needs).toHaveAttribute("aria-selected", "true");
+    await openNeeds(page);
     const row = (title) =>
       page.locator(".inbox-row").filter({ hasText: title }).first();
+    // A dismissed failure leaves the stack; its history stays in Done.
+    const needsRow = (title) =>
+      needs.locator(".inbox-row").filter({ hasText: title }).first();
     // Dismiss moved from a Running card button to the row's action menu.
-    await expect(row("Dismissal fixture history")).toBeVisible();
+    await expect(needsRow("Dismissal fixture history")).toBeVisible();
     await page.route(
       `**/api/runs/${failed}/dismiss`,
       (route) =>
@@ -292,13 +301,13 @@ export async function projectsAttentionJourney(page, api, base, dir) {
         .getByRole("alert")
         .filter({ hasText: "Fixture dismissal unavailable" }),
     ).toBeVisible();
-    await expect(row("Dismissal fixture history")).toBeVisible();
+    await expect(needsRow("Dismissal fixture history")).toBeVisible();
     await inboxRowAction(
       page,
       "Dismissal fixture history",
       "Dismiss from Needs you",
     );
-    await expect(row("Dismissal fixture history")).toBeHidden();
+    await expect(needsRow("Dismissal fixture history")).toBeHidden();
     await page
       .getByRole("button", {
         name: "Cancel task: Project attention fixture",
@@ -380,7 +389,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       await expect(row(title)).toBeHidden();
     }
     // The paused barrier offers Resume (not Pause) in its menu.
-    await page.getByRole("tab", { name: /^Needs you/ }).click();
+    await openNeeds(page);
     const barrier = await inboxRowAction(page, "Fixture queue barrier");
     await expect(
       barrier.getByRole("menuitem", { name: "Resume" }),
@@ -596,6 +605,6 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await closeSheets(page);
   await page.waitForLoadState("networkidle");
   console.log(
-    "PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, Needs you badge/filter, row-menu dismiss/retry/persistence, rejected approvals, queue reorder/edit/cancel from the row menu, paused Resume, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.",
+    "PASS: project creation, idle agent membership, move existing agent, project-only agent lists after reload, Needs you stack, row-menu dismiss/retry/persistence, rejected approvals, queue reorder/edit/cancel from the row menu, paused Resume, uncluttered conversation, complete Markdown links and structured previews at mobile widths in both themes.",
   );
 }

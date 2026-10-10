@@ -185,6 +185,7 @@ function initialFilter(): InboxFilter {
   // A notification about a story opens Social on it.
   if (params.has("social")) return "social";
   const value = params.get("filter");
+  // Older "needs" links land on Done, under the Needs you stack.
   return inboxFilters.some((f) => f.id === value)
     ? (value as InboxFilter)
     : initialPage().filter || "done";

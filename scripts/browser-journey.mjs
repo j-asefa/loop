@@ -46,6 +46,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { chromium, webkit, expect } from "@playwright/test";
 import assert from "node:assert/strict";
+
+// What needs you stacks above the Feed filters; show every card.
+async function openNeeds(page) {
+  const stack = page.getByRole("region", { name: "Needs you" });
+  await expect(stack).toBeVisible();
+  const all = stack.getByRole("button", { name: "Show all" });
+  if (await all.isVisible()) await all.click();
+}
 const dir = mkdtempSync(join(tmpdir(), "loop-journey-"));
 const remoteCodex = await codexFixture();
 const env = {
@@ -320,8 +328,8 @@ try {
     page.getByRole("button", { name: "Compose a message" }),
   ).toBeVisible();
   await expect(page.locator("dialog[open]").last()).toHaveCount(0);
-  // The Running tab became the Feed "Needs you" filter, which lists approvals.
-  await page.getByRole("tab", { name: /^Needs you/ }).click();
+  // The Running tab became the Feed "Needs you" bar, which lists approvals.
+  await openNeeds(page);
   // Fault-injected requests must reach Playwright rather than a service worker.
   // The main journey keeps its real service worker throughout.
   const reviewContext = await browser.newContext({
@@ -334,7 +342,7 @@ try {
   reviewPage.on("pageerror", recordPageError);
   try {
     await reviewPage.goto(base);
-    await reviewPage.getByRole("tab", { name: /^Needs you/ }).click();
+    await openNeeds(reviewPage);
     await approvalJourney(reviewPage, api);
     await chatDismissJourney(reviewPage, api);
     await semanticStatusJourney(reviewPage);
