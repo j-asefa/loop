@@ -1823,26 +1823,25 @@ export default function App() {
           aria-current={tab === t.id ? "page" : undefined}
           className={tab === t.id ? "current" : ""}
           onClick={() => {
-            if (t.id === tab) {
-              const now = performance.now();
-              if (
-                lastNavTap.current?.tab === t.id &&
-                now - lastNavTap.current.at < 350
-              ) {
-                lastNavTap.current = null;
-                requestAnimationFrame(() =>
-                  window.scrollTo({
-                    top: 0,
-                    behavior: window.matchMedia(
-                      "(prefers-reduced-motion: reduce)",
-                    ).matches
-                      ? "instant"
-                      : "smooth",
-                  }),
-                );
-              } else lastNavTap.current = { tab: t.id, at: now };
-            } else {
-              lastNavTap.current = null;
+            // A double tap goes home: the top of the tab, and for the Feed the
+            // top of Done, whichever filter or tab the first tap left.
+            const now = performance.now();
+            const home =
+              lastNavTap.current?.tab === t.id &&
+              now - lastNavTap.current.at < 350;
+            lastNavTap.current = home ? null : { tab: t.id, at: now };
+            if (home) {
+              if (t.id === "inbox") setInboxFilter("done");
+              requestAnimationFrame(() =>
+                window.scrollTo({
+                  top: 0,
+                  behavior: window.matchMedia(
+                    "(prefers-reduced-motion: reduce)",
+                  ).matches
+                    ? "instant"
+                    : "smooth",
+                }),
+              );
             }
             setTab(t.id);
             setProfile(null);

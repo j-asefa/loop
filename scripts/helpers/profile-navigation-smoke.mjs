@@ -96,8 +96,11 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
 
     for (const reducedMotion of ["no-preference", "reduce"]) {
       await page.emulateMedia({ reducedMotion });
-      // A second tap on Feed scrolls its threads home.
-      for (const [tab, path, item] of [["Feed", "/", ".inbox-row"]]) {
+      // A second tap on Feed scrolls its threads home. Its own list: cards
+      // behind the Needs you stack are hidden.
+      for (const [tab, path, item] of [
+        ["Feed", "/", ".inbox > .inbox-list .inbox-row"],
+      ]) {
         await page.goto(fixture.base + path, { waitUntil: "networkidle" });
         await page.setViewportSize({ width: 390, height: 600 });
         await page.locator(item).first().waitFor();
@@ -122,6 +125,31 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
       }
     }
     await page.emulateMedia({ reducedMotion: "no-preference" });
+    // A double tap on Feed always lands at the top of Done, from another
+    // filter or from another tab.
+    const show = page.getByRole("tablist", { name: "Show" });
+    const done = show.getByRole("tab", { name: "Done", exact: true });
+    await page.goto(fixture.base + "/?filter=queued", {
+      waitUntil: "networkidle",
+    });
+    await page.setViewportSize({ width: 390, height: 600 });
+    await expect(
+      show.getByRole("tab", { name: /^Queued/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.evaluate(() =>
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }),
+    );
+    await nav("Feed").tap();
+    await expect(done).toHaveAttribute("aria-selected", "false");
+    await nav("Feed").tap();
+    await expect(done).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+    await show.getByRole("tab", { name: /^Working/ }).click();
+    await nav("Projects").tap();
+    await nav("Feed").tap();
+    await nav("Feed").tap();
+    await expect(done).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(fixture.base, { waitUntil: "networkidle" });
