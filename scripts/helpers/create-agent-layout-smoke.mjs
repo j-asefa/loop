@@ -46,7 +46,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       exact: true,
     });
     await prompt.fill("Keep my draft while changing fields.");
-    await prompt.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await prompt.evaluate((el) => el.scrollIntoView({ block: "end" }));
     const submit = sheet.getByRole("button", {
       name: "Create & start",
       exact: true,
@@ -86,7 +86,9 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
           }),
         )
         .toBe(true);
-      await prompt.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      // A real keyboard does not scroll the shrunken sheet for us: the
+      // focused prompt must already be clear of the pinned create action.
+      await expect(prompt).toBeFocused();
       await expect(prompt).toHaveValue("Keep my draft while changing fields.");
       const p = await prompt.boundingBox(),
         b = await submit.boundingBox();

@@ -154,8 +154,26 @@ export function Sheet({
   const ref = useRef<HTMLDialogElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const bodyRef = useRef<HTMLDivElement>(null);
   useSheetDrag(ref, swipeToClose, closeRef);
   useSheetViewport(ref);
+  useEffect(() => {
+    // The keyboard shrinks the sheet after the browser has scrolled the
+    // focused field into view, which can leave it behind the pinned footer.
+    const body = bodyRef.current!;
+    const reveal = () => {
+      const field = document.activeElement;
+      if (!(field instanceof HTMLElement) || !body.contains(field)) return;
+      const box = body.getBoundingClientRect(),
+        rect = field.getBoundingClientRect();
+      if (rect.bottom > box.bottom)
+        body.scrollTop += Math.min(rect.bottom - box.bottom, rect.top - box.top);
+      else if (rect.top < box.top) body.scrollTop -= box.top - rect.top;
+    };
+    const size = new ResizeObserver(reveal);
+    size.observe(body);
+    return () => size.disconnect();
+  }, []);
   useEffect(() => {
     const d = ref.current!;
     // Return focus to what opened the sheet when it closes. The dialog is
@@ -230,7 +248,9 @@ export function Sheet({
           </button>
         </div>
         <ConnectionNotice />
-        <div className="sheet-body">{children}</div>
+        <div className="sheet-body" ref={bodyRef}>
+          {children}
+        </div>
         {footer && <div className="sheet-footer">{footer}</div>}
       </div>
     </dialog>
