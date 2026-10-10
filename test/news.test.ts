@@ -974,6 +974,33 @@ it("remembers what you have read, per owner", async () => {
   expect((await get("/social", "milo")).data.unread).toBe(2);
 });
 
+it("removes a swiped-away story, per owner, until it is brought back", async () => {
+  restore = withNewsFixture(async () => new Response(officialRss));
+  for (const owner of ["ruth", "sami"])
+    await call("/social/feeds/hackernews", "PUT", owner);
+  const first = await get("/social", "ruth");
+  expect(first.data.unread).toBe(2);
+  const id = first.data.stories[0].id;
+  const removed = await send("/social/dismiss", "POST", { stories: ["unknown:gone", id] }, "ruth");
+  expect(removed.data).toEqual({ unread: 1 });
+  const after = await get("/social", "ruth");
+  expect(after.data.stories.map((s: any) => s.id)).not.toContain(id);
+  expect(after.data.unread).toBe(1);
+  // Search reaches the whole store, but not what you removed.
+  const title = first.data.stories[0].title.split(" ")[0];
+  const found = await get(`/social/search?q=${encodeURIComponent(title)}`, "ruth");
+  expect(found.data.stories.map((s: any) => s.id)).not.toContain(id);
+  // Removing is yours: the other owner still sees it.
+  const other = await get("/social", "sami");
+  expect(other.data.stories.map((s: any) => s.id)).toContain(id);
+  expect(other.data.unread).toBe(2);
+  // Undo brings it back.
+  await send("/social/dismiss", "DELETE", { stories: [id] }, "ruth");
+  const back = await get("/social", "ruth");
+  expect(back.data.stories.map((s: any) => s.id)).toContain(id);
+  expect(back.data.unread).toBe(2);
+});
+
 it("saves a story for later, and keeps it past retention", async () => {
   let payload = officialRss;
   restore = withNewsFixture(async () => new Response(payload));

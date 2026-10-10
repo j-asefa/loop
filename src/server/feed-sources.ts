@@ -169,6 +169,10 @@ export function removeSource(owner: string, id: string) {
     owner,
     id,
   );
+  db.prepare("DELETE FROM feed_dismissals WHERE owner_id=? AND feed_id=?").run(
+    owner,
+    id,
+  );
 }
 
 /**

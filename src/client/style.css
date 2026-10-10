@@ -6743,6 +6743,23 @@ details > summary {
 .card-swipe.swiping .feed-card {
   transition: none;
 }
+/* Social stories: swipe right to remove one. */
+.story-swipe,
+.story-swipe .swipe-under {
+  border-radius: 15px;
+}
+.story-swipe .story-swipe-card {
+  position: relative;
+  z-index: 1;
+  touch-action: pan-y;
+  transition: transform 0.18s ease;
+}
+.story-swipe.swiping .story-swipe-card {
+  transition: none;
+}
+.story-swipe .swipe-under.left {
+  background: var(--muted);
+}
 .feed > .card-swipe + .card-swipe {
   margin-top: 12px;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   Bookmark,
@@ -16,10 +16,11 @@ import {
   Search,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 import { api } from "./api";
 import { Sheet } from "./components";
-import { LaterSheet, undoReminder } from "./ThreadTools";
+import { LaterSheet, undoReminder, useSwipe } from "./ThreadTools";
 import { notify } from "./toast";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { relativeTime } from "./threadView";
@@ -302,6 +303,41 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
         </a>
       </div>
     </section>
+  );
+}
+
+/** A story card that can be swiped right to remove it from Social. */
+function SwipeAway({
+  onRemove,
+  children,
+}: {
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  const swipe = useSwipe({ onRight: onRemove });
+  return (
+    <div
+      className={
+        "card-swipe story-swipe" +
+        (swipe.armed ? " armed-" + swipe.armed : "") +
+        (swipe.offset ? " swiping" : "")
+      }
+      {...swipe.handlers}
+    >
+      <span className="swipe-under left" aria-hidden="true">
+        <X size={20} /> Remove
+      </span>
+      <div
+        className="story-swipe-card"
+        style={
+          swipe.offset
+            ? { transform: `translateX(${swipe.offset}px)` }
+            : undefined
+        }
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -1036,6 +1072,39 @@ export function Social({
       setSearchRevision(revision => revision + 1);
     }
   }
+  /** Takes stories out of Social at once, before the server confirms. */
+  async function dismiss(ids: string[], removed: boolean) {
+    if (removed) {
+      setFound((old) => old?.filter((story) => !ids.includes(story.id)) ?? null);
+      setView(
+        (old) =>
+          old && {
+            ...old,
+            stories: old.stories.filter((story) => !ids.includes(story.id)),
+          },
+      );
+    }
+    try {
+      const { unread } = await api<{ unread: number }>(
+        "/social/dismiss",
+        { stories: ids },
+        removed ? "POST" : "DELETE",
+      );
+      setView((old) => old && { ...old, unread });
+      if (!removed) void load();
+      setSearchRevision((revision) => revision + 1);
+      window.dispatchEvent(new Event("loop-social-read"));
+      if (removed)
+        notify({
+          text: "Removed from Social",
+          undo: () => dismiss(ids, false),
+        });
+    } catch (e) {
+      setError((e as Error).message);
+      void load();
+      setSearchRevision((revision) => revision + 1);
+    }
+  }
   async function readEverything() {
     try {
       const { unread } = await api<{ unread: number }>(
@@ -1438,6 +1507,7 @@ export function Social({
             if (!feed) return null;
             return (
               <li key={story.id}>
+                <SwipeAway onRemove={() => void dismiss([story.id], true)}>
                 <article
                   className="feed-card news-card"
                   data-unread={story.read ? undefined : "true"}
@@ -1596,6 +1666,7 @@ export function Social({
                     )}
                   </div>
                 </article>
+                </SwipeAway>
               </li>
             );
           })}

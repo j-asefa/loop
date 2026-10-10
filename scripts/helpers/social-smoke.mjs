@@ -213,6 +213,47 @@ export async function socialSmoke(page, fixture, shot) {
   );
   await page.getByRole("button", { name: "Unread", exact: true }).click();
 
+  // Swiping a story right removes it, and Undo brings it back.
+  const swiped = await cards.first().getAttribute("data-story");
+  await cards.first().evaluate(async (card) => {
+    const box = card.getBoundingClientRect();
+    const x = box.left + 30,
+      y = box.top + box.height / 2;
+    const send = (type, dx) =>
+      card.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 7,
+          pointerType: "touch",
+          isPrimary: true,
+          clientX: x + dx,
+          clientY: y,
+        }),
+      );
+    // A frame between moves, as a finger gives, so each one renders.
+    const frame = () => new Promise((done) => requestAnimationFrame(done));
+    send("pointerdown", 0);
+    for (let step = 1; step <= 8; step++) {
+      send("pointermove", step * 20);
+      await frame();
+    }
+    send("pointerup", 160);
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".news-card").length === n,
+    total - 1,
+  );
+  assert.equal(
+    await page.locator(`[data-story="${swiped}"]`).count(),
+    0,
+    "A swiped story must leave Social",
+  );
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".news-card").length === n,
+    total,
+  );
+
   // Saving a story opens the Later sheet and keeps it.
   await cards
     .first()

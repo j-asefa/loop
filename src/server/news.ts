@@ -199,7 +199,7 @@ const keep = db.transaction(
          AND l.target_id=@feed || ':' || feed_stories.story_id)`,
     ).run({ feed: feed.id, keep: KEEP_PER_FEED });
     // A read mark or watch hit for a story that is gone can never be used.
-    for (const table of ["feed_reads", "feed_watch_hits"])
+    for (const table of ["feed_reads", "feed_dismissals", "feed_watch_hits"])
       db.prepare(
         `DELETE FROM ${table} WHERE feed_id=@feed AND story_id NOT IN (
            SELECT story_id FROM feed_stories WHERE feed_id=@feed)`,
@@ -409,6 +409,7 @@ export function forgetAbandoned(at = Date.now()) {
   for (const { feed_id } of gone)
     db.transaction(() => {
       db.prepare("DELETE FROM feed_reads WHERE feed_id=?").run(feed_id);
+      db.prepare("DELETE FROM feed_dismissals WHERE feed_id=?").run(feed_id);
       db.prepare("DELETE FROM feed_watch_hits WHERE feed_id=?").run(feed_id);
       db.prepare("DELETE FROM feed_stories WHERE feed_id=?").run(feed_id);
       db.prepare("DELETE FROM feed_state WHERE feed_id=?").run(feed_id);
@@ -463,19 +464,38 @@ function readMarks(owner: string) {
   };
 }
 
+/** Whether this owner swiped a story away, as "<feed>:<story>" lookups. */
+function dismissals(owner: string) {
+  const gone = new Set(
+    (
+      db
+        .prepare("SELECT feed_id,story_id FROM feed_dismissals WHERE owner_id=?")
+        .all(owner) as { feed_id: string; story_id: string }[]
+    ).map((row) => `${row.feed_id}:${row.story_id}`),
+  );
+  return (feed: string, story: { id: string }) => gone.has(`${feed}:${story.id}`);
+}
+
 /** Unread stories across the feeds you added, as the Social chip's count. */
 export function unreadCount(owner: string, cap = 99) {
   const wasRead = readMarks(owner);
+  const wasDismissed = dismissals(owner);
   const hiding = mutes(owner).map(watchTerms);
   const unread = new Set<string>();
+  const dismissed = new Set<string>();
   for (const feed of ownerFeeds(owner)) {
     for (const story of (stored(feed.id)?.stories ?? []).slice(0, PER_FEED)) {
+      if (wasDismissed(feed.id, story)) {
+        dismissed.add(sameStoryUrl(story.url));
+        continue;
+      }
       if (wasRead(feed.id, story) || hiding.some(terms => matchesWatch(terms, story))) continue;
       unread.add(sameStoryUrl(story.url));
-      if (unread.size >= cap) return cap;
     }
   }
-  return unread.size;
+  // The same article from another feed went with the one swiped away.
+  for (const key of dismissed) unread.delete(key);
+  return Math.min(unread.size, cap);
 }
 
 /**
@@ -553,6 +573,33 @@ export const markRead = db.transaction(
   },
 ).immediate;
 
+/** Removes stories from Social, or brings them back. Unknown ones are ignored. */
+export const dismissStories = db.transaction(
+  (owner: string, stories: string[], dismissed: boolean, at = now()) => {
+    for (const value of stories) {
+      let identity: ReturnType<typeof splitStoryId>;
+      try {
+        ownedStory(owner, value);
+        identity = splitStoryId(owner, value);
+      } catch (error) {
+        if (error instanceof Problem && error.status === 404) continue;
+        throw error;
+      }
+      const { feed, story } = identity;
+      if (dismissed)
+        db.prepare(
+          `INSERT OR IGNORE INTO feed_dismissals(owner_id,feed_id,story_id,dismissed_at)
+           VALUES(?,?,?,?)`,
+        ).run(owner, feed, story, at);
+      else
+        db.prepare(
+          "DELETE FROM feed_dismissals WHERE owner_id=? AND feed_id=? AND story_id=?",
+        ).run(owner, feed, story);
+    }
+    return unreadCount(owner);
+  },
+).immediate;
+
 /** Marks everything a feed has listed so far read, or every feed's. */
 export function markAllRead(owner: string, feed?: string, at = now()) {
   if (feed) ownerFeed(owner, feed);
@@ -617,6 +664,7 @@ export function searchStories(
   const feeds = ask.feed ? [ownerFeed(owner, ask.feed).id] : [...mine.keys()];
   if (!feeds.length) return { stories: [] };
   const wasRead = readMarks(owner);
+  const wasDismissed = dismissals(owner);
   const rows = db
     .prepare(
       `SELECT s.feed_id,s.story_id,s.story,s.first_seen_at,
@@ -640,6 +688,7 @@ export function searchStories(
       ...(JSON.parse(row.story) as NewsStory),
       first_seen_at: row.first_seen_at,
     };
+    if (wasDismissed(row.feed_id, { id: row.story_id })) continue;
     const read = wasRead(row.feed_id, story);
     if (ask.unread && read) continue;
     stories.push({
@@ -890,6 +939,7 @@ export async function socialStories(
 ): Promise<SocialResponse> {
   const feeds = ownerFeeds(owner);
   const wasRead = readMarks(owner);
+  const wasDismissed = dismissals(owner);
   const hiding = mutes(owner).map(watchTerms);
   const matchesAnyMute = (story: StoredStory) =>
     hiding.some((terms) => matchesWatch(terms, story));
@@ -906,6 +956,8 @@ export async function socialStories(
       : Promise.resolve(last);
   });
   const kept = new Map<string, SocialStory>();
+  // Swiping a story away removes the same article from every feed.
+  const dismissed = new Set<string>();
   const failed: string[] = [];
   const loading: string[] = [];
   let fetched_at = 0;
@@ -920,6 +972,10 @@ export async function socialStories(
     fetched_at = Math.max(fetched_at, result.value.fetched_at);
     for (const story of result.value.stories.slice(0, PER_FEED)) {
       const key = sameStoryUrl(story.url);
+      if (wasDismissed(feed.id, story)) {
+        dismissed.add(key);
+        continue;
+      }
       const already = kept.get(key);
       // The same article from two feeds is shown once, keeping what each knew.
       if (already) {
@@ -942,6 +998,7 @@ export async function socialStories(
   });
   // An undated story sorts by when Loop first read it, which for the feeds
   // that date nothing is the only order there is.
+  for (const key of dismissed) kept.delete(key);
   const stories = [...kept.values()].sort(
     (a, b) =>
       (b.published_at ?? b.first_seen_at) - (a.published_at ?? a.first_seen_at),
@@ -1024,6 +1081,14 @@ news.post("/social/read", (req, res) => {
 news.delete("/social/read", (req, res) => {
   const { stories } = storyIds.parse(req.body);
   res.json({ unread: markRead(res.locals.owner, stories, false) });
+});
+news.post("/social/dismiss", (req, res) => {
+  const { stories } = storyIds.parse(req.body);
+  res.json({ unread: dismissStories(res.locals.owner, stories, true) });
+});
+news.delete("/social/dismiss", (req, res) => {
+  const { stories } = storyIds.parse(req.body);
+  res.json({ unread: dismissStories(res.locals.owner, stories, false) });
 });
 news.get("/social/preferences", (_req, res) => {
   res.json(feedPreferences(res.locals.owner));
