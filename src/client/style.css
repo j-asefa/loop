@@ -536,7 +536,30 @@ small,
   pointer-events: none;
 }
 .composer-main {
+  position: relative;
   padding: 12px 14px 4px;
+}
+.composer-main .composer-clear {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 44px;
+  height: 44px;
+  color: var(--muted);
+}
+.composer-main:has(.composer-clear) textarea {
+  padding-right: 52px;
+}
+.composer-dock.thread-mode .composer-main .composer-clear {
+  position: static;
+  flex-shrink: 0;
+}
+.composer-dock.thread-mode .composer-main:has(.composer-clear) textarea {
+  min-width: 0;
+  padding-right: 4px;
+}
+.search-box input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
 }
 .composer-main textarea {
   display: block;

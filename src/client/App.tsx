@@ -2180,6 +2180,21 @@ export default function App() {
                 }
                 rows={threadMode ? 1 : 2}
               />
+              {draft.length > 0 && (
+                <button
+                  type="button"
+                  className="icon-button composer-clear"
+                  aria-label="Clear message"
+                  disabled={busy}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setDraft("");
+                    document.getElementById("composer")?.focus();
+                  }}
+                >
+                  <X size={18} aria-hidden="true" />
+                </button>
+              )}
               {threadMode && sendButton}
             </div>
             <AttachmentList

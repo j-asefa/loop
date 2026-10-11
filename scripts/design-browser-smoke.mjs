@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 const names = [
   "main-composer-keyboard",
+  "clear-search",
   "feed-reply-keyboard",
   "safari-sheet-keyboard",
   "create-agent-layout",

@@ -33,6 +33,35 @@ import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  "clear-search": async (page, fixture) => {
+    await page.goto(fixture.base);
+    await page.locator(".mobile-nav").getByRole("button", { name: "Search", exact: true }).click();
+    const input = page.getByLabel("Search everything");
+    const clear = page.getByRole("button", { name: "Clear search", exact: true });
+    await expect(clear).toHaveCount(0);
+    await input.fill("preserve");
+    await input.press("Enter");
+    await page.locator(".search-result").first().waitFor();
+    await clear.click();
+    await expect(input).toHaveValue("");
+    await expect(input).toBeFocused();
+    await expect(page.locator(".search-result")).toHaveCount(0);
+    await expect(clear).toHaveCount(0);
+    let releaseSearch;
+    const heldSearch = new Promise((resolve) => { releaseSearch = resolve; });
+    await page.route("**/api/search?**", async (route) => {
+      await heldSearch;
+      await route.continue();
+    });
+    await input.fill("preserve");
+    await input.press("Enter");
+    await expect(page.getByText("Finding…", { exact: true })).toBeVisible();
+    await clear.click();
+    releaseSearch();
+    await page.waitForResponse((response) => response.url().includes("/api/search?"));
+    await expect(input).toHaveValue("");
+    await expect(page.locator(".search-result")).toHaveCount(0);
+  },
   "main-composer-keyboard": (p, f, e, c) => mainComposerKeyboardSmoke(p, f, c),
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
   "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),

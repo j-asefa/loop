@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Bookmark,
   Search,
+  X,
   FolderInput,
   ArrowUpRight,
   Undo2,
@@ -666,6 +667,25 @@ export function SearchWorkspace({
             scope === "mine" ? "Search your prompts…" : "Search threads, results and files…"
           }
         />
+        {query.length > 0 && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Clear search"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              searchRequest.current++;
+              setQuery("");
+              setResult(null);
+              setResultQuery("");
+              setError("");
+              setBusy(false);
+              e.currentTarget.form?.querySelector("input")?.focus();
+            }}
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        )}
         {busy && <span className="field-hint">Finding…</span>}
       </form>
       <div className="chip-row search-scopes" role="tablist" aria-label="Search in">
