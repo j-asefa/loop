@@ -111,11 +111,14 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         waitUntil: "networkidle",
       });
       if (state === "paused") {
-        const showAll = page.getByRole("region", { name: "Needs you", exact: true })
+        const showAll = page
+          .getByRole("region", { name: "Needs you", exact: true })
           .getByRole("button", { name: "Show all", exact: true });
         if (await showAll.isVisible()) await showAll.click();
       }
-      const activeRow = page.locator('.inbox-row[aria-label^="Follow-up stays visible"]');
+      const activeRow = page.locator(
+        '.inbox-row[aria-label^="Follow-up stays visible"]',
+      );
       await expect(activeRow).toHaveCount(1);
       await expect(
         activeRow.locator("xpath=../..").locator(".swipe-under"),
@@ -124,7 +127,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       await expect(activeRow).toHaveCount(1);
     }
     page.off("request", countDismiss);
-    assert.equal(dismissRequests, 0, "Only Done cards offer dismissal");
+    assert.equal(dismissRequests, 0, "Active and waiting cards cannot be swiped away");
     fixture.db
       .prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?")
       .run(started + 1, followUp);
@@ -134,9 +137,68 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       )
       .run(randomUUID(), fixture.owner, target.id, followUp, started + 1);
     await page.goto(fixture.base, { waitUntil: "networkidle" });
-    const newResult = page.locator('.inbox-row[aria-label^="Follow-up stays visible"]');
+    const newResult = page.locator(
+      '.inbox-row[aria-label^="Follow-up stays visible"]',
+    );
     await expect(newResult).toHaveCount(1);
     await expect(newResult).toContainText("The follow-up result is visible.");
+
+    // Old failures in Needs you can be swiped away, without removing their
+    // conversation's Done result, changing execution or hiding other work.
+    for (const state of ["failed", "interrupted"]) {
+      const failed = randomUUID();
+      const time = Date.now();
+      fixture.db
+        .prepare(
+          `
+        INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,error,created_at,updated_at)
+        SELECT ?,owner_id,agent_id,conversation_id,'Dismiss this old failure',?,?,payload,'Historical failure',?,?
+        FROM runs WHERE id=?
+      `,
+        )
+        .run(failed, state, failed, time, time, followUp);
+      const doneBefore = (await fixture.api("/inbox?filter=done")).items;
+      const runsBefore = fixture.db
+        .prepare("SELECT id,state FROM runs ORDER BY id")
+        .all();
+      await page.reload({ waitUntil: "networkidle" });
+      const needs = page.getByRole("region", {
+        name: "Needs you",
+        exact: true,
+      });
+      const showAll = needs.getByRole("button", {
+        name: "Show all",
+        exact: true,
+      });
+      if (await showAll.isVisible()) await showAll.click();
+      const failedRow = needs.locator(
+        '.inbox-row[aria-label^="Dismiss this old failure"]',
+      );
+      await expect(failedRow).toBeVisible();
+      await swipe(failedRow);
+      await expect(failedRow).toHaveCount(0);
+      await expect(
+        page
+          .getByRole("status")
+          .filter({ hasText: "Dismissed from Needs you" }),
+      ).toBeVisible();
+      const record = fixture.db
+        .prepare("SELECT state,attention_dismissed_at FROM runs WHERE id=?")
+        .get(failed);
+      assert.equal(record.state, state);
+      assert(record.attention_dismissed_at > 0);
+      assert.deepEqual(
+        fixture.db.prepare("SELECT id,state FROM runs ORDER BY id").all(),
+        runsBefore,
+      );
+      assert.deepEqual(
+        (await fixture.api("/inbox?filter=done")).items,
+        doneBefore,
+      );
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(failedRow).toHaveCount(0);
+      await expect(newResult).toContainText("The follow-up result is visible.");
+    }
   } finally {
     await client?.detach();
   }

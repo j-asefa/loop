@@ -202,6 +202,7 @@ function InboxCard({
   onAgent,
   onMenu,
   onDismiss,
+  dismissLabel = "Remove from Done",
   onLater,
 }: {
   item: InboxItem;
@@ -215,6 +216,7 @@ function InboxCard({
   onAgent?: () => void;
   onMenu: () => void;
   onDismiss?: () => void;
+  dismissLabel?: string;
   onLater: () => void;
 }) {
   const scopedSource = useSourceId();
@@ -246,7 +248,7 @@ function InboxCard({
     >
       {onDismiss && (
         <span className="swipe-under right" aria-hidden="true">
-          <Archive size={20} /> Remove from Done
+          <Archive size={20} /> {dismissLabel}
         </span>
       )}
       <article
@@ -1130,8 +1132,25 @@ export function Inbox({
     sourceId: string,
     body = {},
   ) {
+    const owner = viewOwner();
     try {
       await apiInWorkspace(`/runs/${runId}/${action}`, sourceId, body);
+      if (owner !== viewOwner()) return;
+      if (action === "dismiss") {
+        // Discard an older Needs read and remove exactly the acknowledged
+        // failure while the fresh lists load. The server keeps its history.
+        ++needsRequest.current;
+        setNeeds((old) => {
+          const remaining = old.filter(
+            (item) =>
+              item.run?.id !== runId ||
+              (item.sourceId ?? scopedSource) !== sourceId,
+          );
+          cacheView(needsKey(), remaining, owner);
+          return remaining;
+        });
+        notify({ text: "Dismissed from Needs you." });
+      }
       onChanged();
       await load();
     } catch (e) {
@@ -1375,8 +1394,11 @@ export function Inbox({
     });
     return actions;
   }
-  function card(item: InboxItem) {
+  function card(item: InboxItem, inNeeds = false) {
     const source = item.sourceId ?? scopedSource;
+    const dismissFailure =
+      inNeeds && item.run &&
+      ["failed", "interrupted"].includes(item.run.state);
     const agent = agents.find(
       (a) => a.id === item.agent_id && (a.sourceId || "") === source,
     );
@@ -1439,10 +1461,13 @@ export function Inbox({
         onAgent={agent ? () => onAgent(agent) : undefined}
         onMenu={() => setMenu(item)}
         onDismiss={
-          filter === "done" && item.done_card_key
-            ? () => void dismissDoneCard(item)
-            : undefined
+          dismissFailure
+            ? () => void runAction(item.run!.id, "dismiss", source)
+            : filter === "done" && item.done_card_key
+              ? () => void dismissDoneCard(item)
+              : undefined
         }
+        dismissLabel={dismissFailure ? "Dismiss from Needs you" : undefined}
         onLater={() => setLater(item)}
       />
     );
@@ -1480,7 +1505,9 @@ export function Inbox({
         <NeedsStack open={needsOpen} onOpen={setNeedsOpen}>
           {needsSlot}
           {!!needsThreads.length && (
-            <ul className="inbox-list feed">{needsThreads.map(card)}</ul>
+            <ul className="inbox-list feed">
+              {needsThreads.map((item) => card(item, true))}
+            </ul>
           )}
           {needsOpen && !!summary?.scheduled_failed && onScheduled && (
             <p className="scheduled-summary" role="status">
@@ -1557,7 +1584,7 @@ export function Inbox({
               <span />
             </div>
           ) : items.length ? (
-            <ul className="inbox-list feed">{items.map(card)}</ul>
+            <ul className="inbox-list feed">{items.map((item) => card(item))}</ul>
           ) : (
             !error && (
               <div className="inbox-empty">
