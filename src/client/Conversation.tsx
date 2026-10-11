@@ -62,7 +62,6 @@ import {
   UsageLine,
   messageActions,
   undoReminder,
-  useLongPress,
   useSwipe,
   type ChangeContext,
 } from "./ThreadTools";
@@ -88,30 +87,21 @@ export type ThreadWork = {
   steerable: boolean;
 };
 
-/** One message with swipe-right to reply and long-press for its menu. */
+/** One message with swipe-right to reply; native text selection owns a hold. */
 function MessageShell({
   id,
   className,
   anchored,
   onReply,
-  onMenu,
   children,
 }: {
   id: string;
   className: string;
   anchored: boolean;
   onReply?: () => void;
-  onMenu?: () => void;
   children: ReactNode;
 }) {
   const swipe = useSwipe({ onRight: onReply });
-  const press = useLongPress(() => onMenu?.(), Boolean(onMenu));
-  const both =
-    (name: string) =>
-    (e: any): void => {
-      (swipe.handlers as any)[name]?.(e);
-      (press as any)[name]?.(e);
-    };
   return (
     <article
       id={"message-" + id}
@@ -123,13 +113,7 @@ function MessageShell({
           ? { transform: `translateX(${swipe.offset}px)` }
           : undefined
       }
-      onPointerDown={both("onPointerDown")}
-      onPointerMove={both("onPointerMove")}
-      onPointerUp={both("onPointerUp")}
-      onPointerCancel={both("onPointerCancel")}
-      onPointerLeave={(press as any).onPointerLeave}
-      onContextMenu={(press as any).onContextMenu}
-      onClickCapture={both("onClickCapture")}
+      {...swipe.handlers}
     >
       {swipe.offset > 0 && (
         <span
@@ -1297,11 +1281,6 @@ export function Conversation({
                   id={m.id}
                   anchored={highlight === m.id}
                   onReply={reply}
-                  onMenu={
-                    !meta.progress && !pendingAnswer
-                      ? () => setMenuFor(m)
-                      : undefined
-                  }
                   className={
                     "message " +
                     m.role +

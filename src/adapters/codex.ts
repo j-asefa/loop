@@ -5,6 +5,7 @@ import { codexActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.mjs";
 import { Native } from "../native.js";
 import { NativeSetupError } from "./setup-error.js";
+import { codexToolApproval } from "../shared/codex-approval.js";
 import type { Billing } from "../protocol.js";
 import {
   capabilities,
@@ -357,9 +358,21 @@ export class Codex implements Adapter {
         permissions: answer.choice === "allow" ? m.params.permissions : {},
         scope: "turn",
       };
-    else if (m.method === "mcpServer/elicitation/request")
-      result = { action: answer.choice, content: null };
-    else result = { decision: answer.choice };
+    else if (m.method === "mcpServer/elicitation/request") {
+      const approval = codexToolApproval(m.params);
+      if (
+        !["decline", "cancel", ...(approval ? ["accept"] : [])].includes(
+          answer.choice as string,
+        )
+      )
+        throw new Error("Unsupported MCP elicitation decision.");
+      // Empty form content approves this call only. Do not send persistence
+      // metadata or invent values for a form that needs user input.
+      result = {
+        action: answer.choice,
+        content: answer.choice === "accept" ? {} : null,
+      };
+    } else result = { decision: answer.choice };
     this.requests.delete(id);
     await this.native.write({ id: m.id, result });
     this.emit({ type: "resolved", id });
@@ -473,11 +486,15 @@ export class Codex implements Adapter {
           "mcpServer/elicitation/request",
         ].includes(m.method)
       ) {
+        const toolApproval =
+          m.method === "mcpServer/elicitation/request"
+            ? codexToolApproval(p)
+            : undefined;
         const choices =
           m.method === "item/permissions/requestApproval"
             ? ["allow", "deny"]
             : m.method === "mcpServer/elicitation/request"
-              ? ["decline", "cancel"]
+              ? [...(toolApproval ? ["accept"] : []), "decline", "cancel"]
               : (
                   p.availableDecisions ?? ["accept", "decline", "cancel"]
                 ).filter(
@@ -493,12 +510,14 @@ export class Codex implements Adapter {
             kind: "approval",
             title:
               m.method === "mcpServer/elicitation/request"
-                ? "MCP elicitation (form/URL completion unavailable)"
+                ? toolApproval
+                  ? `Allow ${toolApproval.tool || "tool call"}?`
+                  : "MCP elicitation (form/URL completion unavailable)"
                 : "Codex permission",
             detail: JSON.stringify(p, null, 2),
             choices,
             allow:
-              m.method === "mcpServer/elicitation/request"
+              m.method === "mcpServer/elicitation/request" && !toolApproval
                 ? undefined
                 : choices.find((c: string) => ["accept", "allow"].includes(c)),
           },

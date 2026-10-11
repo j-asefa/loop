@@ -1447,7 +1447,7 @@ export function useLongPress(
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
-  useEffect(() => clear, []);
+  useEffect(() => clear, [enabled]);
   if (!enabled) return {};
   return {
     onPointerDown: (e: React.PointerEvent) => {

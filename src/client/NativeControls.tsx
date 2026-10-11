@@ -7,6 +7,7 @@ import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
+import { codexToolApproval } from "../shared/codex-approval";
 
 export function WorkspaceConnection() {
   const [status, setStatus] = useState("Connecting to desktop…");
@@ -161,6 +162,7 @@ function DecisionCard({
   const api = useSourceApi();
   const request = parse<Request>(item.request, {} as Request);
   const structured = parse<any>(request.detail, null);
+  const toolApproval = codexToolApproval(structured);
   // Claude nests the shell command in its tool input.
   const command = structured?.command ?? structured?.input?.command;
   const detail = command
@@ -234,7 +236,21 @@ function DecisionCard({
         aria-label="Request details"
         tabIndex={0}
       >
-        {structured && !command ? (
+        {toolApproval ? (
+          <>
+            <p>
+              {toolApproval.server}
+              {toolApproval.tool ? ` · ${toolApproval.tool}` : ""}
+            </p>
+            <RichText content={toolApproval.message} />
+            {toolApproval.arguments !== undefined && (
+              <>
+                <h4>Tool arguments</h4>
+                <pre>{JSON.stringify(toolApproval.arguments, null, 2)}</pre>
+              </>
+            )}
+          </>
+        ) : structured && !command ? (
           // Structured requests are data, not Markdown: indented JSON would
           // otherwise become unwrapped code blocks.
           <pre>{JSON.stringify(structured, null, 2)}</pre>
@@ -242,7 +258,7 @@ function DecisionCard({
           <RichText content={detail || ""} />
         )}
       </div>
-      {command && (
+      {(command || toolApproval) && (
         <details>
           <summary>Native request details</summary>
           <pre>{JSON.stringify(structured, null, 2)}</pre>

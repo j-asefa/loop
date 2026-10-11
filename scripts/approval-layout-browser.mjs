@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
+import codexToolApproval from "../test/fixtures/codex-tool-approval.json" with { type: "json" };
 
 // Fixture-only: real UI, no native provider or external tool execution.
 const fixture = await designFixture();
@@ -38,6 +39,7 @@ try {
         });
       });
       const decisions = [];
+      let council = false;
       await page.route("**/api/native/decisions**", async (route) => {
         if (route.request().method() === "POST") {
           decisions.push(route.request().postDataJSON());
@@ -50,18 +52,39 @@ try {
               conversation_id: fixture.conversations[0].id,
               name: "winter",
               state: "pending",
-              request: JSON.stringify({
-                id: "request",
-                kind: "approval",
-                title: "WebFetch",
-                choices: ["allow", "deny"],
-                detail: JSON.stringify({
-                  input: {
-                    url: "https://example.com/" + "long-path/".repeat(15),
-                    prompt: "Review the study. ".repeat(100),
-                  },
-                }),
-              }),
+              request: JSON.stringify(
+                council
+                  ? {
+                      id: "council-request",
+                      kind: "approval",
+                      title: "Allow loop_delegate?",
+                      choices: ["accept", "decline", "cancel"],
+                      allow: "accept",
+                      detail: JSON.stringify({
+                        ...codexToolApproval,
+                        threadId: "native-thread-must-be-collapsed",
+                        _meta: {
+                          ...codexToolApproval._meta,
+                          tool_params: {
+                            agent: "reviewer",
+                            task: "Review the proposed plan. ".repeat(100),
+                          },
+                        },
+                      }),
+                    }
+                  : {
+                      id: "request",
+                      kind: "approval",
+                      title: "WebFetch",
+                      choices: ["allow", "deny"],
+                      detail: JSON.stringify({
+                        input: {
+                          url: "https://example.com/" + "long-path/".repeat(15),
+                          prompt: "Review the study. ".repeat(100),
+                        },
+                      }),
+                    },
+              ),
             },
           ],
         });
@@ -100,7 +123,7 @@ try {
         await page.goto(
           fixture.base + "/?conversation=" + fixture.conversations[0].id,
         );
-        const card = page.locator(".native-decision");
+        const card = page.locator(".conversation-sheet .native-decision");
         const button = card.getByRole("button", {
           name: choice === "allow" ? "Allow" : "Deny",
           exact: true,
@@ -148,6 +171,43 @@ try {
           "Display labels must preserve protocol choices",
         );
         assert(decisions.at(-1).commandId);
+      }
+      council = true;
+      for (const width of [320, 390, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto(
+          fixture.base + "/?conversation=" + fixture.conversations[0].id,
+        );
+        const card = page.locator(".conversation-sheet .native-decision");
+        const detail = card.locator(".native-decision-detail");
+        await expect(detail.locator("strong")).toHaveText("loop_delegate");
+        await expect(
+          detail.getByRole("heading", { name: "Tool arguments" }),
+        ).toBeVisible();
+        await expect(
+          card.locator("details").filter({ hasText: "Native request details" }),
+        ).not.toHaveAttribute("open");
+        await expect(detail).not.toContainText("codex_approval_kind");
+        await expect(detail).not.toContainText(
+          "native-thread-must-be-collapsed",
+        );
+        assert(
+          await card.evaluate((node) => node.scrollWidth <= node.clientWidth),
+        );
+        const accept = card.getByRole("button", {
+          name: "Accept",
+          exact: true,
+        });
+        await accept.scrollIntoViewIfNeeded();
+        await expect(accept).toBeInViewport({ ratio: 1 });
+        assert(
+          await accept.evaluate(
+            (node) => node.getBoundingClientRect().height >= 48,
+          ),
+        );
+        await accept.click();
+        await expect(card).toHaveCount(0);
+        assert.equal(decisions.at(-1).answer.choice, "accept");
       }
       console.log(
         `${engine.name()}: approval actions and Pi composer layout passed`,

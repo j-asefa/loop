@@ -144,6 +144,90 @@ for (const engine of selectedEngines()) {
     await expect(
       transcript.getByText("History answer 239", { exact: true }),
     ).toBeVisible();
+    // Holding conversation text leaves selection and the native copy menu
+    // to the browser. Message actions remain available through their button.
+    for (const text of ["History prompt 239", "History answer 239"]) {
+      const content = transcript.getByText(text, { exact: true });
+      await content.scrollIntoViewIfNeeded();
+      await content.dispatchEvent("pointerdown", {
+        pointerType: "touch",
+        pointerId: 1,
+        button: 0,
+        clientX: 100,
+        clientY: 300,
+      });
+      await page.waitForTimeout(650);
+      await expect(
+        page.getByRole("dialog", { name: /^(Your message|Message)$/ }),
+      ).toHaveCount(0);
+      await content.dispatchEvent("pointerup", {
+        pointerType: "touch",
+        pointerId: 1,
+      });
+      assert(
+        await content.evaluate((node) => {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          const selected = selection.toString() === node.textContent;
+          const nativeMenu = node.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+          );
+          selection.removeAllRanges();
+          return (
+            selected &&
+            nativeMenu &&
+            getComputedStyle(node).userSelect !== "none"
+          );
+        }),
+        "Text must remain selectable without intercepting its native context menu",
+      );
+      await expect(
+        page.getByRole("dialog", { name: /^(Your message|Message)$/ }),
+      ).toHaveCount(0);
+      await content
+        .locator("xpath=ancestor::article[1]")
+        .getByRole("button", { name: "Message actions", exact: true })
+        .click();
+      const actions = page.getByRole("dialog", {
+        name: /^(Your message|Message)$/,
+      });
+      await expect(actions).toBeVisible();
+      await actions.getByRole("button", { name: "Close", exact: true }).click();
+    }
+    const composer = page.locator(".composer-dock.thread-mode");
+    await composer.locator("textarea").fill("Draft for holding send");
+    const send = composer.getByRole("button", {
+      name: "Send reply",
+      exact: true,
+    });
+    await send.dispatchEvent("pointerdown", {
+      pointerType: "touch",
+      pointerId: 2,
+      button: 0,
+    });
+    await page.waitForTimeout(650);
+    await expect(
+      page.getByRole("dialog", { name: "Send options", exact: true }),
+    ).toHaveCount(0);
+    await send.dispatchEvent("pointercancel", {
+      pointerType: "touch",
+      pointerId: 2,
+    });
+    await composer
+      .getByRole("button", { name: "Send later", exact: true })
+      .click();
+    const sendOptions = page.getByRole("dialog", {
+      name: "Send options",
+      exact: true,
+    });
+    await expect(sendOptions).toBeVisible();
+    await sendOptions
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await composer.locator("textarea").fill("");
     // The older file record is below the recent snapshot but belongs to a
     // displayed result; its review chip must still be available immediately.
     await expect(

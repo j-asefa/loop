@@ -15,6 +15,94 @@ import type { AdapterEvent, Harness } from "../src/protocol.js";
 const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
 import { until } from "./helpers.js";
+import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
+
+test("Codex MCP confirmations support one-call acceptance, decline and cancel", async () => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  const events: AdapterEvent[] = [];
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (e) => events.push(e),
+  );
+  try {
+    await adapter.start();
+    for (const choice of ["accept", "decline", "cancel"]) {
+      events.length = 0;
+      await adapter.prompt(
+        "mcp-" + choice + "\n" + JSON.stringify(codexToolApproval),
+      );
+      await until(() => events.some((e) => e.type === "request"));
+      const event = events.find((e) => e.type === "request")!;
+      assert.equal(event.type, "request");
+      assert.equal(event.request.title, "Allow loop_delegate?");
+      assert.deepEqual(event.request.choices, ["accept", "decline", "cancel"]);
+      assert.equal(event.request.allow, "accept");
+      await adapter.answer(event.request.id, { choice });
+      await until(() =>
+        events.some((e) => e.type === "status" && e.status === "completed"),
+      );
+      await assert.rejects(
+        adapter.answer(event.request.id, { choice }),
+        /expired/,
+      );
+    }
+    for (const params of [
+      { ...codexToolApproval, _meta: {} },
+      {
+        ...codexToolApproval,
+        mode: "url",
+        url: "https://example.com",
+        elicitationId: "url",
+      },
+      {
+        ...codexToolApproval,
+        requestedSchema: {
+          type: "object",
+          properties: { name: { type: "string" } },
+          required: ["name"],
+        },
+      },
+      {
+        ...codexToolApproval,
+        requestedSchema: { type: "object", properties: {}, required: ["name"] },
+      },
+      {
+        ...codexToolApproval,
+        requestedSchema: {
+          type: "object",
+          properties: {},
+          allOf: [{ required: ["name"] }],
+        },
+      },
+      { ...codexToolApproval, requestedSchema: null },
+    ]) {
+      events.length = 0;
+      await adapter.prompt("mcp-cancel\n" + JSON.stringify(params));
+      await until(() => events.some((e) => e.type === "request"));
+      const event = events.find((e) => e.type === "request")!;
+      assert.equal(event.type, "request");
+      assert.equal(event.request.allow, undefined);
+      assert.deepEqual(event.request.choices, ["decline", "cancel"]);
+      await assert.rejects(
+        adapter.answer(event.request.id, { choice: "accept" }),
+        /Unsupported/,
+      );
+      await adapter.answer(event.request.id, { choice: "cancel" });
+      await until(() =>
+        events.some((e) => e.type === "status" && e.status === "completed"),
+      );
+    }
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+  }
+});
 test("Pi's subscription catalog excludes API routes for the same model", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   process.env.LOOP_TEST_PI_API_MODEL = "1";

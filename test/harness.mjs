@@ -7,6 +7,7 @@ import { writeSync, appendFileSync } from "node:fs";
 const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
 let threadId = randomUUID();
 let thinkingLevel = "medium";
+let elicitationChoice;
 const out = (x) => process.stdout.write(JSON.stringify(x) + "\n");
 let count = 0,
   active = "",
@@ -333,8 +334,20 @@ if (kind !== "opencode") {
     if (
       type === "extension_ui_response" ||
       type === "control_response" ||
-      (m.id === 101 && m.result)
+      ([101, 102].includes(m.id) && m.result)
     ) {
+      if (kind === "codex" && m.id === 102) {
+        const expected = {
+          action: elicitationChoice,
+          content: elicitationChoice === "accept" ? {} : null,
+        };
+        if (JSON.stringify(m.result) !== JSON.stringify(expected))
+          throw new Error(
+            "Incorrect MCP confirmation response: " + JSON.stringify(m.result),
+          );
+        if (held) finish();
+        return;
+      }
       if (kind === "codex" && m.result?.decision !== "decline")
         throw new Error("Fixture expected native decline decision");
       if (kind === "pi" && m.confirmed !== false)
@@ -450,6 +463,21 @@ if (kind !== "opencode") {
         });
       }
       if (text === "wait") return;
+      if (kind === "codex" && text.startsWith("mcp-")) {
+        held = true;
+        const [choice, params] = text.slice(4).split("\n");
+        elicitationChoice = choice;
+        out({
+          id: 102,
+          method: "mcpServer/elicitation/request",
+          params: {
+            ...JSON.parse(params),
+            threadId,
+            turnId: active,
+          },
+        });
+        return;
+      }
       if (text === "approve") {
         held = true;
         if (kind === "codex")

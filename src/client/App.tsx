@@ -347,7 +347,7 @@ export default function App() {
     () => {
       if (draft.trim()) setSendMenu(true);
     },
-    true,
+    !conversation,
     { onControls: true },
   );
   const [conversationSource, setConversationSource] = useState(routeSourceId);
@@ -1949,7 +1949,7 @@ export default function App() {
             ? "Send reply"
             : "Send message"
       }
-      title="Hold for more send options"
+      title={threadMode ? undefined : "Hold for more send options"}
       disabled={busy || uploading || !draft.trim() || !!activeAgent?.retired_at || !!(conversation && !conversationTarget)}
       onClick={() => void send()}
       {...sendPress}

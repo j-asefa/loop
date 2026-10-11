@@ -35,7 +35,7 @@ export function supportsPermissionMode(harness?: string | null) {
 }
 /**
  * The choice Loop answers for the user, if any. "Never ask" approves single
- * tool calls on every harness; questions and elicitations always wait.
+ * tool calls on every harness; questions and forms requiring input still wait.
  */
 export function autoApproval(
   mode: PermissionMode | undefined,

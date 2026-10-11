@@ -1362,7 +1362,7 @@ export class NativeSessions {
       );
       if (recorded && allow) {
         // "Never ask" answers routine tool approvals for the user. Questions
-        // and elicitations have no allow choice and still wait. A failed
+        // and forms requiring input have no allow choice and still wait. A failed
         // answer is left visible as unknown and is never retried.
         void this.answer(decisionId, "auto:" + decisionId, {
           choice: allow,
