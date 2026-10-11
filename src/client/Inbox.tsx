@@ -1089,6 +1089,7 @@ export function Inbox({
   }
   const firstLoad = useRef(true);
   useEffect(() => {
+    setNeedsOpen(false);
     const cached = cachedView<Shown>(shownKey());
     // The first render already shows the cached list; a filter change swaps
     // to that filter's cached list, or a loader.
@@ -1490,12 +1491,16 @@ export function Inbox({
         social: summary.social_unread,
       }
     : {};
+  function selectFilter(nextFilter: InboxFilter) {
+    setNeedsOpen(false);
+    onFilter(nextFilter);
+  }
   return (
     <section className="inbox" aria-label="Feed">
       {!hideFilters && (
         <AwaySummary
           sources={activeSources}
-          onFilter={onFilter}
+          onFilter={selectFilter}
           onNeeds={() => setNeedsOpen(true)}
           onOpen={(id, source) => onOpen(id, undefined, source)}
         />
@@ -1544,9 +1549,9 @@ export function Inbox({
               key={f.id}
               role="tab"
               type="button"
-              aria-selected={filter === f.id}
+              aria-selected={!needsOpen && filter === f.id}
               className="chip"
-              onClick={() => onFilter(f.id)}
+              onClick={() => selectFilter(f.id)}
             >
               {f.label}
               {!!counts[f.id] && (
@@ -1556,67 +1561,70 @@ export function Inbox({
           ))}
         </div>
       )}
-      {isSocial(filter) ? (
-        <Social onAsk={onAsk} agents={agents} />
-      ) : (
-        <>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-              <button className="text-button" onClick={() => void load()}>
-                Try again
-              </button>
-            </div>
-          )}
-          {notice && (
-            <p role="status" className="field-hint">
-              {notice}
-            </p>
-          )}
-          {loading && !items.length ? (
-            <div
-              className="feed-loading"
-              role="status"
-              aria-label="Loading feed"
-            >
-              <span />
-              <span />
-              <span />
-            </div>
-          ) : items.length ? (
-            <ul className="inbox-list feed">{items.map((item) => card(item))}</ul>
-          ) : (
-            !error && (
-              <div className="inbox-empty">
-                <p>
-                  <strong>
-                    {filter === "all"
-                      ? "Nothing here yet."
-                      : filter === "done"
-                        ? "Nothing finished yet."
-                        : filter === "working"
-                          ? "No agents are working right now."
-                          : filter === "outcomes"
-                            ? "No finished work here yet."
-                            : filter === "unfinished"
-                              ? "Nothing unfinished here."
-                              : "Nothing is queued."}
-                  </strong>
-                </p>
-                {(filter === "all" || filter === "done") && emptyAction}
-              </div>
-            )
-          )}
-          {next && (
-            <button
-              className="secondary load-more"
-              onClick={() => void load(true)}
-            >
-              Load more
-            </button>
-          )}
-        </>
+      {(!isSocial(filter) || needsOpen) && error && (
+        <div className="error" role="alert">
+          {error}
+          <button className="text-button" onClick={() => void load()}>
+            Try again
+          </button>
+        </div>
       )}
+      {(!isSocial(filter) || needsOpen) && notice && (
+        <p role="status" className="field-hint">
+          {notice}
+        </p>
+      )}
+      {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
+      <div className="inbox-results" hidden={needsOpen}>
+        {isSocial(filter) ? (
+          <Social onAsk={onAsk} agents={agents} />
+        ) : (
+          <>
+            {loading && !items.length ? (
+              <div
+                className="feed-loading"
+                role="status"
+                aria-label="Loading feed"
+              >
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : items.length ? (
+              <ul className="inbox-list feed">{items.map((item) => card(item))}</ul>
+            ) : (
+              !error && (
+                <div className="inbox-empty">
+                  <p>
+                    <strong>
+                      {filter === "all"
+                        ? "Nothing here yet."
+                        : filter === "done"
+                          ? "Nothing finished yet."
+                          : filter === "working"
+                            ? "No agents are working right now."
+                            : filter === "outcomes"
+                              ? "No finished work here yet."
+                              : filter === "unfinished"
+                                ? "Nothing unfinished here."
+                                : "Nothing is queued."}
+                    </strong>
+                  </p>
+                  {(filter === "all" || filter === "done") && emptyAction}
+                </div>
+              )
+            )}
+            {next && (
+              <button
+                className="secondary load-more"
+                onClick={() => void load(true)}
+              >
+                Load more
+              </button>
+            )}
+          </>
+        )}
+      </div>
       {menu && (
         <ActionSheet
           title={menu.title}

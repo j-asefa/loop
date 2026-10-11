@@ -99,7 +99,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
       // A second tap on Feed scrolls its threads home. Its own list: cards
       // behind the Needs you stack are hidden.
       for (const [tab, path, item] of [
-        ["Feed", "/", ".inbox > .inbox-list .inbox-row"],
+        ["Feed", "/", ".inbox > .inbox-results .inbox-row"],
       ]) {
         await page.goto(fixture.base + path, { waitUntil: "networkidle" });
         await page.setViewportSize({ width: 390, height: 600 });

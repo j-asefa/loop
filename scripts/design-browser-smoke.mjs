@@ -11,6 +11,7 @@ const names = [
   "withdraw-draft",
   "upload-destination",
   "inbox",
+  "needs-stack",
   "continuity-320",
   "continuity-390",
   "reply-keyboard",

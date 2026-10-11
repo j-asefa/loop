@@ -25,6 +25,7 @@ import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
 import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
 import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
+import { needsStackSmoke } from "./helpers/needs-stack-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
 import { threadLayoutSmoke } from "./helpers/thread-layout-smoke.mjs";
 
@@ -69,6 +70,7 @@ const scenarios = {
   "upload-destination": uploadDestinationSmoke,
   "withdraw-draft": withdrawDraftSmoke,
   inbox: (p, f, e, c) => inboxFlowsSmoke(p, f, c),
+  "needs-stack": (p, f, e, c) => needsStackSmoke(p, f, c),
   "continuity-320": async (p, f, e, c) => {
     await p.setViewportSize({ width: 320, height: 844 });
     await continuitySmoke(p, f, c);
@@ -178,7 +180,7 @@ for (const engine of selectedEngines()) {
         await page.goto(fixture.base);
         const inbox = page.getByRole("region", { name: "Feed", exact: true });
         // The filtered list, not the Needs you stack above the filters.
-        const inboxRows = inbox.locator(":scope > .inbox-list .inbox-row");
+        const inboxRows = inbox.locator(":scope > .inbox-results .inbox-row");
         const needsStack = inbox.getByRole("region", { name: "Needs you" });
         await inboxRows.first().waitFor();
         await capture("feed");
@@ -984,7 +986,7 @@ for (const engine of selectedEngines()) {
         await capture("desktop");
       } else {
         await page.goto(fixture.base);
-        await expect(page.locator(".inbox-row").first()).toBeVisible();
+        await expect(page.locator(".inbox-row:visible").first()).toBeVisible();
         await scenarios[scenario](page, fixture, engine.name(), capture);
       }
       assert.deepEqual(errors, [], "Unexpected browser errors");

@@ -226,6 +226,7 @@ export default function App() {
     }),
     [tab, setTab] = useState(() => initialPage().tab),
     [inboxFilter, setInboxFilter] = useState<InboxFilter>(initialFilter),
+    [feedHomeKey, setFeedHomeKey] = useState(0),
     [searchScope, setSearchScope] = useState<"all" | "mine">(
       new URLSearchParams(location.search).get("page") === "personal"
         ? "mine"
@@ -1832,7 +1833,10 @@ export default function App() {
               now - lastNavTap.current.at < 350;
             lastNavTap.current = home ? null : { tab: t.id, at: now };
             if (home) {
-              if (t.id === "inbox") setInboxFilter("done");
+              if (t.id === "inbox") {
+                setInboxFilter("done");
+                setFeedHomeKey((key) => key + 1);
+              }
               requestAnimationFrame(() =>
                 window.scrollTo({
                   top: 0,
@@ -2763,6 +2767,7 @@ export default function App() {
                 />
               )}
               <Inbox
+                key={feedHomeKey}
                 filter={inboxFilter}
                 onFilter={setInboxFilter}
                 project={projectFilter || undefined}
