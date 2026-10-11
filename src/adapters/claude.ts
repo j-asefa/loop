@@ -1,4 +1,5 @@
 import { directActivityEmitter } from "./direct-activities.js";
+import { claudeTokens } from "./usage.js";
 import { DirectControls } from "./direct-controls.js";
 import type { Setting, SettingValue } from "../agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
@@ -593,6 +594,8 @@ export class Claude implements Adapter {
             },
           });
     if (m.type === "result") {
+      const usage = claudeTokens(m.usage);
+      if (usage) this.emit({ type: "usage", usage });
       if (this.steering.result()) return;
       this.active = false;
       this.messageIds.clear();

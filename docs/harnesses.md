@@ -30,6 +30,8 @@ Harnesses own their context, tools, configuration and credential homes. Loop inv
 
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
 
+Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
+
 For an explicit executable, existing billing configuration, native session resume or a custom ACP agent:
 
 ```sh

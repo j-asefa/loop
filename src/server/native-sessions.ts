@@ -1223,6 +1223,28 @@ export class NativeSessions {
   event(live: Live, input: AdapterEvent) {
     if (live.closed) return;
     if (this.live.get(live.binding.conversation_id) !== live) return;
+    if (input.type === "usage") {
+      const run = live.run;
+      const current = db
+        .prepare("SELECT generation FROM companion_sessions WHERE conversation_id=?")
+        .get(live.binding.conversation_id) as { generation: string } | undefined;
+      const usage = input.usage;
+      if (
+        !run || run.conversation_id !== live.binding.conversation_id ||
+        current?.generation !== live.generation || !usage ||
+        !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 ||
+        !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0
+      ) return;
+      // Cumulative for this Loop turn, separate from API message receipts.
+      // Never persist arbitrary adapter fields in the public event stream.
+      emit(run.owner_id, run.id, "native.usage", {
+        usage: {
+          input_tokens: usage.input_tokens,
+          output_tokens: usage.output_tokens,
+        },
+      });
+      return;
+    }
     if (input.type === "activity" || input.type === "activity_capabilities") {
       this.activity(live, input);
       return;

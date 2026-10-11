@@ -8,6 +8,11 @@ export async function threadLayoutSmoke(page, capture) {
   const fixture = await designFixture();
   try {
     const id = fixture.conversations[0].id;
+    const usageRun = fixture.db.prepare("SELECT id FROM runs WHERE conversation_id=? LIMIT 1").get(id).id;
+    const recordUsage = (input, output) => fixture.db.prepare(
+      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'native.usage',?,?)",
+    ).run(fixture.owner, usageRun, JSON.stringify({ usage: { input_tokens: input, output_tokens: output } }), Date.now());
+    recordUsage(1200, 300);
     const first = fixture.db
       .prepare(
         "SELECT id FROM messages WHERE conversation_id=? ORDER BY created_at LIMIT 1",
@@ -30,6 +35,9 @@ export async function threadLayoutSmoke(page, capture) {
         await page.setViewportSize({ width, height });
         position.run(fixture.owner, id, first, Date.now());
         await page.goto(`${fixture.base}/?conversation=${id}`);
+        const usage = page.locator(".conversation-sheet .message-foot .usage-line");
+        await expect(usage).toHaveText("1.2k in · 300 out tokens");
+        await expect(page.locator(".conversation-sheet .sheet-head .usage-line")).toHaveCount(0);
         const pill = page.getByRole("group", { name: "Thread position" });
         await expect(
           pill.getByText("Resumed where you left off"),
@@ -51,6 +59,17 @@ export async function threadLayoutSmoke(page, capture) {
         await pill
           .getByRole("button", { name: "Jump to latest messages" })
           .click();
+        await expect(usage).toBeInViewport();
+        assert(await usage.evaluate(element => element.scrollWidth <= element.clientWidth + 1),
+          `Token usage overflows the result footer at ${width}px`);
+        if (width === 320 && colorScheme === "light") {
+          recordUsage(1500, 400);
+          await expect(usage).toHaveText("1.5k in · 400 out tokens", { timeout: 10000 });
+          fixture.db.prepare("DELETE FROM events WHERE run_id=? AND type='native.usage'").run(usageRun);
+          await expect(usage).toHaveCount(0, { timeout: 10000 });
+          recordUsage(1200, 300);
+          await expect(usage).toHaveText("1.2k in · 300 out tokens", { timeout: 10000 });
+        }
         await page
           .getByRole("button", { name: "Jump to…", exact: true })
           .click();

@@ -312,6 +312,11 @@ for (const [name, Klass] of Object.entries({
       await until(() =>
         events.some((e) => e.type === "status" && e.status === "completed"),
       );
+      if (name === "codex" || name === "claude") {
+        assert.deepEqual(events.filter(e => e.type === "usage").at(-1), {
+          type: "usage", usage: { input_tokens: 120, output_tokens: 30 },
+        });
+      }
       assert(
         events.some(
           (e) =>

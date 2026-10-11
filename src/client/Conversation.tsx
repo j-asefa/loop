@@ -69,7 +69,6 @@ import { notify } from "./toast";
 import { HandoffSheet, shareLink } from "./Handoff";
 import { EditQueued, type QueuedMessage } from "./Inbox";
 import {
-  compactNumber,
   dayLabel,
   mergeActivityRecords,
   preview,
@@ -223,9 +222,10 @@ export function Conversation({
       context: ChangeContext;
     } | null>(null),
     [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
-    [usage, setUsage] = useState<{
+    [usageData, setUsage] = useState<{
+      conversationId: string;
+      sourceId: string;
       runs: Record<string, Usage>;
-      total: Usage;
       memory?: string[];
     } | null>(null),
     [jump, setJump] = useState<string | null>(null),
@@ -237,6 +237,10 @@ export function Conversation({
     [origin, setOrigin] = useState<{ messageId: string | null } | null>(null),
     [resumed, setResumed] = useState(false),
     [editQueued, setEditQueued] = useState<QueuedMessage | null>(null);
+  const usage =
+    usageData?.conversationId === id && usageData.sourceId === sourceId
+      ? usageData
+      : null;
   const activityHistory = useConversationActivities(
     id, (data?.messages || []).flatMap(message => message.run_id ? [message.run_id] : []),
     showToolActivity,
@@ -485,13 +489,23 @@ export function Conversation({
   }, [revision]);
   useEffect(() => {
     let active = true;
-    api(`/conversations/${id}/usage`)
-      .then((result) => active && setUsage(result))
-      .catch(() => {});
+    let latest = 0;
+    const refresh = () => {
+      const request = ++latest;
+      return api(`/conversations/${id}/usage`)
+        .then((result) => {
+          if (active && request === latest)
+            setUsage({ ...result, conversationId: id, sourceId });
+        })
+        .catch(() => {});
+    };
+    void refresh();
+    const timer = setInterval(refresh, 5000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
-  }, [id, revision, data?.messages.length]);
+  }, [id, sourceId, revision, data?.messages.length]);
   useEffect(() => {
     if (!imported && agent && data?.conversation.id === id)
       readyRef.current({
@@ -826,9 +840,6 @@ export function Conversation({
           <small>
             {agentModelName(agent, connections)}
             {project ? ` · ${project.name}` : ""}
-            {usage?.total && usage.total.input_tokens + usage.total.output_tokens
-              ? ` · ${compactNumber(usage.total.input_tokens + usage.total.output_tokens)} tokens`
-              : ""}
           </small>
         </p>
       )}
@@ -920,14 +931,6 @@ export function Conversation({
               conversationId={id}
               recorded={recordedSessionControls(activityItems)}
             />
-            {usage?.total &&
-              usage.total.input_tokens + usage.total.output_tokens > 0 && (
-                <p className="field-hint">
-                  Token use reported by the provider:{" "}
-                  {compactNumber(usage.total.input_tokens)} in ·{" "}
-                  {compactNumber(usage.total.output_tokens)} out
-                </p>
-              )}
           </div>
         </ActionSheet>
       )}

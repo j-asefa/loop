@@ -87,6 +87,7 @@ export type AdapterEvent =
   // Server-side adapter events only: NativeSessions persists them and the
   // legacy Host drops them, so ServerFrame (the v1 wire) never carries them.
   | ActivityEvent
+  | { type: "usage"; usage: { input_tokens: number; output_tokens: number } }
   | { type: "activity_capabilities"; capabilities: ActivityCapabilities }
   | { type: "status"; status: Status; detail?: string; recoverable?: boolean }
   | { type: "metadata"; nativeSession: string; billing?: Billing }

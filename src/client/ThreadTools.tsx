@@ -1422,9 +1422,10 @@ export function UsageLine({
 }: {
   usage?: { input_tokens: number; output_tokens: number };
 }) {
-  if (!usage) return null;
+  if (!usage || usage.input_tokens + usage.output_tokens === 0)
+    return null;
   return (
-    <p className="usage-line">
+    <p className="usage-line" title="Recorded token usage for this response">
       {compactNumber(usage.input_tokens)} in ·{" "}
       {compactNumber(usage.output_tokens)} out tokens
     </p>

@@ -2175,11 +2175,12 @@ export function conversationUsage(owner: string, conversation: string) {
   owned("conversations", conversation, owner);
   const events = db
     .prepare(
-      `SELECT e.run_id,e.payload FROM events e JOIN runs r ON r.id=e.run_id AND r.owner_id=e.owner_id
-      WHERE e.owner_id=? AND r.conversation_id=? AND e.type='provider.receipt' ORDER BY e.id`,
+      `SELECT e.run_id,e.type,e.payload FROM events e JOIN runs r ON r.id=e.run_id AND r.owner_id=e.owner_id
+      WHERE e.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`,
     )
-    .all(owner, conversation) as { run_id: string; payload: string }[];
+    .all(owner, conversation) as { run_id: string; type: string; payload: string }[];
   const runs: Record<string, Tokens> = {};
+  const native: Record<string, Tokens> = {};
   // A provider message is one receipt with an externalId, optionally followed
   // by cumulative deltas (Anthropic message_start + message_delta). Take the
   // maximum per message so cumulative counts are not added twice.
@@ -2199,6 +2200,13 @@ export function conversationUsage(owner: string, conversation: string) {
       continue;
     }
     const usage = payload.usage;
+    if (event.type === "native.usage") {
+      if (!usage || typeof usage !== "object") continue;
+      const total = (native[event.run_id] ||= { input_tokens: 0, output_tokens: 0 });
+      total.input_tokens = Math.max(total.input_tokens, count(usage.input_tokens));
+      total.output_tokens = Math.max(total.output_tokens, count(usage.output_tokens));
+      continue;
+    }
     if (payload.externalId || !segment || segment.run !== event.run_id) {
       flush();
       segment = {
@@ -2216,6 +2224,7 @@ export function conversationUsage(owner: string, conversation: string) {
     );
   }
   flush();
+  Object.assign(runs, native);
   for (const [run, tokens] of Object.entries(runs))
     if (!tokens.input_tokens && !tokens.output_tokens) delete runs[run];
   const total = Object.values(runs).reduce(

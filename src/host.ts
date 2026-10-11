@@ -134,7 +134,7 @@ export class Host {
     // the workspace (GET /conversations/:id/activities); the legacy snapshot
     // has no activity projection, so forwarding them could not be replayed
     // consistently either.
-    if (event.type === "activity" || event.type === "activity_capabilities")
+    if (event.type === "activity" || event.type === "activity_capabilities" || event.type === "usage")
       return;
     let frame;
     try {

@@ -1,6 +1,7 @@
 import type { Live } from "../src/server/native-sessions";
 import type { AdapterEvent } from "../src/protocol";
 import { Codex } from "../src/adapters/codex";
+import { Claude } from "../src/adapters/claude";
 import { DirectControls } from "../src/adapters/direct-controls";
 import { directActivityUpdate } from "../src/activity-bridge";
 import { afterAll, expect, it } from "vitest";
@@ -19,6 +20,7 @@ const { NativeSessions } = await import("../src/server/native-sessions");
 const { activityRoutes } = await import("../src/server/activities");
 const { Host } = await import("../src/host");
 const { ServerFrame } = await import("../src/protocol");
+const { conversationUsage } = await import("../src/server/mobile-return");
 
 // The real activity route, authenticated as the conversation owner.
 const app = express();
@@ -101,6 +103,61 @@ const events = () =>
     payload: string;
   }[];
 const byKind = (items: any[], kind: string) => items.filter((i) => i.kind === kind);
+it("records native turn tokens through adapter ingress without replay or cross-turn inflation", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "usage-first");
+  const current = start(sessions, "usage-generation", run);
+  current.live.run = run;
+  const adapter = new Codex({ harness: "codex", executable: "", project: dir, version: "fixture", billing: "existing" }, current.emit) as any;
+  adapter.thread = "thread-usage";
+  const send = (method: string, params: any) => adapter.message({ method, params: { threadId: "thread-usage", ...params } });
+  const usage = (turnId: string, input: number, output: number, lastInput = 100, lastOutput = 20) => send("thread/tokenUsage/updated", {
+    turnId, tokenUsage: { total: { inputTokens: input, outputTokens: output }, last: { inputTokens: lastInput, outputTokens: lastOutput } },
+  });
+  // Historical usage is not assigned to the next run.
+  usage("old", 1000, 200);
+  send("turn/started", { turn: { id: "turn-1" } });
+  usage("turn-1", 1100, 220);
+  usage("turn-1", 1300, 260, 200, 40);
+  usage("turn-1", 1300, 260, 200, 40);
+  usage("turn-1", 1100, 220);
+  usage("wrong-turn", 9999, 9999);
+  send("thread/tokenUsage/updated", { threadId: "foreign", turnId: "turn-1", tokenUsage: { total: { inputTokens: 9999, outputTokens: 9999 } } });
+  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({ input_tokens: 300, output_tokens: 60 });
+
+  const next = turn("conv", "usage-second");
+  current.live.run = next;
+  send("turn/started", { turn: { id: "turn-2" } });
+  usage("turn-2", 1350, 270, 50, 10);
+  expect(conversationUsage("owner", "conv").runs[next.id]).toEqual({ input_tokens: 50, output_tokens: 10 });
+  const before = events().length;
+  current.emit({ type: "usage", usage: { input_tokens: NaN, output_tokens: 1 } });
+  current.emit({ type: "usage", usage: { input_tokens: -1, output_tokens: 1 } });
+  current.live.run = turn("other", "usage-foreign");
+  current.emit({ type: "usage", usage: { input_tokens: 9000, output_tokens: 9000 } });
+  current.live.run = next;
+  db.prepare("UPDATE companion_sessions SET generation='replacement' WHERE conversation_id='conv'").run();
+  current.emit({ type: "usage", usage: { input_tokens: 9000, output_tokens: 9000 } });
+  // The foreign run's enqueue/claim events are unrelated to usage.
+  expect(events().slice(before).filter(e => e.type === "native.usage")).toHaveLength(0);
+  expect(() => conversationUsage("intruder", "conv")).toThrow();
+});
+
+it("records Claude result usage including cached inputs, excluding foreign results", () => {
+  const run = turn("conv", "usage-claude");
+  const current = start(new NativeSessions(), "usage-claude-generation", run);
+  current.live.run = run;
+  const adapter = new Claude({ harness: "claude", executable: "", project: dir, version: "fixture", billing: "existing", resume: "claude-usage" }, current.emit) as any;
+  adapter.active = true;
+  const result = { type: "result", session_id: "claude-usage", usage: { input_tokens: 100, cache_read_input_tokens: 50, cache_creation_input_tokens: 25, output_tokens: 20 } };
+  adapter.message({ ...result, parent_tool_use_id: "child" });
+  adapter.message({ ...result, session_id: "other-session" });
+  expect(conversationUsage("owner", "conv").runs[run.id]).toBeUndefined();
+  adapter.message(result);
+  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({ input_tokens: 175, output_tokens: 20 });
+  adapter.message(result);
+  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({ input_tokens: 175, output_tokens: 20 });
+});
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,

@@ -78,6 +78,10 @@ function finish(status = "completed") {
     note("item/completed", {
       item: { id: active, type: "agentMessage", text: "Fixture done" },
     });
+    note("thread/tokenUsage/updated", { turnId: active, tokenUsage: {
+      total: { inputTokens: count * 120, outputTokens: count * 30 },
+      last: { inputTokens: 120, outputTokens: 30 },
+    } });
     note("turn/completed", { turn: { id: active, status } });
   }
   if (kind === "claude") {
@@ -105,6 +109,7 @@ function finish(status = "completed") {
       type: "result",
       subtype: "success",
       is_error: false,
+      usage: { input_tokens: 80, cache_read_input_tokens: 30, cache_creation_input_tokens: 10, output_tokens: 30 },
       ...(process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS
         ? { origin: { kind: "human" } }
         : {}),

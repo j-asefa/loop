@@ -6,6 +6,7 @@ import { modelOptions } from "../../runtime/model-options.mjs";
 import { Native } from "../native.js";
 import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";
+import { codexTokens, type Tokens } from "./usage.js";
 import type { Billing } from "../protocol.js";
 import {
   capabilities,
@@ -66,6 +67,8 @@ export class Codex implements Adapter {
   private skills: { name: string; path: string }[] = [];
   private thread = "";
   private turn = "";
+  private tokenTotal?: Tokens;
+  private tokenBaseline?: Tokens;
   private requests = new Map<string, any>();
   private defaultModel: string | undefined;
   constructor(
@@ -307,6 +310,7 @@ export class Codex implements Adapter {
           "Codex effective subscription configuration changed. No prompt was sent.",
         );
     }
+    this.tokenBaseline = this.tokenTotal;
     const r = await this.native.request("turn/start", {
       threadId: this.thread,
       ...(this.options.model || this.defaultModel
@@ -532,8 +536,41 @@ export class Codex implements Adapter {
       return;
     }
     if (m.method === "turn/started") {
+      if (this.turn !== p.turn.id) this.tokenBaseline = this.tokenTotal;
       this.turn = p.turn.id;
       this.emit({ type: "status", status: "running" });
+    }
+    if (
+      m.method === "thread/tokenUsage/updated" &&
+      this.turn &&
+      p.turnId === this.turn
+    ) {
+      const total = codexTokens(p.tokenUsage?.total);
+      const last = codexTokens(p.tokenUsage?.last);
+      if (!total) return;
+      // A resumed thread already has usage. Establish its pre-turn baseline
+      // from the first new increment, then use cumulative snapshots so
+      // repeated notifications and multiple model calls cannot double count.
+      if (!this.tokenBaseline) {
+        if (!last) return;
+        this.tokenBaseline = {
+          input_tokens: Math.max(0, total.input_tokens - last.input_tokens),
+          output_tokens: Math.max(0, total.output_tokens - last.output_tokens),
+        };
+      }
+      if (
+        this.tokenTotal &&
+        (total.input_tokens < this.tokenTotal.input_tokens ||
+          total.output_tokens < this.tokenTotal.output_tokens)
+      ) return;
+      this.tokenTotal = total;
+      this.emit({
+        type: "usage",
+        usage: {
+          input_tokens: Math.max(0, total.input_tokens - this.tokenBaseline.input_tokens),
+          output_tokens: Math.max(0, total.output_tokens - this.tokenBaseline.output_tokens),
+        },
+      });
     }
     if (m.method === "turn/completed") {
       this.turn = "";
