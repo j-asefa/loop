@@ -7697,6 +7697,10 @@ html:has(.sheet.side-panel[open]) {
   padding: 0 4px;
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+.my-profile-tabs::-webkit-scrollbar {
+  display: none;
 }
 .my-profile-tabs button {
   min-height: 44px;

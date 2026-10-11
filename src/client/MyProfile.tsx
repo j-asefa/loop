@@ -13,10 +13,10 @@ export type MyProfileData = {
 export type ProfileTab = "messages" | "files" | Exclude<LaterSection, "all">;
 const profileTabs: [ProfileTab, string][] = [
   ["messages", "Messages"],
-  ["files", "Files"],
   ["saved", "Saved"],
   ["reminders", "Reminders"],
   ["scheduled", "Scheduled"],
+  ["files", "Files"],
 ];
 
 export function initialsOf(name: string) {
