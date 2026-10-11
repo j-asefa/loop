@@ -497,3 +497,35 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
       transition(run, "cancelled");
   }
 });
+
+it("creates an LLM council whose chair manages members on their own connections", () => {
+  const council = createPresetTeam("alice", {
+    presetId: "llm-council",
+    name: "Council",
+    folderId: folder,
+    selection: { connectionId: c, model: "fixture-model" },
+    roles: { "member-2": { connectionId: native, model: "fixture-model" } },
+    idempotencyKey: "create-council-team",
+  });
+  const agent = (agentId: string) =>
+    db.prepare("SELECT * FROM agents WHERE id=?").get(agentId) as any;
+  const { assignments } = JSON.parse(council.preset_config);
+  expect(council.preset_id).toBe("llm-council");
+  expect(assignments.map((a: any) => a.role)).toEqual([
+    "chair",
+    "member-1",
+    "member-2",
+    "member-3",
+  ]);
+  expect(council.manager_id).toBe(assignments[0].agentId);
+  expect([...council.members].sort()).toEqual(
+    assignments
+      .slice(1)
+      .map((a: any) => a.agentId)
+      .sort(),
+  );
+  expect(agent(council.manager_id).instructions).toMatch(/Borda/);
+  expect(agent(assignments[2].agentId).connection_id).toBe(native);
+  expect(agent(assignments[3].agentId).connection_id).toBe(c);
+  expect(agent(assignments[1].agentId).instructions).toMatch(/FINAL RANKING:/);
+});

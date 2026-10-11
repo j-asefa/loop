@@ -259,6 +259,12 @@ async function teamEditingSmoke(page, fixture) {
             name: `@${disconnected.name}`,
           }),
         ).toHaveCount(0);
+        // Agent names alone don't say which model each agent runs.
+        await expect(
+          dialog()
+            .getByLabel("Manager", { exact: true })
+            .locator(`option[value="${fixture.agents[9].id}"]`),
+        ).toHaveText(new RegExp(`^@${fixture.agents[9].name} · \\S`));
         await exit();
         await expect(dialog()).toHaveAttribute("aria-label", "Agent teams");
       }

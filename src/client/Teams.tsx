@@ -13,6 +13,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { PresetPicker, PresetTeamForm } from "./TeamPresets";
+import { agentModelName } from "./modelChoices";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Agent, Connection, Team, Folder } from "../shared/types";
 import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
@@ -99,6 +100,7 @@ export function TeamDirectory({
                 <Avatar name={agent.name} provider={agent.provider} />
                 <span>
                   <strong>@{agent.name}</strong>
+                  <small>{agentModelName(agent, connections)}</small>
                 </span>
                 <UserPlus size={18} aria-hidden="true" />
               </button>
@@ -801,7 +803,7 @@ export function CreateTeam({
                 <option value="">Choose a manager</option>
                 {available.map((a) => (
                   <option key={a.id} value={a.id}>
-                    @{a.name}
+                    @{a.name} · {agentModelName(a, connections)}
                   </option>
                 ))}
               </select>
@@ -823,7 +825,12 @@ export function CreateTeam({
                         )
                       }
                     />
-                    @{a.name}
+                    <span>
+                      @{a.name}{" "}
+                      <span className="muted">
+                        · {agentModelName(a, connections)}
+                      </span>
+                    </span>
                   </label>
                 ))}
             </fieldset>

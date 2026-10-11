@@ -48,7 +48,7 @@ export async function feedbackJourney(page, api, base, dir) {
   await page.getByRole("button", { name: "New team", exact: true }).click();
   await page.getByLabel("Team name").fill("Feedback team");
   await page.getByLabel("Manager", { exact: true }).selectOption(manager.id);
-  await page.getByLabel("@feedback-worker", { exact: true }).check();
+  await page.getByRole("checkbox", { name: /^@feedback-worker · / }).check();
   await page
     .getByRole("button", { name: "Create team & talk to manager" })
     .click();

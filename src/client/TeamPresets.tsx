@@ -161,6 +161,12 @@ export function PresetTeamForm({
           billed by your selected connections.
         </p>
       )}
+      {preset.id === "llm-council" && (
+        <p className="muted">
+          Choose a different model for each member. A council of one model
+          mostly agrees with itself.
+        </p>
+      )}
       <label>
         Team name
         <input
@@ -192,7 +198,7 @@ export function PresetTeamForm({
         <p className="muted">Create a project first from Projects.</p>
       )}
       {chooser("Default for all roles", selection, setSelection)}
-      <details>
+      <details open={preset.id === "llm-council"}>
         <summary>Customize connections by role</summary>
         {preset.roles.map((r) => (
           <div key={r.id}>
