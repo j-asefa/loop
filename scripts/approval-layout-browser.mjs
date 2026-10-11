@@ -3,6 +3,7 @@ import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import codexToolApproval from "../test/fixtures/codex-tool-approval.json" with { type: "json" };
+import codexReviewApproval from "../test/fixtures/codex-review-approval.json" with { type: "json" };
 
 // Fixture-only: real UI, no native provider or external tool execution.
 const fixture = await designFixture();
@@ -40,6 +41,7 @@ try {
       });
       const decisions = [];
       let council = false;
+      let review = false;
       await page.route("**/api/native/decisions**", async (route) => {
         if (route.request().method() === "POST") {
           decisions.push(route.request().postDataJSON());
@@ -57,20 +59,28 @@ try {
                   ? {
                       id: "council-request",
                       kind: "approval",
-                      title: "Allow loop_delegate?",
+                      title: review
+                        ? "Allow tool call?"
+                        : "Allow loop_delegate?",
                       choices: ["accept", "decline", "cancel"],
                       allow: "accept",
-                      detail: JSON.stringify({
-                        ...codexToolApproval,
-                        threadId: "native-thread-must-be-collapsed",
-                        _meta: {
-                          ...codexToolApproval._meta,
-                          tool_params: {
-                            agent: "reviewer",
-                            task: "Review the proposed plan. ".repeat(100),
-                          },
-                        },
-                      }),
+                      detail: JSON.stringify(
+                        review
+                          ? codexReviewApproval
+                          : {
+                              ...codexToolApproval,
+                              threadId: "native-thread-must-be-collapsed",
+                              _meta: {
+                                ...codexToolApproval._meta,
+                                tool_params: {
+                                  agent: "reviewer",
+                                  task: "Review the proposed plan. ".repeat(
+                                    100,
+                                  ),
+                                },
+                              },
+                            },
+                      ),
                     }
                   : {
                       id: "request",
@@ -209,6 +219,29 @@ try {
         await expect(card).toHaveCount(0);
         assert.equal(decisions.at(-1).answer.choice, "accept");
       }
+      review = true;
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(
+        fixture.base + "/?conversation=" + fixture.conversations[0].id,
+      );
+      const reviewCard = page.locator(".conversation-sheet .native-decision");
+      await expect(
+        reviewCard.getByRole("heading", {
+          name: "Allow tool call?",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(reviewCard.locator(".native-decision-detail")).toContainText(
+        codexReviewApproval.message,
+      );
+      const reviewAccept = reviewCard.getByRole("button", {
+        name: "Accept",
+        exact: true,
+      });
+      await expect(reviewAccept).toBeInViewport({ ratio: 1 });
+      await reviewAccept.click();
+      await expect(reviewCard).toHaveCount(0);
+      assert.equal(decisions.at(-1).answer.choice, "accept");
       console.log(
         `${engine.name()}: approval actions and Pi composer layout passed`,
       );

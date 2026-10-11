@@ -16,6 +16,49 @@ const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
 import { until } from "./helpers.js";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
+import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
+
+test("Codex review approval without a tool title offers and delivers acceptance", async () => {
+  const events: AdapterEvent[] = [];
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
+  try {
+    await adapter.start();
+    await adapter.prompt("mcp-accept\n" + JSON.stringify(codexReviewApproval));
+    await until(() => events.some((event) => event.type === "request"));
+    const event = events.find((event) => event.type === "request")!;
+    assert.equal(event.type, "request");
+    assert.equal(event.request.title, "Allow tool call?");
+    assert.deepEqual(event.request.choices, ["accept", "decline", "cancel"]);
+    assert.equal(event.request.allow, "accept");
+    assert.equal(
+      JSON.parse(event.request.detail).message,
+      codexReviewApproval.message,
+    );
+    await adapter.answer(event.request.id, { choice: "accept" });
+    // The subprocess fixture validates the exact one-call response, including
+    // empty form content and no persisted session/always approval.
+    await until(() =>
+      events.some(
+        (event) => event.type === "status" && event.status === "completed",
+      ),
+    );
+    await assert.rejects(
+      adapter.answer(event.request.id, { choice: "accept" }),
+      /expired/,
+    );
+  } finally {
+    await adapter.dispose();
+  }
+});
 
 test("Codex MCP confirmations support one-call acceptance, decline and cancel", async () => {
   process.env.LOOP_TEST_HARNESS = "codex";

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { NativeOutput } from "../src/server/native-output";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
+import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
 const dir = mkdtempSync(join(tmpdir(), "loop-auto-approval-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
@@ -87,43 +88,47 @@ const approval: Request = {
   allow: "allow",
 };
 
-it("Codex council tool confirmations honor Never ask and retain manual approval otherwise", async () => {
-  for (const mode of ["bypassPermissions", "default"] as const) {
-    const { live, answer, state, run, sessions } = session(
-      "codex-" + mode,
-      mode,
-      "codex",
-    );
-    try {
-      await live.adapter.start();
-      await live.adapter.prompt(
-        "mcp-accept\n" + JSON.stringify(codexToolApproval),
+it.each([
+  ["council", codexToolApproval],
+  ["review", codexReviewApproval],
+] as const)(
+  "Codex %s tool confirmations honor Never ask and retain manual approval otherwise",
+  async (kind, params) => {
+    for (const mode of ["bypassPermissions", "default"] as const) {
+      const { live, answer, state, run, sessions } = session(
+        "codex-" + kind + "-" + mode,
+        mode,
+        "codex",
       );
-      const decision = () =>
-        db
-          .prepare(
-            "SELECT id,state,request FROM native_decisions WHERE run_id=?",
-          )
-          .get(run.id) as any;
-      await vi.waitFor(() => expect(decision()).toBeDefined());
-      expect(JSON.parse(decision().request).allow).toBe("accept");
-      if (mode === "default") {
-        expect(state()).toBe("awaiting_approval");
-        expect(answer).not.toHaveBeenCalled();
-        await sessions.answer(decision().id, "manual-council-approval", {
+      try {
+        await live.adapter.start();
+        await live.adapter.prompt("mcp-accept\n" + JSON.stringify(params));
+        const decision = () =>
+          db
+            .prepare(
+              "SELECT id,state,request FROM native_decisions WHERE run_id=?",
+            )
+            .get(run.id) as any;
+        await vi.waitFor(() => expect(decision()).toBeDefined());
+        expect(JSON.parse(decision().request).allow).toBe("accept");
+        if (mode === "default") {
+          expect(state()).toBe("awaiting_approval");
+          expect(answer).not.toHaveBeenCalled();
+          await sessions.answer(decision().id, "manual-council-approval", {
+            choice: "accept",
+          });
+        }
+        await vi.waitFor(() => expect(decision().state).toBe("resolved"));
+        expect(answer).toHaveBeenCalledExactlyOnceWith("102", {
           choice: "accept",
         });
+        expect(state()).toBe("running");
+      } finally {
+        await live.adapter.dispose();
       }
-      await vi.waitFor(() => expect(decision().state).toBe("resolved"));
-      expect(answer).toHaveBeenCalledExactlyOnceWith("102", {
-        choice: "accept",
-      });
-      expect(state()).toBe("running");
-    } finally {
-      await live.adapter.dispose();
     }
-  }
-});
+  },
+);
 
 it("Never ask answers a tool approval without waiting for the user", async () => {
   const { answer, request, state, run } = session(

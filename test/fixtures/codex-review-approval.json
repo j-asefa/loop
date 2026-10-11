@@ -1,0 +1,18 @@
+{
+  "threadId": "review-thread",
+  "turnId": "review-turn",
+  "serverName": "loop_workspace",
+  "mode": "form",
+  "_meta": {
+    "codex_approval_kind": "mcp_tool_call",
+    "persist": ["session", "always"],
+    "tool_description": "Ask a code review team to review your changes.",
+    "tool_params": {
+      "base": "main",
+      "scope": "branch",
+      "teamId": "review-team"
+    }
+  },
+  "message": "Allow the loop_workspace MCP server to run tool \"loop_request_review\"?",
+  "requestedSchema": { "type": "object", "properties": {} }
+}
