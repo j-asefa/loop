@@ -10,9 +10,10 @@ export type MyProfileData = {
   bio: string | null;
   counts: { messages: number; agents: number; projects: number };
 };
-export type ProfileTab = "messages" | Exclude<LaterSection, "all">;
+export type ProfileTab = "messages" | "files" | Exclude<LaterSection, "all">;
 const profileTabs: [ProfileTab, string][] = [
   ["messages", "Messages"],
+  ["files", "Files"],
   ["saved", "Saved"],
   ["reminders", "Reminders"],
   ["scheduled", "Scheduled"],
@@ -28,7 +29,7 @@ export function initialsOf(name: string) {
 }
 
 /**
- * Your own profile: who you are, then your sent messages and what Later
+ * Your own profile: who you are, then your sent messages, published files and what Later
  * holds (Saved, Reminders, Scheduled) as tabs. It opens on the tab Later
  * was last asked for, so links to a reminder or scheduled send land there.
  */
@@ -38,6 +39,7 @@ export function MyProfile({
   profile,
   onSaved,
   messages,
+  files,
   later,
   onAgents,
   onProjects,
@@ -48,6 +50,7 @@ export function MyProfile({
   profile: MyProfileData | null;
   onSaved: (profile: MyProfileData) => void;
   messages: ReactNode;
+  files: ReactNode;
   later: (section: Exclude<LaterSection, "all">) => ReactNode;
   /** Open agent management, from the Agents count. */
   onAgents: () => void;
@@ -133,7 +136,7 @@ export function MyProfile({
         role="tabpanel"
         aria-label={profileTabs.find(([id]) => id === tab)?.[1]}
       >
-        {tab === "messages" ? messages : later(tab)}
+        {tab === "messages" ? messages : tab === "files" ? files : later(tab)}
       </div>
       {editing && (
         <EditProfile

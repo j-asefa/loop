@@ -9664,3 +9664,15 @@ label.catalog-filter-chip {
 .code-review-status { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
 .code-review-status p { font-size: 0.9rem; margin: 6px 0; }
 .code-review-status ul { max-height: 180px; overflow: auto; }
+
+.personal-files-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.personal-files-filters label,
+.personal-files-filters select { min-width: 0; width: 100%; }
+.personal-files-list { display: grid; gap: 12px; }
+.personal-files-list .feed-card { min-width: 0; }
+.file-preview-content video { max-width: 100%; max-height: 65vh; }

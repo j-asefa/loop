@@ -12,12 +12,17 @@ export function loopFileUrl(href?: string, source?: string) {
     const url = new URL(href, location.href);
     if (
       url.origin === location.origin &&
-      /^\/api\/(?:agent-sources\/[^/]+\/)?(artifacts\/[^/]+\/file|objects\/[^/]+)$/.test(url.pathname)
+      /^\/api\/(?:agent-sources\/[^/]+\/)?(artifacts\/[^/]+\/file|objects\/[^/]+)$/.test(
+        url.pathname,
+      )
     )
-      return source === undefined ? url.pathname + url.search : sourceApiPathAt(
-        url.pathname.replace(/^\/api\/agent-sources\/[^/]+\//, "/api/") + url.search,
-        source,
-      );
+      return source === undefined
+        ? url.pathname + url.search
+        : sourceApiPathAt(
+            url.pathname.replace(/^\/api\/agent-sources\/[^/]+\//, "/api/") +
+              url.search,
+            source,
+          );
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }
@@ -77,6 +82,9 @@ function responseName(response: Response) {
 }
 
 const previewMime: Record<string, string> = {
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -98,6 +106,7 @@ type ReadyFile = {
   file: File;
   downloadUrl: string;
   imageUrl?: string;
+  videoUrl?: string;
   htmlUrl?: string;
   text?: string;
   truncated?: boolean;
@@ -175,6 +184,11 @@ export function FilePreview({
           // srcdoc. The full file (including embedded assets) is preserved.
           htmlUrl: htmlUrl ? htmlUrl.pathname + htmlUrl.search : undefined,
           imageUrl: image ? objectUrl(file) : undefined,
+          videoUrl: ["video/mp4", "video/webm", "video/quicktime"].includes(
+            type,
+          )
+            ? objectUrl(file)
+            : undefined,
           text: content,
           truncated: text && file.size > 100_000,
           downloadUrl: objectUrl(
@@ -263,6 +277,19 @@ export function FilePreview({
               onError={() =>
                 setError(
                   "The image preview could not be displayed. You can still save the file.",
+                )
+              }
+            />
+          ) : ready.videoUrl ? (
+            <video
+              src={ready.videoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={ready.file.name}
+              onError={() =>
+                setError(
+                  "This browser could not play the video. You can still save the file.",
                 )
               }
             />

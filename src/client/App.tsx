@@ -1,6 +1,7 @@
 import { StartCodeReview } from "./CodeReview";
 import { SettingsHome } from "./SettingsHome";
 import { PersonalProfile } from "./PersonalProfile";
+import { PersonalFiles } from "./PersonalFiles";
 import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName } from "./modelChoices";
@@ -2886,6 +2887,7 @@ export default function App() {
                   window.scrollTo({ top: 0, behavior: "instant" }),
                 );
               }}
+              files={<PersonalFiles onConversation={(id) => setConversation(id)} />}
               messages={
                 <PersonalProfile
                   embedded

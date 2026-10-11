@@ -14,6 +14,7 @@ import {
 } from "./feed.js";
 import { agentTraces, runTraceExport } from "./traces.js";
 import { personalHistory } from "./personal-history.js";
+import { personalFiles } from "./personal-files.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages } from "./conversation-messages.js";
@@ -466,6 +467,9 @@ core.get("/agents/:id/traces/export", (req, res) => {
   const runId = z.string().min(1).max(100).parse(req.query.run);
   const data = runTraceExport(res.locals.owner, req.params.id, runId);
   res.attachment(`loop-run-${runId}-traces.json`).json(data);
+});
+core.get("/me/files", (req, res) => {
+  res.json(personalFiles(res.locals.owner, req.query));
 });
 core.get("/me/profile", (_req, res) => {
   res.json(readProfile(res.locals.owner));
