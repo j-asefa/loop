@@ -7,7 +7,7 @@ import { Native } from "../native.js";
 import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";
 import { codexTokens, type Tokens } from "./usage.js";
-import type { Billing } from "../protocol.js";
+import type { Billing, Request } from "../protocol.js";
 import {
   capabilities,
   conflict,
@@ -70,6 +70,8 @@ export class Codex implements Adapter {
   private tokenTotal?: Tokens;
   private tokenBaseline?: Tokens;
   private requests = new Map<string, any>();
+  private asyncQuestions = new Map<string, Request>();
+  private seenAsyncQuestions = new Set<string>();
   private defaultModel: string | undefined;
   constructor(
     private options: Options,
@@ -333,7 +335,10 @@ export class Codex implements Adapter {
     if (!this.turn && r.turn.status === "inProgress") this.turn = r.turn.id;
   }
   async steer(text: string) {
-    if (!this.turn) throw new NotDelivered("No active Codex turn.");
+    if (!this.turn) {
+      if (this.asyncQuestions.size) return this.prompt(text);
+      throw new NotDelivered("No active Codex turn.");
+    }
     await this.native.request("turn/steer", {
       threadId: this.thread,
       expectedTurnId: this.turn,
@@ -341,13 +346,33 @@ export class Codex implements Adapter {
     });
   }
   async cancel() {
-    if (!this.turn) throw new Error("No active Codex turn.");
+    if (!this.turn) {
+      if (!this.asyncQuestions.size) throw new Error("No active Codex turn.");
+      this.clearAsyncQuestions();
+      this.emit({ type: "status", status: "interrupted" });
+      return;
+    }
     await this.native.request("turn/interrupt", {
       threadId: this.thread,
       turnId: this.turn,
     });
   }
   async answer(id: string, answer: Record<string, unknown>) {
+    const question = this.asyncQuestions.get(id);
+    if (question) {
+      // Async input has no outstanding JSON-RPC request. Deliver the user's
+      // explicit answer as native input, once, in the same thread.
+      this.asyncQuestions.delete(id);
+      const text =
+        "Answers to your questions:\n" +
+        question.questions!
+          .map((q) => `${q.title}\n${JSON.stringify(answer[q.id])}`)
+          .join("\n\n");
+      if (this.turn) await this.steer(text);
+      else await this.prompt(text);
+      this.emit({ type: "resolved", id });
+      return;
+    }
     const m = this.requests.get(id);
     if (!m) throw new Error("Native request expired.");
     let result: unknown;
@@ -381,8 +406,38 @@ export class Codex implements Adapter {
     await this.native.write({ id: m.id, result });
     this.emit({ type: "resolved", id });
   }
+  private clearAsyncQuestions() {
+    for (const id of this.asyncQuestions.keys())
+      this.emit({ type: "resolved", id });
+    this.asyncQuestions.clear();
+    this.seenAsyncQuestions.clear();
+  }
   private item(item: any, completed: boolean, history = false) {
     if (!item || typeof item.id !== "string") return;
+    if (
+      item.type === "agentMessage" &&
+      item.delivery === "async" &&
+      completed &&
+      !history &&
+      !this.seenAsyncQuestions.has(item.id) &&
+      Array.isArray(item.questions) &&
+      item.questions.length
+    ) {
+      const request: Request = {
+        id: `async:${item.id}`,
+        kind: "question",
+        title: "Codex needs your input",
+        detail: "",
+        questions: item.questions.map((q: any, index: number) => ({
+          id: String(index),
+          title: q.title,
+          options: q.options ?? undefined,
+        })),
+      };
+      this.seenAsyncQuestions.add(item.id);
+      this.asyncQuestions.set(request.id, request);
+      this.emit({ type: "request", request });
+    }
     if (item.type === "agentMessage")
       this.emit({
         type: "item",
@@ -577,6 +632,14 @@ export class Codex implements Adapter {
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();
+      // Codex may finish its independent work while an async question is
+      // unanswered. Keep Loop's decision live; an answer starts the next
+      // native turn in this same run and generation.
+      if (p.turn.status === "completed" && this.asyncQuestions.size) {
+        this.emit({ type: "status", status: "awaiting-input" });
+        return;
+      }
+      this.clearAsyncQuestions();
       this.emit({
         type: "status",
         status:

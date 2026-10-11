@@ -169,6 +169,39 @@ it("Never ask still waits for questions and requests without an allow choice", (
   expect(state()).toBe("awaiting_approval");
 });
 
+it("Codex async questions persist as Needs you until the user answers, even after native completion", async () => {
+  const { sessions, live, state, run } = session("async-question", "bypassPermissions");
+  const adapter = new Codex({
+    harness: "codex", executable: "", version: "fixture", project: dir, billing: "existing",
+  }, (event) => sessions.event(live, event));
+  live.adapter = adapter;
+  const request = vi.fn().mockResolvedValue({ turn: { id: "continued", status: "inProgress" } });
+  (adapter as any).native = { request };
+  const frame = (method: string, params: unknown) => (adapter as any).message({ method, params });
+  frame("turn/started", { turn: { id: "original" } });
+  const item = {
+    id: "call_async", type: "agentMessage", phase: "final_answer", delivery: "async",
+    text: "Restart now or wait?", questions: [{ title: "Restart now or wait?", options: ["Wait", "Restart"] }],
+  };
+  frame("item/completed", { item });
+  frame("item/completed", { item });
+  frame("turn/completed", { turn: { id: "original", status: "completed" } });
+  expect(state()).toBe("awaiting_approval");
+  expect(request).not.toHaveBeenCalled();
+  const decisions = db.prepare("SELECT id,state,request FROM native_decisions WHERE run_id=?").all(run.id) as any[];
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0].state).toBe("pending");
+  expect(JSON.parse(decisions[0].request).questions[0].options).toEqual(["Wait", "Restart"]);
+  await sessions.answer(decisions[0].id, "answer-async", { "0": ["Wait"] });
+  expect(request).toHaveBeenCalledWith("turn/start", expect.objectContaining({
+    input: [expect.objectContaining({ text: 'Answers to your questions:\nRestart now or wait?\n["Wait"]' })],
+  }));
+  expect(state()).toBe("running");
+  await sessions.answer(decisions[0].id, "answer-async", { "0": ["Wait"] });
+  expect(request).toHaveBeenCalledTimes(1);
+  clearTimeout(live.flush);
+});
+
 it("Ask every time leaves tool approvals for the user", () => {
   for (const mode of [undefined, "default", "acceptEdits"] as const) {
     const { answer, request, state } = session("ask-" + mode, mode);

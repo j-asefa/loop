@@ -220,7 +220,10 @@ if (kind !== "opencode") {
         });
       if (m.params?.threadId) threadId = m.params.threadId;
       return result({
-        thread: { id: threadId, turns: [] },
+        thread: { id: threadId, turns: process.env.LOOP_TEST_ASYNC_HISTORY ? [{ items: [{
+          id: "old-question", type: "agentMessage", text: "Old question",
+          delivery: "async", questions: [{ title: "Old question", options: ["Yes", "No"] }],
+        }] }] : [] },
         modelProvider: "openai",
         model: "fixture",
       });
@@ -332,6 +335,9 @@ if (kind !== "opencode") {
     if (type === "turn/steer") {
       if (m.params.expectedTurnId !== active)
         throw new Error("Wrong turn was steered");
+      if (process.env.LOOP_TEST_ASYNC_ANSWER &&
+          !m.params.input[0].text.includes('"Wait for active agents"'))
+        throw new Error("Missing async question answer");
       result({ turnId: active });
       setTimeout(() => finish(), 30);
       return;
@@ -483,6 +489,25 @@ if (kind !== "opencode") {
         });
         return;
       }
+
+      if (kind === "codex" && text.startsWith("async-question")) {
+        const item = {
+          id: "async-question-" + count,
+          type: "agentMessage",
+          text: "Restart now or wait?",
+          phase: "final_answer",
+          delivery: "async",
+          questions: [{ title: "Restart now or wait?", options: ["Wait for active agents", "Restart now"] }],
+        };
+        note("item/started", { item });
+        note("item/completed", { item });
+        note("item/completed", { item });
+        if (text === "async-question-finish") finish();
+        return;
+      }
+      if (kind === "codex" && process.env.LOOP_TEST_ASYNC_ANSWER &&
+          !text.includes('"Wait for active agents"'))
+        throw new Error("Missing async question answer");
       if (text === "approve") {
         held = true;
         if (kind === "codex")

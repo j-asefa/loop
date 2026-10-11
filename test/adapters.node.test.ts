@@ -146,6 +146,84 @@ test("Codex MCP confirmations support one-call acceptance, decline and cancel", 
     delete process.env.LOOP_TEST_HARNESS;
   }
 });
+test("Codex async questions surface once and accept answers during or after native work", async () => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  process.env.LOOP_TEST_ASYNC_ANSWER = "1";
+  try {
+    for (const finished of [false, true]) {
+      const events: AdapterEvent[] = [];
+      const adapter = new Codex({
+        harness: "codex", project: process.cwd(), executable,
+        billing: "existing", version: "fixture",
+      }, (event) => events.push(event));
+      try {
+        await adapter.start();
+        await adapter.prompt(finished ? "async-question-finish" : "async-question");
+        await until(() => events.some((e) => e.type === "request") &&
+          (!finished || events.some((e) => e.type === "status" && e.status === "awaiting-input")));
+        const requests = events.filter((e) => e.type === "request");
+        assert.equal(requests.length, 1);
+        const request = requests[0].request;
+        assert.equal(request.kind, "question");
+        assert.equal(request.allow, undefined);
+        assert.deepEqual(request.questions, [{
+          id: "0", title: "Restart now or wait?", options: ["Wait for active agents", "Restart now"],
+        }]);
+        assert(!events.some((e) => e.type === "status" && e.status === "completed"));
+        await adapter.answer(request.id, { "0": ["Wait for active agents"] });
+        await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+        assert.equal(events.filter((e) => e.type === "resolved" && e.id === request.id).length, 1);
+        await assert.rejects(adapter.answer(request.id, { "0": ["Restart now"] }), /expired/);
+      } finally {
+        await adapter.dispose();
+      }
+    }
+  } finally {
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_ASYNC_ANSWER;
+  }
+});
+
+test("Codex can cancel while waiting for an async answer after native completion", async () => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  const events: AdapterEvent[] = [];
+  const adapter = new Codex({
+    harness: "codex", project: process.cwd(), executable,
+    billing: "existing", version: "fixture",
+  }, (event) => events.push(event));
+  try {
+    await adapter.start();
+    await adapter.prompt("async-question-finish");
+    await until(() => events.some((e) => e.type === "status" && e.status === "awaiting-input"));
+    await adapter.cancel();
+    assert(events.some((e) => e.type === "resolved"));
+    assert(events.some((e) => e.type === "status" && e.status === "interrupted"));
+    assert(!events.some((e) => e.type === "status" && e.status === "completed"));
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+  }
+});
+
+test("Codex does not reopen async questions from resumed history", async () => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  process.env.LOOP_TEST_ASYNC_HISTORY = "1";
+  const events: AdapterEvent[] = [];
+  const adapter = new Codex({
+    harness: "codex", project: process.cwd(), executable, resume: "saved-thread",
+    billing: "existing", version: "fixture",
+  }, (event) => events.push(event));
+  try {
+    await adapter.start();
+    assert(events.some((e) => e.type === "item" && e.item.id === "old-question"));
+    assert(!events.some((e) => e.type === "request"));
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_ASYNC_HISTORY;
+  }
+});
+
 test("Pi's subscription catalog excludes API routes for the same model", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   process.env.LOOP_TEST_PI_API_MODEL = "1";
