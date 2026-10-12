@@ -5,6 +5,7 @@ import {
   NATIVE_CONNECTION_SQL,
 } from "./native-connections.js";
 import { nativeSessions } from "./native-sessions.js";
+import { hostEnvironmentName } from "./execution-location.js";
 import {
   resultsRevision,
   resultsUpdates,
@@ -52,6 +53,7 @@ export const core = Router();
 core.use(viewportDiagnostics);
 core.get("/bootstrap", (_req, res) =>
   res.json({
+    environmentName: hostEnvironmentName(),
     teams: listTeams(res.locals.owner),
     agents: db
       .prepare("SELECT * FROM agents WHERE owner_id=? ORDER BY created_at DESC")

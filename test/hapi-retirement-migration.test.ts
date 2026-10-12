@@ -1,4 +1,4 @@
-// Migration 077 makes the records HAPI left behind inert, once, so no code
+// Migration 080 makes the records HAPI left behind inert, once, so no code
 // has to recognize them: active runs stop without replay, their pending
 // approvals are rejected, connections stay disconnected and stop presenting
 // as subscriptions, and memory recall keeps HAPI conversations included.
@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const RETIREMENT = "077-retire-hapi-records.sql";
+const RETIREMENT = "080-retire-hapi-records.sql";
 
 it("retires HAPI records without deleting or replaying anything", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-hapi-retirement-"));
@@ -100,7 +100,7 @@ it("retires HAPI records without deleting or replaying anything", () => {
       { scope: "conversation:hapi-a", enabled: 1 },
       { scope: "conversation:hapi-b", enabled: 0 },
     ]);
-    expect(db.prepare("SELECT max(version) v FROM schema_version").get()).toEqual({ v: 77 });
+    expect(db.prepare("SELECT max(version) v FROM schema_version").get()).toEqual({ v: 80 });
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -108,7 +108,7 @@ async function inspect(id: string): Promise<LinkedDockerWorkspace | null> {
       return capabilities?.profile === "server" && auth?.mode === "single-user"
         ? {
             id: composeSourceId(project, service),
-            name: `Docker · ${project}`,
+            name: `Docker · ${project}/${service}`,
             port,
             containerId: container.Id,
           }
