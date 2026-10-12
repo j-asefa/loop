@@ -1,0 +1,16 @@
+{
+  "status": 200,
+  "body": {
+    "items": [],
+    "next": null,
+    "summary": {
+      "needs": 0,
+      "working": 0,
+      "queued": 0,
+      "later_due": 1,
+      "social_unread": 0,
+      "scheduled_failed": 0,
+      "scheduled_pending": 0
+    }
+  }
+}

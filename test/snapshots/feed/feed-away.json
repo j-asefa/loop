@@ -1,0 +1,131 @@
+{
+  "status": 200,
+  "body": {
+    "completed": [
+      {
+        "conversation_id": "c-automation",
+        "title": "Thread automation",
+        "agent_name": "api-agent",
+        "run_id": "r-automation",
+        "state": "completed",
+        "updated_at": 1799646420000
+      },
+      {
+        "conversation_id": "c-dismissed-card",
+        "title": "Thread dismissed-card",
+        "agent_name": "api-agent",
+        "run_id": "r-dismissed-card",
+        "state": "completed",
+        "updated_at": 1799646000000
+      },
+      {
+        "conversation_id": "c-project",
+        "title": "Thread project",
+        "agent_name": "api-agent",
+        "run_id": "r-project",
+        "state": "completed",
+        "updated_at": 1799645640000
+      },
+      {
+        "conversation_id": "c-team",
+        "title": "Thread team",
+        "agent_name": "manager-agent",
+        "run_id": "r-team",
+        "state": "completed",
+        "updated_at": 1799645280000
+      },
+      {
+        "conversation_id": "c-surfaced",
+        "title": "Thread surfaced",
+        "agent_name": "api-agent",
+        "run_id": "r-surfaced",
+        "state": "completed",
+        "updated_at": 1799644620000
+      },
+      {
+        "conversation_id": "c-snoozed",
+        "title": "Thread snoozed",
+        "agent_name": "api-agent",
+        "run_id": "r-snoozed",
+        "state": "completed",
+        "updated_at": 1799644260000
+      },
+      {
+        "conversation_id": "c-done-native",
+        "title": "Thread done-native",
+        "agent_name": "native-agent",
+        "run_id": "r-done-native",
+        "state": "completed",
+        "updated_at": 1799641380000
+      },
+      {
+        "conversation_id": "c-done-api",
+        "title": "Thread done-api",
+        "agent_name": "api-agent",
+        "run_id": "r-done-api",
+        "state": "completed",
+        "updated_at": 1799640960000
+      }
+    ],
+    "needs": [
+      {
+        "conversation_id": "c-approval",
+        "title": "Needs approval",
+        "agent_name": "api-agent",
+        "run_id": "r-approval",
+        "state": "awaiting_approval",
+        "updated_at": 1799643660000
+      },
+      {
+        "conversation_id": "c-interrupted",
+        "title": "Thread interrupted",
+        "agent_name": "api-agent",
+        "run_id": "r-interrupted",
+        "state": "interrupted",
+        "updated_at": 1799642880000
+      },
+      {
+        "conversation_id": "c-failed",
+        "title": "Thread failed",
+        "agent_name": "api-agent",
+        "run_id": "r-failed",
+        "state": "failed",
+        "updated_at": 1799642700000
+      },
+      {
+        "conversation_id": "c-paused",
+        "title": "Thread paused",
+        "agent_name": "api-agent",
+        "run_id": "r-paused",
+        "state": "paused",
+        "updated_at": 1799642520000
+      }
+    ],
+    "failed": [
+      {
+        "conversation_id": "c-dismissed",
+        "title": "Dismissed failure",
+        "agent_name": "api-agent",
+        "run_id": "r-dismissed",
+        "state": "failed",
+        "updated_at": 1799643060000
+      },
+      {
+        "conversation_id": "c-interrupted",
+        "title": "Thread interrupted",
+        "agent_name": "api-agent",
+        "run_id": "r-interrupted",
+        "state": "interrupted",
+        "updated_at": 1799642880000
+      },
+      {
+        "conversation_id": "c-failed",
+        "title": "Thread failed",
+        "agent_name": "api-agent",
+        "run_id": "r-failed",
+        "state": "failed",
+        "updated_at": 1799642700000
+      }
+    ]
+  }
+}
