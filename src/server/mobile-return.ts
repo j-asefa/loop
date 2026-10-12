@@ -736,7 +736,7 @@ export function briefAttention(owner: string, project: string) {
   ).map((r) => r.folder_id);
   const rows = db
     .prepare(
-      `${inboxSql(false, true)} SELECT conversation_id,run_id,run_state,is_needs,is_working FROM flagged`,
+      `${feedSql(false, true)} SELECT conversation_id,run_id,run_state,is_needs,is_working FROM flagged`,
     )
     .all({ owner, now: now(), folders: JSON.stringify(folders) }) as {
     conversation_id: string;
