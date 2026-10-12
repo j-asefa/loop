@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import { mockViewportCoordinates } from "./mock-viewport.mjs";
 
 export async function swipeBackSmoke(page, fixture, engine, capture) {
+  await mockViewportCoordinates(page);
   const client =
     engine === "chromium" ? await page.context().newCDPSession(page) : null;
   const dialog = () => page.locator("dialog[open]").last();
@@ -126,7 +128,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
     const before = refreshes;
-    await swipe(page.locator(".inbox-card").first(), 0, 260);
+    await swipe(page.locator(".inbox-results .inbox-card").first(), 0, 260);
     await page.waitForTimeout(300);
     assert.equal(refreshes, before, "Only a pull at the top refreshes");
     await page.evaluate(() =>
@@ -151,21 +153,17 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await capture("swipe-back-inbox");
     // Back returns to where you were: closing a thread keeps the Feed at
     // the same place, and earlier pages keep their query, results and section.
-    // Open a thread that is already on screen, so the tap does not scroll.
-    const visibleRow = await page
-      .locator(".inbox-row")
-      .evaluateAll((rows) =>
-        rows.findIndex((row) => {
-          const box = row.getBoundingClientRect();
-          return box.top > 120 && box.bottom < innerHeight - 120;
-        }),
-      );
-    assert(visibleRow >= 0, "A Feed thread must be on screen");
-    await page.locator(".inbox-row").nth(visibleRow).click();
+    // Put a thread title on screen, then preserve that reading position.
+    // Card height changes as the Feed gains source previews and actions.
+    const visibleTitle = page.locator(".inbox-results .inbox-row h2").first();
+    await visibleTitle.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "instant" }));
+    await expect(visibleTitle).toBeInViewport();
+    const readingPosition = await page.evaluate(() => scrollY);
+    await visibleTitle.click();
     await expect(page.locator("dialog.conversation-sheet[open]")).toBeVisible();
     await swipe(dialog().locator(".sheet-head h2"));
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(readingPosition);
     await nav("Search").tap();
     await page.getByLabel("Search everything").fill("review");
     await page.getByLabel("Search everything").press("Enter");

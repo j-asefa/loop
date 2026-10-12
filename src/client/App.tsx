@@ -1838,14 +1838,18 @@ export default function App() {
                 setFeedHomeKey((key) => key + 1);
               }
               requestAnimationFrame(() =>
-                window.scrollTo({
-                  top: 0,
-                  behavior: window.matchMedia(
-                    "(prefers-reduced-motion: reduce)",
-                  ).matches
-                    ? "instant"
-                    : "smooth",
-                }),
+                // Let the newly selected Feed settle its layout before WebKit
+                // starts the smooth scroll; changing height cancels that scroll.
+                requestAnimationFrame(() =>
+                  window.scrollTo({
+                    top: 0,
+                    behavior: window.matchMedia(
+                      "(prefers-reduced-motion: reduce)",
+                    ).matches
+                      ? "instant"
+                      : "smooth",
+                  }),
+                ),
               );
             }
             setTab(t.id);
@@ -2979,6 +2983,8 @@ export default function App() {
             <Projects
               folders={data.folders}
               agents={data.agents}
+              connections={data.connections}
+              onBriefNavigate={url => afterSheetsClose(() => openLink.current(new URL(url, location.origin)))}
               selected={project}
               onSelect={setProject}
               onCreate={() => {

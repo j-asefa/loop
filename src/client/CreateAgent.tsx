@@ -1,3 +1,4 @@
+import { ConnectionPicker, ModelPicker } from "./ConnectionPicker";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { EffortSelect } from "./EffortSelect";
@@ -14,7 +15,6 @@ import type {
   EnvironmentConnection,
   EnvironmentFolder,
 } from "./agentSources";
-import { modelDisplayName } from "./modelChoices";
 import { AttachmentList, UploadButton } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 export function CreateAgent({
@@ -331,63 +331,43 @@ export function CreateAgent({
         </div>
         {selected ? (
           <>
-            <label>
-              Run on
-              <select
-                disabled={busy || uploading}
-                value={connectionKey(selected)}
-                onChange={(e) => {
-                  if (e.target.value.startsWith("setup-source:")) {
-                    onSourceSetup?.(
-                      e.target.value.slice("setup-source:".length),
-                    );
-                    return;
-                  }
-                  setConnection(e.target.value);
-                  setFolderChoice("");
-                  setModel("");
-                }}
-              >
-                {accounts.map((c) => (
-                  <option key={connectionKey(c)} value={connectionKey(c)}>
-                    {c.label.startsWith(c.executionEnvironment || "This computer")
-                      ? c.label
-                      : `${c.executionEnvironment || "This computer"} · ${c.label}`}
-                  </option>
-                ))}
-                {setupSources.map((item) => (
-                  <option key={item.id} value={`setup-source:${item.id}`}>
-                    {item.name} · connect {providerName(provider)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ConnectionPicker
+              disabled={busy || uploading}
+              value={connectionKey(selected)}
+              onChange={(value) => {
+                if (value.startsWith("setup-source:")) {
+                  onSourceSetup?.(value.slice("setup-source:".length));
+                  return;
+                }
+                setConnection(value);
+                setFolderChoice("");
+                setModel("");
+              }}
+            >
+              {accounts.map((c) => (
+                <option key={connectionKey(c)} value={connectionKey(c)}>
+                  {c.label.startsWith(c.executionEnvironment || "This computer")
+                    ? c.label
+                    : `${c.executionEnvironment || "This computer"} · ${c.label}`}
+                </option>
+              ))}
+              {setupSources.map((item) => (
+                <option key={item.id} value={`setup-source:${item.id}`}>
+                  {item.name} · connect {providerName(provider)}
+                </option>
+              ))}
+            </ConnectionPicker>
             <p className="field-hint">
               Runs on {selected.executionEnvironment || "This computer"}.
             </p>
             <ConnectionDetails connection={selected} />
-            <label>
-              Model
-              <select
-                aria-label="Model"
-                disabled={busy || refreshingModels || !models.length}
-                value={chosen}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                {!models.length && (
-                  <option value="">
-                    {refreshingModels
-                      ? "Checking available models…"
-                      : "No models available"}
-                  </option>
-                )}
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {modelDisplayName(m)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ModelPicker
+              models={models}
+              value={chosen}
+              onChange={setModel}
+              disabled={busy || refreshingModels}
+              refreshing={refreshingModels}
+            />
             {nativeConnection && currentCatalog?.error && (
               <div>
                 <p className="error" role="alert">

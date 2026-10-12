@@ -361,16 +361,24 @@ export async function resultFilesSmoke(page, fixture, capture) {
       .locator(".project-tabs")
       .getByRole("button", { name: "Activity", exact: true })
       .click();
-    await page
+    const projectResult = page
       .locator(".feed-card")
       .filter({
         has: page.getByRole("heading", { name: original.title, exact: true }),
       })
-      .getByRole("button", { name: "View full result", exact: true })
-      .click();
+      .getByRole("button", { name: "View full result", exact: true });
+    await projectResult.scrollIntoViewIfNeeded();
     assert(
       await page.evaluate(() => scrollY > 80),
       "Regression needs a scrolled feed",
+    );
+    const readingPosition = await page.evaluate(() => scrollY);
+    await projectResult.click();
+    await expect(dialog()).toBeVisible();
+    assert.equal(
+      await page.evaluate(() => document.body.style.top),
+      `-${readingPosition}px`,
+      "The result sheet preserves the feed reading position",
     );
     await dialog()
       .getByRole("button", { name: `Open @${agent.name} profile`, exact: true })

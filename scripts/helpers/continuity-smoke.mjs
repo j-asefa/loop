@@ -223,12 +223,10 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(
       card(done.title).getByRole("button", { name: "Review result", exact: true }),
     ).toBeVisible();
-    const approve = card(asking.title).getByRole("button", {
-      name: "Approve request",
-      exact: true,
-    });
-    // Done holds finished threads; a request waiting on you is in Needs you.
-    await expect(approve).toHaveCount(0);
+    const approve = page.getByRole("region", { name: "Needs you", exact: true })
+      .getByRole("button", { name: "Review approval: Write a pull request review", exact: true });
+    // Pending requests have a direct approval card, not a duplicate thread card.
+    await expect(card(asking.title)).toHaveCount(0);
     await capture("continuity-feed-actions");
     await card(done.title)
       .getByRole("button", { name: "Review result", exact: true })
@@ -246,10 +244,20 @@ export async function continuitySmoke(page, fixture, capture) {
     await closeThread();
     const feedTab = (name) =>
       page.getByRole("tab", { name: new RegExp("^" + name) });
-    await feedTab("Needs you").click();
+    const showNeeds = () =>
+      page.getByRole("region", { name: "Needs you", exact: true })
+        .getByRole("button", { name: "Show all", exact: true }).click();
+    await showNeeds();
     await expect(approve).toBeVisible();
     await capture("continuity-feed-needs-you");
     await approve.click();
+    await expect(dialog()).toHaveAttribute("aria-label", "Review approval");
+    await expect(dialog()).toContainText("Permission requested");
+    await expect(dialog()).toContainText(asking.title);
+    await dialog().getByRole("button", { name: "Close", exact: true }).click();
+    await settled();
+    // The same pending request remains available in its original thread.
+    await page.goto(`${fixture.base}/?conversation=${asking.id}`, { waitUntil: "networkidle" });
     await expect(thread()).toHaveAttribute("aria-label", asking.title);
     await expect(
       thread().locator(".approval-card, .approval").first(),
@@ -365,7 +373,7 @@ export async function continuitySmoke(page, fixture, capture) {
       failing.id,
     );
     await nav("Feed").click();
-    await page.getByRole("tab", { name: /^Needs you/ }).click();
+    await showNeeds();
     await expect(page.locator(".scheduled-summary")).toContainText(
       "1 scheduled message not sent",
     );

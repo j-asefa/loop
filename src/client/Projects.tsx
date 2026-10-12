@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -21,15 +21,19 @@ import { Chip } from "./ThreadTools";
 import { relativeTime } from "./threadView";
 import { Avatar, Badge, Empty, Sheet } from "./components";
 import { belongsToProject } from "../shared/projects";
-import type { Agent, Folder as Project } from "../shared/types";
+import type { Agent, Connection, Folder as Project } from "../shared/types";
+import type { BriefPage } from "../shared/briefs";
+import { ProjectBrief } from "./ProjectBrief";
+import { BriefAcknowledgements } from "./briefView";
 
 /** Ways into a project's history, alongside its Threads. */
 export type ProjectHistory = "search" | "outcomes" | "saved" | "unfinished";
-const historyRoutes: [Exclude<ProjectHistory, "search">, string, ReactNode][] = [
-  ["outcomes", "Recent outcomes", <FileText size={16} key="o" />],
-  ["saved", "Saved decisions", <Bookmark size={16} key="s" />],
-  ["unfinished", "Unfinished work", <CircleDashed size={16} key="u" />],
-];
+const historyRoutes: [Exclude<ProjectHistory, "search">, string, ReactNode][] =
+  [
+    ["outcomes", "Recent outcomes", <FileText size={16} key="o" />],
+    ["saved", "Saved decisions", <Bookmark size={16} key="s" />],
+    ["unfinished", "Unfinished work", <CircleDashed size={16} key="u" />],
+  ];
 
 type Summary = {
   id: string;
@@ -60,6 +64,8 @@ export function Projects({
   onTeams,
   onReview,
   revision,
+  connections = [],
+  onBriefNavigate = (url) => location.assign(url),
 }: {
   folders: Project[];
   agents: Agent[];
@@ -79,6 +85,8 @@ export function Projects({
   onTeams: () => void;
   onReview?: (id: string) => void;
   revision: number;
+  connections?: Connection[];
+  onBriefNavigate?: (url: string) => void;
 }) {
   const [adding, setAdding] = useState(false),
     [page, setPage] = useState(
@@ -88,6 +96,50 @@ export function Projects({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const current = folders.find((f) => f.id === selected);
+  // Keep acknowledgement receipts across tab unmounts, scoped to the owner
+  // and project whose version was rendered.
+  const briefAcks = useRef(new Map<string, BriefAcknowledgements>());
+  const ackKey = `${viewOwner()}:${selected}`;
+  if (current?.kind === "project" && !briefAcks.current.has(ackKey))
+    briefAcks.current.set(ackKey, new BriefAcknowledgements());
+  const [brief, setBrief] = useState<BriefPage | null>(null),
+    [briefError, setBriefError] = useState(""),
+    [briefLoad, setBriefLoad] = useState(0);
+  const choseTab = useRef(false);
+  useEffect(() => {
+    let active = true;
+    choseTab.current = false;
+    setBrief(null);
+    setBriefError("");
+    if (current?.kind !== "project") {
+      if (page === "brief") setPage("threads");
+      return;
+    }
+    void api<BriefPage>(`/projects/${encodeURIComponent(selected)}/brief`)
+      .then((result) => {
+        if (!active) return;
+        setBrief(result);
+        if (!choseTab.current) {
+          const remembered = sessionStorage.getItem(
+            "loop-project-tab:" + selected,
+          );
+          setPage(
+            remembered ||
+              (result.settings.enabled
+                ? "brief"
+                : sessionStorage.getItem("loop-project-tab") === "brief"
+                  ? "threads"
+                  : sessionStorage.getItem("loop-project-tab") || "threads"),
+          );
+        }
+      })
+      .catch((error) => {
+        if (active) setBriefError(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected, current?.kind, briefLoad]);
   // A history view replaces the tab content until you go back to Threads.
   // It is kept per project, so returning from a thread keeps it.
   const historyKey = "project-history:" + selected;
@@ -140,13 +192,19 @@ export function Projects({
   const ordered = summary
     ? [
         ...summary
-          .map((item) => ({ item, folder: projects.find((f) => f.id === item.id) }))
+          .map((item) => ({
+            item,
+            folder: projects.find((f) => f.id === item.id),
+          }))
           .filter((entry) => entry.folder),
         ...projects
           .filter((f) => !summary.some((item) => item.id === f.id))
           .map((folder) => ({ item: undefined, folder })),
       ]
-    : projects.map((folder) => ({ item: undefined as Summary | undefined, folder }));
+    : projects.map((folder) => ({
+        item: undefined as Summary | undefined,
+        folder,
+      }));
   return (
     <section className="projects-view">
       {current ? (
@@ -222,7 +280,10 @@ export function Projects({
               }}
             />
           </form>
-          <div className="chip-row project-history" aria-label="Project history">
+          <div
+            className="chip-row project-history"
+            aria-label="Project history"
+          >
             {historyRoutes.map(([value, label, icon]) => (
               <button
                 key={value}
@@ -237,7 +298,13 @@ export function Projects({
             ))}
           </div>
           <div className="segmented project-tabs" aria-label="Project view">
-            {["threads", "agents", "activity", "files"].map((value) => (
+            {[
+              ...(current.kind === "project" ? ["brief"] : []),
+              "threads",
+              "agents",
+              "activity",
+              "files",
+            ].map((value) => (
               <button
                 key={value}
                 className={!history && page === value ? "selected" : ""}
@@ -245,7 +312,9 @@ export function Projects({
                 onClick={() => {
                   setHistory(null);
                   setPage(value);
+                  choseTab.current = true;
                   sessionStorage.setItem("loop-project-tab", value);
+                  sessionStorage.setItem("loop-project-tab:" + selected, value);
                 }}
               >
                 {value[0].toUpperCase() + value.slice(1)}
@@ -264,11 +333,40 @@ export function Projects({
                 className="text-button"
                 onClick={() => setHistory(null)}
               >
-                <ArrowLeft size={16} /> Back to {page[0].toUpperCase() + page.slice(1)}
+                <ArrowLeft size={16} /> Back to{" "}
+                {page[0].toUpperCase() + page.slice(1)}
               </button>
             </div>
           )}
           {history && renderHistory(current.id, history, submitted)}
+          {!history &&
+            page === "brief" &&
+            (brief?.project === current.id ? (
+              <ProjectBrief
+                key={current.id}
+                projectId={current.id}
+                initial={brief}
+                acknowledgements={briefAcks.current.get(ackKey)!}
+                connections={connections}
+                agents={agents}
+                onNavigate={onBriefNavigate}
+                onChanged={setBrief}
+              />
+            ) : briefError ? (
+              <div>
+                <p className="error" role="alert">
+                  {briefError}
+                </p>
+                <button
+                  className="text-button"
+                  onClick={() => setBriefLoad((value) => value + 1)}
+                >
+                  Try again
+                </button>
+              </div>
+            ) : (
+              <p className="muted">Loading brief…</p>
+            ))}
           {!history && page === "threads" && renderThreads(current.id)}
           {!history && page === "activity" && renderActivity(current.id)}
           {!history && page === "files" && renderFiles(current.id)}
@@ -337,7 +435,7 @@ export function Projects({
                         ? ` · active ${relativeTime(item.last_activity_at).toLowerCase()}`
                         : ""}
                     </span>
-                    {(item?.needs || item?.working) ? (
+                    {item?.needs || item?.working ? (
                       <span className="project-tile-status">
                         {item?.needs ? (
                           <Chip tone="needs">{item.needs} need you</Chip>
@@ -374,7 +472,8 @@ export function Projects({
             <button onClick={onTeams}>
               <Users size={20} />
               <span>
-                Agent teams<small>A manager agent that delegates to workers</small>
+                Agent teams
+                <small>A manager agent that delegates to workers</small>
               </span>
               <ArrowUpRight size={18} />
             </button>
@@ -488,7 +587,11 @@ export function ProjectSearchResults({
     );
   if (!result) return <p role="status">Searching…</p>;
   if (!groups.length)
-    return <Empty title="Nothing found in this project.">Try a shorter phrase.</Empty>;
+    return (
+      <Empty title="Nothing found in this project.">
+        Try a shorter phrase.
+      </Empty>
+    );
   return (
     <div className="project-search-results">
       {groups.map(({ key, items }) => (

@@ -238,13 +238,17 @@ function evidenceMatches(
   evidence: string,
   sources: ResolvedCite[],
   previous: ResolvedCite[],
+  ownerAuthored = false,
 ) {
   if (evidence === "owner_message")
     return sources.some(
       (s) => s.kind === "message" && s.role === "user" && !s.automated,
     );
   if (evidence === "owner_saved")
-    return sources.some((s) => s.kind === "saved");
+    return sources.some(
+      (s) =>
+        s.kind === "saved" || (ownerAuthored && s.kind === "result" && s.saved),
+    );
   if (evidence === "approval")
     return sources.some(
       (s) =>
@@ -436,6 +440,7 @@ export function applyOutput(
               (old?.cite ?? []).flatMap(
                 (c) => resolveCite(owner, project, c) ?? [],
               ),
+              old?.author === "owner",
             )
           ) {
             errors.push({

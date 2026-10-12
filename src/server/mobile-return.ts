@@ -727,6 +727,7 @@ export function briefAttention(owner: string, project: string) {
     ref: string;
     conversation: string;
   }[] = [];
+  const targets: Record<string, { conversation: string; message: string | null }> = {};
   for (const row of rows) {
     const action = nextAction(
       row,
@@ -734,13 +735,14 @@ export function briefAttention(owner: string, project: string) {
       false,
       true,
     );
-    if (action && action.kind !== "result")
+    if (action && action.kind !== "result") {
+      targets[action.ref!] = { conversation: row.conversation_id, message: action.message_id };
       needs.push({
         kind: action.kind === "answer" ? "question" : "approval",
         ref: action.ref!,
         conversation: row.conversation_id,
       });
-    else if (row.is_needs)
+    } else if (row.is_needs)
       needs.push({
         // A paused run or an expired approval still needs the owner at its
         // thread, even when there is no answerable decision record left.
@@ -751,7 +753,7 @@ export function briefAttention(owner: string, project: string) {
         conversation: row.conversation_id,
       });
   }
-  return { working: rows.some((r) => r.is_working), needs };
+  return { working: rows.some((r) => r.is_working), needs, targets };
 }
 
 function livePreview(owner: string, runId: string) {

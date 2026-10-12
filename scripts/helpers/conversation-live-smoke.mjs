@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { designFixture } from "./design-fixture.mjs";
 
@@ -27,17 +28,17 @@ export async function conversationLiveSmoke(page, capture) {
     const update = (key, content) => {
       fixture.db
         .prepare(
-          `INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at)
-         VALUES(?,?,?,'message','Agent update',?,'{}',?)
-         ON CONFLICT(run_id,trace_key) DO UPDATE SET content=excluded.content`,
+          `INSERT INTO messages(id,owner_id,conversation_id,run_id,update_key,role,content,metadata,created_at)
+         VALUES(?,?,?,?,?,'assistant',?,'{"progress":true}',?)
+         ON CONFLICT(owner_id,run_id,update_key) DO UPDATE SET content=excluded.content`,
         )
-        .run(fixture.owner, conversation.run, key, content, Date.now());
+        .run(randomUUID(), fixture.owner, conversation.id, conversation.run, key, content, Date.now());
       changed();
       return fixture.db
-        .prepare("SELECT id FROM run_traces WHERE run_id=? AND trace_key=?")
+        .prepare("SELECT id FROM messages WHERE run_id=? AND update_key=?")
         .get(conversation.run, key).id;
     };
-    const message = (id) => page.locator(`[id="message-trace:${id}"]`);
+    const message = (id) => page.locator(`[id="message-${id}"]`);
     // Thread replies have no recipient select; the thread's agent receives them.
     const agentName = fixture.agents.find((item) => item.id === agent).name;
     const expectRecipient = async () => {
@@ -203,12 +204,12 @@ export async function conversationLiveSmoke(page, capture) {
       "The build passed.",
     );
 
-    // Saving the final answer replaces its streamed trace exactly once, keeping
+    // Saving the final answer replaces its streamed update exactly once, keeping
     // earlier updates, timestamps, reply targets, and tool exclusion intact.
     const finalText = "The implementation and verification are complete.";
     fixture.db
-      .prepare("UPDATE run_traces SET content=?,metadata=? WHERE id=?")
-      .run(finalText, JSON.stringify({ final: true }), latest);
+      .prepare("UPDATE messages SET content=?,metadata=? WHERE id=?")
+      .run(finalText, JSON.stringify({ progress: true, final: true }), latest);
     fixture.db
       .prepare("UPDATE messages SET content=?,metadata='{}' WHERE id=?")
       .run(finalText, answer.id);

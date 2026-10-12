@@ -1,0 +1,257 @@
+.project-brief {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  padding-bottom: 20px;
+}
+.brief-goal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.brief-goal span {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.brief-goal small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.brief-goal strong {
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.brief-goal svg {
+  flex-shrink: 0;
+}
+.brief-headline {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  min-width: 0;
+}
+.brief-heading,
+.brief-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.brief-headline h2 {
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.4px;
+  margin: 10px 0 16px;
+  overflow-wrap: anywhere;
+}
+.brief-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.brief-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.brief-status.needs_you,
+.brief-status.blocked {
+  color: var(--orange);
+}
+.brief-status.working {
+  color: var(--green);
+}
+.brief-attention {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 0 2px;
+  max-width: 100%;
+}
+.brief-attention .chip {
+  flex: 0 0 auto;
+  border-color: color-mix(in srgb, var(--orange) 45%, var(--line));
+}
+.brief-section {
+  min-width: 0;
+}
+.brief-section h3 {
+  font-size: 15px;
+  margin: 0;
+}
+.brief-section h3 span {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: 6px;
+}
+.brief-section-heading {
+  margin-bottom: 6px;
+}
+.brief-section-heading .text-button,
+.brief-actions .text-button {
+  font-size: 12px;
+}
+.brief-item {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.brief-item-open {
+  display: grid;
+  text-align: left;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.brief-item-open > span:first-child {
+  font-size: 14px;
+  font-weight: 550;
+}
+.brief-item-open small {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.brief-item-open .brief-blocker {
+  color: var(--orange);
+}
+.brief-markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.brief-markers > span {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.brief-new {
+  color: var(--brass-text);
+}
+.brief-citations {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  min-width: 0;
+}
+.brief-citations .chip {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  min-height: 28px;
+  padding: 4px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.brief-citations .chip svg {
+  flex-shrink: 0;
+}
+.brief-superseded {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.brief-empty {
+  font-size: 13px;
+  padding: 8px 0;
+  margin: 0;
+}
+.brief-overflow {
+  font-size: 12px;
+  margin-top: 8px;
+}
+.brief-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 14px 0;
+}
+.brief-basis {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.brief-basis p {
+  margin: 5px 0 0;
+}
+.brief-sheet blockquote {
+  margin: 10px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.brief-source {
+  margin: 20px 0;
+}
+.brief-source small {
+  color: var(--muted);
+}
+.brief-source a {
+  font-size: 13px;
+}
+.brief-history {
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.brief-history > li {
+  margin-bottom: 12px;
+}
+.brief-history strong {
+  color: var(--text);
+}
+.brief-history ul {
+  padding-left: 16px;
+  margin: 4px 0;
+}
+.brief-sheet input,
+.brief-sheet select,
+.brief-sheet textarea,
+.brief-setup select {
+  min-width: 0;
+  max-width: 100%;
+}
+.brief-setup {
+  padding: 20px 0;
+}
+.brief-setup p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.projects-view .project-tabs {
+  overflow-x: auto;
+}
+.projects-view .project-tabs button {
+  flex-shrink: 0;
+}

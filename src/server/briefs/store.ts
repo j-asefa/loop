@@ -60,42 +60,42 @@ export function ledger(owner: string, project: string): LedgerItem[] {
         "SELECT * FROM brief_items WHERE owner_id=? AND project_id=? ORDER BY id",
       )
       .all(owner, project) as Record<string, any>[]
-  ).map(
-    (r) =>
-      ({
-        id: r.id,
-        kind: r.kind,
-        text: r.text,
-        status: r.status,
-        cite: JSON.parse(r.cites),
-        pinned: !!r.pinned,
-        cite_stale: !!r.cite_stale,
-        author: r.author,
-        first_version: r.first_version,
-        last_version: r.last_version,
-        owner_rev: r.owner_rev,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-        ...Object.fromEntries(
-          [
-            "why",
-            "evidence",
-            "decided_by",
-            "decided_at",
-            "supersedes",
-            "asked_by",
-            "next",
-            "blocker",
-          ]
-            .filter((k) => r[k] !== null)
-            .map((k) => [k, r[k]]),
-        ),
-        ...(r.thread_id !== null && { thread: r.thread_id }),
-        ...(r.answered_cite !== null && {
-          answered_cite: JSON.parse(r.answered_cite),
-        }),
-      }) as LedgerItem,
-  );
+  ).map(decodeItem);
+}
+export function decodeItem(r: Record<string, any>): LedgerItem {
+  return {
+    id: r.id,
+    kind: r.kind,
+    text: r.text,
+    status: r.status,
+    cite: JSON.parse(r.cites),
+    pinned: !!r.pinned,
+    cite_stale: !!r.cite_stale,
+    author: r.author,
+    first_version: r.first_version,
+    last_version: r.last_version,
+    owner_rev: r.owner_rev,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    ...Object.fromEntries(
+      [
+        "why",
+        "evidence",
+        "decided_by",
+        "decided_at",
+        "supersedes",
+        "asked_by",
+        "next",
+        "blocker",
+      ]
+        .filter((k) => r[k] !== null)
+        .map((k) => [k, r[k]]),
+    ),
+    ...(r.thread_id !== null && { thread: r.thread_id }),
+    ...(r.answered_cite !== null && {
+      answered_cite: JSON.parse(r.answered_cite),
+    }),
+  } as LedgerItem;
 }
 export function publicItem({
   owner_rev,

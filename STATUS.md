@@ -6,8 +6,8 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | --- | --- | --- | --- | --- |
 | 0 change stream | merged | brief/00-change-stream | https://github.com/j-asefa/loop/pull/106 | Merged as 8a4084c after typecheck, 963 tests, build and Loop review de341b77 (all 3 reviewers, no confirmed introduced bugs). |
 | 1 schema and ledger | merged | brief/01-schema-and-ledger | https://github.com/j-asefa/loop/pull/109 | Merged as b466299 after typecheck, 1007 tests, build and three completed Loop reviews with findings addressed. |
-| 2 generation job | PR open | brief/02-generation-job | https://github.com/j-asefa/loop/pull/114 | Started from main b466299. PR 2 and generation prompt read; provider and worker boundaries inspected. Migration 079, scheduling hooks, bounded input, forced provider tool choice and leased generation with transactional retry are implemented. Typecheck, 1028 tests across 136 files (95.39s) and build (1.47s) pass on implementation a86c138. Completed Loop review 89a9f8df (all 3 reviewers). Fixed initial-window continuity, per-project lease timing and stale retry authorization; integrated main 35e5d08. All 72 focused cases and final typecheck, 1047 tests across 138 files (92.83s), build (1.42s) pass on 0ec6519. Update PR evidence and merge; then create PR 3 branch from main and read its handoff. |
-| 3 api and project page | todo | | | |
+| 2 generation job | merged | brief/02-generation-job | https://github.com/j-asefa/loop/pull/114 | Merged as b09b4e5 after typecheck, 1047 tests, build and completed Loop review 89a9f8df with confirmed findings fixed. |
+| 3 api and project page | PR open | brief/03-api-and-project-page | https://github.com/j-asefa/loop/pull/115 | Checks green: typecheck, 1108 tests / 145 files (202.74s, one worker), build (1.49s), full smoke:design (363.8s plus approval layouts, both engines). Updated 390px screenshots. Completed Loop reviews 1479ed39 and 8c1e878a, all confirmed findings fixed. Main a211ca4 integrated. Push final validation commit, update PR, merge exact head, then start PR 4 from main. |
 | 4 agent read tool | todo | | | |
 | 5 feed card | not requested | | | Only on explicit instruction from the owner |
 | 6 saved routing | not requested | | | Only on explicit instruction from the owner |
@@ -21,7 +21,7 @@ States: todo, in progress, checks green, PR open, merged, blocked.
 ## Decisions made during implementation
 
 - PR 0 uses migration 077: main already contains migrations 073–076. The branch starts at origin/main 82182da.
-- Handoff files are extracted to /tmp/loop-brief-handoff from the user attachment. This tracked STATUS.md is the current ledger. PR 2 and its generation prompt are now open; PRs 3–6 have not been read.
+- Handoff files are extracted to /tmp/loop-brief-handoff from the user attachment. This tracked STATUS.md is the current ledger. PR 3 is in progress; PRs 4–6 have not been read.
 - Owned child folders resolve to the nearest project, preserving every kind=project row as required by decision 2 (including nested projects); standalone artifacts fall back to their own folder_id. Both choices address confirmed review findings.
 - An SQL view shares owner/project validation between backfill, publication/deletion triggers and application writers. Record-specific fallback uses that record's run, never a newer run in the conversation.
 - Historical resolved approvals use created_at because approvals retain no decision timestamp. New decisions record the current time.
@@ -65,3 +65,23 @@ None.
 - The generation event budget includes headers and cut markers, truncates UTF-8 without splitting characters, and makes progress past a single oversized event. Shutdown reschedules interrupted read-only work; a deadline records a failed attempt without an automatic retry loop.
 
 - Review 89a9f8df fixes retain the initial skip boundary across saved-heavy passes, persist cursor metadata independently of publication, start each lease when its project begins, and recheck settings/token before each provider request. The report’s partial-output rejection suggestion conflicts with normative 03-schema per-rule recovery (only parse failure or every item failing is a failed attempt); preserve that behavior and cover mixed valid/invalid second output explicitly. The proposed unchanged-first-pass reproduction actually fails validation and stores a failed row; the regression instead verifies a real unchanged later pass.
+
+- PR 3 goal edits bump the owner revision and append brief_edit without consuming a content version, preserving first-generation eligibility. Item edits/decisions publish owner versions with separate owner revision keys. Owner-created decisions may cite a saved res_ directly; subsequent model validation accepts that evidence only for an existing owner-authored item while the result remains saved.
+- Agent creation used inline native selects rather than a reusable picker. Extract those unchanged selects into ConnectionPicker/ModelPicker and share them with Brief settings. Navigation retains the existing conversation/message parameters and workspace source; source metadata is owner-scoped, without connection secrets.
+
+- The handoff’s existing-test preservation rule is retained for product regressions. One existing design helper needed a selector repair: main already selects a hidden Needs-you card after clicking Done. The one-line .inbox-results scope restores its intended journey and leaves all keyboard assertions intact; baseline reproduction is recorded in /tmp/brief3-baseline-design.log and the PR.
+
+- The same isolated main also fails create-agent-layout (legacy environment naming fixture) and core (scrolling after the body is frozen). Name the fixture through bootstrap, and scroll before opening settings; retain keyboard/layout assertions and check the frozen body position during wheel gestures. These are browser harness repairs, with no production Feed/Thread/history changes. Evidence: /tmp/brief3-baseline-more.log.
+
+- Existing core/profile and continuity browser expectations also lag main: Files is already the fifth profile tab, and Needs you is already a stack opened with Show all. Repair those selectors/expectations without changing their behavioral assertions. The main MyProfile/Inbox components prove these pre-existing surfaces.
+
+- Loop review 1479ed39 completed with all three reviewers. Fixes retain the full fresh brief in the parent and reload on mount, send failed drafts to existing workspace-aware Scheduled URLs, detect initial generation from the incorporation cursor, and expose recorded content from the disabled setup screen without restarting generation. New unit/browser regressions cover these cases.
+- Existing live-message fixture used run_traces, but production now owns progress in messages/update_key. Update that fixture to durable identities and retain streaming, scroll, reply-target, deduplication and reload assertions. Both engines pass. Existing swipe fixture needs consistent pageTop/offsetTop and a title-based reading position to accommodate current card heights; both engines pass. No production Feed, Threads or history behavior changed.
+
+- Main advanced to a211ca4 with the parallel Feed PRs (080–082 migrations). Merge conflict resolved by keeping main's private nextAction(FeedRow) and adding message targets to the existing briefAttention boundary; the Brief page reads those targets.
+- The baseline WebKit home-scroll failure required one additional animation frame for the selected Feed layout to settle before smooth scrolling. Profile checks keep all assertions and use consistent headless viewport coordinates plus a single double-click action within the 350 ms window. This preserves the existing home behavior; no other Feed behavior changes.
+
+- Review 8c1e878a completed with all three reviewers and one confirmed finding. The full ledger now paginates by immutable first_version/id; editing an unseen item cannot move it behind the cursor. The route regression edits both an unseen and already-seen row between pages and verifies 55 unique items.
+- A real tab-reopening browser regression caught a duplicate acknowledgement after an edit. The parent retains acknowledgement receipts per owner/project across child mounts; the rendered view still refreshes from the server and a failed acknowledgement remains retryable.
+
+- After Feed integration, the workspace controls browser fixture also needs its loaded-page selector scoped to visible Done results. Badge counts and all model/upload assertions remain intact.

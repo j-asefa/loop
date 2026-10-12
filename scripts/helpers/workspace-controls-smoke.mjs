@@ -127,7 +127,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
       (run) => !["running", "pausing"].includes(run.state),
     );
     await page.reload();
-    await expect(page.locator(".inbox-card").first()).toBeVisible();
+    await expect(page.locator(".inbox-results .inbox-card").first()).toBeVisible();
     await expect(inboxNav.locator("small")).toHaveCount(0);
   } finally {
     await page.unroute(runPattern, counts);

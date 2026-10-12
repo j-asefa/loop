@@ -13,6 +13,10 @@ export type ResolvedCite = {
   recordedAt?: number;
   agent?: string;
   merged?: boolean;
+  saved?: boolean;
+  conversation?: string | null;
+  message?: string | null;
+  artifact?: string;
 };
 /** Exactly the highlighted-excerpt rule: trim the quote, not stored content. */
 export function checkQuote(content: string, quote?: string) {
@@ -29,12 +33,23 @@ function inScope(owner: string, project: string, source: string, ref: string) {
 function runInfo(runId: string | null, owner: string) {
   const r = db
     .prepare(
-      "SELECT id,created_at,agent_id FROM runs WHERE id=? AND owner_id=?",
+      "SELECT id,created_at,agent_id,conversation_id FROM runs WHERE id=? AND owner_id=?",
     )
     .get(runId, owner) as
-    { id: string; created_at: number; agent_id: string } | undefined;
+    | {
+        id: string;
+        created_at: number;
+        agent_id: string;
+        conversation_id: string | null;
+      }
+    | undefined;
   return r
-    ? { runId: r.id, runCreatedAt: r.created_at, agent: r.agent_id }
+    ? {
+        runId: r.id,
+        runCreatedAt: r.created_at,
+        agent: r.agent_id,
+        conversation: r.conversation_id,
+      }
     : {};
 }
 export function resolveCite(
@@ -49,13 +64,20 @@ export function resolveCite(
     if (!inScope(owner, project, "artifact", id)) return null;
     const a = db
       .prepare(
-        `SELECT a.content,a.run_id,COALESCE((SELECT min(c.at) FROM project_changes c
+        `SELECT a.content,a.run_id,a.pinned,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id,COALESCE((SELECT min(c.at) FROM project_changes c
         WHERE c.owner_id=a.owner_id AND c.kind='result' AND c.ref=a.id),a.created_at) recorded_at
       FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id
       WHERE a.id=? AND a.owner_id=? AND a.archived=0`,
       )
       .get(id, owner) as
-      | { content: string; run_id: string | null; recorded_at: number }
+      | {
+          content: string;
+          run_id: string | null;
+          recorded_at: number;
+          pinned: number;
+          conversation_id: string | null;
+          message_id: string | null;
+        }
       | undefined;
     return a
       ? {
@@ -63,6 +85,10 @@ export function resolveCite(
           content: a.content,
           recordedAt: a.recorded_at,
           ...runInfo(a.run_id, owner),
+          saved: !!a.pinned,
+          conversation: a.conversation_id,
+          message: a.message_id,
+          artifact: id,
         }
       : null;
   }
@@ -70,7 +96,7 @@ export function resolveCite(
     if (!inScope(owner, project, "message", id)) return null;
     const m = db
       .prepare(
-        `SELECT content,role,metadata,run_id,
+        `SELECT content,role,metadata,run_id,conversation_id,created_at,
         (EXISTS(SELECT 1 FROM delegations d WHERE d.child_run_id=m.run_id)
           OR EXISTS(SELECT 1 FROM workflow_steps w WHERE w.child_run_id=m.run_id)) generated
       FROM messages m WHERE id=? AND owner_id=?
@@ -83,6 +109,8 @@ export function resolveCite(
           metadata: string;
           run_id: string | null;
           generated: number;
+          conversation_id: string;
+          created_at: number;
         }
       | undefined;
     if (!m) return null;
@@ -92,6 +120,9 @@ export function resolveCite(
       role: m.role,
       automated: !!m.generated || JSON.parse(m.metadata).automation != null,
       ...runInfo(m.run_id, owner),
+      conversation: m.conversation_id,
+      message: id,
+      recordedAt: m.created_at,
     };
     if (prefix === "msg") return message;
     if (
@@ -112,7 +143,12 @@ export function resolveCite(
       .get(owner, project, id) as
       { content: string; run_id: string | null } | undefined;
     return a
-      ? { kind: "saved", content: a.content, ...runInfo(a.run_id, owner) }
+      ? {
+          ...message,
+          kind: "saved",
+          content: a.content,
+          ...runInfo(a.run_id, owner),
+        }
       : null;
   }
   if (prefix === "approval") {
@@ -183,7 +219,13 @@ export function resolveCite(
   const observation = valid.at(-1)!;
   const merged = observation.ended_reason?.toLowerCase() === "merged";
   if (/:(merged|closed):/.test(observation.ref))
-    return { kind: "pr", content: observation.ended_reason ?? "", merged };
+    return {
+      kind: "pr",
+      content: observation.ended_reason ?? "",
+      merged,
+      conversation: observation.conversation_id,
+      recordedAt: observation.at,
+    };
   // The migration binds events to their durable automated source message.
   // Rate-limit delivery rows can be deleted when a watch resumes.
   const bodies = db
@@ -200,8 +242,16 @@ export function resolveCite(
       observation.ref,
     ) as {
     content: string;
+    id: string;
   }[];
   return bodies.length === 1
-    ? { kind: "pr", content: bodies[0].content, merged: false }
+    ? {
+        kind: "pr",
+        content: bodies[0].content,
+        merged: false,
+        conversation: observation.conversation_id,
+        message: bodies[0].id,
+        recordedAt: observation.at,
+      }
     : null;
 }

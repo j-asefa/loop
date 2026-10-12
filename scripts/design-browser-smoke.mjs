@@ -2,6 +2,7 @@
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
 import { spawn } from "node:child_process";
 const names = [
+  "brief",
   "execution-environments",
   "main-composer-keyboard",
   "clear-search",

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import { mockViewportCoordinates } from "./mock-viewport.mjs";
 
 export async function profileNavigationSmoke(page, fixture, engine, capture) {
+  await mockViewportCoordinates(page);
   const dialog = () => page.locator("dialog[open]").last();
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
@@ -120,7 +122,10 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
           await page.evaluate(() => scrollY > 80),
           "One tap should preserve the scroll position",
         );
-        await nav(tab).tap();
+        // Drive the double click as one browser action: protocol/assertion
+        // latency between separate taps can exceed the app's 350 ms window.
+        await page.waitForTimeout(400);
+        await nav(tab).dblclick({ delay: 100 });
         await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
       }
     }
@@ -141,13 +146,13 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     );
     await nav("Feed").tap();
     await expect(done).toHaveAttribute("aria-selected", "false");
-    await nav("Feed").tap();
+    await page.waitForTimeout(400);
+    await nav("Feed").dblclick({ delay: 100 });
     await expect(done).toHaveAttribute("aria-selected", "true");
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
     await show.getByRole("tab", { name: /^Working/ }).click();
     await nav("Projects").tap();
-    await nav("Feed").tap();
-    await nav("Feed").tap();
+    await nav("Feed").dblclick({ delay: 100 });
     await expect(done).toHaveAttribute("aria-selected", "true");
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
 

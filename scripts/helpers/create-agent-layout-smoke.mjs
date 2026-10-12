@@ -9,11 +9,14 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       "UPDATE connections SET status='disconnected' WHERE provider='anthropic'",
     )
     .run();
-  await page.route("**/api/environments", (route) =>
-    route.fulfill({
-      json: [{ id: "local-runner", name: "This laptop", state: "online" }],
-    }),
-  );
+  await page.route("**/api/bootstrap", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      response,
+      json: { ...data, environmentName: "This laptop" },
+    });
+  });
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await page
     .getByRole("region", { name: "Your agents", exact: true })

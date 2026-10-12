@@ -201,7 +201,9 @@ export function buildInput(state: State): BriefInput {
       if (item) previous.push(previousLine(item));
     }
   }
-  const initial = state.current_version === 0 && state.basis_through === 0;
+  // Owner versions do not incorporate events. The first generation still
+  // starts with recent history even if the owner has already recorded a choice.
+  const initial = state.basis_through === 0;
   const params = { owner, project, kinds, through: state.basis_through };
   const recent =
     state.unincorporated_before ??

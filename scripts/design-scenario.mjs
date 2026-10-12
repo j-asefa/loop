@@ -1,4 +1,5 @@
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
+import { briefSmoke } from "./helpers/brief-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
 import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
 import { feedReplyKeyboardSmoke } from "./helpers/feed-reply-keyboard-smoke.mjs";
@@ -35,6 +36,7 @@ import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  brief: briefSmoke,
   "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {
     await page.goto(fixture.base);
@@ -716,7 +718,7 @@ for (const engine of selectedEngines()) {
         const openSettings = async () => {
           await page
             .getByRole("button", { name: "Open settings", exact: true })
-            .click();
+            .evaluate((el) => el.click());
           await expect(dialog()).toHaveAttribute("aria-label", "Settings");
         };
         // The page behind the open drawer holds still; the drawer's list scrolls.
@@ -726,7 +728,18 @@ for (const engine of selectedEngines()) {
           ),
           "The page must be long enough to scroll",
         );
+        // Open partway down without Playwright scrolling the gear into view.
+        // The modal freezes the body at that position until its last sheet closes.
+        await page.evaluate(() =>
+          window.scrollTo({ top: 150, behavior: "instant" }),
+        );
+        assert.equal(await page.evaluate(() => scrollY), 150);
         await openSettings();
+        assert.equal(
+          await page.evaluate(() => document.body.style.top),
+          "-150px",
+          "The open drawer preserves the reading position",
+        );
         const pageOverflow = () =>
           page.evaluate(
             () => getComputedStyle(document.documentElement).overflow,
@@ -745,13 +758,8 @@ for (const engine of selectedEngines()) {
         // Mobile WebKit has no wheel input in Playwright; Chromium checks the
         // gestures themselves.
         if (engine.name() === "chromium") {
-          // The gear sits at the top of the page; scroll the page under the
-          // open drawer, as when it was opened partway down.
-          await page.evaluate(() =>
-            window.scrollTo({ top: 150, behavior: "instant" }),
-          );
           const pageTop = await page.evaluate(() => scrollY);
-          assert.equal(pageTop, 150);
+          assert.equal(pageTop, 0, "The page body is fixed while a sheet is open");
           const drawer = await dialog().boundingBox();
           for (const [x, y] of [
             [drawer.x + drawer.width / 2, drawer.y + 30],
@@ -764,6 +772,11 @@ for (const engine of selectedEngines()) {
               await page.evaluate(() => scrollY),
               pageTop,
               "Scrolling over the settings drawer must not scroll the page",
+            );
+            assert.equal(
+              await page.evaluate(() => document.body.style.top),
+              "-150px",
+              "Scrolling must not move the frozen body",
             );
           }
           const listBox = await list.boundingBox();
@@ -900,7 +913,7 @@ for (const engine of selectedEngines()) {
         await expect(page.locator(".file-row").first()).toBeVisible();
         await expect(page.locator(".project-heading h2")).toHaveText("Loop");
         // Later lives on your profile: your messages, then Saved, Reminders
-        // and Scheduled as tabs.
+        // and Scheduled as tabs, alongside Files.
         await nav("You");
         const yourProfile = page.getByRole("region", {
           name: "Your profile",
@@ -909,7 +922,7 @@ for (const engine of selectedEngines()) {
         await expect(yourProfile).toBeVisible();
         await expect(
           yourProfile.getByRole("tablist", { name: "Show" }).getByRole("tab"),
-        ).toHaveText(["Messages", "Saved", "Reminders", "Scheduled"]);
+        ).toHaveText(["Messages", "Saved", "Reminders", "Scheduled", "Files"]);
         await expect(
           page.getByRole("button", { name: "Recent", exact: true }),
         ).toHaveCount(0);

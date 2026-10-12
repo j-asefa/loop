@@ -322,6 +322,39 @@ it("starts old projects with their newest forty results and marks skipped histor
   });
 });
 
+it("keeps the initial recent-history window after an owner decision", async () => {
+  const w = fixture(60),
+    calls = scripted(good);
+  const { addDecision } = await import("../src/server/briefs/owner");
+  db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(w.artifacts[0]);
+  const decision = addDecision(w.owner, w.project, {
+    kind: "decision",
+    text: "Keep the owner choice",
+    cite: [{ ref: "res_" + w.artifacts[0] }],
+  });
+  expect(w.state()).toMatchObject({ current_version: 1, basis_through: 0 });
+  await runDueBriefs();
+  expect(calls[0].messages[0].content).toContain(decision);
+  const body = events(calls[0]);
+  expect((body.match(/\[res_/g) ?? []).length).toBe(40);
+  for (const artifact of w.artifacts.slice(0, 20))
+    expect(body).not.toContain("[res_" + artifact + "]");
+  for (const artifact of w.artifacts.slice(20))
+    expect(body).toContain("[res_" + artifact + "]");
+  const first = db
+    .prepare(
+      "SELECT seq FROM project_changes WHERE project_id=? AND kind='result' AND ref=?",
+    )
+    .get(w.project, w.artifacts[20]) as { seq: number };
+  expect(
+    w.versions().find((version) => version.model === "fixture"),
+  ).toMatchObject({
+    unincorporated_before: first.seq,
+  });
+  await runDueBriefs(); // Drain the trailing saved/owner-edit events.
+  expect(w.state().due_at).toBeNull();
+});
+
 it("never selects disabled projects even if a due timestamp exists", async () => {
   const w = fixture(3, false),
     calls = scripted(good);
