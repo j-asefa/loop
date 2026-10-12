@@ -16,6 +16,13 @@ export type State = {
   due_at: number | null;
   last_run_at: number | null;
   last_error: string | null;
+  connection_id: string | null;
+  model: string | null;
+  enabled: number;
+  generation_id: string | null;
+  lease_until: number | null;
+  basis_since: number | null;
+  unincorporated_before: number | null;
 };
 export function readState(owner: string, project: string): State {
   return (
@@ -31,6 +38,13 @@ export function readState(owner: string, project: string): State {
       due_at: null,
       last_run_at: null,
       last_error: null,
+      connection_id: null,
+      model: null,
+      enabled: 0,
+      generation_id: null,
+      lease_until: null,
+      basis_since: null,
+      unincorporated_before: null,
     }
   );
 }

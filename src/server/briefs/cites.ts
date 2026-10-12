@@ -116,7 +116,31 @@ export function resolveCite(
       : null;
   }
   if (prefix === "approval") {
-    if (!inScope(owner, project, "approval", id)) return null;
+    if (!inScope(owner, project, "approval", id)) {
+      if (!inScope(owner, project, "decision", id)) return null;
+      const decision = db
+        .prepare(
+          `SELECT d.request,d.state,d.run_id FROM native_decisions d
+        JOIN runs r ON r.id=d.run_id AND r.owner_id=? WHERE d.id=?`,
+        )
+        .get(owner, id) as
+        | {
+            request: string;
+            state: string;
+            run_id: string;
+          }
+        | undefined;
+      // The request and its resolution state are citable. The answer remains
+      // harness-owned; resolved does not establish that permission was granted.
+      return decision
+        ? {
+            kind: "approval",
+            content: decision.request,
+            state: decision.state,
+            ...runInfo(decision.run_id, owner),
+          }
+        : null;
+    }
     const a = db
       .prepare(
         "SELECT request,state,run_id FROM approvals WHERE id=? AND owner_id=?",

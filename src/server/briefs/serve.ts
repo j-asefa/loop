@@ -203,13 +203,15 @@ function buildBrief(owner: string, project: string): Brief {
   const pending = (
     db
       .prepare(
-        `SELECT count(*) n FROM project_changes WHERE owner_id=? AND project_id=? AND seq>? AND kind IN (SELECT value FROM json_each(?))`,
+        `SELECT count(*) n FROM project_changes WHERE owner_id=? AND project_id=? AND seq>? AND kind IN (SELECT value FROM json_each(?))
+          AND (kind='saved' OR seq>=?)`,
       )
       .get(
         owner,
         project,
         state.basis_through,
         JSON.stringify(synthesisKinds),
+        state.unincorporated_before ?? version?.unincorporated_before ?? 0,
       ) as { n: number }
   ).n;
   return Brief.parse({
@@ -217,11 +219,12 @@ function buildBrief(owner: string, project: string): Brief {
     project,
     version: state.current_version,
     basis: {
-      since: version?.basis_since ?? 0,
+      since: state.basis_since ?? version?.basis_since ?? 0,
       through: state.basis_through,
       synth_at: version?.synth_at ?? null,
       pending,
-      unincorporated_before: version?.unincorporated_before ?? null,
+      unincorporated_before:
+        state.unincorporated_before ?? version?.unincorporated_before ?? null,
       window: version
         ? `Recorded work as of ${new Date(version.synth_at).toISOString()}`
         : "Not generated yet",

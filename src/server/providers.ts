@@ -30,6 +30,8 @@ export type ChatInput = {
   steering?: import("./steering.js").SteeringInbox;
   maxTokens?: number;
   tools?: { name: string; description: string; inputSchema: any }[];
+  /** Force one named tool for structured projections; omitted for ordinary chat. */
+  toolChoice?: string;
 };
 export type Chunk = {
   text?: string;
@@ -134,6 +136,15 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
               }
             : {}),
           instructions: input.instructions || undefined,
+          ...(input.toolChoice
+            ? {
+                tool_choice: {
+                  type: "function" as const,
+                  name: input.toolChoice,
+                },
+                parallel_tool_calls: false,
+              }
+            : {}),
           input: messages,
           tools: input.tools?.map((t) => ({
             type: "function",
@@ -257,6 +268,15 @@ const adapters: Partial<Record<Provider, ProviderAdapter>> = {
         {
           model: input.model,
           system: input.instructions || undefined,
+          ...(input.toolChoice
+            ? {
+                tool_choice: {
+                  type: "tool" as const,
+                  name: input.toolChoice,
+                  disable_parallel_tool_use: true,
+                },
+              }
+            : {}),
           ...(input.effort
             ? {
                 output_config: {
