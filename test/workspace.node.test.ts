@@ -114,6 +114,33 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     assert.equal(nativeConnection.label, bootstrap.environmentName + " · Codex");
     const a = bootstrap.folders.find((f: any) => f.path === projectA);
     assert(a, "Bootstrap includes the canonical project directory");
+    await t.test("named Docker companion reports the same name across authenticated APIs", async () => {
+      const beforeContainer = process.env.LOOP_COMPANION_CONTAINER;
+      const beforeName = process.env.LOOP_ENVIRONMENT_NAME;
+      try {
+        process.env.LOOP_COMPANION_CONTAINER = "1";
+        process.env.LOOP_ENVIRONMENT_NAME = "research/loop-companion";
+        await nativeSessions.enable(options);
+        const named = await api("/bootstrap");
+        const connection = named.connections.find((c: any) => c.id === nativeConnection.id);
+        assert.equal(named.environmentName, "Docker · research/loop-companion");
+        assert.equal(JSON.parse(connection.metadata).location, "docker");
+        assert.equal(JSON.parse(connection.metadata).environmentName, named.environmentName);
+        assert.equal(connection.label, named.environmentName + " · Codex");
+        assert.equal((await api("/workspace/runtimes")).computer, named.environmentName);
+        process.env.LOOP_ENVIRONMENT_NAME = "development";
+        await nativeSessions.enable(options);
+        const renamed = await api("/bootstrap");
+        assert.equal(renamed.environmentName, "Docker · development");
+        assert.equal(renamed.connections.find((c: any) => c.id === nativeConnection.id).label, "Docker · development · Codex");
+      } finally {
+        if (beforeContainer === undefined) delete process.env.LOOP_COMPANION_CONTAINER;
+        else process.env.LOOP_COMPANION_CONTAINER = beforeContainer;
+        if (beforeName === undefined) delete process.env.LOOP_ENVIRONMENT_NAME;
+        else process.env.LOOP_ENVIRONMENT_NAME = beforeName;
+        await nativeSessions.enable(options);
+      }
+    });
     await t.test(
       "paired app discovers host runtimes and preserves billing and executable boundaries",
       async () => {

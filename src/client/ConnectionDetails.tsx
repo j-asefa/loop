@@ -21,10 +21,8 @@ export function ConnectionDetails({
           metadata.billing.description.trim()
         ? metadata.billing.description
         : "Billing not reported. Refresh this connection before use.";
-  const location = connectionLocation(
-    connection,
-    connection.executionEnvironment,
-  ).label;
+  const location =
+    connection.executionEnvironment || connectionLocation(connection).label;
   const local = !metadata.backend && !!metadata.loopHarness;
   return (
     <div className="connection-details">

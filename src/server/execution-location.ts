@@ -15,9 +15,9 @@ export function hostLocation(): ExecutionLocation {
 }
 
 export function hostEnvironmentName(): string {
-  return hostLocation() === "docker"
-    ? LOCAL_ENVIRONMENT_NAMES.docker
-    : computerName();
+  if (hostLocation() !== "docker") return computerName();
+  const name = process.env.LOOP_ENVIRONMENT_NAME?.trim() || computerName();
+  return name === "This computer" ? "Docker" : `Docker · ${name}`;
 }
 
 // Only environments provisioned by this process's local runtime (instance

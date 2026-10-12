@@ -3,6 +3,7 @@ import type { Agent, Connection, Folder, Run } from "../shared/types";
 import { apiInWorkspace, parse } from "./api";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
+import { connectionLocation } from "./modelChoices";
 
 export type AgentSource = { id: string; name: string; kind?: string };
 export type EnvironmentAgent = Agent & {
@@ -49,13 +50,16 @@ export function agentEnvironment(
   connections: Connection[],
   source: AgentSource,
 ) {
+  // Discovery names the linked workspace; its own container hostname is not
+  // another execution destination within that source.
+  if (source.kind === "docker" || source.id.startsWith("docker:"))
+    return source.name;
   const connection = connections.find(
     (item) => item.id === agent.connection_id,
   );
   const runtime = connectionEnvironment(connection, source);
   if (source.id)
-    return runtime !== source.name &&
-      !(source.kind === "docker" && runtime === "Docker")
+    return runtime !== source.name
       ? `${source.name} · ${runtime}`
       : source.name;
   return runtime;
@@ -69,7 +73,8 @@ function connectionEnvironment(
     environmentName?: string;
     location?: string;
   } | null>(connection?.metadata, {});
-  if (metadata?.location === "docker") return "Docker";
+  if (metadata?.location === "docker")
+    return connectionLocation(connection, source.name).label;
   const runtime = metadata?.environmentName;
   return typeof runtime === "string" &&
     runtime.trim() &&

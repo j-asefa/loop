@@ -84,18 +84,33 @@ export function connectionLocation(
     metadata.location === "laptop" || metadata.location === "docker"
       ? metadata.location
       : null;
+  const name =
+    typeof metadata.environmentName === "string"
+      ? metadata.environmentName.trim()
+      : "";
+  const named =
+    name &&
+    name !== "This laptop" &&
+    name !== "This computer" &&
+    name !== "Docker";
+  if (kind === "docker")
+    return {
+      kind,
+      label: named
+        ? name.startsWith("Docker · ")
+          ? name
+          : `Docker · ${name}`
+        : localName?.startsWith("Docker · ")
+          ? localName
+          : executionLocationLabels.docker,
+    };
   if (kind)
     return {
       kind,
       label:
-        kind === "laptop"
-          ? typeof metadata.environmentName === "string" &&
-            metadata.environmentName.trim() &&
-            metadata.environmentName !== "This laptop" &&
-            metadata.environmentName !== "This computer"
-            ? metadata.environmentName
-            : localName || executionLocationLabels.laptop
-          : executionLocationLabels.docker,
+        name && name !== "This laptop" && name !== "This computer"
+          ? name
+          : localName || executionLocationLabels.laptop,
     };
   if (metadata.backend === "hapi")
     return {
