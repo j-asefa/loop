@@ -96,6 +96,18 @@ it("labels only connections with a recorded local location", () => {
   expect(connectionLocation(connections[5]).label).toBe("Remote runner");
 });
 
+it("uses recorded computer names and resolves legacy laptop labels from their source", () => {
+  const connection = (metadata: object) => ({ metadata: JSON.stringify(metadata) }) as Connection;
+  expect(connectionLocation(connection({ location: "laptop", environmentName: "Alex’s MacBook Pro" })))
+    .toEqual({ kind: "laptop", label: "Alex’s MacBook Pro" });
+  expect(connectionLocation(connection({ location: "laptop", environmentName: "This laptop" }), "Workstation"))
+    .toEqual({ kind: "laptop", label: "Workstation" });
+  expect(connectionLocation(connection({ location: "docker", environmentName: "container-id" }), "Workstation"))
+    .toEqual({ kind: "docker", label: "Docker" });
+  expect(connectionLocation(connection({ location: "laptop" })))
+    .toEqual({ kind: "laptop", label: "This computer" });
+});
+
 const runConnections = [
   {
     id: "older-account",

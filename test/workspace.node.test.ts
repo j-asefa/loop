@@ -12,7 +12,7 @@ import {
   writeFile,
   readdir,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, platform, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
@@ -107,12 +107,18 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       );
     });
     const bootstrap = await api("/bootstrap");
+    assert(bootstrap.environmentName, "Bootstrap reports the execution computer's name");
+    if (platform() === "linux") assert.equal(bootstrap.environmentName, hostname());
+    const nativeConnection = bootstrap.connections.find((c: any) => c.id === "native-codex");
+    assert.equal(JSON.parse(nativeConnection.metadata).environmentName, bootstrap.environmentName);
+    assert.equal(nativeConnection.label, bootstrap.environmentName + " · Codex");
     const a = bootstrap.folders.find((f: any) => f.path === projectA);
     assert(a, "Bootstrap includes the canonical project directory");
     await t.test(
       "paired app discovers host runtimes and preserves billing and executable boundaries",
       async () => {
         const runtimeList = await api("/workspace/runtimes");
+        assert.equal(runtimeList.computer, bootstrap.environmentName);
         assert.equal(runtimeList.online, true);
         assert.equal(runtimeList.runtimes.length, 4);
         assert.equal(

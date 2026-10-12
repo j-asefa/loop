@@ -61,7 +61,7 @@ export function agentModelName(
 
 export type ExecutionLocation = "laptop" | "docker";
 export const executionLocationLabels: Record<ExecutionLocation, string> = {
-  laptop: "This laptop",
+  laptop: "This computer",
   docker: "Docker",
 };
 
@@ -69,7 +69,10 @@ export const executionLocationLabels: Record<ExecutionLocation, string> = {
  * Where a connection runs, from the location the server recorded when it was
  * registered. This is saved information, not a live host check.
  */
-export function connectionLocation(connection?: Connection): {
+export function connectionLocation(
+  connection?: Connection,
+  localName?: string,
+): {
   kind: ExecutionLocation | null;
   label: string;
 } {
@@ -81,7 +84,19 @@ export function connectionLocation(connection?: Connection): {
     metadata.location === "laptop" || metadata.location === "docker"
       ? metadata.location
       : null;
-  if (kind) return { kind, label: executionLocationLabels[kind] };
+  if (kind)
+    return {
+      kind,
+      label:
+        kind === "laptop"
+          ? typeof metadata.environmentName === "string" &&
+            metadata.environmentName.trim() &&
+            metadata.environmentName !== "This laptop" &&
+            metadata.environmentName !== "This computer"
+            ? metadata.environmentName
+            : localName || executionLocationLabels.laptop
+          : executionLocationLabels.docker,
+    };
   if (metadata.backend === "hapi")
     return {
       kind,

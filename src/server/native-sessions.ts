@@ -71,7 +71,7 @@ import {
   inspectPiPackage,
   previousPiPackageSource,
 } from "./pi-package-inspect.js";
-import { hostLocation } from "./execution-location.js";
+import { hostEnvironmentName, hostLocation } from "./execution-location.js";
 
 export const OWNER = "local-workspace";
 const classes = {
@@ -849,6 +849,7 @@ export class NativeSessions {
         options.billing === "subscription" ? "subscription" : "native-existing",
       runtimeKind: "loop-local",
       location: hostLocation(),
+      environmentName: hostEnvironmentName(),
       billing,
       capabilities,
     };
@@ -869,7 +870,7 @@ export class NativeSessions {
         "native-" + options.harness,
         OWNER,
         options.harness === "claude" ? "anthropic" : options.harness,
-        labels[options.harness] + " · this computer",
+        metadata.environmentName + " · " + labels[options.harness],
         "",
         JSON.stringify(models),
         JSON.stringify(metadata),

@@ -1,8 +1,10 @@
 import { afterEach, expect, it } from "vitest";
+import { computerName } from "../src/computer-name";
 import {
   LOCAL_ENVIRONMENT_NAMES,
   environmentLocation,
   hostLocation,
+  hostEnvironmentName,
 } from "../src/server/execution-location";
 
 const container = process.env.LOOP_COMPANION_CONTAINER;
@@ -14,8 +16,10 @@ afterEach(() => {
 it("records Loop's own process as Docker inside the companion container", () => {
   delete process.env.LOOP_COMPANION_CONTAINER;
   expect(hostLocation()).toBe("laptop");
+  expect(hostEnvironmentName()).toBe(computerName());
   process.env.LOOP_COMPANION_CONTAINER = "1";
   expect(hostLocation()).toBe("docker");
+  expect(hostEnvironmentName()).toBe("Docker");
 });
 
 it("locates only environments this process provisioned locally", () => {

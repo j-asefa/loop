@@ -7,6 +7,7 @@ import { expect } from "@playwright/test";
 // covered separately by linked-docker.node.test.ts.
 export async function agentSourcesBrowser(page, workspaceUrl) {
   const now = Date.now();
+  const computer = "Alex’s MacBook Pro";
   const sources = [
     { id: `docker:${"a".repeat(64)}`, name: "Docker · Alpha", kind: "docker" },
     { id: "cloud:beta", name: "Cloud · Beta", kind: "cloud" },
@@ -84,13 +85,14 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       id: "laptop-connection",
       owner_id: "laptop-owner",
       provider: "codex",
-      label: "This laptop · Codex",
+      label: "Codex",
       secret: "",
       status: "connected",
       models: JSON.stringify([{ id: "gpt-5.5", name: "GPT-5.5" }]),
       metadata: JSON.stringify({
         authMode: "subscription",
         environmentName: "This laptop",
+        location: "laptop",
       }),
       created_at: now,
     },
@@ -146,6 +148,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       : [thread];
   const localBootstrap = (route) =>
     fulfill(route, {
+      environmentName: computer,
       agents: [local.agent],
       connections: [local.connection],
       folders: [],
@@ -233,7 +236,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     ).toContainText("Cloud · Beta");
     await expect(
       strip.getByRole("button", { name: /@laptop-agent/ }),
-    ).toContainText("This laptop");
+    ).toContainText(computer);
+    await expect(
+      page.locator(".inbox-card").filter({ hasText: "Laptop thread" }).locator(".card-environment"),
+    ).toHaveText(computer);
     await expect(
       page.locator(".inbox-row").filter({ hasText: "Laptop thread" }),
     ).toBeVisible();
@@ -366,7 +372,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .getByLabel("Run on");
     await expect(destinations).toContainText("Docker · Alpha");
     await expect(destinations).toContainText("Cloud · Beta");
-    await expect(destinations).toContainText("This laptop");
+    await expect(destinations).toContainText(computer);
     const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
     const dockerRunner = `${sources[0].id}:remote-connection-0`;
     await destinations.selectOption(dockerRunner);
@@ -382,6 +388,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await expect(page.locator(".file-preview-content pre")).toHaveText("hello");
     await page.locator("dialog[open]").last().getByRole("button", { name: "Close", exact: true }).click();
     await destinations.selectOption("laptop:laptop-connection");
+    await expect(sheet.locator(".connection-details")).toContainText(computer);
+    await expect(sheet).not.toContainText("This laptop");
     await expect(sheet.getByRole("button", { name: "Create & start" })).toBeDisabled();
     await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeDisabled();
     await destinations.selectOption(dockerRunner);

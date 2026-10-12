@@ -2,6 +2,7 @@ import { linkedDockerWorkspaces } from "./linked-docker.js";
 import { db } from "./server/db.js";
 import { Problem } from "./server/domain.js";
 import { OWNER } from "./server/native-sessions.js";
+import { hostEnvironmentName } from "./server/execution-location.js";
 import {
   enrollFederationPeer,
   FEDERATION_SETUP_HEADER,
@@ -129,7 +130,7 @@ export class DockerMcpSharing {
     enrollFederationPeer(OWNER, sourceId);
     await this.request(source, "/api/mcp/federation/import-reverse", {
       peerId,
-      label: "This laptop",
+      label: hostEnvironmentName().slice(0, 80),
       tools: localFederationCatalog(OWNER),
     });
     return { id: sourceId, shared: true };
@@ -174,7 +175,7 @@ export class DockerMcpSharing {
     });
     await this.request(source, "/api/mcp/federation/import-reverse", {
       peerId: `laptop:${OWNER}`,
-      label: "This laptop",
+      label: hostEnvironmentName().slice(0, 80),
       tools: localFederationCatalog(OWNER),
     });
   }
