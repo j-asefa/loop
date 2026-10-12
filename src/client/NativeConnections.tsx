@@ -54,7 +54,7 @@ export function NativeConnections({
           {connections
             .filter((c) => {
               const m = parse<any>(c.metadata, {});
-              return !m.loopHarness && m.backend !== "hapi";
+              return !m.loopHarness;
             })
             .map((c) => (
               <section key={c.id} className="native-decision">

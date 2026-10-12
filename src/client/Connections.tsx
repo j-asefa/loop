@@ -472,12 +472,6 @@ function ServerConnections({
                         className="text-button"
                         disabled={busy}
                         onClick={() => {
-                          if (account.runtimeKind === "hapi") {
-                            setError(
-                              "This HAPI connection is archived. Connect a native harness in Provider connections.",
-                            );
-                            return;
-                          }
                           if (sub)
                             void perform((ticket) =>
                               start(

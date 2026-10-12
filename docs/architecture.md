@@ -32,7 +32,7 @@ API connections use Loop's model loop. Native connections dispatch through nativ
 
 The private native tool bridge gives every harness the same owner-scoped team, mail, delegation, handoff, memory and published-file tools. Handoffs transfer an explicit task and context summary, not a provider session or additional authority. Team membership and file ownership are checked on delivery.
 
-HAPI transport, Hub and runner provisioning have been removed. Migration 071 restores verification eligibility for direct connections retired by 067, while retaining archived HAPI history and uncertain receipts. The worker marks HAPI runs still queued or active as interrupted and rejects their pending approvals; they can be cancelled or dismissed but not retried or resumed. Forks and teams refuse agents still bound to an archived HAPI connection. No uncertain external effect is replayed automatically.
+An earlier release ran harnesses through HAPI; that code is gone. Migration 077 made its leftover records inert once: active HAPI runs were interrupted without replay and their pending approvals rejected, HAPI connections stay disconnected and no longer present as subscriptions, and HAPI conversations keep their memory inclusion as an explicit policy. Their history remains readable. No uncertain external effect is replayed automatically.
 
 ## Activities
 
@@ -58,6 +58,6 @@ File publication validates the selected file/path, size and digest, then stores 
 
 [deployment/versions.json](../deployment/versions.json) owns container provider and MemSearch pins. [host-control.ts](../src/host-control.ts) owns installed harness version checks. [package.json](../package.json) pins the ACP SDK. Validate each seam when updating it.
 
-Dependencies retain their upstream licenses. HAPI code is no longer distributed.
+Dependencies retain their upstream licenses.
 
 The application host is a single point of failure. Native tools are not a multi-tenant sandbox. Fixture tests establish protocol behavior, not provider availability, billing entitlement, device acceptance or deployment capacity. See [development](development.md) for verification boundaries.

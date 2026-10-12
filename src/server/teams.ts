@@ -6,7 +6,6 @@ import { createHash } from "node:crypto";
 import { suggestAgentName } from "./agent-names.js";
 import { TEAM_PRESETS } from "../shared/team-presets.js";
 import { startCodeReview, reviewStatus } from "./code-reviews.js";
-import { isArchivedHapi } from "./legacy-execution.js";
 import type { Agent, Connection } from "../shared/types.js";
 
 export function listTeams(owner: string) {
@@ -66,11 +65,6 @@ export function createTeam(owner: string, input: unknown) {
     const connection = a.connection_id
       ? owned<any>("connections", a.connection_id, owner)
       : undefined;
-    if (connection && isArchivedHapi(connection))
-      throw new Problem(
-        409,
-        "Choose a native connection for agents on an archived HAPI connection before adding them to a team",
-      );
     if (connection?.status !== "connected")
       throw new Problem(409, "Every team member needs a connected provider");
   }
@@ -83,9 +77,9 @@ export function createTeam(owner: string, input: unknown) {
       ).run(teamId, owner, d.name, d.managerId, now());
       const manager = owned<Agent>("agents", d.managerId, owner);
       db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,execution_backend,execution_connection_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,execution_connection_id,created_at) VALUES(?,?,?,?,?,?,?)",
       ).run(conversation, owner, d.managerId, d.name, teamId,
-        "legacy", manager.connection_id, now());
+        manager.connection_id, now());
       db.prepare("UPDATE teams SET conversation_id=? WHERE id=?").run(
         conversation,
         teamId,

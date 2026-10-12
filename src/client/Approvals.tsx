@@ -12,7 +12,6 @@ import {
 import { parse } from "./api";
 import { Badge, RichText, Sheet } from "./components";
 import type { Provider } from "../shared/types";
-import { nativeQuestionKey } from "../shared/native-questions";
 import { Tools } from "./Tools";
 
 type Approval = {
@@ -91,7 +90,6 @@ function quickDecision(item: Approval) {
   return (
     !request.deliveryUnknown &&
     request.type !== "mcp_install" &&
-    !(request.type === "hapi_native" && (args.questions || []).length) &&
     item.expires_at > Date.now()
   );
 }
@@ -115,8 +113,6 @@ export function Approvals({
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  useEffect(() => setAnswers({}), [selected?.id]);
   const [notice, setNotice] = useState("");
   const [showTools, setShowTools] = useState(false);
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
@@ -183,25 +179,9 @@ export function Approvals({
     setBusy(decision);
     setError("");
     try {
-      const questions =
-        detail?.request.type === "hapi_native"
-          ? detail.args.questions || []
-          : [];
-      const normalized = Object.fromEntries(
-        questions.map((q: any, i: number) => {
-          const key = nativeQuestionKey(detail?.request.tool, q, i);
-          const answer = (answers[key] || "").trim();
-          if (decision === "approve" && q.required !== false && !answer)
-            throw new Error("Answer each required question before approving.");
-          return [key, answer ? [answer] : []];
-        }),
-      );
       await api("/approvals/" + target.id, {
         decision,
         ...(detail.request.deliveryUnknown ? { confirmUnknown: true } : {}),
-        ...(decision === "approve" && questions.length
-          ? { answers: normalized }
-          : {}),
       });
       decided.current.add(target.id);
       setItems((old) => old.filter((item) => item.id !== target.id));
@@ -417,31 +397,6 @@ export function Approvals({
                   ))}
               </dl>
             )}
-            {detail.request.type === "hapi_native" &&
-              (detail.args.questions || []).map((q: any, i: number) => (
-                <label key={q.id || i} className="native-settings">
-                  {q.question || q.header || q.id}
-                  <input
-                    list={"native-answer-" + i}
-                    value={
-                      answers[nativeQuestionKey(detail.request.tool, q, i)] ||
-                      ""
-                    }
-                    onChange={(e) =>
-                      setAnswers((a) => ({
-                        ...a,
-                        [nativeQuestionKey(detail.request.tool, q, i)]:
-                          e.target.value,
-                      }))
-                    }
-                  />
-                  <datalist id={"native-answer-" + i}>
-                    {(q.options || []).map((o: any) => (
-                      <option key={o.label || o} value={o.label || o} />
-                    ))}
-                  </datalist>
-                </label>
-              ))}
             {detail.request.config && (
               <div className="approval-config">
                 <h4>Tools to install</h4>

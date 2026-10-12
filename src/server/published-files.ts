@@ -197,9 +197,6 @@ export async function publishRunFile(
     run.owner_id,
   );
   const metadata = JSON.parse(connection.metadata);
-  if (metadata.backend === "hapi") {
-    throw new Problem(410, "HAPI execution has been removed; recorded files remain available.");
-  }
   const binding =
     companionMode && metadata.loopHarness
       ? (db

@@ -146,10 +146,5 @@ workflows.post("/approvals/:id", async (req, res) => {
     req.params.id,
     res.locals.owner,
   );
-  if (JSON.parse(approval.request).type === "hapi_native")
-    throw new Problem(
-      410,
-      "This approval belongs to an archived HAPI session.",
-    );
   res.json(decide(res.locals.owner, req.params.id, d.decision));
 });

@@ -35,7 +35,6 @@ import {
 } from "./steering.js";
 import type { Agent, Connection, Message } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
-import { isArchivedHapi, type NativeSelection } from "./legacy-execution.js";
 import { nativeSessions } from "./native-sessions.js";
 import { assertReviewIdentity, reviewContext } from "./review-access.js";
 export type Snapshot = {
@@ -54,20 +53,14 @@ export type Snapshot = {
   source?: { url: string; title: string; excerpt: string };
   teamId?: string;
   reviewId?: string;
-  execution?: NativeSelection;
   attachmentIds?: string[];
   replyTo?: ReplyContext;
 };
-// The connection a conversation's next turn runs on: a managed conversation
-// keeps its HAPI connection, any other follows the agent's current one.
+// The connection a conversation's next turn runs on: the agent's current one.
 // Shared by submit and command discovery so the catalog matches the turn.
 export function nextTurnConnection(
   owner: string,
   agent: Pick<Agent, "connection_id">,
-  conversation?: {
-    execution_backend?: string | null;
-    execution_connection_id?: string | null;
-  },
 ) {
   if (!agent.connection_id)
     throw new Problem(409, "Connect a provider to this agent first");
@@ -76,16 +69,6 @@ export function nextTurnConnection(
     agent.connection_id,
     owner,
   );
-  if (conversation?.execution_backend === "hapi")
-    throw new Problem(
-      409,
-      "This archived HAPI conversation cannot execute. Start a new native conversation; its history is preserved.",
-    );
-  if (isArchivedHapi(connection))
-    throw new Problem(
-      409,
-      "This agent uses an archived HAPI connection. Choose a native connection for it; history is preserved.",
-    );
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect the provider to run this agent");
   return { connection };
@@ -170,12 +153,11 @@ export function submit(
       // Steering belongs to the running task, even if its agent now selects
       // another provider for future conversations.
       const steeringConnection = live?.liveInput ? JSON.parse(live.run.payload).connectionId : undefined;
+      if (conversation && !steeringConnection)
+        owned("conversations", conversation, owner);
       const { connection } = nextTurnConnection(
         owner,
         steeringConnection ? { connection_id: steeringConnection } : agent,
-        conversation && !steeringConnection
-          ? owned<any>("conversations", conversation, owner)
-          : undefined,
       );
       if (data.folderId) owned("folders", data.folderId, owner);
       const prior = db
@@ -355,7 +337,7 @@ export function submit(
         }
       }
       db.prepare(
-        "UPDATE conversations SET execution_backend='legacy',execution_connection_id=COALESCE(execution_connection_id,?),project_id=COALESCE(project_id,?) WHERE id=?",
+        "UPDATE conversations SET execution_connection_id=COALESCE(execution_connection_id,?),project_id=COALESCE(project_id,?) WHERE id=?",
       ).run(
         connection.id,
         folderId,
@@ -522,7 +504,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const snapshot = JSON.parse(run.payload) as Snapshot & {
     workflowRun?: string;
   };
-  if (snapshot.execution?.backend === "hapi") throw new Problem(409, "HAPI execution has been removed. This recorded work was not replayed.");
   if (snapshot.reviewId) {
     assertReviewIdentity(
       run.owner_id,
@@ -530,11 +511,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
       snapshot.teamId,
       run.agent_id!,
     );
-    if (snapshot.execution)
-      throw new Problem(
-        409,
-        "Snapshot reviews cannot use a native execution binding",
-      );
   }
   const connection = owned<Connection>(
     "connections",

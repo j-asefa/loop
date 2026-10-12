@@ -19,7 +19,7 @@ Open http://localhost:3000. `GET /api/health` reports readiness. [src/server/con
 
 Use Settings → Provider connections to connect server subscription accounts through the configured runtime broker, or register a native host. See [remote runtimes](remote-runtimes.md). The root Compose stack supplies the server and subscription runtime; the paired Docker companion is a separate deployment.
 
-HAPI execution is removed. Direct subscription connections retired by migration 067 become eligible for native verification in migration 071. Check the account before running work again. Stored history and uncertain dispatch receipts remain intact and are never automatically replayed.
+Direct subscription connections retired by migration 067 become eligible for native verification in migration 071. Check the account before running work again. Stored history and uncertain dispatch receipts remain intact and are never automatically replayed.
 
 ## Access configuration
 

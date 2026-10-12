@@ -31,12 +31,12 @@ it("does not infer billing from connection status or incomplete metadata", () =>
 it("shows reported billing and location without claiming a live sign-in check", () => {
   const html = render(
     JSON.stringify({
-      backend: "hapi",
-      environmentName: "Docker runner",
+      loopHarness: "codex",
+      location: "docker",
       billing: { description: "Existing provider billing" },
     }),
   );
-  expect(html).toContain("Docker runner");
+  expect(html).toContain("Docker");
   expect(html).toContain("Existing provider billing");
   expect(html).toContain("not a live sign-in or runtime");
   expect(

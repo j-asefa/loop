@@ -691,7 +691,7 @@ export function Conversation({
   const status = runStatus(currentRun?.run_state);
   const workState = currentRun?.run_state || "";
   // API, subscription, Codex, Claude and Pi turns take a message mid-task.
-  // HAPI sessions and OpenCode and ACP turns queue every follow-up. The
+  // OpenCode and ACP turns queue every follow-up. The
   // server decides from the connection the current run started with.
   const steerable =
     ["running", "awaiting_approval"].includes(workState) &&

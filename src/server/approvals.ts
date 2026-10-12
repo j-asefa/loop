@@ -57,9 +57,6 @@ export function decide(
       );
       if (
         db
-          .prepare("SELECT 1 FROM native_dispatches WHERE run_id=?")
-          .get(run.id) ||
-        db
           .prepare(
             "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('accepted','unknown')",
           )

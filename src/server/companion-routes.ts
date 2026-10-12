@@ -388,7 +388,6 @@ companion.get("/conversations/:id/native", (req, res, next) => {
     String(req.params.id),
     OWNER,
   );
-  if (conversation.execution_backend === "hapi") throw new Problem(410, "This HAPI session is archived; its history remains available.");
   const binding = db
     .prepare(
       "SELECT harness,project,model,state,updated_at FROM companion_sessions WHERE conversation_id=?",
