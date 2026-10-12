@@ -96,6 +96,32 @@ it("labels only connections with a recorded local location", () => {
   expect(connectionLocation(connections[5]).label).toBe("Server connection");
 });
 
+it("uses recorded computer names and resolves legacy laptop labels from their source", () => {
+  const connection = (metadata: object) => ({ metadata: JSON.stringify(metadata) }) as Connection;
+  expect(connectionLocation(connection({ location: "laptop", environmentName: "Alex’s MacBook Pro" })))
+    .toEqual({ kind: "laptop", label: "Alex’s MacBook Pro" });
+  expect(connectionLocation(connection({ location: "laptop", environmentName: "This laptop" }), "Workstation"))
+    .toEqual({ kind: "laptop", label: "Workstation" });
+  expect(connectionLocation(connection({ location: "docker", environmentName: "container-id" }), "Workstation"))
+    .toEqual({ kind: "docker", label: "Docker · container-id" });
+  expect(connectionLocation(connection({ location: "laptop" })))
+    .toEqual({ kind: "laptop", label: "This computer" });
+});
+
+it("keeps distinct Docker names while preserving the recorded location", () => {
+  const connection = (metadata: object) => ({ metadata: JSON.stringify(metadata) }) as Connection;
+  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker · research/loop" })))
+    .toEqual({ kind: "docker", label: "Docker · research/loop" });
+  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker · research/app" })))
+    .toEqual({ kind: "docker", label: "Docker · research/app" });
+  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker" }), "Docker · research/loop"))
+    .toEqual({ kind: "docker", label: "Docker · research/loop" });
+  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker" }), "Office Mac"))
+    .toEqual({ kind: "docker", label: "Docker" });
+  expect(connectionLocation(connection({ location: "laptop", environmentName: "Docker" })))
+    .toEqual({ kind: "laptop", label: "Docker" });
+});
+
 const runConnections = [
   {
     id: "older-account",

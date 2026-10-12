@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
@@ -54,7 +55,8 @@ export function saveSteering(
   metadata: object,
 ) {
   const steeringId = id(),
-    messageId = id();
+    messageId = id(),
+    messageAt = now();
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
   ).run(
@@ -64,8 +66,10 @@ export function saveSteering(
     run.id,
     content,
     JSON.stringify({ ...metadata, steeringId }),
-    now(),
+    messageAt,
   );
+  if (!(metadata as { automation?: unknown }).automation)
+    recordChange(run.owner_id, undefined, "prompt", messageId, run.conversation_id, messageAt);
   db.prepare(
     "INSERT INTO run_steering(id,owner_id,run_id,message_id,idempotency_key,request,created_at) VALUES(?,?,?,?,?,?,?)",
   ).run(steeringId, run.owner_id, run.id, messageId, key, request, now());

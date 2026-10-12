@@ -292,4 +292,4 @@ UPDATE conversations SET feed_run_raw_state=(SELECT cr.state FROM runs cr WHERE 
 WHERE id=new.id;
 END;
 
-INSERT INTO schema_version VALUES(78,unixepoch()*1000);
+INSERT INTO schema_version VALUES(81,unixepoch()*1000);

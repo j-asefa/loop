@@ -1,5 +1,5 @@
 // The Feed reads each conversation's state from columns that triggers keep
-// current (migration 078). These tests compare those columns, after every
+// current (migration 081). These tests compare those columns, after every
 // kind of write, with the state the Feed used to derive on each request.
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -21,7 +21,7 @@ function database(through = Infinity) {
   return db;
 }
 
-// The per-request derivation the Feed used before migration 078.
+// The per-request derivation the Feed used before migration 081.
 const internal = (r: string) =>
   `(EXISTS(SELECT 1 FROM delegations dl WHERE dl.child_run_id=${r}.id) OR EXISTS(SELECT 1 FROM workflow_steps ws WHERE ws.child_run_id=${r}.id))`;
 const current = `FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY CASE WHEN r.state IN ('running','pausing','paused','awaiting_approval') THEN 0 ELSE 1 END,r.created_at DESC,r.rowid DESC LIMIT 1`;
@@ -124,7 +124,7 @@ it("keeps every conversation's Feed state equal to the per-request derivation af
 });
 
 it("backfills existing conversations from their history", () => {
-  const db = database(77);
+  const db = database(80);
   const w = writer(db);
   w.conversation("a");
   w.conversation("b");
@@ -136,7 +136,7 @@ it("backfills existing conversations from their history", () => {
   w.run("r3", "b", "completed");
   w.run("p", null, "running");
   db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES('p','c','r3','{}',0)").run();
-  db.exec(readFileSync(join("migrations", "078-conversation-feed-state.sql"), "utf8"));
+  db.exec(readFileSync(join("migrations", "081-conversation-feed-state.sql"), "utf8"));
   expectState(db, ["a", "b", "empty"], "backfill");
   expect(db.prepare("SELECT feed_visible FROM conversations WHERE id IN ('b','empty') ORDER BY id").all()).toEqual([
     { feed_visible: 0 },

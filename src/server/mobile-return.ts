@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -196,8 +197,10 @@ type FeedRow = {
   trigger_automation: string | null;
   trigger_automation_from: string | null;
   card_answer_id: string | null;
+  approval_id: string | null;
   approval_run_id: string | null;
   approval_message_id: string | null;
+  decision_id: string | null;
   decision_run_id: string | null;
   decision_request: string | null;
   later_due_at: number | null;
@@ -211,7 +214,7 @@ function feedSql(teams: boolean, folders: boolean, agent = false) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
 flagged AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
-    c.feed_folder_id folder_id,c.feed_run_id run_id,c.feed_done_run_id done_run_id,c.feed_done_at done_at,
+    c.feed_folder_id folder_id,c.feed_run_id run_id,c.feed_run_state run_state,c.feed_done_run_id done_run_id,c.feed_done_at done_at,
     c.feed_last_activity_at last_activity_at,c.feed_queued queued,cp.position_message_id,
     (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
     EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
@@ -249,24 +252,24 @@ picked AS MATERIALIZED (
     (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) trigger_id,
     CASE WHEN @mode='done' THEN 0 ELSE (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
       WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now) END pending_approvals,
-    CASE WHEN @mode='done' THEN NULL ELSE (SELECT a.run_id FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
-      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now ORDER BY a.created_at,a.rowid LIMIT 1) END approval_run_id,
+    CASE WHEN @mode='done' THEN NULL ELSE (SELECT a.id FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
+      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now ORDER BY a.created_at,a.rowid LIMIT 1) END approval_id,
     CASE WHEN @mode='done' THEN NULL ELSE (SELECT d.id FROM native_decisions d JOIN runs dr ON dr.id=d.run_id AND dr.owner_id=@owner
       WHERE d.conversation_id=k.conversation_id AND d.state='pending' ORDER BY d.created_at LIMIT 1) END decision_id
   FROM page_run k LEFT JOIN runs r ON r.id=k.card_run AND r.owner_id=@owner
 ),
 chosen AS MATERIALIZED (
-  SELECT k.*,
+  SELECT k.*,ap.run_id approval_run_id,
     CASE
       WHEN @mode='done' AND k.card_run IS NOT NULL THEN COALESCE(k.card_answer_id,k.card_any_id)
       WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ('running','pausing','waiting_children'))) THEN k.card_answer_id
       ELSE k.thread_latest_id
     END message_id,
     COALESCE(
-      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.approval_run_id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
-      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.approval_run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)
+      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
+      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)
     ) approval_message_id
-  FROM picked k
+  FROM picked k LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
 )
 SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
   m.role message_role,substr(m.content,1,1000) message_content,m.created_at message_created_at,
@@ -399,7 +402,10 @@ export function setDoneCardHidden(
   const { hidden, cardKey } = z
     .object({
       hidden: z.boolean(),
-      cardKey: z.string().regex(/^(run|message):.+$/).max(200),
+      cardKey: z
+        .string()
+        .regex(/^(run|message):.+$/)
+        .max(200),
     })
     .parse(body);
   return db
@@ -650,20 +656,23 @@ function feedItem(
  * the end of the thread; a finished run opens at its answer. A local draft
  * ("Continue draft") is added by the client. null: only Reply applies.
  */
-type NextAction = {
+export type NextAction = {
   kind: "approve" | "answer" | "result";
   message_id: string | null;
   run_id: string;
+  ref?: string;
 };
 function nextAction(
   row: FeedRow,
   run: { id: string; state: string } | undefined,
   // A Done card opens at its answer, whatever the thread waits on now.
   resultOnly: boolean,
+  includeRef = false,
 ): NextAction | null {
   if (!resultOnly && row.approval_run_id)
     return {
       kind: "approve",
+      ...(includeRef && { ref: row.approval_id! }),
       run_id: row.approval_run_id,
       message_id: row.approval_message_id,
     };
@@ -677,6 +686,7 @@ function nextAction(
     // Native decisions are answered at the end of the thread.
     return {
       kind: questions ? "answer" : "approve",
+      ...(includeRef && { ref: row.decision_id! }),
       run_id: row.decision_run_id,
       message_id: null,
     };
@@ -684,6 +694,64 @@ function nextAction(
   if (run?.state === "completed" && row.card_answer_id)
     return { kind: "result", run_id: run.id, message_id: row.card_answer_id };
   return null;
+}
+
+/** Brief projection: reuse the Feed's predicates and action selector, unpaged.
+ * Existing Feed routes retain their current scope and response shape. */
+export function briefAttention(owner: string, project: string) {
+  const folders = (
+    db
+      .prepare(
+        "SELECT folder_id FROM project_change_folders WHERE owner_id=? AND project_id=?",
+      )
+      .all(owner, project) as { folder_id: string }[]
+  ).map((r) => r.folder_id);
+  const rows = db
+    .prepare(
+      `${feedSql(false, true)}, page AS (SELECT *,last_activity_at sort_at FROM flagged), ${cardSql}`,
+    )
+    .all({
+      owner,
+      now: now(),
+      folders: JSON.stringify(folders),
+      mode: "thread",
+    }) as (FeedRow & {
+    conversation_id: string;
+    run_id: string | null;
+    run_state: string | null;
+    is_needs: number;
+    is_working: number;
+  })[];
+  const needs: {
+    kind: "approval" | "question" | "failed";
+    ref: string;
+    conversation: string;
+  }[] = [];
+  for (const row of rows) {
+    const action = nextAction(
+      row,
+      row.run_id ? { id: row.run_id, state: row.run_state ?? "" } : undefined,
+      false,
+      true,
+    );
+    if (action && action.kind !== "result")
+      needs.push({
+        kind: action.kind === "answer" ? "question" : "approval",
+        ref: action.ref!,
+        conversation: row.conversation_id,
+      });
+    else if (row.is_needs)
+      needs.push({
+        // A paused run or an expired approval still needs the owner at its
+        // thread, even when there is no answerable decision record left.
+        kind: ["failed", "interrupted"].includes(row.run_state ?? "")
+          ? "failed"
+          : "question",
+        ref: row.run_id!,
+        conversation: row.conversation_id,
+      });
+  }
+  return { working: rows.some((r) => r.is_working), needs };
 }
 
 function livePreview(owner: string, runId: string) {
@@ -733,9 +801,9 @@ export function awaySummary(owner: string, since: number) {
 function resultFor(owner: string, messageId: string) {
   return db
     .prepare(
-      "SELECT a.id FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
+      "SELECT a.id,a.pinned FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
     )
-    .get(messageId, owner) as { id: string } | undefined;
+    .get(messageId, owner) as { id: string; pinned: number } | undefined;
 }
 
 export function setSaved(owner: string, messageId: string, on: boolean) {
@@ -744,19 +812,42 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const message = owned<Message>("messages", messageId, owner);
       if (JSON.parse(message.metadata).progress)
         throw new Problem(400, "Only saved messages can be kept");
-      const result = resultFor(owner, messageId);
-      if (result)
+      const result = resultFor(owner, messageId),
+        savedAt = now();
+      if (result && result.pinned !== Number(on)) {
         db.prepare(
           "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
-        ).run(Number(on), now(), result.id, owner, Number(on));
-      if (on && !result)
-        db.prepare(
-          "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
-        ).run(owner, messageId, now());
-      else
-        db.prepare(
-          "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
-        ).run(owner, messageId);
+        ).run(Number(on), savedAt, result.id, owner, Number(on));
+        recordChange(
+          owner,
+          undefined,
+          on ? "saved" : "unsaved",
+          result.id,
+          message.conversation_id,
+          savedAt,
+        );
+      }
+      const bookmarkChanged =
+        on && !result
+          ? db
+              .prepare(
+                "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
+              )
+              .run(owner, messageId, savedAt).changes
+          : db
+              .prepare(
+                "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+              )
+              .run(owner, messageId).changes;
+      if (bookmarkChanged)
+        recordChange(
+          owner,
+          undefined,
+          on && !result ? "saved" : "unsaved",
+          messageId,
+          message.conversation_id,
+          savedAt,
+        );
       return { ok: true as const, saved: on };
     })
     .immediate();
@@ -902,6 +993,11 @@ export function setSavedLabel(owner: string, body: unknown) {
             )
             .get(target, owner);
       if (!saved) throw new Problem(404, "Saved item not found");
+      const previous = db
+        .prepare(
+          "SELECT label FROM saved_labels WHERE owner_id=? AND item_key=?",
+        )
+        .get(owner, d.key) as { label: string } | undefined;
       if (d.label)
         db.prepare(
           `INSERT INTO saved_labels(owner_id,item_key,label,updated_at) VALUES(?,?,?,?)
@@ -911,6 +1007,8 @@ export function setSavedLabel(owner: string, body: unknown) {
         db.prepare(
           "DELETE FROM saved_labels WHERE owner_id=? AND item_key=?",
         ).run(owner, d.key);
+      if ((previous?.label || "") !== d.label)
+        recordChange(owner, undefined, "label", target);
       return { key: d.key, label: d.label || null };
     })
     .immediate();
@@ -1442,9 +1540,10 @@ export function surfaceLater(time = now()) {
         enqueuePush(item.owner_id, "later-" + item.id, {
           title: "Back from Later",
           body: target?.title || "An item you deferred is ready",
-          url: item.kind === "story"
-            ? "/?social=" + encodeURIComponent(item.target_id)
-            : target?.url || "/?page=profile",
+          url:
+            item.kind === "story"
+              ? "/?social=" + encodeURIComponent(item.target_id)
+              : target?.url || "/?page=profile",
         });
       }
       return surfaced;
@@ -2137,7 +2236,11 @@ export function conversationUsage(owner: string, conversation: string) {
       `SELECT e.run_id,e.type,e.payload FROM events e JOIN runs r ON r.id=e.run_id AND r.owner_id=e.owner_id
       WHERE e.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`,
     )
-    .all(owner, conversation) as { run_id: string; type: string; payload: string }[];
+    .all(owner, conversation) as {
+    run_id: string;
+    type: string;
+    payload: string;
+  }[];
   const runs: Record<string, Tokens> = {};
   const native: Record<string, Tokens> = {};
   // A provider message is one receipt with an externalId, optionally followed
@@ -2161,9 +2264,18 @@ export function conversationUsage(owner: string, conversation: string) {
     const usage = payload.usage;
     if (event.type === "native.usage") {
       if (!usage || typeof usage !== "object") continue;
-      const total = (native[event.run_id] ||= { input_tokens: 0, output_tokens: 0 });
-      total.input_tokens = Math.max(total.input_tokens, count(usage.input_tokens));
-      total.output_tokens = Math.max(total.output_tokens, count(usage.output_tokens));
+      const total = (native[event.run_id] ||= {
+        input_tokens: 0,
+        output_tokens: 0,
+      });
+      total.input_tokens = Math.max(
+        total.input_tokens,
+        count(usage.input_tokens),
+      );
+      total.output_tokens = Math.max(
+        total.output_tokens,
+        count(usage.output_tokens),
+      );
       continue;
     }
     if (payload.externalId || !segment || segment.run !== event.run_id) {

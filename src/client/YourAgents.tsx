@@ -87,8 +87,8 @@ export function YourAgents({
             <button
               key={`${agent.sourceId || "laptop"}:${agent.id}`}
               onClick={() => onProfile(agent)}
-              title={`@${agent.name} · ${model} · ${agent.executionEnvironment || "This laptop"}`}
-              aria-label={`@${agent.name} · ${model} · ${status} · ${agent.executionEnvironment || "This laptop"}`}
+              title={`@${agent.name} · ${model} · ${agent.executionEnvironment || "This computer"}`}
+              aria-label={`@${agent.name} · ${model} · ${status} · ${agent.executionEnvironment || "This computer"}`}
             >
               <span className="agent-shortcut-model" title={model}>
                 {model.replace(/^Claude /, "")}
@@ -103,7 +103,7 @@ export function YourAgents({
               </span>
               <span className="agent-shortcut-name">@{agent.name}</span>
               <span className="agent-shortcut-status">{status}</span>
-              <span className="agent-shortcut-environment">{agent.executionEnvironment || "This laptop"}</span>
+              <span className="agent-shortcut-environment">{agent.executionEnvironment || "This computer"}</span>
             </button>
           );
         })}

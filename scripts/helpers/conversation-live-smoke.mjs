@@ -82,7 +82,8 @@ export async function conversationLiveSmoke(page, capture) {
       });
       await expect(workingCard.locator(".inbox-awaiting-update")).toContainText("Waiting for agent update");
       await expect(workingCard.locator(".inbox-you")).toHaveCount(0);
-      await expect(workingCard.locator(".agent-environment.laptop")).toHaveText("This laptop");
+      const bootstrap = await fixture.api("/bootstrap");
+      await expect(workingCard.locator(".agent-environment.laptop")).toHaveText(bootstrap.environmentName);
       const laptopColor = await workingCard.locator(".agent-environment").evaluate(
         (element) => getComputedStyle(element).backgroundColor,
       );

@@ -350,9 +350,9 @@ export function CreateAgent({
               >
                 {accounts.map((c) => (
                   <option key={connectionKey(c)} value={connectionKey(c)}>
-                    {c.label.startsWith(c.executionEnvironment || "This laptop")
+                    {c.label.startsWith(c.executionEnvironment || "This computer")
                       ? c.label
-                      : `${c.executionEnvironment || "This laptop"} · ${c.label}`}
+                      : `${c.executionEnvironment || "This computer"} · ${c.label}`}
                   </option>
                 ))}
                 {setupSources.map((item) => (
@@ -363,7 +363,7 @@ export function CreateAgent({
               </select>
             </label>
             <p className="field-hint">
-              Runs on {selected.executionEnvironment || "This laptop"}.
+              Runs on {selected.executionEnvironment || "This computer"}.
             </p>
             <ConnectionDetails connection={selected} />
             <label>
