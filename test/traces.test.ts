@@ -15,7 +15,7 @@ const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
-const { feedRevision, feedUpdates } = await import("../src/server/feed");
+const { resultsRevision, resultsUpdates } = await import("../src/server/results");
 const { recordTrace, agentTraces } = await import("../src/server/traces");
 const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const { listRuns } = await import("../src/server/run-attention");
@@ -70,7 +70,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     idempotencyKey: id(),
   });
   const run = claim("traces-worker")!;
-  const after = feedRevision("alice");
+  const after = resultsRevision("alice");
   let paused = false;
   const restore = withTestAdapter("openai", {
     async models() {
@@ -82,9 +82,9 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
         yield {
           text: `Checking **source ${round + 1}**.\n\nMore evidence is needed.`,
         };
-        expect((await get("/feed?agent=" + a.id)).items).toEqual([]);
+        expect((await get("/results?agent=" + a.id)).items).toEqual([]);
         expect(
-          feedUpdates("alice", { after, through: 0, agent: a.id }).items,
+          resultsUpdates("alice", { after, through: 0, agent: a.id }).items,
         ).toEqual([]);
         expect(
           listRuns("alice", [], true).find((r) => r.id === run.id)
@@ -130,7 +130,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
         kind: "markdown",
         content: "Independent answer",
       });
-    const loadedFeed = await get("/feed");
+    const loadedFeed = await get("/results");
     expect(loadedFeed.items).toHaveLength(40);
     transition(run, "queued");
     const resumed = claim("resumed-worker")!;
@@ -145,17 +145,17 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
         .prepare("SELECT round FROM agent_checkpoints WHERE run_id=?")
         .get(run.id),
     ).toEqual({ round: 13 });
-    const page = await get("/feed?agent=" + a.id);
+    const page = await get("/results?agent=" + a.id);
     expect(page.items).toHaveLength(1);
     expect(page.items[0].content).toBe("Final heliotrope answer.");
-    const refreshed = feedUpdates("alice", {
+    const refreshed = resultsUpdates("alice", {
       after: loadedFeed.revision,
       through: loadedFeed.items.at(-1).cursor,
     });
     expect(refreshed.items.map((item) => item.id)).toContain(page.items[0].id);
-    expect((await get("/feed")).items[0].id).toBe(page.items[0].id);
+    expect((await get("/results")).items[0].id).toBe(page.items[0].id);
     expect(
-      feedUpdates("alice", { after, through: 0, agent: a.id }).items,
+      resultsUpdates("alice", { after, through: 0, agent: a.id }).items,
     ).toHaveLength(1);
     const traces = await get(`/agents/${a.id}/traces`);
     expect(traces.items.filter((t: any) => t.kind === "tool")).toHaveLength(24);
@@ -338,7 +338,7 @@ it("keeps cancellation effective after the old round limit", async () => {
   });
   try {
     expect(await executeAgent(claimed)).toBe(false);
-    expect((await get("/feed?agent=" + a.id)).items).toEqual([]);
+    expect((await get("/results?agent=" + a.id)).items).toEqual([]);
   } finally {
     restore();
   }

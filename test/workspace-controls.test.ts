@@ -136,9 +136,9 @@ it("uploads original files, keeps them out of the feed, and reads them only in a
       })
     ).status,
   ).toBe(404);
-  expect((await request(`/feed?folder=${project}`)).data.items).toEqual([]);
+  expect((await request(`/results?folder=${project}`)).data.items).toEqual([]);
   expect(
-    (await request(`/feed?folder=${project}&view=files`)).data.items[0].id,
+    (await request(`/results?folder=${project}&view=files`)).data.items[0].id,
   ).toBe(file.id);
   expect(
     (await upload("foreign.txt", "x", { folderId: project }, "bob")).status,
@@ -296,7 +296,7 @@ for (const provider of ["openai", "anthropic"] as const)
         );
         expect(readFileSync(local[0].path, "utf8")).toBe("Original contents");
         expect(
-          (await request("/feed?view=files")).data.items.some(
+          (await request("/results?view=files")).data.items.some(
             (item: any) => item.id === file.id,
           ),
         ).toBe(false);
@@ -485,7 +485,7 @@ it("deletes a team without deleting agents, history, or active work", async () =
     idempotencyKey: id(),
   });
   expect(fresh.conversation_id).not.toBe(team.conversation_id);
-  expect((await request(`/feed?teams=${team.id}`)).status).toBe(404);
+  expect((await request(`/results?teams=${team.id}`)).status).toBe(404);
 });
 
 it("adds an existing agent to an owned team within the worker limit", async () => {

@@ -9,7 +9,7 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { saveArtifact } = await import("../src/server/artifacts");
-const { feedRevision, feedUpdates } = await import("../src/server/feed");
+const { resultsRevision, resultsUpdates } = await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
 const { enqueue } = await import("../src/server/queue");
 const app = express();
@@ -50,7 +50,7 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
     keys = Array.from({ length: 100 }, (_, i) =>
       saveArtifact(owner, { title: String(i), content: "original" }),
     );
-  const after = feedRevision(owner),
+  const after = resultsRevision(owner),
     through = cursor(keys[20]);
   db.prepare(
     "UPDATE artifacts SET content='older edit',updated_at=1 WHERE id=?",
@@ -72,7 +72,7 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
     title: "Private",
     content: "not for this owner",
   });
-  const changes = feedUpdates(owner, { after, through });
+  const changes = resultsUpdates(owner, { after, through });
   expect(changes.items.map((i) => i.id)).toEqual([keys[25], newest]);
   expect(changes.items[0].content).toBe("older edit");
   expect(changes.removed).toEqual([keys[30], keys[31]]);
@@ -84,10 +84,10 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
     "html",
   );
   expect(
-    feedUpdates("stranger", { after: 0, through: 0 }).items.map((i) => i.id),
+    resultsUpdates("stranger", { after: 0, through: 0 }).items.map((i) => i.id),
   ).toEqual([stranger]);
   expect(
-    feedUpdates(owner, { after: changes.revision, through }).items,
+    resultsUpdates(owner, { after: changes.revision, through }).items,
   ).toEqual([]);
 });
 
@@ -96,7 +96,7 @@ it("bounds batches at 200 and never skips repeated edits while a backlog is drai
     keys = Array.from({ length: 450 }, () =>
       saveArtifact(owner, { title: "Card", content: "original" }),
     );
-  const first = feedUpdates(owner, { after: 0, through: 0 });
+  const first = resultsUpdates(owner, { after: 0, through: 0 });
   expect(first.items).toHaveLength(200);
   expect(first.more).toBe(true);
   for (const content of ["second", "third", "latest"])
@@ -104,8 +104,8 @@ it("bounds batches at 200 and never skips repeated edits while a backlog is drai
       content,
       keys[0],
     );
-  const second = feedUpdates(owner, { after: first.revision, through: 0 });
-  const third = feedUpdates(owner, { after: second.revision, through: 0 });
+  const second = resultsUpdates(owner, { after: first.revision, through: 0 });
+  const third = resultsUpdates(owner, { after: second.revision, through: 0 });
   expect(second.items).toHaveLength(200);
   expect(third.items).toHaveLength(51);
   expect(third.more).toBe(false);
@@ -141,25 +141,25 @@ it("reconciles file filters and agent labels and includes prompt changes", () =>
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Question',?)",
   ).run(message, owner, conversation, now());
-  const after = feedRevision(owner);
+  const after = resultsRevision(owner);
   db.prepare("UPDATE agents SET name='After' WHERE id=?").run(agent);
   expect(
-    feedUpdates(owner, { after, through: 0, agent, view: "files" }).items[0]
+    resultsUpdates(owner, { after, through: 0, agent, view: "files" }).items[0]
       .name,
   ).toBe("After");
   expect(
-    feedUpdates(owner, { after, through: 0, agent, view: "prompts" }).items[0],
+    resultsUpdates(owner, { after, through: 0, agent, view: "prompts" }).items[0],
   ).toMatchObject({ id: message, name: "After", content: "Question" });
   db.prepare("UPDATE artifacts SET kind='markdown' WHERE id=?").run(artifact);
   expect(
-    feedUpdates(owner, { after, through: 0, view: "files" }).removed,
+    resultsUpdates(owner, { after, through: 0, view: "files" }).removed,
   ).toEqual([artifact]);
   expect(
-    feedUpdates(owner, { after, through: 0, agent: "other" }).removed,
+    resultsUpdates(owner, { after, through: 0, agent: "other" }).removed,
   ).toEqual([artifact]);
   db.prepare("DELETE FROM messages WHERE id=?").run(message);
   expect(
-    feedUpdates(owner, { after, through: 0, view: "prompts" }).removed,
+    resultsUpdates(owner, { after, through: 0, view: "prompts" }).removed,
   ).toEqual([message]);
 });
 
@@ -181,7 +181,7 @@ it("keeps project feed updates scoped when outputs are filed or moved", () => {
     content: "B",
     folder: other,
   });
-  const first = feedUpdates(owner, { after: 0, through: 0, folder: project });
+  const first = resultsUpdates(owner, { after: 0, through: 0, folder: project });
   expect(first.items.map((item) => item.id)).toEqual([filed]);
   expect(first.removed).toContain(elsewhere);
   db.prepare("UPDATE artifacts SET folder_id=?,updated_at=? WHERE id=?").run(
@@ -190,13 +190,13 @@ it("keeps project feed updates scoped when outputs are filed or moved", () => {
     filed,
   );
   expect(
-    feedUpdates(owner, { after: first.revision, through: 0, folder: project })
+    resultsUpdates(owner, { after: first.revision, through: 0, folder: project })
       .removed,
   ).toContain(filed);
 });
 
 it("includes nested project folders and excludes another owner's folder tree", async () => {
-  const { projectFolders } = await import("../src/server/feed");
+  const { projectFolders } = await import("../src/server/results");
   const owner = "nested-project-feed",
     project = id(),
     child = id(),
@@ -218,7 +218,7 @@ it("includes nested project folders and excludes another owner's folder tree", a
   });
   expect(projectFolders(owner, project)).toEqual([project, child]);
   expect(
-    feedUpdates(owner, { after: 0, through: 0, folder: project }).items.map(
+    resultsUpdates(owner, { after: 0, through: 0, folder: project }).items.map(
       (item) => item.id,
     ),
   ).toContain(artifact);
@@ -233,14 +233,14 @@ it("includes nested project folders and excludes another owner's folder tree", a
     folder: foreign,
   });
   expect(
-    (await get(`/feed?folder=${project}`, owner)).items.map(
+    (await get(`/results?folder=${project}`, owner)).items.map(
       (item: any) => item.id,
     ),
   ).toEqual([artifact]);
-  expect((await get(`/feed?folder=${project}`, "other-owner")).status).toBe(
+  expect((await get(`/results?folder=${project}`, "other-owner")).status).toBe(
     404,
   );
-  expect((await get(`/feed?folder=${foreign}`, owner)).status).toBe(404);
+  expect((await get(`/results?folder=${foreign}`, owner)).status).toBe(404);
   const conversation = id(),
     agent = id();
   db.prepare(
@@ -262,12 +262,12 @@ it("includes nested project folders and excludes another owner's folder tree", a
     return message;
   });
   expect(
-    (await get(`/feed?view=prompts&folder=${project}`, owner)).items.map(
+    (await get(`/results?view=prompts&folder=${project}`, owner)).items.map(
       (item: any) => item.id,
     ),
   ).toEqual([prompts[1], prompts[0]]);
   expect(
-    (await get(`/feed?folder=${project}`, owner)).items.map(
+    (await get(`/results?folder=${project}`, owner)).items.map(
       (item: any) => item.id,
     ),
   ).not.toEqual(expect.arrayContaining([outside, privateArtifact]));
@@ -326,8 +326,8 @@ it("publishes native answers to feed and profile updates without exposing tools,
     content: "private tool output",
     metadata: { native: true },
   });
-  const after = feedRevision(owner);
-  expect((await get("/feed", owner)).items).toEqual([]);
+  const after = resultsRevision(owner);
+  expect((await get("/results", owner)).items).toEqual([]);
   expect(
     db
       .prepare("SELECT 1 FROM push_deliveries WHERE subscription_id=?")
@@ -347,10 +347,10 @@ it("publishes native answers to feed and profile updates without exposing tools,
   nativeAnswer("native-stranger", "Another owner's answer", "completed");
   for (const filter of ["", `&agent=${answer.agent}`]) {
     expect(
-      (await get(`/feed?${filter}`, owner)).items.map((item: any) => item.id),
+      (await get(`/results?${filter}`, owner)).items.map((item: any) => item.id),
     ).toEqual([answer.artifact]);
     const updates = await get(
-      `/feed/updates?after=${after}&through=0${filter}`,
+      `/results/updates?after=${after}&through=0${filter}`,
       owner,
     );
     expect(updates.items.map((item: any) => item.id)).toEqual([
@@ -359,7 +359,7 @@ it("publishes native answers to feed and profile updates without exposing tools,
     expect(updates.removed).toContain(tool);
   }
   expect(
-    (await get(`/feed?agent=${answer.agent}`, "native-stranger")).status,
+    (await get(`/results?agent=${answer.agent}`, "native-stranger")).status,
   ).toBe(404);
   expect(
     db
@@ -381,7 +381,7 @@ it("restores previously published native cards without rewriting answers or repl
     "fixture",
     now(),
   );
-  const after = feedRevision(owner);
+  const after = resultsRevision(owner);
   db.prepare("DELETE FROM schema_version WHERE version=33").run();
   db.exec(
     readFileSync(
@@ -392,7 +392,7 @@ it("restores previously published native cards without rewriting answers or repl
       "utf8",
     ),
   );
-  const updates = await get(`/feed/updates?after=${after}&through=0`, owner);
+  const updates = await get(`/results/updates?after=${after}&through=0`, owner);
   expect(updates.items).toMatchObject([
     { id: answer.artifact, content: "Existing final answer" },
   ]);

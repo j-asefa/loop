@@ -1,5 +1,5 @@
-export type FeedPage<T> = { items: T[]; next: number | null; revision: number };
-export type FeedUpdates<T> = {
+export type ResultsPage<T> = { items: T[]; next: number | null; revision: number };
+export type ResultsUpdates<T> = {
   items: T[];
   removed: string[];
   revision: number;
@@ -11,8 +11,8 @@ type Window<T> = {
   next: number | null;
   through: number;
   revision: number | null;
-  active: Promise<FeedPage<T> | null> | null;
-  trailing: Promise<FeedPage<T> | null> | null;
+  active: Promise<ResultsPage<T> | null> | null;
+  trailing: Promise<ResultsPage<T> | null> | null;
   append: boolean;
 };
 const empty = <T>(): Window<T> => ({
@@ -28,16 +28,16 @@ const empty = <T>(): Window<T> => ({
 // Pagination fetches one older page. Refreshes fetch a bounded batch of changes,
 // independent of how many pages are loaded. Same-feed callers share one active
 // request and at most one trailing request; only an owner/filter change invalidates it.
-export class FeedPager<T extends Card> {
+export class ResultsPager<T extends Card> {
   key = "";
   private window = empty<T>();
 
   load(
     key: string,
     append: boolean,
-    fetchPage: (before: number | null) => Promise<FeedPage<T>>,
-    fetchUpdates: (after: number, through: number) => Promise<FeedUpdates<T>>,
-  ): Promise<FeedPage<T> | null> {
+    fetchPage: (before: number | null) => Promise<ResultsPage<T>>,
+    fetchUpdates: (after: number, through: number) => Promise<ResultsUpdates<T>>,
+  ): Promise<ResultsPage<T> | null> {
     if (this.key !== key) {
       this.key = key;
       this.window = empty<T>();

@@ -211,7 +211,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       const profileFeed = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return (
-          url.pathname === "/api/feed" &&
+          url.pathname === "/api/results" &&
           url.searchParams.get("agent") === resultAuthor.id &&
           url.searchParams.get("view") === "all"
         );

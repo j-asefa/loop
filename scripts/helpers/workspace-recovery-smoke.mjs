@@ -30,7 +30,7 @@ export async function workspaceRecoverySmoke(page, fixture) {
       "Couldn’t refresh task status.",
     );
     // An unrelated failed action must survive recovery of background reads.
-    const actionPattern = "**/api/feed/*";
+    const actionPattern = "**/api/results/*";
     const failedAction = (route) =>
       route.request().method() === "PATCH"
         ? route.fulfill({
@@ -72,6 +72,6 @@ export async function workspaceRecoverySmoke(page, fixture) {
   } finally {
     await page.unroute("**/api/bootstrap", bootstrap);
     await page.unroute(runsPattern, runs);
-    await page.unroute("**/api/feed/*");
+    await page.unroute("**/api/results/*");
   }
 }

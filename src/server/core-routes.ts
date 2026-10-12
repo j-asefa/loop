@@ -7,12 +7,12 @@ import {
 import { nativeSessions } from "./native-sessions.js";
 import { hostEnvironmentName } from "./execution-location.js";
 import {
-  feedRevision,
-  feedUpdates,
-  feedOutputSql,
+  resultsRevision,
+  resultsUpdates,
+  resultOutputSql,
   fileArtifactSql,
   projectFolders,
-} from "./feed.js";
+} from "./results.js";
 import { agentTraces, runTraceExport } from "./traces.js";
 import { personalHistory } from "./personal-history.js";
 import { personalFiles } from "./personal-files.js";
@@ -618,7 +618,7 @@ core.post("/runs/:id/:action", async (req, res) => {
   }
   res.json({ ok: true });
 });
-core.get("/feed/updates", (req, res) => {
+core.get("/results/updates", (req, res) => {
   const number = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
   const options = z
     .object({
@@ -636,11 +636,11 @@ core.get("/feed/updates", (req, res) => {
   if (options.agent) owned("agents", options.agent, res.locals.owner);
   if (options.folder) owned("folders", options.folder, res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
-  res.json(feedUpdates(res.locals.owner, { ...options, teams }));
+  res.json(resultsUpdates(res.locals.owner, { ...options, teams }));
 });
-core.get("/feed", (req, res) => {
+core.get("/results", (req, res) => {
   const saved = req.query.saved === "1";
-  const revision = feedRevision(res.locals.owner);
+  const revision = resultsRevision(res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
   const cursor = z.coerce.number().min(0).catch(0).parse(req.query.before),
     limit = 40;
@@ -712,7 +712,7 @@ core.get("/feed", (req, res) => {
   if (saved) where += ` AND ${fileArtifactSql}`;
   else if (req.query.view === "files")
     where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
-  else where += ` AND ${feedOutputSql}`;
+  else where += ` AND ${resultOutputSql}`;
   const items = db
     .prepare(
       `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
@@ -724,7 +724,7 @@ core.get("/feed", (req, res) => {
     next: items.length === limit ? items.at(-1)!.cursor : null,
   });
 });
-core.patch("/feed/:id", (req, res) => {
+core.patch("/results/:id", (req, res) => {
   const item = owned<any>("artifacts", req.params.id, res.locals.owner);
   const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
   db.prepare(

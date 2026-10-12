@@ -280,7 +280,7 @@ export async function agentCreationJourney(page, api) {
     conversation.messages.filter((m) => m.role === "user").length,
     1,
   );
-  const feed = (await api(`/feed?agent=${created.id}`)).items;
+  const feed = (await api(`/results?agent=${created.id}`)).items;
   assert.equal(feed.length, 1);
   assert.equal(feed[0].folder_id, project.id);
   await button("Close").click();

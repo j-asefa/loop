@@ -60,7 +60,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // Restore through the API to check the UI's Undo separately after reload.
     const cardKey = "run:" + fixture.conversations[0].run;
     await fixture.api(
-      `/inbox/${fixture.conversations[0].id}`,
+      `/feed/${fixture.conversations[0].id}`,
       { hidden: false, cardKey },
       "PATCH",
     );
@@ -86,15 +86,15 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       )
       .run(followUp, followUp, started, started, target.run);
     await page.reload({ waitUntil: "networkidle" });
-    const before = (await fixture.api("/inbox?filter=done")).summary;
+    const before = (await fixture.api("/feed?filter=done")).summary;
     await swipe(row);
     await expect(row).toHaveCount(0);
-    assert.deepEqual((await fixture.api("/inbox?filter=done")).summary, before);
+    assert.deepEqual((await fixture.api("/feed?filter=done")).summary, before);
     let dismissRequests = 0;
     const countDismiss = (request) => {
       if (
         request.method() === "PATCH" &&
-        new URL(request.url()).pathname === `/api/inbox/${target.id}`
+        new URL(request.url()).pathname === `/api/feed/${target.id}`
       )
         dismissRequests++;
     };
@@ -157,7 +157,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       `,
         )
         .run(failed, state, failed, time, time, followUp);
-      const doneBefore = (await fixture.api("/inbox?filter=done")).items;
+      const doneBefore = (await fixture.api("/feed?filter=done")).items;
       const runsBefore = fixture.db
         .prepare("SELECT id,state FROM runs ORDER BY id")
         .all();
@@ -192,7 +192,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         runsBefore,
       );
       assert.deepEqual(
-        (await fixture.api("/inbox?filter=done")).items,
+        (await fixture.api("/feed?filter=done")).items,
         doneBefore,
       );
       await page.reload({ waitUntil: "networkidle" });

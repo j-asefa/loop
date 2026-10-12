@@ -210,7 +210,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       return unavailable(route);
     }
     if (match[2] === "runs") return fulfill(route, []);
-    if (match[2] === "inbox")
+    if (match[2] === "feed")
       return fulfill(route, {
         items: visible(route, record.thread),
         next: null,
@@ -221,7 +221,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   await page.route("**/api/agent-sources", list);
   await page.route("**/api/agent-sources/**", detail);
   await page.route("**/api/bootstrap", localBootstrap);
-  await page.route("**/api/inbox?*", localInbox);
+  await page.route("**/api/feed?*", localInbox);
   try {
     await page.goto(workspaceUrl);
     const strip = page.getByRole("region", {
@@ -279,7 +279,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       page.waitForResponse((response) => {
         const url = new URL(response.url());
         return url.pathname ===
-          `/api/agent-sources/${encodeURIComponent(source.id)}/inbox` &&
+          `/api/agent-sources/${encodeURIComponent(source.id)}/feed` &&
           response.ok();
       }),
     );
@@ -345,7 +345,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     });
     for (let i = 0; i < 3; i++) {
       const updated = page.waitForResponse((r) =>
-        r.url().includes("/api/inbox?filter=needs"),
+        r.url().includes("/api/feed?filter=needs"),
       );
       await page.evaluate(() =>
         window.dispatchEvent(new Event("loop-later-change")),
@@ -455,6 +455,6 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await page.unroute("**/api/agent-sources", list);
     await page.unroute("**/api/agent-sources/**", detail);
     await page.unroute("**/api/bootstrap", localBootstrap);
-    await page.unroute("**/api/inbox?*", localInbox);
+    await page.unroute("**/api/feed?*", localInbox);
   }
 }

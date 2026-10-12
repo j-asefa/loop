@@ -104,7 +104,7 @@ export async function feedbackJourney(page, api, base, dir) {
   await expect(page.locator(".profile-head")).toHaveCount(0);
   const team = (await api("/teams")).find((t) => t.name === "Feedback team");
   await expect
-    .poll(async () => (await api("/feed?teams=" + team.id)).items.length)
+    .poll(async () => (await api("/results?teams=" + team.id)).items.length)
     .toBe(2);
   // Running became the Feed "Working" filter; completed runs stay out of it.
   await page.getByRole("tab", { name: /^Working/ }).click();
@@ -136,7 +136,7 @@ export async function feedbackJourney(page, api, base, dir) {
   const loadedFeed = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return (
-      url.pathname === "/api/feed" &&
+      url.pathname === "/api/results" &&
       url.searchParams.get("agent") === worker.id &&
       response.ok()
     );
@@ -187,7 +187,7 @@ export async function feedbackJourney(page, api, base, dir) {
   await page.getByRole("button", { name: "Done", exact: true }).click();
   // The Feed shows threads from both selected teams.
   const bothTeams = (
-    await api("/inbox?teams=" + [team.id, second.id].sort().join(","))
+    await api("/feed?teams=" + [team.id, second.id].sort().join(","))
   ).items.length;
   assert.ok(bothTeams > 0);
   await expect(page.locator(".inbox-card")).toHaveCount(bothTeams);
@@ -253,7 +253,7 @@ export async function feedbackJourney(page, api, base, dir) {
       "No overflow at " + width,
     );
   }
-  assert.equal((await api("/feed?teams=" + second.id)).items.length, 0);
+  assert.equal((await api("/results?teams=" + second.id)).items.length, 0);
   console.log(
     "PASS: composer drafts, Anthropic selection, team delegation and multi-select feeds, completed runs out of Working, in-thread send and result reply, card/profile navigation, long-press menu archive/search/Undo, older message anchors, native diagrams, responsive layout.",
   );

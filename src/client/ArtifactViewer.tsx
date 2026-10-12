@@ -170,7 +170,7 @@ export function ArtifactViewer({
                 <button
                   onClick={async () => {
                     try {
-                      await api("/feed/" + item.id, { hidden: false }, "PATCH");
+                      await api("/results/" + item.id, { hidden: false }, "PATCH");
                       onChanged();
                       onClose();
                     } catch (e) {

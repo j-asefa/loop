@@ -135,7 +135,7 @@ it("names the one next action on a feed card and links to its exact message", as
   const working = conversation(w.owner, a.id, "Working");
   const r3 = run(w.owner, a.id, working, "running");
   message(w.owner, working, "user", "Keep going", r3);
-  const items = (await api(w.owner, "/inbox")).data.items;
+  const items = (await api(w.owner, "/feed")).data.items;
   const action = (cid: string) =>
     items.find((i: any) => i.conversation_id === cid).next_action;
   expect(action(done)).toEqual({ kind: "result", run_id: r1, message_id: answer });
@@ -146,13 +146,13 @@ it("names the one next action on a feed card and links to its exact message", as
   // the thread shows the approval there, and so the Feed links there.
   const streaming = message(w.owner, asking, "assistant", "", r2);
   expect(
-    (await api(w.owner, "/inbox")).data.items.find((i: any) => i.conversation_id === asking)
+    (await api(w.owner, "/feed")).data.items.find((i: any) => i.conversation_id === asking)
       .next_action,
   ).toEqual({ kind: "approve", run_id: r2, message_id: streaming });
   // Once decided, the approval is no longer the next action.
   db.prepare("UPDATE approvals SET state='approved' WHERE run_id=?").run(r2);
   expect(
-    (await api(w.owner, "/inbox")).data.items.find((i: any) => i.conversation_id === asking)
+    (await api(w.owner, "/feed")).data.items.find((i: any) => i.conversation_id === asking)
       .next_action,
   ).toBeNull();
   // A native harness question is answered at the end of its thread.
@@ -163,11 +163,11 @@ it("names the one next action on a feed card and links to its exact message", as
     "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?)",
   ).run(id(), r4, native, "g", "n1", JSON.stringify({ questions: [{ question: "Which?" }] }), now());
   expect(
-    (await api(w.owner, "/inbox")).data.items.find((i: any) => i.conversation_id === native)
+    (await api(w.owner, "/feed")).data.items.find((i: any) => i.conversation_id === native)
       .next_action,
   ).toEqual({ kind: "answer", run_id: r4, message_id: null });
   // Another owner sees none of it.
-  expect((await api("intruder", "/inbox")).data.items).toEqual([]);
+  expect((await api("intruder", "/feed")).data.items).toEqual([]);
 });
 
 it("lists project history: outcomes and unfinished work, scoped to the project", async () => {
@@ -190,12 +190,12 @@ it("lists project history: outcomes and unfinished work, scoped to the project",
   const elsewhere = conversation(w.owner, a.id, "Elsewhere");
   message(w.owner, elsewhere, "user", "x", run(w.owner, a.id, elsewhere, "completed"));
   const ids = async (filter: string) =>
-    (await api(w.owner, `/inbox?filter=${filter}&folder=${project}`)).data.items.map(
+    (await api(w.owner, `/feed?filter=${filter}&folder=${project}`)).data.items.map(
       (i: any) => i.conversation_id,
     );
   expect(await ids("outcomes")).toEqual([finished]);
   expect((await ids("unfinished")).sort()).toEqual([failed, queued].sort());
-  expect((await api("intruder", `/inbox?filter=outcomes&folder=${project}`)).status).toBe(404);
+  expect((await api("intruder", `/feed?filter=outcomes&folder=${project}`)).status).toBe(404);
 });
 
 it("counts waiting and not-sent scheduled messages separately in the feed summary", async () => {
@@ -214,11 +214,11 @@ it("counts waiting and not-sent scheduled messages separately in the feed summar
   const failing = await schedule("a");
   await schedule("b");
   db.prepare("UPDATE scheduled_sends SET state='failed',error='Refused' WHERE id=?").run(failing.id);
-  expect((await api(w.owner, "/inbox")).data.summary).toMatchObject({
+  expect((await api(w.owner, "/feed")).data.summary).toMatchObject({
     scheduled_failed: 1,
     scheduled_pending: 1,
   });
-  expect((await api("intruder", "/inbox")).data.summary).toMatchObject({
+  expect((await api("intruder", "/feed")).data.summary).toMatchObject({
     scheduled_failed: 0,
     scheduled_pending: 0,
   });

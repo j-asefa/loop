@@ -39,7 +39,7 @@ const { runtimeKey, runtimeWorkspaceKey } =
   await import("../src/server/subscriptions");
 const { core } = await import("../src/server/core-routes");
 const { workspace: routes } = await import("../src/server/workspace-routes");
-const { feedRevision, feedUpdates } = await import("../src/server/feed");
+const { resultsRevision, resultsUpdates } = await import("../src/server/results");
 const { agentMessages } = await import("../src/server/agent-messages");
 const requests: any[] = [];
 let changeTransfer: ((chunk: any) => any) | undefined;
@@ -141,7 +141,7 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
     path = "mockup.png";
   writeFileSync(join(workspace, path), bytes);
   requests.length = 0;
-  const revision = feedRevision("alice");
+  const revision = resultsRevision("alice");
   const saved = await publish(f, { path, title: "Home screen" });
   expect(saved.result.isError).not.toBe(true);
   expect(saved.value).toMatchObject({
@@ -163,18 +163,18 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
     ),
   ).toBe(true);
   const files = await (
-    await request(`/feed?agent=${f.agent.id}&view=files`)
+    await request(`/results?agent=${f.agent.id}&view=files`)
   ).json();
   expect(files.items.map((item: any) => item.id)).toContain(saved.artifactId);
   expect(
-    feedUpdates("alice", {
+    resultsUpdates("alice", {
       after: revision,
       through: 0,
       view: "files",
     }).items.map((item) => item.id),
   ).toContain(saved.artifactId);
   expect(
-    (await (await request(`/feed?agent=${f.agent.id}`)).json()).items,
+    (await (await request(`/results?agent=${f.agent.id}`)).json()).items,
   ).toEqual([]);
   const response = await request(
     `/artifacts/${saved.artifactId}/file?preview=1`,
@@ -215,7 +215,7 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
   db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(f.run.id);
   expect(
     (
-      await (await request(`/feed?agent=${f.agent.id}&view=files`)).json()
+      await (await request(`/results?agent=${f.agent.id}&view=files`)).json()
     ).items.map((item: any) => item.id),
   ).toContain(saved.artifactId);
   expect((await request(`/artifacts/${saved.artifactId}/file`)).ok).toBe(true);

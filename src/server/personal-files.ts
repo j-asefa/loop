@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "./db.js";
-import { projectFolders } from "./feed.js";
+import { projectFolders } from "./results.js";
 import { owned } from "./domain.js";
 import type {
   PersonalFile,

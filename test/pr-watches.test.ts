@@ -13,7 +13,7 @@ const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
 const { transition } = await import("../src/server/queue");
-const { inbox } = await import("../src/server/mobile-return");
+const { feed } = await import("../src/server/mobile-return");
 const { prWatches, pollWatch, pollWatches, stopWatch, watchCreatedPullRequest, watchNativeCreatedPullRequest, withGithubFixture, TURNS_PER_HOUR } =
   await import("../src/server/pr-watches");
 
@@ -533,7 +533,7 @@ it("waits for every check suite with runs before reporting CI", async () => {
   const update = deliveries(w.conversation).at(-1)!;
   expect(update.content).toContain("CI failed on aaaaaaa");
   // The Feed labels it as a GitHub update, not as something you typed.
-  const card = inbox("gwen", { filter: "queued" }).items.find(
+  const card = feed("gwen", { filter: "queued" }).items.find(
     (i: any) => i.conversation_id === w.conversation,
   );
   expect(card?.last_message).toMatchObject({ role: "user", automation: "github_watch" });

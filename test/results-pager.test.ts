@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { FeedPager, type FeedPage, type FeedUpdates } from "../src/client/feed";
+import { ResultsPager, type ResultsPage, type ResultsUpdates } from "../src/client/results";
 type Card = { id: string; cursor: number; content: string };
 const cards = (count: number): Card[] =>
   Array.from({ length: count }, (_, i) => ({
@@ -8,7 +8,7 @@ const cards = (count: number): Card[] =>
     content: "original",
   }));
 const pageFrom = (items: Card[], revision = 1) =>
-  vi.fn(async (before: number | null): Promise<FeedPage<Card>> => {
+  vi.fn(async (before: number | null): Promise<ResultsPage<Card>> => {
     const page = items
       .filter((c) => before === null || c.cursor < before)
       .slice(0, 40);
@@ -18,7 +18,7 @@ const pageFrom = (items: Card[], revision = 1) =>
       revision,
     };
   });
-const noChanges = async (after: number): Promise<FeedUpdates<Card>> => ({
+const noChanges = async (after: number): Promise<ResultsUpdates<Card>> => ({
   items: [],
   removed: [],
   revision: after,
@@ -29,14 +29,14 @@ afterEach(() => vi.useRealTimers());
 it("reconciles edited and removed older cards without refetching their pages", async () => {
   const source = cards(100),
     page = pageFrom(source),
-    feed = new FeedPager<Card>();
+    feed = new ResultsPager<Card>();
   expect(
     (await feed.load("alice:all", false, page, noChanges))!.items,
   ).toHaveLength(40);
   expect(
     (await feed.load("alice:all", true, page, noChanges))!.items,
   ).toHaveLength(80);
-  const updates = vi.fn(async (): Promise<FeedUpdates<Card>> => ({
+  const updates = vi.fn(async (): Promise<ResultsUpdates<Card>> => ({
     items: [{ id: "25", cursor: 25, content: "user edit" }],
     removed: ["90", "30"],
     revision: 2,
@@ -59,7 +59,7 @@ it("reconciles edited and removed older cards without refetching their pages", a
 
 it("uses one bounded changes request per refresh even with 21 loaded pages", async () => {
   const page = pageFrom(cards(1000)),
-    feed = new FeedPager<Card>();
+    feed = new ResultsPager<Card>();
   const updates = vi.fn(noChanges);
   await feed.load("alice:all", false, page, updates);
   for (let i = 0; i < 20; i++)
@@ -76,14 +76,14 @@ it.each([1000, 2400])(
   "commits live snapshots at %s ms latency while refreshes arrive every 1800 ms",
   async (delay) => {
     vi.useFakeTimers();
-    const feed = new FeedPager<Card>();
+    const feed = new ResultsPager<Card>();
     const page = pageFrom(cards(100));
     await feed.load("alice:all", false, page, noChanges);
     await feed.load("alice:all", true, page, noChanges);
     let active = 0,
       maxActive = 0,
       revision = 1;
-    const updates = vi.fn(async (): Promise<FeedUpdates<Card>> => {
+    const updates = vi.fn(async (): Promise<ResultsUpdates<Card>> => {
       active++;
       maxActive = Math.max(maxActive, active);
       await new Promise((r) => setTimeout(r, delay));
@@ -114,9 +114,9 @@ it.each([1000, 2400])(
 );
 
 it("discards both active and queued work after an owner/filter change", async () => {
-  const feed = new FeedPager<Card>();
-  let finish!: (page: FeedPage<Card>) => void;
-  const pending = vi.fn(() => new Promise<FeedPage<Card>>((r) => (finish = r)));
+  const feed = new ResultsPager<Card>();
+  let finish!: (page: ResultsPage<Card>) => void;
+  const pending = vi.fn(() => new Promise<ResultsPage<Card>>((r) => (finish = r)));
   const old = feed.load("alice:all", false, pending, noChanges);
   const queued = feed.load("alice:all", false, pending, noChanges);
   const current = await feed.load(
@@ -138,12 +138,12 @@ it("discards both active and queued work after an owner/filter change", async ()
 });
 
 it("retries a failed active request once for coalesced callers without dropping pagination intent", async () => {
-  const feed = new FeedPager<Card>(),
+  const feed = new ResultsPager<Card>(),
     page = pageFrom(cards(100));
   await feed.load("alice:all", false, page, noChanges);
   let fail!: (error: Error) => void;
   const updates = () =>
-    new Promise<FeedUpdates<Card>>((_r, reject) => (fail = reject));
+    new Promise<ResultsUpdates<Card>>((_r, reject) => (fail = reject));
   const failed = feed.load("alice:all", false, page, updates);
   const failure = expect(failed).rejects.toThrow("offline");
   const append = feed.load("alice:all", true, page, noChanges);
@@ -156,13 +156,13 @@ it("retries a failed active request once for coalesced callers without dropping 
 });
 
 it("includes older newly matching cards when the complete filtered feed is loaded", async () => {
-  const feed = new FeedPager<Card>();
+  const feed = new ResultsPager<Card>();
   const page = pageFrom([
     { id: "100", cursor: 100, content: "existing match" },
   ]);
   await feed.load("alice:files", false, page, noChanges);
   const updates = vi.fn(
-    async (_after: number, through: number): Promise<FeedUpdates<Card>> => ({
+    async (_after: number, through: number): Promise<ResultsUpdates<Card>> => ({
       items:
         through === 0
           ? [{ id: "20", cursor: 20, content: "unarchived older match" }]
@@ -178,10 +178,10 @@ it("includes older newly matching cards when the complete filtered feed is loade
 });
 
 it("advances an unchanged feed watermark without publishing a new snapshot", async () => {
-  const feed = new FeedPager<Card>(),
+  const feed = new ResultsPager<Card>(),
     page = pageFrom(cards(1));
   await feed.load("alice:all", false, page, noChanges);
-  const updates = vi.fn(async (): Promise<FeedUpdates<Card>> => ({
+  const updates = vi.fn(async (): Promise<ResultsUpdates<Card>> => ({
     items: [],
     removed: ["not-loaded"],
     revision: 7,

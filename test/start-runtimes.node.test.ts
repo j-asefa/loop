@@ -134,14 +134,14 @@ test("runtime-neutral paired host enables and dispatches all four fixture runtim
         .get(created.id) as any;
       assert.equal(binding.harness, name);
       assert(binding.native_id);
-      for (const path of ["/feed", `/feed?agent=${created.id}`]) {
+      for (const path of ["/results", `/results?agent=${created.id}`]) {
         const result = (await api(path)).items.find(
           (item: any) => item.run_id === created.initialRun.id,
         );
         assert.equal(result?.content, "Fixture done");
       }
       const updates = await api(
-        `/feed/updates?agent=${created.id}&after=0&through=0`,
+        `/results/updates?agent=${created.id}&after=0&through=0`,
       );
       assert(
         updates.items.some(

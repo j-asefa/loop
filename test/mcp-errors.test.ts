@@ -25,7 +25,7 @@ const { setMcpApprovalMode } =
 const { decide } = await import("../src/server/approvals");
 const { normalizeResult, toolErrorMessage } =
   await import("../src/server/mcp/results");
-const { feedUpdates } = await import("../src/server/feed");
+const { resultsUpdates } = await import("../src/server/results");
 
 const account = id(),
   connection = id();
@@ -235,7 +235,7 @@ it.each(["ask", "allow"] as const)(
         artifactId: failed.artifact_id,
       });
       expect(writes).toHaveLength(3);
-      const feed = feedUpdates("alice", {
+      const feed = resultsUpdates("alice", {
         after: 0,
         through: 0,
         agent: agent.id,

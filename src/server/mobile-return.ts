@@ -3,11 +3,11 @@ import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import {
-  feedOutputSql,
+  resultOutputSql,
   fileArtifactSql,
   projectFolders,
   resultUrl,
-} from "./feed.js";
+} from "./results.js";
 import { submit } from "./agent-runtime.js";
 import { transition, type Run } from "./queue.js";
 import { runPreview } from "./run-attention.js";
@@ -154,7 +154,7 @@ export function savePosition(
 
 // ---------------------------------------------------------------------------
 // 2. Inbox
-export const INBOX_FILTERS = [
+export const FEED_FILTERS = [
   "all",
   // The Feed's default: threads with nothing open (not needing you,
   // working or queued), so open work only shows under its own filter.
@@ -168,7 +168,7 @@ export const INBOX_FILTERS = [
   "outcomes",
   "unfinished",
 ] as const;
-type InboxRow = {
+type FeedRow = {
   conversation_id: string;
   title: string;
   agent_id: string | null;
@@ -186,7 +186,7 @@ type InboxRow = {
   pending_approvals: number;
 };
 
-function inboxSql(teams: boolean, folders: boolean, agent = false) {
+function feedSql(teams: boolean, folders: boolean, agent = false) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
 base AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
@@ -215,7 +215,7 @@ base AS (
       OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND NOT ${internalRun("r")}))
 ),
 scoped AS (SELECT * FROM base ${folders ? "WHERE folder_id IN (SELECT value FROM json_each(@folders))" : ""}),
-inbox AS (
+cards AS (
   SELECT b.*,${publicState("r")} run_state,
     (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
       WHERE a.owner_id=@owner AND ar.conversation_id=b.conversation_id AND a.state='pending' AND a.expires_at>@now) pending_approvals,
@@ -231,14 +231,14 @@ flagged AS (
     (i.run_state IN ('awaiting_approval','paused') OR (i.raw_state IN ('failed','interrupted') AND i.attention_dismissed_at IS NULL) OR i.pending_approvals>0) is_needs,
     (i.run_state IN ('running','pausing','waiting_children')) is_working,
     (i.raw_state='completed') is_done
-  FROM inbox i
+  FROM cards i
 )`;
 }
 
-export function inbox(
+export function feed(
   owner: string,
   options: {
-    filter?: (typeof INBOX_FILTERS)[number];
+    filter?: (typeof FEED_FILTERS)[number];
     folder?: string;
     teams?: string[];
     agent?: string;
@@ -260,7 +260,7 @@ export function inbox(
           z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
           z.string().min(1).max(150),
         ]),
-        "inbox",
+        "feed",
       )
     : undefined;
   const params = {
@@ -272,7 +272,7 @@ export function inbox(
     at: cursor?.[0] ?? null,
     after: cursor?.[1] ?? null,
   };
-  const sql = inboxSql(!!teams, !!folders, !!options.agent);
+  const sql = feedSql(!!teams, !!folders, !!options.agent);
   const where = {
     all: "NOT snoozed",
     // Every finished output stays done, even while a follow-up works, queues
@@ -297,7 +297,7 @@ export function inbox(
       AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND conversation_id<@after))
       ORDER BY sort_at DESC,conversation_id DESC LIMIT 41`,
     )
-    .all(params) as InboxRow[];
+    .all(params) as FeedRow[];
   const more = rows.length > 40;
   if (more) rows.pop();
   // Dismissing a Done card changes neither run state nor any activity count.
@@ -321,7 +321,7 @@ export function inbox(
   const last = rows.at(-1);
   return {
     items: rows.map((row) =>
-      inboxItem(
+      feedItem(
         owner,
         row,
         filter === "done"
@@ -461,9 +461,9 @@ function queueMoves(owner: string, runId: string) {
  * "working" shows only what the current run has produced; "thread" shows
  * the thread as it is now.
  */
-function inboxItem(
+function feedItem(
   owner: string,
-  row: InboxRow,
+  row: FeedRow,
   mode: "thread" | "done" | "working" = "thread",
 ) {
   const agent = row.agent_id
@@ -562,7 +562,7 @@ function inboxItem(
           id: message.id,
           role: message.role,
           preview: collapse(message.content, 200),
-          // Markdown for full-size inbox cards; the card clips it visually.
+          // Markdown for full-size Feed cards; the card clips it visually.
           content: message.content.slice(0, 4000),
           created_at: message.created_at,
           // So the card's menu offers Save or Remove from Saved, as the
@@ -736,7 +736,7 @@ export function briefAttention(owner: string, project: string) {
   ).map((r) => r.folder_id);
   const rows = db
     .prepare(
-      `${inboxSql(false, true)} SELECT conversation_id,run_id,run_state,is_needs,is_working FROM flagged`,
+      `${feedSql(false, true)} SELECT conversation_id,run_id,run_state,is_needs,is_working FROM flagged`,
     )
     .all({ owner, now: now(), folders: JSON.stringify(folders) }) as {
     conversation_id: string;
@@ -2364,7 +2364,7 @@ export function projectSummaries(owner: string) {
       FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id
       JOIN folder_project fp ON fp.id=a.folder_id
       LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-      WHERE a.owner_id=@owner AND a.archived=0 AND a.feed_hidden=0 AND ${feedOutputSql}
+      WHERE a.owner_id=@owner AND a.archived=0 AND a.feed_hidden=0 AND ${resultOutputSql}
     ) WHERE n=1`,
   );
   const items = projects.map((project) => {
