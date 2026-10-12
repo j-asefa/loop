@@ -219,6 +219,12 @@ if (kind !== "opencode") {
           },
         });
       if (m.params?.threadId) threadId = m.params.threadId;
+      if (type === "thread/resume" && process.env.LOOP_TEST_LARGE_CODEX_HISTORY)
+        return result({
+          thread: { id: threadId, turns: [{ items: [{
+            id: "large-history", type: "agentMessage", text: "x".repeat(9 * 1024 * 1024),
+          }] }] }, modelProvider: "openai", model: "fixture",
+        });
       return result({
         thread: { id: threadId, turns: process.env.LOOP_TEST_ASYNC_HISTORY ? [{ items: [{
           id: "old-question", type: "agentMessage", text: "Old question",

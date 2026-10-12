@@ -224,6 +224,28 @@ test("Codex does not reopen async questions from resumed history", async () => {
   }
 });
 
+test("Codex resumes history larger than the ordinary native frame limit", async () => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  process.env.LOOP_TEST_LARGE_CODEX_HISTORY = "1";
+  const events: AdapterEvent[] = [];
+  const adapter = new Codex({
+    harness: "codex", project: process.cwd(), executable, resume: "large-thread",
+    billing: "existing", version: "fixture",
+  }, (event) => events.push(event));
+  try {
+    await adapter.start();
+    const history = events.find((e) => e.type === "item" && e.item.id === "large-history");
+    assert(history?.type === "item");
+    assert.equal(history.item.text?.length, 9 * 1024 * 1024);
+    await adapter.prompt("Continue after the saved history");
+    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_LARGE_CODEX_HISTORY;
+  }
+});
+
 test("Pi's subscription catalog excludes API routes for the same model", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   process.env.LOOP_TEST_PI_API_MODEL = "1";

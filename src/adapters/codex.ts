@@ -143,6 +143,10 @@ export class Codex implements Adapter {
       this.options.executable,
       ["app-server"],
       this.options.project,
+      process.env,
+      // thread/resume returns saved turns in one frame, including attachment
+      // data. Keep a bounded allowance without discarding native history.
+      64 * 1024 * 1024,
     );
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", () =>

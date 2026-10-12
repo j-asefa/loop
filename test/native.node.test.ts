@@ -42,6 +42,20 @@ test("native framing preserves split UTF-8 and Unicode separators; correlates in
   }
 });
 
+test("ordinary native transports still reject oversized frames", async () => {
+  const native = new Native(process.execPath, ["-e", `
+    process.stdin.once('data', () => process.stdout.write('x'.repeat(9 * 1024 * 1024)));
+  `], process.cwd());
+  const failure = once(native, "failure");
+  try {
+    await assert.rejects(native.request("read"), /Native frame exceeds 8 MiB/);
+    assert.match((await failure)[0].message, /Native frame exceeds 8 MiB/);
+    assert.equal(native.pending.size, 0);
+  } finally {
+    await native.dispose();
+  }
+});
+
 for (const output of ["null\n", "not-json\n", '{"id":1']) {
   test(`malformed/truncated native frames fail without accepting a command: ${JSON.stringify(output)}`, async () => {
     const native = new Native(
