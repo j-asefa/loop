@@ -10,13 +10,15 @@ Teams coordinate manager/worker agents through bounded delegation and messages b
 
 Keyword search works without a provider. Semantic search can use a local embedding model/runtime and reports readiness or failure. Optional OpenAI embeddings require an explicitly selected API connection; subscription connections do not authorize embedding API usage. Search groups matches by thread, remembers recent searches on the device and has a **Your prompts** scope for your own sent messages.
 
-### Project briefs
+### Project brief
 
 The **Brief** tab collects a project’s goal, current state, decisions, open questions and unfinished work, with citations back to the record. Choose an OpenAI or Anthropic API connection and model in that tab to enable generation; provider API billing applies. The worker checks due briefs each minute and groups new changes with a fifteen-minute gap after the previous generation started. Bounded passes continue through a backlog. The first pass starts with saved work and recent results, and identifies older history it has not incorporated.
 
 **Needs you** and project status reflect current work even before another generation runs. Citation chips open the source thread at its message when available. Tap an item to see its sources and version history, edit it, resolve it, or pin it. Editing pins the wording; its lifecycle can still change when evidence supports that change. **Show all** reaches the full ledger, including items outside the compact view and superseded decisions with their replacements. **Record a decision** accepts a saved result or one of your project messages as evidence. The goal stays owner-controlled.
 
 Opening Brief acknowledges the version after it renders. Its change markers accumulate from the last acknowledged version; thread actions do not acknowledge it. Pull down or return to the app to refresh. Brief settings can turn generation off while keeping the recorded items. The implementation lives in [brief routes](../src/server/briefs/routes.ts) and [ProjectBrief](../src/client/ProjectBrief.tsx).
+
+Every authored brief item must cite a record in your project, and quoted text must occur in that record. When you enable the brief in the tab's settings, API and native agents working in that project receive `loop_brief`: a read-only view of its state, evidenced decisions, questions, unfinished work and current attention. It defaults to the conversation's project, then the current run's project, and can select another of your enabled projects explicitly. It can read one section and include an index of active items outside the compact view. Responses omit your acknowledgement and change markers, retain citations, and flag omissions when trimmed to 16 KB. Reading never generates, edits or acknowledges a brief and needs no approval.
 
 ### Feed and reading position
 

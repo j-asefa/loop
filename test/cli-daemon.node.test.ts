@@ -32,6 +32,7 @@ import {
 import { forceStop } from "../src/cli.js";
 import { identity } from "../src/lifecycle.js";
 import { until } from "./helpers.js";
+import { gitProject } from "./git-project.js";
 
 const exec = promisify(execFile);
 const PAIR_URL = /http:\/\/127\.0\.0\.1:\d+\/#pair=[\w-]+/;
@@ -42,11 +43,19 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const base = await mkdtemp(join(resolve(".tmp"), "loop-daemon-"));
   const project = join(base, "project");
   await mkdir(project);
+  gitProject(project);
   const fixture = join(base, "codex");
   await copyFile(resolve("test/harness.mjs"), fixture);
   await chmod(fixture, 0o755);
+  // Neutral starts discover PATH. Keep them independent of harnesses installed
+  // and signed in on the developer's machine; explicit fixtures still run.
+  const bin = join(base, "bin");
+  await mkdir(bin);
+  for (const name of ["codex", "claude", "pi", "opencode"])
+    await writeFile(join(bin, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
   const env = {
     ...process.env,
+    PATH: bin + ":" + (process.env.PATH || ""),
     LOOP_HOME: join(base, "state"),
     LOOP_TEST_HARNESS: "codex",
     ...extraEnv,

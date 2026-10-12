@@ -47,6 +47,8 @@ Records are bounded, versioned and keyed by producer identity. Sequence/revision
 
 ## Memory, tools and files
 
+The owner-enabled [project brief](workspace.md#project-brief) reaches API and native agents through the shared, read-only `loop_brief` binding, with owner/project checks on discovery and invocation.
+
 Workspace MCP connections belong to the owner and are shared by that owner's agents. Broker dispatch checks discovery, schema, ownership, connection and approval state. Companion command MCPs use local subprocesses; server command MCPs use runtime infrastructure. Rich MCP Apps run in isolated iframes. See [workspace](workspace.md).
 
 Search supports keyword and optional semantic indexing. Managed native recall uses [memory.ts](../src/server/memory.ts) and the optional MemSearch service; laptop startup can run without it. Artifact content and versions remain live during streaming, but artifact search indexes retain their last indexed snapshot until the partial flag clears; failed or paused partial drafts retain that snapshot until finalized. Results revisions likewise skip repeated partial updates. Scope, inclusion, revision and tombstone checks apply again before returning indexed candidates. Recall is untrusted historical evidence, never current authorization. Versioned notes and an outbox preserve update ordering.

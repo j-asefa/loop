@@ -7,8 +7,8 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | 0 change stream | merged | brief/00-change-stream | https://github.com/j-asefa/loop/pull/106 | Merged as 8a4084c after typecheck, 963 tests, build and Loop review de341b77 (all 3 reviewers, no confirmed introduced bugs). |
 | 1 schema and ledger | merged | brief/01-schema-and-ledger | https://github.com/j-asefa/loop/pull/109 | Merged as b466299 after typecheck, 1007 tests, build and three completed Loop reviews with findings addressed. |
 | 2 generation job | merged | brief/02-generation-job | https://github.com/j-asefa/loop/pull/114 | Merged as b09b4e5 after typecheck, 1047 tests, build and completed Loop review 89a9f8df with confirmed findings fixed. |
-| 3 api and project page | PR open | brief/03-api-and-project-page | https://github.com/j-asefa/loop/pull/115 | Checks green: typecheck, 1108 tests / 145 files (202.74s, one worker), build (1.49s), full smoke:design (363.8s plus approval layouts, both engines). Updated 390px screenshots. Completed Loop reviews 1479ed39 and 8c1e878a, all confirmed findings fixed. Main a211ca4 integrated. Push final validation commit, update PR, merge exact head, then start PR 4 from main. |
-| 4 agent read tool | todo | | | |
+| 3 api and project page | merged | brief/03-api-and-project-page | https://github.com/j-asefa/loop/pull/115 | Merged as 9769cbf after typecheck, 1108 tests, build, full design/approval smokes in both engines and two completed Loop reviews with confirmed findings fixed. |
+| 4 agent read tool | PR open | brief/04-agent-read-tool | https://github.com/j-asefa/loop/pull/116 | Checks and Loop review complete. Typecheck, 1123 tests (146 files, 174.86s with memory-backed TMPDIR), build (1.41s), and all 178 native tests (170.46s) pass. Reviews 159efe34 and b39ee9e7 completed with all 3 reviewers each; findings are fixed and the follow-up found no confirmed introduced bugs. Publish this final validation ledger and PR description, then merge #116 at its exact head. Stop after PR 4; optional PRs 5–6 remain unrequested. |
 | 5 feed card | not requested | | | Only on explicit instruction from the owner |
 | 6 saved routing | not requested | | | Only on explicit instruction from the owner |
 
@@ -21,7 +21,7 @@ States: todo, in progress, checks green, PR open, merged, blocked.
 ## Decisions made during implementation
 
 - PR 0 uses migration 077: main already contains migrations 073–076. The branch starts at origin/main 82182da.
-- Handoff files are extracted to /tmp/loop-brief-handoff from the user attachment. This tracked STATUS.md is the current ledger. PR 3 is in progress; PRs 4–6 have not been read.
+- Handoff files are extracted to /tmp/loop-brief-handoff from the user attachment. This tracked STATUS.md is the current ledger. PR 4 checks and reviews are complete, awaiting merge; optional PRs 5–6 have not been read.
 - Owned child folders resolve to the nearest project, preserving every kind=project row as required by decision 2 (including nested projects); standalone artifacts fall back to their own folder_id. Both choices address confirmed review findings.
 - An SQL view shares owner/project validation between backfill, publication/deletion triggers and application writers. Record-specific fallback uses that record's run, never a newer run in the conversation.
 - Historical resolved approvals use created_at because approvals retain no decision timestamp. New decisions record the current time.
@@ -58,10 +58,6 @@ States: todo, in progress, checks green, PR open, merged, blocked.
 - Retry validation runs inside an outer transaction and rolls back a first attempt with errors before invoking the model again. Failed attempts use negative internal diagnostic versions and separate failure keys so they never reserve an owner-visible publication number or block a corrected pass.
 - Initial input includes saved history, the newest 40 results and accompanying newer events; older skipped work is marked explicitly. Mail uses its actual delivered msg_ reference, because mail_ is outside the normative Cite union. Native decision citations expose the recorded request and state; the harness-owned answer is not available and resolved alone cannot supply approval evidence. INDEX entries include citation refs so overflow items remain usable under prompt rule 1.
 
-## Found, not fixed
-
-None.
-
 - The generation event budget includes headers and cut markers, truncates UTF-8 without splitting characters, and makes progress past a single oversized event. Shutdown reschedules interrupted read-only work; a deadline records a failed attempt without an automatic retry loop.
 
 - Review 89a9f8df fixes retain the initial skip boundary across saved-heavy passes, persist cursor metadata independently of publication, start each lease when its project begins, and recheck settings/token before each provider request. The report’s partial-output rejection suggestion conflicts with normative 03-schema per-rule recovery (only parse failure or every item failing is a failed attempt); preserve that behavior and cover mixed valid/invalid second output explicitly. The proposed unchanged-first-pass reproduction actually fails validation and stores a failed row; the regression instead verifies a real unchanged later pass.
@@ -85,3 +81,16 @@ None.
 - A real tab-reopening browser regression caught a duplicate acknowledgement after an edit. The parent retains acknowledgement receipts per owner/project across child mounts; the rendered view still refreshes from the server and a failed acknowledgement remains retryable.
 
 - After Feed integration, the workspace controls browser fixture also needs its loaded-page selector scoped to visible Done results. Badge counts and all model/upload assertions remain intact.
+
+- PR 4 discovers the tool only for a run with an enabled project, rechecks the run and explicit target at invocation, and never enables another project implicitly. Project resolution uses conversation filing, else this run’s payload, mapped through owned subfolders to the nearest project.
+- Tool section selection omits other authored sections; includeIndex still covers every active item outside the full compact view. Index text is the first 120 Unicode code points. Responses are bounded to 16 KiB of UTF-8 JSON with complete entries and a truncation notice; evidence and citations of retained items are never sliced. Native receipts remain ordinary tool bookkeeping, with project access checked before receipt replay.
+
+- Required native validation exposed baseline fixture gaps: cli-connection, cli-daemon and start-runtimes used empty directories despite native agents requiring committed Git projects. Use the existing gitProject helper; no native production behavior changes. The daemon fixture masks installed harness discovery, retaining explicit fixture executables. The restart assertion now finds the recorded run in GET /runs instead of querying a nonexistent detail route.
+
+- Review 159efe34 fixes make loop_brief retries re-enter the invocation gate before replaying durable receipts, persist the resolved default project in receipt arguments, and return expected brief refusals as tool errors so API runs can continue. Regressions cover the identical native request id after revocation, refiling and project deletion, plus a provider run before first publication. Other tool replay semantics stay intact.
+- Follow-up Loop review b39ee9e7 completed on b7deb5c with all three reviewers and no confirmed introduced bugs. It notes uncovered concurrent identical calls and the defensive terminal 413 path; executable fixture checks are recorded separately in the PR.
+
+## Found, not fixed
+
+- test/conversation-paging.test.ts:70 has an existing 5s timeout sensitive to this VM’s temporary-disk latency, reproduced on unchanged main. The complete unchanged suite passes with memory-backed temporary fixture storage.
+- test/adapters.node.test.ts:199 intermittently checks the async cancellation resolved event before its notification arrives, reproduced on unchanged main (one focused pass, then a failure). The first post-review native run passed 177/178; the full rerun passes 178/178 with unchanged adapter, harness and assertions. Evidence: /tmp/brief4-native-review-failure.log, /tmp/brief4-cancel-main-repeat.log and /tmp/brief4-native.log.

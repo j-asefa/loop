@@ -11,6 +11,7 @@ import { alive } from "../src/daemon.js";
 import { identity, pidNamespace } from "../src/lifecycle.js";
 import { ensureRunDir } from "../src/connection.js";
 import { until } from "./helpers.js";
+import { gitProject } from "./git-project.js";
 
 const exec = promisify(execFile);
 const FAKE = resolve("test/fixtures/fake-cloudflared.mjs");
@@ -21,6 +22,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const base = await mkdtemp(join(resolve(".tmp"), "loop-cli-connection-"));
   const project = join(base, "project");
   await mkdir(project);
+  gitProject(project);
   const fixture = join(base, "codex");
   await copyFile(resolve("test/harness.mjs"), fixture);
   await chmod(fixture, 0o755);
@@ -215,7 +217,8 @@ test("restart refuses active runs, and a forced restart never resends interrupte
     // Give a replay every chance to happen, then prove it didn't.
     await new Promise((r) => setTimeout(r, 1500));
     assert.equal(readFileSync(w.audit, "utf8").split("\n").filter((l) => l === "prompt").length, 1);
-    const state = (await phone.send("GET", "/api/runs/" + run.id)).json;
+    const state = (await phone.send("GET", "/api/runs")).json.find((item: any) => item.id === run.id);
+    assert(state, "the interrupted run remains recorded");
     assert.notEqual(state.state, "running");
   } finally {
     await w.cleanup();
