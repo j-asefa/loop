@@ -1,0 +1,62 @@
+{
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "conversation_id": "c-team",
+        "title": "Prompt for r-team",
+        "agent_id": "agent-manager",
+        "connection_id": null,
+        "agent_name": "manager-agent",
+        "provider": "openai",
+        "project_id": null,
+        "project_name": null,
+        "team_id": "team-1",
+        "origin": "loop",
+        "last_activity_at": 1799645280000,
+        "last_message": {
+          "id": "m-team-answer",
+          "role": "assistant",
+          "preview": "Answer team",
+          "content": "Answer team",
+          "created_at": 1799645160000,
+          "saved": false
+        },
+        "run": {
+          "id": "r-team",
+          "state": "completed",
+          "error": null,
+          "input": "Prompt for r-team",
+          "connection_id": "conn-api",
+          "model": "fixture-model",
+          "resolved_model": null,
+          "created_at": 1799645040000,
+          "updated_at": 1799645280000,
+          "queue_position": null,
+          "can_move_up": false,
+          "can_move_down": false
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0,
+        "position_message_id": null,
+        "later": null,
+        "next_action": {
+          "kind": "result",
+          "run_id": "r-team",
+          "message_id": "m-team-answer"
+        }
+      }
+    ],
+    "next": null,
+    "summary": {
+      "needs": 0,
+      "working": 0,
+      "queued": 0,
+      "later_due": 1,
+      "social_unread": 0,
+      "scheduled_failed": 0,
+      "scheduled_pending": 0
+    }
+  }
+}

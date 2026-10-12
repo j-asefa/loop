@@ -1,0 +1,70 @@
+{
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "conversation_id": "c-queue",
+        "title": "Prompt for r-queue-active",
+        "agent_id": "agent-native",
+        "connection_id": null,
+        "agent_name": "native-agent",
+        "provider": "codex",
+        "project_id": null,
+        "project_name": null,
+        "team_id": null,
+        "origin": "loop",
+        "last_activity_at": 1799643540000,
+        "last_message": null,
+        "run": {
+          "id": "r-queue-active",
+          "state": "running",
+          "error": null,
+          "input": "Prompt for r-queue-active",
+          "connection_id": "conn-native",
+          "model": "fixture-model",
+          "resolved_model": null,
+          "created_at": 1799643240000,
+          "updated_at": 1799643240000,
+          "queue_position": null,
+          "can_move_up": false,
+          "can_move_down": false
+        },
+        "queued_runs": [
+          {
+            "id": "r-queue-1",
+            "input": "Follow-up 1",
+            "created_at": 1799643360000,
+            "queue_position": 2,
+            "can_edit": true,
+            "can_move_up": false,
+            "can_move_down": false
+          },
+          {
+            "id": "r-queue-2",
+            "input": "Follow-up 2",
+            "created_at": 1799643480000,
+            "queue_position": 3,
+            "can_edit": true,
+            "can_move_up": false,
+            "can_move_down": false
+          }
+        ],
+        "live_preview": null,
+        "pending_approvals": 0,
+        "position_message_id": null,
+        "later": null,
+        "next_action": null
+      }
+    ],
+    "next": null,
+    "summary": {
+      "needs": 4,
+      "working": 4,
+      "queued": 1,
+      "later_due": 1,
+      "social_unread": 0,
+      "scheduled_failed": 0,
+      "scheduled_pending": 0
+    }
+  }
+}

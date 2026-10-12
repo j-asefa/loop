@@ -1,0 +1,33 @@
+{
+  "status": 200,
+  "body": {
+    "revision": 65,
+    "items": [
+      {
+        "id": "a-file",
+        "owner_id": "owner-feed",
+        "agent_id": null,
+        "conversation_id": null,
+        "run_id": null,
+        "title": "notes.txt",
+        "kind": "file",
+        "content": "file body",
+        "metadata": "{\"name\":\"notes.txt\"}",
+        "folder_id": "proj",
+        "pinned": 0,
+        "archived": 0,
+        "version": 1,
+        "created_at": 1799647020000,
+        "updated_at": 1799647020000,
+        "feed_hidden": 0,
+        "run_state": null,
+        "run_error": null,
+        "cursor": 12,
+        "name": null,
+        "provider": null,
+        "team_id": null
+      }
+    ],
+    "next": null
+  }
+}

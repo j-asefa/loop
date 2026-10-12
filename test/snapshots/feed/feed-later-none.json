@@ -1,0 +1,67 @@
+{
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "conversation_id": "c-snoozed",
+        "title": "Prompt for r-snoozed",
+        "agent_id": "agent-api",
+        "connection_id": null,
+        "agent_name": "api-agent",
+        "provider": "openai",
+        "project_id": null,
+        "project_name": null,
+        "team_id": null,
+        "origin": "loop",
+        "last_activity_at": 1799644260000,
+        "last_message": {
+          "id": "m-snoozed-answer",
+          "role": "assistant",
+          "preview": "Answer snoozed",
+          "content": "Answer snoozed",
+          "created_at": 1799644140000,
+          "saved": false
+        },
+        "run": {
+          "id": "r-snoozed",
+          "state": "completed",
+          "error": null,
+          "input": "Prompt for r-snoozed",
+          "connection_id": "conn-api",
+          "model": "fixture-model",
+          "resolved_model": null,
+          "created_at": 1799644020000,
+          "updated_at": 1799644260000,
+          "queue_position": null,
+          "can_move_up": false,
+          "can_move_down": false
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0,
+        "position_message_id": null,
+        "later": {
+          "id": "later-snoozed",
+          "due_at": 1800086400000,
+          "condition": "time",
+          "surfaced_at": null
+        },
+        "next_action": {
+          "kind": "result",
+          "run_id": "r-snoozed",
+          "message_id": "m-snoozed-answer"
+        }
+      }
+    ],
+    "next": null,
+    "summary": {
+      "needs": 4,
+      "working": 4,
+      "queued": 1,
+      "later_due": 1,
+      "social_unread": 0,
+      "scheduled_failed": 0,
+      "scheduled_pending": 0
+    }
+  }
+}
