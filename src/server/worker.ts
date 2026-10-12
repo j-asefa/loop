@@ -28,6 +28,7 @@ import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 import { pollWatches } from "./pr-watches.js";
 import { refreshDueFeeds } from "./news.js";
 import { runDueDigests } from "./feed-digests.js";
+import { runDueBriefs } from "./briefs/generate.js";
 import { matchWatches } from "./feed-watches.js";
 import { sweepAgentMail } from "./agent-mail.js";
 const workerId = id();
@@ -138,6 +139,7 @@ export function startWorker() {
   const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
   let cleaning = false;
   const cleanupController = new AbortController();
+  const briefController = new AbortController();
   maintenanceTimers.push(
     setInterval(
       () => {
@@ -213,6 +215,20 @@ export function startWorker() {
       inflight.add(promise);
     }, 60_000),
   );
+  let generatingBriefs = false;
+  maintenanceTimers.push(
+    setInterval(() => {
+      if (stopping || generatingBriefs) return;
+      generatingBriefs = true;
+      const promise = runDueBriefs(now(), briefController.signal)
+        .catch(() => {})
+        .finally(() => {
+          generatingBriefs = false;
+          inflight.delete(promise);
+        });
+      inflight.add(promise);
+    }, 60_000),
+  );
   maintenanceTimers.push(setInterval(() => void indexMemory(), 5000));
   const health = setInterval(heartbeat, 5000);
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
@@ -233,6 +249,7 @@ export function startWorker() {
   return async () => {
     stopping = true;
     cleanupController.abort();
+    briefController.abort();
     maintenanceTimers.forEach(clearInterval);
     clearInterval(health);
     clearInterval(index);

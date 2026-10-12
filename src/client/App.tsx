@@ -153,6 +153,7 @@ import type {
 } from "../shared/types";
 import "./style.css";
 type Bootstrap = {
+  environmentName?: string;
   teams?: Team[];
   agents: Agent[];
   connections: Connection[];
@@ -934,7 +935,7 @@ export default function App() {
   const unified = useAgentSources(signedIn, { ...data, runs });
   const currentSourceName =
     unified.sources.find((source) => source.id === executionSourceId())?.name ||
-    (executionSourceId() ? "Connected environment" : "This laptop");
+    (executionSourceId() ? "Connected environment" : "This computer");
   const creationConnections = unified.connections.length
     ? unified.connections
     : data.connections.map((connection) => ({

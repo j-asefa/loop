@@ -30,4 +30,4 @@ WHERE json_extract(metadata,'$.backend')='hapi';
 INSERT OR IGNORE INTO memory_policy(owner_id,scope,enabled)
 SELECT owner_id,'conversation:'||id,1 FROM conversations WHERE execution_backend='hapi';
 
-INSERT INTO schema_version VALUES(77,unixepoch()*1000);
+INSERT INTO schema_version VALUES(80,unixepoch()*1000);

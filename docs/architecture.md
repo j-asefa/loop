@@ -33,7 +33,7 @@ API connections use Loop's model loop. Native connections dispatch through nativ
 
 The private native tool bridge gives every harness the same owner-scoped team, mail, delegation, handoff, memory and published-file tools. Handoffs transfer an explicit task and context summary, not a provider session or additional authority. Team membership and file ownership are checked on delivery.
 
-An earlier release ran harnesses through HAPI; that code is gone. Migration 077 made its leftover records inert once: active HAPI runs were interrupted without replay and their pending approvals rejected, HAPI connections stay disconnected and no longer present as subscriptions, and HAPI conversations keep their memory inclusion as an explicit policy. Their history remains readable. No uncertain external effect is replayed automatically.
+An earlier release ran harnesses through HAPI; that code is gone. Migration 080 made its leftover records inert once: active HAPI runs were interrupted without replay and their pending approvals rejected, HAPI connections stay disconnected and no longer present as subscriptions, and HAPI conversations keep their memory inclusion as an explicit policy. Their history remains readable. No uncertain external effect is replayed automatically.
 
 ## Activities
 

@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
 import { Router } from "express";
@@ -232,6 +233,8 @@ workspace.patch("/artifacts/:id", (req, res) => {
       now(),
       a.id,
     );
+    if (d.pinned !== undefined && Number(d.pinned) !== a.pinned)
+      recordChange(res.locals.owner, undefined, d.pinned ? "saved" : "unsaved", a.id, a.conversation_id);
     if (d.content !== undefined) {
       db.prepare(
         "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false'),'$.edited',json('true')) WHERE id=?",

@@ -27,6 +27,7 @@ services:
     environment:
       LOOP_CONNECTION_DIR: /data/loop-connection
       LOOP_CONNECTION_MANAGED: external
+      LOOP_ENVIRONMENT_NAME: "${LOOP_ENVIRONMENT_NAME:-${COMPOSE_PROJECT_NAME}/loop-companion}"
     volumes:
       - loop-companion-data:/data/loop
       - loop-companion-projects:/workspaces

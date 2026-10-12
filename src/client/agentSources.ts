@@ -3,6 +3,7 @@ import type { Agent, Connection, Folder, Run } from "../shared/types";
 import { apiInWorkspace, parse } from "./api";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
+import { connectionLocation } from "./modelChoices";
 
 export type AgentSource = { id: string; name: string; kind?: string };
 export type EnvironmentAgent = Agent & {
@@ -17,6 +18,7 @@ export type EnvironmentConnection = Connection & {
 export type EnvironmentFolder = Folder & { sourceId?: string };
 
 type CurrentData = {
+  environmentName?: string;
   agents: Agent[];
   connections: Connection[];
   folders: Folder[];
@@ -35,7 +37,7 @@ type SourceState = Projection & {
   error: string;
 };
 
-const laptop: AgentSource = { id: "", name: "This laptop" };
+const laptop: AgentSource = { id: "", name: "This computer" };
 const empty: Projection = {
   agents: [],
   connections: [],
@@ -48,18 +50,38 @@ export function agentEnvironment(
   connections: Connection[],
   source: AgentSource,
 ) {
+  // Discovery names the linked workspace; its own container hostname is not
+  // another execution destination within that source.
+  if (source.kind === "docker" || source.id.startsWith("docker:"))
+    return source.name;
   const connection = connections.find(
     (item) => item.id === agent.connection_id,
   );
-  const runtime = parse<{ environmentName?: string }>(
-    connection?.metadata,
-    {},
-  ).environmentName;
+  const runtime = connectionEnvironment(connection, source);
   if (source.id)
-    return runtime && runtime !== "This laptop" && runtime !== source.name
+    return runtime !== source.name
       ? `${source.name} · ${runtime}`
       : source.name;
-  return runtime || laptop.name;
+  return runtime;
+}
+
+function connectionEnvironment(
+  connection: Connection | undefined,
+  source: AgentSource,
+) {
+  const metadata = parse<{
+    environmentName?: string;
+    location?: string;
+  } | null>(connection?.metadata, {});
+  if (metadata?.location === "docker")
+    return connectionLocation(connection, source.name).label;
+  const runtime = metadata?.environmentName;
+  return typeof runtime === "string" &&
+    runtime.trim() &&
+    runtime !== "This laptop" &&
+    runtime !== "This computer"
+    ? runtime
+    : source.name;
 }
 
 function project(source: AgentSource, data: CurrentData): Projection {
@@ -74,8 +96,7 @@ function project(source: AgentSource, data: CurrentData): Projection {
       sourceId: source.id,
       executionEnvironment: source.id
         ? source.name
-        : parse<{ environmentName?: string }>(connection.metadata, {})
-            .environmentName || laptop.name,
+        : connectionEnvironment(connection, source),
     })),
     folders: data.folders.map((folder) => ({ ...folder, sourceId: source.id })),
     runs: data.runs.map((run) => ({ ...run, sourceId: source.id })),
@@ -91,11 +112,15 @@ export function useAgentSources(
   current: CurrentData,
 ) {
   const currentSourceId = executionSourceId();
+  const localName = !currentSourceId
+    ? current.environmentName || laptop.name
+    : laptop.name;
+  const local = { ...laptop, name: localName };
   const federated = capabilities.pairedDevices || !!currentSourceId;
   const [state, setState] = useState<SourceState>({
     ...empty,
     currentSourceId,
-    sources: [laptop],
+    sources: [local],
     error: "",
   });
 
@@ -104,12 +129,16 @@ export function useAgentSources(
     let active = true;
     let busy = false;
     let known: AgentSource[] = [];
+    let knownLocal = { ...laptop, name: localName };
     const snapshots = new Map<string, Projection>();
     const requests = new Map<AbortController, ReturnType<typeof setTimeout>>();
     // Deadline and teardown cancellation also work on older mobile WebKit.
     const signal = () => {
       const controller = new AbortController();
-      requests.set(controller, setTimeout(() => controller.abort(), 20_000));
+      requests.set(
+        controller,
+        setTimeout(() => controller.abort(), 20_000),
+      );
       return controller.signal;
     };
     const clearRequests = () => {
@@ -153,7 +182,7 @@ export function useAgentSources(
             : "Couldn’t connect to your execution environments. Check your connection and retry.";
       }
       const sources = [
-        laptop,
+        { ...knownLocal },
         ...linked.filter((item) =>
           /^[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128}$/.test(item.id),
         ),
@@ -169,6 +198,7 @@ export function useAgentSources(
           .map(async (source) => {
             const [bootstrap, runs] = await Promise.all([
               apiInWorkspace<{
+                environmentName?: string;
                 agents: Agent[];
                 connections: Connection[];
                 folders: Folder[];
@@ -181,6 +211,10 @@ export function useAgentSources(
                 signal(),
               ),
             ]);
+            if (!source.id && bootstrap.environmentName) {
+              source.name = bootstrap.environmentName;
+              knownLocal = source;
+            }
             return { source, data: project(source, { ...bootstrap, runs }) };
           }),
       );
@@ -218,18 +252,22 @@ export function useAgentSources(
       clearInterval(timer);
       window.removeEventListener("loop-source-refresh", retry);
     };
-  }, [owner, currentSourceId, federated]);
+  }, [owner, currentSourceId, federated, localName]);
 
   const ready =
     federated &&
     state.owner === owner &&
     state.currentSourceId === currentSourceId;
-  const sources = ready ? state.sources : [laptop];
+  const sources = ready
+    ? state.sources.map((source) =>
+        !source.id && !currentSourceId ? local : source,
+      )
+    : [local];
   const currentSource =
     sources.find((source) => source.id === currentSourceId) ||
     (currentSourceId
       ? { id: currentSourceId, name: "Connected environment" }
-      : laptop);
+      : local);
   const currentProjection = owner ? project(currentSource, current) : empty;
   return {
     sources,
