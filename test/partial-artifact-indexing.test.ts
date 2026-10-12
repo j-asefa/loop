@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const migration = "079-partial-artifact-indexing.sql";
+const migration = "082-partial-artifact-indexing.sql";
 
 it("upgrades existing drafts, defers their indexes, and invalidates the indexed embedding on completion", () => {
   const db = new Database(":memory:");
