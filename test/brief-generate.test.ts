@@ -512,7 +512,7 @@ it("discards output when generation was disabled during provider IO", async () =
   });
 });
 
-it("rejects other-owner and native connections without invoking the provider", async () => {
+it("rejects other-owner and unsupported subscription connections without invoking the provider", async () => {
   const w = fixture(),
     other = fixture(0, false),
     calls = scripted(good);
@@ -533,7 +533,7 @@ it("rejects other-owner and native connections without invoking the provider", a
   w.due();
   await runDueBriefs();
   expect(calls).toHaveLength(0);
-  expect(w.state().last_error).toContain("API connection");
+  expect(w.state().last_error).toContain("subscription connection");
 });
 
 it("clears empty work and counts a missing submit tool as two failed attempts", async () => {

@@ -7,6 +7,7 @@ import {
 import { CodexSession } from "./codex-session.mjs";
 import { receiveSteering } from "./steering.mjs";
 import { ClaudeSteering } from "./claude-steering.mjs";
+import { claudeProjectionArgs } from "./projection.mjs";
 // Official binaries are unmodified. Host mode is chosen by the local launcher,
 // never by an HTTP request; the default remains a per-connection container.
 import { spawn } from "node:child_process";
@@ -90,15 +91,19 @@ if (!hostMode) {
   mkdirSync(env.CLAUDE_CONFIG_DIR, { recursive: true, mode: 0o700 });
 }
 const launch = (bin, args) => {
-  child = spawn(bin, args, {
-    cwd: workdir,
-    env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  child = spawn(
+    (hostMode && process.env.LOOP_RUNTIME_EXECUTABLE) || bin,
+    args,
+    {
+      cwd: workdir,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
   child.stderr.resume();
   return child;
 };
-async function claudeStatus() {
+async function claudeStatus(projection = false) {
   const p = launch("claude", ["auth", "status"]);
   let text = "";
   p.stdout.on("data", (b) => {
@@ -110,7 +115,12 @@ async function claudeStatus() {
     p.once("close", resolve);
   });
   const s = JSON.parse(text);
-  const authenticated = s.loggedIn === true && s.authMethod === "claude.ai";
+  const authenticated =
+    s.loggedIn === true &&
+    s.authMethod === "claude.ai" &&
+    (!projection ||
+      (s.apiProvider === "firstParty" &&
+        (!s.apiKeySource || s.apiKeySource === "none")));
   return {
     authenticated,
     authMode: authenticated ? "subscription" : "none",
@@ -140,6 +150,7 @@ async function codex(request) {
     hostMode,
     home: env.HOME,
     cwd: workdir,
+    briefProject: hostMode ? process.env.LOOP_RUNTIME_BRIEF_PROJECT : undefined,
   });
   let stopSteering;
   try {
@@ -202,7 +213,7 @@ async function claude(request) {
     emit({ result: { authenticated: false } });
     return;
   }
-  const status = await claudeStatus();
+  const status = await claudeStatus(request.input?.nativeTools === false);
   if (request.action !== "turn") {
     emit({
       result: {
@@ -214,7 +225,10 @@ async function claude(request) {
   }
   if (!status.authenticated)
     throw new RuntimeFailure("Claude subscription sign-in required");
-  const command = slashCommand(request.input);
+  const projection = request.input.nativeTools === false;
+  if (projection && request.input.model === "native-default")
+    throw new RuntimeFailure("Choose a specific Claude model for briefs");
+  const command = projection ? undefined : slashCommand(request.input);
   if (command) {
     const catalog = await claudeCatalog(launch);
     const selected = catalog.commands.find((c) => c.name === command);
@@ -229,11 +243,13 @@ async function claude(request) {
     "--output-format",
     "stream-json",
     "--verbose",
-    "--model",
-    request.input.model,
+    ...(request.input.model === "native-default"
+      ? []
+      : ["--model", request.input.model]),
     ...(request.input.effort ? ["--effort", request.input.effort] : []),
-    "--permission-mode",
-    "bypassPermissions",
+    ...(projection
+      ? claudeProjectionArgs
+      : ["--permission-mode", "bypassPermissions"]),
     "--no-session-persistence",
     ...(command || request.input.controlId
       ? ["--input-format", "stream-json"]
@@ -394,6 +410,15 @@ async function claude(request) {
 }
 try {
   const request = JSON.parse(first.value);
+  if (request.action === "project-brief") {
+    request.action = "turn";
+    request.githubToken = undefined;
+    request.input = {
+      ...request.input,
+      nativeTools: false,
+      controlId: undefined,
+    };
+  }
   if (request.action !== "turn") timeout = setTimeout(stop, 30 * 60 * 1000);
   if (!hostMode) {
     if (
@@ -413,7 +438,11 @@ try {
       Object.assign(env, githubEnvironment(request.githubToken));
       githubToken = request.githubToken;
     }
-    if (request.action === "turn" && request.provider === "claude")
+    if (
+      request.action === "turn" &&
+      request.provider === "claude" &&
+      request.input.nativeTools !== false
+    )
       request.input.instructions =
         (request.input.instructions || "") +
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${workdir}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +

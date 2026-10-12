@@ -179,7 +179,83 @@ it("scopes every production route to an owned project before parsing input", asy
   );
 });
 
-it("validates API settings and fences a previous generation when settings change", async () => {
+it("accepts connected Codex and Claude subscriptions and rejects unavailable models or billing paths", async () => {
+  const w = fixture();
+  for (const provider of ["codex", "anthropic"]) {
+    db.prepare("UPDATE connections SET provider=?,metadata=? WHERE id=?").run(
+      provider,
+      JSON.stringify({ authMode: "subscription" }),
+      w.connection,
+    );
+    const settings = {
+      enabled: true,
+      connectionId: w.connection,
+      model: "fixture",
+    };
+    expect((await w.request("/settings", "PUT", settings)).status).toBe(200);
+    expect(w.state().connection_id).toBe(w.connection);
+    if (provider === "anthropic") {
+      db.prepare("UPDATE connections SET models=? WHERE id=?").run(
+        JSON.stringify([{ id: "native-default" }, { id: "fixture" }]),
+        w.connection,
+      );
+      const refused = await w.request("/settings", "PUT", {
+        ...settings,
+        model: "native-default",
+      });
+      expect(refused.status).toBe(400);
+      expect(refused.data.error).toContain("specific Claude model");
+      expect(w.state().model).toBe("fixture");
+    }
+    expect(
+      (await w.request("/settings", "PUT", { ...settings, model: "unknown" }))
+        .status,
+    ).toBe(400);
+    db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(
+      w.connection,
+    );
+    expect((await w.request("/settings", "PUT", settings)).status).toBe(400);
+    db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+      w.connection,
+    );
+  }
+  db.prepare("UPDATE connections SET provider='pi',metadata=? WHERE id=?").run(
+    JSON.stringify({ loopHarness: "pi", authMode: "native-existing" }),
+    w.connection,
+  );
+  expect(
+    (
+      await w.request("/settings", "PUT", {
+        enabled: true,
+        connectionId: w.connection,
+        model: "fixture",
+      })
+    ).status,
+  ).toBe(400);
+});
+
+it("refuses malformed connection metadata without enabling generation", async () => {
+  const w = fixture();
+  const settings = {
+    enabled: true,
+    connectionId: w.connection,
+    model: "fixture",
+  };
+  for (const metadata of ["{", "null", "[]", '"subscription"', "7"]) {
+    db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+      metadata,
+      w.connection,
+    );
+    expect((await w.request("/settings", "PUT", settings)).status).toBe(400);
+    expect(w.state().enabled).toBe(0);
+  }
+  db.prepare("UPDATE connections SET metadata='{}' WHERE id=?").run(
+    w.connection,
+  );
+  expect((await w.request("/settings", "PUT", settings)).status).toBe(200);
+});
+
+it("validates connection settings and fences a previous generation when settings change", async () => {
   const w = fixture(),
     other = fixture(),
     settings = { enabled: true, connectionId: w.connection, model: "fixture" };

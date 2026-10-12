@@ -143,7 +143,7 @@ async function execute(key, request, onEvent, signal) {
         })
       : null;
   const timer =
-    deadline || request.action === "turn"
+    deadline || ["turn", "project-brief"].includes(request.action)
       ? null
       : setTimeout(
           () => {
@@ -154,7 +154,7 @@ async function execute(key, request, onEvent, signal) {
           request.action === "cleanup" ? 60_000 : 30 * 60 * 1000,
         );
   const idle =
-    request.action === "turn"
+    ["turn", "project-brief"].includes(request.action)
       ? idleDeadline((failure) => {
           error = failure;
           cancel(true);
@@ -225,7 +225,7 @@ async function execute(key, request, onEvent, signal) {
       error ||
       code !== 0 ||
       signal?.aborted ||
-      (request.action !== "turn" && !result)
+      (!["turn", "project-brief"].includes(request.action) && !result)
     )
       throw (
         error ||
@@ -685,7 +685,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (
-      action !== "turn" ||
+      !["turn", "project-brief"].includes(action) ||
       !data.input ||
       typeof data.input.model !== "string" ||
       data.input.model.length > 200 ||

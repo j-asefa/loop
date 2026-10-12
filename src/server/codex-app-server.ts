@@ -7,6 +7,11 @@ import { nativeReply } from "../../runtime/native-tools.mjs";
 import { codexCatalog, codexTurn } from "../../runtime/harness.mjs";
 import { resultChunks } from "../../runtime/protocol.mjs";
 import {
+  projectionConfig,
+  projectionRefusal,
+  assertProjectionThread,
+} from "../../runtime/projection.mjs";
+import {
   RuntimeFailure,
   diagnosticText,
   errorFacts,
@@ -270,6 +275,7 @@ export async function* codexStream(
 ): AsyncGenerator<Chunk> {
   const controller = new AbortController();
   const signal = AbortSignal.any([input.signal, controller.signal]);
+  const projection = input.nativeTools === false;
   const rpc = await CodexRpc.connect(endpoint, signal);
   const idle = idleDeadline((error) =>
     controller.abort(new Problem(408, error.message)),
@@ -285,26 +291,37 @@ export async function* codexStream(
         422,
         "Sign in to ChatGPT on the remote Codex machine before running this agent.",
       );
-    // Keep the host's skills, plugins, features, MCPs and working directory.
-    // Managed runtime requirements still decide whether full access is allowed.
+    // Ordinary turns retain the host's native tools. Background projections
+    // override them for this ephemeral thread and verify the effective sandbox.
     signal.throwIfAborted();
     const started = await rpc.call("thread/start", {
-      model: input.model,
+      model: input.model === "native-default" ? undefined : input.model,
       modelProvider: "openai",
-      sandbox: "danger-full-access",
+      sandbox: projection ? "read-only" : "danger-full-access",
       approvalPolicy: "never",
       ephemeral: true,
-      config: { forced_login_method: "chatgpt" },
+      config: {
+        forced_login_method: "chatgpt",
+        ...(projection ? await projectionConfig(rpc) : {}),
+      },
     });
     threadId = started.thread?.id;
     if (typeof threadId !== "string" || !threadId) throw unavailable();
+    if (projection) assertProjectionThread(started);
     if (started.modelProvider !== "openai")
       throw new Problem(
         422,
         "This app-server did not use the ChatGPT provider. Check the remote Codex configuration.",
       );
     signal.throwIfAborted();
-    const { turn, review } = await codexTurn(rpc, threadId, input, true);
+    const { turn, review } = await codexTurn(
+      rpc,
+      threadId,
+      input,
+      !projection,
+      undefined,
+      signal,
+    );
     turnId = turn.id;
     if (typeof turnId !== "string" || !turnId) throw unavailable();
     stopSteering = input.steering?.listen(async (message) => {
@@ -321,7 +338,12 @@ export async function* codexStream(
       const message = await rpc.event(signal),
         params = message.params;
       if (message.id != null) {
-        rpc.send({ id: message.id, ...nativeReply(message, threadId) });
+        rpc.send({
+          id: message.id,
+          ...(projection
+            ? projectionRefusal()
+            : nativeReply(message, threadId)),
+        });
         continue;
       }
       if (params?.threadId !== threadId) continue;

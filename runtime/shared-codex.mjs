@@ -117,7 +117,11 @@ export class SharedCodex {
         op.controls.close();
         signal?.removeEventListener("abort", abort);
         if (error || op.error) reject(error || op.error);
-        else if (request.action === "turn" ? !op.done : !op.result)
+        else if (
+          ["turn", "project-brief"].includes(request.action)
+            ? !op.done
+            : !op.result
+        )
           reject(
             new RuntimeFailure(
               "Shared Codex operation ended before completion",
@@ -126,7 +130,8 @@ export class SharedCodex {
         else resolve(op.result);
       };
       this.operations.set(id, op);
-      if (request.action === "turn") op.idle = idleDeadline(cancel);
+      if (["turn", "project-brief"].includes(request.action))
+        op.idle = idleDeadline(cancel);
       else if (request.action === "login") op.login = loginDeadline(cancel);
       else
         op.timer = setTimeout(

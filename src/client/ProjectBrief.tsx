@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import "./projectBrief.css";
 import { Pin, Pencil, ArrowUpRight, Settings2 } from "lucide-react";
-import { apiInWorkspace, parse } from "./api";
+import { apiInWorkspace } from "./api";
+import {
+  canGenerateBrief,
+  canSelectBriefModel,
+} from "../shared/brief-connections";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";
 import { ConnectionDetails } from "./ConnectionDetails";
@@ -331,13 +335,13 @@ function BriefSettings({
   busy: boolean;
   save: (value: BriefPage["settings"]) => void;
 }) {
-  const groups = modelGroups(
-    connections.filter(
-      (connection) =>
-        ["openai", "anthropic"].includes(connection.provider) &&
-        parse<any>(connection.metadata, {}).authMode !== "subscription" &&
-        !parse<any>(connection.metadata, {}).loopHarness,
-    ),
+  const groups = modelGroups(connections.filter(canGenerateBrief)).map(
+    (group) => ({
+      ...group,
+      models: group.models.filter((model) =>
+        canSelectBriefModel(group.connection, model.id),
+      ),
+    }),
   );
   const [connection, setConnection] = useState(
     page.settings.connectionId || groups[0]?.connection.id || "",
@@ -366,11 +370,11 @@ function BriefSettings({
         your project changes.
       </p>
       <p className="muted">
-        Choose an API connection to generate this brief. Requests use that
-        provider’s API billing.
+        Choose a connection to generate this brief. Subscription connections use
+        that account’s allowance; API connections use provider API billing.
       </p>
       <ConnectionPicker
-        label="API connection"
+        label="Connection"
         value={group?.connection.id ?? ""}
         disabled={busy}
         onChange={(value) => {
@@ -379,7 +383,7 @@ function BriefSettings({
         }}
       >
         {!groups.length && (
-          <option value="">No API connection available</option>
+          <option value="">No compatible connection available</option>
         )}
         {groups.map((group) => (
           <option key={group.connection.id} value={group.connection.id}>
@@ -400,8 +404,8 @@ function BriefSettings({
       )}
       {!groups.length && (
         <p>
-          Add an OpenAI or Anthropic API connection in Settings → Provider
-          connections.
+          Connect a Codex or Claude Code subscription, or an OpenAI or Anthropic
+          API connection, in Settings → Provider connections.
         </p>
       )}
       <div className="brief-actions">

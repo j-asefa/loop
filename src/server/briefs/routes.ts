@@ -2,7 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { db, now } from "../db.js";
 import { owned, Problem } from "../domain.js";
-import { isSubscription } from "../subscriptions.js";
+import {
+  canGenerateBrief,
+  canSelectBriefModel,
+} from "../../shared/brief-connections.js";
 import { briefAttention } from "../mobile-return.js";
 import type { Connection } from "../../shared/types.js";
 import type {
@@ -198,13 +201,15 @@ briefs.put<{ id: string; itemId: string }>(root + "/settings", (req, res) => {
         input.connectionId,
         owner,
       );
-      if (
-        isSubscription(connection) ||
-        !["openai", "anthropic"].includes(connection.provider)
-      )
-        throw new Problem(400, "Choose an API connection for the brief");
+      if (!canGenerateBrief(connection))
+        throw new Problem(
+          400,
+          "Choose an API or Codex/Claude subscription connection for the brief",
+        );
       if (connection.status !== "connected")
         throw new Problem(400, "Reconnect this provider first");
+      if (input.model && !canSelectBriefModel(connection, input.model))
+        throw new Problem(400, "Choose a specific Claude model for briefs");
       if (
         !input.model ||
         !(JSON.parse(connection.models) as { id: string }[]).some(
@@ -213,7 +218,7 @@ briefs.put<{ id: string; itemId: string }>(root + "/settings", (req, res) => {
       )
         throw new Problem(400, "Choose a model from this connection");
     } else if (input.enabled || input.model)
-      throw new Problem(400, "Choose an API connection and model");
+      throw new Problem(400, "Choose a connection and model");
     db.prepare(
       "INSERT OR IGNORE INTO brief_state(owner_id,project_id) VALUES(?,?)",
     ).run(owner, project);

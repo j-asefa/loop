@@ -1,6 +1,12 @@
 import { db, id, now } from "../db.js";
 import { owned, Problem } from "../domain.js";
-import { isSubscription, streamConnection } from "../subscriptions.js";
+import { streamConnection } from "../subscriptions.js";
+import { isNativeConnection } from "../native-connections.js";
+import {
+  canGenerateBrief,
+  canSelectBriefModel,
+} from "../../shared/brief-connections.js";
+import { nativeBriefStream } from "./native.js";
 import type { Connection } from "../../shared/types.js";
 import type { ChatMessage, ToolCall } from "../providers.js";
 import { applyOutput, type ApplyResult } from "./apply.js";
@@ -50,7 +56,7 @@ const problem = (error: unknown): ValidationError[] => [
 
 function configuredConnection(state: State): Connection {
   if (!state.connection_id || !state.model)
-    throw new Problem(409, "Choose an API connection and model for the brief.");
+    throw new Problem(409, "Choose a connection and model for the brief.");
   const connection = owned<Connection>(
     "connections",
     state.connection_id,
@@ -58,11 +64,13 @@ function configuredConnection(state: State): Connection {
   );
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect the brief provider first.");
-  if (
-    isSubscription(connection) ||
-    !["openai", "anthropic"].includes(connection.provider)
-  )
-    throw new Problem(409, "Brief generation requires an API connection.");
+  if (!canGenerateBrief(connection))
+    throw new Problem(
+      409,
+      "Choose an API or Codex/Claude subscription connection for the brief.",
+    );
+  if (!canSelectBriefModel(connection, state.model))
+    throw new Problem(409, "Choose a specific Claude model for briefs.");
   const models = JSON.parse(connection.models) as { id: string }[];
   if (!models.some((model) => model.id === state.model))
     throw new Problem(
@@ -279,12 +287,16 @@ export async function runDueBriefs(
           break;
         }
         const connection = configuredConnection(state);
-        for await (const chunk of streamConnection(connection, {
+        const stream = isNativeConnection(connection)
+          ? nativeBriefStream
+          : streamConnection;
+        for await (const chunk of stream(connection, {
           model: state.model!,
           instructions: SYSTEM_INSTRUCTIONS,
           messages,
           signal,
           maxTokens: 4096,
+          nativeTools: false,
           tools: [
             {
               name: "submit_brief",

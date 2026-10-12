@@ -94,6 +94,11 @@ async function request(
     } | null;
     if (refusal?.code === "file_rejected" && typeof refusal.error === "string")
       throw new Problem(422, refusal.error.slice(0, 1000));
+    if (action === "project-brief" && [400, 404, 422].includes(r.status))
+      throw new Problem(
+        422,
+        "The runtime rejected this brief request. Update the subscription runtime and check its configuration. No API fallback is used.",
+      );
     throw new Problem(
       422,
       action === "capabilities"
@@ -264,14 +269,14 @@ export async function* subscriptionStream(
   // Native hosts retain their own credentials. Managed containers receive only
   // this owner's allowed GitHub token, per invocation, outside model context.
   const github =
-    endpoint.kind === "broker"
+    endpoint.kind === "broker" && input.nativeTools !== false
       ? runtimeGithubCredential(c.owner_id)
       : undefined;
   input = await stageAttachments(c, input);
   const controlId = id();
   const r = await request(
     c,
-    "turn",
+    input.nativeTools === false ? "project-brief" : "turn",
     {
       input: { ...input, signal: undefined, steering: undefined, controlId },
       ...(github ? { githubToken: github.token } : {}),

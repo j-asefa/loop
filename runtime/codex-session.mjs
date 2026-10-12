@@ -8,6 +8,12 @@ import { RuntimeFailure, diagnosticText } from "./diagnostics.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { workspaceCleanupInstructions } from "./workspace-cleanup.mjs";
 import { redactValues } from "./redaction.mjs";
+import {
+  projectionConfig,
+  projectionDefaultModel,
+  projectionRefusal,
+  assertProjectionThread,
+} from "./projection.mjs";
 
 async function readAccount(rpc, signal) {
   for (let attempt = 0; ; attempt++) {
@@ -69,13 +75,14 @@ class Mailbox {
 export class CodexSession {
   threads = new Map();
   login;
-  constructor(child, { hostMode, home, cwd }) {
-    Object.assign(this, { hostMode, home, cwd });
+  constructor(child, { hostMode, home, cwd, briefProject }) {
+    Object.assign(this, { hostMode, home, cwd, briefProject });
     this.rpc = new Rpc(
       child,
       (message) => {
         const threadId = message.params?.threadId;
         const thread = this.threads.get(threadId);
+        if (thread?.projection) return projectionRefusal();
         return nativeReply(
           message,
           thread &&
@@ -112,6 +119,13 @@ export class CodexSession {
     this.ready.catch(() => {});
   }
   async run(request, emit, signal, setSteering) {
+    if (request.action === "project-brief")
+      request = {
+        ...request,
+        action: "turn",
+        githubToken: undefined,
+        input: { ...request.input, nativeTools: false, controlId: undefined },
+      };
     await this.ready;
     signal.throwIfAborted();
     const rpc = this.rpc;
@@ -217,7 +231,8 @@ export class CodexSession {
     const clean = (data) => redactValues(data, secret ? [secret] : []);
     const output = (event) => emit(clean(event));
     const input = { ...request.input };
-    if (!this.hostMode)
+    const projection = input.nativeTools === false;
+    if (!this.hostMode && !projection)
       input.instructions =
         (input.instructions || "") +
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${cwd}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +
@@ -232,16 +247,22 @@ export class CodexSession {
     const abort = () => mailbox.fail(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
     try {
+      let model = input.model === "native-default" ? undefined : input.model;
+      // Resolve only the model from the registered project. The brief thread
+      // still starts in its temporary directory with native actions disabled.
+      if (input.model === "native-default" && projection && this.briefProject)
+        model = await projectionDefaultModel(rpc, this.briefProject);
       const started = await rpc.call("thread/start", {
-        model: input.model,
+        model,
         modelProvider: "openai",
         cwd,
-        sandbox: "danger-full-access",
+        sandbox: projection ? "read-only" : "danger-full-access",
         approvalPolicy: "never",
         ephemeral: true,
         config: {
           forced_login_method: "chatgpt",
-          ...(!this.hostMode
+          ...(projection ? await projectionConfig(rpc, cwd) : {}),
+          ...(!this.hostMode && !projection
             ? {
                 "shell_environment_policy.inherit": "all",
                 "shell_environment_policy.ignore_default_excludes": true,
@@ -252,11 +273,19 @@ export class CodexSession {
       });
       threadId = started.thread?.id;
       if (!threadId) throw new RuntimeFailure("Codex did not return a thread");
+      if (projection) assertProjectionThread(started);
       if (started.modelProvider && started.modelProvider !== "openai")
         throw new RuntimeFailure("Codex did not use the ChatGPT provider");
-      this.threads.set(threadId, { mailbox, signal });
+      this.threads.set(threadId, { mailbox, signal, projection });
       signal.throwIfAborted();
-      const turn = await codexTurn(rpc, threadId, input, true, cwd, signal);
+      const turn = await codexTurn(
+        rpc,
+        threadId,
+        input,
+        !projection,
+        cwd,
+        signal,
+      );
       turnId = turn.turn?.id;
       if (!turnId) throw new RuntimeFailure("Codex did not return a turn");
       this.threads.get(threadId).turnId = turnId;

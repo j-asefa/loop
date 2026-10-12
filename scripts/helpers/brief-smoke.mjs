@@ -21,6 +21,38 @@ export async function briefSmoke(page, fixture, _engine, capture) {
     label: "Brief API fixture",
     secret: "fixture-only-not-a-real-key",
   });
+  const subscriptions = [
+    { id: randomUUID(), provider: "codex", label: "Brief Codex subscription" },
+    {
+      id: randomUUID(),
+      provider: "anthropic",
+      label: "Brief Claude subscription",
+    },
+  ];
+  for (const subscription of subscriptions)
+    db.prepare(
+      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','connected',?,'{\"authMode\":\"subscription\"}',?)",
+    ).run(
+      subscription.id,
+      owner,
+      subscription.provider,
+      subscription.label,
+      JSON.stringify([
+        ...(subscription.provider === "anthropic"
+          ? [{ id: "native-default", name: "Use native default" }]
+          : []),
+        { id: "fixture-sub", name: "Subscription model" },
+      ]),
+      Date.now(),
+    );
+  const malformed = await api("/connections", {
+    provider: "openai",
+    label: "Malformed connection fixture",
+    secret: "fixture-only-not-a-real-key",
+  });
+  db.prepare("UPDATE connections SET metadata='{' WHERE id=?").run(
+    malformed.id,
+  );
   db.prepare("UPDATE folders SET name='Loop release' WHERE id=?").run(project);
   const root = `/projects/${project}/brief`;
   await api(
@@ -154,8 +186,55 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   await expect(
     page.getByRole("heading", { name: "Your project, at a glance" }),
   ).toBeVisible();
-  await page.getByLabel("API connection").selectOption(connection.id);
+  const connectionPicker = page.getByRole("combobox", {
+    name: "Connection",
+    exact: true,
+  });
+  await expect(
+    connectionPicker.locator(`option[value="${malformed.id}"]`),
+  ).toHaveCount(0);
+  for (const subscription of subscriptions)
+    await expect(
+      connectionPicker.locator(`option[value="${subscription.id}"]`),
+    ).toHaveText(subscription.label);
+  await connectionPicker.selectOption(subscriptions[0].id);
+  await expect(page.getByLabel("Model", { exact: true })).toHaveValue(
+    "fixture-sub",
+  );
   await page.getByRole("button", { name: "Enable brief", exact: true }).click();
+  await expect
+    .poll(async () => (await api(root)).settings.connectionId)
+    .toBe(subscriptions[0].id);
+  await page
+    .getByRole("button", { name: "Brief settings", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Connection", exact: true })
+    .selectOption(subscriptions[1].id);
+  await expect(page.getByLabel("Model", { exact: true })).toHaveValue(
+    "fixture-sub",
+  );
+  await expect(
+    page
+      .getByLabel("Model", { exact: true })
+      .locator('option[value="native-default"]'),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Save settings", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await api(root)).settings.connectionId)
+    .toBe(subscriptions[1].id);
+  await page
+    .getByRole("button", { name: "Brief settings", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Connection", exact: true })
+    .selectOption(connection.id);
+  await page
+    .getByRole("button", { name: "Save settings", exact: true })
+    .click();
+  await expect(page.locator("dialog.brief-sheet[open]")).toHaveCount(0);
   await expect(page.locator(".brief-headline h2")).toHaveText(
     "The brief is ready for its phone review",
   );
@@ -298,6 +377,10 @@ export async function briefSmoke(page, fixture, _engine, capture) {
     label: "Replacement Brief API",
     secret: "fixture-only-not-a-real-key",
   });
+  // Leave one eligible connection so the stale selection has a known fallback.
+  db.prepare(
+    "UPDATE connections SET status='needs_sign_in' WHERE owner_id=? AND id NOT IN (?,?)",
+  ).run(owner, connection.id, replacement.id);
   db.prepare("UPDATE connections SET status='error' WHERE id=?").run(
     connection.id,
   );
@@ -305,7 +388,9 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   await page
     .getByRole("button", { name: "Brief settings", exact: true })
     .click();
-  await expect(sheet.getByLabel("API connection")).toHaveValue(replacement.id);
+  await expect(
+    sheet.getByRole("combobox", { name: "Connection", exact: true }),
+  ).toHaveValue(replacement.id);
   await sheet
     .getByRole("button", { name: "Save settings", exact: true })
     .click();

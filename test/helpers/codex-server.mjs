@@ -86,6 +86,13 @@ export async function codexFixture() {
           ],
           nextCursor: null,
         };
+      if (message.method === "config/read")
+        result = {
+          config: {
+            model_provider: "openai",
+            mcp_servers: { outside: { enabled: true } },
+          },
+        };
       if (message.method === "skills/list")
         result = {
           data: [
@@ -127,7 +134,10 @@ export async function codexFixture() {
           modelProvider: model === "wrong-provider" ? "unexpected" : "openai",
           approvalPolicy: "never",
           sandbox: {
-            type: "dangerFullAccess",
+            type:
+              message.params.sandbox === "read-only"
+                ? "readOnly"
+                : "dangerFullAccess",
           },
         };
       }
@@ -207,6 +217,23 @@ export async function codexFixture() {
               : null,
         arguments: "{}",
       };
+      if (mode === "brief")
+        Object.assign(answer, {
+          kind: "tool",
+          text: "",
+          tool: "submit_brief",
+          arguments: JSON.stringify({
+            headline: {
+              text: "Remote subscription brief",
+              cite: [
+                {
+                  ref: /\[(res_[^\]]+)\]/.exec(message.params.input[0].text)[1],
+                },
+              ],
+            },
+            items: [],
+          }),
+        });
       send({
         method: "item/agentMessage/delta",
         params: { threadId, turnId, delta: JSON.stringify(answer) },

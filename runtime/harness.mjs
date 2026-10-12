@@ -110,7 +110,10 @@ export async function codexTurn(
     threadId,
     ...(input.effort ? { reasoningEffort: input.effort } : {}),
     input: [{ type: "text", text: turnPrompt(input, nativeTools) }, ...items],
-    outputSchema: nativeTools ? nativeResponseSchema(input) : responseSchema,
+    outputSchema:
+      nativeTools || input.toolChoice
+        ? nativeResponseSchema(input)
+        : responseSchema,
   });
 }
 

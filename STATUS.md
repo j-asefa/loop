@@ -8,9 +8,10 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | 1 schema and ledger | merged | brief/01-schema-and-ledger | https://github.com/j-asefa/loop/pull/109 | Merged as b466299 after typecheck, 1007 tests, build and three completed Loop reviews with findings addressed. |
 | 2 generation job | merged | brief/02-generation-job | https://github.com/j-asefa/loop/pull/114 | Merged as b09b4e5 after typecheck, 1047 tests, build and completed Loop review 89a9f8df with confirmed findings fixed. |
 | 3 api and project page | merged | brief/03-api-and-project-page | https://github.com/j-asefa/loop/pull/115 | Merged as 9769cbf after typecheck, 1108 tests, build, full design/approval smokes in both engines and two completed Loop reviews with confirmed findings fixed. |
-| 4 agent read tool | PR open | brief/04-agent-read-tool | https://github.com/j-asefa/loop/pull/116 | Checks and Loop review complete. Typecheck, 1123 tests (146 files, 174.86s with memory-backed TMPDIR), build (1.41s), and all 178 native tests (170.46s) pass. Reviews 159efe34 and b39ee9e7 completed with all 3 reviewers each; findings are fixed and the follow-up found no confirmed introduced bugs. Publish this final validation ledger and PR description, then merge #116 at its exact head. Stop after PR 4; optional PRs 5–6 remain unrequested. |
+| 4 agent read tool | merged | brief/04-agent-read-tool | https://github.com/j-asefa/loop/pull/116 | Merged as 686db4e on 2026-10-12 after typecheck, 1123 tests (146 files), build, all 178 native tests and completed Loop reviews 159efe34/b39ee9e7 with all 3 reviewers each. Confirmed findings are fixed; the follow-up found no confirmed introduced bugs. PRs 0–4 are complete. Stop here; PRs 5–6 require explicit owner instruction. |
 | 5 feed card | not requested | | | Only on explicit instruction from the owner |
 | 6 saved routing | not requested | | | Only on explicit instruction from the owner |
+| Subscription generation | PR open | brief/subscription-generation | https://github.com/j-asefa/loop/pull/117 | Ready to merge. Both server and local subscriptions are explicitly confirmed. All confirmed review findings are fixed. Final Loop review 2c4962c6 completed on production code baa5c1b with all three reviewers and no confirmed introduced bugs. Typecheck, 1142 full tests (148 files), the final four server-subscription regressions, build, all 178 native tests and both Brief browser journeys pass. After that snapshot, only the browser fixture's save-completion wait and this ledger changed. No merge authorization for this follow-up was requested; the earlier authorization named PRs 0–4. Optional PRs 5–6 remain unrequested. |
 
 States: todo, in progress, checks green, PR open, merged, blocked.
 
@@ -20,8 +21,11 @@ States: todo, in progress, checks green, PR open, merged, blocked.
 
 ## Decisions made during implementation
 
+- The owner requested subscription-backed brief generation after the original handoff landed, superseding the handoff's API-only generation restriction. This follow-up covers server runtimes, remote Codex app-server, and locally paired Codex/Claude subscription registrations. Older runtimes reject the distinct project-brief request, and no API fallback is used.
+- Subscription review fixes skip malformed metadata, resolve Codex's native default from the registered project while retaining an isolated working directory, require an explicit Claude model, and explain the update required for older brokers' HTTP 422 response. Browser regressions also wait for settings to finish saving before testing refresh acknowledgements.
+
 - PR 0 uses migration 077: main already contains migrations 073–076. The branch starts at origin/main 82182da.
-- Handoff files are extracted to /tmp/loop-brief-handoff from the user attachment. This tracked STATUS.md is the current ledger. PR 4 checks and reviews are complete, awaiting merge; optional PRs 5–6 have not been read.
+- Handoff files are extracted to /tmp/loop-brief-handoff from the user attachment. This tracked STATUS.md is the current ledger. PRs 0–4 are merged and complete; optional PRs 5–6 have not been read.
 - Owned child folders resolve to the nearest project, preserving every kind=project row as required by decision 2 (including nested projects); standalone artifacts fall back to their own folder_id. Both choices address confirmed review findings.
 - An SQL view shares owner/project validation between backfill, publication/deletion triggers and application writers. Record-specific fallback uses that record's run, never a newer run in the conversation.
 - Historical resolved approvals use created_at because approvals retain no decision timestamp. New decisions record the current time.
