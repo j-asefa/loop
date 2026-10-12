@@ -45,8 +45,7 @@ import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Avatar, RichText, Sheet } from "./components";
 import {
   agentModelName,
-  connectionEnvironments,
-  executionLocationLabels,
+  connectionLocation,
   runModelName,
   type ExecutionLocation,
 } from "./modelChoices";
@@ -860,7 +859,7 @@ export function Inbox({
       new Map(
         (connections || []).map((connection) => [
           `${connection.sourceId || ""}:${connection.id}`,
-          connectionEnvironments([connection]).get(connection.id) ?? null,
+          connectionLocation(connection, connection.executionEnvironment),
         ]),
       ),
     [connections],
@@ -872,11 +871,12 @@ export function Inbox({
     connectionId: string | null,
     label: string | undefined,
   ) => {
+    const recorded = environments.get(`${source}:${connectionId}`);
     const kind: ExecutionLocation | null = source.startsWith("docker:")
       ? "docker"
-      : (environments.get(`${source}:${connectionId}`) ?? null);
+      : (recorded?.kind ?? null);
     const text =
-      kind && !source ? executionLocationLabels[kind] : label || null;
+      kind && !source ? recorded?.label : label || null;
     return text ? { kind, label: text } : null;
   };
   const [items, setItems] = useState<InboxItem[]>(shown?.items || []);

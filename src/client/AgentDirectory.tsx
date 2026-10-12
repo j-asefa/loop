@@ -101,7 +101,7 @@ export function AgentDirectory({
                   <strong>@{a.name}</strong>
                   <Badge provider={a.provider} />
                   <small>
-                    {a.model} · {a.executionEnvironment || "This laptop"}
+                    {a.model} · {a.executionEnvironment || "This computer"}
                   </small>
                 </span>
                 <ArrowUpRight size={18} />

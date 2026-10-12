@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { config } from "./config.js";
@@ -70,7 +71,7 @@ import {
   inspectPiPackage,
   previousPiPackageSource,
 } from "./pi-package-inspect.js";
-import { hostLocation } from "./execution-location.js";
+import { hostEnvironmentName, hostLocation } from "./execution-location.js";
 
 export const OWNER = "local-workspace";
 const classes = {
@@ -155,6 +156,21 @@ export type Live = {
 
 /** One workspace owns native processes; native sessions own their model context. */
 const PROBE_TTL = 15_000;
+function finishDecisions(
+  state: "resolved" | "expired" | "unknown",
+  where: string,
+  params: unknown[],
+) {
+  db.transaction(() => {
+    const changed = db.prepare(
+      `UPDATE native_decisions SET state=? WHERE (${where}) AND state<>?
+       RETURNING id,conversation_id,(SELECT owner_id FROM runs WHERE id=native_decisions.run_id) owner_id`,
+    ).all(state, ...params, state) as { id: string; conversation_id: string; owner_id: string }[];
+    for (const decision of changed)
+      recordChange(decision.owner_id, undefined, "decision_resolved", decision.id, decision.conversation_id);
+  }).immediate();
+}
+
 export class NativeSessions {
   private piPackageBusy = false;
   private piAgentDir() {
@@ -833,6 +849,7 @@ export class NativeSessions {
         options.billing === "subscription" ? "subscription" : "native-existing",
       runtimeKind: "loop-local",
       location: hostLocation(),
+      environmentName: hostEnvironmentName(),
       billing,
       capabilities,
     };
@@ -853,7 +870,7 @@ export class NativeSessions {
         "native-" + options.harness,
         OWNER,
         options.harness === "claude" ? "anthropic" : options.harness,
-        labels[options.harness] + " · this computer",
+        metadata.environmentName + " · " + labels[options.harness],
         "",
         JSON.stringify(models),
         JSON.stringify(metadata),
@@ -1359,19 +1376,24 @@ export class NativeSessions {
       }
       live.requests.set(event.request.id, event.request);
       const decisionId = id();
-      const recorded = db
-        .prepare(
-          "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation_id,generation,native_id) DO NOTHING",
-        )
-        .run(
-          decisionId,
-          run.id,
-          live.binding.conversation_id,
-          live.generation,
-          event.request.id,
-          JSON.stringify(event.request),
-          now(),
-        ).changes;
+      const recorded = db.transaction(() => {
+        const changed = db
+          .prepare(
+            "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation_id,generation,native_id) DO NOTHING",
+          )
+          .run(
+            decisionId,
+            run.id,
+            live.binding.conversation_id,
+            live.generation,
+            event.request.id,
+            JSON.stringify(event.request),
+            now(),
+          ).changes;
+        if (changed)
+          recordChange(run.owner_id, undefined, "decision_created", decisionId, live.binding.conversation_id);
+        return changed;
+      }).immediate();
       // A mode chosen for this session in Session settings outranks the
       // workspace level: only its own "never ask" lets Loop answer for you.
       const allow = autoApproval(
@@ -1406,9 +1428,8 @@ export class NativeSessions {
     }
     if (event.type === "resolved") {
       live.requests.delete(event.id);
-      db.prepare(
-        "UPDATE native_decisions SET state='resolved' WHERE conversation_id=? AND generation=? AND native_id=? AND state IN ('pending','deciding')",
-      ).run(live.binding.conversation_id, live.generation, event.id);
+      finishDecisions("resolved", "conversation_id=? AND generation=? AND native_id=? AND state IN ('pending','deciding')",
+        [live.binding.conversation_id, live.generation, event.id]);
       if (!live.requests.size) {
         live.waiting = false;
         transition(run, "running");
@@ -1426,9 +1447,7 @@ export class NativeSessions {
       this.projectOutput(live, event.status !== "completed");
       live.requests.clear();
       live.waiting = false;
-      db.prepare(
-        "UPDATE native_decisions SET state='expired' WHERE run_id=? AND state='pending'",
-      ).run(run.id);
+      finishDecisions("expired", "run_id=? AND state='pending'", [run.id]);
       db.prepare("UPDATE native_dispatch SET state=? WHERE run_id=?").run(
         event.status,
         run.id,
@@ -1790,14 +1809,16 @@ export class NativeSessions {
     ).run(commandId, digest, decisionId);
     try {
       await live.adapter.answer(d.native_id, answer);
-      db.prepare("UPDATE native_decisions SET state='resolved' WHERE id=?").run(
-        decisionId,
-      );
+      finishDecisions("resolved", "id=?", [decisionId]);
       return { state: "resolved" };
     } catch {
-      db.prepare("UPDATE native_decisions SET state='unknown' WHERE id=?").run(
-        decisionId,
-      );
+      // A harness resolution can arrive before the answer transport finishes.
+      // A later transport failure must not undo that confirmation or record it
+      // a second time. An unconfirmed answer stays uncertain and is not replayed.
+      finishDecisions("unknown", "id=? AND state='deciding'", [decisionId]);
+      const current = db.prepare("SELECT state FROM native_decisions WHERE id=?")
+        .get(decisionId) as { state: string } | undefined;
+      if (current?.state === "resolved") return { state: "resolved" };
       throw new Problem(
         409,
         "Decision outcome is unknown. It was not retried; inspect the native session.",
@@ -1844,9 +1865,8 @@ export class NativeSessions {
     clearTimeout(live.flush);
     clearTimeout(live.idle);
     live.finish?.("interrupted");
-    db.prepare(
-      "UPDATE native_decisions SET state='expired' WHERE conversation_id=? AND generation=? AND state='pending'",
-    ).run(live.binding.conversation_id, live.generation);
+    finishDecisions("expired", "conversation_id=? AND generation=? AND state='pending'",
+      [live.binding.conversation_id, live.generation]);
     await this.revokeTools?.(live.binding.conversation_id, live.generation);
     await live.adapter.dispose();
     if (this.live.get(live.binding.conversation_id) === live)
@@ -1872,12 +1892,8 @@ export class NativeSessions {
       db.prepare(
         "UPDATE companion_sessions SET generation=NULL,state='disconnected'",
       ).run();
-      db.prepare(
-        "UPDATE native_decisions SET state='expired' WHERE state='pending'",
-      ).run();
-      db.prepare(
-        "UPDATE native_decisions SET state='unknown' WHERE state='deciding'",
-      ).run();
+      finishDecisions("expired", "state='pending'", []);
+      finishDecisions("unknown", "state='deciding'", []);
     }).immediate();
   }
   async close() {

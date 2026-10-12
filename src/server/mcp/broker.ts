@@ -1,3 +1,4 @@
+import { recordChange } from "../project-changes.js";
 import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
 import {
   diagnosticText,
@@ -232,10 +233,12 @@ export async function invokeTool(
           )
           .run(approval.id, now());
         approval = owned<any>("approvals", approval.id, run.owner_id);
-        if (approved.changes)
+        if (approved.changes) {
+          recordChange(run.owner_id, undefined, "approval_resolved", approval.id, run.conversation_id);
           emit(run.owner_id, run.id, "approval.auto_approved", {
             approvalId: approval.id,
           });
+        }
       }
       if (approval.state === "pending") {
         recordTrace(run, "tool:" + callId, {

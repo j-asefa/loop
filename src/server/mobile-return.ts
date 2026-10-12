@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -640,6 +641,7 @@ export type NextAction = {
   kind: "approve" | "answer" | "result";
   message_id: string | null;
   run_id: string;
+  ref?: string;
 };
 function nextAction(
   owner: string,
@@ -647,16 +649,17 @@ function nextAction(
   run: { id: string; state: string } | undefined,
   // A Done card opens at its answer, whatever the thread waits on now.
   resultOnly = false,
+  includeRef = false,
 ): NextAction | null {
   const approval = resultOnly
     ? undefined
     : (db
         .prepare(
-          `SELECT a.run_id FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+          `SELECT a.id,a.run_id FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
           WHERE a.owner_id=? AND r.conversation_id=? AND a.state='pending' AND a.expires_at>?
           ORDER BY a.created_at,a.rowid LIMIT 1`,
         )
-        .get(owner, conversation, now()) as { run_id: string } | undefined);
+        .get(owner, conversation, now()) as { id: string; run_id: string } | undefined);
   // "final": the run's last answer message, even while it is still empty
   // (where the thread shows the run's status and approvals); "answer": the
   // last one with text.
@@ -685,6 +688,7 @@ function nextAction(
   if (approval)
     return {
       kind: "approve",
+      ...(includeRef && { ref: approval.id }),
       run_id: approval.run_id,
       message_id:
         lastMessage(approval.run_id, "final") ?? firstMessage(approval.run_id),
@@ -693,11 +697,11 @@ function nextAction(
     ? undefined
     : (db
         .prepare(
-          `SELECT d.run_id,d.request FROM native_decisions d JOIN runs r ON r.id=d.run_id AND r.owner_id=?
+          `SELECT d.id,d.run_id,d.request FROM native_decisions d JOIN runs r ON r.id=d.run_id AND r.owner_id=?
           WHERE d.conversation_id=? AND d.state='pending' ORDER BY d.created_at LIMIT 1`,
         )
         .get(owner, conversation) as
-        { run_id: string; request: string } | undefined);
+        { id: string; run_id: string; request: string } | undefined);
   if (decision) {
     let questions = false;
     try {
@@ -708,6 +712,7 @@ function nextAction(
     // Native decisions are answered at the end of the thread.
     return {
       kind: questions ? "answer" : "approve",
+      ...(includeRef && { ref: decision.id }),
       run_id: decision.run_id,
       message_id: null,
     };
@@ -717,6 +722,60 @@ function nextAction(
     if (answer) return { kind: "result", run_id: run.id, message_id: answer };
   }
   return null;
+}
+
+/** Brief projection: reuse the Feed's predicates and action selector, unpaged.
+ * Existing Feed routes retain their current scope and response shape. */
+export function briefAttention(owner: string, project: string) {
+  const folders = (
+    db
+      .prepare(
+        "SELECT folder_id FROM project_change_folders WHERE owner_id=? AND project_id=?",
+      )
+      .all(owner, project) as { folder_id: string }[]
+  ).map((r) => r.folder_id);
+  const rows = db
+    .prepare(
+      `${inboxSql(false, true)} SELECT conversation_id,run_id,run_state,is_needs,is_working FROM flagged`,
+    )
+    .all({ owner, now: now(), folders: JSON.stringify(folders) }) as {
+    conversation_id: string;
+    run_id: string | null;
+    run_state: string | null;
+    is_needs: number;
+    is_working: number;
+  }[];
+  const needs: {
+    kind: "approval" | "question" | "failed";
+    ref: string;
+    conversation: string;
+  }[] = [];
+  for (const row of rows) {
+    const action = nextAction(
+      owner,
+      row.conversation_id,
+      row.run_id ? { id: row.run_id, state: row.run_state ?? "" } : undefined,
+      false,
+      true,
+    );
+    if (action && action.kind !== "result")
+      needs.push({
+        kind: action.kind === "answer" ? "question" : "approval",
+        ref: action.ref!,
+        conversation: row.conversation_id,
+      });
+    else if (row.is_needs)
+      needs.push({
+        // A paused run or an expired approval still needs the owner at its
+        // thread, even when there is no answerable decision record left.
+        kind: ["failed", "interrupted"].includes(row.run_state ?? "")
+          ? "failed"
+          : "question",
+        ref: row.run_id!,
+        conversation: row.conversation_id,
+      });
+  }
+  return { working: rows.some((r) => r.is_working), needs };
 }
 
 function livePreview(owner: string, runId: string) {
@@ -766,9 +825,9 @@ export function awaySummary(owner: string, since: number) {
 function resultFor(owner: string, messageId: string) {
   return db
     .prepare(
-      "SELECT a.id FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
+      "SELECT a.id,a.pinned FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
     )
-    .get(messageId, owner) as { id: string } | undefined;
+    .get(messageId, owner) as { id: string; pinned: number } | undefined;
 }
 
 export function setSaved(owner: string, messageId: string, on: boolean) {
@@ -777,19 +836,22 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const message = owned<Message>("messages", messageId, owner);
       if (JSON.parse(message.metadata).progress)
         throw new Problem(400, "Only saved messages can be kept");
-      const result = resultFor(owner, messageId);
-      if (result)
+      const result = resultFor(owner, messageId), savedAt = now();
+      if (result && result.pinned !== Number(on)) {
         db.prepare(
           "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
-        ).run(Number(on), now(), result.id, owner, Number(on));
-      if (on && !result)
-        db.prepare(
-          "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
-        ).run(owner, messageId, now());
-      else
-        db.prepare(
-          "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
-        ).run(owner, messageId);
+        ).run(Number(on), savedAt, result.id, owner, Number(on));
+        recordChange(owner, undefined, on ? "saved" : "unsaved", result.id, message.conversation_id, savedAt);
+      }
+      const bookmarkChanged = on && !result
+        ? db.prepare(
+            "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
+          ).run(owner, messageId, savedAt).changes
+        : db.prepare(
+            "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+          ).run(owner, messageId).changes;
+      if (bookmarkChanged)
+        recordChange(owner, undefined, on && !result ? "saved" : "unsaved", messageId, message.conversation_id, savedAt);
       return { ok: true as const, saved: on };
     })
     .immediate();
@@ -935,6 +997,8 @@ export function setSavedLabel(owner: string, body: unknown) {
             )
             .get(target, owner);
       if (!saved) throw new Problem(404, "Saved item not found");
+      const previous = db.prepare("SELECT label FROM saved_labels WHERE owner_id=? AND item_key=?")
+        .get(owner, d.key) as { label: string } | undefined;
       if (d.label)
         db.prepare(
           `INSERT INTO saved_labels(owner_id,item_key,label,updated_at) VALUES(?,?,?,?)
@@ -944,6 +1008,8 @@ export function setSavedLabel(owner: string, body: unknown) {
         db.prepare(
           "DELETE FROM saved_labels WHERE owner_id=? AND item_key=?",
         ).run(owner, d.key);
+      if ((previous?.label || "") !== d.label)
+        recordChange(owner, undefined, "label", target);
       return { key: d.key, label: d.label || null };
     })
     .immediate();
