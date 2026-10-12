@@ -102,18 +102,6 @@ export function conversationReturnState(owner: string, conversation: string) {
   };
 }
 
-/** The same rule for one message: saved itself, or through its result card. */
-function messageSaved(owner: string, message: string) {
-  return !!db
-    .prepare(
-      `SELECT 1 FROM message_bookmarks WHERE owner_id=@owner AND message_id=@message
-      UNION ALL
-      SELECT 1 FROM artifacts WHERE owner_id=@owner AND pinned=1 AND archived=0 AND json_extract(metadata,'$.messageId')=@message
-      LIMIT 1`,
-    )
-    .get({ owner, message });
-}
-
 function conversationMessage(
   owner: string,
   conversation: string,
@@ -168,6 +156,8 @@ export const FEED_FILTERS = [
   "outcomes",
   "unfinished",
 ] as const;
+// One Feed card's state, read from the columns migration 078 keeps current on
+// each conversation, plus what the card shows, fetched for the page only.
 type FeedRow = {
   conversation_id: string;
   title: string;
@@ -184,56 +174,120 @@ type FeedRow = {
   position_message_id: string | null;
   later_id: string | null;
   pending_approvals: number;
+  agent_name: string | null;
+  provider: string | null;
+  project_id: string | null;
+  project_name: string | null;
+  card_run: string | null;
+  card_run_state: string | null;
+  card_run_error: string | null;
+  card_run_input: string | null;
+  card_run_connection_id: string | null;
+  card_run_model: string | null;
+  card_run_resolved_model: string | null;
+  card_run_created_at: number | null;
+  card_run_updated_at: number | null;
+  message_id: string | null;
+  message_role: string | null;
+  message_content: string | null;
+  message_created_at: number | null;
+  message_automation: string | null;
+  message_automation_from: string | null;
+  message_saved: number;
+  trigger_automation: string | null;
+  trigger_automation_from: string | null;
+  card_answer_id: string | null;
+  approval_id: string | null;
+  approval_run_id: string | null;
+  approval_message_id: string | null;
+  decision_id: string | null;
+  decision_run_id: string | null;
+  decision_request: string | null;
+  later_due_at: number | null;
+  later_condition: string | null;
+  later_surfaced_at: number | null;
+  queued: number;
 };
 
+// The state each filter reads, for every visible conversation in scope.
 function feedSql(teams: boolean, folders: boolean, agent = false) {
   return `WITH RECURSIVE ${FOLDER_PROJECT},
-base AS (
+flagged AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
-    ${conversationFolder("c")} folder_id,
-    -- Current run: the newest active one, otherwise the newest run.
-    (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id
-      ORDER BY CASE WHEN r.state IN ('running','pausing','paused','awaiting_approval') THEN 0 ELSE 1 END,r.created_at DESC,r.rowid DESC LIMIT 1) run_id,
-    -- Latest finished output: it stays in Done while a follow-up runs.
-    (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${internalRun("r")}
-      ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) done_run_id,
-    (SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${internalRun("r")}) done_at,
-    max(c.created_at,
-      COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
-      COALESCE((SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id),0)) last_activity_at,
-    cp.position_message_id,
+    c.feed_folder_id folder_id,c.feed_run_id run_id,c.feed_run_state run_state,c.feed_done_run_id done_run_id,c.feed_done_at done_at,
+    c.feed_last_activity_at last_activity_at,c.feed_queued queued,cp.position_message_id,
     (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
-    EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed
+    EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
+    c.feed_queued>0 has_queued,
+    COALESCE('run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
+    (c.feed_run_state IN ('awaiting_approval','paused') OR (c.feed_run_raw_state IN ('failed','interrupted') AND c.feed_run_dismissed_at IS NULL) OR COALESCE(c.feed_approval_until,0)>@now) is_needs,
+    (c.feed_run_state IN ('running','pausing','waiting_children')) is_working,
+    (c.feed_run_raw_state='completed') is_done
   FROM conversations c
   LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id
-  WHERE c.owner_id=@owner
+  WHERE c.owner_id=@owner AND c.feed_visible=1
     ${teams ? "AND c.team_id IN (SELECT value FROM json_each(@teams))" : ""}
     ${agent ? "AND c.agent_id=@agent" : ""}
-    AND (EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id)
-      OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id))
-    AND (NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id)
-      OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND NOT ${internalRun("r")}))
-),
-scoped AS (SELECT * FROM base ${folders ? "WHERE folder_id IN (SELECT value FROM json_each(@folders))" : ""}),
-cards AS (
-  SELECT b.*,${publicState("r")} run_state,
-    (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
-      WHERE a.owner_id=@owner AND ar.conversation_id=b.conversation_id AND a.state='pending' AND a.expires_at>@now) pending_approvals,
-    EXISTS(SELECT 1 FROM runs q WHERE q.owner_id=@owner AND q.conversation_id=b.conversation_id AND q.state='queued') has_queued,
-    r.state raw_state,r.attention_dismissed_at
-  FROM scoped b LEFT JOIN runs r ON r.id=b.run_id
-),
-flagged AS (
-  SELECT i.*,
-    COALESCE('run:'||i.done_run_id,
-      (SELECT 'message:'||m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=i.conversation_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
-      'run:'||i.run_id) done_card_key,
-    (i.run_state IN ('awaiting_approval','paused') OR (i.raw_state IN ('failed','interrupted') AND i.attention_dismissed_at IS NULL) OR i.pending_approvals>0) is_needs,
-    (i.run_state IN ('running','pausing','waiting_children')) is_working,
-    (i.raw_state='completed') is_done
-  FROM cards i
+    ${folders ? "AND c.feed_folder_id IN (SELECT value FROM json_each(@folders))" : ""}
 )`;
 }
+
+// What a card shows, for the page's conversations only. "done" cards show the
+// latest finished run; others show the current run.
+const assistantAnswer = (run: string) =>
+  `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND length(trim(m.content))>0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
+const cardSql = `
+page_run AS MATERIALIZED (
+  SELECT p.*,CASE WHEN @mode='done' THEN p.done_run_id ELSE p.run_id END card_run FROM page p
+),
+picked AS MATERIALIZED (
+  SELECT k.*,r.id card_run_id,
+    CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END card_run_state,
+    r.error card_run_error,r.input card_run_input,
+    json_extract(r.payload,'$.connectionId') card_run_connection_id,json_extract(r.payload,'$.model') card_run_model,
+    json_extract(r.payload,'$.resolvedModel') card_run_resolved_model,r.created_at card_run_created_at,r.updated_at card_run_updated_at,
+    ${assistantAnswer("k.card_run")} card_answer_id,
+    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.card_run ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) card_any_id,
+    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) thread_latest_id,
+    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) trigger_id,
+    CASE WHEN @mode='done' THEN 0 ELSE (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
+      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now) END pending_approvals,
+    CASE WHEN @mode='done' THEN NULL ELSE (SELECT a.id FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
+      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now ORDER BY a.created_at,a.rowid LIMIT 1) END approval_id,
+    CASE WHEN @mode='done' THEN NULL ELSE (SELECT d.id FROM native_decisions d JOIN runs dr ON dr.id=d.run_id AND dr.owner_id=@owner
+      WHERE d.conversation_id=k.conversation_id AND d.state='pending' ORDER BY d.created_at LIMIT 1) END decision_id
+  FROM page_run k LEFT JOIN runs r ON r.id=k.card_run AND r.owner_id=@owner
+),
+chosen AS MATERIALIZED (
+  SELECT k.*,ap.run_id approval_run_id,
+    CASE
+      WHEN @mode='done' AND k.card_run IS NOT NULL THEN COALESCE(k.card_answer_id,k.card_any_id)
+      WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ('running','pausing','waiting_children'))) THEN k.card_answer_id
+      ELSE k.thread_latest_id
+    END message_id,
+    COALESCE(
+      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
+      (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)
+    ) approval_message_id
+  FROM picked k LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
+)
+SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
+  m.role message_role,substr(m.content,1,1000) message_content,m.created_at message_created_at,
+  json_extract(m.metadata,'$.automation.kind') message_automation,json_extract(m.metadata,'$.automation.fromName') message_automation_from,
+  (m.id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id)
+    OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=@owner AND sa.pinned=1 AND sa.archived=0 AND json_extract(sa.metadata,'$.messageId')=m.id))) message_saved,
+  json_extract(t.metadata,'$.automation.kind') trigger_automation,json_extract(t.metadata,'$.automation.fromName') trigger_automation_from,
+  d.run_id decision_run_id,d.request decision_request,
+  l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at
+FROM chosen k
+LEFT JOIN agents g ON g.id=k.agent_id AND g.owner_id=@owner
+LEFT JOIN folder_project fp ON fp.id=k.folder_id
+LEFT JOIN folders pf ON pf.id=fp.project_id AND pf.owner_id=@owner
+LEFT JOIN messages m ON m.id=k.message_id
+LEFT JOIN messages t ON t.id=k.trigger_id
+LEFT JOIN native_decisions d ON d.id=k.decision_id
+LEFT JOIN later_items l ON l.id=k.later_id AND l.owner_id=@owner
+ORDER BY k.sort_at DESC,k.conversation_id DESC`;
 
 export function feed(
   owner: string,
@@ -263,9 +317,12 @@ export function feed(
         "feed",
       )
     : undefined;
+  const mode =
+    filter === "done" ? "done" : filter === "working" ? "working" : "thread";
   const params = {
     owner,
     now: now(),
+    mode,
     teams: teams ? JSON.stringify(teams) : null,
     folders: folders ? JSON.stringify(folders) : null,
     agent: options.agent ?? null,
@@ -293,9 +350,12 @@ export function feed(
       : "last_activity_at";
   const rows = db
     .prepare(
-      `${sql} SELECT *,${sortAt} sort_at FROM flagged WHERE ${where}
-      AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND conversation_id<@after))
-      ORDER BY sort_at DESC,conversation_id DESC LIMIT 41`,
+      `${sql},
+page AS MATERIALIZED (
+  SELECT *,${sortAt} sort_at FROM flagged WHERE ${where}
+    AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND conversation_id<@after))
+  ORDER BY sort_at DESC,conversation_id DESC LIMIT 41
+),${cardSql}`,
     )
     .all(params) as FeedRow[];
   const more = rows.length > 40;
@@ -320,17 +380,7 @@ export function feed(
     .get(owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
-    items: rows.map((row) =>
-      feedItem(
-        owner,
-        row,
-        filter === "done"
-          ? "done"
-          : filter === "working"
-            ? "working"
-            : "thread",
-      ),
-    ),
+    items: rows.map((row) => feedItem(owner, row, mode)),
     next: more && last ? encode([last.sort_at, last.conversation_id]) : null,
     summary: {
       needs: summary.needs,
@@ -352,7 +402,10 @@ export function setDoneCardHidden(
   const { hidden, cardKey } = z
     .object({
       hidden: z.boolean(),
-      cardKey: z.string().regex(/^(run|message):.+$/).max(200),
+      cardKey: z
+        .string()
+        .regex(/^(run|message):.+$/)
+        .max(200),
     })
     .parse(body);
   return db
@@ -459,87 +512,46 @@ function queueMoves(owner: string, runId: string) {
 /**
  * "done" shows the thread's latest finished output, not the work after it;
  * "working" shows only what the current run has produced; "thread" shows
- * the thread as it is now.
+ * the thread as it is now. Everything but live previews and queue positions
+ * arrives with the page.
  */
 function feedItem(
   owner: string,
   row: FeedRow,
   mode: "thread" | "done" | "working" = "thread",
 ) {
-  const agent = row.agent_id
-    ? (db
-        .prepare("SELECT name,provider FROM agents WHERE id=? AND owner_id=?")
-        .get(row.agent_id, owner) as
-        { name: string; provider: string } | undefined)
+  const run = row.card_run_state
+    ? {
+        id: row.card_run!,
+        state: row.card_run_state,
+        error: row.card_run_error,
+        input: row.card_run_input!,
+        connection_id: row.card_run_connection_id,
+        model: row.card_run_model,
+        resolved_model: row.card_run_resolved_model,
+        created_at: row.card_run_created_at!,
+        updated_at: row.card_run_updated_at!,
+      }
     : undefined;
-  const project = projectFor(owner, row.folder_id);
-  const runId = mode === "done" ? row.done_run_id : row.run_id;
-  const latest = (condition: string, ...params: unknown[]) =>
-    db
-      .prepare(
-        `SELECT id,role,substr(content,1,1000) content,created_at,json_extract(metadata,'$.automation.kind') automation,json_extract(metadata,'$.automation.fromName') automation_from FROM messages WHERE owner_id=? AND conversation_id=? ${condition} ORDER BY created_at DESC,rowid DESC LIMIT 1`,
-      )
-      .get(owner, row.conversation_id, ...params) as
-      | {
-          id: string;
-          role: string;
-          content: string;
-          created_at: number;
-          automation: string | null;
-          automation_from: string | null;
-        }
-      | undefined;
-  const run = runId
-    ? (db
-        .prepare(
-          `SELECT id,${publicState("runs")} state,error,input,json_extract(payload,'$.connectionId') connection_id,json_extract(payload,'$.model') model,json_extract(payload,'$.resolvedModel') resolved_model,created_at,updated_at FROM runs WHERE id=? AND owner_id=?`,
-        )
-        .get(runId, owner) as
-        | {
-            id: string;
-            state: string;
-            error: string | null;
-            input: string;
-            connection_id: string | null;
-            model: string | null;
-            resolved_model: string | null;
-            created_at: number;
-            updated_at: number;
-          }
-        | undefined)
+  const message = row.message_id
+    ? {
+        id: row.message_id,
+        role: row.message_role!,
+        content: row.message_content!,
+        created_at: row.message_created_at!,
+        automation: row.message_automation,
+        automation_from: row.message_automation_from,
+      }
     : undefined;
-  const message =
-    mode === "done" && runId
-      ? (latest(
-          "AND run_id=? AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0",
-          runId,
-        ) ?? latest("AND run_id=?", runId))
-      : runId &&
-          (mode === "working" ||
-            (mode === "thread" &&
-              run &&
-              ["running", "pausing", "waiting_children"].includes(run.state)))
-        ? latest(
-            "AND run_id=? AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0",
-            runId,
-          )
-        : latest("");
   // The prompt is hidden while its run works, so keep who started it: a
   // watched pull request or a teammate agent rather than you.
   const trigger =
     run && message?.role !== "user"
-      ? latest(
-          "AND run_id=? AND role='user' AND json_extract(metadata,'$.automation.kind') IS NOT NULL",
-          run.id,
-        )
+      ? {
+          automation: row.trigger_automation,
+          automation_from: row.trigger_automation_from,
+        }
       : undefined;
-  const later = row.later_id
-    ? (db
-        .prepare(
-          "SELECT id,due_at,condition,surfaced_at FROM later_items WHERE id=? AND owner_id=?",
-        )
-        .get(row.later_id, owner) as object | undefined)
-    : undefined;
   return {
     conversation_id: row.conversation_id,
     ...(mode === "done" ? { done_card_key: row.done_card_key } : {}),
@@ -550,10 +562,10 @@ function feedItem(
     title: (run && collapse(run.input, 200)) || row.title,
     agent_id: row.agent_id,
     connection_id: row.execution_connection_id,
-    agent_name: agent?.name ?? null,
-    provider: agent?.provider ?? null,
-    project_id: project?.id ?? null,
-    project_name: project?.name ?? null,
+    agent_name: row.agent_name ?? null,
+    provider: row.provider ?? null,
+    project_id: row.folder_id ? (row.project_id ?? null) : null,
+    project_name: row.folder_id ? (row.project_name ?? null) : null,
     team_id: row.team_id,
     origin: row.origin,
     last_activity_at: mode === "done" ? row.sort_at : row.last_activity_at,
@@ -567,7 +579,7 @@ function feedItem(
           created_at: message.created_at,
           // So the card's menu offers Save or Remove from Saved, as the
           // thread and the result card already do.
-          saved: messageSaved(owner, message.id),
+          saved: !!row.message_saved,
           // Sent by Loop for you (a watched pull request or a teammate
           // agent), not typed by you.
           ...(message.automation ? { automation: message.automation } : {}),
@@ -594,7 +606,7 @@ function feedItem(
       : null,
     // Queued follow-ups, listed separately so they stay manageable while
     // the thread's current run is still working.
-    queued_runs: (mode === "done"
+    queued_runs: (mode === "done" || !row.queued
       ? []
       : (db
           .prepare(
@@ -625,8 +637,15 @@ function feedItem(
         : null,
     pending_approvals: mode === "done" ? 0 : row.pending_approvals,
     position_message_id: row.position_message_id,
-    later: later || null,
-    next_action: nextAction(owner, row.conversation_id, run, mode === "done"),
+    later: row.later_id
+      ? {
+          id: row.later_id,
+          due_at: row.later_due_at,
+          condition: row.later_condition,
+          surfaced_at: row.later_surfaced_at,
+        }
+      : null,
+    next_action: nextAction(row, run, mode === "done"),
   };
 }
 
@@ -644,83 +663,36 @@ export type NextAction = {
   ref?: string;
 };
 function nextAction(
-  owner: string,
-  conversation: string,
+  row: FeedRow,
   run: { id: string; state: string } | undefined,
   // A Done card opens at its answer, whatever the thread waits on now.
-  resultOnly = false,
+  resultOnly: boolean,
   includeRef = false,
 ): NextAction | null {
-  const approval = resultOnly
-    ? undefined
-    : (db
-        .prepare(
-          `SELECT a.id,a.run_id FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-          WHERE a.owner_id=? AND r.conversation_id=? AND a.state='pending' AND a.expires_at>?
-          ORDER BY a.created_at,a.rowid LIMIT 1`,
-        )
-        .get(owner, conversation, now()) as { id: string; run_id: string } | undefined);
-  // "final": the run's last answer message, even while it is still empty
-  // (where the thread shows the run's status and approvals); "answer": the
-  // last one with text.
-  const lastMessage = (runId: string, which: "final" | "answer") =>
-    (
-      db
-        .prepare(
-          `SELECT id FROM messages WHERE owner_id=? AND conversation_id=? AND run_id=?
-          AND role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0
-          ${which === "answer" ? "AND length(trim(content))>0" : ""}
-          ORDER BY created_at DESC,rowid DESC LIMIT 1`,
-        )
-        .get(owner, conversation, runId) as { id: string } | undefined
-    )?.id ?? null;
-  const firstMessage = (runId: string) =>
-    (
-      db
-        .prepare(
-          `SELECT id FROM messages WHERE owner_id=? AND conversation_id=? AND run_id=?
-          AND COALESCE(json_extract(metadata,'$.progress'),0)=0 ORDER BY created_at,rowid LIMIT 1`,
-        )
-        .get(owner, conversation, runId) as { id: string } | undefined
-    )?.id ?? null;
-  // The approval card sits on the run's answer, or on its prompt before
-  // there is an answer (as the thread renders it).
-  if (approval)
+  if (!resultOnly && row.approval_run_id)
     return {
       kind: "approve",
-      ...(includeRef && { ref: approval.id }),
-      run_id: approval.run_id,
-      message_id:
-        lastMessage(approval.run_id, "final") ?? firstMessage(approval.run_id),
+      ...(includeRef && { ref: row.approval_id! }),
+      run_id: row.approval_run_id,
+      message_id: row.approval_message_id,
     };
-  const decision = resultOnly
-    ? undefined
-    : (db
-        .prepare(
-          `SELECT d.id,d.run_id,d.request FROM native_decisions d JOIN runs r ON r.id=d.run_id AND r.owner_id=?
-          WHERE d.conversation_id=? AND d.state='pending' ORDER BY d.created_at LIMIT 1`,
-        )
-        .get(owner, conversation) as
-        { id: string; run_id: string; request: string } | undefined);
-  if (decision) {
+  if (!resultOnly && row.decision_run_id) {
     let questions = false;
     try {
-      const request = JSON.parse(decision.request);
+      const request = JSON.parse(row.decision_request || "");
       questions =
         Array.isArray(request?.questions) && request.questions.length > 0;
     } catch {}
     // Native decisions are answered at the end of the thread.
     return {
       kind: questions ? "answer" : "approve",
-      ...(includeRef && { ref: decision.id }),
-      run_id: decision.run_id,
+      ...(includeRef && { ref: row.decision_id! }),
+      run_id: row.decision_run_id,
       message_id: null,
     };
   }
-  if (run?.state === "completed") {
-    const answer = lastMessage(run.id, "answer");
-    if (answer) return { kind: "result", run_id: run.id, message_id: answer };
-  }
+  if (run?.state === "completed" && row.card_answer_id)
+    return { kind: "result", run_id: run.id, message_id: row.card_answer_id };
   return null;
 }
 
@@ -736,15 +708,20 @@ export function briefAttention(owner: string, project: string) {
   ).map((r) => r.folder_id);
   const rows = db
     .prepare(
-      `${feedSql(false, true)} SELECT conversation_id,run_id,run_state,is_needs,is_working FROM flagged`,
+      `${feedSql(false, true)}, page AS (SELECT *,last_activity_at sort_at FROM flagged), ${cardSql}`,
     )
-    .all({ owner, now: now(), folders: JSON.stringify(folders) }) as {
+    .all({
+      owner,
+      now: now(),
+      folders: JSON.stringify(folders),
+      mode: "thread",
+    }) as (FeedRow & {
     conversation_id: string;
     run_id: string | null;
     run_state: string | null;
     is_needs: number;
     is_working: number;
-  }[];
+  })[];
   const needs: {
     kind: "approval" | "question" | "failed";
     ref: string;
@@ -752,8 +729,7 @@ export function briefAttention(owner: string, project: string) {
   }[] = [];
   for (const row of rows) {
     const action = nextAction(
-      owner,
-      row.conversation_id,
+      row,
       row.run_id ? { id: row.run_id, state: row.run_state ?? "" } : undefined,
       false,
       true,
@@ -836,22 +812,42 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const message = owned<Message>("messages", messageId, owner);
       if (JSON.parse(message.metadata).progress)
         throw new Problem(400, "Only saved messages can be kept");
-      const result = resultFor(owner, messageId), savedAt = now();
+      const result = resultFor(owner, messageId),
+        savedAt = now();
       if (result && result.pinned !== Number(on)) {
         db.prepare(
           "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
         ).run(Number(on), savedAt, result.id, owner, Number(on));
-        recordChange(owner, undefined, on ? "saved" : "unsaved", result.id, message.conversation_id, savedAt);
+        recordChange(
+          owner,
+          undefined,
+          on ? "saved" : "unsaved",
+          result.id,
+          message.conversation_id,
+          savedAt,
+        );
       }
-      const bookmarkChanged = on && !result
-        ? db.prepare(
-            "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
-          ).run(owner, messageId, savedAt).changes
-        : db.prepare(
-            "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
-          ).run(owner, messageId).changes;
+      const bookmarkChanged =
+        on && !result
+          ? db
+              .prepare(
+                "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
+              )
+              .run(owner, messageId, savedAt).changes
+          : db
+              .prepare(
+                "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+              )
+              .run(owner, messageId).changes;
       if (bookmarkChanged)
-        recordChange(owner, undefined, on && !result ? "saved" : "unsaved", messageId, message.conversation_id, savedAt);
+        recordChange(
+          owner,
+          undefined,
+          on && !result ? "saved" : "unsaved",
+          messageId,
+          message.conversation_id,
+          savedAt,
+        );
       return { ok: true as const, saved: on };
     })
     .immediate();
@@ -997,7 +993,10 @@ export function setSavedLabel(owner: string, body: unknown) {
             )
             .get(target, owner);
       if (!saved) throw new Problem(404, "Saved item not found");
-      const previous = db.prepare("SELECT label FROM saved_labels WHERE owner_id=? AND item_key=?")
+      const previous = db
+        .prepare(
+          "SELECT label FROM saved_labels WHERE owner_id=? AND item_key=?",
+        )
         .get(owner, d.key) as { label: string } | undefined;
       if (d.label)
         db.prepare(
@@ -1541,9 +1540,10 @@ export function surfaceLater(time = now()) {
         enqueuePush(item.owner_id, "later-" + item.id, {
           title: "Back from Later",
           body: target?.title || "An item you deferred is ready",
-          url: item.kind === "story"
-            ? "/?social=" + encodeURIComponent(item.target_id)
-            : target?.url || "/?page=profile",
+          url:
+            item.kind === "story"
+              ? "/?social=" + encodeURIComponent(item.target_id)
+              : target?.url || "/?page=profile",
         });
       }
       return surfaced;
@@ -2236,7 +2236,11 @@ export function conversationUsage(owner: string, conversation: string) {
       `SELECT e.run_id,e.type,e.payload FROM events e JOIN runs r ON r.id=e.run_id AND r.owner_id=e.owner_id
       WHERE e.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`,
     )
-    .all(owner, conversation) as { run_id: string; type: string; payload: string }[];
+    .all(owner, conversation) as {
+    run_id: string;
+    type: string;
+    payload: string;
+  }[];
   const runs: Record<string, Tokens> = {};
   const native: Record<string, Tokens> = {};
   // A provider message is one receipt with an externalId, optionally followed
@@ -2260,9 +2264,18 @@ export function conversationUsage(owner: string, conversation: string) {
     const usage = payload.usage;
     if (event.type === "native.usage") {
       if (!usage || typeof usage !== "object") continue;
-      const total = (native[event.run_id] ||= { input_tokens: 0, output_tokens: 0 });
-      total.input_tokens = Math.max(total.input_tokens, count(usage.input_tokens));
-      total.output_tokens = Math.max(total.output_tokens, count(usage.output_tokens));
+      const total = (native[event.run_id] ||= {
+        input_tokens: 0,
+        output_tokens: 0,
+      });
+      total.input_tokens = Math.max(
+        total.input_tokens,
+        count(usage.input_tokens),
+      );
+      total.output_tokens = Math.max(
+        total.output_tokens,
+        count(usage.output_tokens),
+      );
       continue;
     }
     if (payload.externalId || !segment || segment.run !== event.run_id) {
