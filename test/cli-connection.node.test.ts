@@ -687,6 +687,17 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     w.pids.add(app.pid!);
     assert.equal(before.supervisor, supervisor);
 
+    // Running restart from a different checkout must retain the installed
+    // entrypoint unless this is explicitly an upgrade handoff.
+    const originalUnit = readFileSync(unit, "utf8");
+    await w.loop(["restart"], 120000);
+    const restarted = await w.status();
+    w.pids.add(restarted.pid);
+    assert.notEqual(restarted.pid, before.pid);
+    assert.equal(readFileSync(unit, "utf8"), originalUnit);
+    assert.equal(JSON.parse(readFileSync(job, "utf8")).args[0], checkout);
+    before = restarted;
+
     // The handoff loop upgrade performs once the new build is installed.
     const { stdout } = await w.loop(["restart", "--upgraded-from", "0.0.0-previous"], 120000);
     const after = await w.status();
@@ -726,8 +737,19 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
     const bin = join(w.base, "bin");
     await mkdir(bin);
     writeFileSync(join(bin, "launchctl"), LAUNCHCTL, { mode: 0o755 });
+    writeFileSync(join(bin, "systemctl"), "#!/bin/sh\nexit 91\n", { mode: 0o755 });
+    // A different installed workspace may share the user's home. The
+    // ordinary restart must neither repoint it nor call its service manager.
+    const home = join(w.base, "home");
+    const mac = process.platform === "darwin";
+    const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+    await mkdir(units, { recursive: true });
+    const { serviceDefinitions } = await import("../src/service.js");
+    const other = serviceDefinitions(process.platform, process.execPath, "/other/dist/cli.js", join(w.base, "other-state"), w.base, process.env.PATH!, null).app;
+    const otherUnit = join(units, mac ? `${other.name}.plist` : other.name);
+    writeFileSync(otherUnit, other.contents);
     const job = join(w.base, "launchd-job.json");
-    Object.assign(w.env, { PATH: `${bin}:${process.env.PATH}`, LOOP_TEST_LAUNCHD_JOB: job });
+    Object.assign(w.env, { PATH: `${bin}:${process.env.PATH}`, LOOP_TEST_LAUNCHD_JOB: job, HOME: home });
     try {
       const args = ["--import", "tsx", resolve("src/cli.ts"), ...w.harness, ...mode, "--foreground"];
       const log = join(w.base, "service.log");
@@ -757,6 +779,7 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
       assert.equal(after.supervisor, "launchd");
       assert(!alive(before.pid));
       assert.equal(w.tunnelPids().length, 0, "no cloudflared without a managed tunnel");
+      assert.equal(readFileSync(otherUnit, "utf8"), other.contents, "another workspace's service was untouched");
     } finally {
       await w.cleanup();
     }

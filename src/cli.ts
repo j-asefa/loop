@@ -257,6 +257,7 @@ async function restartWorkspace(
     if (supervisor)
       return restartService(
         dir,
+        root,
         { supervisor, pid: recorded?.pid },
         upgradedFrom,
       );
@@ -271,7 +272,7 @@ async function restartWorkspace(
         `${active} run(s) are active. Wait for them to finish, or run loop restart --force: interrupted work is marked for review and never resent automatically.`,
       );
     if (supervisor)
-      return restartService(dir, { ...status, supervisor }, upgradedFrom);
+      return restartService(dir, root, { ...status, supervisor }, upgradedFrom);
   }
   const args = await launchArgs(dir);
   if (status || hung) {
@@ -293,15 +294,19 @@ async function restartWorkspace(
 }
 
 /** An installed service restarts only its application unit. */
-async function restartService(dir: string, status: any, upgradedFrom?: string) {
+async function restartService(dir: string, root: string, status: any, upgradedFrom?: string) {
   const uid = process.getuid!();
   // An upgrade installs the new build in npm's global prefix while the service
   // entry still names the build it was installed from, often a checkout.
   // Restarting that entry would relaunch the old code, so point it at this CLI
   // first. The connection unit, its cloudflared and the address stay up.
-  const pointed = await import("./service.js").then((m) =>
-    m.repointAppService(fileURLToPath(import.meta.url)),
-  );
+  // An ordinary restart must retain the installed entrypoint: this CLI may
+  // belong to a development checkout or a different installation.
+  const pointed = upgradedFrom
+    ? await import("./service.js").then((m) =>
+        m.repointAppService(fileURLToPath(import.meta.url), root),
+      )
+    : "unchanged";
   if (pointed === "repointed")
     console.log("Pointed the Loop service at the newly installed build.");
   else if (status.supervisor === "launchd")

@@ -190,7 +190,10 @@ export function repointUnit(
  * names this build (the caller restarts it as usual), and "repointed" when the
  * unit was rewritten and reloaded, which also starts the application.
  */
-export async function repointAppService(cli: string) {
+export async function repointAppService(cli: string, root: string) {
+  // A fixture or second workspace may share the OS user's home. Its upgrade
+  // must not rewrite or restart the production workspace's installed units.
+  if (!(await installedSupervisor(root))) return "absent" as const;
   const mac = process.platform === "darwin";
   const names = mac ? SERVICES.darwin : SERVICES.linux;
   const unitFile = (name: string) =>
