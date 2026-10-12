@@ -78,7 +78,7 @@ export function runTiming(
 
 export type RunTone = "needs" | "working" | "queued" | "done" | "failed" | "idle";
 
-/** One status vocabulary for inbox rows, thread headers and run cards. */
+/** One status vocabulary for Feed rows, thread headers and run cards. */
 export function runStatus(
   state: string | null | undefined,
   pendingApprovals = 0,

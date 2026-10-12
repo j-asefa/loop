@@ -21,7 +21,7 @@ const {
   resultNotification,
 } = await import("../src/server/notifications");
 const { saveArtifact } = await import("../src/server/artifacts");
-const { feedRevision, feedUpdates } = await import("../src/server/feed");
+const { resultsRevision, resultsUpdates } = await import("../src/server/results");
 const { submit } = await import("../src/server/agent-runtime");
 const { routeHandle } = await import("../src/server/sharing");
 const app = express();
@@ -106,7 +106,7 @@ it("Saved is only bookmarked full cards, including feed-archived cards, filtered
   });
   pin(a);
   db.prepare("UPDATE artifacts SET feed_hidden=1 WHERE id=?").run(a);
-  const saved = await api(`/feed?saved=1&teams=${team.id}&folder=${folder}`);
+  const saved = await api(`/results?saved=1&teams=${team.id}&folder=${folder}`);
   expect(saved.data.items.map((item: any) => item.id)).toEqual([a]);
   expect(saved.data.items[0]).toMatchObject({
     name: manager.name,
@@ -114,19 +114,19 @@ it("Saved is only bookmarked full cards, including feed-archived cards, filtered
     pinned: 1,
     team_id: team.id,
   });
-  expect((await api("/feed")).data.items.map((item: any) => item.id)).toContain(
+  expect((await api("/results")).data.items.map((item: any) => item.id)).toContain(
     unsaved,
   );
   expect(
-    (await api("/feed?saved=1", undefined, undefined, "someone-else")).data
+    (await api("/results?saved=1", undefined, undefined, "someone-else")).data
       .items,
   ).toEqual([]);
-  const revision = feedRevision("owner");
+  const revision = resultsRevision("owner");
   pin(a, false);
   expect(
-    feedUpdates("owner", { after: revision, through: 0, saved: true }).removed,
+    resultsUpdates("owner", { after: revision, through: 0, saved: true }).removed,
   ).toContain(a);
-  expect((await api("/feed?saved=1")).data.items).toEqual([]);
+  expect((await api("/results?saved=1")).data.items).toEqual([]);
 });
 
 it("new bookmarks on old results arrive above loaded pages and unsaving removes them incrementally", async () => {
@@ -138,14 +138,14 @@ it("new bookmarks on old results arrive above loaded pages and unsaving removes 
     saveArtifact("owner", { title: "Saved " + i, content: "Full result" }),
   );
   ids.forEach((value) => pin(value));
-  const first = (await api("/feed?saved=1")).data;
+  const first = (await api("/results?saved=1")).data;
   expect(first.items).toHaveLength(40);
-  const second = (await api(`/feed?saved=1&before=${first.next}`)).data;
+  const second = (await api(`/results?saved=1&before=${first.next}`)).data;
   expect(second.items).toHaveLength(5);
   pin(old);
   const updates = (
     await api(
-      `/feed/updates?saved=1&after=${first.revision}&through=${first.next}`,
+      `/results/updates?saved=1&after=${first.revision}&through=${first.next}`,
     )
   ).data;
   expect(updates.items.map((item: any) => item.id)).toEqual([old]);
@@ -153,7 +153,7 @@ it("new bookmarks on old results arrive above loaded pages and unsaving removes 
   const revision = updates.revision;
   pin(old, false);
   expect(
-    feedUpdates("owner", { after: revision, through: first.next, saved: true })
+    resultsUpdates("owner", { after: revision, through: first.next, saved: true })
       .removed,
   ).toContain(old);
 });

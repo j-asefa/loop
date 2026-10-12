@@ -119,33 +119,33 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
     metadata: { messageId: m },
   });
   expect((await search("feedback", "quasar")).items).toHaveLength(1);
-  const beforeArchive = (await api("/feed")).data.revision;
+  const beforeArchive = (await api("/results")).data.revision;
   expect(
-    (await api("/feed/" + artifact, { hidden: true }, "PATCH", "stranger"))
+    (await api("/results/" + artifact, { hidden: true }, "PATCH", "stranger"))
       .status,
   ).toBe(404);
   expect(
-    (await api("/feed/" + artifact, { hidden: true }, "PATCH")).status,
+    (await api("/results/" + artifact, { hidden: true }, "PATCH")).status,
   ).toBe(200);
   expect(
-    (await api("/feed")).data.items.some((i: any) => i.id === artifact),
+    (await api("/results")).data.items.some((i: any) => i.id === artifact),
   ).toBe(false);
   expect((await api("/conversations/" + c)).data.messages).toHaveLength(1);
   expect((await api("/artifacts/" + artifact)).data.archived).toBe(0);
   expect((await search("feedback", "quasar")).items).toHaveLength(1);
   const changes = (
-    await api("/feed/updates?after=" + beforeArchive + "&through=0")
+    await api("/results/updates?after=" + beforeArchive + "&through=0")
   ).data;
   expect(changes.removed).toContain(artifact);
   expect(changes.items.some((i: any) => i.id === artifact)).toBe(false);
-  await api("/feed/" + artifact, { hidden: false }, "PATCH");
+  await api("/results/" + artifact, { hidden: false }, "PATCH");
   expect(
     (
-      await api("/feed/updates?after=" + changes.revision + "&through=0")
+      await api("/results/updates?after=" + changes.revision + "&through=0")
     ).data.items.some((i: any) => i.id === artifact),
   ).toBe(true);
   expect(
-    (await api("/feed")).data.items.some((i: any) => i.id === artifact),
+    (await api("/results")).data.items.some((i: any) => i.id === artifact),
   ).toBe(true);
 });
 it("loads an older deep-linked message and paginates before its window", async () => {
@@ -318,10 +318,10 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
         .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
         .get(parent.id),
     ).toEqual({ n: 2 });
-    const feed = (await api("/feed?teams=" + team.id)).data.items;
+    const feed = (await api("/results?teams=" + team.id)).data.items;
     expect(feed).toHaveLength(3);
     const updates = (
-      await api("/feed/updates?after=0&through=0&teams=" + team.id)
+      await api("/results/updates?after=0&through=0&teams=" + team.id)
     ).data.items;
     expect(new Set(updates.map((item: any) => item.id))).toEqual(
       new Set(feed.map((item: any) => item.id)),
@@ -330,7 +330,7 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
     expect(
       (
         await api(
-          "/feed/updates?after=0&through=0&teams=" + team.id,
+          "/results/updates?after=0&through=0&teams=" + team.id,
           undefined,
           undefined,
           "stranger",
@@ -338,10 +338,10 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
       ).status,
     ).toBe(404);
     expect(
-      (await api("/feed?teams=" + team.id + "," + team.id)).data.items,
+      (await api("/results?teams=" + team.id + "," + team.id)).data.items,
     ).toHaveLength(3);
     expect(
-      (await api("/feed?teams=" + team.id, undefined, undefined, "stranger"))
+      (await api("/results?teams=" + team.id, undefined, undefined, "stranger"))
         .status,
     ).toBe(404);
     const calls = db

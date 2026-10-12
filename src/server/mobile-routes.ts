@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { teamFilter } from "./teams.js";
 import {
-  INBOX_FILTERS,
+  FEED_FILTERS,
   awaySummary,
   cancelScheduledSend,
   editScheduledSend,
@@ -14,7 +14,7 @@ import {
   editQueuedRun,
   finishLater,
   forkConversation,
-  inbox,
+  feed,
   listSaved,
   listLater,
   listScheduledSends,
@@ -45,26 +45,26 @@ const timestamp = z.coerce
 mobile.put("/conversations/:id/position", (req, res) =>
   res.json(savePosition(res.locals.owner, req.params.id, req.body)),
 );
-mobile.get("/inbox", (req, res) => {
+mobile.get("/feed", (req, res) => {
   const q = z
     .object({
-      filter: z.enum(INBOX_FILTERS).default("all"),
+      filter: z.enum(FEED_FILTERS).default("all"),
       folder: z.string().min(1).max(150).optional(),
       agent: z.string().min(1).max(150).optional(),
       before: z.string().min(1).max(512).optional(),
     })
     .parse(req.query);
   res.json(
-    inbox(res.locals.owner, {
+    feed(res.locals.owner, {
       ...q,
       teams: teamFilter(req.query.teams, res.locals.owner),
     }),
   );
 });
-mobile.patch("/inbox/:id", (req, res) =>
+mobile.patch("/feed/:id", (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
 );
-mobile.get("/inbox/away", (req, res) =>
+mobile.get("/feed/away", (req, res) =>
   res.json(
     awaySummary(res.locals.owner, timestamp.default(0).parse(req.query.since)),
   ),

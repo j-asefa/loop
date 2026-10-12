@@ -329,7 +329,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.getByRole("tab", { name: /^Queued/ }).click();
     await expect(row("Second queued idea")).toContainText("Second queued idea");
     const position = async (id) =>
-      (await api("/inbox?filter=queued")).items.find((i) => i.run?.id === id)
+      (await api("/feed?filter=queued")).items.find((i) => i.run?.id === id)
         ?.run.queue_position;
     const before = [await position(queued), await position(queuedNext)];
     assert.ok(before[0] < before[1], "older queued work runs first");

@@ -43,7 +43,7 @@ import {
 import { useSwipeBack } from "./useSwipeBack";
 import { usePullToRefresh } from "./usePullToRefresh";
 import type { ComposerContext } from "./composerContext";
-import { FeedPager } from "./feed";
+import { ResultsPager } from "./results";
 import {
   TeamFilter,
   TeamMessages,
@@ -69,7 +69,7 @@ import { PiCustomizations } from "./PiCustomizations";
 import { WorkflowEditor } from "./Workflows";
 import { Approvals } from "./Approvals";
 import { OPEN_PULL, PullRequests, TOOLS_CLOSED } from "./PullRequests";
-import { Inbox, inboxFilters, type InboxFilter } from "./Inbox";
+import { Feed, feedFilters, type FeedFilter } from "./Feed";
 import { useComposerViewport } from "./useSheetViewport";
 import { Later, SavedList, showLater, type SavedMessage } from "./Later";
 import {
@@ -159,7 +159,7 @@ type Bootstrap = {
   folders: FolderType[];
 };
 const tabs = [
-  { id: "inbox", label: "Feed", icon: Newspaper },
+  { id: "feed", label: "Feed", icon: Newspaper },
   { id: "projects", label: "Projects", icon: Folder },
   { id: "pulls", label: "Pull requests", icon: GitPullRequest },
   { id: "search", label: "Search", icon: Search },
@@ -167,9 +167,8 @@ const tabs = [
 ];
 // Links and bookmarks from earlier layouts keep working. Later (Saved,
 // Reminders, Scheduled) now lives on your profile.
-const legacyPages: Record<string, { tab: string; filter?: InboxFilter }> = {
-  feed: { tab: "inbox" },
-  running: { tab: "inbox", filter: "working" },
+const legacyPages: Record<string, { tab: string; filter?: FeedFilter }> = {
+  running: { tab: "feed", filter: "working" },
   saved: { tab: "profile" },
   later: { tab: "profile" },
   personal: { tab: "profile" },
@@ -179,16 +178,16 @@ function initialPage() {
   const page = params.get("page") || "";
   if (tabs.some((t) => t.id === page)) return { tab: page };
   if (legacyPages[page]) return legacyPages[page];
-  return { tab: params.has("folder") ? "profile" : "inbox" };
+  return { tab: params.has("folder") ? "profile" : "feed" };
 }
-function initialFilter(): InboxFilter {
+function initialFilter(): FeedFilter {
   const params = new URLSearchParams(location.search);
   // A notification about a story opens Social on it.
   if (params.has("social")) return "social";
   const value = params.get("filter");
   // Older "needs" links land on Done, under the Needs you stack.
-  return inboxFilters.some((f) => f.id === value)
-    ? (value as InboxFilter)
+  return feedFilters.some((f) => f.id === value)
+    ? (value as FeedFilter)
     : initialPage().filter || "done";
 }
 export default function App() {
@@ -225,7 +224,7 @@ export default function App() {
       folders: [],
     }),
     [tab, setTab] = useState(() => initialPage().tab),
-    [inboxFilter, setInboxFilter] = useState<InboxFilter>(initialFilter),
+    [feedFilter, setFeedFilter] = useState<FeedFilter>(initialFilter),
     [feedHomeKey, setFeedHomeKey] = useState(0),
     [searchScope, setSearchScope] = useState<"all" | "mine">(
       new URLSearchParams(location.search).get("page") === "personal"
@@ -526,8 +525,8 @@ export default function App() {
     if (story) {
       setProfile(null);
       setConversation(null);
-      setTab("inbox");
-      setInboxFilter("social");
+      setTab("feed");
+      setFeedFilter("social");
       // Social reads the story from the address, as it does on a cold open.
       history.replaceState(null, "", url.pathname + url.search);
       window.dispatchEvent(new Event("loop-refresh"));
@@ -764,7 +763,7 @@ export default function App() {
   }
   function openTeamFeed(team: Team) {
     setProfile(null);
-    setTab("inbox");
+    setTab("feed");
     setView("all");
     setTeamSelection([team.id]);
     setProjectFilter("");
@@ -796,10 +795,10 @@ export default function App() {
   }, []);
   async function archiveCard(id: string, hidden = true) {
     try {
-      await api("/feed/" + id, { hidden }, "PATCH");
+      await api("/results/" + id, { hidden }, "PATCH");
       setItems((old) => old.filter((item) => item.id !== id));
       setArchivedCard(hidden ? id : null);
-      await loadFeed();
+      await loadResults();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -808,8 +807,8 @@ export default function App() {
   const [projectFilter, setProjectFilter] = useState(
     new URLSearchParams(location.search).get("project") || "",
   );
-  const [feedLoading, setFeedLoading] = useState(true);
-  const [feedError, setFeedError] = useState("");
+  const [resultsLoading, setResultsLoading] = useState(true);
+  const [resultsError, setResultsError] = useState("");
   const [workspaceLoadError, setWorkspaceLoadError] = useState("");
   const [settingsParent, setSettingsParent] = useState(false);
   const previousPage = usePageHistory(
@@ -869,8 +868,8 @@ export default function App() {
       setView("all");
     } else if (tab === "projects" && project) setProject("");
     else if (tab === "pulls" && pull) setPull("");
-    else if (tab !== "inbox") {
-      setTab("inbox");
+    else if (tab !== "feed") {
+      setTab("feed");
       setView("all");
     } else return false;
     return true;
@@ -906,8 +905,8 @@ export default function App() {
   useEffect(() => {
     const url = new URL(location.href);
     for (const [key, value] of Object.entries({
-      page: tab === "inbox" ? "" : tab,
-      filter: tab === "inbox" && inboxFilter !== "done" ? inboxFilter : "",
+      page: tab === "feed" ? "" : tab,
+      filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
       project: projectFilter,
       teams: teamKey,
       projectView: project,
@@ -923,7 +922,7 @@ export default function App() {
       "",
       url.pathname + url.search + url.hash,
     );
-  }, [tab, projectFilter, teamKey, project, inboxFilter, pull]);
+  }, [tab, projectFilter, teamKey, project, feedFilter, pull]);
   const [workflowId, setWorkflowId] = useState<string | undefined>(undefined);
   const [workflowSource, setWorkflowSource] = useState<string | undefined>(
     undefined,
@@ -1000,15 +999,15 @@ export default function App() {
   const personalWorkspace = useRef(false);
   const stopEventsPoll = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
-  const feed = useRef(new FeedPager<any>());
-  const feedVisible = useRef(true);
+  const resultsPager = useRef(new ResultsPager<any>());
+  const resultsVisible = useRef(true);
   // Project activity and files also follow feed changes to refresh in place.
-  feedVisible.current =
+  resultsVisible.current =
     (tab === "projects" && !!project) ||
     (!!profile && ["all", "files"].includes(view));
   const lastNavTap = useRef<{ tab: string; at: number } | null>(null);
-  const feedContext = useRef("");
-  feedContext.current = [
+  const resultsContext = useRef("");
+  resultsContext.current = [
     session?.user?.id,
     profile?.id,
     view,
@@ -1117,8 +1116,8 @@ export default function App() {
   }, []);
   // Results are not polled while hidden; catch up when they come back.
   useEffect(() => {
-    if (session?.user && feedVisible.current) void loadFeed(false, false);
-  }, [tab, inboxFilter, project]);
+    if (session?.user && resultsVisible.current) void loadResults(false, false);
+  }, [tab, feedFilter, project]);
   // Inside a project the default recipient is one of that project's agents.
   useEffect(() => {
     if (tab !== "projects" || !project || conversation || draft.trim()) return;
@@ -1203,16 +1202,16 @@ export default function App() {
     if (owner === ownerRef.current && generation === runsGeneration.current)
       setRuns(result);
   }
-  async function loadFeed(append = false, notify = true) {
+  async function loadResults(append = false, notify = true) {
     const owner = ownerRef.current,
       key = [owner, profile?.id, view, teamKey, projectFilter].join(":");
-    if (!owner || key !== feedContext.current) return;
-    if (feed.current.key !== key) {
+    if (!owner || key !== resultsContext.current) return;
+    if (resultsPager.current.key !== key) {
       setItems([]);
       setNext(null);
-      setFeedLoading(true);
+      setResultsLoading(true);
     }
-    setFeedError("");
+    setResultsError("");
     try {
       const query = () => {
         const q = new URLSearchParams({
@@ -1223,22 +1222,22 @@ export default function App() {
         if (projectFilter && !profile) q.set("folder", projectFilter);
         return q;
       };
-      const result = await feed.current.load(
+      const result = await resultsPager.current.load(
         key,
         append,
         async (before) => {
           const q = query();
           if (before !== null) q.set("before", String(before));
-          return api("/feed?" + q);
+          return api("/results?" + q);
         },
         async (after, through) => {
           const q = query();
           q.set("after", String(after));
           q.set("through", String(through));
-          return api("/feed/updates?" + q);
+          return api("/results/updates?" + q);
         },
       );
-      if (!result || owner !== ownerRef.current || key !== feedContext.current)
+      if (!result || owner !== ownerRef.current || key !== resultsContext.current)
         return;
       setItems(result.items);
       setNext(result.next);
@@ -1246,12 +1245,12 @@ export default function App() {
     } catch (e) {
       // While Loop restarts, the status line reports it; keep the feed as is.
       if (
-        key === feedContext.current &&
+        key === resultsContext.current &&
         !(e as { reconnecting?: boolean }).reconnecting
       )
-        setFeedError((e as Error).message);
+        setResultsError((e as Error).message);
     } finally {
-      if (key === feedContext.current) setFeedLoading(false);
+      if (key === resultsContext.current) setResultsLoading(false);
     }
   }
   const refreshGeneration = useRef(0);
@@ -1260,7 +1259,7 @@ export default function App() {
     const generation = ++refreshGeneration.current;
     const [workspace, , tasks] = await Promise.allSettled([
       bootstrap(),
-      loadFeed(),
+      loadResults(),
       loadRuns(),
     ]);
     if (
@@ -1387,8 +1386,8 @@ export default function App() {
           await Promise.all([
             // Result cards are only on screen in a project and agent
             // profiles; skip their poll elsewhere.
-            ...(feedVisible.current
-              ? [loadFeed(false, events.length === 0)]
+            ...(resultsVisible.current
+              ? [loadResults(false, events.length === 0)]
               : []),
             ...(events.length ? [loadRuns()] : []),
           ]);
@@ -1833,8 +1832,8 @@ export default function App() {
               now - lastNavTap.current.at < 350;
             lastNavTap.current = home ? null : { tab: t.id, at: now };
             if (home) {
-              if (t.id === "inbox") {
-                setInboxFilter("done");
+              if (t.id === "feed") {
+                setFeedFilter("done");
                 setFeedHomeKey((key) => key + 1);
               }
               requestAnimationFrame(() =>
@@ -1861,7 +1860,7 @@ export default function App() {
             <t.icon size={21} />
           )}
           <span>{t.label}</span>
-          {t.id === "inbox" && runningAgentCount > 0 && (
+          {t.id === "feed" && runningAgentCount > 0 && (
             <small
               className="running-count"
               aria-label={`${runningAgentCount} ${runningAgentCount === 1 ? "agent" : "agents"} running`}
@@ -2382,17 +2381,17 @@ export default function App() {
       }}
     />
   );
-  const feedList = (
+  const resultsList = (
     <div className="feed">
-      {feedError && items.length > 0 && (
+      {resultsError && items.length > 0 && (
         <div className="error" role="alert">
-          {feedError}
-          <button className="text-button" onClick={() => void loadFeed()}>
+          {resultsError}
+          <button className="text-button" onClick={() => void loadResults()}>
             Try again
           </button>
         </div>
       )}
-      {feedLoading ? (
+      {resultsLoading ? (
         <div
           className="feed-loading"
           role="status"
@@ -2402,10 +2401,10 @@ export default function App() {
           <span />
           <span />
         </div>
-      ) : feedError && !items.length ? (
+      ) : resultsError && !items.length ? (
         <div className="error" role="alert">
-          {feedError}
-          <button className="text-button" onClick={() => void loadFeed()}>
+          {resultsError}
+          <button className="text-button" onClick={() => void loadResults()}>
             Try again
           </button>
         </div>
@@ -2439,7 +2438,7 @@ export default function App() {
       {next && (
         <button
           className="secondary load-more"
-          onClick={() => void loadFeed(true)}
+          onClick={() => void loadResults(true)}
         >
           Earlier results
         </button>
@@ -2452,7 +2451,7 @@ export default function App() {
         <button
           className="wordmark"
           onClick={() => {
-            setTab("inbox");
+            setTab("feed");
             setProfile(null);
             setTeamSelection([]);
           }}
@@ -2689,10 +2688,10 @@ export default function App() {
           ) : (tab === "projects" && project) || tab === "profile" ? null : (
             <div className="page-heading compact">
               <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
-              {tab === "inbox" && projectScope}
+              {tab === "feed" && projectScope}
             </div>
           )}
-          {tab === "inbox" && !profile && !!data.teams?.length && (
+          {tab === "feed" && !profile && !!data.teams?.length && (
             <div className="workspace-scope">
               <TeamFilter
                 teams={data.teams || []}
@@ -2728,7 +2727,7 @@ export default function App() {
               />
             </div>
           )}
-          {tab === "inbox" && !profile && (
+          {tab === "feed" && !profile && (
             <>
               {unified.error && (
                 <p className="error" role="status">
@@ -2766,10 +2765,10 @@ export default function App() {
                   }}
                 />
               )}
-              <Inbox
+              <Feed
                 key={feedHomeKey}
-                filter={inboxFilter}
-                onFilter={setInboxFilter}
+                filter={feedFilter}
+                onFilter={setFeedFilter}
                 project={projectFilter || undefined}
                 teams={teamKey || undefined}
                 revision={revision}
@@ -2840,7 +2839,7 @@ export default function App() {
             />
           )}
           {profile && view === "threads" && (
-            <Inbox
+            <Feed
               key={"agent-" + profile.id}
               filter="all"
               onFilter={() => {}}
@@ -2871,7 +2870,7 @@ export default function App() {
               onReply={beginReply}
             />
           )}
-          {profile && ["all", "files"].includes(view) && feedList}
+          {profile && ["all", "files"].includes(view) && resultsList}
           {tab === "profile" && !profile && (
             <MyProfile
               name={displayName}
@@ -3043,7 +3042,7 @@ export default function App() {
               }}
               revision={revision}
               renderThreads={(id) => (
-                <Inbox
+                <Feed
                   key={id}
                   filter="all"
                   onFilter={() => {}}
@@ -3087,7 +3086,7 @@ export default function App() {
                     onUnsaveResult={unsaveResult}
                   />
                 ) : (
-                  <Inbox
+                  <Feed
                     key={id + view}
                     filter={view}
                     onFilter={() => {}}
@@ -3521,8 +3520,8 @@ export default function App() {
           }}
           onClose={closeSheet}
           onStarted={() => {
-            setTab("inbox");
-            setInboxFilter("working");
+            setTab("feed");
+            setFeedFilter("working");
             void changed();
           }}
           onConversation={(c) => {
@@ -3615,7 +3614,7 @@ export default function App() {
             ) {
               setTeamSelection([]);
               setProfile(null);
-              setTab("inbox");
+              setTab("feed");
               setContextArtifact(null);
               setConversation(a.initialRun.conversation_id);
             }
@@ -3668,7 +3667,7 @@ export default function App() {
             setTeamSelection([team.id]);
             setSelected(team.manager_id);
             setContextArtifact(null);
-            setTab("inbox");
+            setTab("feed");
             setConversation(team.conversation_id);
             void bootstrap();
           }}
@@ -3721,7 +3720,7 @@ export default function App() {
           onClose={() => setTeamMessages(null)}
           onOpenConversation={(id) => {
             setTeamMessages(null);
-            setTab("inbox");
+            setTab("feed");
             setConversation(id);
           }}
           onChanged={() => void bootstrap()}

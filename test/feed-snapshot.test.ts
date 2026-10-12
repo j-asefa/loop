@@ -48,8 +48,8 @@ const scopes: Record<string, string> = {
 };
 // Request paths for each snapshot. The thread list and the results stream
 // are named by what they are, so renaming their routes keeps the snapshots.
-const feedPath = "/api/inbox";
-const resultsPath = "/api/feed";
+const feedPath = "/api/feed";
+const resultsPath = "/api/results";
 const cases: [string, string][] = [
   ...filters.flatMap((filter) =>
     Object.entries(scopes).map(

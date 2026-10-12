@@ -67,7 +67,7 @@ import {
 } from "./ThreadTools";
 import { notify } from "./toast";
 import { HandoffSheet, shareLink } from "./Handoff";
-import { EditQueued, type QueuedMessage } from "./Inbox";
+import { EditQueued, type QueuedMessage } from "./Feed";
 import {
   dayLabel,
   mergeActivityRecords,

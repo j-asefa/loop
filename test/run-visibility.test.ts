@@ -14,7 +14,7 @@ const { submit } = await import("../src/server/agent-runtime");
 const { tick, execute } = await import("../src/server/worker");
 const { withTestAdapter } = await import("../src/server/providers");
 const { transition } = await import("../src/server/queue");
-const { feedRevision, feedUpdates } = await import("../src/server/feed");
+const { resultsRevision, resultsUpdates } = await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
 const app = express();
 app.use(express.json(), (req, res, next) => {
@@ -67,7 +67,7 @@ it("exposes failures in conversations and removes unfinished answers from feed u
       return [];
     },
     async *stream() {
-      revision = feedRevision("alice");
+      revision = resultsRevision("alice");
       throw new Problem(422, "Tool input schema is unsupported");
     },
   });
@@ -88,26 +88,26 @@ it("exposes failures in conversations and removes unfinished answers from feed u
     run_state: "failed",
     run_error: "Tool input schema is unsupported",
   });
-  const changes = feedUpdates("alice", { after: revision, through: 0 });
+  const changes = resultsUpdates("alice", { after: revision, through: 0 });
   expect(changes.items).toEqual([]);
   expect(changes.removed).toHaveLength(1);
-  expect((await get("/feed")).items).toEqual([]);
+  expect((await get("/results")).items).toEqual([]);
   expect(
-    (await get("/feed?view=prompts")).items.find(
+    (await get("/results?view=prompts")).items.find(
       (m: any) => m.run_id === run.id,
     ),
   ).toMatchObject({ run_state: "failed" });
   expect(
     await get("/conversations/" + run.conversation_id, "bob"),
   ).toMatchObject({ error: "Item not found" });
-  expect(feedUpdates("bob", { after: 0, through: 0 }).items).toEqual([]);
+  expect(resultsUpdates("bob", { after: 0, through: 0 }).items).toEqual([]);
   // Recovery, cancellation and completion must update state even without a new text chunk.
-  const after = feedRevision("alice");
+  const after = resultsRevision("alice");
   db.prepare("UPDATE runs SET state='cancelled',error=NULL WHERE id=?").run(
     run.id,
   );
-  expect(feedUpdates("alice", { after, through: 0 }).items).toEqual([]);
-  expect(feedUpdates("alice", { after, through: 0 }).removed).toHaveLength(1);
+  expect(resultsUpdates("alice", { after, through: 0 }).items).toEqual([]);
+  expect(resultsUpdates("alice", { after, through: 0 }).removed).toHaveLength(1);
 });
 it("does not mark a provider response with no text or tool call as completed", async () => {
   const run = submit("alice", {

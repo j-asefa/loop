@@ -73,7 +73,7 @@ import {
 } from "./threadView";
 import { notify } from "./toast";
 
-export type InboxFilter =
+export type FeedFilter =
   | "all"
   | "done"
   | "working"
@@ -84,7 +84,7 @@ export type InboxFilter =
   | "outcomes"
   | "unfinished";
 
-export type InboxItem = {
+export type FeedItem = {
   sourceId?: string;
   executionEnvironment?: string;
   conversation_id: string;
@@ -171,7 +171,7 @@ type Brief = {
   updated_at: number;
 };
 
-export const inboxFilters: { id: InboxFilter; label: string }[] = [
+export const feedFilters: { id: FeedFilter; label: string }[] = [
   // Done holds only threads with nothing open; open work has its own chip.
   // What needs you has no chip: it stacks above the row (NeedsStack).
   { id: "done", label: "Done" },
@@ -180,7 +180,7 @@ export const inboxFilters: { id: InboxFilter; label: string }[] = [
   { id: "social", label: "Social" },
 ];
 
-const isSocial = (filter: InboxFilter) => filter === "social";
+const isSocial = (filter: FeedFilter) => filter === "social";
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -191,7 +191,7 @@ const AWAY_AFTER = 30 * 60_000;
  */
 // Run states whose prompt the Feed hides until the agent writes something.
 const awaitingStates = ["running", "pausing", "waiting_children"];
-function InboxCard({
+function FeedCard({
   item,
   agent,
   model,
@@ -205,7 +205,7 @@ function InboxCard({
   dismissLabel = "Remove from Done",
   onLater,
 }: {
-  item: InboxItem;
+  item: FeedItem;
   agent?: EnvironmentAgent;
   model?: string;
   environment?: { kind: ExecutionLocation | null; label: string } | null;
@@ -438,7 +438,7 @@ function AwaySummary({
   onOpen,
   sources,
 }: {
-  onFilter: (filter: InboxFilter) => void;
+  onFilter: (filter: FeedFilter) => void;
   /** Show everything waiting on you (the expanded NeedsStack). */
   onNeeds: () => void;
   onOpen: (conversation: string, sourceId: string) => void;
@@ -478,7 +478,7 @@ function AwaySummary({
             completed: Brief[];
             needs: Brief[];
             failed: Brief[];
-          }>("/inbox/away?since=" + since, source.id),
+          }>("/feed/away?since=" + since, source.id),
         })),
       ).then((settled) => {
         const loaded = settled.flatMap((entry) =>
@@ -791,7 +791,7 @@ function NeedsStack({
   );
 }
 
-export function Inbox({
+export function Feed({
   filter,
   onFilter,
   project,
@@ -813,8 +813,8 @@ export function Inbox({
   onAsk,
   sources,
 }: {
-  filter: InboxFilter;
-  onFilter: (filter: InboxFilter) => void;
+  filter: FeedFilter;
+  onFilter: (filter: FeedFilter) => void;
   project?: string;
   teams?: string;
   revision: number;
@@ -841,7 +841,7 @@ export function Inbox({
 }) {
   const api = useSourceApi();
   const scopedSource = useSourceId();
-  type Shown = { items: InboxItem[]; next: string | null; summary: Summary };
+  type Shown = { items: FeedItem[]; next: string | null; summary: Summary };
   const activeSources =
     sources && !project && !teams && !agent
       ? sources
@@ -850,7 +850,7 @@ export function Inbox({
     activeSources.map((source) => source.id).sort(),
   );
   const shownKey = () =>
-    "inbox:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
+    "feed:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
   // Going back shows the list as you left it while it refreshes.
   const shown = cachedView<Shown>(shownKey());
   // Recorded locations, keyed by source and connection id: ids from
@@ -879,7 +879,7 @@ export function Inbox({
       kind && !source ? executionLocationLabels[kind] : label || null;
     return text ? { kind, label: text } : null;
   };
-  const [items, setItems] = useState<InboxItem[]>(shown?.items || []);
+  const [items, setItems] = useState<FeedItem[]>(shown?.items || []);
   const [summary, setSummary] = useState<Summary | null>(
     shown?.summary || null,
   );
@@ -887,16 +887,16 @@ export function Inbox({
   const [loading, setLoading] = useState(!shown);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [menu, setMenu] = useState<InboxItem | null>(null);
-  const [later, setLater] = useState<InboxItem | null>(null);
+  const [menu, setMenu] = useState<FeedItem | null>(null);
+  const [later, setLater] = useState<FeedItem | null>(null);
   const [editing, setEditing] = useState<QueuedMessage | null>(null);
   const [moving, setMoving] = useState<QueuedMessage | null>(null);
   // Threads waiting on you, whichever filter is shown, for the stack above
   // the filters.
   const needsKey = () =>
-    "inbox-needs:" + JSON.stringify([project, agent, teams, sourceKey]);
-  const [needs, setNeeds] = useState<InboxItem[]>(
-    () => cachedView<InboxItem[]>(needsKey()) || [],
+    "feed-needs:" + JSON.stringify([project, agent, teams, sourceKey]);
+  const [needs, setNeeds] = useState<FeedItem[]>(
+    () => cachedView<FeedItem[]>(needsKey()) || [],
   );
   const [needsOpen, setNeedsOpen] = useState(false);
   const needsRequest = useRef(0);
@@ -905,13 +905,13 @@ export function Inbox({
     const q = new URLSearchParams({
       // Social is not a thread filter; the request only keeps the chip
       // counts current, from the smallest list.
-      filter: isSocial(which as InboxFilter) ? "needs" : which,
+      filter: isSocial(which as FeedFilter) ? "needs" : which,
     });
     if (project) q.set("folder", project);
     if (agent) q.set("agent", agent);
     if (teams) q.set("teams", teams);
     if (before) q.set("before", before);
-    return "/inbox?" + q;
+    return "/feed?" + q;
   };
   const inFlight = useRef(false);
   const sourcePages = useRef<{ key: string; pages: Map<string, Shown> }>({
@@ -927,11 +927,11 @@ export function Inbox({
     const settled = await Promise.allSettled(
       activeSources.map(async (source) => {
         const page = combined
-          ? await apiInWorkspace<{ items: InboxItem[] }>(
+          ? await apiInWorkspace<{ items: FeedItem[] }>(
               query(undefined, "needs"),
               source.id,
             )
-          : await api<{ items: InboxItem[] }>(query(undefined, "needs"));
+          : await api<{ items: FeedItem[] }>(query(undefined, "needs"));
         return combined
           ? page.items.map((item) => ({
               ...item,
@@ -961,7 +961,7 @@ export function Inbox({
     // Loading placeholders belong to the first read of a filter. An empty
     // result is loaded content too; polling must keep its empty state visible.
     try {
-      type Page = { items: InboxItem[]; next: string | null; summary: Summary };
+      type Page = { items: FeedItem[]; next: string | null; summary: Summary };
       let result: Page;
       let partialError = "";
       if (sources && !project && !teams && !agent) {
@@ -1097,7 +1097,7 @@ export function Inbox({
       setItems(cached?.items || []);
       setNext(cached?.next || null);
       setSummary(cached?.summary || null);
-      setNeeds(cachedView<InboxItem[]>(needsKey()) || []);
+      setNeeds(cachedView<FeedItem[]>(needsKey()) || []);
       setLoading(!cached);
     }
     firstLoad.current = false;
@@ -1158,12 +1158,12 @@ export function Inbox({
       setError((e as Error).message);
     }
   }
-  async function dismissDoneCard(item: InboxItem) {
+  async function dismissDoneCard(item: FeedItem) {
     if (filter !== "done" || !item.done_card_key) return;
     try {
       const source = item.sourceId ?? scopedSource;
       await apiInWorkspace(
-        `/inbox/${item.conversation_id}`,
+        `/feed/${item.conversation_id}`,
         source,
         { hidden: true, cardKey: item.done_card_key },
         "PATCH",
@@ -1180,7 +1180,7 @@ export function Inbox({
         text: "Removed from Done.",
         undo: async () => {
           await apiInWorkspace(
-            `/inbox/${item.conversation_id}`,
+            `/feed/${item.conversation_id}`,
             source,
             { hidden: false, cardKey: item.done_card_key },
             "PATCH",
@@ -1193,7 +1193,7 @@ export function Inbox({
       setError((e as Error).message);
     }
   }
-  function markSaved(item: InboxItem, saved: boolean) {
+  function markSaved(item: FeedItem, saved: boolean) {
     setItems((old) =>
       old.map((row) =>
         row.conversation_id === item.conversation_id &&
@@ -1205,7 +1205,7 @@ export function Inbox({
     );
   }
   async function setSavedOnServer(
-    item: InboxItem,
+    item: FeedItem,
     messageId: string,
     saved: boolean,
   ) {
@@ -1222,7 +1222,7 @@ export function Inbox({
    * produced, so Saved shows the one thing once. As in a thread, unsaving
    * waits for the toast to end so Undo keeps the original save.
    */
-  async function toggleSaved(item: InboxItem) {
+  async function toggleSaved(item: FeedItem) {
     const message = item.last_message;
     if (!message) return;
     const saved = !!message.saved;
@@ -1253,7 +1253,7 @@ export function Inbox({
       setError((e as Error).message);
     }
   }
-  function actionsFor(item: InboxItem): Action[] {
+  function actionsFor(item: FeedItem): Action[] {
     const agent = agents.find(
       (a) =>
         a.id === item.agent_id &&
@@ -1395,7 +1395,7 @@ export function Inbox({
     });
     return actions;
   }
-  function card(item: InboxItem, inNeeds = false) {
+  function card(item: FeedItem, inNeeds = false) {
     const source = item.sourceId ?? scopedSource;
     const dismissFailure =
       inNeeds && item.run &&
@@ -1432,7 +1432,7 @@ export function Inbox({
             )
           : undefined;
     return (
-      <InboxCard
+      <FeedCard
         key={`${source}:${item.conversation_id}`}
         item={item}
         agent={agent}
@@ -1484,14 +1484,14 @@ export function Inbox({
           item.next_action?.kind === "answer")
       ),
   );
-  const counts: Partial<Record<InboxFilter, number>> = summary
+  const counts: Partial<Record<FeedFilter, number>> = summary
     ? {
         working: summary.working,
         queued: summary.queued,
         social: summary.social_unread,
       }
     : {};
-  function selectFilter(nextFilter: InboxFilter) {
+  function selectFilter(nextFilter: FeedFilter) {
     setNeedsOpen(false);
     onFilter(nextFilter);
   }
@@ -1544,7 +1544,7 @@ export function Inbox({
           role="tablist"
           aria-label="Show"
         >
-          {inboxFilters.map((f) => (
+          {feedFilters.map((f) => (
             <button
               key={f.id}
               role="tab"

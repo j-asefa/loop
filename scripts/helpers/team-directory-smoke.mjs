@@ -100,7 +100,7 @@ export async function teamDirectorySmoke(page, fixture, team) {
     const loaded = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/api/feed" &&
+        url.pathname === "/api/results" &&
         url.searchParams.get("teams") === team.id
       );
     });

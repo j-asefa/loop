@@ -5,7 +5,7 @@ import { db, now } from "./db.js";
 import { unseal } from "./secrets.js";
 import type { Connection } from "../shared/types.js";
 import { localEmbeddings, localModel } from "./local-embeddings.js";
-import { traceArtifactSql } from "./feed.js";
+import { traceArtifactSql } from "./results.js";
 export type SearchDoc = {
   id: string;
   owner_id: string;

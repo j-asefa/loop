@@ -621,7 +621,7 @@ export async function tracesJourney(page, api, base, dir) {
     // Its final publication assertions should test projections, not the
     // shared fixture user's per-minute API rate limit.
     db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(owner);
-    const feed = await api("/feed");
+    const feed = await api("/results");
     assert.equal(
       feed.items[0].id,
       artifact,

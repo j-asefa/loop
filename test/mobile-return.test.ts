@@ -157,7 +157,7 @@ it("remembers where you stopped reading a thread, per owner", async () => {
   view = await api(w.owner, `/conversations/${cid}`);
   expect(view.data.position_message_id).toBe(prompt);
   expect(
-    (await api(w.owner, "/inbox")).data.items.find(
+    (await api(w.owner, "/feed")).data.items.find(
       (i: any) => i.conversation_id === cid,
     ).position_message_id,
   ).toBe(prompt);
@@ -226,7 +226,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     ).status,
   ).toBe(201);
 
-  const all = await api(w.owner, "/inbox");
+  const all = await api(w.owner, "/feed");
   const ids = all.data.items.map((i: any) => i.conversation_id);
   expect(ids).toHaveLength(3);
   expect(ids).not.toContain(snoozed);
@@ -252,7 +252,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   );
   expect(workingItem.run).toMatchObject({ id: wr, state: "running" });
   const filter = async (name: string) =>
-    (await api(w.owner, "/inbox?filter=" + name)).data.items.map(
+    (await api(w.owner, "/feed?filter=" + name)).data.items.map(
       (i: any) => i.conversation_id,
     );
   expect(await filter("needs")).toEqual([needs]);
@@ -275,7 +275,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   // only what the new run has produced.
   db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(second);
   const items = async (name: string) =>
-    (await api(w.owner, "/inbox?filter=" + name)).data.items;
+    (await api(w.owner, "/feed?filter=" + name)).data.items;
   const doneCard = (await items("done")).find(
     (i: any) => i.conversation_id === followUp,
   );
@@ -335,12 +335,12 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   const other = conversation(w.owner, b.id, "Other agent");
   message(w.owner, other, "user", "Hi", run(w.owner, b.id, other));
   const byAgent = async (agent: string) =>
-    (await api(w.owner, "/inbox?agent=" + agent)).data.items?.map(
+    (await api(w.owner, "/feed?agent=" + agent)).data.items?.map(
       (i: any) => i.conversation_id,
     );
   expect(await byAgent(b.id)).toEqual([other]);
   expect(await byAgent(a.id)).not.toContain(other);
-  expect((await api(workspaceFor().owner, "/inbox?agent=" + a.id)).status).toBe(404);
+  expect((await api(workspaceFor().owner, "/feed?agent=" + a.id)).status).toBe(404);
   // Dismissing the failure removes it from needs.
   db.prepare("UPDATE runs SET attention_dismissed_at=1 WHERE id=?").run(nr);
   expect(await filter("needs")).toEqual([]);
@@ -352,36 +352,36 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   // Surfacing brings the snoozed conversation back to "all".
   surfaceLater(now() + 7200000);
   expect(await filter("all")).toContain(snoozed);
-  expect((await api(w.owner, "/inbox")).data.summary.later_due).toBe(1);
+  expect((await api(w.owner, "/feed")).data.summary.later_due).toBe(1);
   // Pagination: 45 conversations page as 40 + 5.
   const p = workspaceFor(),
     pa = p.agent();
   for (let i = 0; i < 45; i++)
     message(p.owner, conversation(p.owner, pa.id), "user", "x" + i);
-  const page = await api(p.owner, "/inbox");
+  const page = await api(p.owner, "/feed");
   expect(page.data.items).toHaveLength(40);
-  const rest = await api(p.owner, "/inbox?before=" + page.data.next);
+  const rest = await api(p.owner, "/feed?before=" + page.data.next);
   expect(rest.data.items).toHaveLength(5);
   expect(rest.data.next).toBeNull();
   expect(
     new Set([...page.data.items, ...rest.data.items].map((i: any) => i.conversation_id)).size,
   ).toBe(45);
   // Done pages by when each output finished.
-  const donePage = await api(p.owner, "/inbox?filter=done");
+  const donePage = await api(p.owner, "/feed?filter=done");
   expect(donePage.data.items).toHaveLength(40);
   const doneRest = await api(
     p.owner,
-    "/inbox?filter=done&before=" + donePage.data.next,
+    "/feed?filter=done&before=" + donePage.data.next,
   );
   expect(doneRest.data.items).toHaveLength(5);
-  expect((await api("intruder", "/inbox")).data.items).toEqual([]);
-  expect((await api(w.owner, "/inbox?filter=bogus")).status).toBe(400);
-  expect((await api(w.owner, "/inbox?filter=unread")).status).toBe(400);
-  const away = await api(w.owner, "/inbox/away?since=0");
+  expect((await api("intruder", "/feed")).data.items).toEqual([]);
+  expect((await api(w.owner, "/feed?filter=bogus")).status).toBe(400);
+  expect((await api(w.owner, "/feed?filter=unread")).status).toBe(400);
+  const away = await api(w.owner, "/feed/away?since=0");
   expect(away.data.completed.map((b: any) => b.run_id)).toContain(dr);
   expect(away.data.completed.map((b: any) => b.run_id)).not.toContain(cr);
   expect(away.data.failed.map((b: any) => b.run_id)).toEqual([nr]);
-  expect((await api("intruder", "/inbox/away?since=0")).data).toEqual({
+  expect((await api("intruder", "/feed/away?since=0")).data).toEqual({
     completed: [],
     needs: [],
     failed: [],
@@ -394,16 +394,16 @@ it("dismisses only the selected Done card, with exact-card retry and Undo", asyn
   const first = run(w.owner, a.id, cid, "completed");
   const answer = message(w.owner, cid, "assistant", "First result", first);
   await api(w.owner, `/messages/${answer}/saved`, "POST");
-  const page = async (filter: string) => (await api(w.owner, "/inbox?filter=" + filter)).data;
+  const page = async (filter: string) => (await api(w.owner, "/feed?filter=" + filter)).data;
   const card = (await page("done")).items[0];
   expect(card.done_card_key).toBe("run:" + first);
   const dismiss = (hidden: boolean, cardKey = card.done_card_key, owner: string = w.owner, conversationId = cid) =>
-    api(owner, `/inbox/${conversationId}`, "PATCH", { hidden, cardKey });
+    api(owner, `/feed/${conversationId}`, "PATCH", { hidden, cardKey });
 
   expect((await dismiss(true, card.done_card_key, "intruder")).status).toBe(404);
   const other = conversation(w.owner, a.id);
   expect((await dismiss(true, card.done_card_key, w.owner, other)).status).toBe(404);
-  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true })).status).toBe(400);
+  expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true })).status).toBe(400);
   expect((await dismiss(true)).status).toBe(200);
   expect((await dismiss(true)).status).toBe(200);
   expect((await page("done")).items).toEqual([]);
@@ -443,8 +443,8 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
     db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
     const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
     const before = await Promise.all(filters.map(async (filter) =>
-      (await api(w.owner, "/inbox?filter=" + filter)).data));
-    const done = (await api(w.owner, "/inbox?filter=done")).data;
+      (await api(w.owner, "/feed?filter=" + filter)).data));
+    const done = (await api(w.owner, "/feed?filter=done")).data;
     expect(done.items[0].done_card_key).toBe("run:" + first);
     const working = ["running", "pausing", "waiting_children"].includes(state);
     expect(done.summary).toMatchObject({
@@ -452,16 +452,16 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
       queued: state === "queued" ? 1 : 0,
       needs: ["paused", "awaiting_approval", "failed", "interrupted"].includes(state) ? 1 : 0,
     });
-    expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
-    expect((await api(w.owner, "/inbox?filter=done")).data).toMatchObject({ items: [], summary: done.summary });
+    expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
+    expect((await api(w.owner, "/feed?filter=done")).data).toMatchObject({ items: [], summary: done.summary });
     for (const [index, filter] of filters.entries()) {
-      expect((await api(w.owner, "/inbox?filter=" + filter)).data).toEqual(before[index]);
+      expect((await api(w.owner, "/feed?filter=" + filter)).data).toEqual(before[index]);
     }
-    expect((await api("intruder", "/inbox?filter=working")).data.items).toEqual([]);
+    expect((await api("intruder", "/feed?filter=working")).data.items).toEqual([]);
     expect(db.prepare("SELECT state FROM runs WHERE id=?").get(active)).toEqual({ state: state === "waiting_children" ? "running" : state });
     db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(active);
     message(w.owner, cid, "assistant", "New result", active);
-    expect((await api(w.owner, "/inbox?filter=done")).data.items[0].done_card_key).toBe("run:" + active);
+    expect((await api(w.owner, "/feed?filter=done")).data.items[0].done_card_key).toBe("run:" + active);
   },
 );
 
@@ -469,13 +469,13 @@ it("dismisses a message-only Done card without suppressing later imported messag
   const w = workspaceFor(), a = w.agent();
   const cid = conversation(w.owner, a.id, "Imported history");
   const first = message(w.owner, cid, "assistant", "Imported answer");
-  const key = (await api(w.owner, "/inbox?filter=done")).data.items[0].done_card_key;
+  const key = (await api(w.owner, "/feed?filter=done")).data.items[0].done_card_key;
   expect(key).toBe("message:" + first);
-  expect((await api(w.owner, `/inbox/${cid}`, "PATCH", { hidden: true, cardKey: key })).status).toBe(200);
-  expect((await api(w.owner, "/inbox?filter=done")).data.items).toEqual([]);
-  expect((await api(w.owner, "/inbox")).data.items[0].last_message.id).toBe(first);
+  expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: key })).status).toBe(200);
+  expect((await api(w.owner, "/feed?filter=done")).data.items).toEqual([]);
+  expect((await api(w.owner, "/feed")).data.items[0].last_message.id).toBe(first);
   const second = message(w.owner, cid, "assistant", "Next imported answer");
-  expect((await api(w.owner, "/inbox?filter=done")).data.items[0].done_card_key).toBe("message:" + second);
+  expect((await api(w.owner, "/feed?filter=done")).data.items[0].done_card_key).toBe("message:" + second);
 });
 
 it("heads Working cards with the active task's prompt instead of the thread's first prompt or newer queued input", async () => {
@@ -497,7 +497,7 @@ it("heads Working cards with the active task's prompt instead of the thread's fi
   // Steering belongs to this run, but did not start it.
   message(w.owner, cid, "user", "Mention the reproduction in the PR", active);
   const card = async (filter: string) =>
-    (await api(w.owner, "/inbox?filter=" + filter)).data.items.find(
+    (await api(w.owner, "/feed?filter=" + filter)).data.items.find(
       (i: any) => i.conversation_id === cid,
     );
   for (const state of ["running", "pausing", "waiting_children"]) {
@@ -541,7 +541,7 @@ it("heads a Done card with the prompt its answer replies to, not the thread's fi
   message(w.owner, cid, "user", " Yes, push\nto main ", latest);
   message(w.owner, cid, "assistant", "Pushed.", latest);
   const card = async (filter: string) =>
-    (await api(w.owner, "/inbox?filter=" + filter)).data.items.find(
+    (await api(w.owner, "/feed?filter=" + filter)).data.items.find(
       (i: any) => i.conversation_id === cid,
     );
   for (const filter of ["done", "all"])
@@ -572,7 +572,7 @@ it("shows a working agent's output so far on its feed card", async () => {
   // The answer placeholder is empty while the agent works.
   message(w.owner, cid, "assistant", "", live);
   const card = async () =>
-    (await api(w.owner, "/inbox")).data.items.find(
+    (await api(w.owner, "/feed")).data.items.find(
       (i: any) => i.conversation_id === cid,
     );
   expect((await card()).live_preview).toBeNull();
@@ -682,7 +682,7 @@ it("says on a feed card whether its latest message is saved", async () => {
   message(w.owner, cid, "user", "Find a cheaper CI", r);
   const answer = message(w.owner, cid, "assistant", "Here are the options", r);
   const card = async () =>
-    (await api(w.owner, "/inbox")).data.items.find(
+    (await api(w.owner, "/feed")).data.items.find(
       (i: any) => i.conversation_id === cid,
     );
   expect((await card()).last_message).toMatchObject({
@@ -701,7 +701,7 @@ it("says on a feed card whether its latest message is saved", async () => {
   await api(w.owner, `/messages/${answer}/saved`, "POST");
   expect((await card()).last_message.saved).toBe(true);
   // Another owner's save is not this owner's.
-  expect((await api("intruder", "/inbox")).data.items).toEqual([]);
+  expect((await api("intruder", "/feed")).data.items).toEqual([]);
 });
 
 it("scopes the Saved list to a project and to teams like the results feed", async () => {
@@ -1210,7 +1210,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   expect((await api(w.owner, `/runs/${third.id}`, "PATCH", { input: "" })).status).toBe(400);
   // The inbox offers only the moves a reorder can make.
   const moves = async (conversationId: string) => {
-    const item = (await api(w.owner, "/inbox?filter=queued")).data.items.find(
+    const item = (await api(w.owner, "/feed?filter=queued")).data.items.find(
       (i: any) => i.conversation_id === conversationId,
     );
     expect(item.run.state).toBe("queued");
@@ -1219,7 +1219,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   // Turns in one thread keep their order, so the newest has nothing to swap.
   expect(await moves(cid)).toEqual({ up: false, down: false });
   // Queued follow-ups are listed separately with their own controls.
-  const listed = (await api(w.owner, "/inbox?filter=queued")).data.items.find(
+  const listed = (await api(w.owner, "/feed?filter=queued")).data.items.find(
     (i: any) => i.conversation_id === cid,
   ).queued_runs;
   expect(listed.map((r: any) => r.id)).toEqual([first.id, second.id, third.id]);
@@ -1228,7 +1228,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   // every character.
   const long = "Step " + "x".repeat(714);
   await api(w.owner, `/runs/${second.id}`, "PATCH", { input: long });
-  const shown = (await api(w.owner, "/inbox?filter=queued")).data.items
+  const shown = (await api(w.owner, "/feed?filter=queued")).data.items
     .find((i: any) => i.conversation_id === cid)
     .queued_runs.find((r: any) => r.id === second.id).input;
   expect(shown).toHaveLength(719);
@@ -1267,7 +1267,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
         .all(a.id) as { id: string }[]
     ).map((r) => r.id);
   expect(order()).toEqual([first.id, second.id, other.id, third.id]);
-  const positions = (await api(w.owner, "/inbox?filter=queued")).data.items.find(
+  const positions = (await api(w.owner, "/feed?filter=queued")).data.items.find(
     (i: any) => i.conversation_id === cid,
   ).run;
   // The other thread's message moved ahead of this thread's newest one.
@@ -1303,7 +1303,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   db.prepare("INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')").run(first.id, checkpointMessage, checkpointArtifact);
   expect((await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" })).status).toBe(409);
   expect(
-    (await api(w.owner, "/inbox?filter=queued")).data.items
+    (await api(w.owner, "/feed?filter=queued")).data.items
       .find((i: any) => i.conversation_id === cid)
       .queued_runs.find((r: any) => r.id === first.id).can_edit,
   ).toBe(false);

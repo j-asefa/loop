@@ -46,7 +46,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     const loaded = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/api/feed" &&
+        url.pathname === "/api/results" &&
         url.searchParams.get("agent") === agent.id
       );
     });

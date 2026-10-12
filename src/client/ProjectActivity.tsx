@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { ArtifactCard, Empty } from "./components";
-import { FeedPager, type FeedPage, type FeedUpdates } from "./feed";
+import { ResultsPager, type ResultsPage, type ResultsUpdates } from "./results";
 import type { Agent, Artifact, Connection } from "../shared/types";
 
 type ProjectOutput = Artifact & { cursor: number };
@@ -40,7 +40,7 @@ function ProjectActivityFeed({
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   const request = useRef(0);
-  const pager = useRef(new FeedPager<ProjectOutput>());
+  const pager = useRef(new ResultsPager<ProjectOutput>());
   async function load(more = false) {
     const ticket = ++request.current;
     setLoading(true);
@@ -54,13 +54,13 @@ function ProjectActivityFeed({
         (before) => {
           const params = query();
           if (before !== null) params.set("before", String(before));
-          return api<FeedPage<ProjectOutput>>(`/feed?${params}`);
+          return api<ResultsPage<ProjectOutput>>(`/results?${params}`);
         },
         (after, through) => {
           const params = query();
           params.set("after", String(after));
           params.set("through", String(through));
-          return api<FeedUpdates<ProjectOutput>>(`/feed/updates?${params}`);
+          return api<ResultsUpdates<ProjectOutput>>(`/results/updates?${params}`);
         },
       );
       // The pager serializes refreshes with appends and discards stale scopes.

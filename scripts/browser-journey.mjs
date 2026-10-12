@@ -283,7 +283,7 @@ try {
   await page.getByRole("button", { name: "Undo", exact: true }).waitFor();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await closeSheets(page);
-  const feed = await api("/feed"),
+  const feed = await api("/results"),
     artifact = feed.items.find((x) => x.title === "Explain bids precisely");
   await api("/artifacts/" + artifact.id + "/move", { folderId: child.id });
   const search = await api("/search?q=resting&folder=" + child.id);

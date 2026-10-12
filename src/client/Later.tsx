@@ -87,7 +87,7 @@ export function showLater(section: LaterSection, focusId?: string) {
   );
 }
 
-// Every Later item is a full-size card, matching result and inbox cards.
+// Every Later item is a full-size card, matching result and Feed cards.
 function Card({
   agentName,
   provider,
