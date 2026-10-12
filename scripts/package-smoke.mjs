@@ -29,6 +29,11 @@ try {
     project = join(base, "project with spaces 漢字");
   await mkdir(target);
   await mkdir(project);
+  // Native agents execute in isolated checkouts of committed project files.
+  await exec("git", ["init", project]);
+  writeFileSync(join(project, "tracked.txt"), "Package fixture\n");
+  await exec("git", ["-C", project, "add", "tracked.txt"]);
+  await exec("git", ["-C", project, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-m", "initial"]);
   await exec(
     "npm",
     [

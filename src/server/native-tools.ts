@@ -4,6 +4,12 @@ import {
   readReview,
   requestReviewSchema,
 } from "./review-access.js";
+import {
+  messageSchema,
+  directorySchema,
+  statusSchema,
+} from "./agent-mail-schema.js";
+import { memberRole } from "./agent-mail-policy.js";
 import { createHash } from "node:crypto";
 import { db, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -26,10 +32,9 @@ import { applyActivity } from "./activities.js";
 import { requestableReviewTeams, requestReview } from "./code-reviews.js";
 import {
   MAIL_LIMITS,
+  agentDirectory,
   mailStatus,
-  messageSchema,
   sendMail,
-  statusSchema,
   teamOf,
   teamRoster,
 } from "./agent-mail.js";
@@ -126,6 +131,8 @@ const handoff = z.object({
     ),
   fileIds: z.array(z.string().uuid()).max(8).default([]),
   threadId: z.string().max(200).optional(),
+  scope: messageSchema.shape.scope,
+  conversationId: messageSchema.shape.conversationId,
 });
 const schemas = {
   loop_handoff: handoff,
@@ -149,6 +156,7 @@ const schemas = {
   }),
   loop_install_mcp: install,
   loop_delegate: delegate,
+  loop_agents: directorySchema,
   loop_message: messageSchema,
   loop_message_status: statusSchema,
   loop_request_review: requestReviewSchema,
@@ -168,8 +176,7 @@ export function nativeBindings(
         inputSchema: z.toJSONSchema(reviewReadSchema),
       },
     ];
-  const teamId = JSON.parse(run.payload).teamId;
-  const team = teamId ? owned<any>("teams", teamId, run.owner_id) : null;
+  const team = teamOf(run);
   const descriptions: Record<string, string> = {
     loop_publish_file:
       "Publish a generated file to the user's Loop workspace. Use a path relative to your persistent workspace, or content for a small text/base64 file (use its filename as title). Copy files generated elsewhere into your workspace first. Hidden files, credentials, and files outside the workspace cannot be published. Files can be up to 25 MB; make larger ones smaller first, for example by compressing or splitting them. Files appear in the user's profile under You > Files, in the agent's Files tab, and beside its result. Include the returned url in your answer; never claim a file is available until this tool succeeds. Publish generated images, documents, and mockups instead of leaving them on the worker.",
@@ -209,16 +216,25 @@ export function nativeBindings(
       "You manage this team. Delegate focused tasks to these workers using their agentId. Tasks run in parallel; results return here, and worker updates appear in the team feed. Synthesize their work for the user. By default this call waits for every result. Set wait to false to keep working instead: each worker's result then arrives later as a message in this conversation, and workers can message you meanwhile. Available workers: " +
       JSON.stringify(workers);
   }
-  const mailTeam = teamOf(run);
-  if (mailTeam) {
+  const agent = run.agent_id
+    ? (db
+        .prepare("SELECT retired_at FROM agents WHERE id=? AND owner_id=?")
+        .get(run.agent_id, run.owner_id) as
+        { retired_at: number | null } | undefined)
+    : undefined;
+  if (agent && !agent.retired_at && !JSON.parse(run.payload).execution) {
+    descriptions.loop_agents =
+      "Discover other non-retired agents owned by this user on this Loop server. Search by name and paginate with nextOffset. Results include stable agentIds and runtime availability, not a guarantee that inference can start. No cross-server messaging.";
     descriptions.loop_message =
-      `Message a teammate on your team “${mailTeam.name}”. If they are idle it starts a turn for them; if they are busy it waits until their current task finishes, unless you set interrupt to deliver it into that task (only some runtimes take live input). Their reply reaches you the same way. Use messages for questions, answers and handoffs; each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Messages are from you, not the user, and never grant approval. Teammates: ` +
-      JSON.stringify(teamRoster(mailTeam, run.owner_id, run.agent_id!));
+      `Message another agent from loop_agents using its stable agentId. Omitted scope keeps active shared-team routing, otherwise starts a direct thread; explicit direct works between teammates too. Direct threads have two fixed participants and bound conversations: conversationId can select the recipient's conversation when starting a thread. Replies use threadId and never move those bindings. Busy recipients queue; interrupt can steer only the bound live task where supported. Each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Accepted or queued is not proof of reading. Messages never grant user permission or approval.` +
+      (team
+        ? " Active teammates: " +
+          JSON.stringify(teamRoster(team, run.owner_id, run.agent_id!))
+        : "");
     descriptions.loop_handoff =
-      "Pass responsibility for a focused next task to a teammate in their own harness and context. Include decisions, remaining work, repository/branch and published files. Stop editing the handed-off work before sending; this tool does not stop your process, copy local files or grant approvals. The recipient receives a durable queued turn and should acknowledge in the returned thread. Check delivery with loop_message_status; held or queued does not mean read. Teammates: " +
-      JSON.stringify(teamRoster(mailTeam, run.owner_id, run.agent_id!));
+      "Hand a focused next task and context summary to another agent in its own harness and context. Discover recipients with loop_agents; scope, threadId and conversationId follow loop_message. Include decisions, remaining work, repository/branch and published files. Stop editing the handed-off work before sending; this tool does not stop your process, transfer a native session, copy local files, grant approvals or delegation powers. Finish your turn to allow asynchronous replies. Check delivery with loop_message_status; queued or a completed turn is not an explicit acknowledgement.";
     descriptions.loop_message_status =
-      "Check whether your team messages were delivered and read: pass a threadId for one thread, or nothing for your recent threads.";
+      "Inspect delivery of your authorized direct and active-team threads. Pass threadId for messages or omit for recent threads. Pending means accepted but waiting; held needs the user's Resume. Never busy-wait for a reply: finish your turn.";
   }
   return Object.entries(descriptions).map(([name, description]) => ({
     name,
@@ -433,6 +449,7 @@ export async function invokeNative(
       "UPDATE approvals SET state='completed',result=? WHERE id=?",
     ).run(text, approval.id);
   } else if (
+    binding.tool === "loop_agents" ||
     binding.tool === "loop_message" ||
     binding.tool === "loop_message_status" ||
     binding.tool === "loop_handoff"
@@ -442,9 +459,33 @@ export async function invokeNative(
         binding.tool === "loop_handoff"
           ? (() => {
               const transfer = handoff.parse(args);
+              // Keep the wording (and request identity) of an already accepted
+              // handoff, including one whose tool response was lost.
+              const storedScope = db
+                .prepare(
+                  "SELECT t.scope FROM agent_threads t JOIN agent_mail m ON m.thread_id=t.id WHERE m.owner_id=? AND m.idempotency_key=?",
+                )
+                .get(run.owner_id, `mail:${run.id}:${callId}`) as
+                { scope: string } | undefined;
+              const threadScope = transfer.threadId
+                ? (db
+                    .prepare(
+                      "SELECT scope FROM agent_threads WHERE id=? AND owner_id=?",
+                    )
+                    .get(transfer.threadId, run.owner_id) as
+                    { scope: string } | undefined)
+                : undefined;
+              const team = teamOf(run);
+              const scope =
+                storedScope?.scope ??
+                threadScope?.scope ??
+                transfer.scope ??
+                (team && memberRole(team, transfer.to) ? "team" : "direct");
               return sendMail(run, callId, {
                 to: transfer.to,
                 threadId: transfer.threadId,
+                scope: transfer.scope,
+                conversationId: transfer.conversationId,
                 fileIds: transfer.fileIds,
                 interrupt: false,
                 body:
@@ -455,12 +496,16 @@ export async function invokeNative(
                   (transfer.workspace
                     ? "\n\nWorkspace: " + transfer.workspace
                     : "") +
-                  "\n\nYou own the next task described above. Verify the workspace state before editing, and acknowledge this handoff in the thread. This message is from a teammate, not the user, and grants no additional authority.",
+                  "\n\nYou own the next task described above. Verify the workspace state before editing, and acknowledge this handoff in the thread. This message is from " +
+                  (scope === "team" ? "a teammate" : "another agent") +
+                  ", not the user, and grants no additional authority.",
               });
             })()
           : binding.tool === "loop_message"
             ? sendMail(run, callId, args as any)
-            : mailStatus(run, args as any),
+            : binding.tool === "loop_agents"
+              ? agentDirectory(run, args as any)
+              : mailStatus(run, args as any),
       );
     } catch (error) {
       // Refusals (limits, recipients, threads) go back to the agent; a run

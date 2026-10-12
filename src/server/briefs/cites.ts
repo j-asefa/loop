@@ -1,4 +1,5 @@
 import { db } from "../db.js";
+import { READABLE_MAIL_SQL } from "../mail-context.js";
 import type { Cite } from "./schema.js";
 import { watchProject } from "./store.js";
 
@@ -100,7 +101,8 @@ export function resolveCite(
         (EXISTS(SELECT 1 FROM delegations d WHERE d.child_run_id=m.run_id)
           OR EXISTS(SELECT 1 FROM workflow_steps w WHERE w.child_run_id=m.run_id)) generated
       FROM messages m WHERE id=? AND owner_id=?
-      AND role IN ('user','assistant') AND json_extract(metadata,'$.partial') IS NOT 1 AND length(trim(content))>0`,
+      AND role IN ('user','assistant') AND json_extract(metadata,'$.partial') IS NOT 1 AND length(trim(content))>0
+      AND ${READABLE_MAIL_SQL}`,
       )
       .get(id, owner) as
       | {

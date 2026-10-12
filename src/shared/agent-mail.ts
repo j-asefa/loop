@@ -1,5 +1,5 @@
 // Messages Loop submits on your behalf, not typed by you: a watched pull
-// request, a Social feed digest, or a teammate agent's message or delegated
+// request, a Social feed digest, or another agent's message or delegated
 // result.
 export type Automation =
   | { kind: "github_watch"; watchId: string }
@@ -18,13 +18,14 @@ export function automationLabel(
 ) {
   if (kind === "github_watch") return "GitHub update";
   if (kind === "feed_digest") return "Feed digest";
-  const from = fromName ? `@${fromName}` : "a teammate";
+  const from = fromName ? `@${fromName}` : "another agent";
   if (kind === "agent_message") return `Message from ${from}`;
   if (kind === "agent_result") return `Result from ${from}`;
   return "You";
 }
 
 export type MailStatus =
+  | "pending"
   | "held"
   | "not_delivered"
   | "steering"
@@ -38,6 +39,7 @@ export type MailStatus =
   | "interrupted";
 
 export const MAIL_STATUS_LABELS: Record<MailStatus, string> = {
+  pending: "Waiting for recipient availability",
   held: "Held: thread paused",
   not_delivered: "Not delivered",
   steering: "Waiting to be read mid-task",

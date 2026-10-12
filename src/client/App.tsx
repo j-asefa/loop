@@ -30,6 +30,7 @@ import { ProjectFiles } from "./ProjectFiles";
 import { ProjectActivity } from "./ProjectActivity";
 import { ProjectSearchResults, Projects } from "./Projects";
 import { Traces } from "./Traces";
+import { AgentMailThreads } from "./AgentMail";
 import { AgentMessages } from "./AgentMessages";
 import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
 import { restoreScroll, usePageHistory } from "./usePageHistory";
@@ -1838,18 +1839,12 @@ export default function App() {
                 setFeedHomeKey((key) => key + 1);
               }
               requestAnimationFrame(() =>
-                // Let the newly selected Feed settle its layout before WebKit
-                // starts the smooth scroll; changing height cancels that scroll.
-                requestAnimationFrame(() =>
-                  window.scrollTo({
-                    top: 0,
-                    behavior: window.matchMedia(
-                      "(prefers-reduced-motion: reduce)",
-                    ).matches
-                      ? "instant"
-                      : "smooth",
-                  }),
-                ),
+                window.scrollTo({
+                  top: 0,
+                  // WebKit can cancel a smooth scroll during this touch
+                  // sequence while the Feed is being remounted.
+                  behavior: "instant",
+                }),
               );
             }
             setTab(t.id);
@@ -2667,6 +2662,7 @@ export default function App() {
                   ["all", "Results"],
                   ["threads", "Threads"],
                   ["messages", "Messages"],
+                  ["mail", "Agent mail"],
                   ["files", "Files"],
                   ["traces", "Traces"],
                 ].map(([v, label]) => (
@@ -2864,6 +2860,18 @@ export default function App() {
               }}
               onAgent={setProfile}
               onChanged={() => void changed()}
+            />
+          )}
+          {profile && view === "mail" && (
+            <AgentMailThreads
+              target={{ kind: "agent", id: profile.id }}
+              ownerKey={session?.user?.id || ""}
+              sourceId={executionSourceId()}
+              agents={data.agents}
+              onOpenConversation={(id, source) =>
+                setConversation(id, undefined, source)
+              }
+              onChanged={() => void bootstrap()}
             />
           )}
           {profile && view === "messages" && (
@@ -3723,12 +3731,14 @@ export default function App() {
       {teamMessages && (
         <TeamMessages
           team={teamMessages}
+          ownerKey={session?.user?.id || ""}
+          sourceId={executionSourceId()}
           agents={data.agents}
           onClose={() => setTeamMessages(null)}
-          onOpenConversation={(id) => {
+          onOpenConversation={(id, source) => {
             setTeamMessages(null);
             setTab("feed");
-            setConversation(id);
+            setConversation(id, undefined, source);
           }}
           onChanged={() => void bootstrap()}
         />

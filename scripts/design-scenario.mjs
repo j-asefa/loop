@@ -1,3 +1,4 @@
+import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
 import { briefSmoke } from "./helpers/brief-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
@@ -67,6 +68,7 @@ const scenarios = {
     await expect(input).toHaveValue("");
     await expect(page.locator(".search-result")).toHaveCount(0);
   },
+  "agent-mail": agentMailSmoke,
   "main-composer-keyboard": (p, f, e, c) => mainComposerKeyboardSmoke(p, f, c),
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
   "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),

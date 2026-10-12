@@ -67,6 +67,7 @@ export class Codex implements Adapter {
   private skills: { name: string; path: string }[] = [];
   private thread = "";
   private turn = "";
+  private turnRevision = 0;
   private tokenTotal?: Tokens;
   private tokenBaseline?: Tokens;
   private requests = new Map<string, any>();
@@ -316,6 +317,7 @@ export class Codex implements Adapter {
         );
     }
     this.tokenBaseline = this.tokenTotal;
+    const revision = this.turnRevision;
     const r = await this.native.request("turn/start", {
       threadId: this.thread,
       ...(this.options.model || this.defaultModel
@@ -334,8 +336,10 @@ export class Codex implements Adapter {
       ],
     });
     this.displayControls.confirmNextTurn();
-    // turn/started may arrive before its response; never overwrite a finished turn's state.
-    if (!this.turn && r.turn.status === "inProgress") this.turn = r.turn.id;
+    // Lifecycle notifications can finish the turn before this response resumes
+    // our await. The response must not resurrect that completed native turn.
+    if (this.turnRevision === revision && !this.turn && r.turn.status === "inProgress")
+      this.turn = r.turn.id;
   }
   async steer(text: string) {
     if (!this.turn) {
@@ -594,6 +598,7 @@ export class Codex implements Adapter {
       return;
     }
     if (m.method === "turn/started") {
+      this.turnRevision++;
       if (this.turn !== p.turn.id) this.tokenBaseline = this.tokenTotal;
       this.turn = p.turn.id;
       this.emit({ type: "status", status: "running" });
@@ -631,6 +636,7 @@ export class Codex implements Adapter {
       });
     }
     if (m.method === "turn/completed") {
+      this.turnRevision++;
       this.turn = "";
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });

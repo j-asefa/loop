@@ -1,3 +1,4 @@
+import { queuedMailFailure, queuedMailReady } from "./agent-mail-policy.js";
 import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
@@ -86,10 +87,23 @@ export function claim(
       // Since this can run out of enqueue order, check every active lease too.
       // Background delegations (wait:false) block no one: their manager keeps
       // working and receives each result as a message.
+      // Refuse obsolete mail even when another conversation would prevent its
+      // claim. Otherwise it can remain a permanent queue barrier.
+      const mailRuns = db.prepare(
+        `SELECT DISTINCT r.* FROM agent_mail m JOIN runs r ON ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id) AND m.owner_id=r.owner_id
+         WHERE r.state='queued' AND r.worker_id IS NULL
+         AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
+         AND NOT EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=r.id)`,
+      ).all() as Run[];
+      for (const queued of mailRuns) {
+        const failure = queuedMailFailure(queued.id);
+        if (failure) transition(queued, "cancelled", { message: failure });
+      }
       const candidates = db
         .prepare(
           `WITH candidates AS (
  SELECT runs.rowid AS queue_order, runs.*,
+   (json_extract(runs.payload,'$.mailId') IS NOT NULL OR EXISTS(SELECT 1 FROM agent_mail m WHERE (m.run_id=runs.id AND m.steering_id IS NULL) OR m.requeued_run_id=runs.id)) AS is_mail,
    EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(runs.payload,'$.connectionId')
      AND c.owner_id=runs.owner_id AND ${NATIVE_CONNECTION_SQL}) AS per_conversation
  FROM runs
@@ -97,15 +111,15 @@ export function claim(
 )
 SELECT r.* FROM candidates r WHERE
  ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id AND d.background=0))))
- AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.agent_id=r.agent_id AND (busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL)
- AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.agent_id=r.agent_id AND (older.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT older.per_conversation) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
+ AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.owner_id=r.owner_id AND busy.agent_id=r.agent_id AND (r.is_mail OR busy.is_mail OR busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND ((busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL) OR ((r.is_mail OR busy.is_mail) AND busy.state IN ('running','pausing','paused','awaiting_approval'))))
+ AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.owner_id=r.owner_id AND older.agent_id=r.agent_id AND (r.is_mail OR older.conversation_id=r.conversation_id OR NOT r.per_conversation OR (NOT older.is_mail AND NOT older.per_conversation)) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id AND delegated.background=0) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id AND waiting.background=0)))))
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
  ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`,
         )
         .all() as Run[];
-      const run = candidates.find(available);
+      const run = candidates.find((candidate) => queuedMailReady(candidate) && available(candidate));
       if (!run) return;
       const state = run.state === "pausing" ? "pausing" : "running";
       db.prepare(

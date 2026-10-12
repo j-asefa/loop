@@ -834,9 +834,15 @@ test("loop acp refuses a relative or missing executable with setup guidance", as
   }
 });
 
-test("loop start --direct pairs without enabling a harness, reuses the host and survives restart", async () => {
+test("loop start --direct pairs with no installed harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
+    // Automatic discovery must not depend on this machine's signed-in CLIs.
+    const unavailable = join(w.dir, "unavailable-runtimes");
+    await mkdir(unavailable, { recursive: true });
+    for (const name of ["codex", "claude", "pi", "opencode"])
+      await writeFile(join(unavailable, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
+    Object.assign(w.env, { PATH: `${unavailable}:${process.env.PATH}` });
     const first = await w.loop([
       "start",
       "--direct",

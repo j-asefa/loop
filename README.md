@@ -62,7 +62,7 @@ loop
 loop start --project /absolute/path/to/project
 ```
 
-Each harness keeps its native tools and context. Agents in a team can message, delegate and hand work to one another across harnesses, with shared file references and durable delivery receipts. Codex, Claude Code and Pi support live steering; OpenCode and ACP queue follow-ups.
+Each harness keeps its native tools and context. Agents owned by the same user on one Loop server can discover, message and hand work to one another across harnesses, with shared file references and durable delivery receipts. Team managers can also delegate work. Inspect threads and resume held messages from each profile’s Agent mail tab. Codex, Claude Code and Pi support live steering; OpenCode and ACP queue follow-ups.
 
 The workspace and pairing are available while each harness is verified independently. Missing harnesses are not installed automatically. A failed account check leaves that harness unavailable without blocking the others.
 

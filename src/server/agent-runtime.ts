@@ -1,5 +1,8 @@
 import { recordChange } from "./project-changes.js";
 import { isNativeConnection } from "./native-connections.js";
+import { queuedMailReady } from "./agent-mail-policy.js";
+import { READABLE_MAIL_SQL } from "./mail-context.js";
+import { RunDeferred } from "./run-deferred.js";
 import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
 import { agentPermissionMode } from "./mcp/approval-policy.js";
@@ -55,6 +58,8 @@ export type Snapshot = {
   teamId?: string;
   reviewId?: string;
   attachmentIds?: string[];
+  /** Internal durable mail scheduling identity. */
+  mailId?: string;
   replyTo?: ReplyContext;
 };
 // The connection a conversation's next turn runs on: the agent's current one.
@@ -118,6 +123,8 @@ export function submit(
     // Sent by Loop on your behalf (a watched pull request or a teammate
     // agent's message), not typed by you.
     automation?: Automation;
+    /** Internal mail routing; ordinary HTTP sends never accept this option. */
+    mailScope?: "direct" | "team";
   },
 ) {
   return db
@@ -197,7 +204,7 @@ export function submit(
           : undefined);
       if (agent.retired_at)
         throw new Problem(409, "This agent is retired. Restore it from its profile before sending new work.");
-      if (!conversation && !teamId) {
+      if (!conversation && !teamId && data.mailScope !== "direct") {
         const managerTeam = db
           .prepare(
             "SELECT conversation_id,id FROM teams WHERE owner_id=? AND manager_id=? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
@@ -304,6 +311,9 @@ export function submit(
               reviewId,
               maxSeconds: isNativeConnection(connection) ? 600 : 180,
             }
+          : {}),
+        ...(data.automation && "mailId" in data.automation
+          ? { mailId: data.automation.mailId }
           : {}),
         attachmentIds: attachments.map((file) => file.id),
         replyTo,
@@ -521,8 +531,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
     snapshot.connectionId,
     run.owner_id,
   );
-  if (connection.status !== "connected")
+  if (connection.status !== "connected") {
+    // Disconnection can race the atomic queue claim. Only a mail turn that
+    // has not begun model/tool work can safely return to the queue here.
+    if (!queuedMailReady(run) && !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id))
+      throw new RunDeferred("Agent mail is waiting for its provider to reconnect.");
     throw new Problem(409, "Reconnect this provider before continuing.");
+  }
   if (isNativeConnection(connection)) {
     if (!companionMode) throw new Problem(409, "This conversation belongs to a companion deployment.");
     return nativeSessions.execute(run);
@@ -533,7 +548,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   if (!cp) {
     const turns = db
       .prepare(
-        "SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid",
+        `SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
       )
       .all(run.conversation_id, run.owner_id, run.id, run.id) as Message[];
     const history: ChatMessage[] = turns.map((m) => ({

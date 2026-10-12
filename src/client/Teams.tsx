@@ -16,7 +16,7 @@ import { PresetPicker, PresetTeamForm } from "./TeamPresets";
 import { agentModelName } from "./modelChoices";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Agent, Connection, Team, Folder } from "../shared/types";
-import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
+import { AgentMailThreads } from "./AgentMail";
 
 export function TeamDirectory({
   teams,
@@ -309,170 +309,23 @@ export function ProfileTeams({
   );
 }
 
-type TeamThread = {
-  id: string;
-  subject: string;
-  paused_at: number | null;
-  paused_reason: string | null;
-  updated_at: number;
-  participants: string[];
-  messages: {
-    id: string;
-    kind: "message" | "result";
-    from: string;
-    to: string;
-    preview: string;
-    created_at: number;
-    status: MailStatus;
-    error: string | null;
-    files: number;
-    conversation_id: string | null;
-  }[];
-};
-
-/** Messages a team's agents sent each other, with delivery state and Resume. */
+/** Existing team entrypoint shares the profile's mail controls. */
 export function TeamMessages({
   team,
-  agents,
   onClose,
-  onOpenConversation,
-  onChanged,
+  ...props
 }: {
   team: Team;
   agents: Agent[];
+  sourceId: string;
+  ownerKey: string;
   onClose: () => void;
-  onOpenConversation: (id: string) => void;
+  onOpenConversation: (id: string, sourceId: string) => void;
   onChanged: () => void;
 }) {
-  const [threads, setThreads] = useState<TeamThread[] | null>(null),
-    [error, setError] = useState(""),
-    [resuming, setResuming] = useState("");
-  const load = async () => {
-    try {
-      setThreads(
-        (await api<{ threads: TeamThread[] }>(`/teams/${team.id}/messages`))
-          .threads,
-      );
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-  useEffect(() => {
-    void load();
-  }, [team.id]);
-  const name = (id: string) =>
-    "@" + (agents.find((agent) => agent.id === id)?.name ?? "former agent");
   return (
     <Sheet title={`${team.name} messages`} onClose={onClose}>
-      <p className="muted">
-        Messages this team's agents sent each other. Each one reached its
-        recipient as a turn in its conversation. A thread pauses after 30
-        messages, or 20 between two agents in an hour; nothing is lost while it
-        waits for you.
-      </p>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {threads === null && !error && <p className="muted">Loading…</p>}
-      {threads?.length === 0 && (
-        <p className="muted">
-          No messages yet. Agents on this team can message each other with
-          loop_message.
-        </p>
-      )}
-      <div className="team-threads">
-        {threads?.map((thread) => (
-          <section
-            className="team-thread"
-            key={thread.id}
-            aria-label={`Thread ${thread.subject}`}
-          >
-            <header>
-              <strong>{thread.subject}</strong>
-              <small>{thread.participants.map(name).join(" · ")}</small>
-            </header>
-            {thread.paused_at && (
-              <div className="team-thread-paused" role="status">
-                <span>
-                  Paused. {thread.paused_reason} Held messages are sent when you
-                  resume.
-                </span>
-                <button
-                  className="secondary"
-                  disabled={resuming === thread.id}
-                  onClick={async () => {
-                    setResuming(thread.id);
-                    try {
-                      await api(
-                        `/teams/${team.id}/threads/${thread.id}/resume`,
-                        {},
-                      );
-                      onChanged();
-                      await load();
-                    } catch (e) {
-                      setError((e as Error).message);
-                    } finally {
-                      setResuming("");
-                    }
-                  }}
-                >
-                  {resuming === thread.id ? "Resuming…" : "Resume"}
-                </button>
-              </div>
-            )}
-            <ol className="team-thread-messages">
-              {thread.messages.map((message) => (
-                <li key={message.id}>
-                  <div className="team-message-meta">
-                    <span>
-                      {name(message.from)} → {name(message.to)}
-                      {message.kind === "result" ? " · result" : ""}
-                    </span>
-                    <span
-                      className={
-                        "team-message-status " +
-                        ([
-                          "held",
-                          "not_delivered",
-                          "unconfirmed",
-                          "failed",
-                        ].includes(message.status)
-                          ? "attention"
-                          : "")
-                      }
-                    >
-                      {MAIL_STATUS_LABELS[message.status]}
-                    </span>
-                  </div>
-                  <p>{message.preview}</p>
-                  {message.error && <p className="error">{message.error}</p>}
-                  {message.files > 0 && (
-                    <small className="muted">
-                      {message.files === 1
-                        ? "1 file attached"
-                        : `${message.files} files attached`}
-                    </small>
-                  )}
-                  {message.conversation_id && (
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        onOpenConversation(message.conversation_id!)
-                      }
-                    >
-                      Open in {name(message.to)}'s thread{" "}
-                      <ArrowUpRight size={14} aria-hidden="true" />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ))}
-      </div>
+      <AgentMailThreads target={{ kind: "team", id: team.id }} {...props} />
     </Sheet>
   );
 }

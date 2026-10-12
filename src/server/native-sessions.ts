@@ -1,4 +1,5 @@
 import { recordChange } from "./project-changes.js";
+import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { config } from "./config.js";
@@ -1076,7 +1077,7 @@ export class NativeSessions {
         ? []
         : (db
             .prepare(
-              "SELECT m.role,m.content FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND m.content<>'' AND (m.run_id IS NULL OR m.run_id<>?) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid",
+              `SELECT m.role,m.content FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND m.content<>'' AND (m.run_id IS NULL OR r.rowid<(SELECT rowid FROM runs WHERE id=?)) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
             )
             .all(conversation, run.id) as { role: string; content: string }[]);
       while (earlier.length > 1 && JSON.stringify(earlier).length > 100000)

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -222,7 +223,7 @@ export function readRunFile(
   const allowed = db
     .prepare(
       `SELECT 1 FROM messages m, json_each(m.metadata,'$.attachments') a
-    WHERE m.owner_id=? AND m.conversation_id=? AND json_extract(a.value,'$.id')=?
+    WHERE m.owner_id=? AND m.conversation_id=? AND json_extract(a.value,'$.id')=? AND ${READABLE_MAIL_SQL}
     AND (m.run_id IS NULL OR (SELECT rowid FROM runs WHERE id=m.run_id)<=(SELECT rowid FROM runs WHERE id=?))`,
     )
     .get(run.owner_id, run.conversation_id, fileId, run.id);

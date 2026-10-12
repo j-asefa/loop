@@ -128,6 +128,17 @@ db.transaction(() => {
   // skipping the team tables or running account recovery a second time.
   if (version(70) && !version(71) && !table("team_creations"))
     db.exec("UPDATE schema_version SET version=71 WHERE version=70");
+  // Direct-mail previews used 80 before main assigned it to HAPI retirement.
+  // Identify the completed mail schema so retirement still runs and mail is
+  // not rebuilt a second time when upgrading a preview workspace.
+  if (
+    version(80) &&
+    !version(83) &&
+    (db.pragma("table_info(agent_threads)") as { name: string }[]).some(
+      (column) => column.name === "scope",
+    )
+  )
+    db.exec("UPDATE schema_version SET version=83 WHERE version=80");
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )

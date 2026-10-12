@@ -8,6 +8,7 @@ const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
 let threadId = randomUUID();
 let thinkingLevel = "medium";
 let elicitationChoice;
+let mailBridge;
 const out = (x) => process.stdout.write(JSON.stringify(x) + "\n");
 let count = 0,
   active = "",
@@ -205,6 +206,7 @@ if (kind !== "opencode") {
     if (type === "config/read")
       return result({ config: { model_provider: "openai" } });
     if (type === "thread/start" || type === "thread/resume") {
+      mailBridge = m.params?.config?.["mcp_servers.loop_workspace"];
       if (type === "thread/resume" && process.env.LOOP_TEST_CODEX_WRITER_BUSY)
         return out({
           id: m.id,
@@ -478,6 +480,29 @@ if (kind !== "opencode") {
             ],
           },
         });
+      }
+      if (process.env.LOOP_TEST_AGENT_MAIL && text.includes("To reply, call loop_message")) {
+        // Exercise the production authenticated native bridge from a real
+        // subprocess, without a provider/model request.
+        void (async () => {
+          const call = async (body) => {
+            const r = await fetch(mailBridge.url + "/pi", {
+              method: "POST", headers: { ...mailBridge.http_headers, "content-type": "application/json" }, body: JSON.stringify(body),
+            });
+            if (!r.ok) throw new Error("Bridge refused fixture");
+            return r.json();
+          };
+          const catalog = await call({ method: "tools/list" });
+          if (!["loop_agents", "loop_message", "loop_message_status", "loop_handoff"].every(name => catalog.tools.some(t => t.name === name))) throw new Error("Missing mail catalog");
+          const directory = await call({ method: "tools/call", id: "discover", name: "loop_agents", arguments: {} });
+          if (directory.isError) throw new Error("Discovery failed");
+          const reply = /To reply, call loop_message with to "([^"]+)" and threadId "([^"]+)"/.exec(text);
+          const request = { method: "tools/call", id: "native-reply", name: "loop_message", arguments: { to: reply[1], threadId: reply[2], body: "Native reply: target v2." } };
+          const receipt = await call(request);
+          if (receipt.isError || JSON.stringify(await call(request)) !== JSON.stringify(receipt)) throw new Error("Native mail receipt failed");
+          finish();
+        })().catch(error => { process.stderr.write(error.message); finish("failed"); });
+        return;
       }
       if (text === "wait") return;
       if (kind === "codex" && text.startsWith("mcp-")) {
