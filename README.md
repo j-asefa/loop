@@ -15,7 +15,7 @@ Loop is a phone-first agent web app. Open Loop in your phone's browser and add i
 
 ## Setup
 
-Use Node.js **24** (the CI version) and a persistent disk. Docker is required only for container execution.
+Use Node.js **24** and a persistent disk. Docker is required only for container execution.
 
 ```sh
 git clone https://github.com/j-asefa/loop.git
@@ -97,7 +97,7 @@ npm run build
 npm run test:all
 ```
 
-See [development and CI](docs/development.md) for browser, packaging and container checks. Automated harness fixtures verify Loop's behavior; they do not establish authenticated provider compatibility or physical-phone acceptance.
+See [development and verification](docs/development.md) for browser, packaging and container checks. Automated harness fixtures verify Loop's behavior; they do not establish authenticated provider compatibility or physical-phone acceptance.
 
 Use the [documentation index](docs/README.md) for detailed guides and [AGENTS.md](AGENTS.md) for task-specific contributor context.
 

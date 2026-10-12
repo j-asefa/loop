@@ -10,6 +10,6 @@
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels and workspace recovery        |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |
-| [Development](development.md)                | Tests, builds, packaging and CI                                   |
+| [Development](development.md)                | Tests, builds, packaging and manual verification                  |
 
-Earlier specifications, feedback reports and dated test evidence are retained in Git history. They are not current setup instructions. CI and PR checks carry results for each commit; supported protocol pins are owned by source/configuration files linked from the guides.
+Earlier specifications, feedback reports and dated test evidence are retained in Git history. They are not current setup instructions. Record verification results in each PR; supported protocol pins are owned by source/configuration files linked from the guides.
