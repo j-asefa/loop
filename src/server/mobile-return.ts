@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -767,9 +768,9 @@ export function awaySummary(owner: string, since: number) {
 function resultFor(owner: string, messageId: string) {
   return db
     .prepare(
-      "SELECT a.id FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
+      "SELECT a.id,a.pinned FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
     )
-    .get(messageId, owner) as { id: string } | undefined;
+    .get(messageId, owner) as { id: string; pinned: number } | undefined;
 }
 
 export function setSaved(owner: string, messageId: string, on: boolean) {
@@ -778,19 +779,22 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const message = owned<Message>("messages", messageId, owner);
       if (JSON.parse(message.metadata).progress)
         throw new Problem(400, "Only saved messages can be kept");
-      const result = resultFor(owner, messageId);
-      if (result)
+      const result = resultFor(owner, messageId), savedAt = now();
+      if (result && result.pinned !== Number(on)) {
         db.prepare(
           "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
-        ).run(Number(on), now(), result.id, owner, Number(on));
-      if (on && !result)
-        db.prepare(
-          "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
-        ).run(owner, messageId, now());
-      else
-        db.prepare(
-          "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
-        ).run(owner, messageId);
+        ).run(Number(on), savedAt, result.id, owner, Number(on));
+        recordChange(owner, undefined, on ? "saved" : "unsaved", result.id, message.conversation_id, savedAt);
+      }
+      const bookmarkChanged = on && !result
+        ? db.prepare(
+            "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
+          ).run(owner, messageId, savedAt).changes
+        : db.prepare(
+            "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+          ).run(owner, messageId).changes;
+      if (bookmarkChanged)
+        recordChange(owner, undefined, on && !result ? "saved" : "unsaved", messageId, message.conversation_id, savedAt);
       return { ok: true as const, saved: on };
     })
     .immediate();
@@ -936,6 +940,8 @@ export function setSavedLabel(owner: string, body: unknown) {
             )
             .get(target, owner);
       if (!saved) throw new Problem(404, "Saved item not found");
+      const previous = db.prepare("SELECT label FROM saved_labels WHERE owner_id=? AND item_key=?")
+        .get(owner, d.key) as { label: string } | undefined;
       if (d.label)
         db.prepare(
           `INSERT INTO saved_labels(owner_id,item_key,label,updated_at) VALUES(?,?,?,?)
@@ -945,6 +951,8 @@ export function setSavedLabel(owner: string, body: unknown) {
         db.prepare(
           "DELETE FROM saved_labels WHERE owner_id=? AND item_key=?",
         ).run(owner, d.key);
+      if ((previous?.label || "") !== d.label)
+        recordChange(owner, undefined, "label", target);
       return { key: d.key, label: d.label || null };
     })
     .immediate();

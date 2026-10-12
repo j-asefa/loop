@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -16,16 +17,36 @@ export function requestApproval(
     .get(run.owner_id, run.id, digest) as any;
   if (prior) return prior;
   const approvalId = id();
-  db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,?,NULL,?,?)").run(
-    approvalId,
-    run.owner_id,
-    run.id,
-    digest,
-    encoded,
-    autoApproved ? "approved" : "pending",
-    now(),
-    now() + 24 * 60 * 60 * 1000,
-  );
+  const createdAt = now();
+  db.transaction(() => {
+    db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,?,NULL,?,?)").run(
+      approvalId,
+      run.owner_id,
+      run.id,
+      digest,
+      encoded,
+      autoApproved ? "approved" : "pending",
+      createdAt,
+      now() + 24 * 60 * 60 * 1000,
+    );
+    recordChange(
+      run.owner_id,
+      undefined,
+      "approval_created",
+      approvalId,
+      undefined,
+      createdAt,
+    );
+    if (autoApproved)
+      recordChange(
+        run.owner_id,
+        undefined,
+        "approval_resolved",
+        approvalId,
+        undefined,
+        createdAt,
+      );
+  }).immediate();
   emit(
     run.owner_id,
     run.id,
@@ -54,6 +75,13 @@ export function decide(
         decision === "approve" ? "approved" : "rejected",
         approvalId,
         "pending",
+      );
+      recordChange(
+        owner,
+        undefined,
+        "approval_resolved",
+        approvalId,
+        run.conversation_id,
       );
       if (
         db

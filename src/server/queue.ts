@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
@@ -205,9 +206,11 @@ export function archiveHapiRuns() {
         )
         .run(HAPI_ARCHIVED, time, time, time, run.id).changes;
       if (!changed) return;
-      db.prepare(
-        "UPDATE approvals SET state='rejected' WHERE run_id=? AND state='pending'",
-      ).run(run.id);
+      const rejected = db.prepare(
+        "UPDATE approvals SET state='rejected' WHERE run_id=? AND state='pending' RETURNING id",
+      ).all(run.id) as { id: string }[];
+      for (const approval of rejected)
+        recordChange(run.owner_id, undefined, "approval_resolved", approval.id);
       emit(run.owner_id, run.id, "interrupted", { message: HAPI_ARCHIVED });
     }).immediate();
 }

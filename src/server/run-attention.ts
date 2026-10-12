@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { db, emit, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
@@ -30,9 +31,11 @@ export function dismissRun(owner: string, runId: string) {
           visited.add(id);
           const task = owned<Run>("runs", id, owner);
           transition(task, "cancelled", { reason: "Dismissed by you" });
-          db.prepare(
-            "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'",
-          ).run(owner, id);
+          const rejected = db.prepare(
+            "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending' RETURNING id",
+          ).all(owner, id) as { id: string }[];
+          for (const approval of rejected)
+            recordChange(owner, undefined, "approval_resolved", approval.id, task.conversation_id);
           const children = db
             .prepare(
               "SELECT child_run_id id FROM delegations WHERE parent_run_id=? UNION SELECT child_run_id id FROM workflow_steps WHERE run_id=? AND child_run_id IS NOT NULL",
