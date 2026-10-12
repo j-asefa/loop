@@ -286,13 +286,6 @@ it("maintains owner-scoped managed storage without GitHub and only forwards allo
       runtimeHostId: "native",
     }),
   );
-  addAgent(
-    "alice",
-    addConnection("alice", "codex", {
-      authMode: "subscription",
-      backend: "hapi",
-    }),
-  );
   await cleanupMergedWorkspaces();
   expect(requests).toHaveLength(3);
   expect(requests[0]).toMatchObject({

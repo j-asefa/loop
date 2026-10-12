@@ -112,14 +112,6 @@ export function connectionLocation(
           ? name
           : localName || executionLocationLabels.laptop,
     };
-  if (metadata.backend === "hapi")
-    return {
-      kind,
-      label:
-        typeof metadata.environmentName === "string"
-          ? metadata.environmentName
-          : "Managed environment",
-    };
   return {
     kind,
     label: metadata.loopHarness ? "This computer" : "Server connection",

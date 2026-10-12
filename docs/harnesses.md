@@ -1,6 +1,6 @@
 # Native harnesses
 
-Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi and OpenCode on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing. No HAPI service, source build or Hub is required.
+Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi and OpenCode on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
 
 ```sh
 loop
@@ -60,11 +60,11 @@ Settings → Provider connections offers native account status, sign-in, model r
 
 Finish active runs and sign-in before upgrading a harness. Loop uses the installation's package manager without sudo, checks the resulting version, and attempts rollback when supported. An interrupted upgrade stays unconfirmed until its state is checked. Container installations are updated with their image.
 
-## Recovering from the HAPI-only release
+## Recovering retired connections
 
 Migration 071 makes direct connections retired by migration 067 eligible for verification again, preserving their IDs, agents, teams, conversation history and native bindings. Local startup verifies saved native registrations before reconnecting them. Server subscription accounts can be checked through Provider connections. Intentionally disconnected accounts remain disconnected. Failed or uncertain work is not automatically replayed.
 
-HAPI execution has been removed. Old HAPI connections are disconnected, and their recorded conversations, files and dispatch receipts are retained for reference. Start a new conversation on a native connection for that work. No HAPI process, context or credentials are migrated. Previously saved launcher execution flags are normalized on restart; explicit `--execution docker`/`both` is replaced by the Docker deployments below.
+Connections from the earlier HAPI release stay disconnected; see [architecture](architecture.md#execution-paths). Previously saved launcher execution flags are normalized on restart; explicit `--execution docker`/`both` is replaced by the Docker deployments below.
 
 ## Containers and services
 

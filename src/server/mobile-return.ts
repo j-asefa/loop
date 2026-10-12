@@ -14,8 +14,7 @@ import { runPreview } from "./run-attention.js";
 import { attachedFiles, attachmentIds } from "./uploads.js";
 import { messageReplyContext } from "./message-replies.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
-import { PER_CONVERSATION_CONNECTION_SQL } from "./native-connections.js";
-import { isArchivedHapi } from "./legacy-execution.js";
+import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { savedStory, unreadCount } from "./news.js";
 import type { Agent, Message } from "../shared/types.js";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads.js";
@@ -408,8 +407,8 @@ function queuePosition(runId: string) {
 }
 
 // Queued runs a reorder can swap with. Same scope as the queue claim: one
-// agent, and one conversation when both runs use a per-conversation (native or
-// HAPI) connection. Running, paused and approval-waiting work never moves.
+// agent, and one conversation when both runs use a per-conversation (native)
+// connection. Running, paused and approval-waiting work never moves.
 function queuedPeers(owner: string, runId: string) {
   const run = db
     .prepare(
@@ -1936,7 +1935,7 @@ type QueuedRun = Run & {
   rowid?: number;
 };
 const perConversation = (r: string) =>
-  `(json_extract(${r}.payload,'$.execution.backend') IS 'hapi' OR EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${PER_CONVERSATION_CONNECTION_SQL}))`;
+  `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
 const RANK_STEP = 1 / 1024;
 
 // Only a message that has never started can change. A paused-then-resumed
@@ -1949,8 +1948,7 @@ function editable(run: QueuedRun) {
     run.worker_id === null &&
     !run.active_since &&
     !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id) &&
-    !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) &&
-    !db.prepare("SELECT 1 FROM native_dispatches WHERE run_id=?").get(run.id)
+    !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id)
   );
 }
 
@@ -2178,19 +2176,14 @@ export function forkConversation(
         ) as Message[];
       const forkId = id();
       // Bind the fork to the selected agent's connection now, as a first send
-      // to a new conversation would. An archived HAPI connection cannot run it.
+      // to a new conversation would.
       const connection = owned<{ id: string; metadata: string }>(
         "connections",
         agent.connection_id,
         owner,
       );
-      if (isArchivedHapi(connection))
-        throw new Problem(
-          409,
-          "This agent uses an archived HAPI connection. Choose a native connection for it before forking.",
-        );
       db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_backend,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?)",
       ).run(
         forkId,
         owner,
@@ -2200,7 +2193,6 @@ export function forkConversation(
         null,
         now(),
         c.project_id,
-        "legacy",
         connection.id,
       );
       const insert = db.prepare(

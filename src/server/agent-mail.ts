@@ -154,11 +154,6 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
     : undefined;
   if (!connection) return { runtime: "not connected", place: "unknown" };
   const meta = JSON.parse(connection.metadata || "{}");
-  if (meta.backend === "hapi")
-    return {
-      runtime: `${HARNESSES[meta.flavor] ?? meta.flavor} (HAPI)`,
-      place: "hapi:" + meta.environmentId,
-    };
   if (meta.loopHarness)
     return {
       runtime: HARNESSES[meta.loopHarness] ?? meta.loopHarness,

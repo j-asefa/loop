@@ -8,6 +8,6 @@ Loop connects supported Codex, Claude Code, Pi and OpenCode installations throug
 
 `loop pair` makes a fresh code without revoking existing devices. `loop status --json` distinguishes workspace readiness from verified execution availability. `loop logs --follow` shows diagnostics; `loop stop` shuts down. `--foreground` stays attached to the terminal; `--local-only` serves a desktop workspace without a tunnel.
 
-The CLI owns startup and its process identity lock. `WorkspaceHost` owns the workspace, pairing and private tool bridge; native adapters own harness processes and session context. Loop persists dispatch receipts and never automatically replays an uncertain send. HAPI is no longer an execution dependency.
+The CLI owns startup and its process identity lock. `WorkspaceHost` owns the workspace, pairing and private tool bridge; native adapters own harness processes and session context. Loop persists dispatch receipts and never automatically replays an uncertain send.
 
 The [Docker companion](../pairing.md#docker-companion) also supports pairing. Linking a [local Docker server](../pairing.md#unified-agents-and-feed) aggregates its agents without moving its data.

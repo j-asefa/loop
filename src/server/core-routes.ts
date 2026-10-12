@@ -113,11 +113,6 @@ core.post("/connections", async (req, res) => {
 });
 core.post("/connections/:id/refresh", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner);
-  if (JSON.parse(c.metadata).backend === "hapi")
-    throw new Problem(
-      410,
-      "This HAPI connection is archived. Connect a native harness instead.",
-    );
   if (isNativeConnection(c)) {
     const harness = JSON.parse(c.metadata).loopHarness;
     return res.json(
@@ -197,20 +192,10 @@ core.get("/connections/:id/models", async (req, res) => {
 core.post("/connections/:id/reconnect", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner),
     secret = z.string().min(8).max(4096).parse(req.body.secret);
-  if (JSON.parse(c.metadata).backend === "hapi")
-    throw new Problem(
-      410,
-      "This HAPI connection is archived. Connect a native harness instead.",
-    );
   if (isSubscription(c))
     throw new Problem(
       400,
       "Use subscription sign-in to reconnect this account.",
-    );
-  if (isSubscription(c))
-    throw new Problem(
-      400,
-      "Refresh this subscription through its sign-in status.",
     );
   try {
     const models = await adapter(c.provider).models(secret);
@@ -227,9 +212,7 @@ core.delete("/connections/:id", async (req, res) => {
   db.prepare(
     "UPDATE connections SET secret='',status='disconnected',metadata=json_remove(metadata,'$.retiredDirectRuntime','$.nativeRecoveryRequired') WHERE id=?",
   ).run(req.params.id);
-  const metadata = JSON.parse(c.metadata);
-  if (metadata.backend !== "hapi" && isSubscription(c))
-    await runtimeAction(c, "logout");
+  if (isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
 core.get("/agents/suggest-name", (_req, res) =>
@@ -320,11 +303,7 @@ core.get("/agents/:id/harness", async (req, res) => {
   // agent's new-task catalog rather than refusing.
   const conversation = selected?.agent_id === agent.id ? selected : undefined;
   const conversationKey: string | undefined = conversation?.id;
-  const { connection } = nextTurnConnection(
-    res.locals.owner,
-    agent,
-    conversation,
-  );
+  const { connection } = nextTurnConnection(res.locals.owner, agent);
   const native = JSON.parse(connection.metadata);
   if (!isSubscription(connection) && !isNativeConnection(connection)) {
     res.json({
@@ -536,16 +515,6 @@ core.post("/runs", (req, res) => {
 core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
   const action = req.params.action;
-  // Archived HAPI work can still be cancelled or dismissed, never replayed.
-  if (
-    ["retry", "resume", "pause"].includes(action) &&
-    (JSON.parse(run.payload).execution?.backend === "hapi" ||
-      db.prepare("SELECT 1 FROM native_dispatches WHERE run_id=?").get(run.id))
-  )
-    throw new Problem(
-      409,
-      "HAPI execution was removed. This work cannot be replayed; start a new native conversation to continue it.",
-    );
   if (
     action === "pause" &&
     ["running", "awaiting_approval"].includes(run.state) &&

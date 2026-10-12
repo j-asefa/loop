@@ -16,7 +16,7 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, Problem } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
-const { transition, claim, archiveHapiRuns } =
+const { transition, claim } =
   await import("../src/server/queue");
 const { dismissRun } = await import("../src/server/run-attention");
 const { requestApproval, decide } = await import("../src/server/approvals");
@@ -312,23 +312,15 @@ it.each([true, "child", false] as const)(
   },
 );
 
-it("records pending approvals rejected by dismissal or archived-runtime recovery", () => {
+it("records pending approvals rejected by dismissal", () => {
   const w = setup(),
     dismissed = running(w.send());
   const first = requestApproval(dismissed, { tool: "write" });
   transition(dismissed, "awaiting_approval");
   dismissRun(w.owner, dismissed.id);
   dismissRun(w.owner, dismissed.id);
-  const archived = running(w.send());
-  const second = requestApproval(archived, { tool: "write" });
-  db.prepare(
-    "UPDATE runs SET payload=json_set(payload,'$.execution.backend','hapi') WHERE id=?",
-  ).run(archived.id);
-  archiveHapiRuns();
-  archiveHapiRuns();
   expect(changes(w.owner, "approval_resolved").map((r) => r.ref)).toEqual([
     first.id,
-    second.id,
   ]);
 });
 

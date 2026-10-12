@@ -11,8 +11,7 @@ import type { Connection } from "../shared/types.js";
 
 // No model turn or inference cost. Storage maintenance needs no provider/GitHub
 // credential; retiring registered PRs additionally needs this owner's GitHub.
-// Retired direct connections keep their existing broker homes eligible. HAPI
-// native homes are separate and are never included in this maintenance pass.
+// Retired direct connections keep their existing broker homes eligible.
 export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
   if (companionMode) return;
   const connections = db
@@ -26,7 +25,6 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
       if (!isSubscription(connection)) continue;
       const metadata = JSON.parse(connection.metadata);
       if (
-        metadata.backend === "hapi" ||
         metadata.loopHarness ||
         runtimeEndpoint(
           connection.owner_id,

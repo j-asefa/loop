@@ -145,7 +145,7 @@ export async function watchNativeCreatedPullRequest(run: Run, command: string, o
   if (ref) await verifyCreatedPullRequest(run, ref, current);
 }
 
-/** Read-only verification, shared with durable HAPI registration retries. */
+/** Read-only verification of a pull request the agent reported creating. */
 export async function verifyCreatedPullRequest(run: Run, ref: PullRequestRef, current = () => true) {
   const token = githubToken(run.owner_id);
   if (!token) return;
