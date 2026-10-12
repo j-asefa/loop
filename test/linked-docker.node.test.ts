@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Host } from "../src/host.js";
-import { composeSourceId } from "../src/linked-docker.js";
+import { composeSourceId, linkedDockerWorkspaces } from "../src/linked-docker.js";
 
 const containerId = "a".repeat(64);
 const options = {
@@ -23,7 +23,7 @@ const options = {
   },
 };
 
-test("paired gateway discovers a local Docker workspace and forwards its conversation writes only to that server", async () => {
+test("paired gateway distinguishes Docker services and preserves their routing across container replacement", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-linked-docker-"));
   const priorPath = process.env.PATH;
   const received: {
@@ -73,10 +73,21 @@ test("paired gateway discovers a local Docker workspace and forwards its convers
       JSON.stringify({ owner: "old-docker", conversations: ["old-thread"] }),
     );
   });
+  const secondId = "b".repeat(64);
+  const second = createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(req.url === "/api/capabilities"
+      ? { profile: "server" }
+      : req.url === "/api/auth-options"
+        ? { mode: "single-user" }
+        : { owner: "second-docker", conversations: ["second-thread"] }));
+  });
   let host: Host | undefined;
   try {
     await new Promise<void>((resolve) => old.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => second.listen(0, "127.0.0.1", resolve));
     const port = (old.address() as { port: number }).port;
+    const secondPort = (second.address() as { port: number }).port;
     const inspect = [
       {
         Id: containerId,
@@ -94,11 +105,17 @@ test("paired gateway discovers a local Docker workspace and forwards its convers
         },
       },
     ];
-    await writeFile(join(dir, "inspect.json"), JSON.stringify(inspect));
+    const secondInspect = JSON.parse(JSON.stringify(inspect));
+    secondInspect[0].Id = secondId;
+    secondInspect[0].Config.Labels["com.docker.compose.service"] = "loop";
+    secondInspect[0].NetworkSettings.Ports["3000/tcp"][0].HostPort = String(secondPort);
+    await writeFile(join(dir, containerId + ".json"), JSON.stringify(inspect));
+    await writeFile(join(dir, secondId + ".json"), JSON.stringify(secondInspect));
+    await writeFile(join(dir, "ids"), `${containerId}\n${secondId}\n`);
     const docker = join(dir, "docker");
     await writeFile(
       docker,
-      `#!/bin/sh\nif [ "$1" = ps ]; then echo ${containerId}; else cat '${join(dir, "inspect.json")}'; fi\n`,
+      `#!/bin/sh\nif [ "$1" = ps ]; then cat '${join(dir, "ids")}'; else cat '${dir}/'"$2"'.json'; fi\n`,
     );
     await chmod(docker, 0o755);
     process.env.PATH = dir + ":" + (priorPath || "");
@@ -136,8 +153,10 @@ test("paired gateway discovers a local Docker workspace and forwards its convers
     }).then((r) => r.json());
     // The source id survives `docker compose up` recreating the container.
     const sourceId = composeSourceId("fresh-workspace", "app");
+    const secondSourceId = composeSourceId("fresh-workspace", "loop");
     assert.deepEqual(found, [
-      { id: sourceId, name: "Docker · fresh-workspace" },
+      { id: sourceId, name: "Docker · fresh-workspace/app" },
+      { id: secondSourceId, name: "Docker · fresh-workspace/loop" },
     ]);
     assert.equal((await fetch(host.origin + "/api/agent-sources")).status, 401);
     const sources = await fetch(host.origin + "/api/agent-sources", {
@@ -146,10 +165,18 @@ test("paired gateway discovers a local Docker workspace and forwards its convers
     assert.deepEqual(sources, [
       {
         id: `docker:${sourceId}`,
-        name: "Docker · fresh-workspace",
+        name: "Docker · fresh-workspace/app",
+        kind: "docker",
+      },
+      {
+        id: `docker:${secondSourceId}`,
+        name: "Docker · fresh-workspace/loop",
         kind: "docker",
       },
     ]);
+    assert.deepEqual(await fetch(host.origin + `/api/agent-sources/docker%3A${secondSourceId}/conversations`, {
+      headers: { cookie },
+    }).then((r) => r.json()), { owner: "second-docker", conversations: ["second-thread"] });
     const unknown = await fetch(
       host.origin + "/api/agent-sources/cloud%3Aunregistered/runs",
       {
@@ -243,10 +270,21 @@ test("paired gateway discovers a local Docker workspace and forwards its convers
         origin: `http://127.0.0.1:${port}`,
       },
     ]);
+    const replacementId = "c".repeat(64);
+    inspect[0].Id = replacementId;
+    await writeFile(join(dir, replacementId + ".json"), JSON.stringify(inspect));
+    await writeFile(join(dir, "ids"), `${replacementId}\n${secondId}\n`);
+    const refreshed = await linkedDockerWorkspaces(true);
+    assert.deepEqual(refreshed.map(({ id, name }) => ({ id, name })), found);
+    assert.equal(refreshed[0].containerId, replacementId);
+    assert.deepEqual(await fetch(base + "conversations", { headers: { cookie } }).then((r) => r.json()), {
+      owner: "old-docker", conversations: ["old-thread"],
+    });
   } finally {
     process.env.PATH = priorPath;
     if (host) await host.close();
     await new Promise<void>((resolve) => old.close(() => resolve()));
+    await new Promise<void>((resolve) => second.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   }
 });

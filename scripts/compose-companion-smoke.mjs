@@ -108,7 +108,9 @@ try {
     assert.equal(paired.status, 200);
     const cookie = paired.headers["set-cookie"][0].split(";")[0];
     assert.equal((await redeem(hello.origin)).status, 403, "pairing codes are single-use");
-    assert.equal((await relay("GET", "/api/bootstrap", { cookie })).status, 200);
+    const bootstrap = await relay("GET", "/api/bootstrap", { cookie });
+    assert.equal(bootstrap.status, 200);
+    assert.equal(JSON.parse(bootstrap.body).environmentName, ${JSON.stringify(`Docker · ${project}/loop-companion`)});
     // The private probe namespace is never forwarded from the public listener.
     assert.equal((await relay("GET", "/__loop/backend-probe?nonce=" + "a".repeat(20))).status, 404);
     // Through Cloudflare itself (DNS for a new Quick Tunnel can lag briefly).

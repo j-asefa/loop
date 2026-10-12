@@ -1,4 +1,5 @@
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
+import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
 import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
 import { feedReplyKeyboardSmoke } from "./helpers/feed-reply-keyboard-smoke.mjs";
 import { mainComposerKeyboardSmoke } from "./helpers/main-composer-keyboard-smoke.mjs";
@@ -34,6 +35,7 @@ import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {
     await page.goto(fixture.base);
     await page.locator(".mobile-nav").getByRole("button", { name: "Search", exact: true }).click();

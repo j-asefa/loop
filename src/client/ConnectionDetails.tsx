@@ -3,7 +3,11 @@ import { connectionLocation } from "./modelChoices";
 
 // Connection metadata describes the last successful registration, not a live
 // check of a runner's binaries or credentials.
-export function ConnectionDetails({ connection }: { connection: Connection }) {
+export function ConnectionDetails({
+  connection,
+}: {
+  connection: Connection & { executionEnvironment?: string };
+}) {
   let metadata: Record<string, any> = {};
   try {
     const value = JSON.parse(connection.metadata);
@@ -17,7 +21,8 @@ export function ConnectionDetails({ connection }: { connection: Connection }) {
           metadata.billing.description.trim()
         ? metadata.billing.description
         : "Billing not reported. Refresh this connection before use.";
-  const location = connectionLocation(connection).label;
+  const location =
+    connection.executionEnvironment || connectionLocation(connection).label;
   const local = !metadata.backend && !!metadata.loopHarness;
   return (
     <div className="connection-details">

@@ -3,7 +3,7 @@ import { runtimeSetupState } from "../runtime-setup.js";
 import { upgradeLauncher } from "../harness-upgrades.js";
 import { harnessUpgrades as upgrades } from "./harness-upgrades.js";
 import { discover } from "../host-control.js";
-import { hostname } from "node:os";
+import { hostEnvironmentName } from "./execution-location.js";
 import { nativeHistory } from "./native-history.js";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
 import express from "express";
@@ -165,7 +165,7 @@ companion.get("/workspace/runtimes", async (req, res) => {
     }),
   );
   res.json({
-    computer: hostname(),
+    computer: hostEnvironmentName(),
     online: true,
     setup: runtimeSetupState(),
     runtimes,

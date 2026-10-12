@@ -1,3 +1,4 @@
+import { recordChange } from "./project-changes.js";
 import { isNativeConnection } from "./native-connections.js";
 import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
@@ -366,10 +367,11 @@ export function submit(
         conversation,
         payload: snapshot,
       });
+      const messageId = id(), messageAt = now();
       db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
       ).run(
-        id(),
+        messageId,
         owner,
         conversation,
         run.id,
@@ -381,8 +383,10 @@ export function submit(
           personal: data.personal === true,
           ...(data.automation ? { automation: data.automation } : {}),
         }),
-        now(),
+        messageAt,
       );
+      if (!data.automation)
+        recordChange(owner, folderId, "prompt", messageId, conversation, messageAt);
       return run;
     })
     .immediate();
