@@ -606,12 +606,25 @@ export async function executeAgent(run: Run): Promise<boolean> {
       run.id,
     );
   });
+  const answerMetadata = (partial: boolean) =>
+    JSON.stringify({ ...snapshot, messageId: cp.message_id, partial });
+  // While text streams, only the thread's answer and the checkpoint change.
+  // The result card, its first version and its search entry are written at
+  // turn boundaries (persist), since nothing reads an unfinished result's
+  // content except the live preview, which reads the newest update.
+  const persistChunk = db.transaction(() => {
+    db.prepare("UPDATE messages SET content=?,metadata=? WHERE id=?").run(
+      output,
+      answerMetadata(true),
+      cp.message_id,
+    );
+    db.prepare("UPDATE agent_checkpoints SET output=? WHERE run_id=?").run(
+      output,
+      run.id,
+    );
+  }).immediate;
   const persist = db.transaction((partial: boolean) => {
-    const metadata = JSON.stringify({
-      ...snapshot,
-      messageId: cp.message_id,
-      partial,
-    });
+    const metadata = answerMetadata(partial);
     db.prepare("UPDATE messages SET content=?,metadata=? WHERE id=?").run(
       output,
       metadata,
@@ -949,7 +962,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
             turnText += chunk.text;
             output += chunk.text;
             saveTurn();
-            persist(true);
+            persistChunk();
             emit(run.owner_id, run.id, "message.delta", {
               messageId: cp.message_id,
               text: chunk.text,
