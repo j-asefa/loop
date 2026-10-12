@@ -84,9 +84,8 @@ export function listRuns(owner: string, teams: string[] = [], active = false) {
 }
 
 /**
- * What a run has produced so far: its result artifact, if one exists, showing
- * the newest public update until the run completes or while the artifact has
- * no content.
+ * What a run has produced so far: its result artifact, if one exists, and
+ * the newest public update when the artifact has no content yet.
  */
 export function runPreview(owner: string, runId: string) {
   const artifact = db
@@ -98,18 +97,15 @@ export function runPreview(owner: string, runId: string) {
     )
     .get(owner, runId) as
     ({ content: string } & Record<string, unknown>) | undefined;
-  // An unfinished result's content is written only at turn boundaries, so
-  // until the run completes its newest public update is the current text.
-  const latest =
-    !artifact?.content || artifact.run_state !== "completed"
-      ? (
-          db
-            .prepare(
-              `SELECT content FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 ORDER BY created_at DESC,rowid DESC LIMIT 1`,
-            )
-            .get(owner, runId) as { content: string } | undefined
-        )?.content
-      : undefined;
+  const latest = !artifact?.content
+    ? (
+        db
+          .prepare(
+            `SELECT content FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 ORDER BY created_at DESC,rowid DESC LIMIT 1`,
+          )
+          .get(owner, runId) as { content: string } | undefined
+      )?.content
+    : undefined;
   if (artifact && latest) artifact.content = latest;
   return { latest, artifact: artifact || null };
 }

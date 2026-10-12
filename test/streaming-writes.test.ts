@@ -1,7 +1,4 @@
-// While an API agent streams, each chunk updates only the thread's answer and
-// the checkpoint; the result card is written once the turn ends. The live
-// preview keeps advancing from the newest update, and the published result
-// matches the final answer.
+// Artifacts stay live per chunk; their derived indexes catch up at completion.
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,18 +31,30 @@ db.prepare = ((sql: string) => {
 }) as typeof db.prepare;
 
 const chunks = ["Streaming ", "one ", "answer ", "in ", "pieces."];
-const observed: { statements: number; preview: string; artifact: string }[] = [];
+const observed: { statements: number; preview: string; artifact: string }[] =
+  [];
+let indexed: unknown;
 let runId = "";
 const restore = withTestAdapter("openai", {
   async models() {
-    return [{ id: "fixture-model", name: "Fixture model", capabilities: "Test only" }];
+    return [
+      { id: "fixture-model", name: "Fixture model", capabilities: "Test only" },
+    ];
   },
   async *stream() {
     for (const text of chunks) {
+      const snapshot = () =>
+        prepare(`SELECT a.id, f.content fts, s.content search,
+        r.revision FROM artifacts a JOIN artifact_fts f ON f.artifact_id=a.id
+        JOIN search_documents s ON s.id='artifact:'||a.id
+        JOIN feed_revisions r ON r.object_id=a.id AND r.entity='artifact'
+        WHERE a.run_id=?`).get(runId);
+      indexed ??= snapshot();
       const before = executed;
       yield { text };
       // Back here once the chunk was persisted and the next one is requested.
       const after = executed;
+      expect(snapshot()).toEqual(indexed);
       const { artifact } = runPreview("alice", runId);
       const stored = prepare(
         "SELECT a.content FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id WHERE cp.run_id=?",
@@ -64,27 +73,41 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-it("writes the result once per turn while the preview follows every chunk", async () => {
+it("keeps the result live while deferring its indexes until completion", async () => {
   const connection = id();
   prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(connection, "alice", seal("fake-key", "alice"), JSON.stringify([{ id: "fixture-model" }]), now());
-  const agent = createAgent("alice", { name: "streamer", connectionId: connection, model: "fixture-model" });
-  submit("alice", { agentId: agent.id, input: "Stream please", idempotencyKey: "stream-1" });
+  ).run(
+    connection,
+    "alice",
+    seal("fake-key", "alice"),
+    JSON.stringify([{ id: "fixture-model" }]),
+    now(),
+  );
+  const agent = createAgent("alice", {
+    name: "streamer",
+    connectionId: connection,
+    model: "fixture-model",
+  });
+  submit("alice", {
+    agentId: agent.id,
+    input: "Stream please",
+    idempotencyKey: "stream-1",
+  });
   const run = claim("worker")!;
   runId = run.id;
   // As the worker does: a finished execution completes the run, which publishes.
   expect(await executeAgent(run)).toBe(true);
   transition(run, "completed");
 
-  // The preview advances with every chunk; the result card is untouched.
+  // Both the preview and open result advance with every chunk.
   let text = "";
   for (const [index, step] of observed.entries()) {
     text += chunks[index];
     expect(step.preview).toBe(text);
-    expect(step.artifact).toBe("");
-    // Answer message, checkpoint, progress update and the delta event.
-    expect(step.statements).toBeLessThanOrEqual(4);
+    expect(step.artifact).toBe(text);
+    // Application statements stay at six; the savings are inside SQL triggers.
+    expect(step.statements).toBe(6);
   }
 
   const answer = chunks.join("");
@@ -102,4 +125,18 @@ it("writes the result once per turn while the preview follows every chunk", asyn
     ).get(run.id),
   ).toEqual({ n: 1 });
   expect(runPreview("alice", run.id).artifact?.content).toBe(answer);
+  const indexedFinal =
+    prepare(`SELECT f.content fts, s.content search, r.revision
+    FROM artifacts a JOIN artifact_fts f ON f.artifact_id=a.id
+    JOIN search_documents s ON s.id='artifact:'||a.id
+    JOIN feed_revisions r ON r.object_id=a.id AND r.entity='artifact'
+    WHERE a.run_id=?`).get(run.id) as {
+      fts: string;
+      search: string;
+      revision: number;
+    };
+  expect(indexedFinal).toMatchObject({ fts: answer, search: answer });
+  expect(indexedFinal.revision).toBeGreaterThan(
+    (indexed as { revision: number }).revision,
+  );
 });
