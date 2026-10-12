@@ -143,10 +143,6 @@ export class Codex implements Adapter {
       this.options.executable,
       ["app-server"],
       this.options.project,
-      process.env,
-      // thread/resume returns saved turns in one frame, including attachment
-      // data. Keep a bounded allowance without discarding native history.
-      64 * 1024 * 1024,
     );
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", () =>
@@ -249,7 +245,10 @@ export class Codex implements Adapter {
       .request(
         this.options.resume ? "thread/resume" : "thread/start",
         this.options.resume
-          ? { threadId: this.options.resume, ...extras }
+          // Codex retains the full context. Loop already persists its display
+          // history; copying every old turn (including file data) into this
+          // single response can exceed the transport's bounded frame size.
+          ? { threadId: this.options.resume, excludeTurns: true, ...extras }
           : { cwd: this.options.project, ...extras },
       )
       .catch((error) => {

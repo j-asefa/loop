@@ -21,7 +21,6 @@ export class Native extends EventEmitter {
     args: string[],
     cwd: string,
     env = process.env,
-    maxFrameBytes = 8 * 1024 * 1024,
   ) {
     super();
     this.child = spawn(executable, args, {
@@ -54,8 +53,8 @@ export class Native extends EventEmitter {
     const decoder = new StringDecoder("utf8");
     this.child.stdout.on("data", (chunk) => {
       buf += decoder.write(chunk);
-      if (Buffer.byteLength(buf) > maxFrameBytes) {
-        this.fail(new Error(`Native frame exceeds ${maxFrameBytes / 1024 / 1024} MiB.`));
+      if (Buffer.byteLength(buf) > 8 * 1024 * 1024) {
+        this.fail(new Error("Native frame exceeds 8 MiB."));
         return;
       }
       let newline;

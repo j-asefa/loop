@@ -224,7 +224,7 @@ test("Codex does not reopen async questions from resumed history", async () => {
   }
 });
 
-test("Codex resumes history larger than the ordinary native frame limit", async () => {
+test("Codex resumes file-heavy history without transferring saved turns", async () => {
   process.env.LOOP_TEST_HARNESS = "codex";
   process.env.LOOP_TEST_LARGE_CODEX_HISTORY = "1";
   const events: AdapterEvent[] = [];
@@ -234,9 +234,8 @@ test("Codex resumes history larger than the ordinary native frame limit", async 
   }, (event) => events.push(event));
   try {
     await adapter.start();
-    const history = events.find((e) => e.type === "item" && e.item.id === "large-history");
-    assert(history?.type === "item");
-    assert.equal(history.item.text?.length, 9 * 1024 * 1024);
+    assert(events.some((e) => e.type === "metadata" && e.nativeSession === "large-thread"));
+    assert(!events.some((e) => e.type === "item" && e.item.id === "large-history"));
     await adapter.prompt("Continue after the saved history");
     await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
   } finally {

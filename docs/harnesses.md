@@ -34,6 +34,8 @@ Each result shows its recorded input/output token counts at the bottom. Direct C
 
 Codex async questions appear in **Needs you** with their answer choices while the agent continues working. If native work finishes first, Loop keeps the run waiting for your answer and continues in the same native thread when you submit it. Cancelled or replaced sessions expire these decisions; resuming native history does not reopen old questions.
 
+Codex resumes request thread metadata without copying all saved turns into the startup response. Codex retains the full model context and attachments; Loop keeps its persisted conversation display. Reconnecting therefore does not require transferring the entire file-heavy transcript through one protocol message.
+
 For an explicit executable, existing billing configuration, native session resume or a custom ACP agent:
 
 ```sh
