@@ -73,13 +73,23 @@ export function CheckoutSheet({
 }) {
   const [detail, setDetail] = useState<CheckoutDetail | null>(null);
   const [error, setError] = useState("");
+  // A capture still in progress is polled until it ends, so an open sheet
+  // shows the observation without being reopened.
   useEffect(() => {
     let live = true;
-    load(runId)
-      .then((result) => live && setDetail(result))
-      .catch((e: Error) => live && setError(e.message));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () =>
+      load(runId)
+        .then((result) => {
+          if (!live) return;
+          setDetail(result);
+          if (result.state === "started") timer = setTimeout(read, 5000);
+        })
+        .catch((e: Error) => live && setError(e.message));
+    void read();
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, [runId]);
   const chunks = detail?.patch ? perFile(detail.patch) : new Map<string, string>();

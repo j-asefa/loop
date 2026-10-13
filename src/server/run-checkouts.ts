@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { db, id, now } from "./db.js";
+import { recordChange } from "./project-changes.js";
 import type { Run } from "./queue.js";
 export type {
   CheckoutFile,
@@ -108,16 +110,27 @@ type GitResult = { ok: boolean; out: string; truncated: boolean };
 // overridden on the command line; diffs also refuse external and text
 // conversion drivers explicitly. Filters have no override, so capture
 // refuses repositories whose own configuration defines them (below).
+/** Git's well-known empty tree: an attribute source that selects nothing. */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+// Attributes are read from the empty tree rather than the worktree, so no
+// .gitattributes can select a filter, diff driver or text conversion, and
+// the attributes file setting is overridden. That holds inside each Git
+// command, whatever the repository configuration says at the time. Only
+// $GIT_DIR/info/attributes is outside these controls; the guard below
+// refuses a repository that uses it to select drivers.
 const SAFE = [
   "-c", "core.quotePath=false",
   "-c", "core.fsmonitor=false",
+  "-c", "core.attributesFile=/dev/null",
+  "-c", "submodule.recurse=false",
   "-c", "diff.external=",
 ];
+const IGNORE_SUBMODULES = "--ignore-submodules=all";
 function git(directory: string, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult> {
   return new Promise((resolve) => {
     const child = spawn("git", ["-C", directory, ...SAFE, ...args], {
       stdio: ["ignore", "pipe", "ignore"],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_ATTR_SOURCE: EMPTY_TREE },
     });
     const chunks: Buffer[] = [];
     let size = 0,
@@ -162,7 +175,8 @@ async function maybe(directory: string, args: string[]) {
 
 // Keys whose values Git executes while diffing or inspecting a working tree.
 const COMMAND_KEYS =
-  /^(?:filter\..+\.(?:clean|smudge|process)|diff\..+\.(?:textconv|command)|diff\.external|core\.fsmonitor)$/i;
+  /^(?:filter\..+\.(?:clean|smudge|process)|diff\..+\.(?:textconv|command)|diff\.external|core\.fsmonitor|core\.attributesfile)$/i;
+const DRIVER_ATTRIBUTES = /(?:^|\s)(?:filter|diff)=/m;
 const REPOSITORY_SCOPES = new Set(["local", "worktree"]);
 const SCOPES = new Set(["system", "global", "local", "worktree", "command", "unknown"]);
 /**
@@ -189,11 +203,23 @@ async function refuseCommandConfig(directory: string) {
         `The repository configuration defines ${key}, which Git would run during capture; Loop does not run it.`,
       );
   }
+  // In-tree attributes are bypassed by the empty attribute source; the
+  // repository's info/attributes files are not, so they must not select
+  // drivers either.
+  const common = await must(directory, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const own = await must(directory, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+  for (const file of new Set([common + "/info/attributes", own + "/info/attributes"])) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (DRIVER_ATTRIBUTES.test(text.replace(/#.*$/gm, "")))
+      throw new CheckoutError(
+        `${file} selects a filter or diff driver, which Git would run during capture; Loop does not run it.`,
+      );
+  }
 }
 
 async function status(directory: string) {
   // Porcelain v1, NUL-terminated: "XY path\0" with a second "orig\0" for renames.
-  const out = await must(directory, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const out = await must(directory, ["status", "--porcelain=v1", "-z", "--untracked-files=all", IGNORE_SUBMODULES]);
   const entries = out.split("\0");
   const tracked: string[] = [],
     untracked: string[] = [];
@@ -211,7 +237,7 @@ async function status(directory: string) {
   return { tracked, untracked };
 }
 
-const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-color"];
+const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", IGNORE_SUBMODULES];
 async function numstat(directory: string, range: string[]): Promise<CheckoutStat> {
   const out = await must(directory, [...DIFF, "--numstat", "-z", ...range]);
   const parts = out.split("\0");
@@ -319,6 +345,9 @@ export function checkoutContent(detail: CheckoutDetail) {
   return lines.join("\n");
 }
 
+const ARCHIVE = () => db.prepare(
+  "INSERT OR IGNORE INTO run_checkout_versions(id,owner_id,run_id,ended_at,record) VALUES(?,?,?,?,?)",
+);
 function select(runId: string, owner?: string) {
   return db
     .prepare(
@@ -354,11 +383,16 @@ export function checkoutSummary(owner: string, runId: string): CheckoutSummary |
     .get(runId, owner) as { summary: string | null } | undefined;
   return row?.summary ? (JSON.parse(row.summary) as CheckoutSummary) : null;
 }
+/** A checkout by citation id: the live record, or an archived observation. */
 export function checkoutById(owner: string, checkoutId: string): CheckoutDetail | null {
   const row = db
     .prepare("SELECT * FROM run_checkouts WHERE id=? AND owner_id=?")
     .get(checkoutId, owner) as CheckoutRow | undefined;
-  return row ? toDetail(row) : null;
+  if (row) return toDetail(row);
+  const version = db
+    .prepare("SELECT record FROM run_checkout_versions WHERE id=? AND owner_id=?")
+    .get(checkoutId, owner) as { record: string } | undefined;
+  return version ? toDetail(JSON.parse(version.record) as CheckoutRow) : null;
 }
 
 // Prepared on first use: this module is loaded by the queue, which some
@@ -436,7 +470,7 @@ const CAPTURE_FIELDS = [
   "patch", "patch_bytes", "patch_truncated", "remote", "overlap",
 ] as const;
 const UPDATE = () => db.prepare(
-  `UPDATE run_checkouts SET state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id AND capture_token=@token`,
+  `UPDATE run_checkouts SET id=@id,state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id AND capture_token=@token`,
 );
 
 /**
@@ -535,10 +569,19 @@ export async function completeCheckout(
     fields.error = error instanceof Error ? error.message.slice(0, 500) : "Checkout capture failed";
   }
   const next = { ...row, ...fields } as CheckoutRow;
+  // An earlier observation stays reachable under its own id, so a brief
+  // that cited it keeps resolving to what it cited; the live record moves
+  // to a new id.
+  if (row.ended_at !== null) {
+    const archived = { ...row, capture_token: null, capture_started_at: null, capture_pending: 0 };
+    ARCHIVE().run(row.id, row.owner_id, row.run_id, row.ended_at, JSON.stringify(archived));
+    next.id = id();
+  }
   next.summary = JSON.stringify(summarize(next));
   UPDATE().run({
     run_id: row.run_id,
     token,
+    id: next.id,
     state: next.state,
     branch: next.branch,
     base_sha: next.base_sha ?? null,
@@ -553,7 +596,15 @@ export async function completeCheckout(
       "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",
     )
     .get(runId, token) as { capture_pending: number } | undefined;
-  if (release?.capture_pending) await completeCheckout(runId);
+  if (release?.capture_pending) return completeCheckout(runId);
+  // The run's results now carry checkout evidence: record them as changed so
+  // a brief that consumed the result before the capture ended sees it.
+  for (const { id: artifact } of db
+    .prepare(
+      "SELECT a.id FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0",
+    )
+    .all(row.owner_id, row.run_id) as { id: string }[])
+    recordChange(row.owner_id, null, "result", artifact, row.conversation_id);
 }
 
 /** Runs are considered to have ended while the host was down after this long. */
@@ -576,7 +627,8 @@ export function reconcileCheckouts(): Promise<void> {
     const pending = db
       .prepare(
         `SELECT k.run_id,r.updated_at FROM run_checkouts k JOIN runs r ON r.id=k.run_id
-         WHERE k.state='started' AND (k.capture_token IS NULL OR k.capture_started_at<?)
+         WHERE (k.state='started' OR k.capture_pending=1 OR k.capture_token IS NOT NULL)
+           AND (k.capture_token IS NULL OR k.capture_started_at<?)
            AND r.state IN (${TERMINAL_STATES.map(() => "?").join(",")}) LIMIT 20`,
       )
       .all(time - CAPTURE_LEASE_MS, ...TERMINAL_STATES) as { run_id: string; updated_at: number }[];

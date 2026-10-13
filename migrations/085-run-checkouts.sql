@@ -39,4 +39,15 @@ CREATE TABLE run_checkouts(
 );
 CREATE INDEX run_checkouts_conversation ON run_checkouts(owner_id, conversation_id, started_at);
 
+-- Earlier observations of a run that was captured again. A brief citation
+-- names one observation by id; it must keep resolving to that observation.
+CREATE TABLE run_checkout_versions(
+  id TEXT PRIMARY KEY,                       -- the id the live record had
+  owner_id TEXT NOT NULL,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  ended_at INTEGER NOT NULL,
+  record TEXT NOT NULL                       -- JSON of the archived row
+);
+CREATE INDEX run_checkout_versions_run ON run_checkout_versions(owner_id, run_id, ended_at);
+
 INSERT INTO schema_version VALUES(85,unixepoch()*1000);

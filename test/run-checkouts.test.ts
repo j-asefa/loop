@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -340,6 +340,96 @@ it("refuses to capture when the repository configures commands Git would run", a
   } finally {
     git(project, "config", "--unset", "filter.evil.clean");
   }
+});
+
+it("never runs a filter a worktree's .gitattributes selects, whatever the user's configuration", async () => {
+  const run = runFixture("thread-attrs");
+  bind("thread-attrs", checkout);
+  const marker = join(dir, "filter-ran");
+  const globalConfig = join(dir, "global.gitconfig");
+  writeFileSync(globalConfig, `[filter "evil"]\n\tclean = sh -c "touch ${marker}; cat"\n`);
+  writeFileSync(join(checkout, ".gitattributes"), "* filter=evil\n");
+  writeFileSync(join(checkout, "tracked.txt"), "touched again\n");
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.state).toBe("captured");
+    expect(detail.files.map((f) => f.path)).toContain("tracked.txt");
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+    rmSync(join(checkout, ".gitattributes"));
+  }
+});
+
+it("refuses a repository whose info/attributes selects a driver", async () => {
+  const run = runFixture("thread-info-attrs");
+  bind("thread-info-attrs", checkout);
+  const info = join(project, ".git", "info");
+  mkdirSync(info, { recursive: true });
+  writeFileSync(join(info, "attributes"), "# comment\n*.txt filter=evil\n");
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.state).toBe("failed");
+    expect(detail.error).toContain("info/attributes");
+  } finally {
+    rmSync(join(info, "attributes"));
+  }
+});
+
+it("keeps an earlier observation reachable under its own id after a recapture", async () => {
+  const run = runFixture("thread-versions");
+  bind("thread-versions", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  await completeCheckout(run.id);
+  const first = checkoutDetail(owner, run.id)!;
+  const firstContent = checkoutContent(first);
+  writeFileSync(join(checkout, "versioned.txt"), "later\n");
+  await completeCheckout(run.id);
+  const second = checkoutDetail(owner, run.id)!;
+  expect(second.id).not.toBe(first.id);
+  expect(second.untracked).toContain("versioned.txt");
+  expect(second.summary!.id).toBe(second.id);
+  const old = resolveCite(owner, folder, { ref: "chk_" + first.id });
+  expect(old).toMatchObject({ kind: "checkout", runId: run.id });
+  expect(old!.content).toBe(firstContent);
+  expect(resolveCite(owner, folder, { ref: "chk_" + second.id })!.content).toBe(checkoutContent(second));
+  rmSync(join(checkout, "versioned.txt"));
+});
+
+it("re-records a run's published results once their checkout evidence exists", async () => {
+  const run = runFixture("thread-rediscover");
+  bind("thread-rediscover", checkout);
+  const artifact = id();
+  db.prepare(
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,'thread-rediscover',?,'Answer','markdown','Done.',1,1)",
+  ).run(artifact, owner, agent, run.id);
+  db.prepare("INSERT INTO artifact_publications(artifact_id) VALUES(?)").run(artifact);
+  const changes = () =>
+    (db.prepare("SELECT count(*) n FROM project_changes WHERE owner_id=? AND kind='result' AND ref=?").get(owner, artifact) as { n: number }).n;
+  const before = changes();
+  await startCheckout(run, checkout, project, "g1");
+  await completeCheckout(run.id);
+  expect(changes()).toBe(before + 1);
+});
+
+it("recovers an abandoned recapture of an already captured run", async () => {
+  const run = runFixture("thread-abandoned");
+  bind("thread-abandoned", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  await completeCheckout(run.id);
+  db.prepare("UPDATE runs SET state='cancelled',updated_at=? WHERE id=?").run(now(), run.id);
+  db.prepare("UPDATE run_checkouts SET capture_token='crashed',capture_started_at=?,capture_pending=1 WHERE run_id=?").run(now() - 600000, run.id);
+  // The throttle is per process; reach past it for this check.
+  await new Promise((r) => setTimeout(r, 0));
+  const raw = () => db.prepare("SELECT capture_token,capture_pending,state FROM run_checkouts WHERE run_id=?").get(run.id) as any;
+  await completeCheckout(run.id, { ifIdle: true });
+  expect(raw()).toMatchObject({ capture_token: null, capture_pending: 0, state: "captured" });
 });
 
 it("refuses drivers with dotted names defined through an included file", async () => {
