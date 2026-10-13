@@ -29,6 +29,7 @@ CREATE TABLE run_checkouts(
   patch TEXT, patch_bytes INTEGER, patch_truncated INTEGER,
   remote TEXT,                               -- JSON {ref,sha,contains_head,observed_at}; null when no remote ref was seen
   overlap TEXT,                              -- JSON [run id] other runs active on this checkout during this one
+  captured_late INTEGER NOT NULL DEFAULT 0,  -- captured after a restart, later than the run ended
   summary TEXT,                              -- JSON card summary, derived from the columns above
   ended_at INTEGER,
   error TEXT

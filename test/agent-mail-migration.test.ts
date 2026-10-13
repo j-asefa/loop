@@ -134,8 +134,15 @@ it.each(["main", "direct-mail preview"])("upgrades populated %s mail with foreig
         ],
         { env },
       );
+    // Every migration from the mail rewrite onward applied, in order, up to
+    // the newest file in the migrations directory.
+    const latest = Math.max(
+      ...readdirSync("migrations")
+        .map((file) => Number(file.slice(0, 3)))
+        .filter(Number.isFinite),
+    );
     expect(db.prepare("SELECT version FROM schema_version WHERE version>=80 ORDER BY version").all())
-      .toEqual([{ version: 80 }, { version: 81 }, { version: 82 }, { version: 83 }]);
+      .toEqual(Array.from({ length: latest - 79 }, (_, i) => ({ version: 80 + i })));
     expect(snapshot()).toEqual(before);
     expect(db.pragma("foreign_key_check")).toEqual([]);
     expect(db.prepare("SELECT scope FROM agent_threads").get()).toEqual({

@@ -153,11 +153,7 @@ export function transition(run: Run, state: string, payload: unknown = {}) {
   // read-only Git on a worktree can take a moment and must not hold the
   // database transaction or the caller.
   if (changed && TERMINAL_STATES.includes(state))
-    setImmediate(() => {
-      try {
-        completeCheckout(run.id);
-      } catch {}
-    });
+    void completeCheckout(run.id).catch(() => {});
   return changed;
 }
 function transitionState(run: Run, state: string, payload: unknown) {

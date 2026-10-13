@@ -24,6 +24,7 @@ const { agentWorktree } = await import("../src/server/agent-worktree");
 const {
   startCheckout,
   completeCheckout,
+  reconcileCheckouts,
   checkoutDetail,
   checkoutSummary,
   checkoutContent,
@@ -53,15 +54,14 @@ db.prepare(
   "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Other',0)",
 ).run(otherFolder, owner);
 
-function runFixture(conversation: string, state = "running"): Run {
+function runFixture(conversation: string, state = "running", at = now()): Run {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Thread',?,0)",
   ).run(conversation, owner, agent, folder);
   const runId = id();
-  const time = now();
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Change things',?,?,'{}',?,?)",
-  ).run(runId, owner, agent, conversation, state, runId, time, time);
+  ).run(runId, owner, agent, conversation, state, runId, at, at);
   return db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as Run;
 }
 function bind(conversation: string, checkout: string) {
@@ -78,10 +78,10 @@ const checkout = agentWorktree(project, project, {
   projectId: project,
 });
 
-it("records the worktree before and after a run, as Loop observed it", () => {
+it("records the worktree before and after a run, as Loop observed it", async () => {
   const run = runFixture("thread-1");
   bind("thread-1", checkout);
-  startCheckout(run, checkout, project, "g1");
+  await startCheckout(run, checkout, project, "g1");
   const started = checkoutDetail(owner, run.id)!;
   expect(started.state).toBe("started");
   expect(started.start_head).toBe(git(project, "rev-parse", "HEAD"));
@@ -89,7 +89,8 @@ it("records the worktree before and after a run, as Loop observed it", () => {
   expect(started.base_sha).toBe(git(project, "rev-parse", "HEAD"));
   expect(started.start_dirty).toBe(0);
   expect(started.generation).toBe("g1");
-  expect(checkoutSummary(owner, run.id)).toMatchObject({ state: "started", files: 0 });
+  expect(checkoutSummary(owner, run.id)).toMatchObject({ state: "started", files: 0, ahead: null });
+  expect(checkoutLine(checkoutSummary(owner, run.id)!)).not.toContain("undefined");
 
   // The agent commits one change, leaves another uncommitted, and adds a file.
   writeFileSync(join(checkout, "tracked.txt"), "committed\nby the agent\n");
@@ -97,12 +98,12 @@ it("records the worktree before and after a run, as Loop observed it", () => {
   writeFileSync(join(checkout, "tracked.txt"), "committed\nby the agent\nand more\n");
   writeFileSync(join(checkout, "new.txt"), "untracked");
 
-  completeCheckout(run.id);
+  await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.state).toBe("captured");
   expect(detail.end_head).toBe(git(checkout, "rev-parse", "HEAD"));
   expect(detail.end_head).not.toBe(detail.start_head);
-  expect(detail).toMatchObject({ ahead: 1, behind: 0 });
+  expect(detail).toMatchObject({ ahead: 1, behind: 0, captured_late: false });
   expect(detail.files).toEqual([
     { path: "tracked.txt", additions: 3, deletions: 1, binary: false },
   ]);
@@ -121,6 +122,7 @@ it("records the worktree before and after a run, as Loop observed it", () => {
     untracked: 1,
     remote: "none",
     ahead: 1,
+    late: false,
   });
   expect(checkoutLine(detail.summary!)).toBe(
     `${detail.branch} · 1 commit ahead · 1 file +3 −1 · 1 untracked · no remote seen`,
@@ -150,21 +152,49 @@ it("is a brief citation scoped to the run's project, with checked quotes", () =>
   expect(resolveCite("someone-else", folder, { ref })).toBeNull();
 });
 
-it("records other runs active on the same checkout as overlap, not authorship", () => {
+it("records other runs active on the same checkout as overlap, not authorship", async () => {
   const first = db
     .prepare("SELECT * FROM runs WHERE conversation_id='thread-1'")
     .get() as Run;
-  const second = runFixture("thread-2");
+  const started = checkoutDetail(owner, first.id)!.started_at;
+  // One sibling ended after this run started; one began earlier and is still
+  // running, so its updated_at predates the start. Both overlap.
+  const ended = runFixture("thread-2", "completed", started + 1);
   bind("thread-2", checkout);
-  completeCheckout(first.id);
-  expect(checkoutDetail(owner, first.id)!.overlap).toEqual([second.id]);
-  expect(checkoutSummary(owner, first.id)!.overlap).toBe(1);
+  const longRunning = runFixture("thread-2b", "running", started - 60000);
+  bind("thread-2b", checkout);
+  const finishedBefore = runFixture("thread-2c", "completed", started - 60000);
+  bind("thread-2c", checkout);
+  await completeCheckout(first.id);
+  const overlap = checkoutDetail(owner, first.id)!.overlap;
+  expect(overlap).toContain(ended.id);
+  expect(overlap).toContain(longRunning.id);
+  expect(overlap).not.toContain(finishedBefore.id);
+  expect(checkoutSummary(owner, first.id)!.overlap).toBe(2);
 });
 
-it("stores a bounded patch and says when it was shortened", () => {
+it("keeps filenames that contain tabs and renames intact", async () => {
+  const run = runFixture("thread-tabs");
+  bind("thread-tabs", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  git(checkout, "add", "new.txt");
+  git(checkout, "commit", "-m", "track new.txt");
+  writeFileSync(join(checkout, "notes\tdraft.txt"), "tabbed\n");
+  git(checkout, "add", "notes\tdraft.txt");
+  git(checkout, "mv", "new.txt", "renamed.txt");
+  git(checkout, "commit", "-m", "tabs and renames");
+  await completeCheckout(run.id);
+  const paths = checkoutDetail(owner, run.id)!.files.map((f) => f.path);
+  expect(paths).toContain("notes\tdraft.txt");
+  expect(paths).toContain("renamed.txt");
+  expect(paths).not.toContain("notes");
+});
+
+it("stores a bounded patch and says when it was shortened", async () => {
   const run = runFixture("thread-3");
   bind("thread-3", checkout);
-  startCheckout(run, checkout, project, "g1");
+  writeFileSync(join(checkout, "tracked.txt"), "dirty before\n");
+  await startCheckout(run, checkout, project, "g1");
   expect(checkoutDetail(owner, run.id)!.start_dirty).toBe(1);
   writeFileSync(
     join(checkout, "big.txt"),
@@ -172,7 +202,7 @@ it("stores a bounded patch and says when it was shortened", () => {
   );
   git(checkout, "add", "big.txt");
   git(checkout, "commit", "-m", "big");
-  completeCheckout(run.id);
+  await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.patch_truncated).toBe(true);
   expect(Buffer.byteLength(detail.patch!, "utf8")).toBeLessThanOrEqual(PATCH_LIMIT);
@@ -185,43 +215,115 @@ it("stores a bounded patch and says when it was shortened", () => {
 it("captures at the terminal transition without blocking it", async () => {
   const run = runFixture("thread-4");
   bind("thread-4", checkout);
-  startCheckout(run, checkout, project, "g1");
+  await startCheckout(run, checkout, project, "g1");
   expect(checkoutDetail(owner, run.id)!.ended_at).toBeNull();
   expect(transition(run, "completed")).toBe(true);
-  for (let i = 0; i < 50 && !checkoutDetail(owner, run.id)!.ended_at; i++) await wait(20);
+  for (let i = 0; i < 100 && !checkoutDetail(owner, run.id)!.ended_at; i++) await wait(20);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.state).toBe("captured");
   expect(detail.ended_at).not.toBeNull();
+  expect(detail.captured_late).toBe(false);
 });
 
-it("keeps the first start record when a run resumes", () => {
+it("captures late, and says so, for runs that ended while the host was down", async () => {
+  const run = runFixture("thread-late");
+  bind("thread-late", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  // Recovery marks runs interrupted directly, without a transition.
+  db.prepare("UPDATE runs SET state='interrupted',updated_at=? WHERE id=?").run(now(), run.id);
+  expect(checkoutDetail(owner, run.id)!.state).toBe("started");
+  await reconcileCheckouts();
+  const detail = checkoutDetail(owner, run.id)!;
+  expect(detail.state).toBe("captured");
+  expect(detail.captured_late).toBe(true);
+  expect(detail.summary!.late).toBe(true);
+  expect(checkoutContent(detail)).toContain("Captured after a restart");
+  await reconcileCheckouts();
+  expect(checkoutDetail(owner, run.id)!.ended_at).toBe(detail.ended_at);
+});
+
+it("reports the branch the checkout is on when the run ends", async () => {
+  const run = runFixture("thread-branch");
+  bind("thread-branch", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  const before = checkoutDetail(owner, run.id)!.branch;
+  git(checkout, "switch", "-c", "feature/side");
+  try {
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.branch).toBe("feature/side");
+    expect(detail.summary!.branch).toBe("feature/side");
+    expect(detail.end_head).toBe(git(checkout, "rev-parse", "HEAD"));
+  } finally {
+    git(checkout, "switch", before);
+    git(checkout, "branch", "-D", "feature/side");
+  }
+});
+
+it("keeps the first start record when a run resumes", async () => {
   const run = runFixture("thread-5");
   bind("thread-5", checkout);
-  startCheckout(run, checkout, project, "g1");
+  await startCheckout(run, checkout, project, "g1");
   const first = checkoutDetail(owner, run.id)!;
-  startCheckout(run, checkout, project, "g2");
+  await startCheckout(run, checkout, project, "g2");
   expect(checkoutDetail(owner, run.id)).toMatchObject({ id: first.id, generation: "g1" });
 });
 
-it("records a capture failure on the run instead of raising it", () => {
+it("clears an earlier observation when a recapture fails", async () => {
+  const run = runFixture("thread-recapture");
+  bind("thread-recapture", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  await completeCheckout(run.id);
+  const captured = checkoutDetail(owner, run.id)!;
+  expect(captured.state).toBe("captured");
+  expect(captured.files.length).toBeGreaterThan(0);
+  // The worktree disappears before the run ends again.
+  db.prepare("UPDATE run_checkouts SET directory=? WHERE run_id=?").run(join(dir, "gone"), run.id);
+  await completeCheckout(run.id);
+  const failed = checkoutDetail(owner, run.id)!;
+  expect(failed.state).toBe("failed");
+  expect(failed.error).toMatch(/git/);
+  expect(failed.files).toEqual([]);
+  expect(failed.patch).toBeNull();
+  expect(failed.end_head).toBeNull();
+  expect(failed.ended_at).toBeGreaterThanOrEqual(captured.ended_at!);
+  expect(failed.summary).toMatchObject({ state: "failed", files: 0 });
+});
+
+it("refuses to capture when the repository configures commands Git would run", async () => {
+  const run = runFixture("thread-config");
+  bind("thread-config", checkout);
+  git(project, "config", "filter.evil.clean", "touch /tmp/should-not-run");
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.state).toBe("failed");
+    expect(detail.error).toContain("filter.evil.clean");
+    expect(checkoutLine(detail.summary!)).toContain("checkout not captured");
+  } finally {
+    git(project, "config", "--unset", "filter.evil.clean");
+  }
+});
+
+it("records a capture failure on the run instead of raising it", async () => {
   const run = runFixture("thread-6");
   const nowhere = join(dir, "not-a-repo");
   mkdirSync(nowhere);
-  startCheckout(run, nowhere, nowhere, null);
+  await startCheckout(run, nowhere, nowhere, null);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.state).toBe("failed");
   expect(detail.error).toMatch(/git/);
   expect(detail.summary).toMatchObject({ state: "failed" });
   expect(checkoutLine(detail.summary!)).toContain("checkout not captured");
   // Nothing to complete: the run still ends normally.
-  completeCheckout(run.id);
+  await completeCheckout(run.id);
   expect(checkoutDetail(owner, run.id)!.state).toBe("failed");
 });
 
-it("has no record for runs without a worktree", () => {
+it("has no record for runs without a worktree", async () => {
   const run = runFixture("thread-7");
   expect(checkoutDetail(owner, run.id)).toBeNull();
   expect(checkoutSummary(owner, run.id)).toBeNull();
-  completeCheckout(run.id);
+  await completeCheckout(run.id);
   expect(checkoutDetail(owner, run.id)).toBeNull();
 });

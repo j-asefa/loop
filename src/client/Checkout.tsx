@@ -88,10 +88,14 @@ export function CheckoutSheet({
       );
     if (detail.remote)
       notes.push(
-        `${detail.remote.ref} was ${detail.remote.contains_head ? "at or ahead of" : "behind"} this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}. Loop reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch.`,
+        `${detail.remote.ref} ${detail.remote.contains_head ? "contained" : "did not contain"} this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}. Loop reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch, and it does not say which side is ahead.`,
       );
     else if (detail.state === "captured")
       notes.push("No remote-tracking ref for this branch was found locally.");
+    if (detail.captured_late)
+      notes.push(
+        "Captured after a restart, later than the run ended, so the checkout may have changed in between.",
+      );
     if (detail.patch_truncated)
       notes.push(
         `The stored patch was shortened${detail.patch_bytes ? ` from ${Math.round(detail.patch_bytes / 1024)} KB` : ""}. Open the worktree for the full diff.`,

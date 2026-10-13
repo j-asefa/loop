@@ -14,6 +14,8 @@ export type CheckoutSummary = {
   remote: "none" | "contains" | "missing";
   started_dirty: boolean;
   overlap: number;
+  /** Captured after a restart, later than the run ended. */
+  late: boolean;
   error: string | null;
 };
 
@@ -61,6 +63,7 @@ export type CheckoutDetail = {
   patch_truncated: boolean;
   remote: CheckoutRemote | null;
   overlap: string[];
+  captured_late: boolean;
   summary: CheckoutSummary | null;
   ended_at: number | null;
   error: string | null;
@@ -69,7 +72,7 @@ export type CheckoutDetail = {
 /** The card line. The same text is the brief's citable headline. */
 export function checkoutLine(summary: CheckoutSummary) {
   const parts = [summary.branch];
-  if (summary.ahead !== null) {
+  if (summary.ahead != null) {
     parts.push(
       summary.ahead === 1 ? "1 commit ahead" : `${summary.ahead} commits ahead`,
     );

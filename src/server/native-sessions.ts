@@ -1114,7 +1114,7 @@ export class NativeSessions {
     }, binding.project);
     // What the checkout looked like before this run touched it. Recorded by
     // Loop, never by the harness; a capture failure is recorded, not raised.
-    startCheckout(run, binding.project, binding.worktree_source, binding.generation);
+    await startCheckout(run, binding.project, binding.worktree_source, binding.generation);
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
     const permissionMode = isPermissionMode(snapshot.permissionMode)
