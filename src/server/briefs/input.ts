@@ -1,3 +1,4 @@
+import { checkoutDetail, checkoutLine } from "../run-checkouts.js";
 import { db } from "../db.js";
 import { resolveCite } from "./cites.js";
 import { synthesisKinds, type Cite, type Item } from "./schema.js";
@@ -59,7 +60,14 @@ function eventText(owner: string, project: string, event: Event): string {
           ? source.content.slice(0, 4000).replace(/[\uD800-\uDBFF]$/, "") +
             "\n... (truncated)"
           : source.content;
-      return `[${ref}] ${time} result by ${source.agent ?? "unknown"} ${location}:\n${quoted(content)}`;
+      // The checkout Loop observed for the run that produced this result is
+      // its own citable record: what changed in the repository, as seen by
+      // Loop rather than described by the agent.
+      const checkout = source.runId ? checkoutDetail(owner, source.runId) : null;
+      const observed = checkout?.summary
+        ? `\n  Checkout [chk_${checkout.id}] observed by Loop: ${checkoutLine(checkout.summary)}`
+        : "";
+      return `[${ref}] ${time} result by ${source.agent ?? "unknown"} ${location}:\n${quoted(content)}${observed}`;
     }
   } else if (event.kind === "prompt") {
     ref = "msg_" + event.ref;

@@ -26,6 +26,7 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
     ORDER BY final.rowid DESC LIMIT 1),
     '$.delivery',s.state,'$.deliveryError',s.error) metadata,
   m.created_at,r.state run_state,r.error run_error,
+  (SELECT k.summary FROM run_checkouts k WHERE k.run_id=p.run_id AND k.owner_id=p.owner_id) run_checkout,
   p.position,p.phase,p.ordinal
 FROM page p
 JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id

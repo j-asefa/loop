@@ -2,6 +2,7 @@ import { recordChange } from "./project-changes.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
+import { startCheckout } from "./run-checkouts.js";
 import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
@@ -1111,6 +1112,9 @@ export class NativeSessions {
       ownerId: run.owner_id, agentId: run.agent_id,
       environmentId: realpathSync(config.data), projectId: binding.worktree_source,
     }, binding.project);
+    // What the checkout looked like before this run touched it. Recorded by
+    // Loop, never by the harness; a capture failure is recorded, not raised.
+    startCheckout(run, binding.project, binding.worktree_source, binding.generation);
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
     const permissionMode = isPermissionMode(snapshot.permissionMode)

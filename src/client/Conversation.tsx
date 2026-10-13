@@ -47,6 +47,8 @@ import { parse } from "./api";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
+import { CheckoutChip, CheckoutSheet } from "./Checkout";
+import type { CheckoutSummary } from "../shared/checkout";
 import { RunFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
 import {
@@ -221,6 +223,7 @@ export function Conversation({
       summary: ChangeSummary;
       context: ChangeContext;
     } | null>(null),
+    [checkout, setCheckout] = useState<string | null>(null),
     [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
     [usageData, setUsage] = useState<{
       conversationId: string;
@@ -1085,6 +1088,13 @@ export function Conversation({
           }}
         />
       )}
+      {checkout && (
+        <CheckoutSheet
+          runId={checkout}
+          load={(runId) => api(`/runs/${runId}/checkout`)}
+          onClose={() => setCheckout(null)}
+        />
+      )}
       {changes && (
         <ChangesSheet
           summary={changes.summary}
@@ -1437,6 +1447,15 @@ export function Conversation({
                               context: changeContext(m.run_id!),
                             })
                           }
+                        />
+                      )}
+                      {m.run_checkout && (
+                        <CheckoutChip
+                          summary={parse<CheckoutSummary>(
+                            m.run_checkout,
+                            null as unknown as CheckoutSummary,
+                          )}
+                          onOpen={() => setCheckout(m.run_id!)}
                         />
                       )}
                       <RunStatus

@@ -1,3 +1,4 @@
+import { checkoutSummary } from "./run-checkouts.js";
 import { recordChange } from "./project-changes.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
@@ -589,6 +590,9 @@ function feedItem(
       ? {
           ...run,
           input: run.input.slice(0, 1000),
+          // What Loop observed in the agent's worktree; null for API agents
+          // and for runs that have not started.
+          checkout: checkoutSummary(owner, run.id),
           ...(trigger?.automation
             ? {
                 automation: trigger.automation,

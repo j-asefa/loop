@@ -467,7 +467,7 @@ function Comment({ comment, state }: { comment: PullComment; state?: string }) {
 }
 
 // A unified diff hunk with line numbers from its hunk headers.
-function Patch({ patch }: { patch: string }) {
+export function Patch({ patch }: { patch: string }) {
   let left = 0,
     right = 0;
   const rows = patch.split("\n").map((line, i) => {

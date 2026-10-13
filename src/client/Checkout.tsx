@@ -1,0 +1,168 @@
+import { useEffect, useState } from "react";
+import { GitBranch } from "lucide-react";
+import { Sheet } from "./components";
+import { Patch } from "./PullRequests";
+import { PullChangeCounts } from "./PullChangeCounts";
+import {
+  checkoutLine,
+  type CheckoutDetail,
+  type CheckoutSummary,
+} from "../shared/checkout";
+
+/**
+ * The checkout Loop observed for a run: one line on the card, the stored
+ * patch a tap away. This is Loop's observation of the worktree, not the
+ * agent's report of its edits, and nothing here applies or reverts anything.
+ */
+export function CheckoutChip({
+  summary,
+  onOpen,
+}: {
+  summary: CheckoutSummary;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="changes-chip checkout-chip"
+      onClick={onOpen}
+      aria-label={`Checkout: ${checkoutLine(summary)}`}
+    >
+      <GitBranch size={16} aria-hidden="true" />
+      <span>{checkoutLine(summary)}</span>
+    </button>
+  );
+}
+
+// Split the stored unified diff into one chunk per file, keyed by its new
+// path, so each file reads under its own disclosure like a pull request.
+function perFile(patch: string) {
+  const chunks = new Map<string, string>();
+  for (const chunk of patch.split(/^(?=diff --git )/m)) {
+    if (!chunk.trim()) continue;
+    const header = chunk.match(/^diff --git a\/(.*?) b\/(.*)$/m);
+    const plus = chunk.match(/^\+\+\+ b\/(.*)$/m);
+    const path = plus?.[1] ?? header?.[2] ?? header?.[1] ?? "";
+    chunks.set(path, chunk.replace(/^diff --git .*\n(?:(?:index|---|\+\+\+|new file mode|deleted file mode|similarity index|rename from|rename to|old mode|new mode) .*\n)*/, ""));
+  }
+  return chunks;
+}
+
+const when = (at: number) =>
+  new Date(at).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+const short = (sha: string | null) => (sha ? sha.slice(0, 10) : "unknown");
+
+export function CheckoutSheet({
+  runId,
+  load,
+  onClose,
+}: {
+  runId: string;
+  load: (runId: string) => Promise<CheckoutDetail>;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<CheckoutDetail | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    load(runId)
+      .then((result) => live && setDetail(result))
+      .catch((e: Error) => live && setError(e.message));
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  const chunks = detail?.patch ? perFile(detail.patch) : new Map<string, string>();
+  const notes: string[] = [];
+  if (detail) {
+    if (detail.start_dirty || detail.start_untracked)
+      notes.push(
+        "The checkout already had changes before this run started, so this record brackets an interval rather than proving which run made each change.",
+      );
+    if (detail.overlap.length)
+      notes.push(
+        `${detail.overlap.length === 1 ? "Another run was" : `${detail.overlap.length} other runs were`} active on this checkout during this run.`,
+      );
+    if (detail.remote)
+      notes.push(
+        `${detail.remote.ref} was ${detail.remote.contains_head ? "at or ahead of" : "behind"} this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}. Loop reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch.`,
+      );
+    else if (detail.state === "captured")
+      notes.push("No remote-tracking ref for this branch was found locally.");
+    if (detail.patch_truncated)
+      notes.push(
+        `The stored patch was shortened${detail.patch_bytes ? ` from ${Math.round(detail.patch_bytes / 1024)} KB` : ""}. Open the worktree for the full diff.`,
+      );
+    if (detail.error) notes.push(`Capture error: ${detail.error}`);
+  }
+  return (
+    <Sheet title="Checkout" wide onClose={onClose} className="changes-sheet">
+      {error && <p className="field-error">{error}</p>}
+      {!detail && !error && <p role="status">Loading checkout…</p>}
+      {detail && (
+        <>
+          <div className="changes-head">
+            <p className="changes-total">
+              {detail.summary ? checkoutLine(detail.summary) : detail.branch}
+            </p>
+            <p className="changes-meta">
+              Observed by Loop
+              {detail.ended_at ? ` at ${when(detail.ended_at)}` : ` from ${when(detail.started_at)}`}
+              {" · "}base {detail.base_ref ?? "unknown"} <code>{short(detail.base_sha)}</code>
+              {" · "}start <code>{short(detail.start_head)}</code>
+              {detail.end_head && (
+                <>
+                  {" · "}end <code>{short(detail.end_head)}</code>
+                </>
+              )}
+            </p>
+            {notes.map((note) => (
+              <p key={note} className="field-hint checkout-note">
+                {note}
+              </p>
+            ))}
+          </div>
+          {detail.state === "captured" && !detail.files.length && !detail.untracked.length && (
+            <p className="field-hint">No tracked changes against the base.</p>
+          )}
+          <div className="pull-files">
+            {detail.files.map((f) => (
+              <details key={f.path} className="pull-file" open={detail.files.length <= 3}>
+                <summary>
+                  <span className="pull-file-path">{f.path}</span>
+                  {f.binary ? (
+                    <span className="field-hint">binary</span>
+                  ) : (
+                    <PullChangeCounts additions={f.additions} deletions={f.deletions} />
+                  )}
+                </summary>
+                {chunks.get(f.path) ? (
+                  <Patch patch={chunks.get(f.path)!} />
+                ) : (
+                  <p className="field-hint">
+                    {f.binary ? "Binary content is not shown." : "This file's diff is not in the stored patch."}
+                  </p>
+                )}
+              </details>
+            ))}
+          </div>
+          {detail.untracked.length > 0 && (
+            <>
+              <p className="changes-meta">Untracked files (content not captured)</p>
+              <ul className="checkout-untracked">
+                {detail.untracked.map((path) => (
+                  <li key={path}>
+                    <code>{path}</code>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </>
+      )}
+    </Sheet>
+  );
+}

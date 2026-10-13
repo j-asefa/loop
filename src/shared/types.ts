@@ -35,6 +35,8 @@ export type Message = {
   run_id: string | null;
   run_state?: string | null;
   run_error?: string | null;
+  /** JSON checkout summary Loop observed for the run, when it has one. */
+  run_checkout?: string | null;
   role: "user" | "assistant" | "system";
   content: string;
   metadata: string;

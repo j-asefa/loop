@@ -16,6 +16,7 @@ import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
 import { stageImport } from "./imports.js";
 import { enqueue, type Run, transition } from "./queue.js";
+import { checkoutDetail } from "./run-checkouts.js";
 import type { Artifact, Agent, Message, Connection } from "../shared/types.js";
 export const workspace = Router();
 const fileUpload = multer({
@@ -173,6 +174,14 @@ workspace.get("/artifacts", (req, res) => {
     )
     .all(...args) as any[];
   res.json({ items, next: items.length === 60 ? items.at(-1).cursor : null });
+});
+// The checkout Loop observed for a run: branch, commits, files and the patch
+// stored at capture time. Read-only; there is nothing to apply from here.
+workspace.get("/runs/:id/checkout", (req, res) => {
+  owned("runs", req.params.id, res.locals.owner);
+  const detail = checkoutDetail(res.locals.owner, req.params.id);
+  if (!detail) throw new Problem(404, "This run has no checkout record.");
+  res.json(detail);
 });
 workspace.get("/runs/:id/files", (req, res) => {
   owned("runs", req.params.id, res.locals.owner);

@@ -9680,3 +9680,16 @@ label.catalog-filter-chip {
 .personal-files-list { display: grid; gap: 12px; }
 .personal-files-list .feed-card { min-width: 0; }
 .file-preview-content video { max-width: 100%; max-height: 65vh; }
+
+/* The checkout Loop observed for a run: a chip on cards, a sheet on tap. */
+.checkout-chip span {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.checkout-note {
+  margin: 4px 0 0;
+}
+.checkout-untracked {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}

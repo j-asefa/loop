@@ -35,6 +35,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { apiInWorkspace } from "./api";
+import { CheckoutChip, CheckoutSheet } from "./Checkout";
+import type { CheckoutSummary } from "../shared/checkout";
 import { sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
@@ -124,6 +126,8 @@ export type FeedItem = {
     queue_position: number | null;
     can_move_up?: boolean;
     can_move_down?: boolean;
+    /** What Loop observed in the agent's worktree; null for API agents. */
+    checkout?: CheckoutSummary | null;
   } | null;
   queued_runs?: {
     id: string;
@@ -203,6 +207,7 @@ function FeedCard({
   onDismiss,
   dismissLabel = "Remove from Done",
   onLater,
+  onCheckout,
 }: {
   item: FeedItem;
   agent?: EnvironmentAgent;
@@ -217,6 +222,8 @@ function FeedCard({
   onDismiss?: () => void;
   dismissLabel?: string;
   onLater: () => void;
+  /** Open the checkout Loop observed for the card's run. */
+  onCheckout?: () => void;
 }) {
   const scopedSource = useSourceId();
   const swipe = useSwipe({ onLeft: onDismiss });
@@ -342,6 +349,9 @@ function FeedCard({
           </span>
           <h2>{item.title}</h2>
           {detail && <p className="field-hint inbox-detail">{detail}</p>}
+          {item.run?.checkout && onCheckout && (
+            <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
+          )}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
             <div className="preview live-preview">
@@ -889,6 +899,10 @@ export function Feed({
   const [notice, setNotice] = useState("");
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const [later, setLater] = useState<FeedItem | null>(null);
+  const [checkout, setCheckout] = useState<{
+    runId: string;
+    sourceId: string;
+  } | null>(null);
   const [editing, setEditing] = useState<QueuedMessage | null>(null);
   const [moving, setMoving] = useState<QueuedMessage | null>(null);
   // Threads waiting on you, whichever filter is shown, for the stack above
@@ -1470,6 +1484,11 @@ export function Feed({
         }
         dismissLabel={dismissFailure ? "Dismiss from Needs you" : undefined}
         onLater={() => setLater(item)}
+        onCheckout={
+          item.run?.checkout
+            ? () => setCheckout({ runId: item.run!.id, sourceId: source })
+            : undefined
+        }
       />
     );
   }
@@ -1625,6 +1644,15 @@ export function Feed({
           </>
         )}
       </div>
+      {checkout && (
+        <CheckoutSheet
+          runId={checkout.runId}
+          load={(runId) =>
+            apiInWorkspace(`/runs/${runId}/checkout`, checkout.sourceId)
+          }
+          onClose={() => setCheckout(null)}
+        />
+      )}
       {menu && (
         <ActionSheet
           title={menu.title}

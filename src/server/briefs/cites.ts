@@ -1,10 +1,11 @@
+import { checkoutById, checkoutContent } from "../run-checkouts.js";
 import { db } from "../db.js";
 import { READABLE_MAIL_SQL } from "../mail-context.js";
 import type { Cite } from "./schema.js";
 import { watchProject } from "./store.js";
 
 export type ResolvedCite = {
-  kind: "result" | "message" | "saved" | "approval" | "pr";
+  kind: "result" | "message" | "saved" | "approval" | "pr" | "checkout";
   content: string;
   role?: string;
   automated?: boolean;
@@ -61,6 +62,29 @@ export function resolveCite(
   const split = cite.ref.indexOf("_"),
     prefix = cite.ref.slice(0, split),
     id = cite.ref.slice(split + 1);
+  if (prefix === "chk") {
+    // A checkout record is scoped like the run that produced it: the
+    // conversation's project first, then the run's folder.
+    const checkout = checkoutById(owner, id);
+    if (!checkout) return null;
+    const scope = db
+      .prepare(
+        `SELECT f.project_id FROM runs r
+         LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
+         JOIN project_change_folders f ON f.owner_id=r.owner_id
+           AND f.folder_id=COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
+         WHERE r.id=? AND r.owner_id=?`,
+      )
+      .get(checkout.run_id, owner) as { project_id: string } | undefined;
+    if (scope?.project_id !== project) return null;
+    return {
+      kind: "checkout",
+      content: checkoutContent(checkout),
+      ...runInfo(checkout.run_id, owner),
+      conversation: checkout.conversation_id,
+      recordedAt: checkout.ended_at ?? checkout.started_at,
+    };
+  }
   if (prefix === "res") {
     if (!inScope(owner, project, "artifact", id)) return null;
     const a = db
