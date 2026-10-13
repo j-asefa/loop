@@ -33,19 +33,25 @@ export function briefSourceUrl(
 
 /** Called after rendering; concurrent refreshes share the same acknowledgement. */
 export class BriefAcknowledgements {
-  private sent = new Set<number>();
-  async acknowledge(
+  private sent = new Map<number, Promise<void>>();
+  acknowledge(
     version: number,
     acknowledged: number,
     send: (version: number) => Promise<unknown>,
-  ) {
-    if (version <= acknowledged || this.sent.has(version)) return;
-    this.sent.add(version);
-    try {
-      await send(version);
-    } catch (error) {
-      this.sent.delete(version);
-      throw error;
-    }
+  ): Promise<void> {
+    if (version <= acknowledged) return Promise.resolve();
+    const pending = this.sent.get(version);
+    if (pending) return pending;
+    const request = Promise.resolve()
+      .then(() => send(version))
+      .then(
+        () => {},
+        (error) => {
+          this.sent.delete(version);
+          throw error;
+        },
+      );
+    this.sent.set(version, request);
+    return request;
   }
 }

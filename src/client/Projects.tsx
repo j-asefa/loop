@@ -15,7 +15,8 @@ import {
   Workflow,
   SlidersHorizontal,
 } from "lucide-react";
-import { api } from "./api";
+import { api, apiInWorkspace } from "./api";
+import { executionSourceId } from "./sourceRouting";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Chip } from "./ThreadTools";
@@ -100,12 +101,15 @@ export function Projects({
   const toolsId = useId();
   const current = folders.find((f) => f.id === selected);
   // Keep acknowledgement receipts across tab unmounts, scoped to the owner
-  // and project whose version was rendered.
+  // workspace and project whose version was rendered.
   const briefAcks = useRef(new Map<string, BriefAcknowledgements>());
-  const ackKey = `${viewOwner()}:${selected}`;
+  const briefOwner = viewOwner(),
+    workspace = executionSourceId();
+  const ackKey = JSON.stringify([briefOwner, workspace, selected]);
   if (current?.kind === "project" && !briefAcks.current.has(ackKey))
     briefAcks.current.set(ackKey, new BriefAcknowledgements());
   const [brief, setBrief] = useState<BriefPage | null>(null),
+    [briefScope, setBriefScope] = useState(""),
     [briefError, setBriefError] = useState(""),
     [briefLoad, setBriefLoad] = useState(0);
   const choseTab = useRef(false);
@@ -114,14 +118,21 @@ export function Projects({
     choseTab.current = false;
     setToolsOpen(false);
     setBrief(null);
+    setBriefScope(ackKey);
     setBriefError("");
     if (current?.kind !== "project") {
       if (page === "brief") setPage("threads");
       return;
     }
-    void api<BriefPage>(`/projects/${encodeURIComponent(selected)}/brief`)
+    const isCurrent = () =>
+      active && briefOwner === viewOwner() && workspace === executionSourceId();
+    void apiInWorkspace<BriefPage>(
+      `/projects/${encodeURIComponent(selected)}/brief`,
+      workspace,
+    )
       .then((result) => {
-        if (!active) return;
+        if (!isCurrent()) return;
+        setBriefScope(ackKey);
         setBrief(result);
         if (!choseTab.current) {
           const remembered = sessionStorage.getItem(
@@ -138,12 +149,12 @@ export function Projects({
         }
       })
       .catch((error) => {
-        if (active) setBriefError(error.message);
+        if (isCurrent()) setBriefError(error.message);
       });
     return () => {
       active = false;
     };
-  }, [selected, current?.kind, briefLoad]);
+  }, [selected, current?.kind, briefLoad, briefOwner, workspace]);
   // A history view replaces the tab content until you go back to Threads.
   // It is kept per project, so returning from a thread keeps it.
   const historyKey = "project-history:" + selected;
@@ -373,9 +384,9 @@ export function Projects({
           {history && renderHistory(current.id, history, submitted)}
           {!history &&
             page === "brief" &&
-            (brief?.project === current.id ? (
+            (brief?.project === current.id && briefScope === ackKey ? (
               <ProjectBrief
-                key={current.id}
+                key={ackKey}
                 projectId={current.id}
                 initial={brief}
                 acknowledgements={briefAcks.current.get(ackKey)!}
@@ -384,7 +395,7 @@ export function Projects({
                 onNavigate={onBriefNavigate}
                 onChanged={setBrief}
               />
-            ) : briefError ? (
+            ) : briefError && briefScope === ackKey ? (
               <div>
                 <p className="error" role="alert">
                   {briefError}

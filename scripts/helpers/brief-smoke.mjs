@@ -1,3 +1,4 @@
+import { briefDetailsSmoke } from "./brief-details-smoke.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
@@ -428,13 +429,13 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   );
 
   await page.locator(".brief-item-open").first().click();
-  await expect(
-    sheet.getByRole("heading", { name: "Item history" }),
-  ).toBeVisible();
+  await sheet.getByRole("tab", { name: "History", exact: true }).click();
   await expect(sheet.getByText("Version 2", { exact: true })).toBeVisible();
+  await capture("brief-history-390");
+  await sheet.getByRole("tab", { name: /^Evidence/ }).click();
   await capture("brief-item-390");
   await sheet
-    .getByRole("link", { name: "Open thread at result", exact: true })
+    .getByRole("link", { name: "Open thread at original message", exact: true })
     .click();
   await expect(
     page.locator(`.conversation-sheet #message-${message}`),
@@ -517,4 +518,13 @@ export async function briefSmoke(page, fixture, _engine, capture) {
     "The owner verified routing",
   );
   assert.equal((await api(root)).settings.enabled, false);
+  await briefDetailsSmoke(page, fixture, _engine, capture, {
+    project,
+    root,
+    ids,
+    artifact,
+    message,
+    prompt,
+    thread,
+  });
 }

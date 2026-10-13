@@ -1,4 +1,4 @@
-import { useId, useState, type MouseEvent, type ReactNode } from "react";
+import { useId, type MouseEvent, type ReactNode } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -26,7 +26,7 @@ export const briefSections = [
   ["open_questions", "Questions", "question"],
   ["unfinished", "Next", "unfinished"],
 ] as const;
-type Section = (typeof briefSections)[number][0];
+export type BriefSection = (typeof briefSections)[number][0];
 const itemIcons = {
   state: CircleDashed,
   decision: FileText,
@@ -249,6 +249,8 @@ export function BriefItemCard({
 
 type ViewProps = {
   brief: BriefPage;
+  section: BriefSection;
+  onSectionChange: (section: BriefSection) => void;
   workspace?: string;
   author?: (id: string) => string;
   onNavigate: (url: string) => void;
@@ -262,6 +264,8 @@ type ViewProps = {
 
 export function ProjectBriefView({
   brief,
+  section,
+  onSectionChange,
   workspace = "",
   author = (id) => id,
   onNavigate,
@@ -272,7 +276,6 @@ export function ProjectBriefView({
   onHistory,
   onDecision,
 }: ViewProps) {
-  const [section, setSection] = useState<Section>("state");
   const selected = briefSections.find(([key]) => key === section)!;
   const changed = new Set(brief.changes.map((change) => change.id));
   const needs = brief.needs_you;
@@ -523,7 +526,7 @@ export function ProjectBriefView({
         <BriefTabs
           label="Project record"
           value={section}
-          onChange={setSection}
+          onChange={onSectionChange}
           options={briefSections.map(([key, label]) => ({
             value: key,
             label,

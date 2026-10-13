@@ -44,7 +44,7 @@
   flex-shrink: 0;
 }
 .brief-headline h2 {
-  font-size: clamp(28px, 5vw, 36px);
+  font-size: clamp(32px, 5vw, 36px);
   font-weight: 600;
   line-height: 1.12;
   letter-spacing: -1.1px;
@@ -555,4 +555,250 @@
 }
 .projects-view .project-tabs button {
   flex-shrink: 0;
+}
+
+/* Detail sheets share Loop's scroll, safe-area and keyboard behavior. */
+.brief-detail-sheet {
+  width: min(100%, 580px);
+}
+.brief-sheet .sheet-head h2 {
+  font-size: 16px;
+}
+.brief-item-summary {
+  margin-bottom: 22px;
+}
+.brief-item-summary h3 {
+  margin: 0 0 12px;
+  font-size: clamp(23px, 5vw, 28px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.55px;
+  overflow-wrap: anywhere;
+}
+.brief-item-reason {
+  font-size: var(--reading-size);
+  line-height: 1.65;
+  color: var(--muted);
+  margin: 0 0 14px;
+  overflow-wrap: anywhere;
+}
+.brief-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.brief-detail-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.brief-item-status {
+  padding: 4px 7px;
+  background: var(--secondary);
+  border-radius: 5px;
+}
+.brief-item-context {
+  display: grid;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.brief-item-context strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.brief-evidence {
+  display: grid;
+  gap: 12px;
+}
+.brief-source {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 15px;
+  background: color-mix(in srgb, var(--secondary) 40%, var(--surface));
+  min-width: 0;
+}
+.brief-source-head {
+  display: flex;
+  gap: 9px;
+  color: var(--muted);
+}
+.brief-source-head svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.brief-source-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.brief-source-head h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.brief-source-head time,
+.brief-source-head span {
+  font-size: 11px;
+}
+.brief-source blockquote {
+  margin: 15px 0 6px;
+  line-height: 1.7;
+  border-color: var(--brass);
+}
+.brief-source a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  color: var(--brass-text);
+  overflow-wrap: anywhere;
+}
+.brief-source a svg {
+  flex-shrink: 0;
+}
+.brief-source-unavailable {
+  font-size: 12px;
+  color: var(--muted);
+}
+.brief-history {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+.brief-history > li {
+  margin: 0;
+  padding: 14px 0 14px 15px;
+  border-left: 2px solid var(--line);
+  position: relative;
+}
+.brief-history > li::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 19px;
+  width: 6px;
+  height: 6px;
+  background: var(--brass);
+  border-radius: 50%;
+}
+.brief-history > li > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.brief-history time {
+  font-size: 11px;
+}
+.brief-history ul {
+  line-height: 1.65;
+  padding-left: 14px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.brief-item-footer,
+.brief-form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.brief-item-footer > .secondary {
+  flex-shrink: 0;
+  width: 44px;
+  padding: 10px;
+}
+.brief-item-footer > .primary,
+.brief-form-actions > .primary {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.brief-source-picker {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.brief-source-picker select {
+  margin-top: 6px;
+  width: 100%;
+  min-height: 44px;
+  font-size: 16px;
+  text-overflow: ellipsis;
+}
+.brief-lifecycle {
+  border-top: 1px solid var(--line);
+  margin: 22px 0 0;
+  padding-top: 4px;
+}
+.brief-lifecycle summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.brief-lifecycle p,
+.brief-sheet form > p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.brief-sheet textarea {
+  font-size: 16px;
+  line-height: 1.55;
+  min-height: 110px;
+}
+.brief-sheet :is(button, select) {
+  min-height: 44px;
+}
+.brief-sheet .sheet-close {
+  min-width: 44px;
+}
+.brief-sheet .sheet-footer {
+  padding-inline: 20px;
+}
+@media (max-width: 359px) {
+  .brief-sheet .sheet-body,
+  .brief-sheet .sheet-head,
+  .brief-sheet .sheet-footer {
+    padding-inline: 16px;
+  }
+  .brief-source {
+    padding: 12px;
+  }
+  .brief-item-footer,
+  .brief-form-actions {
+    gap: 6px;
+  }
+}
+.brief-detail-sheet .brief-tabs {
+  display: flex;
+  gap: 20px;
+  background: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0;
+}
+.brief-detail-sheet .brief-tabs button {
+  min-width: 44px;
+  border-radius: 0;
+  padding-inline: 0;
+  border-bottom: 2px solid transparent;
+}
+.brief-detail-sheet .brief-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--brass);
+  background: none;
+  box-shadow: none;
+}
+.projects-brief-view .project-heading h2 {
+  overflow-wrap: anywhere;
 }

@@ -1,3 +1,8 @@
+import {
+  BriefEvidence,
+  BriefHistoryList,
+  BriefItemSummary,
+} from "../src/client/BriefItemContent";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { ProjectBriefView } from "../src/client/ProjectBrief";
@@ -81,6 +86,8 @@ function fixture(): BriefPage {
   };
 }
 const actions = {
+  section: "state" as const,
+  onSectionChange: vi.fn(),
   onNavigate: vi.fn(),
   onItem: vi.fn(),
   onAll: vi.fn(),
@@ -208,6 +215,28 @@ it("allows an acknowledgement to retry after a failed request", async () => {
   await ack.acknowledge(2, 1, send);
   expect(send).toHaveBeenCalledTimes(2);
 });
+it("shares a pending acknowledgement failure with overlapping refreshes and allows retry", async () => {
+  let reject!: (error: Error) => void;
+  const pending = new Promise<void>((_resolve, fail) => {
+    reject = fail;
+  });
+  const ack = new BriefAcknowledgements(),
+    failure = new Error("Acknowledgement unavailable"),
+    send = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(undefined);
+  const outcomes = Promise.allSettled([
+    ack.acknowledge(2, 1, send),
+    ack.acknowledge(2, 1, send),
+  ]);
+  reject(failure);
+  expect(await outcomes).toEqual([
+    { status: "rejected", reason: failure },
+    { status: "rejected", reason: failure },
+  ]);
+  expect(send).toHaveBeenCalledTimes(1);
+  await ack.acknowledge(2, 1, send);
+  await ack.acknowledge(2, 1, send);
+  expect(send).toHaveBeenCalledTimes(2);
+});
 
 it("links failed sends without a thread to the workspace's Scheduled item", () => {
   const brief = fixture();
@@ -239,4 +268,122 @@ it("distinguishes a general pull-request destination from an individual publishe
   expect(html).toContain("page=pulls&amp;source=docker%3Afixture");
   expect(html).toContain("artifact=file-one&amp;source=docker%3Afixture");
   expect(html).not.toContain("artifact=watch-one");
+});
+
+it("shows each original evidence destination and answer context without inventing missing sources", () => {
+  const brief = fixture();
+  const item = {
+    ...brief.decisions[0],
+    kind: "question" as const,
+    asked_by: "agent",
+    decided_by: undefined,
+    cite: [
+      { ref: "res_1", quote: "Original words" },
+      { ref: "missing", quote: "A retained quotation" },
+    ],
+    answered_cite: { ref: "answer", quote: "The answer" },
+    status: "answered",
+  };
+  const sources = {
+    ...brief.sources,
+    answer: {
+      ...brief.sources.res_1,
+      ref: "answer",
+      title: "Answer source",
+      at: 0,
+      message: "exact-answer",
+    },
+  };
+  const html = renderToStaticMarkup(
+    <BriefEvidence
+      item={item}
+      sources={sources}
+      workspace="docker:fixture"
+      onNavigate={actions.onNavigate}
+    />,
+  );
+  expect(html).toContain("message=answer");
+  expect(html).toContain("message=exact-answer");
+  expect(html.match(/href=/g)).toHaveLength(2);
+  expect(html).toContain("Source unavailable");
+  expect(html).toContain("A retained quotation");
+  expect(html).toContain("Answer evidence");
+  expect(html).toContain('dateTime="1970-01-01T00:00:00.000Z"');
+  const summary = renderToStaticMarkup(
+    <BriefItemSummary
+      item={item}
+      author={() => "@Author"}
+      replacement="Current direction"
+    />,
+  );
+  expect(summary).toContain("Asked by @Author");
+  expect(summary).toContain("answered");
+  expect(summary).toContain("Pinned wording");
+  expect(summary).toContain("Current direction");
+  expect(summary).toContain("A source has changed");
+});
+
+it("keeps history pagination reachable when loaded versions do not concern this item", () => {
+  const history = {
+    items: [{ version: 50, at: 1, changes: fixture().changes }],
+    before: 50,
+  };
+  const html = renderToStaticMarkup(
+    <BriefHistoryList
+      history={history}
+      pending={false}
+      error=""
+      itemId="retired-item"
+      onMore={vi.fn()}
+      onRetry={vi.fn()}
+    />,
+  );
+  expect(html).toContain("No matching changes in these versions");
+  expect(html).toContain("Older versions");
+  expect(html).not.toContain("No recorded changes for this item");
+  const full = renderToStaticMarkup(
+    <BriefHistoryList
+      history={history}
+      pending={false}
+      error=""
+      onMore={vi.fn()}
+      onRetry={vi.fn()}
+    />,
+  );
+  expect(full).toContain("Updated · Decision");
+  expect(full).toContain("pinned wording");
+  const unloaded = renderToStaticMarkup(
+    <BriefHistoryList
+      history={null}
+      pending={false}
+      error=""
+      onMore={vi.fn()}
+      onRetry={vi.fn()}
+    />,
+  );
+  expect(unloaded).toContain("Load history");
+  expect(unloaded).not.toContain("No recorded");
+});
+
+it("labels thread fallbacks and repeated answer references according to available context", () => {
+  const brief = fixture();
+  const item = {
+    ...brief.decisions[0],
+    answered_cite: { ref: "res_1", quote: "Answer in the same source" },
+  };
+  const html = renderToStaticMarkup(
+    <BriefEvidence
+      item={item}
+      sources={{
+        res_1: { ...brief.sources.res_1, title: "", at: null, message: null },
+      }}
+      workspace=""
+      onNavigate={actions.onNavigate}
+    />,
+  );
+  expect(html).toContain("Untitled source");
+  expect(html).toContain("Open source thread");
+  expect(html).not.toContain("original message");
+  expect(html).not.toContain("<time");
+  expect(html.match(/Answer evidence/g)).toHaveLength(1);
 });
