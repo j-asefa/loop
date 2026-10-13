@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -13,6 +13,7 @@ import {
   Pencil,
   Users,
   Workflow,
+  SlidersHorizontal,
 } from "lucide-react";
 import { api } from "./api";
 import { SearchExcerpt } from "./SearchExcerpt";
@@ -95,6 +96,8 @@ export function Projects({
     [summary, setSummary] = useState<Summary[] | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsId = useId();
   const current = folders.find((f) => f.id === selected);
   // Keep acknowledgement receipts across tab unmounts, scoped to the owner
   // and project whose version was rendered.
@@ -109,6 +112,7 @@ export function Projects({
   useEffect(() => {
     let active = true;
     choseTab.current = false;
+    setToolsOpen(false);
     setBrief(null);
     setBriefError("");
     if (current?.kind !== "project") {
@@ -205,97 +209,124 @@ export function Projects({
         item: undefined as Summary | undefined,
         folder,
       }));
+  const briefMode = current?.kind === "project" && page === "brief" && !history;
   return (
-    <section className="projects-view">
+    <section
+      className={"projects-view" + (briefMode ? " projects-brief-view" : "")}
+    >
       {current ? (
         <>
-          <button className="text-button" onClick={() => onSelect("")}>
-            <ArrowLeft size={17} /> All projects
-          </button>
-          <div className="project-heading">
-            <span className="project-symbol">
-              <Folder size={26} />
-            </span>
-            <div>
-              <h2>{current.name}</h2>
-              <p>
-                {projectAgents.length}{" "}
-                {projectAgents.length === 1 ? "agent" : "agents"} in this
-                project
-              </p>
-            </div>
+          <div className="project-topbar">
             <button
-              className="icon-button"
-              aria-label="Edit project"
-              onClick={onEdit}
+              className={
+                briefMode
+                  ? "icon-button project-back"
+                  : "text-button project-back"
+              }
+              aria-label="All projects"
+              onClick={() => onSelect("")}
             >
-              <Pencil size={18} />
+              <ArrowLeft size={17} /> {!briefMode && "All projects"}
             </button>
-          </div>
-          <div className="project-actions">
-            {onReview && (
+            <div className="project-heading">
+              <span className="project-symbol">
+                <Folder size={26} />
+              </span>
+              <div>
+                <h2>{current.name}</h2>
+                <p>
+                  {projectAgents.length}{" "}
+                  {projectAgents.length === 1 ? "agent" : "agents"} in this
+                  project
+                </p>
+              </div>
               <button
-                className="secondary"
-                onClick={() => onReview(current.id)}
+                className="icon-button"
+                aria-label="Edit project"
+                onClick={onEdit}
               >
-                Review changes
+                <Pencil size={18} />
+              </button>
+            </div>
+            {briefMode && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Project tools"
+                aria-expanded={toolsOpen}
+                aria-controls={toolsId}
+                onClick={() => setToolsOpen(!toolsOpen)}
+              >
+                <SlidersHorizontal size={18} />
               </button>
             )}
-            <button
-              className="primary"
-              disabled={!projectAgents.length}
-              onClick={() => onNewTask(current.id)}
-            >
-              <MessageSquarePlus size={18} /> New task
-            </button>
-            <button
-              className="secondary"
-              onClick={() => onCreateAgent(current.id)}
-            >
-              <Plus size={18} /> New agent
-            </button>
           </div>
-          <form
-            className="search-box project-search"
-            role="search"
-            onSubmit={(e) => {
-              e.preventDefault();
-              (document.activeElement as HTMLElement | null)?.blur();
-              if (!query.trim()) return;
-              setSubmitted(query.trim());
-              setHistory("search");
-            }}
-          >
-            <Search size={18} aria-hidden="true" />
-            <input
-              type="search"
-              enterKeyHint="search"
-              aria-label={`Search ${current.name}`}
-              placeholder={`Search ${current.name}`}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                if (!e.target.value.trim() && history === "search")
-                  setHistory(null);
-              }}
-            />
-          </form>
-          <div
-            className="chip-row project-history"
-            aria-label="Project history"
-          >
-            {historyRoutes.map(([value, label, icon]) => (
+          <div id={toolsId} hidden={briefMode && !toolsOpen}>
+            <div className="project-actions">
+              {onReview && (
+                <button
+                  className="secondary"
+                  onClick={() => onReview(current.id)}
+                >
+                  Review changes
+                </button>
+              )}
               <button
-                key={value}
-                type="button"
-                className="chip"
-                aria-pressed={history === value}
-                onClick={() => setHistory(history === value ? null : value)}
+                className="primary"
+                disabled={!projectAgents.length}
+                onClick={() => onNewTask(current.id)}
               >
-                {icon}
-                {label}
+                <MessageSquarePlus size={18} /> New task
               </button>
-            ))}
+              <button
+                className="secondary"
+                onClick={() => onCreateAgent(current.id)}
+              >
+                <Plus size={18} /> New agent
+              </button>
+            </div>
+            <form
+              className="search-box project-search"
+              role="search"
+              onSubmit={(e) => {
+                e.preventDefault();
+                (document.activeElement as HTMLElement | null)?.blur();
+                if (!query.trim()) return;
+                setSubmitted(query.trim());
+                setHistory("search");
+              }}
+            >
+              <Search size={18} aria-hidden="true" />
+              <input
+                type="search"
+                enterKeyHint="search"
+                aria-label={`Search ${current.name}`}
+                placeholder={`Search ${current.name}`}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (!e.target.value.trim() && history === "search")
+                    setHistory(null);
+                }}
+              />
+            </form>
+            <div
+              className="chip-row project-history"
+              aria-label="Project history"
+            >
+              {historyRoutes.map(([value, label, icon]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className="chip"
+                  aria-pressed={history === value}
+                  onClick={() => setHistory(history === value ? null : value)}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="segmented project-tabs" aria-label="Project view">
             {[
@@ -311,6 +342,7 @@ export function Projects({
                 aria-pressed={!history && page === value}
                 onClick={() => {
                   setHistory(null);
+                  setToolsOpen(false);
                   setPage(value);
                   choseTab.current = true;
                   sessionStorage.setItem("loop-project-tab", value);

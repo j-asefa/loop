@@ -1,188 +1,417 @@
+/* Brief uses Loop's surfaces, type and controls; the shell remains shared. */
 .project-brief {
   display: grid;
-  gap: 20px;
+  gap: 22px;
   min-width: 0;
-  padding-bottom: 20px;
-}
-.brief-goal {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  text-align: left;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
-}
-.brief-goal span {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-.brief-goal small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.brief-goal strong {
-  font-size: 15px;
-  line-height: 1.5;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.brief-goal svg {
-  flex-shrink: 0;
+  max-width: 740px;
+  margin-inline: auto;
+  padding-bottom: 28px;
 }
 .brief-headline {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 16px;
   min-width: 0;
 }
 .brief-heading,
 .brief-section-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+}
+.brief-eyebrow {
+  color: var(--brass-text);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-right: auto;
+}
+.brief-eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  background: currentColor;
+  vertical-align: middle;
+  margin-right: 7px;
+}
+.brief-freshness {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.brief-freshness svg {
+  flex-shrink: 0;
 }
 .brief-headline h2 {
-  font-size: 23px;
+  font-size: clamp(28px, 5vw, 36px);
   font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: -0.4px;
-  margin: 10px 0 16px;
+  line-height: 1.12;
+  letter-spacing: -1.1px;
+  margin: 10px 0 14px;
+  text-wrap: pretty;
   overflow-wrap: anywhere;
+}
+.brief-goal {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  min-height: 44px;
+  text-align: left;
+}
+.brief-goal > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+.brief-goal small {
+  font-size: 10px;
+}
+.brief-goal strong {
+  color: var(--muted);
+  font-size: var(--reading-size);
+  font-weight: 400;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.brief-goal svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.brief-intro {
+  color: var(--muted);
+  font-size: var(--reading-size);
+  margin-bottom: 6px;
+}
+.brief-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+.brief-provenance {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.brief-provenance summary {
+  padding: 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  min-height: 44px;
+  list-style: none;
+}
+.brief-provenance summary::-webkit-details-marker {
+  display: none;
+}
+.brief-provenance summary:focus-visible,
+.brief-more-attention summary:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+}
+.brief-provenance summary svg {
+  flex-shrink: 0;
+}
+.brief-provenance-detail {
+  padding: 4px 0 12px;
+  overflow-wrap: anywhere;
+}
+.brief-provenance-detail p {
+  font-size: 12px;
+  margin: 0;
+}
+.brief-changes.text-button {
+  color: var(--brass-text);
+  font-size: 12px;
+}
+.brief-artifact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.brief-notice {
+  border-left: 2px solid var(--line);
+  padding-left: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.brief-notice p {
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+.brief-notice.error {
+  color: var(--orange);
+  border-color: var(--orange);
+}
+.brief-attention {
+  border: 1px solid color-mix(in srgb, var(--brass) 40%, var(--line));
+  border-radius: 16px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.brief-attention-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 15px 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 .brief-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--muted);
+  color: var(--orange);
 }
 .brief-status::before {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
 }
-.brief-status.needs_you,
-.brief-status.blocked {
-  color: var(--orange);
-}
-.brief-status.working {
-  color: var(--green);
-}
-.brief-attention {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 12px 0 2px;
-  max-width: 100%;
-}
-.brief-attention .chip {
-  flex: 0 0 auto;
-  border-color: color-mix(in srgb, var(--orange) 45%, var(--line));
-}
-.brief-section {
-  min-width: 0;
-}
-.brief-section h3 {
-  font-size: 15px;
+.brief-attention h3 {
+  font-size: var(--reading-size);
+  line-height: 1.5;
+  padding: 8px 15px 12px;
   margin: 0;
+  overflow-wrap: anywhere;
 }
-.brief-section h3 span {
+.brief-attention-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 8px 15px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--brass) 5%, var(--surface));
+}
+.brief-attention-action > span {
+  font-size: 11px;
   color: var(--muted);
-  font-weight: 400;
+}
+.brief-attention-action .primary {
   font-size: 12px;
-  margin-left: 6px;
+}
+.brief-more-attention {
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+.brief-more-attention summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 12px 15px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.brief-more-attention a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 15px;
+  font-size: 13px;
+  color: var(--text);
+}
+.brief-quiet {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 12px;
+  padding: 13px 14px;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
+  font-size: 13px;
+  line-height: 1.5;
+}
+.brief-quiet.blocked {
+  color: var(--orange);
+  background: var(--surface);
+  border-color: var(--line);
+}
+.brief-quiet.working {
+  color: var(--muted);
+  background: var(--surface);
+  border-color: var(--line);
+}
+.brief-quiet svg {
+  flex-shrink: 0;
+}
+.brief-record {
+  min-width: 0;
 }
 .brief-section-heading {
+  justify-content: space-between;
   margin-bottom: 6px;
 }
-.brief-section-heading .text-button,
-.brief-actions .text-button {
+.brief-section-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.brief-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+  padding: 4px;
+  border-radius: 11px;
+  background: var(--secondary);
+}
+.brief-tabs button {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 3px;
+  border-radius: 7px;
   font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.brief-tabs button[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px #00000008;
+}
+.brief-tabs button span {
+  font-size: 10px;
+  color: var(--brass-text);
+}
+.brief-tab-panel {
+  min-width: 0;
+  padding-top: 12px;
+}
+.brief-record-items {
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+  overflow: hidden;
 }
 .brief-item {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
   min-width: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+.brief-item-compact {
+  padding: 0;
+}
+.brief-item-compact:last-child {
+  border-bottom: 0;
 }
 .brief-item-open {
-  display: grid;
-  text-align: left;
-  gap: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   width: 100%;
-  padding: 0;
+  min-height: 44px;
+  text-align: left;
+  padding: 5px 0;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.brief-item-open > span:first-child {
-  font-size: 14px;
+.brief-item-compact .brief-item-open {
+  padding: 15px 14px;
+}
+.brief-item-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 5px;
+}
+.brief-item-copy > span:first-child {
+  font-size: var(--reading-size);
   font-weight: 550;
 }
-.brief-item-open small {
+.brief-item-copy small {
   font-size: 12px;
-  color: var(--muted);
   font-weight: 400;
 }
-.brief-item-open .brief-blocker {
-  color: var(--orange);
+.brief-item-icon,
+.brief-item-chevron {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.brief-item-chevron {
+  margin-left: auto;
 }
 .brief-markers {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 3px 8px;
   font-size: 11px;
   color: var(--muted);
 }
 .brief-markers > span {
   display: inline-flex;
-  gap: 3px;
   align-items: center;
+  gap: 4px;
 }
 .brief-new {
   color: var(--brass-text);
 }
-.brief-citations {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-  min-width: 0;
-}
-.brief-citations .chip {
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  min-height: 28px;
-  padding: 4px 8px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.brief-citations .chip svg {
-  flex-shrink: 0;
+.brief-blocker {
+  color: var(--orange);
 }
 .brief-superseded {
   text-decoration: line-through;
   color: var(--muted);
 }
-.brief-empty {
-  font-size: 13px;
-  padding: 8px 0;
-  margin: 0;
-}
-.brief-overflow {
-  font-size: 12px;
+.brief-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 8px;
+  min-width: 0;
+}
+.brief-citations .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 8px;
+  max-width: 100%;
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.brief-citations .chip svg {
+  flex-shrink: 0;
+}
+.brief-empty {
+  padding: 20px 15px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.brief-all {
+  width: 100%;
+  margin-top: 3px;
+  font-size: 12px;
 }
 .brief-actions {
   display: flex;
@@ -191,15 +420,87 @@
   align-items: center;
   margin: 14px 0;
 }
-.brief-basis {
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--muted);
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
+.projects-brief-view .project-topbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
-.brief-basis p {
-  margin: 5px 0 0;
+.projects-brief-view .project-heading {
+  flex: 1;
+  min-width: 0;
+  gap: 10px;
+  margin: 0;
+}
+.projects-brief-view .project-heading h2 {
+  font-size: 16px;
+  line-height: 1.3;
+  margin: 0;
+}
+.projects-brief-view .project-heading p {
+  display: none;
+}
+.projects-brief-view .project-symbol {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.projects-brief-view .project-symbol svg {
+  width: 18px;
+  height: 18px;
+}
+.projects-brief-view .project-tabs {
+  display: flex;
+  justify-content: space-between;
+  background: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0;
+  margin: 12px 0 16px;
+  gap: 4px;
+}
+.projects-brief-view .project-tabs button {
+  min-height: 44px;
+  padding: 8px 5px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 12px;
+  background: none;
+  box-shadow: none;
+}
+.projects-brief-view .project-tabs button.selected {
+  border-bottom-color: var(--brass);
+}
+@media (max-width: 359px) {
+  .brief-heading {
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+  .brief-eyebrow {
+    font-size: 9px;
+    letter-spacing: 0.8px;
+  }
+  .brief-freshness {
+    font-size: 10px;
+  }
+  .brief-tabs button {
+    font-size: 11px;
+  }
+  .brief-item-compact .brief-item-open {
+    gap: 8px;
+    padding: 13px 10px;
+  }
+  .projects-brief-view .project-heading {
+    gap: 6px;
+  }
+}
+@media (min-width: 900px) {
+  .project-brief {
+    padding-top: 12px;
+    gap: 28px;
+  }
+  .brief-headline h2 {
+    font-size: 40px;
+  }
 }
 .brief-sheet blockquote {
   margin: 10px 0;

@@ -403,7 +403,7 @@ for (const engine of selectedEngines()) {
         // gained their own tab.
         await expect(
           page.locator(".profile-head ~ .segmented button"),
-        ).toHaveText(["Results", "Threads", "Messages", "Files", "Traces"]);
+        ).toHaveText(["Results", "Threads", "Messages", "Agent mail", "Files", "Traces"]);
         await expect(
           page
             .locator(".profile-head")

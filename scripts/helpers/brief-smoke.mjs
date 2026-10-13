@@ -252,11 +252,118 @@ export async function briefSmoke(page, fixture, _engine, capture) {
     [1],
     "Refresh must not acknowledge the same version again",
   );
-  await page.locator(".brief-goal").scrollIntoViewIfNeeded();
-  await capture("brief-390");
+  const record = page.getByRole("region", {
+    name: "Project record",
+    exact: true,
+  });
+  const selectRecord = (name) =>
+    record.getByRole("tab", { name: new RegExp("^" + name) }).click();
+  const fullRecord = (name) =>
+    record
+      .getByRole("button", { name: `View full ${name} record`, exact: true })
+      .click();
+  await expect(
+    record.getByRole("tab", { name: "Decisions 21", exact: true }),
+  ).toBeVisible();
+  await expect(record.locator(".brief-item-compact")).toHaveCount(1);
   await page
-    .getByRole("button", { name: "1 more · Show all", exact: true })
+    .getByRole("button", { name: "Project tools", exact: true })
     .click();
+  await expect(
+    page.getByRole("searchbox", { name: "Search Loop release" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "New task", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Project tools", exact: true })
+    .click();
+  await expect(
+    page.getByRole("searchbox", { name: "Search Loop release" }),
+  ).toBeHidden();
+  await page
+    .getByRole("button", { name: "Project tools", exact: true })
+    .click();
+  await projectTabs
+    .getByRole("button", { name: "Threads", exact: true })
+    .click();
+  await expect(
+    page.getByRole("searchbox", { name: "Search Loop release" }),
+  ).toBeVisible();
+  await projectTabs.getByRole("button", { name: "Brief", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Project tools", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("searchbox", { name: "Search Loop release" }),
+  ).toBeHidden();
+  for (const width of [320, 390, 430, 1024]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.locator(".project-topbar").scrollIntoViewIfNeeded();
+      assert(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        `Brief overflows at ${width} ${theme}`,
+      );
+      const targets = await page
+        .locator(
+          ".project-brief button, .project-brief a, .project-brief summary",
+        )
+        .evaluateAll((elements) =>
+          elements
+            .filter(
+              (el) =>
+                el.getBoundingClientRect().height > 0 &&
+                el.getBoundingClientRect().height < 44,
+            )
+            .map((el) => el.textContent),
+        );
+      assert.deepEqual(targets, [], "Brief controls must have 44px targets");
+      await capture(`brief-${width}-${theme}`);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+  });
+  await selectRecord("Decisions");
+  await expect(record.locator(".brief-item-compact")).toHaveCount(2);
+  await expect(record).not.toContainText("Release decision 3");
+  await record.getByRole("tab", { name: "Decisions 21", exact: true }).focus();
+  const refreshedRecord = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(root) && response.request().method() === "GET",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await refreshedRecord;
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await expect(
+    record.getByRole("tab", { name: "Decisions 21", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    record.getByRole("tab", { name: "Decisions 21", exact: true }),
+  ).toBeFocused();
+  await record.getByRole("tab", { name: "Decisions 21", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    record.getByRole("tab", { name: "Questions 1", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(record).toContainText("Finish the phone review");
+  await page.keyboard.press("Home");
+  await expect(record).toContainText("Routing and durable publication");
+  await selectRecord("Decisions");
+  await fullRecord("decision");
   const sheet = page.locator("dialog.brief-sheet[open]");
   await expect(sheet.locator(".brief-item")).toHaveCount(22);
   await expect(sheet.locator(".brief-superseded")).toHaveText(
@@ -275,15 +382,12 @@ export async function briefSmoke(page, fixture, _engine, capture) {
     await heldQuestions;
     await route.continue();
   });
-  await page
-    .getByRole("region", { name: "Open questions", exact: true })
-    .getByRole("button", { name: "Show all", exact: true })
-    .click();
+  await selectRecord("Questions");
+  await fullRecord("question");
   await expect(sheet.getByText("Loading items…")).toBeVisible();
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
-  await page
-    .getByRole("button", { name: "1 more · Show all", exact: true })
-    .click();
+  await selectRecord("Decisions");
+  await fullRecord("decision");
   await expect(sheet.locator(".brief-item")).toHaveCount(22);
   const lateQuestions = page.waitForResponse((response) =>
     response.url().endsWith("/brief/items?kind=question"),
@@ -298,6 +402,7 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   );
   await expect(sheet.locator(".brief-item")).toHaveCount(22);
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
+  await selectRecord("State");
   await page
     .locator(".brief-item-open")
     .filter({ hasText: "Routing and durable publication" })

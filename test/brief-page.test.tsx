@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { ProjectBriefView } from "../src/client/ProjectBrief";
+import { BriefItemCard } from "../src/client/ProjectBriefView";
 import { BriefAcknowledgements, briefSourceUrl } from "../src/client/briefView";
 import type { BriefPage, Item } from "../src/shared/briefs";
 
@@ -88,20 +89,39 @@ const actions = {
   onHistory: vi.fn(),
   onDecision: vi.fn(),
 };
-it("renders a 21-decision brief with overflow, source-change, pin and new markers", () => {
+it("counts the current record including overflow without rendering every category", () => {
   const html = renderToStaticMarkup(
     <ProjectBriefView brief={fixture()} {...actions} />,
   );
-  expect(html).toContain("1 more · Show all");
-  expect(html).toContain("Source changed");
-  expect(html).toContain("Pinned");
-  expect(html).toContain('class="brief-new">New');
+  expect(html).toContain("Decisions<span>21</span>");
+  expect(html).toContain("No current state recorded.");
+  expect(html).toContain("View full state record");
+  expect(html).not.toContain("Use SQLite");
   expect(html).toContain("Goal · you");
-  expect(html).toContain("Read 40 results across 3 threads");
-  expect(html).toContain("3 newer results not yet in the brief");
+  expect(html).toContain("40 results · 3 threads");
+  expect(html).toContain("3 newer events are waiting to be incorporated.");
+  expect(html).not.toContain("Updating…");
   expect(html).toContain(
     "Older project history has not been fully incorporated.",
   );
+});
+it("keeps pin, evidence and change markers on the actual item", () => {
+  const brief = fixture();
+  const html = renderToStaticMarkup(
+    <BriefItemCard
+      item={brief.decisions[0]}
+      sources={brief.sources}
+      workspace=""
+      author={(id) => id}
+      onNavigate={actions.onNavigate}
+      onItem={actions.onItem}
+      changed
+    />,
+  );
+  expect(html).toContain("Source changed");
+  expect(html).toContain("Pinned");
+  expect(html).toContain('class="brief-new">Updated');
+  expect(html).toContain("Decided by you");
 });
 it("uses existing conversation/message anchors for citations and pending approvals", () => {
   const html = renderToStaticMarkup(
@@ -132,11 +152,41 @@ it("renders superseded wording struck through and missing sources without broken
   brief.decisions[0].status = "superseded";
   brief.sources = {};
   const html = renderToStaticMarkup(
-    <ProjectBriefView brief={brief} {...actions} />,
+    <BriefItemCard
+      item={brief.decisions[0]}
+      sources={brief.sources}
+      workspace=""
+      author={(id) => id}
+      onNavigate={actions.onNavigate}
+      onItem={actions.onItem}
+    />,
   );
   expect(html).toContain('class="brief-superseded"');
   expect(html).toContain("Source unavailable");
   expect(html).not.toContain("message=answer");
+});
+
+it("keeps every attention destination and distinguishes pending inputs from running work", () => {
+  const brief = fixture();
+  brief.needs_you.push({
+    kind: "question",
+    ref: "question",
+    conversation: "second-thread",
+  });
+  brief.attention.question = {
+    conversation: "second-thread",
+    message: "original-question",
+  };
+  const html = renderToStaticMarkup(
+    <ProjectBriefView brief={brief} workspace="docker:fixture" {...actions} />,
+  );
+  expect(html).toContain("2 requests");
+  expect(html).toContain("1 more request");
+  expect(html).toContain(
+    "source=docker%3Afixture&amp;conversation=second-thread&amp;message=original-question",
+  );
+  expect(html).toContain("Review approval");
+  expect(html).toContain("Answer question");
 });
 it("posts acknowledgement once per rendered version even across overlapping refreshes", async () => {
   const ack = new BriefAcknowledgements(),
@@ -172,4 +222,21 @@ it("links failed sends without a thread to the workspace's Scheduled item", () =
     "page=profile&amp;later=scheduled&amp;laterItem=scheduled-id&amp;source=docker%3Afixture",
   );
   expect(html).toContain("Message not sent");
+});
+
+it("distinguishes a general pull-request destination from an individual published file", () => {
+  const brief = fixture();
+  brief.artifacts = [
+    { kind: "pr", ref: "watch-one", state: "open" },
+    { kind: "pr", ref: "watch-two", state: "merged" },
+    { kind: "file", ref: "file-one", state: "published" },
+  ];
+  const html = renderToStaticMarkup(
+    <ProjectBriefView brief={brief} workspace="docker:fixture" {...actions} />,
+  );
+  expect(html).toContain("2 linked pull requests");
+  expect(html.match(/Browse all pull requests/g)).toHaveLength(1);
+  expect(html).toContain("page=pulls&amp;source=docker%3Afixture");
+  expect(html).toContain("artifact=file-one&amp;source=docker%3Afixture");
+  expect(html).not.toContain("artifact=watch-one");
 });
