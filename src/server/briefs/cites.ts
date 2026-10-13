@@ -66,7 +66,8 @@ export function resolveCite(
     // A checkout record is scoped like the run that produced it: the
     // conversation's project first, then the run's folder.
     const checkout = checkoutById(owner, id);
-    if (!checkout) return null;
+    // A capture still in progress is not evidence yet.
+    if (!checkout || !checkout.ended_at) return null;
     const scope = db
       .prepare(
         `SELECT f.project_id FROM runs r

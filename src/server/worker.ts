@@ -43,7 +43,7 @@ export async function tick(
 ) {
   await closeFinishedSessions();
   recoverStale();
-  await reconcileCheckouts();
+  void reconcileCheckouts().catch(() => {});
   const run = claim(workerId, (candidate) => {
     const p = JSON.parse(candidate.payload);
     const c = db

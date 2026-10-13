@@ -70,6 +70,9 @@ export type CheckoutRow = {
   remote: string | null;
   overlap: string | null;
   captured_late: number;
+  capture_token: string | null;
+  capture_started_at: number | null;
+  capture_pending: number;
   summary: string | null;
   ended_at: number | null;
   error: string | null;
@@ -85,6 +88,9 @@ export type CheckoutDetail = Omit<
   | "summary"
   | "patch_truncated"
   | "captured_late"
+  | "capture_token"
+  | "capture_started_at"
+  | "capture_pending"
 > & {
   files: CheckoutFile[];
   committed: CheckoutStat | null;
@@ -156,7 +162,9 @@ async function maybe(directory: string, args: string[]) {
 
 // Keys whose values Git executes while diffing or inspecting a working tree.
 const COMMAND_KEYS =
-  /^(?:filter\.[^.]+\.(?:clean|smudge|process)|diff\.[^.]+\.(?:textconv|command)|diff\.external|core\.fsmonitor)$/i;
+  /^(?:filter\..+\.(?:clean|smudge|process)|diff\..+\.(?:textconv|command)|diff\.external|core\.fsmonitor)$/i;
+const REPOSITORY_SCOPES = new Set(["local", "worktree"]);
+const SCOPES = new Set(["system", "global", "local", "worktree", "command", "unknown"]);
 /**
  * The repository's own configuration files are agent-adjacent: refuse to
  * capture when they define filters or diff drivers, since Git would run those
@@ -164,14 +172,19 @@ const COMMAND_KEYS =
  * User and system configuration are the owner's and are not inspected.
  */
 async function refuseCommandConfig(directory: string) {
-  const common = await must(directory, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const own = await must(directory, ["rev-parse", "--path-format=absolute", "--git-dir"]);
-  const files = [...new Set([common + "/config", own + "/config.worktree"])];
-  for (const file of files) {
-    const listed = await git(directory, ["config", "--file", file, "--list", "-z", "--name-only"]);
-    if (!listed.ok) continue;
-    const key = listed.out.split("\0").find((name) => COMMAND_KEYS.test(name));
-    if (key)
+  // The resolved configuration with each key's scope: includes are listed
+  // under the scope of the file that included them, so a filter defined in
+  // a file the repository config pulls in still shows as repository scope.
+  const listed = await must(directory, ["config", "--list", "-z", "--name-only", "--show-scope"]);
+  const tokens = listed.split("\0");
+  for (let i = 0; i < tokens.length; i++) {
+    let scope = tokens[i],
+      key = "";
+    const inline = /^(system|global|local|worktree|command|unknown)[\t\n](.+)$/s.exec(scope);
+    if (inline) [scope, key] = [inline[1], inline[2]];
+    else if (SCOPES.has(scope)) key = tokens[++i] ?? "";
+    else continue;
+    if (REPOSITORY_SCOPES.has(scope) && COMMAND_KEYS.test(key))
       throw new CheckoutError(
         `The repository configuration defines ${key}, which Git would run during capture; Loop does not run it.`,
       );
@@ -423,7 +436,7 @@ const CAPTURE_FIELDS = [
   "patch", "patch_bytes", "patch_truncated", "remote", "overlap",
 ] as const;
 const UPDATE = () => db.prepare(
-  `UPDATE run_checkouts SET state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id`,
+  `UPDATE run_checkouts SET state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id AND capture_token=@token`,
 );
 
 /**
@@ -433,11 +446,31 @@ const UPDATE = () => db.prepare(
  * clears the capture fields rather than leaving an older observation under a
  * new timestamp. Never throws.
  */
-export async function completeCheckout(runId: string, late = false) {
+/** A capture that has run longer than this is treated as abandoned. */
+const CAPTURE_LEASE_MS = 120000;
+export async function completeCheckout(
+  runId: string,
+  options: { late?: boolean; ifIdle?: boolean } = {},
+) {
   const row = select(runId);
   if (!row || (row.state === "failed" && !row.start_head)) return;
   const time = now();
-  const fields: Partial<CheckoutRow> = { ended_at: time, error: null, captured_late: late ? 1 : 0 };
+  // One capture per run at a time, across processes: a terminal transition
+  // in the API process and the worker's reconciliation can both arrive. A
+  // later request while one is in flight asks the holder to run again, so
+  // the record always ends on the latest observation.
+  const token = id();
+  const claimed = db
+    .prepare(
+      "UPDATE run_checkouts SET capture_token=?,capture_started_at=?,capture_pending=0 WHERE run_id=? AND (capture_token IS NULL OR capture_started_at<?)",
+    )
+    .run(token, time, runId, time - CAPTURE_LEASE_MS).changes;
+  if (!claimed) {
+    if (!options.ifIdle)
+      db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(runId);
+    return;
+  }
+  const fields: Partial<CheckoutRow> = { ended_at: time, error: null, captured_late: options.late ? 1 : 0 };
   try {
     const directory = row.directory;
     await refuseCommandConfig(directory);
@@ -505,6 +538,7 @@ export async function completeCheckout(runId: string, late = false) {
   next.summary = JSON.stringify(summarize(next));
   UPDATE().run({
     run_id: row.run_id,
+    token,
     state: next.state,
     branch: next.branch,
     base_sha: next.base_sha ?? null,
@@ -514,19 +548,42 @@ export async function completeCheckout(runId: string, late = false) {
     ended_at: next.ended_at ?? null,
     error: next.error ?? null,
   });
+  const release = db
+    .prepare(
+      "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",
+    )
+    .get(runId, token) as { capture_pending: number } | undefined;
+  if (release?.capture_pending) await completeCheckout(runId);
 }
 
+/** Runs are considered to have ended while the host was down after this long. */
+const LATE_AFTER_MS = 60000;
+const RECONCILE_EVERY_MS = 30000;
+let reconciling: Promise<void> | null = null;
+let reconciledAt = 0;
 /**
  * Runs that ended without a capture, because the process stopped between the
  * terminal transition and the capture or because recovery marked them
- * interrupted directly. Captured late and labelled as such.
+ * interrupted directly. Runs in the background beside dispatch, never
+ * gating it, and skips any run whose capture is already in flight.
  */
-export async function reconcileCheckouts() {
-  const pending = db
-    .prepare(
-      `SELECT k.run_id FROM run_checkouts k JOIN runs r ON r.id=k.run_id
-       WHERE k.state='started' AND r.state IN (${TERMINAL_STATES.map(() => "?").join(",")}) LIMIT 20`,
-    )
-    .all(...TERMINAL_STATES) as { run_id: string }[];
-  for (const { run_id } of pending) await completeCheckout(run_id, true);
+export function reconcileCheckouts(): Promise<void> {
+  if (reconciling) return reconciling;
+  if (now() - reconciledAt < RECONCILE_EVERY_MS) return Promise.resolve();
+  reconciledAt = now();
+  reconciling = (async () => {
+    const time = now();
+    const pending = db
+      .prepare(
+        `SELECT k.run_id,r.updated_at FROM run_checkouts k JOIN runs r ON r.id=k.run_id
+         WHERE k.state='started' AND (k.capture_token IS NULL OR k.capture_started_at<?)
+           AND r.state IN (${TERMINAL_STATES.map(() => "?").join(",")}) LIMIT 20`,
+      )
+      .all(time - CAPTURE_LEASE_MS, ...TERMINAL_STATES) as { run_id: string; updated_at: number }[];
+    for (const { run_id, updated_at } of pending)
+      await completeCheckout(run_id, { late: time - updated_at > LATE_AFTER_MS, ifIdle: true });
+  })().finally(() => {
+    reconciling = null;
+  });
+  return reconciling;
 }

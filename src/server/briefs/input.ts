@@ -64,7 +64,9 @@ function eventText(owner: string, project: string, event: Event): string {
       // its own citable record: what changed in the repository, as seen by
       // Loop rather than described by the agent.
       const checkout = source.runId ? checkoutDetail(owner, source.runId) : null;
-      const observed = checkout?.summary
+      // Only an ended capture: a record still in progress would change
+      // under the citation.
+      const observed = checkout?.summary && checkout.ended_at
         ? `\n  Checkout [chk_${checkout.id}] observed by Loop: ${checkoutLine(checkout.summary)}`
         : "";
       return `[${ref}] ${time} result by ${source.agent ?? "unknown"} ${location}:\n${quoted(content)}${observed}`;

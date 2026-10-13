@@ -96,3 +96,30 @@ export function checkoutLine(summary: CheckoutSummary) {
   else parts.push("in progress");
   return parts.join(" · ");
 }
+
+/**
+ * Git quotes a path containing control characters, a double quote or a
+ * backslash in C style ("notes\\tdraft.txt") even with core.quotePath off.
+ * Returns the raw path, or the input unchanged when it is not quoted.
+ */
+export function unquoteGitPath(path: string) {
+  if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"'))) return path;
+  const bytes: number[] = [];
+  const inner = path.slice(1, -1);
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (c !== "\\") {
+      bytes.push(...new TextEncoder().encode(c));
+      continue;
+    }
+    const n = inner[++i];
+    const simple: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+    if (n in simple) bytes.push(simple[n]);
+    else if (/[0-7]/.test(n ?? "")) {
+      let oct = n;
+      while (oct.length < 3 && /[0-7]/.test(inner[i + 1] ?? "")) oct += inner[++i];
+      bytes.push(parseInt(oct, 8));
+    } else if (n !== undefined) bytes.push(...new TextEncoder().encode(n));
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}

@@ -5,6 +5,7 @@ import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
 import {
   checkoutLine,
+  unquoteGitPath,
   type CheckoutDetail,
   type CheckoutSummary,
 } from "../shared/checkout";
@@ -40,9 +41,15 @@ function perFile(patch: string) {
   const chunks = new Map<string, string>();
   for (const chunk of patch.split(/^(?=diff --git )/m)) {
     if (!chunk.trim()) continue;
-    const header = chunk.match(/^diff --git a\/(.*?) b\/(.*)$/m);
-    const plus = chunk.match(/^\+\+\+ b\/(.*)$/m);
-    const path = plus?.[1] ?? header?.[2] ?? header?.[1] ?? "";
+    // Paths may be C-quoted ("b/notes\tdraft.txt"); "+++ b/..." names the
+    // new path, and "diff --git" the pair for deletions.
+    const plus = chunk.match(/^\+\+\+ (?:b\/(.*)|("b\/.*"))$/m);
+    const header = chunk.match(/^diff --git (?:a\/(\S*)|("a\/(?:[^"\\]|\\.)*")) (?:b\/(.*)|("b\/(?:[^"\\]|\\.)*"))$/m);
+    const quoted = (q: string) => unquoteGitPath(q).slice(2);
+    const path =
+      plus?.[1] ?? (plus?.[2] ? quoted(plus[2]) : undefined) ??
+      header?.[3] ?? (header?.[4] ? quoted(header[4]) : undefined) ??
+      header?.[1] ?? (header?.[2] ? quoted(header[2]) : "");
     chunks.set(path, chunk.replace(/^diff --git .*\n(?:(?:index|---|\+\+\+|new file mode|deleted file mode|similarity index|rename from|rename to|old mode|new mode) .*\n)*/, ""));
   }
   return chunks;

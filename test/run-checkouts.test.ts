@@ -30,7 +30,7 @@ const {
   checkoutContent,
   PATCH_LIMIT,
 } = await import("../src/server/run-checkouts");
-const { checkoutLine } = await import("../src/shared/checkout");
+const { checkoutLine, unquoteGitPath } = await import("../src/shared/checkout");
 const { resolveCite, checkQuote } = await import("../src/server/briefs/cites");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
@@ -152,6 +152,43 @@ it("is a brief citation scoped to the run's project, with checked quotes", () =>
   expect(resolveCite("someone-else", folder, { ref })).toBeNull();
 });
 
+it("is not citable while its capture is still in progress", async () => {
+  const run = runFixture("thread-citing");
+  bind("thread-citing", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  const started = checkoutDetail(owner, run.id)!;
+  expect(resolveCite(owner, folder, { ref: "chk_" + started.id })).toBeNull();
+  await completeCheckout(run.id);
+  expect(resolveCite(owner, folder, { ref: "chk_" + started.id })).toMatchObject({ kind: "checkout" });
+});
+
+it("lets one capture at a time own a run, and reruns for a request that arrived meanwhile", async () => {
+  const run = runFixture("thread-race");
+  bind("thread-race", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  const raw = () =>
+    db.prepare("SELECT state,capture_token,capture_pending,ended_at FROM run_checkouts WHERE run_id=?").get(run.id) as {
+      state: string; capture_token: string | null; capture_pending: number; ended_at: number | null;
+    };
+  const first = completeCheckout(run.id);
+  // The second request finds the claim held and leaves a request behind.
+  const second = completeCheckout(run.id);
+  await second;
+  expect(raw().capture_token).not.toBeNull();
+  expect(raw().capture_pending).toBe(1);
+  await first;
+  expect(raw()).toMatchObject({ state: "captured", capture_token: null, capture_pending: 0 });
+  // Reconciliation never touches a run whose capture is in flight.
+  db.prepare("UPDATE run_checkouts SET state='started',capture_token='held',capture_started_at=? WHERE run_id=?").run(now(), run.id);
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
+  await completeCheckout(run.id, { ifIdle: true });
+  expect(raw()).toMatchObject({ state: "started", capture_token: "held", capture_pending: 0 });
+  // An abandoned claim is taken over.
+  db.prepare("UPDATE run_checkouts SET capture_started_at=? WHERE run_id=?").run(now() - 600000, run.id);
+  await completeCheckout(run.id, { ifIdle: true });
+  expect(raw()).toMatchObject({ state: "captured", capture_token: null });
+});
+
 it("records other runs active on the same checkout as overlap, not authorship", async () => {
   const first = db
     .prepare("SELECT * FROM runs WHERE conversation_id='thread-1'")
@@ -170,7 +207,7 @@ it("records other runs active on the same checkout as overlap, not authorship", 
   expect(overlap).toContain(ended.id);
   expect(overlap).toContain(longRunning.id);
   expect(overlap).not.toContain(finishedBefore.id);
-  expect(checkoutSummary(owner, first.id)!.overlap).toBe(2);
+  expect(checkoutSummary(owner, first.id)!.overlap).toBe(overlap.length);
 });
 
 it("keeps filenames that contain tabs and renames intact", async () => {
@@ -230,7 +267,7 @@ it("captures late, and says so, for runs that ended while the host was down", as
   bind("thread-late", checkout);
   await startCheckout(run, checkout, project, "g1");
   // Recovery marks runs interrupted directly, without a transition.
-  db.prepare("UPDATE runs SET state='interrupted',updated_at=? WHERE id=?").run(now(), run.id);
+  db.prepare("UPDATE runs SET state='interrupted',updated_at=? WHERE id=?").run(now() - 120000, run.id);
   expect(checkoutDetail(owner, run.id)!.state).toBe("started");
   await reconcileCheckouts();
   const detail = checkoutDetail(owner, run.id)!;
@@ -303,6 +340,30 @@ it("refuses to capture when the repository configures commands Git would run", a
   } finally {
     git(project, "config", "--unset", "filter.evil.clean");
   }
+});
+
+it("refuses drivers with dotted names defined through an included file", async () => {
+  const run = runFixture("thread-include");
+  bind("thread-include", checkout);
+  const included = join(dir, "included.gitconfig");
+  writeFileSync(included, '[filter "evil.driver"]\n\tclean = touch /tmp/should-not-run\n');
+  git(project, "config", "include.path", included);
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.state).toBe("failed");
+    expect(detail.error).toContain("filter.evil.driver.clean");
+  } finally {
+    git(project, "config", "--unset", "include.path");
+  }
+});
+
+it("unquotes the paths Git quotes in diff headers", () => {
+  expect(unquoteGitPath("b/plain.txt")).toBe("b/plain.txt");
+  expect(unquoteGitPath('"b/notes\\tdraft.txt"')).toBe("b/notes\tdraft.txt");
+  expect(unquoteGitPath('"b/say \\"hi\\".txt"')).toBe('b/say "hi".txt');
+  expect(unquoteGitPath('"b/caf\\303\\251.txt"')).toBe("b/café.txt");
+  expect(unquoteGitPath('"b/back\\\\slash"')).toBe("b/back\\slash");
 });
 
 it("records a capture failure on the run instead of raising it", async () => {
