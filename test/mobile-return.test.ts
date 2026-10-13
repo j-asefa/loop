@@ -211,7 +211,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   message(w.owner, done, "assistant", "  Hi\n\n there  ", dr);
   const snoozed = conversation(w.owner, a.id, "Snoozed");
   message(w.owner, snoozed, "user", "Later please", run(w.owner, a.id, snoozed));
-  // Delegated child runs are internal and do not create inbox rows.
+  // Delegated work has its own visible Feed card.
   const child = conversation(w.owner, a.id, "Child");
   const cr = run(w.owner, a.id, child, "completed");
   db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(nr, "call", cr);
@@ -228,9 +228,9 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
 
   const all = await api(w.owner, "/feed");
   const ids = all.data.items.map((i: any) => i.conversation_id);
-  expect(ids).toHaveLength(3);
+  expect(ids).toHaveLength(4);
   expect(ids).not.toContain(snoozed);
-  expect(ids).not.toContain(child);
+  expect(ids).toContain(child);
   expect(all.data.summary).toMatchObject({
     needs: 1,
     working: 1,
@@ -261,7 +261,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect(await filter("later")).toEqual([snoozed]);
   // Done leaves out open work with no finished output: needs you, working,
   // queued or snoozed.
-  expect(await filter("done")).toEqual([done]);
+  expect(await filter("done")).toEqual([child, done]);
   // A finished output stays in Done when a follow-up is queued.
   const followUp = conversation(w.owner, a.id, "Follow-up");
   const first = run(w.owner, a.id, followUp, "completed");
@@ -327,9 +327,9 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   const imported = conversation(w.owner, a.id, "Imported");
   message(w.owner, imported, "user", "From an export");
   expect(await filter("done")).toEqual(
-    expect.arrayContaining([done, followUp, imported]),
+    expect.arrayContaining([child, done, followUp, imported]),
   );
-  expect(await filter("done")).toHaveLength(3);
+  expect(await filter("done")).toHaveLength(4);
   // An agent profile lists only that agent's threads; foreign agents are rejected.
   const b = w.agent();
   const other = conversation(w.owner, b.id, "Other agent");
@@ -379,13 +379,52 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect((await api(w.owner, "/feed?filter=unread")).status).toBe(400);
   const away = await api(w.owner, "/feed/away?since=0");
   expect(away.data.completed.map((b: any) => b.run_id)).toContain(dr);
-  expect(away.data.completed.map((b: any) => b.run_id)).not.toContain(cr);
+  expect(away.data.completed.map((b: any) => b.run_id)).toContain(cr);
   expect(away.data.failed.map((b: any) => b.run_id)).toEqual([nr]);
   expect((await api("intruder", "/feed/away?since=0")).data).toEqual({
     completed: [],
     needs: [],
     failed: [],
   });
+});
+
+it.each(["delegation", "workflow"])("shows %s work through its Feed lifecycle", async (kind) => {
+  const w = workspaceFor(), manager = w.agent(), worker = w.agent();
+  const parent = run(w.owner, manager.id, conversation(w.owner, manager.id), "running");
+  const cid = conversation(w.owner, worker.id);
+  const child = run(w.owner, worker.id, cid, "queued", { input: "Investigate the failure" });
+  if (kind === "delegation") {
+    db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(parent, "delegate", child);
+  } else {
+    db.prepare("INSERT INTO workflow_steps(run_id,step_id,position,state,child_run_id) VALUES(?,?,0,'running',?)").run(parent, "investigate", child);
+  }
+  message(w.owner, cid, "user", "Investigate the failure", child);
+  const cards = async (filter: string, owner: string = w.owner) =>
+    (await api(owner, `/feed?filter=${filter}`)).data.items.filter((item: any) => item.conversation_id === cid);
+  expect(await cards("queued")).toMatchObject([{ agent_id: worker.id, run: { id: child, state: "queued" } }]);
+  expect(await cards("done")).toEqual([]);
+
+  db.prepare("UPDATE runs SET state='running',worker_id='worker' WHERE id=?").run(child);
+  expect(await cards("working")).toMatchObject([{
+    title: "Investigate the failure", agent_id: worker.id, last_message: null,
+    run: { id: child, state: "running" },
+  }]);
+  expect(await cards("queued")).toEqual([]);
+  expect(await cards("working", "intruder")).toEqual([]);
+
+  db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(child);
+  expect(await cards("needs")).toMatchObject([{ run: { id: child, state: "awaiting_approval" } }]);
+  expect(await cards("working")).toEqual([]);
+
+  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(clock++, child);
+  message(w.owner, cid, "assistant", "Found the cause", child);
+  expect(await cards("done")).toMatchObject([{
+    done_card_key: `run:${child}`, last_message: { content: "Found the cause" },
+    run: { id: child, state: "completed" },
+  }]);
+  expect(await cards("needs")).toEqual([]);
+  expect(await cards("done", "intruder")).toEqual([]);
+  expect((await api(w.owner, "/feed/away?since=0")).data.completed.map((item: any) => item.run_id)).toContain(child);
 });
 
 it("dismisses only the selected Done card, with exact-card retry and Undo", async () => {

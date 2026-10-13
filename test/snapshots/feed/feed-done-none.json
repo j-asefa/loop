@@ -3,6 +3,52 @@
   "body": {
     "items": [
       {
+        "conversation_id": "c-workflow-child",
+        "done_card_key": "run:r-workflow-child",
+        "title": "Prompt for r-workflow-child",
+        "agent_id": "agent-api",
+        "connection_id": null,
+        "agent_name": "api-agent",
+        "provider": "openai",
+        "project_id": null,
+        "project_name": null,
+        "team_id": null,
+        "origin": "loop",
+        "last_activity_at": 1799646840000,
+        "last_message": {
+          "id": "m-workflow-child-answer",
+          "role": "assistant",
+          "preview": "Answer workflow-child",
+          "content": "Answer workflow-child",
+          "created_at": 1799646720000,
+          "saved": false
+        },
+        "run": {
+          "id": "r-workflow-child",
+          "state": "completed",
+          "error": null,
+          "input": "Prompt for r-workflow-child",
+          "connection_id": "conn-api",
+          "model": "fixture-model",
+          "resolved_model": null,
+          "created_at": 1799646600000,
+          "updated_at": 1799646840000,
+          "queue_position": null,
+          "can_move_up": false,
+          "can_move_down": false
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0,
+        "position_message_id": null,
+        "later": null,
+        "next_action": {
+          "kind": "result",
+          "run_id": "r-workflow-child",
+          "message_id": "m-workflow-child-answer"
+        }
+      },
+      {
         "conversation_id": "c-automation",
         "done_card_key": "run:r-automation",
         "title": "Prompt for r-automation",
@@ -250,6 +296,52 @@
         "position_message_id": null,
         "later": null,
         "next_action": null
+      },
+      {
+        "conversation_id": "c-delegate",
+        "done_card_key": "run:r-delegate",
+        "title": "Prompt for r-delegate",
+        "agent_id": "agent-member",
+        "connection_id": null,
+        "agent_name": "member-agent",
+        "provider": "openai",
+        "project_id": null,
+        "project_name": null,
+        "team_id": null,
+        "origin": "loop",
+        "last_activity_at": 1799642220000,
+        "last_message": {
+          "id": "m-delegate-answer",
+          "role": "assistant",
+          "preview": "Answer delegate",
+          "content": "Answer delegate",
+          "created_at": 1799642100000,
+          "saved": false
+        },
+        "run": {
+          "id": "r-delegate",
+          "state": "completed",
+          "error": null,
+          "input": "Prompt for r-delegate",
+          "connection_id": "conn-api",
+          "model": "fixture-model",
+          "resolved_model": null,
+          "created_at": 1799641980000,
+          "updated_at": 1799642220000,
+          "queue_position": null,
+          "can_move_up": false,
+          "can_move_down": false
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0,
+        "position_message_id": null,
+        "later": null,
+        "next_action": {
+          "kind": "result",
+          "run_id": "r-delegate",
+          "message_id": "m-delegate-answer"
+        }
       },
       {
         "conversation_id": "c-done-native",

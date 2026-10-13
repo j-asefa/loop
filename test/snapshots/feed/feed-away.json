@@ -3,6 +3,14 @@
   "body": {
     "completed": [
       {
+        "conversation_id": "c-workflow-child",
+        "title": "Thread workflow-child",
+        "agent_name": "api-agent",
+        "run_id": "r-workflow-child",
+        "state": "completed",
+        "updated_at": 1799646840000
+      },
+      {
         "conversation_id": "c-automation",
         "title": "Thread automation",
         "agent_name": "api-agent",
@@ -49,6 +57,14 @@
         "run_id": "r-snoozed",
         "state": "completed",
         "updated_at": 1799644260000
+      },
+      {
+        "conversation_id": "c-delegate",
+        "title": "Thread delegate",
+        "agent_name": "member-agent",
+        "run_id": "r-delegate",
+        "state": "completed",
+        "updated_at": 1799642220000
       },
       {
         "conversation_id": "c-done-native",

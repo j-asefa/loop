@@ -20,6 +20,7 @@ const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
 const { sendMail, sweepAgentMail, agentMail, MAIL_LIMITS, resumeThread } =
   await import("../src/server/agent-mail");
+const { feed } = await import("../src/server/mobile-return");
 const { claim, transition } = await import("../src/server/queue");
 const { core } = await import("../src/server/core-routes");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -762,6 +763,8 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
     const workers = new Map([a, b].map((r) => [r.agent_id, r]));
     const firstTask = workers.get(first.id)!,
       secondTask = workers.get(second.id)!;
+    expect(feed(owner, { filter: "working" }).items.map((item) => item.conversation_id))
+      .toEqual(expect.arrayContaining([firstTask.conversation_id, secondTask.conversation_id]));
     // The first worker asks a question while both are still working.
     const asked = await message(firstTask, {
       to: manager.id,
@@ -795,6 +798,8 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
       expect(await executeAgent(task)).toBe(true);
       transition(task, "completed");
     }
+    expect(feed(owner, { filter: "done" }).items.map((item) => item.conversation_id))
+      .toEqual(expect.arrayContaining([firstTask.conversation_id, secondTask.conversation_id]));
     sweepAgentMail();
     sweepAgentMail();
     const results = db

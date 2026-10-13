@@ -1,5 +1,5 @@
 // The Feed reads each conversation's state from columns that triggers keep
-// current (migration 081). These tests compare those columns, after every
+// current (migrations 081 and 084). These tests compare those columns, after every
 // kind of write, with the state the Feed used to derive on each request.
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -21,9 +21,7 @@ function database(through = Infinity) {
   return db;
 }
 
-// The per-request derivation the Feed used before migration 081.
-const internal = (r: string) =>
-  `(EXISTS(SELECT 1 FROM delegations dl WHERE dl.child_run_id=${r}.id) OR EXISTS(SELECT 1 FROM workflow_steps ws WHERE ws.child_run_id=${r}.id))`;
+// Reference derivation, including delegated and workflow work.
 const current = `FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY CASE WHEN r.state IN ('running','pausing','paused','awaiting_approval') THEN 0 ELSE 1 END,r.created_at DESC,r.rowid DESC LIMIT 1`;
 const reference = `SELECT
   (SELECT r.id ${current}) feed_run_id,
@@ -31,15 +29,14 @@ const reference = `SELECT
   (SELECT CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END ${current}) feed_run_state,
   (SELECT r.attention_dismissed_at ${current}) feed_run_dismissed_at,
   (SELECT count(*) FROM runs q WHERE q.owner_id=c.owner_id AND q.conversation_id=c.id AND q.state='queued') feed_queued,
-  (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${internal("r")} ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_run_id,
-  (SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' AND NOT ${internal("r")}) feed_done_at,
+  (SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed' ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 1) feed_done_run_id,
+  (SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND r.state='completed') feed_done_at,
   max(c.created_at,
     COALESCE((SELECT max(m.created_at) FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id),0),
     COALESCE((SELECT max(r.updated_at) FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id),0)) feed_last_activity_at,
   (SELECT m.id FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) feed_last_message_id,
   COALESCE(c.project_id,(SELECT json_extract(fr.payload,'$.folderId') FROM runs fr WHERE fr.owner_id=c.owner_id AND fr.conversation_id=c.id ORDER BY fr.created_at DESC,fr.rowid DESC LIMIT 1)) feed_folder_id,
-  ((EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id) OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id))
-    AND (NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id) OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id AND NOT ${internal("r")}))) feed_visible,
+  (EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=c.owner_id AND m.conversation_id=c.id) OR EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id)) feed_visible,
   (SELECT max(a.expires_at) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id WHERE a.owner_id=c.owner_id AND ar.conversation_id=c.id AND a.state='pending') feed_approval_until
 FROM conversations c WHERE c.id=?`;
 const stored = `SELECT feed_run_id,feed_run_raw_state,feed_run_state,feed_run_dismissed_at,feed_queued,feed_done_run_id,feed_done_at,feed_last_activity_at,feed_last_message_id,feed_folder_id,feed_visible,feed_approval_until FROM conversations WHERE id=?`;
@@ -93,7 +90,7 @@ it("keeps every conversation's Feed state equal to the per-request derivation af
     ["completed", () => db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id='r1'").run(w.tick())],
     ["next run fails", () => db.prepare("UPDATE runs SET state='failed',updated_at=? WHERE id='r2'").run(w.tick())],
     ["failure dismissed", () => db.prepare("UPDATE runs SET attention_dismissed_at=1 WHERE id='r2'").run()],
-    ["a run becomes a delegate (internal)", () => {
+    ["a run becomes a delegate", () => {
       w.run("parent", "b", "running", { worker: "w" });
       db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES('parent','c','r1','{}',0)").run();
     }],
@@ -137,9 +134,10 @@ it("backfills existing conversations from their history", () => {
   w.run("p", null, "running");
   db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES('p','c','r3','{}',0)").run();
   db.exec(readFileSync(join("migrations", "081-conversation-feed-state.sql"), "utf8"));
+  db.exec(readFileSync(join("migrations", "084-visible-agent-work.sql"), "utf8"));
   expectState(db, ["a", "b", "empty"], "backfill");
   expect(db.prepare("SELECT feed_visible FROM conversations WHERE id IN ('b','empty') ORDER BY id").all()).toEqual([
-    { feed_visible: 0 },
+    { feed_visible: 1 },
     { feed_visible: 0 },
   ]);
 });

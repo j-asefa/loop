@@ -62,9 +62,6 @@ const FOLDER_PROJECT = `folder_project(id,project_id) AS (
 // A conversation's folder: its recorded project, else its latest run's folder.
 const conversationFolder = (c: string) =>
   `COALESCE(${c}.project_id,(SELECT json_extract(fr.payload,'$.folderId') FROM runs fr WHERE fr.owner_id=${c}.owner_id AND fr.conversation_id=${c}.id ORDER BY fr.created_at DESC,fr.rowid DESC LIMIT 1))`;
-// Delegated and workflow child runs are internal work, not user conversations.
-const internalRun = (r: string) =>
-  `(EXISTS(SELECT 1 FROM delegations dl WHERE dl.child_run_id=${r}.id) OR EXISTS(SELECT 1 FROM workflow_steps ws WHERE ws.child_run_id=${r}.id))`;
 const ACTIVE_STATES =
   "('queued','running','pausing','paused','awaiting_approval')";
 const publicState = (r: string) =>
@@ -777,7 +774,7 @@ export function awaySummary(owner: string, since: number) {
         `SELECT r.conversation_id,c.title,a.name agent_name,r.id run_id,${publicState("r")} state,r.updated_at
         FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
         LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
-        WHERE r.owner_id=? AND NOT ${internalRun("r")} AND (${condition})
+        WHERE r.owner_id=? AND (${condition})
         ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 20`,
       )
       .all(owner, ...params) as Brief[];
@@ -2367,7 +2364,7 @@ export function projectSummaries(owner: string) {
       sum(r.state IN ('running','pausing')) working,
       sum(r.attention_dismissed_at IS NULL AND (r.state IN ('awaiting_approval','paused') OR r.state IN ('failed','interrupted'))) needs
     FROM runs r JOIN folder_project fp ON fp.id=json_extract(r.payload,'$.folderId')
-    WHERE r.owner_id=@owner AND NOT ${internalRun("r")} GROUP BY fp.project_id`,
+    WHERE r.owner_id=@owner GROUP BY fp.project_id`,
   );
   const artifacts = byProject<{ last: number }>(
     "SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id=a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id",
