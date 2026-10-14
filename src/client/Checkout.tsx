@@ -58,14 +58,21 @@ export function CheckoutSheet({
   useEffect(() => {
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A failed read while waiting is retried, so a dropped connection does
+    // not leave the sheet stale once it is back.
     const read = () =>
       load(runId)
         .then((result) => {
           if (!live) return;
           setDetail(result);
+          setError("");
           if (result.state === "started") timer = setTimeout(read, 5000);
         })
-        .catch((e: Error) => live && setError(e.message));
+        .catch((e: Error) => {
+          if (!live) return;
+          setError(e.message);
+          timer = setTimeout(read, 10000);
+        });
     void read();
     return () => {
       live = false;

@@ -215,6 +215,10 @@ async function isolate(directory: string): Promise<Iso> {
   const tracking = branch
     ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
     : null;
+  // Settings that decide how worktree content compares with the index. They
+  // are plain values, never commands; without them a CRLF file could read
+  // as changed when the repository normalises line endings.
+  const comparison = /^core\.(?:autocrlf|eol|ignorecase|filemode|symlinks|precomposeunicode|whitespace|safecrlf)$/;
   for (const entry of settings.split("\0")) {
     const split = entry.indexOf("\n");
     if (split < 0) continue;
@@ -226,7 +230,7 @@ async function isolate(directory: string): Promise<Iso> {
       config[1] = "\trepositoryformatversion = 1";
       carried.push([key, value]);
       if (key === "extensions.objectformat" && value === "sha256") format = "sha256";
-    } else if (tracking?.test(key)) carried.push([key, value]);
+    } else if (tracking?.test(key) || comparison.test(key)) carried.push([key, value]);
   }
   const gitDir = await mkdtemp(join(tmpdir(), "loop-checkout-"));
   const cleanup = () => {
@@ -605,7 +609,10 @@ async function captureClaimed(
   options: { late?: boolean; ifIdle?: boolean },
 ): Promise<void> {
   const runId = row.run_id;
-  const fields: Partial<CheckoutRow> = { ended_at: time, error: null, captured_late: options.late ? 1 : 0 };
+  const fields: Partial<CheckoutRow> = {
+    ended_at: time, error: null, captured_late: options.late ? 1 : 0,
+    end_head: null, ahead: null, behind: null,
+  };
   let iso: Iso | undefined;
   try {
     iso = await isolate(row.directory);
@@ -682,7 +689,7 @@ async function captureClaimed(
     next.id = id();
   }
   next.summary = JSON.stringify(summarize(next));
-  UPDATE().run({
+  const written = UPDATE().run({
     run_id: row.run_id,
     token,
     id: next.id,
@@ -694,7 +701,10 @@ async function captureClaimed(
     summary: next.summary,
     ended_at: next.ended_at ?? null,
     error: next.error ?? null,
-  });
+  }).changes;
+  // The lease passed to another capture while this one ran: its result is
+  // discarded, and the holder will publish its own.
+  if (!written) return;
   const release = db
     .prepare(
       "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",

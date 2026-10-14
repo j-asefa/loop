@@ -585,6 +585,46 @@ it("keys every chunk of a stored patch by the path numstat reports", () => {
   expect(chunks.get("gone.txt")).toContain("-bye");
 });
 
+it("compares the working tree the way the repository does, line endings included", async () => {
+  const run = runFixture("thread-crlf");
+  bind("thread-crlf", checkout);
+  writeFileSync(join(checkout, "crlf.txt"), "a\nb\n");
+  git(checkout, "add", "crlf.txt");
+  git(checkout, "commit", "-m", "lf in the index");
+  // The repository normalises CRLF on the way in; the file on disk is CRLF.
+  git(project, "config", "core.autocrlf", "input");
+  writeFileSync(join(checkout, "crlf.txt"), "a\r\nb\r\n");
+  try {
+    // Plain Git in the checkout agrees the file is unchanged.
+    expect(git(checkout, "status", "--porcelain", "--", "crlf.txt")).toBe("");
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    expect(detail.working!.files.map((f) => f.path)).not.toContain("crlf.txt");
+    expect(detail.files.map((f) => f.path)).toContain("crlf.txt"); // committed on the branch
+  } finally {
+    git(project, "config", "--unset", "core.autocrlf");
+    writeFileSync(join(checkout, "crlf.txt"), "a\nb\n");
+  }
+});
+
+it("never carries counts from an earlier observation into a new one", async () => {
+  const run = runFixture("thread-stale-counts");
+  bind("thread-stale-counts", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  await completeCheckout(run.id);
+  expect(checkoutDetail(owner, run.id)!.ahead).not.toBeNull();
+  // The project checkout can no longer be read when the run ends again.
+  db.prepare("UPDATE run_checkouts SET source=? WHERE run_id=?").run(join(dir, "vanished"), run.id);
+  await completeCheckout(run.id);
+  const detail = checkoutDetail(owner, run.id)!;
+  expect(detail.state).toBe("captured");
+  expect(detail.ahead).toBeNull();
+  expect(detail.behind).toBeNull();
+  expect(detail.summary!.ahead).toBeNull();
+});
+
 it("drops the capture request of a run whose start was never captured", async () => {
   const run = runFixture("thread-failed-start");
   const nowhere = join(dir, "not-a-repo-either");
