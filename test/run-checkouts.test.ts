@@ -367,19 +367,47 @@ it("never runs a filter a worktree's .gitattributes selects, whatever the user's
 });
 
 it("refuses a repository whose info/attributes selects a driver", async () => {
-  const run = runFixture("thread-info-attrs");
-  bind("thread-info-attrs", checkout);
   const info = join(project, ".git", "info");
   mkdirSync(info, { recursive: true });
-  writeFileSync(join(info, "attributes"), "# comment\n*.txt filter=evil\n");
-  try {
-    await startCheckout(run, checkout, project, "g1");
-    const detail = checkoutDetail(owner, run.id)!;
-    expect(detail.state).toBe("failed");
-    expect(detail.error).toContain("info/attributes");
-  } finally {
-    rmSync(join(info, "attributes"));
-  }
+  const attempt = async (conversation: string, attributes: string) => {
+    const run = runFixture(conversation);
+    bind(conversation, checkout);
+    writeFileSync(join(info, "attributes"), attributes);
+    try {
+      await startCheckout(run, checkout, project, "g1");
+      return checkoutDetail(owner, run.id)!;
+    } finally {
+      rmSync(join(info, "attributes"));
+    }
+  };
+  const refused = await attempt("thread-info-attrs", "# comment\n*.txt filter=evil\n");
+  expect(refused.state).toBe("failed");
+  expect(refused.error).toContain("info/attributes");
+  // "#" inside a pattern is not a comment.
+  const inline = await attempt("thread-info-attrs-hash", "tracked#file.txt filter=evil\n");
+  expect(inline.state).toBe("failed");
+  // A whole-line comment mentioning a driver is only a comment.
+  const comment = await attempt("thread-info-attrs-comment", "# *.txt filter=evil\n*.md -text\n");
+  expect(comment.state).toBe("started");
+});
+
+it("keeps a recapture request durable when the process stops before claiming it", async () => {
+  const run = runFixture("thread-durable");
+  bind("thread-durable", checkout);
+  await startCheckout(run, checkout, project, "g1");
+  await completeCheckout(run.id);
+  const first = checkoutDetail(owner, run.id)!;
+  // The terminal transition records the request in the same transaction.
+  expect(transition(run, "completed")).toBe(true);
+  const raw = () => db.prepare("SELECT capture_pending,capture_token FROM run_checkouts WHERE run_id=?").get(run.id) as any;
+  // Simulate the process dying before the asynchronous capture claimed it.
+  for (let i = 0; i < 100 && raw().capture_token === null && raw().capture_pending === 1; i++) await new Promise((r) => setTimeout(r, 5));
+  for (let i = 0; i < 100 && raw().capture_token !== null; i++) await new Promise((r) => setTimeout(r, 20));
+  db.prepare("UPDATE run_checkouts SET capture_pending=1,capture_token=NULL WHERE run_id=?").run(run.id);
+  await completeCheckout(run.id, { ifIdle: true });
+  const recaptured = checkoutDetail(owner, run.id)!;
+  expect(recaptured.id).not.toBe(first.id);
+  expect(raw()).toMatchObject({ capture_pending: 0, capture_token: null });
 });
 
 it("keeps an earlier observation reachable under its own id after a recapture", async () => {

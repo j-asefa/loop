@@ -43,13 +43,15 @@ function perFile(patch: string) {
     if (!chunk.trim()) continue;
     // Paths may be C-quoted ("b/notes\tdraft.txt"); "+++ b/..." names the
     // new path, and "diff --git" the pair for deletions.
-    const plus = chunk.match(/^\+\+\+ (?:b\/(.*)|("b\/.*"))$/m);
-    const header = chunk.match(/^diff --git (?:a\/(\S*)|("a\/(?:[^"\\]|\\.)*")) (?:b\/(.*)|("b\/(?:[^"\\]|\\.)*"))$/m);
+    // "+++ b/..." names the new path; a deletion has "+++ /dev/null" and
+    // "--- a/..." names the old one. Either may be C-quoted. The "diff
+    // --git" line is not used: with spaces in a path it is ambiguous.
+    const plus = chunk.match(/^\+\+\+ (?:b\/(.*)|("b\/(?:[^"\\]|\\.)*"))$/m);
+    const minus = chunk.match(/^--- (?:a\/(.*)|("a\/(?:[^"\\]|\\.)*"))$/m);
     const quoted = (q: string) => unquoteGitPath(q).slice(2);
     const path =
       plus?.[1] ?? (plus?.[2] ? quoted(plus[2]) : undefined) ??
-      header?.[3] ?? (header?.[4] ? quoted(header[4]) : undefined) ??
-      header?.[1] ?? (header?.[2] ? quoted(header[2]) : "");
+      minus?.[1] ?? (minus?.[2] ? quoted(minus[2]) : "");
     chunks.set(path, chunk.replace(/^diff --git .*\n(?:(?:index|---|\+\+\+|new file mode|deleted file mode|similarity index|rename from|rename to|old mode|new mode) .*\n)*/, ""));
   }
   return chunks;

@@ -210,7 +210,9 @@ async function refuseCommandConfig(directory: string) {
   const own = await must(directory, ["rev-parse", "--path-format=absolute", "--git-dir"]);
   for (const file of new Set([common + "/info/attributes", own + "/info/attributes"])) {
     const text = await readFile(file, "utf8").catch(() => "");
-    if (DRIVER_ATTRIBUTES.test(text.replace(/#.*$/gm, "")))
+    // Only whole comment lines are comments: "#" is legal inside a pattern.
+    const rules = text.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
+    if (DRIVER_ATTRIBUTES.test(rules))
       throw new CheckoutError(
         `${file} selects a filter or diff driver, which Git would run during capture; Loop does not run it.`,
       );

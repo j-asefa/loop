@@ -197,6 +197,10 @@ function transitionState(run: Run, state: string, payload: unknown) {
         db.prepare(
           "UPDATE runs SET worker_id=NULL,heartbeat=NULL WHERE id=?",
         ).run(run.id);
+      // The capture request is durable with the transition: if the process
+      // stops before the capture claims it, reconciliation finds it.
+      if (TERMINAL_STATES.includes(state))
+        db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(run.id);
       emit(run.owner_id, run.id, state, payload);
       return true;
     })
