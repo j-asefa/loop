@@ -106,7 +106,7 @@ export function classifyVerification(command: string): Classified[] {
   if (
     tokens.length === 3 &&
     /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") &&
-    /^-[a-z]*c$/.test(tokens[1] || "")
+    /^-[eilx]*c$/.test(tokens[1] || "")
   )
     tokens = shellWords(tokens[2] || "");
   if (!tokens?.length) return [];
@@ -122,6 +122,16 @@ export function classifyVerification(command: string): Classified[] {
     if (classified) found.push(classified);
   }
   return found;
+}
+
+/** How many commands a literal chain runs, counting a leading cd. */
+export function chainLength(command: string) {
+  let tokens = shellWords(command);
+  if (!tokens) return 0;
+  if (tokens.length === 3 && /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") && /^-[eilx]*c$/.test(tokens[1] || ""))
+    tokens = shellWords(tokens[2] || "");
+  if (!tokens?.length) return 0;
+  return tokens.filter((t) => t === null).length + 1;
 }
 
 /** The card line: what ran and how it ended, or that nothing was observed. */

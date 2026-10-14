@@ -1470,7 +1470,7 @@ export function Conversation({
                           />
                           {(() => {
                             const items = parse<VerificationItem[]>(m.run_verification || "[]", []);
-                            if (!items.length && m.run_state !== "completed") return null;
+                            if (!items.length && !["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || "")) return null;
                             return (
                               <VerificationChip
                                 summary={items.length ? summarizeVerification(items) : null}

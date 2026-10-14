@@ -94,6 +94,10 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
   expect(tools("npm test || true")).toEqual([]);
   expect(tools("npm test; echo done")).toEqual([]);
   expect(tools("$RUNNER test")).toEqual([]);
+  // Separate lines are separate commands; a syntax check runs nothing.
+  expect(tools("npm test\ntrue")).toEqual([]);
+  expect(tools("bash -nc 'npm test'")).toEqual([]);
+  expect(tools("bash -ec 'npm test'")).toEqual(["test:npm test"]);
 });
 
 it("records the exit Loop saw, including failures, unknown exits and cut output", () => {
@@ -101,7 +105,7 @@ it("records the exit Loop saw, including failures, unknown exits and cut output"
   observeCompletedOutput(run, output("npm test", {}, "12 passed\n"));
   observeCompletedOutput(run, output("npx tsc --noEmit", { exitCode: 2 }, "src/a.ts(3,1): error TS2322\n"));
   observeCompletedOutput(run, output("eslint src", { status: "failed", exitCode: undefined }, ""));
-  observeCompletedOutput(run, output("pytest", { unavailable: "terminal output not retained" }));
+  observeCompletedOutput(run, output("pytest", { unavailable: "terminal output not retained" }, ""));
   observeCompletedOutput(
     run,
     output("go test ./...", { truncated: { droppedBytes: 5000, droppedChunks: 2, floor: 0 } }, "x".repeat(4000)),
@@ -115,23 +119,38 @@ it("records the exit Loop saw, including failures, unknown exits and cut output"
     ["npm test", "passed", 0, false],
     ["tsc", "failed", 2, false],
     ["eslint", "unknown", null, false],
-    ["pytest", "unknown", null, false],
+    ["pytest", "passed", 0, false],
     ["go test", "passed", 0, true],
   ]);
   expect(items[1].output_tail).toContain("error TS2322");
+  expect(items[3].output_tail).toBeNull();
   expect(items[4].output_tail!.length).toBe(1500);
   const summary = verificationSummary(owner, run.id)!;
-  expect(summary).toMatchObject({ passed: 2, failed: 1, unknown: 2 });
-  expect(verificationLine(summary)).toBe("Ran npm test ✓ · tsc ✗ · eslint ? · pytest ? · go test ✓");
+  expect(summary).toMatchObject({ passed: 3, failed: 1, unknown: 1 });
+  expect(verificationLine(summary)).toBe("Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · go test ✓");
   expect(verificationLine(null)).toBe("No checks observed");
 });
 
-it("gives a chain one exit shared by its tools", () => {
+it("gives a chain one exit shared by its tools, and only trusts a zero exit", () => {
   const run = runFixture("thread-chain");
+  observeCompletedOutput(run, output("npm run typecheck && npm test"));
+  // A nonzero exit from a chain says nothing about which step failed, or
+  // whether the checks ran at all.
   observeCompletedOutput(run, output("npm run typecheck && npm test", { exitCode: 1 }));
-  const [item] = runVerifications(owner, run.id);
-  expect(item).toMatchObject({ kind: "test", tools: ["npm run typecheck", "npm test"], status: "failed", exit_code: 1 });
-  expect(verificationLine(verificationSummary(owner, run.id))).toBe("Ran npm run typecheck + npm test ✗");
+  observeCompletedOutput(run, output("cd missing-directory && npm test", { exitCode: 1 }));
+  // A reported nonzero exit is a failure whatever status word accompanies it.
+  observeCompletedOutput(run, output("npm test", { status: "failed", exitCode: 1 }));
+  const items = runVerifications(owner, run.id);
+  expect(items.map((i) => [i.tools, i.status, i.exit_code])).toEqual([
+    [["npm run typecheck", "npm test"], "passed", 0],
+    [["npm run typecheck", "npm test"], "unknown", 1],
+    [["npm test"], "unknown", 1],
+    [["npm test"], "failed", 1],
+  ]);
+  expect(verificationContent(verificationById(owner, items[2].id)!)).toContain("which step failed");
+  expect(verificationLine(verificationSummary(owner, run.id))).toBe(
+    "Ran npm run typecheck + npm test ✓ · npm run typecheck + npm test ? · npm test ? · npm test ✗",
+  );
 });
 
 it("is a brief citation scoped to the run's project, with the command and exit in its content", () => {

@@ -198,6 +198,7 @@ const AWAY_AFTER = 30 * 60_000;
  */
 // Run states whose prompt the Feed hides until the agent writes something.
 const awaitingStates = ["running", "pausing", "waiting_children"];
+const terminalStates = ["completed", "failed", "interrupted", "cancelled"];
 function FeedCard({
   item,
   agent,
@@ -359,7 +360,7 @@ function FeedCard({
           {item.run?.checkout && onCheckout && (
             <>
               <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
-              {(item.run.verification || item.run.state === "completed") && (
+              {(item.run.verification || terminalStates.includes(item.run.state)) && (
                 <VerificationChip
                   summary={item.run.verification ?? null}
                   onOpen={item.run.verification ? onVerification : undefined}

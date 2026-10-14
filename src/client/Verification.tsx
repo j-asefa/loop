@@ -24,7 +24,7 @@ export function VerificationChip({
     ? ShieldQuestion
     : summary.failed
       ? ShieldAlert
-      : summary.unknown && !summary.passed
+      : summary.unknown
         ? ShieldQuestion
         : ShieldCheck;
   const tone = !summary ? "none" : summary.failed ? "failed" : summary.unknown ? "unknown" : "passed";
@@ -89,8 +89,10 @@ export function VerificationSheet({
             <details key={item.id} className="pull-file verification-item" open={items.length <= 3}>
               <summary>
                 <span className={`pull-file-status verification-${item.status}`}>
-                  {statusLabel[item.status]}
-                  {item.exit_code !== null && item.status !== "passed" ? ` (exit ${item.exit_code})` : ""}
+                  {item.status === "unknown" && item.exit_code !== null
+                    ? `Chain exited ${item.exit_code}; which step failed is not known`
+                    : statusLabel[item.status]}
+                  {item.status === "failed" && item.exit_code !== null ? ` (exit ${item.exit_code})` : ""}
                 </span>
                 <span className="pull-file-path">
                   <code>{item.command}</code>

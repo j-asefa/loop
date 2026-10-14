@@ -2,6 +2,7 @@ import { db, id, now } from "./db.js";
 import type { Run } from "./queue.js";
 import type { OutputData } from "../agent-activities.js";
 import {
+  chainLength,
   classifyVerification,
   summarize,
   verificationLine,
@@ -38,11 +39,19 @@ export type VerificationRow = {
   observed_at: number;
 };
 
-function outcome(data: OutputData): { status: VerificationStatus; exit: number | null } {
-  if (data.unavailable) return { status: "unknown", exit: null };
-  if (data.status === "exited" && typeof data.exitCode === "number")
-    return { status: data.exitCode === 0 ? "passed" : "failed", exit: data.exitCode };
-  return { status: "unknown", exit: typeof data.exitCode === "number" ? data.exitCode : null };
+/**
+ * A reported exit decides: zero passed, nonzero failed, whatever status word
+ * accompanies it. No exit is unknown. A nonzero exit from a chain of several
+ * commands is unknown too: `cd missing && npm test` exits nonzero without
+ * running the tests, and a failed first step says nothing about the later
+ * ones. Only a zero exit establishes that every step ran and passed.
+ */
+function outcome(data: OutputData, steps: number): { status: VerificationStatus; exit: number | null } {
+  // Output that was not retained does not change what the exit said.
+  const exit = typeof data.exitCode === "number" ? data.exitCode : null;
+  if (exit === null) return { status: "unknown", exit };
+  if (exit === 0) return { status: "passed", exit };
+  return { status: steps > 1 ? "unknown" : "failed", exit };
 }
 
 /**
@@ -60,7 +69,7 @@ export function observeCompletedOutput(
   const classified = classifyVerification(data.command);
   if (!classified.length) return;
   if (!current()) return;
-  const { status, exit } = outcome(data);
+  const { status, exit } = outcome(data, chainLength(data.command));
   const text = data.chunks.map((c) => c.text).join("");
   const tail = text.length > TAIL_LIMIT ? text.slice(-TAIL_LIMIT) : text;
   const truncated =
@@ -130,6 +139,9 @@ export function verificationContent(item: ReturnType<typeof verificationById> & 
   const lines = [
     `Verification observed by Loop for run ${item.run_id}: ${item.tools.join(" + ")} ${item.status}` +
       (item.exit_code !== null ? ` (exit ${item.exit_code})` : " (exit not reported)") + ".",
+    ...(item.status === "unknown" && item.exit_code !== null && item.exit_code !== 0
+      ? ["The command was a chain of several steps and exited nonzero; which step failed, and whether the checks ran at all, is not known."]
+      : []),
     `Command: ${item.command}`,
     "The agent chose this command; Loop observed its exit. It does not show which tests exist or that the right ones ran.",
   ];

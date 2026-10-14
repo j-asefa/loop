@@ -32,7 +32,8 @@ export function shellWords(script: string): (string | null)[] | undefined {
     } else if (c === "'" || c === '"') {
       quote = c;
       started = true;
-    } else if (/\s/.test(c)) flush();
+    } else if (c === "\n") return;
+    else if (/\s/.test(c)) flush();
     else if (c === "&" && script[i + 1] === "&") {
       flush();
       result.push(null);
@@ -55,7 +56,7 @@ export function createdPullRequest(command: string, output: string) {
   if (
     tokens.length === 3 &&
     /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") &&
-    /^-[a-z]*c$/.test(tokens[1] || "")
+    /^-[eilx]*c$/.test(tokens[1] || "")
   )
     tokens = shellWords(tokens[2] || "");
   if (!tokens?.length || tokens[0] === null || tokens.at(-1) === null) return;
