@@ -24,6 +24,8 @@ export type CheckoutFile = {
   additions: number;
   deletions: number;
   binary: boolean;
+  /** Its attributes select a filter; Loop compared the raw content. */
+  filtered?: boolean;
 };
 export type CheckoutStat = {
   files: CheckoutFile[];

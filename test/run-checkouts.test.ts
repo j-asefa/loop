@@ -611,6 +611,46 @@ it("compares the working tree the way the repository does, line endings included
   }
 });
 
+it("honours line-ending attributes, exclusions and worktree-scoped settings", async () => {
+  const run = runFixture("thread-attrs-excl");
+  bind("thread-attrs-excl", checkout);
+  // A CRLF file selected by a text attribute, checked out as CRLF.
+  writeFileSync(join(checkout, ".gitattributes"), "*.win text eol=crlf\n*.bin filter=lfs\n");
+  writeFileSync(join(checkout, "readme.win"), "one\ntwo\n");
+  writeFileSync(join(checkout, "blob.bin"), "pointer\n");
+  git(checkout, "add", ".gitattributes", "readme.win", "blob.bin");
+  git(checkout, "commit", "-m", "attributes");
+  rmSync(join(checkout, "readme.win"));
+  git(checkout, "checkout", "--", "readme.win");
+  expect(git(checkout, "status", "--porcelain", "--", "readme.win")).toBe("");
+  // A build directory excluded through info/exclude, and a worktree-scoped setting.
+  mkdirSync(join(checkout, "build"), { recursive: true });
+  writeFileSync(join(checkout, "build", "out.js"), "built");
+  writeFileSync(join(project, ".git", "info", "exclude"), "build/\n");
+  git(project, "config", "extensions.worktreeConfig", "true");
+  git(checkout, "config", "--worktree", "core.autocrlf", "true");
+  // A file whose attributes select a filter Loop will not run.
+  writeFileSync(join(checkout, "blob.bin"), "expanded content\n");
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    expect(detail.working!.files.map((f) => f.path)).not.toContain("readme.win");
+    expect(detail.untracked).not.toContain("build/out.js");
+    const blob = detail.working!.files.find((f) => f.path === "blob.bin");
+    expect(blob?.filtered).toBe(true);
+    expect(checkoutContent(detail)).toMatch(/blob\.bin \+\d+ −\d+ \(filtered content, compared raw\)/);
+  } finally {
+    git(checkout, "config", "--worktree", "--unset", "core.autocrlf");
+    git(project, "config", "--unset", "extensions.worktreeConfig");
+    rmSync(join(project, ".git", "info", "exclude"));
+    rmSync(join(checkout, "build"), { recursive: true });
+    git(checkout, "checkout", "--", "blob.bin");
+    rmSync(join(checkout, ".gitattributes"));
+  }
+});
+
 it("never carries counts from an earlier observation into a new one", async () => {
   const run = runFixture("thread-stale-counts");
   bind("thread-stale-counts", checkout);

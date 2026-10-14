@@ -148,6 +148,9 @@ export function CheckoutSheet({
                   ) : (
                     <PullChangeCounts additions={f.additions} deletions={f.deletions} />
                   )}
+                  {f.filtered && (
+                    <span className="field-hint">filtered content, compared raw</span>
+                  )}
                 </summary>
                 {chunks.get(f.path) ? (
                   <Patch patch={chunks.get(f.path)!} />

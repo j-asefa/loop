@@ -118,14 +118,12 @@ type GitResult = { ok: boolean; code: number | null; out: string; truncated: boo
  * command runs, and nothing is written back to the repository.
  */
 type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void };
-/** Git's well-known empty trees, an attribute source that selects nothing. */
-const EMPTY_TREE = {
-  sha1: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-  sha256: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
-};
-// Second line behind the isolated directory: attributes come from the empty
-// tree, so no .gitattributes can select a filter, diff driver or text
-// conversion; monitoring, transports, credentials and prompts are disabled.
+// Attributes (.gitattributes, text, eol, filter, diff) are read as usual so
+// line-ending normalisation still applies; the isolated configuration
+// defines no filter or diff driver, so an attribute that names one selects
+// nothing that runs. Files whose attributes select a filter are compared as
+// raw content and marked as such. The repository's attributes file setting
+// is overridden; its info/attributes is not copied.
 const SAFE = [
   "-c", "core.quotePath=false",
   "-c", "core.fsmonitor=false",
@@ -205,20 +203,23 @@ async function isolate(directory: string): Promise<Iso> {
   const own = await must(here, ["rev-parse", "--path-format=absolute", "--git-dir"]);
   const top = await must(here, ["rev-parse", "--show-toplevel"]);
   const branch = await maybe(here, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
-  const settings = (await maybe(here, ["config", "--file", join(common, "config"), "--list", "-z"])) ?? "";
+  const settings = [
+    (await maybe(here, ["config", "--file", join(common, "config"), "--list", "-z"])) ?? "",
+    (await maybe(here, ["config", "--file", join(own, "config.worktree"), "--list", "-z"])) ?? "",
+  ].join("\0");
   const config = ["[core]", "\trepositoryformatversion = 0", "\tbare = false"];
   // Carried over: the object format, and the tracking configuration that
   // resolves @{upstream} to a remote-tracking ref (never a URL, transport,
   // credential or promisor setting, so no fetch can happen).
   const carried: [string, string][] = [];
-  let format: keyof typeof EMPTY_TREE = "sha1";
+
   const tracking = branch
     ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
     : null;
   // Settings that decide how worktree content compares with the index. They
   // are plain values, never commands; without them a CRLF file could read
   // as changed when the repository normalises line endings.
-  const comparison = /^core\.(?:autocrlf|eol|ignorecase|filemode|symlinks|precomposeunicode|whitespace|safecrlf)$/;
+  const comparison = /^core\.(?:autocrlf|eol|ignorecase|filemode|symlinks|precomposeunicode|whitespace|safecrlf|excludesfile)$/;
   for (const entry of settings.split("\0")) {
     const split = entry.indexOf("\n");
     if (split < 0) continue;
@@ -229,7 +230,6 @@ async function isolate(directory: string): Promise<Iso> {
     if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
       config[1] = "\trepositoryformatversion = 1";
       carried.push([key, value]);
-      if (key === "extensions.objectformat" && value === "sha256") format = "sha256";
     } else if (tracking?.test(key) || comparison.test(key)) carried.push([key, value]);
   }
   const gitDir = await mkdtemp(join(tmpdir(), "loop-checkout-"));
@@ -250,6 +250,9 @@ async function isolate(directory: string): Promise<Iso> {
         await copyFile(join(own, name), join(gitDir, name));
     await cp(join(common, "refs"), join(gitDir, "refs"), { recursive: true }).catch(() => mkdir(join(gitDir, "refs")));
     await copyFile(join(common, "packed-refs"), join(gitDir, "packed-refs")).catch(() => {});
+    // Repository-local exclusions, so ignored build output stays ignored.
+    await mkdir(join(gitDir, "info"));
+    await copyFile(join(common, "info", "exclude"), join(gitDir, "info", "exclude")).catch(() => {});
   } catch (error) {
     cleanup();
     throw error instanceof CheckoutError
@@ -258,7 +261,7 @@ async function isolate(directory: string): Promise<Iso> {
   }
   return {
     directory,
-    env: { GIT_DIR: gitDir, GIT_WORK_TREE: top, GIT_ATTR_SOURCE: EMPTY_TREE[format] },
+    env: { GIT_DIR: gitDir, GIT_WORK_TREE: top },
     cleanup,
   };
 }
@@ -318,6 +321,18 @@ async function numstat(where: Iso, range: string[]): Promise<CheckoutStat> {
     files.push({ path, additions: a, deletions: d, binary });
   }
   return { files, additions, deletions };
+}
+
+/** Paths whose attributes select a filter: compared as raw content here. */
+async function filtered(where: Iso, paths: string[]) {
+  if (!paths.length) return new Set<string>();
+  const out = await maybe(where, ["check-attr", "-z", "filter", "--", ...paths]);
+  const parts = (out ?? "").split("\0");
+  const result = new Set<string>();
+  // "path\0attribute\0value\0" triples.
+  for (let i = 0; i + 2 < parts.length; i += 3)
+    if (parts[i + 2] !== "unspecified" && parts[i + 2] !== "unset") result.add(parts[i]);
+  return result;
 }
 
 async function patch(where: Iso, base: string) {
@@ -394,7 +409,10 @@ export function checkoutContent(detail: CheckoutDetail) {
   if (detail.captured_late)
     lines.push("Captured after a restart, later than the run ended; the checkout may have changed in between.");
   for (const f of detail.files)
-    lines.push(f.binary ? `${f.path} (binary)` : `${f.path} +${f.additions} −${f.deletions}`);
+    lines.push(
+      (f.binary ? `${f.path} (binary)` : `${f.path} +${f.additions} −${f.deletions}`) +
+        (f.filtered ? " (filtered content, compared raw)" : ""),
+    );
   for (const path of detail.untracked) lines.push(`${path} (untracked)`);
   if (detail.patch_truncated) lines.push("The stored patch was shortened.");
   if (detail.error) lines.push(`Capture error: ${detail.error}`);
@@ -640,10 +658,14 @@ async function captureClaimed(
     const { untracked } = await status(directory);
     fields.untracked = JSON.stringify(untracked);
     const working = await numstat(directory, [head, "--"]);
+    const raw = await filtered(directory, working.files.map((f) => f.path));
+    for (const file of working.files) if (raw.has(file.path)) file.filtered = true;
     fields.working = JSON.stringify(working);
     if (base) {
       fields.committed = JSON.stringify(await numstat(directory, [base, head, "--"]));
-      fields.files = JSON.stringify((await numstat(directory, [base, "--"])).files);
+      const files = (await numstat(directory, [base, "--"])).files;
+      for (const file of files) if (raw.has(file.path)) file.filtered = true;
+      fields.files = JSON.stringify(files);
     } else {
       // No shared base with the source: show the working tree against HEAD
       // and say so through the missing base.
@@ -689,36 +711,45 @@ async function captureClaimed(
     next.id = id();
   }
   next.summary = JSON.stringify(summarize(next));
-  const written = UPDATE().run({
-    run_id: row.run_id,
-    token,
-    id: next.id,
-    state: next.state,
-    branch: next.branch,
-    base_sha: next.base_sha ?? null,
-    ...Object.fromEntries(CAPTURE_FIELDS.map((f) => [f, next[f] ?? null])),
-    captured_late: next.captured_late,
-    summary: next.summary,
-    ended_at: next.ended_at ?? null,
-    error: next.error ?? null,
-  }).changes;
-  // The lease passed to another capture while this one ran: its result is
-  // discarded, and the holder will publish its own.
-  if (!written) return;
-  const release = db
-    .prepare(
-      "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",
-    )
-    .get(runId, token) as { capture_pending: number } | undefined;
-  if (release?.capture_pending) return completeCheckout(runId);
-  // The run's results now carry checkout evidence: record them as changed so
-  // a brief that consumed the result before the capture ended sees it.
-  for (const { id: artifact } of db
-    .prepare(
-      "SELECT a.id FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0",
-    )
-    .all(row.owner_id, row.run_id) as { id: string }[])
-    recordChange(row.owner_id, null, "result", artifact, row.conversation_id);
+  // Write, release and notify together: a process exit leaves either the
+  // whole observation with its change events or nothing of it.
+  const outcome = db
+    .transaction(() => {
+      const written = UPDATE().run({
+        run_id: row.run_id,
+        token,
+        id: next.id,
+        state: next.state,
+        branch: next.branch,
+        base_sha: next.base_sha ?? null,
+        ...Object.fromEntries(CAPTURE_FIELDS.map((f) => [f, next[f] ?? null])),
+        captured_late: next.captured_late,
+        summary: next.summary,
+        ended_at: next.ended_at ?? null,
+        error: next.error ?? null,
+      }).changes;
+      // The lease passed to another capture while this one ran: its result
+      // is discarded, and the holder will publish its own.
+      if (!written) return "lost";
+      const release = db
+        .prepare(
+          "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",
+        )
+        .get(runId, token) as { capture_pending: number } | undefined;
+      if (release?.capture_pending) return "again";
+      // The run's results now carry checkout evidence: record them as
+      // changed so a brief that consumed the result before the capture
+      // ended sees it.
+      for (const { id: artifact } of db
+        .prepare(
+          "SELECT a.id FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0",
+        )
+        .all(row.owner_id, row.run_id) as { id: string }[])
+        recordChange(row.owner_id, null, "result", artifact, row.conversation_id);
+      return "done";
+    })
+    .immediate();
+  if (outcome === "again") return completeCheckout(runId);
 }
 
 /** Runs are considered to have ended while the host was down after this long. */
