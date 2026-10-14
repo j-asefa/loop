@@ -48,6 +48,8 @@ export type PrWatch = {
   review_cursor: number;
   since_at: number | null;
   next_poll_at: number;
+  ci_pending: number;
+  read_at: number | null;
   created_at: number;
   updated_at: number;
 };
@@ -668,10 +670,14 @@ export async function pollWatch(watchId: string, time = now()) {
       const already = db.prepare(
         "SELECT 1 FROM pr_watch_seen WHERE watch_id=? AND kind=? AND item_id=?",
       );
+      // A read that another poll has since superseded is dropped whole: its
+      // observation (head, pending checks, read time) is older than what
+      // the watch already holds, even when the conclusion fields agree.
       if (
         !current ||
         current.ci_sha !== watch.ci_sha ||
         current.ci_conclusion !== watch.ci_conclusion ||
+        current.read_at !== watch.read_at ||
         update.seen.some((item) => already.get(watch.id, item.kind, item.id))
       )
         return "skipped";
@@ -704,7 +710,12 @@ export async function pollWatch(watchId: string, time = now()) {
         )
         .get(watch.id, time - 3600_000) as { n: number };
       if (recent.n >= TURNS_PER_HOUR) {
-        // Record nothing, so the update is still there after Resume.
+        // Record the observation (the head seen, whether its checks had
+        // finished, and when) but not the result or the items, so the
+        // update is still delivered after Resume.
+        db.prepare(
+          "UPDATE pr_watches SET head_sha=?,ci_pending=?,read_at=? WHERE id=?",
+        ).run(update.head, update.ciPending ? 1 : 0, now(), watch.id);
         pause(
           watch,
           `Paused after ${TURNS_PER_HOUR} updates in an hour. Resume to keep watching.`,

@@ -42,7 +42,7 @@ import { openPull } from "./PullRequests";
 import type { PullState } from "../shared/pull-state";
 import type { CheckoutSummary } from "../shared/checkout";
 import type { VerificationSummary } from "../shared/verification";
-import { sourceUrl } from "./sourceRouting";
+import { executionSourceId, sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
   EnvironmentConnection,
@@ -1525,7 +1525,9 @@ export function Feed({
           setVerification({ runId: item.run!.id, sourceId: source })
         }
         onPull={
-          item.pull
+          // The Pull requests tab reads the shell's own GitHub connection;
+          // a card from a linked source stays informational.
+          item.pull && source === (executionSourceId() || "")
             ? () => openPull({ owner: item.pull!.repo_owner, repo: item.pull!.repo_name, number: item.pull!.number })
             : undefined
         }

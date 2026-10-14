@@ -50,7 +50,8 @@ import { RunStatus } from "./RunStatus";
 import { CheckoutChip, CheckoutSheet } from "./Checkout";
 import { VerificationChip, VerificationSheet } from "./Verification";
 import { PullStateChip } from "./PullState";
-import { useWatches } from "./PullRequestCard";
+import { useWatchState } from "./PullRequestCard";
+import { executionSourceId } from "./sourceRouting";
 import { openPull } from "./PullRequests";
 import { pullStateFromWatch } from "../shared/pull-state";
 import type { CheckoutSummary } from "../shared/checkout";
@@ -193,15 +194,20 @@ export function Conversation({
   onWork?: (work: ThreadWork | null) => void;
 }) {
   const api = useSourceApi();
-  // The thread's pull request, for the chip on its final message.
-  const watches = useWatches(id);
+  // The thread's pull request, for the chip on its final message. "No PR
+  // linked" is said only once the list is confirmed, and the chip opens the
+  // pull request only on the shell's own source, which the Pull requests
+  // tab reads.
+  const watchState = useWatchState(id);
   const pull = (() => {
     const w =
-      watches.find((x) => x.state === "watching") ??
-      watches.find((x) => x.state === "paused") ??
-      watches[0];
+      watchState.watches.find((x) => x.state === "watching") ??
+      watchState.watches.find((x) => x.state === "paused") ??
+      watchState.watches[0];
     return w ? pullStateFromWatch(w) : null;
   })();
+  const pullKnown = watchState.status === "ready";
+  const canOpenPull = (useSourceId() || "") === (executionSourceId() || "");
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const [data, setData] = useState<{
@@ -1493,12 +1499,13 @@ export function Conversation({
                         );
                       })()}
                       {(pull ||
-                        (m.run_checkout &&
+                        (pullKnown &&
+                          m.run_checkout &&
                           ["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || ""))) && (
                         <PullStateChip
                           state={pull}
                           onOpen={
-                            pull
+                            pull && canOpenPull
                               ? () => openPull({ owner: pull.repo_owner, repo: pull.repo_name, number: pull.number })
                               : undefined
                           }

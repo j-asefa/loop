@@ -23,10 +23,13 @@ export type Watch = {
 };
 const WATCH_CHANGE = "loop-pr-watch-change";
 
-// The thread's watches, kept current while a card shows them.
-export function useWatches(conversation: string | null | undefined) {
+// The thread's watches, kept current while a card shows them, with whether
+// the list is confirmed: an empty list while loading or after a failed
+// request is not "no watch".
+export function useWatchState(conversation: string | null | undefined) {
   const api = useSourceApi();
   const [watches, setWatches] = useState<Watch[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   useEffect(() => {
     if (!conversation) return;
     let live = true;
@@ -34,8 +37,12 @@ export function useWatches(conversation: string | null | undefined) {
       api<{ watches: Watch[] }>(
         "/pr-watches?conversation=" + encodeURIComponent(conversation),
       )
-        .then((r) => live && setWatches(r.watches))
-        .catch(() => {});
+        .then((r) => {
+          if (!live) return;
+          setWatches(r.watches);
+          setStatus("ready");
+        })
+        .catch(() => live && setStatus("failed"));
     void load();
     window.addEventListener(WATCH_CHANGE, load);
     const timer = setInterval(load, 60_000);
@@ -45,7 +52,10 @@ export function useWatches(conversation: string | null | undefined) {
       clearInterval(timer);
     };
   }, [conversation]);
-  return watches;
+  return { watches, status };
+}
+export function useWatches(conversation: string | null | undefined) {
+  return useWatchState(conversation).watches;
 }
 
 /**

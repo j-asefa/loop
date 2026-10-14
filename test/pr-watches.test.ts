@@ -370,6 +370,9 @@ it("pauses after the hourly limit without losing updates, and resumes", async ()
   const paused = await api("/pr-watches?conversation=" + conversation);
   expect(paused.data.watches[0]).toMatchObject({ state: "paused" });
   expect(paused.data.watches[0].error).toMatch(/Paused after 5 updates/);
+  // The observation itself is kept: what head the read saw, and when.
+  expect(typeof paused.data.watches[0].head_sha).toBe("string");
+  expect(paused.data.watches[0].read_at).toBeGreaterThanOrEqual(time);
   expect((await api(`/pr-watches/${watchId}/resume`, "POST")).data).toEqual({ ok: true });
   expect(await pollWatch(watchId)).toBe("delivered");
   const update = deliveries(conversation).at(-1)!;
