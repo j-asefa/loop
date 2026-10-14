@@ -1,4 +1,5 @@
 import { checkoutSummary } from "./run-checkouts.js";
+import { verificationSummary } from "./run-verifications.js";
 import { recordChange } from "./project-changes.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
@@ -594,7 +595,8 @@ function feedItem(
           // and for runs that have not started, so those cards are unchanged.
           ...(() => {
             const checkout = checkoutSummary(owner, run.id);
-            return checkout ? { checkout } : {};
+            const verification = verificationSummary(owner, run.id);
+            return { ...(checkout ? { checkout } : {}), ...(verification ? { verification } : {}) };
           })(),
           ...(trigger?.automation
             ? {

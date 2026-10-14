@@ -17,6 +17,7 @@ import { localModel } from "./local-embeddings.js";
 import { stageImport } from "./imports.js";
 import { enqueue, type Run, transition } from "./queue.js";
 import { checkoutDetail } from "./run-checkouts.js";
+import { runVerifications } from "./run-verifications.js";
 import type { Artifact, Agent, Message, Connection } from "../shared/types.js";
 export const workspace = Router();
 const fileUpload = multer({
@@ -182,6 +183,12 @@ workspace.get("/runs/:id/checkout", (req, res) => {
   const detail = checkoutDetail(res.locals.owner, req.params.id);
   if (!detail) throw new Problem(404, "This run has no checkout record.");
   res.json(detail);
+});
+// The verification commands Loop observed for a run, with their exits and
+// output tails. Observations of what the agent ran, not what tests exist.
+workspace.get("/runs/:id/verifications", (req, res) => {
+  owned("runs", req.params.id, res.locals.owner);
+  res.json(runVerifications(res.locals.owner, req.params.id));
 });
 workspace.get("/runs/:id/files", (req, res) => {
   owned("runs", req.params.id, res.locals.owner);

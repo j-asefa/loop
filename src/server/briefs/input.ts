@@ -1,4 +1,5 @@
 import { checkoutContent, checkoutDetail } from "../run-checkouts.js";
+import { verificationLines } from "../run-verifications.js";
 import { db } from "../db.js";
 import { resolveCite } from "./cites.js";
 import { synthesisKinds, type Cite, type Item } from "./schema.js";
@@ -72,7 +73,15 @@ function eventText(owner: string, project: string, event: Event): string {
       const observed = checkout?.summary && checkout.ended_at
         ? `\n  Checkout [chk_${checkout.id}] observed by Loop:\n${quoted(utf8Prefix(checkoutContent(checkout), 2000))}`
         : "";
-      return `[${ref}] ${time} result by ${source.agent ?? "unknown"} ${location}:\n${quoted(content)}${observed}`;
+      // Verification Loop observed during the run: each command and the exit
+      // Loop saw, citable on its own. Nothing listed means none was observed.
+      const verified = source.runId ? verificationLines(owner, source.runId) : "";
+      const checks = verified
+        ? `\n  Verification observed by Loop:\n${quoted(verified)}`
+        : checkout?.ended_at
+          ? "\n  Verification observed by Loop: none"
+          : "";
+      return `[${ref}] ${time} result by ${source.agent ?? "unknown"} ${location}:\n${quoted(content)}${observed}${checks}`;
     }
   } else if (event.kind === "prompt") {
     ref = "msg_" + event.ref;

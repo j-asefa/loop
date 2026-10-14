@@ -48,7 +48,9 @@ import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
 import { CheckoutChip, CheckoutSheet } from "./Checkout";
+import { VerificationChip, VerificationSheet } from "./Verification";
 import type { CheckoutSummary } from "../shared/checkout";
+import { summarize as summarizeVerification, type VerificationItem } from "../shared/verification";
 import { RunFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
 import {
@@ -224,6 +226,7 @@ export function Conversation({
       context: ChangeContext;
     } | null>(null),
     [checkout, setCheckout] = useState<string | null>(null),
+    [verification, setVerification] = useState<string | null>(null),
     [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
     [usageData, setUsage] = useState<{
       conversationId: string;
@@ -1088,6 +1091,13 @@ export function Conversation({
           }}
         />
       )}
+      {verification && (
+        <VerificationSheet
+          runId={verification}
+          load={(runId) => api(`/runs/${runId}/verifications`)}
+          onClose={() => setVerification(null)}
+        />
+      )}
       {checkout && (
         <CheckoutSheet
           runId={checkout}
@@ -1450,13 +1460,25 @@ export function Conversation({
                         />
                       )}
                       {m.run_checkout && (
-                        <CheckoutChip
-                          summary={parse<CheckoutSummary>(
-                            m.run_checkout,
-                            null as unknown as CheckoutSummary,
-                          )}
-                          onOpen={() => setCheckout(m.run_id!)}
-                        />
+                        <>
+                          <CheckoutChip
+                            summary={parse<CheckoutSummary>(
+                              m.run_checkout,
+                              null as unknown as CheckoutSummary,
+                            )}
+                            onOpen={() => setCheckout(m.run_id!)}
+                          />
+                          {(() => {
+                            const items = parse<VerificationItem[]>(m.run_verification || "[]", []);
+                            if (!items.length && m.run_state !== "completed") return null;
+                            return (
+                              <VerificationChip
+                                summary={items.length ? summarizeVerification(items) : null}
+                                onOpen={items.length ? () => setVerification(m.run_id!) : undefined}
+                              />
+                            );
+                          })()}
+                        </>
                       )}
                       <RunStatus
                         state={m.run_state}

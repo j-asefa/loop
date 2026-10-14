@@ -1542,12 +1542,18 @@ export class NativeSessions {
       const run = live.run;
       const data = applied.record.data;
       const generation = live.generation;
+      const stillCurrent = () => {
+        const current = db.prepare("SELECT generation FROM companion_sessions WHERE conversation_id=?")
+          .get(run.conversation_id) as { generation: string } | undefined;
+        return current?.generation === generation;
+      };
       void import("./pr-watches.js")
-        .then(({ watchCompletedOutput }) => watchCompletedOutput(run, data, () => {
-          const current = db.prepare("SELECT generation FROM companion_sessions WHERE conversation_id=?")
-            .get(run.conversation_id) as { generation: string } | undefined;
-          return current?.generation === generation;
-        }))
+        .then(({ watchCompletedOutput }) => watchCompletedOutput(run, data, stillCurrent))
+        .catch(() => {});
+      // A test, type-check or lint the agent ran is recorded with the exit
+      // Loop saw, whatever that exit was.
+      void import("./run-verifications.js")
+        .then(({ observeCompletedOutput }) => observeCompletedOutput(run, data, stillCurrent, generation))
         .catch(() => {});
     }
   }

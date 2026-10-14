@@ -37,6 +37,8 @@ export type Message = {
   run_error?: string | null;
   /** JSON checkout summary Loop observed for the run, when it has one. */
   run_checkout?: string | null;
+  /** JSON list of verification commands Loop observed for the run. */
+  run_verification?: string | null;
   role: "user" | "assistant" | "system";
   content: string;
   metadata: string;

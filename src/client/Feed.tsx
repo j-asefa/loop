@@ -36,7 +36,9 @@ import {
 } from "lucide-react";
 import { apiInWorkspace } from "./api";
 import { CheckoutChip, CheckoutSheet } from "./Checkout";
+import { VerificationChip, VerificationSheet } from "./Verification";
 import type { CheckoutSummary } from "../shared/checkout";
+import type { VerificationSummary } from "../shared/verification";
 import { sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
@@ -128,6 +130,8 @@ export type FeedItem = {
     can_move_down?: boolean;
     /** What Loop observed in the agent's worktree; null for API agents. */
     checkout?: CheckoutSummary | null;
+    /** Test, type-check and lint commands Loop observed, with their exits. */
+    verification?: VerificationSummary | null;
   } | null;
   queued_runs?: {
     id: string;
@@ -208,6 +212,7 @@ function FeedCard({
   dismissLabel = "Remove from Done",
   onLater,
   onCheckout,
+  onVerification,
 }: {
   item: FeedItem;
   agent?: EnvironmentAgent;
@@ -224,6 +229,8 @@ function FeedCard({
   onLater: () => void;
   /** Open the checkout Loop observed for the card's run. */
   onCheckout?: () => void;
+  /** Open the verification Loop observed for the card's run. */
+  onVerification?: () => void;
 }) {
   const scopedSource = useSourceId();
   const swipe = useSwipe({ onLeft: onDismiss });
@@ -350,7 +357,15 @@ function FeedCard({
           <h2>{item.title}</h2>
           {detail && <p className="field-hint inbox-detail">{detail}</p>}
           {item.run?.checkout && onCheckout && (
-            <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
+            <>
+              <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
+              {(item.run.verification || item.run.state === "completed") && (
+                <VerificationChip
+                  summary={item.run.verification ?? null}
+                  onOpen={item.run.verification ? onVerification : undefined}
+                />
+              )}
+            </>
           )}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
@@ -900,6 +915,10 @@ export function Feed({
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const [later, setLater] = useState<FeedItem | null>(null);
   const [checkout, setCheckout] = useState<{
+    runId: string;
+    sourceId: string;
+  } | null>(null);
+  const [verification, setVerification] = useState<{
     runId: string;
     sourceId: string;
   } | null>(null);
@@ -1489,6 +1508,9 @@ export function Feed({
             ? () => setCheckout({ runId: item.run!.id, sourceId: source })
             : undefined
         }
+        onVerification={() =>
+          setVerification({ runId: item.run!.id, sourceId: source })
+        }
       />
     );
   }
@@ -1644,6 +1666,15 @@ export function Feed({
           </>
         )}
       </div>
+      {verification && (
+        <VerificationSheet
+          runId={verification.runId}
+          load={(runId) =>
+            apiInWorkspace(`/runs/${runId}/verifications`, verification.sourceId)
+          }
+          onClose={() => setVerification(null)}
+        />
+      )}
       {checkout && (
         <CheckoutSheet
           runId={checkout.runId}

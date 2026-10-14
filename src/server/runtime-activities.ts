@@ -70,6 +70,9 @@ export function runtimeActivityMapper(
           void import("./pr-watches.js").then(({ watchCompletedOutput }) =>
             watchCompletedOutput(run, result.record.data as import("../agent-activities.js").OutputData),
           ).catch(() => {});
+          void import("./run-verifications.js").then(({ observeCompletedOutput }) =>
+            observeCompletedOutput(run, result.record.data as import("../agent-activities.js").OutputData),
+          ).catch(() => {});
         }
       }
       return applied;
