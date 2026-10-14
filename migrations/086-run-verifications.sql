@@ -8,6 +8,7 @@ CREATE TABLE run_verifications(
   run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   conversation_id TEXT,
   generation TEXT,                           -- native session generation that reported it
+  source_id TEXT,                            -- the output record it came from: one row per invocation
   kind TEXT NOT NULL CHECK(kind IN ('test','typecheck','lint')),
   tools TEXT NOT NULL,                       -- JSON [tool]: the verification tools in the command
   command TEXT NOT NULL,                     -- the command as reported, bounded
@@ -18,5 +19,6 @@ CREATE TABLE run_verifications(
   observed_at INTEGER NOT NULL
 );
 CREATE INDEX run_verifications_run ON run_verifications(owner_id, run_id, observed_at);
+CREATE UNIQUE INDEX run_verifications_source ON run_verifications(run_id, source_id);
 
 INSERT INTO schema_version VALUES(86,unixepoch()*1000);

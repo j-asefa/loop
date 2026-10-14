@@ -40,12 +40,21 @@ const SCRIPT_KINDS: [RegExp, VerificationKind][] = [
 function strip(path: string) {
   return path.replace(/^.*\//, "");
 }
+// Arguments under which a recognised tool checks nothing.
+const NO_RUN = new Set([
+  "--help", "-h", "--version", "-V", "--showConfig", "--print-config", "--listTests", "--list-tests",
+  "--collect-only", "--dry-run", "install", "init", "--init", "login", "config",
+]);
+// Shell builtins that end or replace the shell: a chain containing one
+// cannot be read as "every step ran".
+const TERMINATING = new Set(["exit", "return", "exec", "eval", "source", ".", "trap"]);
 /** Classify one simple command (no chains), or null when it is not verification. */
 function classifySegment(tokens: string[]): Classified | null {
   let i = 0;
   while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
   const argv = tokens.slice(i);
   if (!argv.length) return null;
+  if (argv.slice(1).some((a) => NO_RUN.has(a))) return null;
   const tool = strip(argv[0]);
   const sub = argv[1] ?? "";
   const has = (flag: string) => argv.slice(1).includes(flag);
@@ -115,6 +124,7 @@ export function classifyVerification(command: string): Classified[] {
     if (token === null) segments.push([]);
     else segments.at(-1)!.push(token);
   }
+  if (segments.some((segment) => segment.length && TERMINATING.has(strip(segment[0])))) return [];
   const found: Classified[] = [];
   for (const segment of segments) {
     if (!segment.length || strip(segment[0]) === "cd") continue;

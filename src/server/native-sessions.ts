@@ -3,6 +3,7 @@ import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { completeCheckout, startCheckout } from "./run-checkouts.js";
+import { observeCompletedOutput } from "./run-verifications.js";
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
@@ -1551,10 +1552,10 @@ export class NativeSessions {
         .then(({ watchCompletedOutput }) => watchCompletedOutput(run, data, stillCurrent))
         .catch(() => {});
       // A test, type-check or lint the agent ran is recorded with the exit
-      // Loop saw, whatever that exit was.
-      void import("./run-verifications.js")
-        .then(({ observeCompletedOutput }) => observeCompletedOutput(run, data, stillCurrent, generation))
-        .catch(() => {});
+      // Loop saw, whatever that exit was, right behind the activity commit.
+      try {
+        observeCompletedOutput(run, data, stillCurrent, generation, applied.record.id);
+      } catch {}
     }
   }
   /** @internal Flush the retained display projection. */

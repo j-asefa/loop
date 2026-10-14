@@ -1460,26 +1460,25 @@ export function Conversation({
                         />
                       )}
                       {m.run_checkout && (
-                        <>
-                          <CheckoutChip
-                            summary={parse<CheckoutSummary>(
-                              m.run_checkout,
-                              null as unknown as CheckoutSummary,
-                            )}
-                            onOpen={() => setCheckout(m.run_id!)}
-                          />
-                          {(() => {
-                            const items = parse<VerificationItem[]>(m.run_verification || "[]", []);
-                            if (!items.length && !["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || "")) return null;
-                            return (
-                              <VerificationChip
-                                summary={items.length ? summarizeVerification(items) : null}
-                                onOpen={items.length ? () => setVerification(m.run_id!) : undefined}
-                              />
-                            );
-                          })()}
-                        </>
+                        <CheckoutChip
+                          summary={parse<CheckoutSummary>(
+                            m.run_checkout,
+                            null as unknown as CheckoutSummary,
+                          )}
+                          onOpen={() => setCheckout(m.run_id!)}
+                        />
                       )}
+                      {(() => {
+                        const items = parse<VerificationItem[]>(m.run_verification || "[]", []);
+                        const ended = ["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || "");
+                        if (!items.length && !(m.run_checkout && ended)) return null;
+                        return (
+                          <VerificationChip
+                            summary={items.length ? summarizeVerification(items) : null}
+                            onOpen={items.length ? () => setVerification(m.run_id!) : undefined}
+                          />
+                        );
+                      })()}
                       <RunStatus
                         state={m.run_state}
                         error={m.run_error}

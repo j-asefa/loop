@@ -64,6 +64,7 @@ export function observeCompletedOutput(
   data: OutputData,
   current: () => boolean = () => true,
   generation: string | null = null,
+  sourceId: string | null = null,
 ) {
   if (!data.command || data.status === "running") return;
   const classified = classifyVerification(data.command);
@@ -77,24 +78,29 @@ export function observeCompletedOutput(
   // One row per command: a chain's exit is the chain's, so its tools share it.
   const kinds = new Set(classified.map((c) => c.kind));
   const kind = kinds.has("test") ? "test" : kinds.has("typecheck") ? "typecheck" : "lint";
+  // One row per invocation: a later update to the same output record (an
+  // exit arriving after completion) replaces the observation under the same
+  // id, so counts and citations never double.
   db.prepare(
-    `INSERT INTO run_verifications(id,owner_id,run_id,conversation_id,generation,kind,tools,command,status,exit_code,truncated,output_tail,observed_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id(),
-    run.owner_id,
-    run.id,
-    run.conversation_id,
+    `INSERT INTO run_verifications(id,owner_id,run_id,conversation_id,generation,source_id,kind,tools,command,status,exit_code,truncated,output_tail,observed_at)
+     VALUES(@id,@owner,@run,@conversation,@generation,@source,@kind,@tools,@command,@status,@exit,@truncated,@tail,@at)
+     ON CONFLICT(run_id,source_id) DO UPDATE SET kind=excluded.kind,tools=excluded.tools,command=excluded.command,status=excluded.status,exit_code=excluded.exit_code,truncated=excluded.truncated,output_tail=excluded.output_tail,observed_at=excluded.observed_at`,
+  ).run({
+    id: id(),
+    owner: run.owner_id,
+    run: run.id,
+    conversation: run.conversation_id,
     generation,
+    source: sourceId ?? id(),
     kind,
-    JSON.stringify(classified.map((c) => c.tool)),
-    data.command.slice(0, COMMAND_LIMIT),
+    tools: JSON.stringify(classified.map((c) => c.tool)),
+    command: data.command.slice(0, COMMAND_LIMIT),
     status,
     exit,
-    truncated ? 1 : 0,
-    tail || null,
-    now(),
-  );
+    truncated: truncated ? 1 : 0,
+    tail: tail || null,
+    at: now(),
+  });
 }
 
 function toItem(row: VerificationRow): VerificationItem {

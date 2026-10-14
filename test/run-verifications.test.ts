@@ -98,6 +98,24 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
   expect(tools("npm test\ntrue")).toEqual([]);
   expect(tools("bash -nc 'npm test'")).toEqual([]);
   expect(tools("bash -ec 'npm test'")).toEqual(["test:npm test"]);
+  // A chain that can end before its checks, and tools asked to check nothing.
+  expect(tools("exit 0 && npm test")).toEqual([]);
+  expect(tools("npm test && exec bash")).toEqual([]);
+  expect(tools("tsc --version")).toEqual([]);
+  expect(tools("eslint --help")).toEqual([]);
+  expect(tools("npx playwright install")).toEqual([]);
+  expect(tools("vitest --dry-run")).toEqual([]);
+});
+
+it("keeps one observation per invocation when a later update brings the exit", () => {
+  const run = runFixture("thread-dedupe");
+  observeCompletedOutput(run, output("npm test", { status: "unknown", exitCode: undefined }, "running…"), () => true, null, "rec-1");
+  observeCompletedOutput(run, output("npm test", {}, "12 passed\n"), () => true, null, "rec-1");
+  observeCompletedOutput(run, output("npm test", {}, "12 passed\n"), () => true, null, "rec-2");
+  const items = runVerifications(owner, run.id);
+  expect(items.map((i) => i.status)).toEqual(["passed", "passed"]);
+  expect(items[0].output_tail).toBe("12 passed\n");
+  expect(verificationSummary(owner, run.id)).toMatchObject({ passed: 2, unknown: 0 });
 });
 
 it("records the exit Loop saw, including failures, unknown exits and cut output", () => {

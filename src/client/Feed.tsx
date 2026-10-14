@@ -358,16 +358,16 @@ function FeedCard({
           <h2>{item.title}</h2>
           {detail && <p className="field-hint inbox-detail">{detail}</p>}
           {item.run?.checkout && onCheckout && (
-            <>
-              <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
-              {(item.run.verification || terminalStates.includes(item.run.state)) && (
-                <VerificationChip
-                  summary={item.run.verification ?? null}
-                  onOpen={item.run.verification ? onVerification : undefined}
-                />
-              )}
-            </>
+            <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
           )}
+          {item.run &&
+            (item.run.verification ||
+              (item.run.checkout && terminalStates.includes(item.run.state))) && (
+              <VerificationChip
+                summary={item.run.verification ?? null}
+                onOpen={item.run.verification ? onVerification : undefined}
+              />
+            )}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
             <div className="preview live-preview">
