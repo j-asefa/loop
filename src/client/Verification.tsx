@@ -16,9 +16,11 @@ import {
 export function VerificationChip({
   summary,
   onOpen,
+  compact = false,
 }: {
   summary: VerificationSummary | null;
   onOpen?: () => void;
+  compact?: boolean;
 }) {
   const Icon = !summary
     ? ShieldQuestion
@@ -29,11 +31,18 @@ export function VerificationChip({
         : ShieldCheck;
   const tone = !summary ? "none" : summary.failed ? "failed" : summary.unknown ? "unknown" : "passed";
   const line = verificationLine(summary);
+  const label = compact && summary?.items.length
+    ? [
+        summary.failed ? `✕${summary.failed}` : "",
+        summary.passed ? `✓${summary.passed}` : "",
+        summary.unknown ? `?${summary.unknown}` : "",
+      ].filter(Boolean).join(" ")
+    : line;
   if (!summary || !onOpen)
     return (
       <span className={`changes-chip verification-chip verification-${tone}`} aria-label={line}>
         <Icon size={16} aria-hidden="true" />
-        <span>{line}</span>
+        <span>{label}</span>
       </span>
     );
   return (
@@ -42,9 +51,10 @@ export function VerificationChip({
       className={`changes-chip verification-chip verification-${tone}`}
       onClick={onOpen}
       aria-label={`Verification: ${line}`}
+      title={compact ? line : undefined}
     >
       <Icon size={16} aria-hidden="true" />
-      <span>{line}</span>
+      <span>{label}</span>
     </button>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { GitBranch } from "lucide-react";
+import { FileDiff, GitBranch } from "lucide-react";
 import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
@@ -18,19 +18,43 @@ import {
 export function CheckoutChip({
   summary,
   onOpen,
+  compact = false,
 }: {
   summary: CheckoutSummary;
   onOpen: () => void;
+  compact?: boolean;
 }) {
+  const description = compact
+    ? summary.state === "captured"
+      ? [
+          summary.files
+            ? `${summary.files} ${summary.files === 1 ? "file" : "files"} +${summary.additions} −${summary.deletions}`
+            : "No tracked changes",
+          summary.untracked ? `${summary.untracked} untracked` : "",
+        ].filter(Boolean).join(" · ")
+      : summary.state === "failed" ? "Diff unavailable" : "Diff pending"
+    : checkoutLine(summary);
+  const count = (value: number) => new Intl.NumberFormat("en", {
+    notation: "compact", maximumFractionDigits: 1,
+  }).format(value);
+  const line = compact && summary.state === "captured"
+    ? summary.additions || summary.deletions
+      ? `+${count(summary.additions)} −${count(summary.deletions)}`
+      : summary.files
+        ? `${count(summary.files)} ${summary.files === 1 ? "file" : "files"}`
+        : summary.untracked ? `${count(summary.untracked)} new` : "No changes"
+    : description;
+  const Icon = compact ? FileDiff : GitBranch;
   return (
     <button
       type="button"
       className="changes-chip checkout-chip"
       onClick={onOpen}
-      aria-label={`Checkout: ${checkoutLine(summary)}`}
+      aria-label={`${compact ? "Changes" : "Checkout"}: ${description}`}
+      title={compact ? description : undefined}
     >
-      <GitBranch size={16} aria-hidden="true" />
-      <span>{checkoutLine(summary)}</span>
+      <Icon size={16} aria-hidden="true" />
+      <span>{line}</span>
     </button>
   );
 }

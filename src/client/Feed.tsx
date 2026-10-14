@@ -203,7 +203,6 @@ const AWAY_AFTER = 30 * 60_000;
  */
 // Run states whose prompt the Feed hides until the agent writes something.
 const awaitingStates = ["running", "pausing", "waiting_children"];
-const terminalStates = ["completed", "failed", "interrupted", "cancelled"];
 function FeedCard({
   item,
   agent,
@@ -234,11 +233,8 @@ function FeedCard({
   onDismiss?: () => void;
   dismissLabel?: string;
   onLater: () => void;
-  /** Open the checkout Loop observed for the card's run. */
   onCheckout?: () => void;
-  /** Open the verification Loop observed for the card's run. */
   onVerification?: () => void;
-  /** Open the thread's pull request. */
   onPull?: () => void;
 }) {
   const scopedSource = useSourceId();
@@ -260,6 +256,10 @@ function FeedCard({
           ? item.run.error
           : "";
   const name = item.agent_name || agent?.name;
+  const checkoutSummary = item.run?.checkout;
+  const showCheckout = checkoutSummary && (checkoutSummary.state !== "captured" ||
+    checkoutSummary.files > 0 || checkoutSummary.untracked > 0);
+  const showVerification = !!item.run?.verification?.items.length;
   return (
     <li
       className={
@@ -365,21 +365,6 @@ function FeedCard({
           </span>
           <h2>{item.title}</h2>
           {detail && <p className="field-hint inbox-detail">{detail}</p>}
-          {item.run?.checkout && onCheckout && (
-            <CheckoutChip summary={item.run.checkout} onOpen={onCheckout} />
-          )}
-          {item.run &&
-            (item.run.verification ||
-              (item.run.checkout && terminalStates.includes(item.run.state))) && (
-              <VerificationChip
-                summary={item.run.verification ?? null}
-                onOpen={item.run.verification ? onVerification : undefined}
-              />
-            )}
-          {(item.pull ||
-            (item.pull === null && item.run?.checkout && terminalStates.includes(item.run.state))) && (
-            <PullStateChip state={item.pull ?? null} onOpen={item.pull ? onPull : undefined} />
-          )}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
             <div className="preview live-preview">
@@ -456,6 +441,23 @@ function FeedCard({
             Remind me
           </button>
         </div>
+        {(showCheckout || showVerification || item.pull) && (
+          <footer className="inbox-card-details" aria-label="Changes and checks">
+            {showCheckout && onCheckout && (
+              <CheckoutChip summary={checkoutSummary} onOpen={onCheckout} compact />
+            )}
+            {showVerification && (
+              <VerificationChip
+                summary={item.run!.verification ?? null}
+                onOpen={item.run!.verification ? onVerification : undefined}
+                compact
+              />
+            )}
+            {item.pull && (
+              <PullStateChip state={item.pull} onOpen={onPull} compact />
+            )}
+          </footer>
+        )}
       </article>
     </li>
   );
@@ -1525,10 +1527,13 @@ export function Feed({
           setVerification({ runId: item.run!.id, sourceId: source })
         }
         onPull={
-          // The Pull requests tab reads the shell's own GitHub connection;
-          // a card from a linked source stays informational.
+          // Pull requests use this workspace's GitHub connection.
           item.pull && source === (executionSourceId() || "")
-            ? () => openPull({ owner: item.pull!.repo_owner, repo: item.pull!.repo_name, number: item.pull!.number })
+            ? () => openPull({
+                owner: item.pull!.repo_owner,
+                repo: item.pull!.repo_name,
+                number: item.pull!.number,
+              })
             : undefined
         }
       />
