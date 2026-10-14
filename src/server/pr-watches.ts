@@ -50,6 +50,8 @@ export type PrWatch = {
   next_poll_at: number;
   ci_pending: number;
   read_at: number | null;
+  seen_ci_sha: string | null;
+  seen_ci_conclusion: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -102,10 +104,10 @@ const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>
 export function watchesFor(owner: string, conversation?: string) {
   return db
     .prepare(
-      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,created_at,updated_at
+      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion,created_at,updated_at
       FROM pr_watches WHERE owner_id=? AND (? IS NULL OR conversation_id=?)
         AND (state IN ('watching','paused') OR updated_at>?)
-      ORDER BY created_at DESC LIMIT 100`,
+      ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 100`,
     )
     .all(
       owner,
@@ -124,7 +126,7 @@ export function watchesFor(owner: string, conversation?: string) {
 export function pullStatus(owner: string, conversation: string): PullState | null {
   const watch = db
     .prepare(
-      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at
+      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion
        FROM pr_watches WHERE owner_id=? AND conversation_id=?
          AND (state IN ('watching','paused') OR updated_at>?)
        ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 1`,
@@ -688,10 +690,14 @@ export async function pollWatch(watchId: string, time = now()) {
         for (const item of update.seen) mark.run(watch.id, item.kind, item.id);
         db.prepare(
           `UPDATE pr_watches SET login=?,head_sha=?,
-            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),ci_pending=?,read_at=?,error=NULL,updated_at=? WHERE id=?`,
+            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),
+            seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),
+            ci_pending=?,read_at=?,error=NULL,updated_at=? WHERE id=?`,
         ).run(
           login,
           update.head,
+          update.ciState?.sha ?? null,
+          update.ciState?.conclusion ?? null,
           update.ciState?.sha ?? null,
           update.ciState?.conclusion ?? null,
           update.ciPending ? 1 : 0,
@@ -710,18 +716,19 @@ export async function pollWatch(watchId: string, time = now()) {
         )
         .get(watch.id, time - 3600_000) as { n: number };
       if (recent.n >= TURNS_PER_HOUR) {
-        // Record the observation (the head seen, whether its checks had
-        // finished, and when) but not the result or the items, so the
-        // update is still delivered after Resume.
-        // A result this read saw but did not record (it waits for Resume)
-        // leaves the stored conclusion stale: say the checks are not
-        // concluded rather than show the old result as current.
-        const undelivered =
-          !!update.ciState &&
-          (update.ciState.sha !== watch.ci_sha || update.ciState.conclusion !== watch.ci_conclusion);
+        // Record what this read observed (the head, its result, whether its
+        // checks had finished, and when) apart from the delivered result and
+        // the items, which still wait for Resume.
         db.prepare(
-          "UPDATE pr_watches SET head_sha=?,ci_pending=?,read_at=? WHERE id=?",
-        ).run(update.head, update.ciPending || undelivered ? 1 : 0, now(), watch.id);
+          "UPDATE pr_watches SET head_sha=?,seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),ci_pending=?,read_at=? WHERE id=?",
+        ).run(
+          update.head,
+          update.ciState?.sha ?? null,
+          update.ciState?.conclusion ?? null,
+          update.ciPending ? 1 : 0,
+          now(),
+          watch.id,
+        );
         pause(
           watch,
           `Paused after ${TURNS_PER_HOUR} updates in an hour. Resume to keep watching.`,

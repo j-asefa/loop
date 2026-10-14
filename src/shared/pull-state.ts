@@ -36,14 +36,17 @@ export type WatchRow = {
   /** Absent from an older linked server: freshness is then unknown. */
   ci_pending?: number;
   read_at?: number | null;
+  /** The result the last read saw, which may still be waiting for delivery. */
+  seen_ci_sha?: string | null;
+  seen_ci_conclusion?: string | null;
 };
 
 export function pullStateFromWatch(watch: WatchRow): PullState {
-  const conclusion =
-    watch.ci_conclusion === "success" || watch.ci_conclusion === "failure"
-      ? (watch.ci_conclusion as "success" | "failure")
-      : null;
-  const concluded = watch.ci_sha && conclusion ? { sha: watch.ci_sha, conclusion } : null;
+  // The card shows what the watch last saw, delivered to the thread or not.
+  const sha = watch.seen_ci_sha ?? watch.ci_sha;
+  const raw = watch.seen_ci_sha ? watch.seen_ci_conclusion : watch.ci_conclusion;
+  const conclusion = raw === "success" || raw === "failure" ? (raw as "success" | "failure") : null;
+  const concluded = sha && conclusion ? { sha, conclusion } : null;
   return {
     repo_owner: watch.repo_owner,
     repo_name: watch.repo_name,

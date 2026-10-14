@@ -50,6 +50,10 @@ it("describes checks for the head they concluded on, and never as current for an
   expect(pullStateLine(pullStateFromWatch({ ...base, ci_pending: 1 }), at)).toBe(
     "PR #42 · checks rerunning for abcdef1 (last passed) · checked 3m ago",
   );
+  // A result seen but not yet delivered (paused watch) is what the card shows.
+  expect(
+    pullStateLine(pullStateFromWatch({ ...base, state: "paused", error: "Paused", seen_ci_sha: base.head_sha, seen_ci_conclusion: "failure" }), at),
+  ).toBe("PR #42 · checks failed for abcdef1 · watch paused · checked 3m ago");
   expect(pullStateLine(pullStateFromWatch({ ...base, state: "paused", error: "Paused after 5 updates" }), at)).toBe(
     "PR #42 · checks passed for abcdef1 · watch paused · checked 3m ago",
   );

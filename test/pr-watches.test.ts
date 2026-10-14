@@ -381,7 +381,10 @@ it("pauses after the hourly limit without losing updates, and resumes", async ()
   // than shown as current.
   expect(typeof paused.data.watches[0].head_sha).toBe("string");
   expect(paused.data.watches[0].read_at).toBeGreaterThanOrEqual(time);
-  expect(paused.data.watches[0].ci_pending).toBe(1);
+  expect(paused.data.watches[0].ci_pending).toBe(0);
+  // The result seen is recorded apart from the result delivered.
+  expect(paused.data.watches[0].seen_ci_conclusion).toBe(stored.ci_conclusion === "failure" ? "success" : "failure");
+  expect(paused.data.watches[0].ci_conclusion).toBe(stored.ci_conclusion);
   expect((await api(`/pr-watches/${watchId}/resume`, "POST")).data).toEqual({ ok: true });
   expect(await pollWatch(watchId)).toBe("delivered");
   const update = deliveries(conversation).at(-1)!;

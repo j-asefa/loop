@@ -19,6 +19,8 @@ export type Watch = {
   ci_conclusion: string | null;
   ci_pending: number;
   read_at: number | null;
+  seen_ci_sha: string | null;
+  seen_ci_conclusion: string | null;
   updated_at: number;
 };
 const WATCH_CHANGE = "loop-pr-watch-change";
