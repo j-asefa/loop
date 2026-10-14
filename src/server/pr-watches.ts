@@ -713,9 +713,15 @@ export async function pollWatch(watchId: string, time = now()) {
         // Record the observation (the head seen, whether its checks had
         // finished, and when) but not the result or the items, so the
         // update is still delivered after Resume.
+        // A result this read saw but did not record (it waits for Resume)
+        // leaves the stored conclusion stale: say the checks are not
+        // concluded rather than show the old result as current.
+        const undelivered =
+          !!update.ciState &&
+          (update.ciState.sha !== watch.ci_sha || update.ciState.conclusion !== watch.ci_conclusion);
         db.prepare(
           "UPDATE pr_watches SET head_sha=?,ci_pending=?,read_at=? WHERE id=?",
-        ).run(update.head, update.ciPending ? 1 : 0, now(), watch.id);
+        ).run(update.head, update.ciPending || undelivered ? 1 : 0, now(), watch.id);
         pause(
           watch,
           `Paused after ${TURNS_PER_HOUR} updates in an hour. Resume to keep watching.`,
