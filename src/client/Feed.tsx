@@ -377,7 +377,7 @@ function FeedCard({
               />
             )}
           {(item.pull ||
-            (item.run?.checkout && terminalStates.includes(item.run.state))) && (
+            (item.pull === null && item.run?.checkout && terminalStates.includes(item.run.state))) && (
             <PullStateChip state={item.pull ?? null} onOpen={item.pull ? onPull : undefined} />
           )}
           {item.live_preview ? (

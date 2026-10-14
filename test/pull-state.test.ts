@@ -60,6 +60,10 @@ it("describes checks for the head they concluded on, and never as current for an
   expect(pullStateLine(null)).toBe("No PR linked");
   // An unexpected conclusion value is not a conclusion.
   expect(pullStateFromWatch({ ...base, ci_conclusion: "neutral" }).ci).toBeNull();
+  // An older linked server sends no freshness fields: never current, never "checked NaN ago".
+  const { ci_pending: _p, read_at: _r, ...older } = base;
+  expect(pullStateLine(pullStateFromWatch(older), at)).toBe("PR #42 · last passed for abcdef1, freshness unknown");
+  expect(pullStateLine(pullStateFromWatch({ ...older, ci_sha: null, ci_conclusion: null }), at)).toBe("PR #42 · checks state unknown");
 });
 
 it("picks the thread's active watch first, then a recently ended one, and nothing older", () => {

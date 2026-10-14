@@ -33,8 +33,9 @@ export type WatchRow = {
   head_sha: string | null;
   ci_sha: string | null;
   ci_conclusion: string | null;
-  ci_pending: number;
-  read_at: number | null;
+  /** Absent from an older linked server: freshness is then unknown. */
+  ci_pending?: number;
+  read_at?: number | null;
 };
 
 export function pullStateFromWatch(watch: WatchRow): PullState {
@@ -52,8 +53,10 @@ export function pullStateFromWatch(watch: WatchRow): PullState {
     error: watch.error,
     head_sha: watch.head_sha,
     ci: concluded,
-    pending: !!watch.ci_pending,
-    checked_at: watch.read_at,
+    // Without the freshness fields (an older linked server), a conclusion
+    // is never shown as current.
+    pending: watch.ci_pending === undefined ? true : !!watch.ci_pending,
+    checked_at: watch.read_at === undefined ? null : watch.read_at,
   };
 }
 
@@ -80,7 +83,13 @@ export function pullStateLine(state: PullState | null, at_now = Date.now()) {
     return parts.join(" · ");
   }
   const verdict = (c: { conclusion: "success" | "failure" }) => (c.conclusion === "success" ? "passed" : "failed");
-  if (!state.head_sha || state.checked_at === null) parts.push("not read yet");
+  if (!state.head_sha) parts.push("not read yet");
+  else if (state.checked_at === null)
+    parts.push(
+      state.ci
+        ? `last ${verdict(state.ci)} for ${short(state.ci.sha)}, freshness unknown`
+        : "checks state unknown",
+    );
   else if (state.ci && state.ci.sha === state.head_sha && !state.pending)
     parts.push(`checks ${verdict(state.ci)} for ${short(state.head_sha)}`);
   else if (state.ci && state.ci.sha === state.head_sha)

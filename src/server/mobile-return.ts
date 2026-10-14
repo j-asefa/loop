@@ -613,11 +613,10 @@ function feedItem(
       : null,
     // Queued follow-ups, listed separately so they stay manageable while
     // the thread's current run is still working.
-    // The thread's pull request as its watch last saw it; absent without one.
-    ...(() => {
-      const pull = pullStatus(owner, row.conversation_id);
-      return pull ? { pull } : {};
-    })(),
+    // The thread's pull request as its watch last saw it. Null says there
+    // is none; a response without the key comes from a server that does not
+    // report it, and the client treats that as unknown.
+    pull: pullStatus(owner, row.conversation_id),
     queued_runs: (mode === "done" || !row.queued
       ? []
       : (db
