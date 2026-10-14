@@ -17,8 +17,10 @@ export type PullState = {
   head_sha: string | null;
   /** The last concluded checks: for which head, and how. */
   ci: { sha: string; conclusion: "success" | "failure" } | null;
-  /** When the watch last read GitHub successfully. */
-  checked_at: number;
+  /** Checks for the current head had not all finished at the last read. */
+  pending: boolean;
+  /** When the watch last read GitHub successfully; null before its first read. */
+  checked_at: number | null;
 };
 
 export type WatchRow = {
@@ -31,7 +33,8 @@ export type WatchRow = {
   head_sha: string | null;
   ci_sha: string | null;
   ci_conclusion: string | null;
-  updated_at: number;
+  ci_pending: number;
+  read_at: number | null;
 };
 
 export function pullStateFromWatch(watch: WatchRow): PullState {
@@ -49,7 +52,8 @@ export function pullStateFromWatch(watch: WatchRow): PullState {
     error: watch.error,
     head_sha: watch.head_sha,
     ci: concluded,
-    checked_at: watch.updated_at,
+    pending: !!watch.ci_pending,
+    checked_at: watch.read_at,
   };
 }
 
@@ -75,14 +79,17 @@ export function pullStateLine(state: PullState | null, at_now = Date.now()) {
     parts.push(state.ended_reason ? state.ended_reason : "no longer watched");
     return parts.join(" · ");
   }
-  if (!state.head_sha) parts.push("not read yet");
+  const verdict = (c: { conclusion: "success" | "failure" }) => (c.conclusion === "success" ? "passed" : "failed");
+  if (!state.head_sha || state.checked_at === null) parts.push("not read yet");
+  else if (state.ci && state.ci.sha === state.head_sha && !state.pending)
+    parts.push(`checks ${verdict(state.ci)} for ${short(state.head_sha)}`);
   else if (state.ci && state.ci.sha === state.head_sha)
-    parts.push(`checks ${state.ci.conclusion === "success" ? "passed" : "failed"} for ${short(state.head_sha)}`);
+    parts.push(`checks rerunning for ${short(state.head_sha)} (last ${verdict(state.ci)})`);
   else if (state.ci)
-    parts.push(`checks pending for ${short(state.head_sha)} (last ${state.ci.conclusion === "success" ? "passed" : "failed"} for ${short(state.ci.sha)})`);
+    parts.push(`checks pending for ${short(state.head_sha)} (last ${verdict(state.ci)} for ${short(state.ci.sha)})`);
   else parts.push(`checks pending for ${short(state.head_sha)}`);
   if (state.watch === "paused") parts.push("watch paused");
   else if (state.error) parts.push("last read failed");
-  parts.push(`checked ${ago(state.checked_at, at_now)}`);
+  if (state.checked_at !== null) parts.push(`checked ${ago(state.checked_at, at_now)}`);
   return parts.join(" · ");
 }

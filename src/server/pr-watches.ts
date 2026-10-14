@@ -100,7 +100,7 @@ const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>
 export function watchesFor(owner: string, conversation?: string) {
   return db
     .prepare(
-      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,created_at,updated_at
+      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,created_at,updated_at
       FROM pr_watches WHERE owner_id=? AND (? IS NULL OR conversation_id=?)
         AND (state IN ('watching','paused') OR updated_at>?)
       ORDER BY created_at DESC LIMIT 100`,
@@ -122,7 +122,7 @@ export function watchesFor(owner: string, conversation?: string) {
 export function pullStatus(owner: string, conversation: string): PullState | null {
   const watch = db
     .prepare(
-      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,updated_at
+      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at
        FROM pr_watches WHERE owner_id=? AND conversation_id=?
          AND (state IN ('watching','paused') OR updated_at>?)
        ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 1`,
@@ -324,6 +324,9 @@ type Comment = {
 type Update = {
   // The finished CI result to record, and to report when it is news.
   ciState?: { sha: string; conclusion: "success" | "failure" };
+  // Checks for the head had not all finished at this read (or none exist
+  // yet): a rerun on the same head is pending, not its last conclusion.
+  ciPending: boolean;
   ci?: {
     sha: string;
     conclusion: "success" | "failure";
@@ -429,6 +432,7 @@ async function read(watch: PrWatch, token: string) {
     ).check_suites.some(
       (s) => (s.latest_check_runs_count ?? 1) > 0 && s.status !== "completed",
     );
+  const ciPending = !finished;
   if (finished) {
     const failed = runs.filter((c) => FAILED.has(c.conclusion || ""));
     const conclusion = failed.length ? "failure" : "success";
@@ -509,6 +513,7 @@ async function read(watch: PrWatch, token: string) {
   const update: Update = {
     ci,
     ciState,
+    ciPending,
     head,
     comments: quoted(comments),
     reviewComments: quoted(reviewComments),
@@ -677,12 +682,14 @@ export async function pollWatch(watchId: string, time = now()) {
         for (const item of update.seen) mark.run(watch.id, item.kind, item.id);
         db.prepare(
           `UPDATE pr_watches SET login=?,head_sha=?,
-            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),error=NULL,updated_at=? WHERE id=?`,
+            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),ci_pending=?,read_at=?,error=NULL,updated_at=? WHERE id=?`,
         ).run(
           login,
           update.head,
           update.ciState?.sha ?? null,
           update.ciState?.conclusion ?? null,
+          update.ciPending ? 1 : 0,
+          now(),
           now(),
           watch.id,
         );

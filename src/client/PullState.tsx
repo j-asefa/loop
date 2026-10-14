@@ -19,7 +19,7 @@ export function PullStateChip({
     ? "none"
     : state.watch === "stopped"
       ? "stopped"
-      : state.ci && state.ci.sha === state.head_sha
+      : state.ci && state.ci.sha === state.head_sha && !state.pending
         ? state.ci.conclusion === "success"
           ? "passed"
           : "failed"

@@ -26,7 +26,8 @@ const base = {
   head_sha: "abcdef1234567890",
   ci_sha: "abcdef1234567890",
   ci_conclusion: "success",
-  updated_at: 1_000_000,
+  ci_pending: 0,
+  read_at: 1_000_000,
 };
 const at = 1_000_000 + 3 * 60_000;
 
@@ -42,8 +43,12 @@ it("describes checks for the head they concluded on, and never as current for an
   expect(pullStateLine(pullStateFromWatch({ ...base, ci_sha: null, ci_conclusion: null }), at)).toBe(
     "PR #42 · checks pending for abcdef1 · checked 3m ago",
   );
-  expect(pullStateLine(pullStateFromWatch({ ...base, head_sha: null, ci_sha: null, ci_conclusion: null }), at)).toBe(
-    "PR #42 · not read yet · checked 3m ago",
+  expect(pullStateLine(pullStateFromWatch({ ...base, head_sha: null, ci_sha: null, ci_conclusion: null, read_at: null }), at)).toBe(
+    "PR #42 · not read yet",
+  );
+  // A rerun on the same head: the last conclusion is not current.
+  expect(pullStateLine(pullStateFromWatch({ ...base, ci_pending: 1 }), at)).toBe(
+    "PR #42 · checks rerunning for abcdef1 (last passed) · checked 3m ago",
   );
   expect(pullStateLine(pullStateFromWatch({ ...base, state: "paused", error: "Paused after 5 updates" }), at)).toBe(
     "PR #42 · checks passed for abcdef1 · watch paused · checked 3m ago",
@@ -63,15 +68,15 @@ it("picks the thread's active watch first, then a recently ended one, and nothin
   db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('t1',?,'a','T',0)").run(owner);
   db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('t2',?,'a','T',0)").run(owner);
   const insert = db.prepare(
-    "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,head_sha,ci_sha,ci_conclusion,created_at,updated_at) VALUES(?,?,?,'a','acme','web',?,?,?,?,?,?,?,?)",
+    "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,head_sha,ci_sha,ci_conclusion,created_at,updated_at,read_at) VALUES(?,?,?,'a','acme','web',?,?,?,?,?,?,?,?,?)",
   );
   const time = now();
-  insert.run(id(), owner, "t1", 1, "stopped", "merged", "aaa", "aaa", "success", time - 10, time - 10);
-  insert.run(id(), owner, "t1", 2, "watching", null, "bbb", "bbb", "failure", time - 5, time - 5);
-  expect(pullStatus(owner, "t1")).toMatchObject({ number: 2, watch: "watching", ci: { sha: "bbb", conclusion: "failure" } });
-  insert.run(id(), owner, "t2", 3, "stopped", "closed", "ccc", null, null, time - 10 * 24 * 3600_000, time - 10 * 24 * 3600_000);
+  insert.run(id(), owner, "t1", 1, "stopped", "merged", "aaa", "aaa", "success", time - 10, time - 10, time - 10);
+  insert.run(id(), owner, "t1", 2, "watching", null, "bbb", "bbb", "failure", time - 5, time - 5, time - 5);
+  expect(pullStatus(owner, "t1")).toMatchObject({ number: 2, watch: "watching", ci: { sha: "bbb", conclusion: "failure" }, checked_at: time - 5 });
+  insert.run(id(), owner, "t2", 3, "stopped", "closed", "ccc", null, null, time - 10 * 24 * 3600_000, time - 10 * 24 * 3600_000, null);
   expect(pullStatus(owner, "t2")).toBeNull();
-  insert.run(id(), owner, "t2", 4, "stopped", "merged", "ddd", "ddd", "success", time - 60_000, time - 60_000);
+  insert.run(id(), owner, "t2", 4, "stopped", "merged", "ddd", "ddd", "success", time - 60_000, time - 60_000, time - 60_000);
   expect(pullStatus(owner, "t2")).toMatchObject({ number: 4, watch: "stopped", ended_reason: "merged" });
   expect(pullStatus("someone-else", "t1")).toBeNull();
 });
