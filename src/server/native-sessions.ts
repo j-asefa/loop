@@ -2,7 +2,7 @@ import { recordChange } from "./project-changes.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
-import { startCheckout } from "./run-checkouts.js";
+import { completeCheckout, startCheckout } from "./run-checkouts.js";
 import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
@@ -1737,7 +1737,12 @@ export class NativeSessions {
       });
       const state = await complete;
       const current = owned<Run>("runs", run.id, run.owner_id).state;
-      if (current === "cancelled") return false;
+      if (current === "cancelled") {
+        // The transition captured the checkout at once; the harness may have
+        // written since, so observe it again now that execution has stopped.
+        void completeCheckout(run.id).catch(() => {});
+        return false;
+      }
       if (state === "completed") {
         if (current === "awaiting_approval") transition(run, "running");
         return true;
@@ -1760,6 +1765,7 @@ export class NativeSessions {
       );
       transition(run, "interrupted");
       await this.dispose(live);
+      void completeCheckout(run.id).catch(() => {});
       return false;
     } finally {
       await stopSteering?.();

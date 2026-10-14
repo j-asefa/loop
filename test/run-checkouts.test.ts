@@ -651,6 +651,41 @@ it("honours line-ending attributes, exclusions and worktree-scoped settings", as
   }
 });
 
+it("carries the user's own line-ending setting while hiding the rest of their configuration", async () => {
+  const run = runFixture("thread-global-crlf");
+  bind("thread-global-crlf", checkout);
+  const marker = join(dir, "global-filter-ran");
+  const globalConfig = join(dir, "global-crlf.gitconfig");
+  writeFileSync(
+    globalConfig,
+    `[core]\n\tautocrlf = true\n[filter "evil"]\n\tclean = sh -c "touch ${marker}; cat"\n`,
+  );
+  writeFileSync(join(checkout, ".gitattributes"), "*.txt filter=evil\n");
+  writeFileSync(join(checkout, "global.txt"), "x\ny\n");
+  git(checkout, "add", ".gitattributes", "global.txt");
+  git(checkout, "commit", "-m", "for the global test");
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  try {
+    rmSync(join(checkout, "global.txt"));
+    git(checkout, "checkout", "--", "global.txt");
+    expect(git(checkout, "status", "--porcelain", "--", "global.txt")).toBe("");
+    writeFileSync(join(checkout, "global.txt"), "x\r\ny\r\nz\r\n");
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    // Compared with the user's autocrlf, so only the added line counts.
+    expect(detail.working!.files.find((f) => f.path === "global.txt")).toMatchObject({ additions: 1, deletions: 0, filtered: true });
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+    writeFileSync(join(checkout, "global.txt"), "x\ny\n");
+    rmSync(join(checkout, ".gitattributes"));
+  }
+});
+
 it("never carries counts from an earlier observation into a new one", async () => {
   const run = runFixture("thread-stale-counts");
   bind("thread-stale-counts", checkout);

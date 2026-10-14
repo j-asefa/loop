@@ -134,19 +134,33 @@ const SAFE = [
   "-c", "submodule.recurse=false",
   "-c", "diff.external=",
 ];
+// Capture commands see no Git configuration but the isolated directory's:
+// the user's global and the system configuration are disabled, so a filter
+// or driver defined there (Git LFS installs one globally) cannot be selected
+// either, and every inherited GIT_* variable is dropped so no override or
+// alternative configuration source reaches the command.
 const SAFE_ENV = {
   GIT_TERMINAL_PROMPT: "0",
   GIT_OPTIONAL_LOCKS: "0",
   GIT_NO_LAZY_FETCH: "1",
   GIT_SSH_COMMAND: "/bin/false",
   GIT_ASKPASS: "/bin/false",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
 };
+function sanitizedEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env))
+    if (!key.startsWith("GIT_")) env[key] = value;
+  return env;
+}
 const IGNORE_SUBMODULES = "--ignore-submodules=all";
 function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult> {
   return new Promise((resolve) => {
     const child = spawn("git", ["-C", where.directory, ...SAFE, ...args], {
       stdio: ["ignore", "pipe", "ignore"],
-      env: { ...process.env, ...SAFE_ENV, ...where.env },
+      env: { ...sanitizedEnv(), ...SAFE_ENV, ...where.env },
     });
     const chunks: Buffer[] = [];
     let size = 0,
@@ -191,6 +205,23 @@ async function maybe(where: Iso, args: string[]) {
 /** Commands that only read refs (rev-parse, symbolic-ref) run no drivers. */
 const plain = (directory: string): Iso => ({ directory, env: {}, cleanup: () => {} });
 
+function globalSettings(): Promise<string> {
+  return new Promise((resolve) => {
+    const child = spawn("git", ["config", "--global", "--list", "-z"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => child.kill("SIGKILL"), GIT_TIMEOUT_MS);
+    child.stdout.on("data", (chunk: Buffer) => chunks.length < 4096 && chunks.push(chunk));
+    child.on("error", () => resolve(""));
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : "");
+    });
+  });
+}
+
 /**
  * Build the isolated Git directory for a checkout. Only the object format
  * extension is carried over; a partial clone's promisor remote is not, so a
@@ -203,7 +234,12 @@ async function isolate(directory: string): Promise<Iso> {
   const own = await must(here, ["rev-parse", "--path-format=absolute", "--git-dir"]);
   const top = await must(here, ["rev-parse", "--show-toplevel"]);
   const branch = await maybe(here, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
+  // The user's global settings first, then the repository's, then the
+  // worktree's, so a later scope replaces an earlier one. Only allowlisted
+  // keys are carried; the global listing is read with the user's own
+  // environment, since the capture environment hides it.
   const settings = [
+    await globalSettings(),
     (await maybe(here, ["config", "--file", join(common, "config"), "--list", "-z"])) ?? "",
     (await maybe(here, ["config", "--file", join(own, "config.worktree"), "--list", "-z"])) ?? "",
   ].join("\0");
@@ -211,7 +247,7 @@ async function isolate(directory: string): Promise<Iso> {
   // Carried over: the object format, and the tracking configuration that
   // resolves @{upstream} to a remote-tracking ref (never a URL, transport,
   // credential or promisor setting, so no fetch can happen).
-  const carried: [string, string][] = [];
+  const carried = new Map<string, string>();
 
   const tracking = branch
     ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
@@ -229,8 +265,8 @@ async function isolate(directory: string): Promise<Iso> {
       throw new CheckoutError("Checkout capture does not support reftable repositories");
     if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
       config[1] = "\trepositoryformatversion = 1";
-      carried.push([key, value]);
-    } else if (tracking?.test(key) || comparison.test(key)) carried.push([key, value]);
+      carried.set(key, value);
+    } else if (tracking?.test(key) || comparison.test(key)) carried.set(key, value);
   }
   const gitDir = await mkdtemp(join(tmpdir(), "loop-checkout-"));
   const cleanup = () => {
@@ -242,7 +278,7 @@ async function isolate(directory: string): Promise<Iso> {
     await writeFile(join(gitDir, "config"), config.join("\n") + "\n");
     const settingsFile = plain(gitDir);
     for (const [key, value] of carried)
-      await must(settingsFile, ["config", "--file", join(gitDir, "config"), "--add", key, value]);
+      await must(settingsFile, ["config", "--file", join(gitDir, "config"), "--replace-all", key, value]);
     await copyFile(join(own, "HEAD"), join(gitDir, "HEAD"));
     // The index and, for a split index, the shared part it refers to.
     for (const name of await readdir(own).catch(() => [] as string[]))
@@ -658,11 +694,15 @@ async function captureClaimed(
     const { untracked } = await status(directory);
     fields.untracked = JSON.stringify(untracked);
     const working = await numstat(directory, [head, "--"]);
-    const raw = await filtered(directory, working.files.map((f) => f.path));
+    const committed = base ? await numstat(directory, [base, head, "--"]) : null;
+    const raw = await filtered(directory, [
+      ...new Set([...working.files, ...(committed?.files ?? [])].map((f) => f.path)),
+    ]);
     for (const file of working.files) if (raw.has(file.path)) file.filtered = true;
     fields.working = JSON.stringify(working);
     if (base) {
-      fields.committed = JSON.stringify(await numstat(directory, [base, head, "--"]));
+      for (const file of committed!.files) if (raw.has(file.path)) file.filtered = true;
+      fields.committed = JSON.stringify(committed);
       const files = (await numstat(directory, [base, "--"])).files;
       for (const file of files) if (raw.has(file.path)) file.filtered = true;
       fields.files = JSON.stringify(files);
