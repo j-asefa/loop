@@ -27,6 +27,8 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
     '$.delivery',s.state,'$.deliveryError',s.error) metadata,
   m.created_at,r.state run_state,r.error run_error,
   (SELECT k.summary FROM run_checkouts k WHERE k.run_id=p.run_id AND k.owner_id=p.owner_id) run_checkout,
+  (SELECT json_group_array(json_object('id',v.id,'kind',v.kind,'tools',json(v.tools),'status',v.status))
+     FROM run_verifications v WHERE v.run_id=p.run_id AND v.owner_id=p.owner_id) run_verification,
   p.position,p.phase,p.ordinal
 FROM page p
 JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id

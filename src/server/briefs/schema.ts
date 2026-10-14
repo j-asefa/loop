@@ -21,7 +21,7 @@ export const synthesisKinds = [
 ] as const;
 export const Cite = z
   .object({
-    ref: z.string().regex(/^(?:(?:res|msg|saved|approval|chk)_.+|pr_\d+:c_.+)$/),
+    ref: z.string().regex(/^(?:(?:res|msg|saved|approval|chk|ver)_.+|pr_\d+:c_.+)$/),
     quote: z.string().max(300).optional(),
   })
   .strict();
