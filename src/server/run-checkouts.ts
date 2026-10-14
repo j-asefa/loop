@@ -240,8 +240,10 @@ async function isolate(directory: string): Promise<Iso> {
   // environment, since the capture environment hides it.
   const settings = [
     await globalSettings(),
-    (await maybe(here, ["config", "--file", join(common, "config"), "--list", "-z"])) ?? "",
-    (await maybe(here, ["config", "--file", join(own, "config.worktree"), "--list", "-z"])) ?? "",
+    // --includes follows include.path and includeIf, so a setting supplied
+    // through an included file is seen; only allowlisted keys are carried.
+    (await maybe(here, ["config", "--file", join(common, "config"), "--includes", "--list", "-z"])) ?? "",
+    (await maybe(here, ["config", "--file", join(own, "config.worktree"), "--includes", "--list", "-z"])) ?? "",
   ].join("\0");
   const config = ["[core]", "\trepositoryformatversion = 0", "\tbare = false"];
   // Carried over: the object format, and the tracking configuration that

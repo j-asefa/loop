@@ -3,6 +3,19 @@ import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { completeCheckout, startCheckout } from "./run-checkouts.js";
+
+/**
+ * The terminal transition captured the checkout at once, but a cancelled or
+ * failed harness process may keep writing until it is gone: disposal sends
+ * SIGTERM and SIGKILL two seconds later without waiting. Observe the
+ * checkout again once that deadline has passed.
+ */
+const STOP_DEADLINE_MS = 5000;
+function recaptureAfterStop(run: Run) {
+  setTimeout(() => {
+    void completeCheckout(run.id).catch(() => {});
+  }, STOP_DEADLINE_MS).unref();
+}
 import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
@@ -1738,9 +1751,7 @@ export class NativeSessions {
       const state = await complete;
       const current = owned<Run>("runs", run.id, run.owner_id).state;
       if (current === "cancelled") {
-        // The transition captured the checkout at once; the harness may have
-        // written since, so observe it again now that execution has stopped.
-        void completeCheckout(run.id).catch(() => {});
+        recaptureAfterStop(run);
         return false;
       }
       if (state === "completed") {
@@ -1765,7 +1776,7 @@ export class NativeSessions {
       );
       transition(run, "interrupted");
       await this.dispose(live);
-      void completeCheckout(run.id).catch(() => {});
+      recaptureAfterStop(run);
       return false;
     } finally {
       await stopSteering?.();

@@ -686,6 +686,30 @@ it("carries the user's own line-ending setting while hiding the rest of their co
   }
 });
 
+it("sees allowlisted settings the repository supplies through an included file", async () => {
+  const run = runFixture("thread-included-crlf");
+  bind("thread-included-crlf", checkout);
+  const included = join(dir, "included-crlf.gitconfig");
+  writeFileSync(included, "[core]\n\tautocrlf = true\n");
+  git(project, "config", "include.path", included);
+  writeFileSync(join(checkout, "inc.txt"), "p\nq\n");
+  git(checkout, "add", "inc.txt");
+  git(checkout, "commit", "-m", "for the include test");
+  rmSync(join(checkout, "inc.txt"));
+  git(checkout, "checkout", "--", "inc.txt");
+  try {
+    expect(git(checkout, "status", "--porcelain", "--", "inc.txt")).toBe("");
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    expect(detail.working!.files.map((f) => f.path)).not.toContain("inc.txt");
+  } finally {
+    git(project, "config", "--unset", "include.path");
+    writeFileSync(join(checkout, "inc.txt"), "p\nq\n");
+  }
+});
+
 it("never carries counts from an earlier observation into a new one", async () => {
   const run = runFixture("thread-stale-counts");
   bind("thread-stale-counts", checkout);
