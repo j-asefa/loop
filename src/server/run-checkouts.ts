@@ -218,7 +218,7 @@ async function isolate(directory: string): Promise<Iso> {
   for (const entry of settings.split("\0")) {
     const split = entry.indexOf("\n");
     if (split < 0) continue;
-    const key = entry.slice(0, split).toLowerCase(),
+    const key = entry.slice(0, split),
       value = entry.slice(split + 1);
     if (key === "extensions.refstorage")
       throw new CheckoutError("Checkout capture does not support reftable repositories");
@@ -484,23 +484,36 @@ export async function startCheckout(
   };
   let row: CheckoutRow;
   let iso: Iso | undefined;
+  let budgetPassed = false;
+  // The start capture precedes dispatch, so it has an overall budget; a
+  // slow repository records a failed start rather than delaying the agent.
+  // The task keeps running after the budget passes and then cleans up its
+  // own isolated directory, so nothing is leaked either way.
+  const task = (async () => {
+    try {
+      iso = await isolate(directory);
+      const branch = (await maybe(iso, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? "HEAD";
+      const head = await must(iso, ["rev-parse", "--verify", "HEAD"]);
+      const baseRef = await maybe(plain(source), ["symbolic-ref", "--short", "--quiet", "HEAD"]);
+      const sourceHead = await maybe(plain(source), ["rev-parse", "--verify", "HEAD"]);
+      const baseSha = sourceHead ? await maybe(iso, ["merge-base", head, sourceHead]) : null;
+      const { tracked, untracked } = await status(iso);
+      return { branch, head, baseRef, baseSha, tracked, untracked };
+    } finally {
+      if (budgetPassed) iso?.cleanup();
+    }
+  })();
+  task.catch(() => {});
+  let budget: ReturnType<typeof setTimeout> | undefined;
   try {
-    // The start capture precedes dispatch, so it has an overall budget; a
-    // slow repository records a failed start rather than delaying the agent.
     const observed = await Promise.race([
-      (async () => {
-        iso = await isolate(directory);
-        const branch = (await maybe(iso, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? "HEAD";
-        const head = await must(iso, ["rev-parse", "--verify", "HEAD"]);
-        const baseRef = await maybe(plain(source), ["symbolic-ref", "--short", "--quiet", "HEAD"]);
-        const sourceHead = await maybe(plain(source), ["rev-parse", "--verify", "HEAD"]);
-        const baseSha = sourceHead ? await maybe(iso, ["merge-base", head, sourceHead]) : null;
-        const { tracked, untracked } = await status(iso);
-        return { branch, head, baseRef, baseSha, tracked, untracked };
-      })(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new CheckoutError(`Checkout capture exceeded its ${START_BUDGET_MS / 1000} second budget`)), START_BUDGET_MS).unref(),
-      ),
+      task,
+      new Promise<never>((_, reject) => {
+        budget = setTimeout(() => {
+          budgetPassed = true;
+          reject(new CheckoutError(`Checkout capture exceeded its ${START_BUDGET_MS / 1000} second budget`));
+        }, START_BUDGET_MS);
+      }),
     ]);
     const { branch, head, baseRef, baseSha, tracked, untracked } = observed;
     row = {
@@ -527,7 +540,8 @@ export async function startCheckout(
       error: error instanceof Error ? error.message.slice(0, 500) : "Checkout capture failed",
     } as CheckoutRow;
   } finally {
-    iso?.cleanup();
+    clearTimeout(budget);
+    if (!budgetPassed) iso?.cleanup();
   }
   // The run may have been recorded by a concurrent start while Git ran.
   INSERT().run({ ...row, summary: JSON.stringify(summarize(row)) });
@@ -568,16 +582,29 @@ export async function completeCheckout(
   // later request while one is in flight asks the holder to run again, so
   // the record always ends on the latest observation.
   const token = id();
+  // Claim and read in one statement: the row this capture archives and
+  // updates is the row as it was when the claim succeeded, never an earlier
+  // read that another process has since replaced.
   const claimed = db
     .prepare(
-      "UPDATE run_checkouts SET capture_token=?,capture_started_at=?,capture_pending=0 WHERE run_id=? AND (capture_token IS NULL OR capture_started_at<?)",
+      "UPDATE run_checkouts SET capture_token=?,capture_started_at=?,capture_pending=0 WHERE run_id=? AND (capture_token IS NULL OR capture_started_at<?) RETURNING *",
     )
-    .run(token, time, runId, time - CAPTURE_LEASE_MS).changes;
+    .get(token, time, runId, time - CAPTURE_LEASE_MS) as CheckoutRow | undefined;
   if (!claimed) {
     if (!options.ifIdle)
       db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(runId);
     return;
   }
+  return captureClaimed(claimed, token, time, options);
+}
+
+async function captureClaimed(
+  row: CheckoutRow,
+  token: string,
+  time: number,
+  options: { late?: boolean; ifIdle?: boolean },
+): Promise<void> {
+  const runId = row.run_id;
   const fields: Partial<CheckoutRow> = { ended_at: time, error: null, captured_late: options.late ? 1 : 0 };
   let iso: Iso | undefined;
   try {

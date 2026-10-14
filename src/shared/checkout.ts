@@ -143,20 +143,19 @@ export function patchByFile(patch: string) {
     if (!chunk.trim()) continue;
     const plus = chunk.match(/^\+\+\+ (?:b\/(.*)|("b\/(?:[^"\\]|\\.)*"))$/m);
     const minus = chunk.match(/^--- (?:a\/(.*)|("a\/(?:[^"\\]|\\.)*"))$/m);
-    const renamed = chunk.match(/^rename to (?:(.*)|("(?:[^"\\]|\\.)*"))$/m);
+    const renamed = chunk.match(/^rename to (.*)$/m);
     let path =
       plus?.[1] ?? (plus?.[2] ? quoted(plus[2]) : undefined) ??
       minus?.[1] ?? (minus?.[2] ? quoted(minus[2]) : undefined) ??
-      renamed?.[1] ?? (renamed?.[2] ? unquoteGitPath(renamed[2]) : undefined);
+      (renamed ? unquoteGitPath(renamed[1]) : undefined);
     if (path === undefined) {
-      // "diff --git a/P b/P": the same path twice, whatever it contains.
+      // "diff --git a/P b/P": the same path twice, plain or quoted.
       const header = chunk.match(/^diff --git (.*)$/m)?.[1] ?? "";
       const half = (header.length - 1) / 2;
       const left = header.slice(0, half),
         right = header.slice(half + 1);
-      if (Number.isInteger(half) && left === right.replace(/^b\//, "a/") && left.startsWith("a/"))
-        path = left.startsWith('"') ? quoted(left) : left.slice(2);
-      else path = "";
+      const same = Number.isInteger(half) && left === right.replace(/^("?)b\//, "$1a/");
+      path = same && /^"?a\//.test(left) ? (left.startsWith('"') ? quoted(left) : left.slice(2)) : "";
     }
     chunks.set(path, chunk.replace(/^diff --git .*\n(?:index .*\n)?/, ""));
   }

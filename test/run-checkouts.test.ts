@@ -486,21 +486,22 @@ it("follows the branch's tracking configuration to its remote-tracking ref", asy
   bind("thread-tracking", checkout);
   const branch = git(checkout, "symbolic-ref", "--short", "HEAD");
   const base = git(project, "rev-parse", "HEAD");
-  git(project, "config", "remote.company.fetch", "+refs/heads/*:refs/remotes/company/*");
-  git(project, "config", `branch.${branch}.remote`, "company");
+  // A mixed-case remote name: Git keeps the case of subsection names.
+  git(project, "config", "remote.Company.fetch", "+refs/heads/*:refs/remotes/Company/*");
+  git(project, "config", `branch.${branch}.remote`, "Company");
   git(project, "config", `branch.${branch}.merge`, "refs/heads/release");
-  git(project, "update-ref", "refs/remotes/company/release", base);
+  git(project, "update-ref", "refs/remotes/Company/release", base);
   try {
     await startCheckout(run, checkout, project, "g1");
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.error).toBeNull();
-    expect(detail.remote).toMatchObject({ ref: "refs/remotes/company/release", sha: base, contains_head: false });
+    expect(detail.remote).toMatchObject({ ref: "refs/remotes/Company/release", sha: base, contains_head: false });
     expect(detail.summary!.remote).toBe("missing");
   } finally {
     git(project, "config", "--remove-section", `branch.${branch}`);
-    git(project, "config", "--remove-section", "remote.company");
-    git(project, "update-ref", "-d", "refs/remotes/company/release");
+    git(project, "config", "--remove-section", "remote.Company");
+    git(project, "update-ref", "-d", "refs/remotes/Company/release");
   }
 });
 
@@ -567,10 +568,17 @@ it("keys every chunk of a stored patch by the path numstat reports", () => {
     '+++ "b/notes\\tdraft.txt"',
     "@@ -0,0 +1 @@",
     "+tabbed",
+    'diff --git "a/was\\tthis.txt" "b/now\\tthat.txt"',
+    "similarity index 100%",
+    'rename from "was\\tthis.txt"',
+    'rename to "now\\tthat.txt"',
+    'diff --git "a/x\\ty.sh" "b/x\\ty.sh"',
+    "old mode 100644",
+    "new mode 100755",
     "",
   ].join("\n");
   const chunks = patchByFile(patch);
-  expect([...chunks.keys()]).toEqual(["src/a.ts", "new name.txt", "bin/run.sh", "gone.txt", "notes\tdraft.txt"]);
+  expect([...chunks.keys()]).toEqual(["src/a.ts", "new name.txt", "bin/run.sh", "gone.txt", "notes\tdraft.txt", "now\tthat.txt", "x\ty.sh"]);
   expect(chunks.get("src/a.ts")).toContain("+new");
   expect(chunks.get("new name.txt")).toContain("rename to new name.txt");
   expect(chunks.get("bin/run.sh")).toContain("new mode 100755");
