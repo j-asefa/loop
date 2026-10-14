@@ -591,12 +591,14 @@ it("compares the working tree the way the repository does, line endings included
   writeFileSync(join(checkout, "crlf.txt"), "a\nb\n");
   git(checkout, "add", "crlf.txt");
   git(checkout, "commit", "-m", "lf in the index");
-  // The repository normalises CRLF on the way in; the file on disk is CRLF.
-  git(project, "config", "core.autocrlf", "input");
-  writeFileSync(join(checkout, "crlf.txt"), "a\r\nb\r\n");
+  // The repository checks text files out with CRLF; Git calls that clean,
+  // and so must Loop, although a reader without the setting would not.
+  git(project, "config", "core.autocrlf", "true");
+  rmSync(join(checkout, "crlf.txt"));
+  git(checkout, "checkout", "--", "crlf.txt");
   try {
-    // Plain Git in the checkout agrees the file is unchanged.
     expect(git(checkout, "status", "--porcelain", "--", "crlf.txt")).toBe("");
+    expect(git(checkout, "-c", "core.autocrlf=false", "status", "--porcelain", "--", "crlf.txt")).toBe("M crlf.txt");
     await startCheckout(run, checkout, project, "g1");
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
