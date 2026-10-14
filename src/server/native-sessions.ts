@@ -4,6 +4,7 @@ import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { completeCheckout, startCheckout } from "./run-checkouts.js";
 import { observeCompletedOutput } from "./run-verifications.js";
+import { briefContext } from "./briefs/context.js";
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
@@ -1729,10 +1730,13 @@ export class NativeSessions {
     const steering = new SteeringInbox(run);
     let stopSteering: (() => Promise<void>) | undefined;
     try {
+      // A harness keeps its context across turns, so the project's brief
+      // is placed behind the first prompt of a conversation only.
+      const brief = briefContext(run, { firstTurnOnly: true });
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
-          input,
+          brief ? `${input}\n\n---\n${brief}` : input,
           attachedFiles(run.owner_id, snapshot.attachmentIds || []),
         ),
       );

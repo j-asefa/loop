@@ -1,3 +1,4 @@
+import { briefContext } from "./briefs/context.js";
 import { recordChange } from "./project-changes.js";
 import { isNativeConnection } from "./native-connections.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
@@ -930,11 +931,19 @@ export async function executeAgent(run: Run): Promise<boolean> {
           workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
           model: snapshot.model,
           effort: snapshot.effort || undefined,
-          instructions: runtimeInstructions(
-            snapshot.instructions,
-            bindings,
-            history.findLast((m) => m.role === "user")?.content,
-          ),
+          // The project's brief rides with every API run's instructions:
+          // the runtime keeps no context between runs, and the text is
+          // small and current.
+          instructions: [
+            runtimeInstructions(
+              snapshot.instructions,
+              bindings,
+              history.findLast((m) => m.role === "user")?.content,
+            ),
+            briefContext(run, { firstTurnOnly: false }),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
           messages: structuredClone(history),
           signal: AbortSignal.any([controller.signal, generation.signal]),
           steering,
