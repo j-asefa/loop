@@ -106,12 +106,15 @@ export async function briefContext(run: Run, options: { firstTurnOnly: boolean }
 }
 
 /**
- * The prompt with the brief behind it. A prompt that is only a skill
- * selector ("$review") keeps a space after the token: Codex recognises a
- * selector as the exact token or the token followed by a space, and a
- * newline would hide it.
+ * The prompt with the brief behind it, or null when the prompt must stay
+ * as typed: a slash command ("/build release") passes everything after
+ * the command to it as arguments, so the brief waits for the next turn.
+ * A prompt that is only a skill selector ("$review") keeps a space after
+ * the token: Codex recognises a selector as the exact token or the token
+ * followed by a space, and a newline would hide it.
  */
-export function promptWithBrief(input: string, brief: string) {
+export function promptWithBrief(input: string, brief: string): string | null {
+  if (/^\s*\//.test(input)) return null;
   const bare = /^\s*\$\S+\s*$/.test(input);
   return `${bare ? input.trimEnd() + " " : input}\n\n---\n${brief}`;
 }

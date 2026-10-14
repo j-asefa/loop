@@ -154,4 +154,7 @@ it("keeps a bare skill selector recognisable when the brief follows it", () => {
   expect(promptWithBrief("  $review  ", "BRIEF").trimStart()).toMatch(/^\$review \n/);
   expect(promptWithBrief("$review the diff", "BRIEF")).toBe("$review the diff\n\n---\nBRIEF");
   expect(promptWithBrief("Fix the bug", "BRIEF")).toBe("Fix the bug\n\n---\nBRIEF");
+  // A slash command takes what follows as its arguments: the brief waits.
+  expect(promptWithBrief("/build release", "BRIEF")).toBeNull();
+  expect(promptWithBrief("  /review", "BRIEF")).toBeNull();
 });

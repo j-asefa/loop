@@ -1736,16 +1736,14 @@ export class NativeSessions {
       // A harness keeps its context across turns, so the project's brief
       // is placed behind the first prompt of a conversation only.
       const brief = await briefContext(run, { firstTurnOnly: true });
+      const prompted = brief ? promptWithBrief(input, brief.text) : null;
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
-          brief ? promptWithBrief(input, brief.text) : input,
+          prompted ?? input,
           attachedFiles(run.owner_id, snapshot.attachmentIds || []),
         ),
       );
-      // Recorded only once the harness accepted the prompt: a rejected turn
-      // leaves the next one to carry the brief again.
-      if (brief) recordBriefDelivery(run, brief.version);
       db.prepare(
         "UPDATE native_dispatch SET state='accepted' WHERE run_id=? AND state='unknown'",
       ).run(run.id);
@@ -1766,6 +1764,10 @@ export class NativeSessions {
         );
       });
       const state = await complete;
+      // Delivery is recorded only for a turn the harness ran to completion:
+      // an adapter may reject a prompt asynchronously, and a rejected or
+      // interrupted turn leaves the next one to carry the brief again.
+      if (brief && prompted && state === "completed") recordBriefDelivery(run, brief.version);
       const current = owned<Run>("runs", run.id, run.owner_id).state;
       if (current === "cancelled") {
         recaptureAfterStop(run);
