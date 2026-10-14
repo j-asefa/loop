@@ -83,11 +83,14 @@ function classifySegment(tokens: string[]): Classified | null {
   }
   if (tool === "go" && sub === "test") return { kind: "test", tool: "go test" };
   if (tool === "go" && sub === "vet") return { kind: "lint", tool: "go vet" };
-  if (tool === "cargo" && sub === "test") return { kind: "test", tool: "cargo test" };
+  if (tool === "cargo" && sub === "test") return has("--no-run") ? null : { kind: "test", tool: "cargo test" };
   if (tool === "cargo" && sub === "check") return { kind: "typecheck", tool: "cargo check" };
   if (tool === "cargo" && sub === "clippy") return { kind: "lint", tool: "cargo clippy" };
   if (tool === "bundle" && sub === "exec") return classifySegment(argv.slice(2));
   if (["rake", "make"].includes(tool)) {
+    // make -n, -q and their long forms print or question without running.
+    if (argv.slice(1).some((a) => /^-[a-zA-Z]*[nq]/.test(a) || ["--dry-run", "--just-print", "--recon", "--question"].includes(a)))
+      return null;
     for (const target of argv.slice(1)) {
       for (const [pattern, kind] of SCRIPT_KINDS) if (pattern.test(target)) return { kind, tool: `${tool} ${target}` };
     }
@@ -109,8 +112,11 @@ function classifySegment(tokens: string[]): Classified | null {
  * a leading `cd` and environment assignments are skipped. The chain's exit
  * is the chain's: zero means every part exited zero.
  */
+/** Longer than any verification command; a command this long may have been cut. */
+const COMMAND_LIMIT = 2000;
 export function classifyVerification(command: string): Classified[] {
-  let tokens = shellWords(command);
+  if (command.length > COMMAND_LIMIT) return [];
+  let tokens = shellWords(command, { strict: true });
   if (!tokens) return [];
   if (
     tokens.length === 3 &&
@@ -124,10 +130,16 @@ export function classifyVerification(command: string): Classified[] {
     if (token === null) segments.push([]);
     else segments.at(-1)!.push(token);
   }
-  if (segments.some((segment) => segment.length && TERMINATING.has(strip(segment[0])))) return [];
+  // The command word of a segment, past any environment assignments.
+  const head = (segment: string[]) => {
+    let i = 0;
+    while (i < segment.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(segment[i])) i++;
+    return strip(segment[i] ?? "");
+  };
+  if (segments.some((segment) => TERMINATING.has(head(segment)))) return [];
   const found: Classified[] = [];
   for (const segment of segments) {
-    if (!segment.length || strip(segment[0]) === "cd") continue;
+    if (!segment.length || head(segment) === "cd") continue;
     const classified = classifySegment(segment);
     if (classified) found.push(classified);
   }
@@ -136,7 +148,7 @@ export function classifyVerification(command: string): Classified[] {
 
 /** How many commands a literal chain runs, counting a leading cd. */
 export function chainLength(command: string) {
-  let tokens = shellWords(command);
+  let tokens = shellWords(command, { strict: true });
   if (!tokens) return 0;
   if (tokens.length === 3 && /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") && /^-[eilx]*c$/.test(tokens[1] || ""))
     tokens = shellWords(tokens[2] || "");
@@ -148,8 +160,10 @@ export function chainLength(command: string) {
 export function verificationLine(summary: VerificationSummary | null) {
   if (!summary || !summary.items.length) return "No checks observed";
   const mark = { passed: "✓", failed: "✗", unknown: "?" } as const;
-  const parts = summary.items.map((item) => `${item.tools.join(" + ")} ${mark[item.status]}`);
-  return `Ran ${parts.join(" · ")}`;
+  const shown = summary.items.slice(0, 4);
+  const parts = shown.map((item) => `${item.tools.join(" + ")} ${mark[item.status]}`);
+  const more = summary.items.length - shown.length;
+  return `Ran ${parts.join(" · ")}${more > 0 ? ` · ${more} more` : ""}`;
 }
 
 export function summarize(items: VerificationItem[]): VerificationSummary {

@@ -18,6 +18,7 @@ const {
   verificationContent,
 } = await import("../src/server/run-verifications");
 const { classifyVerification, verificationLine } = await import("../src/shared/verification");
+const { shellWords, createdPullRequest } = await import("../src/shared/pr-command");
 const { resolveCite, checkQuote } = await import("../src/server/briefs/cites");
 import type { Run } from "../src/server/queue";
 import type { OutputData } from "../src/agent-activities";
@@ -105,6 +106,20 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
   expect(tools("eslint --help")).toEqual([]);
   expect(tools("npx playwright install")).toEqual([]);
   expect(tools("vitest --dry-run")).toEqual([]);
+  expect(tools("X=1 exit 0 && npm test")).toEqual([]);
+  expect(tools("make -n test")).toEqual([]);
+  expect(tools("make --dry-run test")).toEqual([]);
+  expect(tools("cargo test --no-run")).toEqual([]);
+  expect(tools("make test")).toEqual(["test:make test"]);
+  // A command long enough to have been cut by the reporting adapter.
+  expect(tools("npm test" + " ".repeat(2500) + "|| true")).toEqual([]);
+  expect(tools("npm test" + " ".repeat(2500))).toEqual([]);
+});
+
+it("keeps pull request detection as lenient as before", () => {
+  expect(shellWords("cd repo &&\ngh pr create")).toEqual(["cd", "repo", null, "gh", "pr", "create"]);
+  expect(shellWords("cd repo &&\ngh pr create", { strict: true })).toBeUndefined();
+  expect(createdPullRequest("bash -uc 'gh pr create'", "https://github.com/o/r/pull/7")).toMatchObject({ number: 7 });
 });
 
 it("keeps one observation per invocation when a later update brings the exit", () => {
@@ -145,7 +160,7 @@ it("records the exit Loop saw, including failures, unknown exits and cut output"
   expect(items[4].output_tail!.length).toBe(1500);
   const summary = verificationSummary(owner, run.id)!;
   expect(summary).toMatchObject({ passed: 3, failed: 1, unknown: 1 });
-  expect(verificationLine(summary)).toBe("Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · go test ✓");
+  expect(verificationLine(summary)).toBe("Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · 1 more");
   expect(verificationLine(null)).toBe("No checks observed");
 });
 

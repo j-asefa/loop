@@ -3,7 +3,12 @@ import { parsePullRequestUrls } from "./github.js";
 // Decode literal shell words, including shlex's adjacent quoted/escaped parts.
 // Never evaluate expansions. Only successful && chains are accepted: a later
 // fallback, pipeline or separate command cannot stand in for PR creation.
-export function shellWords(script: string): (string | null)[] | undefined {
+export function shellWords(
+  script: string,
+  // Strict: an unquoted newline is a command separator, so the script is
+  // not one literal chain. Pull request detection keeps accepting it.
+  options: { strict?: boolean } = {},
+): (string | null)[] | undefined {
   const result: (string | null)[] = [];
   let word = "",
     started = false,
@@ -32,7 +37,7 @@ export function shellWords(script: string): (string | null)[] | undefined {
     } else if (c === "'" || c === '"') {
       quote = c;
       started = true;
-    } else if (c === "\n") return;
+    } else if (c === "\n" && options.strict) return;
     else if (/\s/.test(c)) flush();
     else if (c === "&" && script[i + 1] === "&") {
       flush();
@@ -56,7 +61,7 @@ export function createdPullRequest(command: string, output: string) {
   if (
     tokens.length === 3 &&
     /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") &&
-    /^-[eilx]*c$/.test(tokens[1] || "")
+    /^-[a-z]*c$/.test(tokens[1] || "")
   )
     tokens = shellWords(tokens[2] || "");
   if (!tokens?.length || tokens[0] === null || tokens.at(-1) === null) return;
