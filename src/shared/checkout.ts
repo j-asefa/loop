@@ -105,7 +105,8 @@ export function checkoutLine(summary: CheckoutSummary) {
 export function unquoteGitPath(path: string) {
   if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"'))) return path;
   const bytes: number[] = [];
-  const inner = path.slice(1, -1);
+  // By code point, so an emoji is encoded whole rather than as two halves.
+  const inner = Array.from(path.slice(1, -1));
   for (let i = 0; i < inner.length; i++) {
     const c = inner[i];
     if (c !== "\\") {

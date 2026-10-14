@@ -100,6 +100,7 @@ it("records the worktree before and after a run, as Loop observed it", async () 
 
   await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
+  expect(detail.error).toBeNull();
   expect(detail.state).toBe("captured");
   expect(detail.end_head).toBe(git(checkout, "rev-parse", "HEAD"));
   expect(detail.end_head).not.toBe(detail.start_head);
@@ -327,21 +328,6 @@ it("clears an earlier observation when a recapture fails", async () => {
   expect(failed.summary).toMatchObject({ state: "failed", files: 0 });
 });
 
-it("refuses to capture when the repository configures commands Git would run", async () => {
-  const run = runFixture("thread-config");
-  bind("thread-config", checkout);
-  git(project, "config", "filter.evil.clean", "touch /tmp/should-not-run");
-  try {
-    await startCheckout(run, checkout, project, "g1");
-    const detail = checkoutDetail(owner, run.id)!;
-    expect(detail.state).toBe("failed");
-    expect(detail.error).toContain("filter.evil.clean");
-    expect(checkoutLine(detail.summary!)).toContain("checkout not captured");
-  } finally {
-    git(project, "config", "--unset", "filter.evil.clean");
-  }
-});
-
 it("never runs a filter a worktree's .gitattributes selects, whatever the user's configuration", async () => {
   const run = runFixture("thread-attrs");
   bind("thread-attrs", checkout);
@@ -364,31 +350,6 @@ it("never runs a filter a worktree's .gitattributes selects, whatever the user's
     else process.env.GIT_CONFIG_GLOBAL = previous;
     rmSync(join(checkout, ".gitattributes"));
   }
-});
-
-it("refuses a repository whose info/attributes selects a driver", async () => {
-  const info = join(project, ".git", "info");
-  mkdirSync(info, { recursive: true });
-  const attempt = async (conversation: string, attributes: string) => {
-    const run = runFixture(conversation);
-    bind(conversation, checkout);
-    writeFileSync(join(info, "attributes"), attributes);
-    try {
-      await startCheckout(run, checkout, project, "g1");
-      return checkoutDetail(owner, run.id)!;
-    } finally {
-      rmSync(join(info, "attributes"));
-    }
-  };
-  const refused = await attempt("thread-info-attrs", "# comment\n*.txt filter=evil\n");
-  expect(refused.state).toBe("failed");
-  expect(refused.error).toContain("info/attributes");
-  // "#" inside a pattern is not a comment.
-  const inline = await attempt("thread-info-attrs-hash", "tracked#file.txt filter=evil\n");
-  expect(inline.state).toBe("failed");
-  // A whole-line comment mentioning a driver is only a comment.
-  const comment = await attempt("thread-info-attrs-comment", "# *.txt filter=evil\n*.md -text\n");
-  expect(comment.state).toBe("started");
 });
 
 it("keeps a recapture request durable when the process stops before claiming it", async () => {
@@ -460,28 +421,74 @@ it("recovers an abandoned recapture of an already captured run", async () => {
   expect(raw()).toMatchObject({ capture_token: null, capture_pending: 0, state: "captured" });
 });
 
-it("refuses drivers with dotted names defined through an included file", async () => {
-  const run = runFixture("thread-include");
-  bind("thread-include", checkout);
-  const included = join(dir, "included.gitconfig");
-  writeFileSync(included, '[filter "evil.driver"]\n\tclean = touch /tmp/should-not-run\n');
-  git(project, "config", "include.path", included);
-  try {
-    await startCheckout(run, checkout, project, "g1");
-    const detail = checkoutDetail(owner, run.id)!;
-    expect(detail.state).toBe("failed");
-    expect(detail.error).toContain("filter.evil.driver.clean");
-  } finally {
-    git(project, "config", "--unset", "include.path");
-  }
-});
-
 it("unquotes the paths Git quotes in diff headers", () => {
   expect(unquoteGitPath("b/plain.txt")).toBe("b/plain.txt");
   expect(unquoteGitPath('"b/notes\\tdraft.txt"')).toBe("b/notes\tdraft.txt");
   expect(unquoteGitPath('"b/say \\"hi\\".txt"')).toBe('b/say "hi".txt');
   expect(unquoteGitPath('"b/caf\\303\\251.txt"')).toBe("b/café.txt");
   expect(unquoteGitPath('"b/back\\\\slash"')).toBe("b/back\\slash");
+  expect(unquoteGitPath('"b/🚀\\tlaunch.txt"')).toBe("b/🚀\tlaunch.txt");
+});
+
+it("never runs filters or drivers the repository configures, selects or includes", async () => {
+  const run = runFixture("thread-repo-drivers");
+  bind("thread-repo-drivers", checkout);
+  const marker = join(dir, "repo-filter-ran");
+  const included = join(dir, "included.gitconfig");
+  writeFileSync(included, `[filter "evil.driver"]\n\tclean = sh -c "touch ${marker}; cat"\n\tprocess = sh -c "touch ${marker}; cat"\n`);
+  git(project, "config", "include.path", included);
+  git(project, "config", "filter.evil.clean", `sh -c "touch ${marker}; cat"`);
+  git(project, "config", "diff.evil.textconv", `sh -c "touch ${marker}; cat"`);
+  git(project, "config", "core.fsmonitor", `sh -c "touch ${marker}"`);
+  const info = join(project, ".git", "info");
+  mkdirSync(info, { recursive: true });
+  writeFileSync(join(info, "attributes"), "* filter=evil.driver diff=evil\n");
+  writeFileSync(join(checkout, ".gitattributes"), "* filter=evil diff=evil\n");
+  writeFileSync(join(checkout, "tracked.txt"), "touched for drivers\n");
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    expect(detail.state).toBe("captured");
+    expect(detail.working!.files.map((f) => f.path)).toContain("tracked.txt");
+    expect(existsSync(marker)).toBe(false);
+    // The repository itself was only read: its index and refs are untouched.
+    expect(git(checkout, "status", "--porcelain")).toMatch(/^ ?M tracked.txt$/m);
+  } finally {
+    for (const key of ["include.path", "filter.evil.clean", "diff.evil.textconv", "core.fsmonitor"])
+      git(project, "config", "--unset", key);
+    rmSync(join(info, "attributes"));
+    rmSync(join(checkout, ".gitattributes"));
+  }
+});
+
+it("does not count a local upstream as a remote", async () => {
+  const run = runFixture("thread-local-upstream");
+  bind("thread-local-upstream", checkout);
+  const branch = git(checkout, "symbolic-ref", "--short", "HEAD");
+  const main = git(project, "symbolic-ref", "--short", "HEAD");
+  git(project, "config", `branch.${branch}.remote`, ".");
+  git(project, "config", `branch.${branch}.merge`, `refs/heads/${main}`);
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.remote).toBeNull();
+    expect(detail.summary!.remote).toBe("none");
+  } finally {
+    git(project, "config", "--remove-section", `branch.${branch}`);
+  }
+});
+
+it("drops the capture request of a run whose start was never captured", async () => {
+  const run = runFixture("thread-failed-start");
+  const nowhere = join(dir, "not-a-repo-either");
+  mkdirSync(nowhere);
+  await startCheckout(run, nowhere, nowhere, null);
+  db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(run.id);
+  await completeCheckout(run.id, { ifIdle: true });
+  expect(db.prepare("SELECT capture_pending FROM run_checkouts WHERE run_id=?").get(run.id)).toEqual({ capture_pending: 0 });
 });
 
 it("records a capture failure on the run instead of raising it", async () => {

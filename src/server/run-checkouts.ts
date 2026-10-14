@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { db, id, now } from "./db.js";
 import { recordChange } from "./project-changes.js";
 import type { Run } from "./queue.js";
@@ -106,31 +108,45 @@ export type CheckoutDetail = Omit<
 };
 
 type GitResult = { ok: boolean; out: string; truncated: boolean };
-// Configuration that would make Git run a command during capture is
-// overridden on the command line; diffs also refuse external and text
-// conversion drivers explicitly. Filters have no override, so capture
-// refuses repositories whose own configuration defines them (below).
+/**
+ * Where a capture command reads its repository state from. Commands that
+ * inspect the working tree run against an isolated Git directory that Loop
+ * owns: a minimal configuration, a copy of the checkout's HEAD, index and
+ * refs, and the repository's objects attached through alternates. Nothing a
+ * writer can change under the repository's own .git directory (filters, diff
+ * drivers, attributes, hooks, promisor remotes, transports) is read while a
+ * command runs, and nothing is written back to the repository.
+ */
+type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void };
 /** Git's well-known empty tree: an attribute source that selects nothing. */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-// Attributes are read from the empty tree rather than the worktree, so no
-// .gitattributes can select a filter, diff driver or text conversion, and
-// the attributes file setting is overridden. That holds inside each Git
-// command, whatever the repository configuration says at the time. Only
-// $GIT_DIR/info/attributes is outside these controls; the guard below
-// refuses a repository that uses it to select drivers.
+// Second line behind the isolated directory: attributes come from the empty
+// tree, so no .gitattributes can select a filter, diff driver or text
+// conversion; monitoring, transports, credentials and prompts are disabled.
 const SAFE = [
   "-c", "core.quotePath=false",
   "-c", "core.fsmonitor=false",
   "-c", "core.attributesFile=/dev/null",
+  "-c", "core.sshCommand=/bin/false",
+  "-c", "credential.helper=",
+  "-c", "protocol.allow=never",
   "-c", "submodule.recurse=false",
   "-c", "diff.external=",
 ];
+const SAFE_ENV = {
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_OPTIONAL_LOCKS: "0",
+  GIT_ATTR_SOURCE: EMPTY_TREE,
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_SSH_COMMAND: "/bin/false",
+  GIT_ASKPASS: "/bin/false",
+};
 const IGNORE_SUBMODULES = "--ignore-submodules=all";
-function git(directory: string, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult> {
+function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult> {
   return new Promise((resolve) => {
-    const child = spawn("git", ["-C", directory, ...SAFE, ...args], {
+    const child = spawn("git", ["-C", where.directory, ...SAFE, ...args], {
       stdio: ["ignore", "pipe", "ignore"],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_ATTR_SOURCE: EMPTY_TREE },
+      env: { ...process.env, ...SAFE_ENV, ...where.env },
     });
     const chunks: Buffer[] = [];
     let size = 0,
@@ -162,66 +178,63 @@ function git(directory: string, args: string[], cap = OUTPUT_LIMIT): Promise<Git
     child.on("close", (code) => finish(truncated ? false : code === 0));
   });
 }
-async function must(directory: string, args: string[]) {
-  const result = await git(directory, args);
+async function must(where: Iso, args: string[]) {
+  const result = await git(where, args);
   if (!result.ok)
     throw new CheckoutError(`git ${args[0]} failed in the agent worktree`);
   return result.out.trim();
 }
-async function maybe(directory: string, args: string[]) {
-  const result = await git(directory, args);
+async function maybe(where: Iso, args: string[]) {
+  const result = await git(where, args);
   return result.ok ? result.out.trim() : null;
 }
+/** Commands that only read refs (rev-parse, symbolic-ref) run no drivers. */
+const plain = (directory: string): Iso => ({ directory, env: {}, cleanup: () => {} });
 
-// Keys whose values Git executes while diffing or inspecting a working tree.
-const COMMAND_KEYS =
-  /^(?:filter\..+\.(?:clean|smudge|process)|diff\..+\.(?:textconv|command)|diff\.external|core\.fsmonitor|core\.attributesfile)$/i;
-const DRIVER_ATTRIBUTES = /(?:^|\s)(?:filter|diff)=/m;
-const REPOSITORY_SCOPES = new Set(["local", "worktree"]);
-const SCOPES = new Set(["system", "global", "local", "worktree", "command", "unknown"]);
 /**
- * The repository's own configuration files are agent-adjacent: refuse to
- * capture when they define filters or diff drivers, since Git would run those
- * commands with Loop's privileges and outside the harness's approval flow.
- * User and system configuration are the owner's and are not inspected.
+ * Build the isolated Git directory for a checkout. Only the object format
+ * extension is carried over; a partial clone's promisor remote is not, so a
+ * missing object fails the command instead of fetching. Reftable
+ * repositories are not supported.
  */
-async function refuseCommandConfig(directory: string) {
-  // The resolved configuration with each key's scope: includes are listed
-  // under the scope of the file that included them, so a filter defined in
-  // a file the repository config pulls in still shows as repository scope.
-  const listed = await must(directory, ["config", "--list", "-z", "--name-only", "--show-scope"]);
-  const tokens = listed.split("\0");
-  for (let i = 0; i < tokens.length; i++) {
-    let scope = tokens[i],
-      key = "";
-    const inline = /^(system|global|local|worktree|command|unknown)[\t\n](.+)$/s.exec(scope);
-    if (inline) [scope, key] = [inline[1], inline[2]];
-    else if (SCOPES.has(scope)) key = tokens[++i] ?? "";
-    else continue;
-    if (REPOSITORY_SCOPES.has(scope) && COMMAND_KEYS.test(key))
-      throw new CheckoutError(
-        `The repository configuration defines ${key}, which Git would run during capture; Loop does not run it.`,
-      );
+async function isolate(directory: string): Promise<Iso> {
+  const here = plain(directory);
+  const common = await must(here, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const own = await must(here, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+  const top = await must(here, ["rev-parse", "--show-toplevel"]);
+  const extensions = (await maybe(here, ["config", "--file", join(common, "config"), "--get-regexp", "-z", "^extensions\\."])) ?? "";
+  const config = ["[core]", "\trepositoryformatversion = 0", "\tbare = false"];
+  for (const entry of extensions.split("\0")) {
+    const [key, value] = entry.split("\n");
+    if (!key) continue;
+    if (key === "extensions.refstorage")
+      throw new CheckoutError("Checkout capture does not support reftable repositories");
+    if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
+      config[1] = "\trepositoryformatversion = 1";
+      config.push("[extensions]", `\t${key.slice("extensions.".length)} = ${value}`);
+    }
   }
-  // In-tree attributes are bypassed by the empty attribute source; the
-  // repository's info/attributes files are not, so they must not select
-  // drivers either.
-  const common = await must(directory, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const own = await must(directory, ["rev-parse", "--path-format=absolute", "--git-dir"]);
-  for (const file of new Set([common + "/info/attributes", own + "/info/attributes"])) {
-    const text = await readFile(file, "utf8").catch(() => "");
-    // Only whole comment lines are comments: "#" is legal inside a pattern.
-    const rules = text.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
-    if (DRIVER_ATTRIBUTES.test(rules))
-      throw new CheckoutError(
-        `${file} selects a filter or diff driver, which Git would run during capture; Loop does not run it.`,
-      );
+  const gitDir = mkdtempSync(join(tmpdir(), "loop-checkout-"));
+  const cleanup = () => rmSync(gitDir, { recursive: true, force: true });
+  try {
+    mkdirSync(join(gitDir, "objects", "info"), { recursive: true });
+    writeFileSync(join(gitDir, "objects", "info", "alternates"), join(common, "objects") + "\n");
+    writeFileSync(join(gitDir, "config"), config.join("\n") + "\n");
+    copyFileSync(join(own, "HEAD"), join(gitDir, "HEAD"));
+    if (existsSync(join(own, "index"))) copyFileSync(join(own, "index"), join(gitDir, "index"));
+    if (existsSync(join(common, "refs"))) cpSync(join(common, "refs"), join(gitDir, "refs"), { recursive: true });
+    else mkdirSync(join(gitDir, "refs"));
+    if (existsSync(join(common, "packed-refs"))) copyFileSync(join(common, "packed-refs"), join(gitDir, "packed-refs"));
+  } catch (error) {
+    cleanup();
+    throw new CheckoutError("Checkout capture could not prepare an isolated Git directory");
   }
+  return { directory, env: { GIT_DIR: gitDir, GIT_WORK_TREE: top }, cleanup };
 }
 
-async function status(directory: string) {
+async function status(where: Iso) {
   // Porcelain v1, NUL-terminated: "XY path\0" with a second "orig\0" for renames.
-  const out = await must(directory, ["status", "--porcelain=v1", "-z", "--untracked-files=all", IGNORE_SUBMODULES]);
+  const out = await must(where, ["status", "--porcelain=v1", "-z", "--untracked-files=all", IGNORE_SUBMODULES]);
   const entries = out.split("\0");
   const tracked: string[] = [],
     untracked: string[] = [];
@@ -239,9 +252,12 @@ async function status(directory: string) {
   return { tracked, untracked };
 }
 
-const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", IGNORE_SUBMODULES];
-async function numstat(directory: string, range: string[]): Promise<CheckoutStat> {
-  const out = await must(directory, [...DIFF, "--numstat", "-z", ...range]);
+const DIFF = [
+  "diff", "--no-ext-diff", "--no-textconv", "--no-color",
+  "--src-prefix=a/", "--dst-prefix=b/", IGNORE_SUBMODULES,
+];
+async function numstat(where: Iso, range: string[]): Promise<CheckoutStat> {
+  const out = await must(where, [...DIFF, "--numstat", "-z", ...range]);
   const parts = out.split("\0");
   const files: CheckoutFile[] = [];
   let additions = 0,
@@ -273,8 +289,8 @@ async function numstat(directory: string, range: string[]): Promise<CheckoutStat
   return { files, additions, deletions };
 }
 
-async function patch(directory: string, base: string) {
-  const result = await git(directory, [...DIFF, base, "--"], PATCH_LIMIT * 4);
+async function patch(where: Iso, base: string) {
+  const result = await git(where, [...DIFF, base, "--"], PATCH_LIMIT * 4);
   if (!result.ok && !result.truncated)
     throw new CheckoutError("git diff failed in the agent worktree");
   const full = Buffer.byteLength(result.out, "utf8");
@@ -287,19 +303,23 @@ async function patch(directory: string, base: string) {
   return { patch: result.out, bytes: full, truncated: false };
 }
 
-async function remote(directory: string, branch: string, head: string): Promise<CheckoutRemote | null> {
-  // The upstream when one is set, otherwise the conventional origin ref. Only
-  // local remote-tracking refs are read: nothing contacts the network, so the
-  // observation is as fresh as the last fetch, and says so by its timestamp.
+async function remote(where: Iso, branch: string, head: string): Promise<CheckoutRemote | null> {
+  // The upstream when one is set, otherwise the conventional origin ref, and
+  // only a remote-tracking ref: an upstream on "." is a local branch and
+  // says nothing about any remote. Only local remote-tracking refs are
+  // read; nothing contacts the network, so the observation is as fresh as
+  // the last fetch, and says so by its timestamp.
+  const upstream = await maybe(where, ["rev-parse", "--symbolic-full-name", "@{upstream}"]);
   const ref =
-    (await maybe(directory, ["rev-parse", "--symbolic-full-name", "@{upstream}"])) ??
-    ((await maybe(directory, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]))
-      ? `refs/remotes/origin/${branch}`
-      : null);
+    upstream?.startsWith("refs/remotes/")
+      ? upstream
+      : (await maybe(where, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]))
+        ? `refs/remotes/origin/${branch}`
+        : null;
   if (!ref) return null;
-  const sha = await maybe(directory, ["rev-parse", "--verify", "--quiet", ref]);
+  const sha = await maybe(where, ["rev-parse", "--verify", "--quiet", ref]);
   if (!sha) return null;
-  const contains = (await git(directory, ["merge-base", "--is-ancestor", head, sha])).ok;
+  const contains = (await git(where, ["merge-base", "--is-ancestor", head, sha])).ok;
   return { ref, sha, contains_head: contains, observed_at: now() };
 }
 
@@ -404,6 +424,8 @@ const INSERT = () => db.prepare(
    VALUES(@id,@owner_id,@run_id,@agent_id,@conversation_id,@generation,@directory,@source,@branch,@base_ref,@base_sha,@start_head,@start_dirty,@start_untracked,@started_at,@state,@error,@summary)`,
 );
 
+/** The start capture's overall budget: it runs before the agent is dispatched. */
+const START_BUDGET_MS = 20000;
 /**
  * Record the checkout as the run begins. A run that resumes (after an
  * approval or an interruption) keeps its first start record. Never throws:
@@ -431,14 +453,26 @@ export async function startCheckout(
     captured_late: 0,
   };
   let row: CheckoutRow;
+  let iso: Iso | undefined;
   try {
-    await refuseCommandConfig(directory);
-    const branch = (await maybe(directory, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? "HEAD";
-    const head = await must(directory, ["rev-parse", "--verify", "HEAD"]);
-    const baseRef = await maybe(source, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
-    const sourceHead = await maybe(source, ["rev-parse", "--verify", "HEAD"]);
-    const baseSha = sourceHead ? await maybe(directory, ["merge-base", "HEAD", sourceHead]) : null;
-    const { tracked, untracked } = await status(directory);
+    // The start capture precedes dispatch, so it has an overall budget; a
+    // slow repository records a failed start rather than delaying the agent.
+    const observed = await Promise.race([
+      (async () => {
+        iso = await isolate(directory);
+        const branch = (await maybe(iso, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? "HEAD";
+        const head = await must(iso, ["rev-parse", "--verify", "HEAD"]);
+        const baseRef = await maybe(plain(source), ["symbolic-ref", "--short", "--quiet", "HEAD"]);
+        const sourceHead = await maybe(plain(source), ["rev-parse", "--verify", "HEAD"]);
+        const baseSha = sourceHead ? await maybe(iso, ["merge-base", head, sourceHead]) : null;
+        const { tracked, untracked } = await status(iso);
+        return { branch, head, baseRef, baseSha, tracked, untracked };
+      })(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new CheckoutError(`Checkout capture exceeded its ${START_BUDGET_MS / 1000} second budget`)), START_BUDGET_MS).unref(),
+      ),
+    ]);
+    const { branch, head, baseRef, baseSha, tracked, untracked } = observed;
     row = {
       ...base,
       branch,
@@ -462,6 +496,8 @@ export async function startCheckout(
       state: "failed",
       error: error instanceof Error ? error.message.slice(0, 500) : "Checkout capture failed",
     } as CheckoutRow;
+  } finally {
+    iso?.cleanup();
   }
   // The run may have been recorded by a concurrent start while Git ran.
   INSERT().run({ ...row, summary: JSON.stringify(summarize(row)) });
@@ -489,7 +525,13 @@ export async function completeCheckout(
   options: { late?: boolean; ifIdle?: boolean } = {},
 ) {
   const row = select(runId);
-  if (!row || (row.state === "failed" && !row.start_head)) return;
+  if (!row) return;
+  if (row.state === "failed" && !row.start_head) {
+    // Nothing to observe for a run whose start was never captured; drop the
+    // request so reconciliation does not keep selecting it.
+    db.prepare("UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?").run(runId);
+    return;
+  }
   const time = now();
   // One capture per run at a time, across processes: a terminal transition
   // in the API process and the worker's reconciliation can both arrive. A
@@ -507,15 +549,16 @@ export async function completeCheckout(
     return;
   }
   const fields: Partial<CheckoutRow> = { ended_at: time, error: null, captured_late: options.late ? 1 : 0 };
+  let iso: Iso | undefined;
   try {
-    const directory = row.directory;
-    await refuseCommandConfig(directory);
+    iso = await isolate(row.directory);
+    const directory: Iso = iso;
     // One HEAD for the whole capture: another run on this checkout may
     // commit between commands, so every commit-relative query names this
     // SHA rather than resolving the symbolic HEAD again.
     const head = await must(directory, ["rev-parse", "--verify", "HEAD"]);
     const branch = (await maybe(directory, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? row.branch;
-    const sourceHead = await maybe(row.source, ["rev-parse", "--verify", "HEAD"]);
+    const sourceHead = await maybe(plain(row.source), ["rev-parse", "--verify", "HEAD"]);
     const base = sourceHead
       ? ((await maybe(directory, ["merge-base", head, sourceHead])) ?? row.base_sha)
       : row.base_sha;
@@ -560,7 +603,7 @@ export async function completeCheckout(
                AND (r.updated_at>=? OR r.state IN (${ACTIVE_STATES.map(() => "?").join(",")}))
              ORDER BY r.created_at`,
           )
-          .all(row.owner_id, directory, row.run_id, time, row.started_at, ...ACTIVE_STATES) as { id: string }[]
+          .all(row.owner_id, row.directory, row.run_id, time, row.started_at, ...ACTIVE_STATES) as { id: string }[]
       ).map((r) => r.id),
     );
     fields.state = "captured";
@@ -569,6 +612,8 @@ export async function completeCheckout(
     fields.base_sha = row.base_sha;
     fields.state = "failed";
     fields.error = error instanceof Error ? error.message.slice(0, 500) : "Checkout capture failed";
+  } finally {
+    iso?.cleanup();
   }
   const next = { ...row, ...fields } as CheckoutRow;
   // An earlier observation stays reachable under its own id, so a brief
@@ -629,7 +674,7 @@ export function reconcileCheckouts(): Promise<void> {
     const pending = db
       .prepare(
         `SELECT k.run_id,r.updated_at FROM run_checkouts k JOIN runs r ON r.id=k.run_id
-         WHERE (k.state='started' OR k.capture_pending=1 OR k.capture_token IS NOT NULL)
+         WHERE k.start_head<>'' AND (k.state='started' OR k.capture_pending=1 OR k.capture_token IS NOT NULL)
            AND (k.capture_token IS NULL OR k.capture_started_at<?)
            AND r.state IN (${TERMINAL_STATES.map(() => "?").join(",")}) LIMIT 20`,
       )
