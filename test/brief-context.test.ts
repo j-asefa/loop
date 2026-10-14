@@ -151,7 +151,7 @@ it("stays within its byte budget however many decisions the record holds", async
 it("keeps a bare skill selector recognisable when the brief follows it", () => {
   // Codex matches "$skill" exactly or "$skill " followed by anything.
   expect(promptWithBrief("$review", "BRIEF")).toMatch(/^\$review \n\n---\nBRIEF$/);
-  expect(promptWithBrief("  $review  ", "BRIEF").trimStart()).toMatch(/^\$review \n/);
+  expect(promptWithBrief("  $review  ", "BRIEF")!.trimStart()).toMatch(/^\$review \n/);
   expect(promptWithBrief("$review the diff", "BRIEF")).toBe("$review the diff\n\n---\nBRIEF");
   expect(promptWithBrief("Fix the bug", "BRIEF")).toBe("Fix the bug\n\n---\nBRIEF");
   // A slash command takes what follows as its arguments: the brief waits.
