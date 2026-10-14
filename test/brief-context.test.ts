@@ -13,7 +13,7 @@ const { seal } = await import("../src/server/secrets");
 const { submit } = await import("../src/server/agent-runtime");
 const { applyOutput } = await import("../src/server/briefs/apply");
 const { addDecision } = await import("../src/server/briefs/owner");
-const { briefContext, recordBriefDelivery, BRIEF_CONTEXT_BYTES } = await import("../src/server/briefs/context");
+const { briefContext, recordBriefDelivery, promptWithBrief, BRIEF_CONTEXT_BYTES } = await import("../src/server/briefs/context");
 
 afterAll(() => {
   db.close();
@@ -146,4 +146,12 @@ it("stays within its byte budget however many decisions the record holds", async
   // 31 active: the compact view holds twenty, overflow counts the rest.
   expect(text).toContain("Decisions (31 active");
   expect(text).toMatch(/and 21 more|shortened; read loop_brief/);
+});
+
+it("keeps a bare skill selector recognisable when the brief follows it", () => {
+  // Codex matches "$skill" exactly or "$skill " followed by anything.
+  expect(promptWithBrief("$review", "BRIEF")).toMatch(/^\$review \n\n---\nBRIEF$/);
+  expect(promptWithBrief("  $review  ", "BRIEF").trimStart()).toMatch(/^\$review \n/);
+  expect(promptWithBrief("$review the diff", "BRIEF")).toBe("$review the diff\n\n---\nBRIEF");
+  expect(promptWithBrief("Fix the bug", "BRIEF")).toBe("Fix the bug\n\n---\nBRIEF");
 });

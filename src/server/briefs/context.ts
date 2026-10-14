@@ -105,6 +105,17 @@ export async function briefContext(run: Run, options: { firstTurnOnly: boolean }
   return { text: bounded, version: brief.version };
 }
 
+/**
+ * The prompt with the brief behind it. A prompt that is only a skill
+ * selector ("$review") keeps a space after the token: Codex recognises a
+ * selector as the exact token or the token followed by a space, and a
+ * newline would hide it.
+ */
+export function promptWithBrief(input: string, brief: string) {
+  const bare = /^\s*\$\S+\s*$/.test(input);
+  return `${bare ? input.trimEnd() + " " : input}\n\n---\n${brief}`;
+}
+
 /** The harness has received the brief behind a prompt it accepted. */
 export function recordBriefDelivery(run: Run, version: number) {
   if (!run.conversation_id) return;

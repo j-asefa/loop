@@ -4,7 +4,7 @@ import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { completeCheckout, startCheckout } from "./run-checkouts.js";
 import { observeCompletedOutput } from "./run-verifications.js";
-import { briefContext, recordBriefDelivery } from "./briefs/context.js";
+import { briefContext, promptWithBrief, recordBriefDelivery } from "./briefs/context.js";
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
@@ -1078,6 +1078,9 @@ export class NativeSessions {
       db.prepare("DELETE FROM companion_sessions WHERE conversation_id=?").run(
         conversation,
       );
+      // The replacement session is seeded from stored messages, which do
+      // not carry the brief; let its first prompt deliver it again.
+      db.prepare("DELETE FROM brief_deliveries WHERE conversation_id=?").run(conversation);
       previousProject = binding.worktree_source ?? binding.project;
       binding = undefined;
     }
@@ -1736,7 +1739,7 @@ export class NativeSessions {
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
-          brief ? `${input}\n\n---\n${brief.text}` : input,
+          brief ? promptWithBrief(input, brief.text) : input,
           attachedFiles(run.owner_id, snapshot.attachmentIds || []),
         ),
       );
