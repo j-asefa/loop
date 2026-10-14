@@ -126,6 +126,10 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
   expect(tools("cypress run")).toEqual(["test:cypress run"]);
   expect(tools("pnpm dlx vitest run")).toEqual(["test:vitest"]);
   expect(tools("npx --yes vitest run")).toEqual(["test:vitest"]);
+  expect(tools("npm run test --if-present")).toEqual([]);
+  expect(tools("go test -c ./pkg")).toEqual([]);
+  expect(tools("bash -c 'builtin exit 0 && npm test'")).toEqual([]);
+  expect(tools("command exit 0 && npm test")).toEqual([]);
 });
 
 it("keeps pull request detection as lenient as before", () => {

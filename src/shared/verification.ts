@@ -43,7 +43,7 @@ function strip(path: string) {
 // Arguments under which a recognised tool checks nothing.
 const NO_RUN = new Set([
   "--help", "-h", "--version", "-V", "--showConfig", "--print-config", "--listTests", "--list-tests",
-  "--collect-only", "--dry-run", "install", "init", "--init", "login", "config",
+  "--collect-only", "--dry-run", "install", "init", "--init", "login", "config", "--if-present",
 ]);
 // Shell builtins that end or replace the shell: a chain containing one
 // cannot be read as "every step ran".
@@ -89,7 +89,8 @@ function classifySegment(tokens: string[]): Classified | null {
     if (["ruff", "flake8", "pylint"].includes(module)) return { kind: "lint", tool: module };
     return null;
   }
-  if (tool === "go" && sub === "test") return { kind: "test", tool: "go test" };
+  // go test -c only compiles the test binary.
+  if (tool === "go" && sub === "test") return has("-c") ? null : { kind: "test", tool: "go test" };
   if (tool === "go" && sub === "vet") return { kind: "lint", tool: "go vet" };
   if (tool === "cargo" && sub === "test") return has("--no-run") ? null : { kind: "test", tool: "cargo test" };
   if (tool === "cargo" && sub === "check") return { kind: "typecheck", tool: "cargo check" };
@@ -142,6 +143,8 @@ export function classifyVerification(command: string): Classified[] {
   const head = (segment: string[]) => {
     let i = 0;
     while (i < segment.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(segment[i])) i++;
+    // "builtin exit", "command exit": the wrapper names the real command.
+    while (["builtin", "command"].includes(segment[i] ?? "") && i + 1 < segment.length) i++;
     return strip(segment[i] ?? "");
   };
   const noExec = (segment: string[]) => {
