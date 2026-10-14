@@ -2,6 +2,20 @@ import { recordChange } from "./project-changes.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
+import { completeCheckout, startCheckout } from "./run-checkouts.js";
+
+/**
+ * The terminal transition captured the checkout at once, but a cancelled or
+ * failed harness process may keep writing until it is gone: disposal sends
+ * SIGTERM and SIGKILL two seconds later without waiting. Observe the
+ * checkout again once that deadline has passed.
+ */
+const STOP_DEADLINE_MS = 5000;
+function recaptureAfterStop(run: Run) {
+  setTimeout(() => {
+    void completeCheckout(run.id).catch(() => {});
+  }, STOP_DEADLINE_MS).unref();
+}
 import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
@@ -1111,6 +1125,9 @@ export class NativeSessions {
       ownerId: run.owner_id, agentId: run.agent_id,
       environmentId: realpathSync(config.data), projectId: binding.worktree_source,
     }, binding.project);
+    // What the checkout looked like before this run touched it. Recorded by
+    // Loop, never by the harness; a capture failure is recorded, not raised.
+    await startCheckout(run, binding.project, binding.worktree_source, binding.generation);
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
     const permissionMode = isPermissionMode(snapshot.permissionMode)
@@ -1733,12 +1750,18 @@ export class NativeSessions {
       });
       const state = await complete;
       const current = owned<Run>("runs", run.id, run.owner_id).state;
-      if (current === "cancelled") return false;
+      if (current === "cancelled") {
+        recaptureAfterStop(run);
+        return false;
+      }
       if (state === "completed") {
         if (current === "awaiting_approval") transition(run, "running");
         return true;
       }
       transition(run, state === "interrupted" ? "interrupted" : "failed");
+      // An interrupt that timed out resolved before disposal finished; the
+      // process may still write until it is terminated.
+      recaptureAfterStop(run);
       return false;
     } catch (error) {
       this.projectOutput(live, true);
@@ -1756,6 +1779,7 @@ export class NativeSessions {
       );
       transition(run, "interrupted");
       await this.dispose(live);
+      recaptureAfterStop(run);
       return false;
     } finally {
       await stopSteering?.();

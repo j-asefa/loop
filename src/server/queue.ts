@@ -2,6 +2,7 @@ import { queuedMailFailure, queuedMailReady } from "./agent-mail-policy.js";
 import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
+import { completeCheckout, TERMINAL_STATES } from "./run-checkouts.js";
 export type Run = {
   id: string;
   owner_id: string;
@@ -147,6 +148,15 @@ export function deferUndispatched(run: Run, worker: string) {
   return !!changed;
 }
 export function transition(run: Run, state: string, payload: unknown = {}) {
+  const changed = transitionState(run, state, payload);
+  // A run that ended gets its checkout captured off the transition path:
+  // read-only Git on a worktree can take a moment and must not hold the
+  // database transaction or the caller.
+  if (changed && TERMINAL_STATES.includes(state))
+    void completeCheckout(run.id).catch(() => {});
+  return changed;
+}
+function transitionState(run: Run, state: string, payload: unknown) {
   return db
     .transaction(() => {
       const current = db
@@ -187,6 +197,10 @@ export function transition(run: Run, state: string, payload: unknown = {}) {
         db.prepare(
           "UPDATE runs SET worker_id=NULL,heartbeat=NULL WHERE id=?",
         ).run(run.id);
+      // The capture request is durable with the transition: if the process
+      // stops before the capture claims it, reconciliation finds it.
+      if (TERMINAL_STATES.includes(state))
+        db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(run.id);
       emit(run.owner_id, run.id, state, payload);
       return true;
     })
