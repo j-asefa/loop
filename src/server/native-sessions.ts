@@ -6,6 +6,15 @@ import { completeCheckout, startCheckout } from "./run-checkouts.js";
 import { observeCompletedOutput } from "./run-verifications.js";
 import { briefContext, promptWithBrief, recordBriefDelivery } from "./briefs/context.js";
 
+/** The harness consumed the prompt: it wrote something for this run. */
+function turnProducedOutput(run: Run) {
+  return !!db
+    .prepare(
+      "SELECT 1 FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 LIMIT 1",
+    )
+    .get(run.owner_id, run.id);
+}
+
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
  * failed harness process may keep writing until it is gone: disposal sends
@@ -1764,10 +1773,11 @@ export class NativeSessions {
         );
       });
       const state = await complete;
-      // Delivery is recorded only for a turn the harness ran to completion:
-      // an adapter may reject a prompt asynchronously, and a rejected or
-      // interrupted turn leaves the next one to carry the brief again.
-      if (brief && prompted && state === "completed") recordBriefDelivery(run, brief.version);
+      // Delivery is recorded once the harness has consumed the prompt: a turn
+      // that completed, or one that produced output before it was interrupted.
+      // An adapter may reject a prompt asynchronously; a rejected turn leaves
+      // the next one to carry the brief again.
+      if (brief && prompted && (state === "completed" || turnProducedOutput(run))) recordBriefDelivery(run, brief.version);
       const current = owned<Run>("runs", run.id, run.owner_id).state;
       if (current === "cancelled") {
         recaptureAfterStop(run);
