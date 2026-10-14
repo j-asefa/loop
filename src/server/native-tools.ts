@@ -194,7 +194,7 @@ export function nativeBindings(
     }),
     ...(agentBriefAccess(run) && {
       loop_brief:
-        "Read the owner's project brief in Loop: current state, decisions with their evidence, open questions, unfinished work, and what needs the owner right now, each citing the result it came from. Decisions marked with evidence were chosen; open questions include recommendations not yet accepted. Use it at the start of a task to pick up where the project is. It reads only, triggers nothing and needs no approval.",
+        "Read the owner's project brief in Loop: current state, decisions with their evidence, open questions, unfinished work, and what needs the owner right now, each citing the result it came from. Decisions marked with evidence were chosen; open questions include recommendations not yet accepted. What needs the owner (needs_you) is live when you read it; state, decisions, questions and unfinished work were derived at the brief's synthesis time (basis.synth_at) and may lag recent results by up to fifteen minutes (basis.pending counts them). A summary of the brief was placed with your instructions; use this tool for the full record and its evidence. It reads only, triggers nothing and needs no approval.",
     }),
     loop_install_mcp:
       "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",

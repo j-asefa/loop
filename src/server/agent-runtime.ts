@@ -1,3 +1,15 @@
+import { briefContext, promptWithBrief } from "./briefs/context.js";
+
+/** The latest user turn with the project's brief behind it, when there is one. */
+async function withBriefContext<T extends { role: string; content: string }>(run: Run, messages: T[]) {
+  const brief = await briefContext(run, { firstTurnOnly: false });
+  if (!brief) return messages;
+  const last = messages.findLast((m) => m.role === "user");
+  if (!last || typeof last.content !== "string") return messages;
+  const prompted = promptWithBrief(last.content, brief.text);
+  if (prompted) last.content = prompted;
+  return messages;
+}
 import { recordChange } from "./project-changes.js";
 import { isNativeConnection } from "./native-connections.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
@@ -935,7 +947,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
             bindings,
             history.findLast((m) => m.role === "user")?.content,
           ),
-          messages: structuredClone(history),
+          // The project's brief rides with every API run, since the runtime
+          // keeps no context between runs. It goes in front of the latest
+          // user turn as quoted context, never into the system instructions:
+          // its items derive from project records that can quote untrusted
+          // material, and the stored transcript is left untouched.
+          messages: await withBriefContext(run, structuredClone(history)),
           signal: AbortSignal.any([controller.signal, generation.signal]),
           steering,
           maxTokens: snapshot.maxTokens,
