@@ -20,6 +20,27 @@ function inside(root: string, path: string) {
     throw new AgentWorktreeError("Agent worktree escaped the approved project root");
 }
 
+function newWorktreeBase(project: string) {
+  const refs = git(project, "for-each-ref", "--format=%(refname)", "refs/heads/main", "refs/remotes").split("\n");
+  const localMain = refs.includes("refs/heads/main");
+  const upstream = localMain ? git(project, "for-each-ref", "--format=%(upstream)", "refs/heads/main") : "";
+  const remoteMain = upstream.startsWith("refs/remotes/") && upstream.endsWith("/main") ? upstream :
+    refs.includes("refs/remotes/origin/main") ? "refs/remotes/origin/main" : "";
+  const remote = remoteMain ? remoteMain.slice("refs/remotes/".length, -"/main".length) :
+    localMain && git(project, "remote").split("\n").includes("origin") ? "origin" : "";
+  if (remote) {
+    try {
+      git(project, "fetch", "--no-tags", "--", remote, "+refs/heads/main:refs/remotes/" + remote + "/main");
+    } catch {
+      throw new AgentWorktreeError("Could not fetch latest main for a new agent worktree; check remote access and retry.");
+    }
+    // Resolve immediately to an immutable commit rather than a shared ref that
+    // another worker's fetch could move during worktree creation.
+    return git(project, "rev-parse", "--verify", "refs/remotes/" + remote + "/main^{commit}");
+  }
+  return git(project, "rev-parse", "--verify", (localMain ? "refs/heads/main" : "HEAD") + "^{commit}");
+}
+
 // Synchronous Git operations serialize preparations in this worker. Git's own
 // locks arbitrate across workers; a conflicting/partial creation fails closed.
 export function agentWorktree(root: string, project: string, identity: { ownerId: string; agentId: string; environmentId: string; projectId: string }, expectedDirectory?: string) {
@@ -47,7 +68,7 @@ export function agentWorktree(root: string, project: string, identity: { ownerId
     if (registered.includes("worktree " + checkout))
       throw new AgentWorktreeError("Registered agent worktree is missing; restore it before resuming");
     if (expectedDirectory) throw new AgentWorktreeError("Existing agent worktree is missing; restore it before resuming");
-    git(project, "worktree", "add", "-b", "loop/agent-" + key, checkout, "HEAD");
+    git(project, "worktree", "add", "-b", "loop/agent-" + key, checkout, newWorktreeBase(project));
   }
   if (realpathSync(checkout) !== checkout ||
       realpathSync(git(checkout, "rev-parse", "--show-toplevel")) !== checkout ||
