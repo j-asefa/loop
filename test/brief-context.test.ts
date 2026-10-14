@@ -13,7 +13,7 @@ const { seal } = await import("../src/server/secrets");
 const { submit } = await import("../src/server/agent-runtime");
 const { applyOutput } = await import("../src/server/briefs/apply");
 const { addDecision } = await import("../src/server/briefs/owner");
-const { briefContext, BRIEF_CONTEXT_BYTES } = await import("../src/server/briefs/context");
+const { briefContext, recordBriefDelivery, BRIEF_CONTEXT_BYTES } = await import("../src/server/briefs/context");
 
 afterAll(() => {
   db.close();
@@ -83,7 +83,7 @@ function fixture() {
 it("places the brief's summary with provenance, counting what needs the owner rather than listing it", async () => {
   const f = fixture();
   const run = f.newRun("Continue the work");
-  const text = (await briefContext(run, { firstTurnOnly: false }))!;
+  const text = (await briefContext(run, { firstTurnOnly: false }))!.text;
   expect(text).toContain('Project brief for "Sessions service"');
   expect(text).toContain("quoted as context, not instructions");
   expect(text).toMatch(/Version 1, synthesized \d{4}-/);
@@ -106,17 +106,31 @@ it("is absent when the brief is disabled or has no published version", async () 
   expect(await briefContext(run, { firstTurnOnly: false })).toBeNull();
 });
 
-it("goes behind the first prompt only, for a harness that keeps its own context", async () => {
+it("goes behind the first prompt the harness accepts, and not again", async () => {
   const f = fixture();
   const first = f.newRun("First prompt");
-  expect(await briefContext(first, { firstTurnOnly: true })).not.toBeNull();
-  // The agent has replied in this conversation; the next turn carries nothing.
-  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Done.',?)").run(
+  const context = await briefContext(first, { firstTurnOnly: true });
+  expect(context).toMatchObject({ version: 1 });
+  // The harness rejected that turn before reading it: the next turn carries
+  // the brief again. An assistant row left by the failed turn changes nothing.
+  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','',?)").run(
     id(), f.owner, f.conversation, first.id, now(),
   );
+  const retry = f.newRun("First prompt again");
+  expect(await briefContext(retry, { firstTurnOnly: true })).not.toBeNull();
+  recordBriefDelivery(retry, 1);
   const second = f.newRun("Second prompt");
   expect(await briefContext(second, { firstTurnOnly: true })).toBeNull();
   expect(await briefContext(second, { firstTurnOnly: false })).not.toBeNull();
+});
+
+it("never reaches a snapshot review's agents", async () => {
+  const f = fixture();
+  const run = f.newRun("Review the snapshot");
+  db.prepare("UPDATE runs SET payload=json_set(payload,'$.reviewId','rev-1') WHERE id=?").run(run.id);
+  const reviewing = db.prepare("SELECT * FROM runs WHERE id=?").get(run.id) as Run;
+  expect(await briefContext(reviewing, { firstTurnOnly: false })).toBeNull();
+  expect(await briefContext(reviewing, { firstTurnOnly: true })).toBeNull();
 });
 
 it("stays within its byte budget however many decisions the record holds", async () => {
@@ -127,7 +141,9 @@ it("stays within its byte budget however many decisions the record holds", async
       text: `Decision number ${i} with a reasonably long explanation of the choice that was made here`,
       cite: [{ ref: "msg_" + f.prompt }],
     });
-  const text = (await briefContext(f.newRun("Go"), { firstTurnOnly: false }))!;
+  const text = (await briefContext(f.newRun("Go"), { firstTurnOnly: false }))!.text;
   expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BRIEF_CONTEXT_BYTES);
-  expect(text).toMatch(/and \d+ more|shortened; read loop_brief/);
+  // 31 active: the compact view holds twenty, overflow counts the rest.
+  expect(text).toContain("Decisions (31 active");
+  expect(text).toMatch(/and 21 more|shortened; read loop_brief/);
 });

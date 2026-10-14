@@ -4,7 +4,7 @@ import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { completeCheckout, startCheckout } from "./run-checkouts.js";
 import { observeCompletedOutput } from "./run-verifications.js";
-import { briefContext } from "./briefs/context.js";
+import { briefContext, recordBriefDelivery } from "./briefs/context.js";
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
@@ -1736,10 +1736,13 @@ export class NativeSessions {
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
-          brief ? `${input}\n\n---\n${brief}` : input,
+          brief ? `${input}\n\n---\n${brief.text}` : input,
           attachedFiles(run.owner_id, snapshot.attachmentIds || []),
         ),
       );
+      // Recorded only once the harness accepted the prompt: a rejected turn
+      // leaves the next one to carry the brief again.
+      if (brief) recordBriefDelivery(run, brief.version);
       db.prepare(
         "UPDATE native_dispatch SET state='accepted' WHERE run_id=? AND state='unknown'",
       ).run(run.id);

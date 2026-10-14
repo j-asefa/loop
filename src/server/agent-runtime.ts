@@ -940,7 +940,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
               bindings,
               history.findLast((m) => m.role === "user")?.content,
             ),
-            await briefContext(run, { firstTurnOnly: false }),
+            (await briefContext(run, { firstTurnOnly: false }))?.text,
           ]
             .filter(Boolean)
             .join("\n\n"),

@@ -24,13 +24,16 @@ function utf8Prefix(text: string, bytes: number) {
 }
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
+export type BriefContext = { text: string; version: number };
+
 /**
  * The text for a run, or null when the run's project has no enabled brief
- * or no published version. With firstTurnOnly, null again once the
- * conversation has an assistant reply from an earlier run: a harness
- * keeps its own context across turns.
+ * or no published version, or when the run is a snapshot review: reviewers
+ * see only their captured snapshot, never the live record. With
+ * firstTurnOnly, null again once the brief has been delivered to the
+ * conversation's harness, which keeps its own context across turns.
  */
-export async function briefContext(run: Run, options: { firstTurnOnly: boolean }): Promise<string | null> {
+export async function briefContext(run: Run, options: { firstTurnOnly: boolean }): Promise<BriefContext | null> {
   // Loaded here rather than at the top: the brief modules reach the native
   // tool registry, which the runtime path also loads, and a static import
   // from the runtime would change the evaluation order of that cycle.
@@ -40,13 +43,16 @@ export async function briefContext(run: Run, options: { firstTurnOnly: boolean }
     import("./serve.js"),
   ]);
   if (!run.conversation_id || !agentBriefAccess(run)) return null;
+  let payload: { reviewId?: unknown } = {};
+  try {
+    payload = JSON.parse(run.payload);
+  } catch {}
+  if (payload.reviewId) return null;
   if (options.firstTurnOnly) {
-    const replied = db
-      .prepare(
-        "SELECT 1 FROM messages WHERE owner_id=? AND conversation_id=? AND role='assistant' AND (run_id IS NULL OR run_id<>?) LIMIT 1",
-      )
-      .get(run.owner_id, run.conversation_id, run.id);
-    if (replied) return null;
+    const delivered = db
+      .prepare("SELECT 1 FROM brief_deliveries WHERE conversation_id=? AND owner_id=?")
+      .get(run.conversation_id, run.owner_id);
+    if (delivered) return null;
   }
   let project: string;
   try {
@@ -72,23 +78,37 @@ export async function briefContext(run: Run, options: { firstTurnOnly: boolean }
     lines.push("State:");
     for (const item of brief.state.slice(0, MAX_STATE)) lines.push(`- ${oneLine(item.text)}`);
   }
+  // The compact view holds a bounded selection; overflow counts the rest.
   const decisions = brief.decisions.filter((d) => d.status === "active");
-  if (decisions.length) {
-    lines.push(`Decisions (${decisions.length} active; ids for loop_brief):`);
+  const totalDecisions = decisions.length + brief.overflow.decisions;
+  if (totalDecisions) {
+    lines.push(`Decisions (${totalDecisions} active; ids for loop_brief):`);
     for (const d of decisions.slice(0, MAX_DECISIONS))
       lines.push(`- [${d.id}] ${oneLine(d.text)}${d.why ? ` — ${oneLine(d.why)}` : ""}`);
-    if (decisions.length > MAX_DECISIONS) lines.push(`- …and ${decisions.length - MAX_DECISIONS} more`);
+    if (totalDecisions > MAX_DECISIONS) lines.push(`- …and ${totalDecisions - MAX_DECISIONS} more`);
   }
-  if (brief.open_questions.length)
-    lines.push(`Open questions: ${brief.open_questions.length} (read them through loop_brief before proposing what they already ask).`);
-  if (brief.unfinished.length) lines.push(`Unfinished work: ${brief.unfinished.length} item${brief.unfinished.length === 1 ? "" : "s"}.`);
+  const questions = brief.open_questions.length + brief.overflow.open_questions;
+  if (questions) lines.push(`Open questions: ${questions} (read them through loop_brief before proposing what they already ask).`);
+  const unfinished = brief.unfinished.length + brief.overflow.unfinished;
+  if (unfinished) lines.push(`Unfinished work: ${unfinished} item${unfinished === 1 ? "" : "s"}.`);
   lines.push(
     brief.needs_you.length
       ? `Needs the owner now: ${brief.needs_you.length} item${brief.needs_you.length === 1 ? "" : "s"} (live only when read through loop_brief).`
       : "Needs the owner now: nothing as of this synthesis (live only when read through loop_brief).",
   );
   const text = lines.join("\n");
-  return Buffer.byteLength(text) > BRIEF_CONTEXT_BYTES
-    ? utf8Prefix(text, BRIEF_CONTEXT_BYTES - 32).replace(/\n[^\n]*$/, "") + "\n- …(shortened; read loop_brief)"
-    : text;
+  const suffix = "\n- …(shortened; read loop_brief)";
+  const bounded =
+    Buffer.byteLength(text) > BRIEF_CONTEXT_BYTES
+      ? utf8Prefix(text, BRIEF_CONTEXT_BYTES - Buffer.byteLength(suffix)).replace(/\n[^\n]*$/, "") + suffix
+      : text;
+  return { text: bounded, version: brief.version };
+}
+
+/** The harness has received the brief behind a prompt it accepted. */
+export function recordBriefDelivery(run: Run, version: number) {
+  if (!run.conversation_id) return;
+  db.prepare(
+    "INSERT INTO brief_deliveries(conversation_id,owner_id,run_id,version,delivered_at) VALUES(?,?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET run_id=excluded.run_id,version=excluded.version,delivered_at=excluded.delivered_at",
+  ).run(run.conversation_id, run.owner_id, run.id, version, Date.now());
 }
