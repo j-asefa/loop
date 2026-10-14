@@ -149,6 +149,39 @@ function mixedTeam(owner: string) {
   return { manager, coder, piWorker, openWorker, team };
 }
 
+it("tracks teammate-triggered work in delegated conversations", async () => {
+  const owner = "mail-working-feed";
+  const { manager, coder, team } = mixedTeam(owner);
+  const lead = running(owner, manager.id, { teamId: team.id });
+  const child = running(owner, coder.id, { teamId: team.id });
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,1)",
+  ).run(lead.id, "feed-child", child.id, "{}");
+  const sent = await message(lead, {
+    to: coder.id, body: "Use the updated requirements", interrupt: true,
+  });
+  expect(sent).toMatchObject({ delivery: "steered" });
+  const working = feed(owner, { filter: "working" });
+  expect(working.items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ conversation_id: child.conversation_id, run: expect.objectContaining({ id: child.id, state: "running" }) }),
+  ]));
+  expect(working.summary.working).toBe(2);
+  expect(feed(owner, { filter: "done" }).summary.working).toBe(2);
+  expect(feed("other-owner", { filter: "working" }).items).toEqual([]);
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(child.id);
+  // A queued message wakes the same worker conversation as a new turn.
+  const followUp = await message(lead, { to: coder.id, body: "Check the final result", threadId: (sent as any).threadId });
+  expect(followUp).toMatchObject({ delivery: "new_turn" });
+  const followUpRun = mail((followUp as any).messageId).run_id;
+  db.prepare("UPDATE runs SET state='running',worker_id='fixture-worker' WHERE id=?").run(followUpRun);
+  expect(feed(owner, { filter: "working" }).items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ conversation_id: child.conversation_id, run: expect.objectContaining({ id: followUpRun }) }),
+  ]));
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(followUpRun);
+  expect(feed(owner, { filter: "working" }).summary.working).toBe(1);
+  expect(feed(owner, { filter: "done" }).items.some((item) => item.conversation_id === child.conversation_id)).toBe(true);
+});
+
 it.each(["refused", "cancelled", "failed", "interrupted"])(
   "keeps %s mail out of later API context, memory and file access",
   async (outcome) => {
