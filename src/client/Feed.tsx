@@ -37,9 +37,12 @@ import {
 import { apiInWorkspace } from "./api";
 import { CheckoutChip, CheckoutSheet } from "./Checkout";
 import { VerificationChip, VerificationSheet } from "./Verification";
+import { PullStateChip } from "./PullState";
+import { openPull } from "./PullRequests";
+import type { PullState } from "../shared/pull-state";
 import type { CheckoutSummary } from "../shared/checkout";
 import type { VerificationSummary } from "../shared/verification";
-import { sourceUrl } from "./sourceRouting";
+import { executionSourceId, sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
   EnvironmentConnection,
@@ -144,6 +147,8 @@ export type FeedItem = {
   }[];
   /** What a working agent has written so far. */
   live_preview?: string | null;
+  /** The thread's pull request as its watch last saw it. */
+  pull?: PullState | null;
   pending_approvals: number;
   position_message_id: string | null;
   later: {
@@ -214,6 +219,7 @@ function FeedCard({
   onLater,
   onCheckout,
   onVerification,
+  onPull,
 }: {
   item: FeedItem;
   agent?: EnvironmentAgent;
@@ -232,6 +238,8 @@ function FeedCard({
   onCheckout?: () => void;
   /** Open the verification Loop observed for the card's run. */
   onVerification?: () => void;
+  /** Open the thread's pull request. */
+  onPull?: () => void;
 }) {
   const scopedSource = useSourceId();
   const swipe = useSwipe({ onLeft: onDismiss });
@@ -368,6 +376,10 @@ function FeedCard({
                 onOpen={item.run.verification ? onVerification : undefined}
               />
             )}
+          {(item.pull ||
+            (item.pull === null && item.run?.checkout && terminalStates.includes(item.run.state))) && (
+            <PullStateChip state={item.pull ?? null} onOpen={item.pull ? onPull : undefined} />
+          )}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
             <div className="preview live-preview">
@@ -1511,6 +1523,13 @@ export function Feed({
         }
         onVerification={() =>
           setVerification({ runId: item.run!.id, sourceId: source })
+        }
+        onPull={
+          // The Pull requests tab reads the shell's own GitHub connection;
+          // a card from a linked source stays informational.
+          item.pull && source === (executionSourceId() || "")
+            ? () => openPull({ owner: item.pull!.repo_owner, repo: item.pull!.repo_name, number: item.pull!.number })
+            : undefined
         }
       />
     );

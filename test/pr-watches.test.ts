@@ -366,10 +366,25 @@ it("pauses after the hourly limit without losing updates, and resumes", async ()
       "INSERT INTO pr_watch_deliveries(watch_id,run_id,created_at) VALUES(?,?,?)",
     ).run(watchId, "done-" + i, time);
   github.comments.push({ id: 12, user: { login: "sam" }, body: "Any update?" });
+  // The same head's checks now conclude the other way; that result waits
+  // for Resume.
+  const stored = db.prepare("SELECT ci_conclusion FROM pr_watches WHERE id=?").get(watchId) as { ci_conclusion: string | null };
+  github.checks = [
+    { id: 9, name: "test", status: "completed", conclusion: stored.ci_conclusion === "failure" ? "success" : "failure" },
+  ];
   expect(await pollWatch(watchId, time)).toBe("paused");
   const paused = await api("/pr-watches?conversation=" + conversation);
   expect(paused.data.watches[0]).toMatchObject({ state: "paused" });
   expect(paused.data.watches[0].error).toMatch(/Paused after 5 updates/);
+  // The observation itself is kept: what head the read saw, and when. The
+  // stored conclusion is the old one, so it is marked not concluded rather
+  // than shown as current.
+  expect(typeof paused.data.watches[0].head_sha).toBe("string");
+  expect(paused.data.watches[0].read_at).toBeGreaterThanOrEqual(time);
+  expect(paused.data.watches[0].ci_pending).toBe(0);
+  // The result seen is recorded apart from the result delivered.
+  expect(paused.data.watches[0].seen_ci_conclusion).toBe(stored.ci_conclusion === "failure" ? "success" : "failure");
+  expect(paused.data.watches[0].ci_conclusion).toBe(stored.ci_conclusion);
   expect((await api(`/pr-watches/${watchId}/resume`, "POST")).data).toEqual({ ok: true });
   expect(await pollWatch(watchId)).toBe("delivered");
   const update = deliveries(conversation).at(-1)!;

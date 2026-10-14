@@ -6,7 +6,7 @@ import { parse } from "./api";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { openPull } from "./PullRequests";
 
-type Watch = {
+export type Watch = {
   id: string;
   repo_owner: string;
   repo_name: string;
@@ -14,13 +14,24 @@ type Watch = {
   state: "watching" | "paused" | "stopped";
   ended_reason: string | null;
   error: string | null;
+  head_sha: string | null;
+  ci_sha: string | null;
+  ci_conclusion: string | null;
+  ci_pending: number;
+  read_at: number | null;
+  seen_ci_sha: string | null;
+  seen_ci_conclusion: string | null;
+  updated_at: number;
 };
 const WATCH_CHANGE = "loop-pr-watch-change";
 
-// The thread's watches, kept current while a card shows them.
-function useWatches(conversation: string | null | undefined) {
+// The thread's watches, kept current while a card shows them, with whether
+// the list is confirmed: an empty list while loading or after a failed
+// request is not "no watch".
+export function useWatchState(conversation: string | null | undefined) {
   const api = useSourceApi();
   const [watches, setWatches] = useState<Watch[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   useEffect(() => {
     if (!conversation) return;
     let live = true;
@@ -28,8 +39,12 @@ function useWatches(conversation: string | null | undefined) {
       api<{ watches: Watch[] }>(
         "/pr-watches?conversation=" + encodeURIComponent(conversation),
       )
-        .then((r) => live && setWatches(r.watches))
-        .catch(() => {});
+        .then((r) => {
+          if (!live) return;
+          setWatches(r.watches);
+          setStatus("ready");
+        })
+        .catch(() => live && setStatus("failed"));
     void load();
     window.addEventListener(WATCH_CHANGE, load);
     const timer = setInterval(load, 60_000);
@@ -39,7 +54,10 @@ function useWatches(conversation: string | null | undefined) {
       clearInterval(timer);
     };
   }, [conversation]);
-  return watches;
+  return { watches, status };
+}
+export function useWatches(conversation: string | null | undefined) {
+  return useWatchState(conversation).watches;
 }
 
 /**

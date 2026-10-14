@@ -1,5 +1,6 @@
 import { recordChange } from "./project-changes.js";
 import { createdPullRequest } from "../shared/pr-command.js";
+import { pullStateFromWatch, type PullState, type WatchRow } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -47,6 +48,10 @@ export type PrWatch = {
   review_cursor: number;
   since_at: number | null;
   next_poll_at: number;
+  ci_pending: number;
+  read_at: number | null;
+  seen_ci_sha: string | null;
+  seen_ci_conclusion: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -99,10 +104,10 @@ const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>
 export function watchesFor(owner: string, conversation?: string) {
   return db
     .prepare(
-      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,created_at,updated_at
+      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion,created_at,updated_at
       FROM pr_watches WHERE owner_id=? AND (? IS NULL OR conversation_id=?)
         AND (state IN ('watching','paused') OR updated_at>?)
-      ORDER BY created_at DESC LIMIT 100`,
+      ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 100`,
     )
     .all(
       owner,
@@ -111,6 +116,23 @@ export function watchesFor(owner: string, conversation?: string) {
       // Recently ended watches stay listed so a card can say why it stopped.
       now() - 7 * 24 * 3600_000,
     );
+}
+
+/**
+ * The thread's pull request for its card: the active watch, or the most
+ * recently ended one within a week, so a merged or closed PR still shows
+ * how it ended. Null when the thread has no watched pull request.
+ */
+export function pullStatus(owner: string, conversation: string): PullState | null {
+  const watch = db
+    .prepare(
+      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion
+       FROM pr_watches WHERE owner_id=? AND conversation_id=?
+         AND (state IN ('watching','paused') OR updated_at>?)
+       ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 1`,
+    )
+    .get(owner, conversation, now() - 7 * 24 * 3600_000) as WatchRow | undefined;
+  return watch ? pullStateFromWatch(watch) : null;
 }
 
 /** Register only a PR created by this run, using the trusted tool result. */
@@ -306,6 +328,9 @@ type Comment = {
 type Update = {
   // The finished CI result to record, and to report when it is news.
   ciState?: { sha: string; conclusion: "success" | "failure" };
+  // Checks for the head had not all finished at this read (or none exist
+  // yet): a rerun on the same head is pending, not its last conclusion.
+  ciPending: boolean;
   ci?: {
     sha: string;
     conclusion: "success" | "failure";
@@ -411,6 +436,7 @@ async function read(watch: PrWatch, token: string) {
     ).check_suites.some(
       (s) => (s.latest_check_runs_count ?? 1) > 0 && s.status !== "completed",
     );
+  const ciPending = !finished;
   if (finished) {
     const failed = runs.filter((c) => FAILED.has(c.conclusion || ""));
     const conclusion = failed.length ? "failure" : "success";
@@ -491,6 +517,7 @@ async function read(watch: PrWatch, token: string) {
   const update: Update = {
     ci,
     ciState,
+    ciPending,
     head,
     comments: quoted(comments),
     reviewComments: quoted(reviewComments),
@@ -645,10 +672,14 @@ export async function pollWatch(watchId: string, time = now()) {
       const already = db.prepare(
         "SELECT 1 FROM pr_watch_seen WHERE watch_id=? AND kind=? AND item_id=?",
       );
+      // A read that another poll has since superseded is dropped whole: its
+      // observation (head, pending checks, read time) is older than what
+      // the watch already holds, even when the conclusion fields agree.
       if (
         !current ||
         current.ci_sha !== watch.ci_sha ||
         current.ci_conclusion !== watch.ci_conclusion ||
+        current.read_at !== watch.read_at ||
         update.seen.some((item) => already.get(watch.id, item.kind, item.id))
       )
         return "skipped";
@@ -659,12 +690,18 @@ export async function pollWatch(watchId: string, time = now()) {
         for (const item of update.seen) mark.run(watch.id, item.kind, item.id);
         db.prepare(
           `UPDATE pr_watches SET login=?,head_sha=?,
-            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),error=NULL,updated_at=? WHERE id=?`,
+            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),
+            seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),
+            ci_pending=?,read_at=?,error=NULL,updated_at=? WHERE id=?`,
         ).run(
           login,
           update.head,
           update.ciState?.sha ?? null,
           update.ciState?.conclusion ?? null,
+          update.ciState?.sha ?? null,
+          update.ciState?.conclusion ?? null,
+          update.ciPending ? 1 : 0,
+          now(),
           now(),
           watch.id,
         );
@@ -679,7 +716,19 @@ export async function pollWatch(watchId: string, time = now()) {
         )
         .get(watch.id, time - 3600_000) as { n: number };
       if (recent.n >= TURNS_PER_HOUR) {
-        // Record nothing, so the update is still there after Resume.
+        // Record what this read observed (the head, its result, whether its
+        // checks had finished, and when) apart from the delivered result and
+        // the items, which still wait for Resume.
+        db.prepare(
+          "UPDATE pr_watches SET head_sha=?,seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),ci_pending=?,read_at=? WHERE id=?",
+        ).run(
+          update.head,
+          update.ciState?.sha ?? null,
+          update.ciState?.conclusion ?? null,
+          update.ciPending ? 1 : 0,
+          now(),
+          watch.id,
+        );
         pause(
           watch,
           `Paused after ${TURNS_PER_HOUR} updates in an hour. Resume to keep watching.`,
