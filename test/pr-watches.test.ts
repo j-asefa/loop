@@ -366,8 +366,12 @@ it("pauses after the hourly limit without losing updates, and resumes", async ()
       "INSERT INTO pr_watch_deliveries(watch_id,run_id,created_at) VALUES(?,?,?)",
     ).run(watchId, "done-" + i, time);
   github.comments.push({ id: 12, user: { login: "sam" }, body: "Any update?" });
-  // The same head's checks now fail; that result waits for Resume.
-  github.checks = [{ id: 9, name: "test", status: "completed", conclusion: "failure" }];
+  // The same head's checks now conclude the other way; that result waits
+  // for Resume.
+  const stored = db.prepare("SELECT ci_conclusion FROM pr_watches WHERE id=?").get(watchId) as { ci_conclusion: string | null };
+  github.checks = [
+    { id: 9, name: "test", status: "completed", conclusion: stored.ci_conclusion === "failure" ? "success" : "failure" },
+  ];
   expect(await pollWatch(watchId, time)).toBe("paused");
   const paused = await api("/pr-watches?conversation=" + conversation);
   expect(paused.data.watches[0]).toMatchObject({ state: "paused" });
