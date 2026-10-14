@@ -114,6 +114,18 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
   // A command long enough to have been cut by the reporting adapter.
   expect(tools("npm test" + " ".repeat(2500) + "|| true")).toEqual([]);
   expect(tools("npm test" + " ".repeat(2500))).toEqual([]);
+  // The wrapper's script is parsed as strictly as a bare command.
+  expect(tools("bash -c 'npm test\ntrue'")).toEqual([]);
+  expect(tools("bash -c 'set -n && npm test'")).toEqual([]);
+  expect(tools("bash -c 'set -o noexec && npm test'")).toEqual([]);
+  expect(tools("set -euo pipefail && npm test")).toEqual(["test:npm test"]);
+  // Multipurpose tools need their test subcommand; executors are seen through.
+  expect(tools("npx playwright install-deps")).toEqual([]);
+  expect(tools("npx playwright test e2e/")).toEqual(["test:playwright test"]);
+  expect(tools("cypress open")).toEqual([]);
+  expect(tools("cypress run")).toEqual(["test:cypress run"]);
+  expect(tools("pnpm dlx vitest run")).toEqual(["test:vitest"]);
+  expect(tools("npx --yes vitest run")).toEqual(["test:vitest"]);
 });
 
 it("keeps pull request detection as lenient as before", () => {

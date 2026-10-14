@@ -27,7 +27,7 @@ export type VerificationSummary = {
 
 type Classified = { kind: VerificationKind; tool: string };
 const TEST_TOOLS = new Set([
-  "vitest", "jest", "mocha", "ava", "tap", "pytest", "rspec", "phpunit", "tox", "nox", "cypress", "playwright",
+  "vitest", "jest", "mocha", "ava", "tap", "pytest", "rspec", "phpunit", "tox", "nox",
 ]);
 const TYPECHECK_TOOLS = new Set(["tsc", "mypy", "pyright"]);
 const LINT_TOOLS = new Set(["eslint", "ruff", "flake8", "pylint", "biome", "stylelint", "golangci-lint", "rubocop"]);
@@ -58,6 +58,8 @@ function classifySegment(tokens: string[]): Classified | null {
   const tool = strip(argv[0]);
   const sub = argv[1] ?? "";
   const has = (flag: string) => argv.slice(1).includes(flag);
+  if (tool === "pnpm" && sub === "dlx") return classifySegment(argv.slice(2));
+  if (tool === "yarn" && sub === "dlx") return classifySegment(argv.slice(2));
   if (["npm", "pnpm", "yarn", "bun"].includes(tool)) {
     const script = sub === "run" || sub === "run-script" ? (argv[2] ?? "") : sub;
     if (script === "test" || script === "t") return { kind: "test", tool: `${tool} test` };
@@ -67,8 +69,14 @@ function classifySegment(tokens: string[]): Classified | null {
     }
     return null;
   }
-  if (["npx", "pnpx", "bunx", "pnpm dlx"].includes(tool)) return classifySegment(argv.slice(1).map((t) => t));
+  if (["npx", "pnpx", "bunx"].includes(tool)) {
+    let j = 1;
+    while (j < argv.length && /^-/.test(argv[j]) && !["-p", "--package", "-c", "--call"].includes(argv[j])) j++;
+    return classifySegment(argv.slice(j));
+  }
   if (TEST_TOOLS.has(tool)) return { kind: "test", tool };
+  if (tool === "playwright" && sub === "test") return { kind: "test", tool: "playwright test" };
+  if (tool === "cypress" && sub === "run") return { kind: "test", tool: "cypress run" };
   if (TYPECHECK_TOOLS.has(tool)) return { kind: "typecheck", tool };
   if (LINT_TOOLS.has(tool)) return { kind: "lint", tool };
   if (tool === "node" && has("--test")) return { kind: "test", tool: "node --test" };
@@ -123,7 +131,7 @@ export function classifyVerification(command: string): Classified[] {
     /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") &&
     /^-[eilx]*c$/.test(tokens[1] || "")
   )
-    tokens = shellWords(tokens[2] || "");
+    tokens = shellWords(tokens[2] || "", { strict: true });
   if (!tokens?.length) return [];
   const segments: string[][] = [[]];
   for (const token of tokens) {
@@ -136,7 +144,12 @@ export function classifyVerification(command: string): Classified[] {
     while (i < segment.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(segment[i])) i++;
     return strip(segment[i] ?? "");
   };
-  if (segments.some((segment) => TERMINATING.has(head(segment)))) return [];
+  const noExec = (segment: string[]) => {
+    if (head(segment) !== "set") return false;
+    const args = segment.slice(segment.indexOf(segment.find((t) => strip(t) === "set")!) + 1);
+    return args.some((a, k) => /^-[a-zA-Z]*n/.test(a) || (a === "-o" && args[k + 1] === "noexec"));
+  };
+  if (segments.some((segment) => TERMINATING.has(head(segment)) || noExec(segment))) return [];
   const found: Classified[] = [];
   for (const segment of segments) {
     if (!segment.length || head(segment) === "cd") continue;
@@ -151,7 +164,7 @@ export function chainLength(command: string) {
   let tokens = shellWords(command, { strict: true });
   if (!tokens) return 0;
   if (tokens.length === 3 && /^(?:\/bin\/)?(?:bash|sh|zsh)$/.test(tokens[0] || "") && /^-[eilx]*c$/.test(tokens[1] || ""))
-    tokens = shellWords(tokens[2] || "");
+    tokens = shellWords(tokens[2] || "", { strict: true });
   if (!tokens?.length) return 0;
   return tokens.filter((t) => t === null).length + 1;
 }
