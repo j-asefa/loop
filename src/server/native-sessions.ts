@@ -1759,6 +1759,9 @@ export class NativeSessions {
         return true;
       }
       transition(run, state === "interrupted" ? "interrupted" : "failed");
+      // An interrupt that timed out resolved before disposal finished; the
+      // process may still write until it is terminated.
+      recaptureAfterStop(run);
       return false;
     } catch (error) {
       this.projectOutput(live, true);

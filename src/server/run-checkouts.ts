@@ -288,6 +288,8 @@ async function isolate(directory: string): Promise<Iso> {
         await copyFile(join(own, name), join(gitDir, name));
     await cp(join(common, "refs"), join(gitDir, "refs"), { recursive: true }).catch(() => mkdir(join(gitDir, "refs")));
     await copyFile(join(common, "packed-refs"), join(gitDir, "packed-refs")).catch(() => {});
+    // A shallow clone's history boundary, so walks stop where Git's do.
+    await copyFile(join(common, "shallow"), join(gitDir, "shallow")).catch(() => {});
     // Repository-local exclusions, so ignored build output stays ignored.
     await mkdir(join(gitDir, "info"));
     await copyFile(join(common, "info", "exclude"), join(gitDir, "info", "exclude")).catch(() => {});

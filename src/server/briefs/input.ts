@@ -1,4 +1,4 @@
-import { checkoutDetail, checkoutLine } from "../run-checkouts.js";
+import { checkoutContent, checkoutDetail } from "../run-checkouts.js";
 import { db } from "../db.js";
 import { resolveCite } from "./cites.js";
 import { synthesisKinds, type Cite, type Item } from "./schema.js";
@@ -66,8 +66,11 @@ function eventText(owner: string, project: string, event: Event): string {
       const checkout = source.runId ? checkoutDetail(owner, source.runId) : null;
       // Only an ended capture: a record still in progress would change
       // under the citation.
+      // The record's own text, caveats included (changes present before the
+      // run, other runs on the checkout, a late capture, filtered files),
+      // bounded, so the generator can qualify what the run itself did.
       const observed = checkout?.summary && checkout.ended_at
-        ? `\n  Checkout [chk_${checkout.id}] observed by Loop: ${checkoutLine(checkout.summary)}`
+        ? `\n  Checkout [chk_${checkout.id}] observed by Loop:\n${quoted(utf8Prefix(checkoutContent(checkout), 2000))}`
         : "";
       return `[${ref}] ${time} result by ${source.agent ?? "unknown"} ${location}:\n${quoted(content)}${observed}`;
     }
