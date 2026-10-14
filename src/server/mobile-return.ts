@@ -1,5 +1,6 @@
 import { checkoutSummary } from "./run-checkouts.js";
 import { verificationSummary } from "./run-verifications.js";
+import { pullStatus } from "./pr-watches.js";
 import { recordChange } from "./project-changes.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
@@ -612,6 +613,11 @@ function feedItem(
       : null,
     // Queued follow-ups, listed separately so they stay manageable while
     // the thread's current run is still working.
+    // The thread's pull request as its watch last saw it; absent without one.
+    ...(() => {
+      const pull = pullStatus(owner, row.conversation_id);
+      return pull ? { pull } : {};
+    })(),
     queued_runs: (mode === "done" || !row.queued
       ? []
       : (db

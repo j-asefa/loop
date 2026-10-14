@@ -9709,3 +9709,9 @@ span.verification-chip { cursor: default; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* The thread's pull request as its watch last saw it. */
+.pull-state-chip.pull-state-passed .lucide { color: var(--green); }
+.pull-state-chip.pull-state-failed .lucide { color: var(--diff-removed); }
+.pull-state-chip.pull-state-none { opacity: 0.75; }
+span.pull-state-chip { cursor: default; }

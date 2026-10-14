@@ -49,6 +49,10 @@ import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
 import { CheckoutChip, CheckoutSheet } from "./Checkout";
 import { VerificationChip, VerificationSheet } from "./Verification";
+import { PullStateChip } from "./PullState";
+import { useWatches } from "./PullRequestCard";
+import { openPull } from "./PullRequests";
+import { pullStateFromWatch } from "../shared/pull-state";
 import type { CheckoutSummary } from "../shared/checkout";
 import { summarize as summarizeVerification, type VerificationItem } from "../shared/verification";
 import { RunFiles } from "./PublishedFiles";
@@ -189,6 +193,15 @@ export function Conversation({
   onWork?: (work: ThreadWork | null) => void;
 }) {
   const api = useSourceApi();
+  // The thread's pull request, for the chip on its final message.
+  const watches = useWatches(id);
+  const pull = (() => {
+    const w =
+      watches.find((x) => x.state === "watching") ??
+      watches.find((x) => x.state === "paused") ??
+      watches[0];
+    return w ? pullStateFromWatch(w) : null;
+  })();
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const [data, setData] = useState<{
@@ -1479,6 +1492,18 @@ export function Conversation({
                           />
                         );
                       })()}
+                      {(pull ||
+                        (m.run_checkout &&
+                          ["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || ""))) && (
+                        <PullStateChip
+                          state={pull}
+                          onOpen={
+                            pull
+                              ? () => openPull({ owner: pull.repo_owner, repo: pull.repo_name, number: pull.number })
+                              : undefined
+                          }
+                        />
+                      )}
                       <RunStatus
                         state={m.run_state}
                         error={m.run_error}

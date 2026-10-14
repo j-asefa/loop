@@ -1,5 +1,6 @@
 import { recordChange } from "./project-changes.js";
 import { createdPullRequest } from "../shared/pr-command.js";
+import { pullStateFromWatch, type PullState, type WatchRow } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -111,6 +112,23 @@ export function watchesFor(owner: string, conversation?: string) {
       // Recently ended watches stay listed so a card can say why it stopped.
       now() - 7 * 24 * 3600_000,
     );
+}
+
+/**
+ * The thread's pull request for its card: the active watch, or the most
+ * recently ended one within a week, so a merged or closed PR still shows
+ * how it ended. Null when the thread has no watched pull request.
+ */
+export function pullStatus(owner: string, conversation: string): PullState | null {
+  const watch = db
+    .prepare(
+      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,updated_at
+       FROM pr_watches WHERE owner_id=? AND conversation_id=?
+         AND (state IN ('watching','paused') OR updated_at>?)
+       ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 1`,
+    )
+    .get(owner, conversation, now() - 7 * 24 * 3600_000) as WatchRow | undefined;
+  return watch ? pullStateFromWatch(watch) : null;
 }
 
 /** Register only a PR created by this run, using the trusted tool result. */

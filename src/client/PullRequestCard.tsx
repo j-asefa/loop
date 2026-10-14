@@ -6,7 +6,7 @@ import { parse } from "./api";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { openPull } from "./PullRequests";
 
-type Watch = {
+export type Watch = {
   id: string;
   repo_owner: string;
   repo_name: string;
@@ -14,11 +14,15 @@ type Watch = {
   state: "watching" | "paused" | "stopped";
   ended_reason: string | null;
   error: string | null;
+  head_sha: string | null;
+  ci_sha: string | null;
+  ci_conclusion: string | null;
+  updated_at: number;
 };
 const WATCH_CHANGE = "loop-pr-watch-change";
 
 // The thread's watches, kept current while a card shows them.
-function useWatches(conversation: string | null | undefined) {
+export function useWatches(conversation: string | null | undefined) {
   const api = useSourceApi();
   const [watches, setWatches] = useState<Watch[]>([]);
   useEffect(() => {
