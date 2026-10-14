@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFile, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db, id, now } from "./db.js";
@@ -107,7 +107,7 @@ export type CheckoutDetail = Omit<
   summary: CheckoutSummary | null;
 };
 
-type GitResult = { ok: boolean; out: string; truncated: boolean };
+type GitResult = { ok: boolean; code: number | null; out: string; truncated: boolean };
 /**
  * Where a capture command reads its repository state from. Commands that
  * inspect the working tree run against an isolated Git directory that Loop
@@ -118,8 +118,11 @@ type GitResult = { ok: boolean; out: string; truncated: boolean };
  * command runs, and nothing is written back to the repository.
  */
 type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void };
-/** Git's well-known empty tree: an attribute source that selects nothing. */
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+/** Git's well-known empty trees, an attribute source that selects nothing. */
+const EMPTY_TREE = {
+  sha1: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+  sha256: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+};
 // Second line behind the isolated directory: attributes come from the empty
 // tree, so no .gitattributes can select a filter, diff driver or text
 // conversion; monitoring, transports, credentials and prompts are disabled.
@@ -136,7 +139,6 @@ const SAFE = [
 const SAFE_ENV = {
   GIT_TERMINAL_PROMPT: "0",
   GIT_OPTIONAL_LOCKS: "0",
-  GIT_ATTR_SOURCE: EMPTY_TREE,
   GIT_NO_LAZY_FETCH: "1",
   GIT_SSH_COMMAND: "/bin/false",
   GIT_ASKPASS: "/bin/false",
@@ -152,15 +154,15 @@ function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult>
     let size = 0,
       truncated = false,
       settled = false;
-    const finish = (ok: boolean) => {
+    const finish = (ok: boolean, code: number | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ok, out: Buffer.concat(chunks).toString("utf8"), truncated });
+      resolve({ ok, code, out: Buffer.concat(chunks).toString("utf8"), truncated });
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(false);
+      finish(false, null);
     }, GIT_TIMEOUT_MS);
     child.stdout.on("data", (chunk: Buffer) => {
       if (truncated) return;
@@ -174,8 +176,8 @@ function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult>
       chunks.push(chunk);
       size += chunk.length;
     });
-    child.on("error", () => finish(false));
-    child.on("close", (code) => finish(truncated ? false : code === 0));
+    child.on("error", () => finish(false, null));
+    child.on("close", (code) => finish(!truncated && code === 0, truncated ? null : code));
   });
 }
 async function must(where: Iso, args: string[]) {
@@ -202,34 +204,59 @@ async function isolate(directory: string): Promise<Iso> {
   const common = await must(here, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   const own = await must(here, ["rev-parse", "--path-format=absolute", "--git-dir"]);
   const top = await must(here, ["rev-parse", "--show-toplevel"]);
-  const extensions = (await maybe(here, ["config", "--file", join(common, "config"), "--get-regexp", "-z", "^extensions\\."])) ?? "";
+  const branch = await maybe(here, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
+  const settings = (await maybe(here, ["config", "--file", join(common, "config"), "--list", "-z"])) ?? "";
   const config = ["[core]", "\trepositoryformatversion = 0", "\tbare = false"];
-  for (const entry of extensions.split("\0")) {
-    const [key, value] = entry.split("\n");
-    if (!key) continue;
+  // Carried over: the object format, and the tracking configuration that
+  // resolves @{upstream} to a remote-tracking ref (never a URL, transport,
+  // credential or promisor setting, so no fetch can happen).
+  const carried: [string, string][] = [];
+  let format: keyof typeof EMPTY_TREE = "sha1";
+  const tracking = branch
+    ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
+    : null;
+  for (const entry of settings.split("\0")) {
+    const split = entry.indexOf("\n");
+    if (split < 0) continue;
+    const key = entry.slice(0, split).toLowerCase(),
+      value = entry.slice(split + 1);
     if (key === "extensions.refstorage")
       throw new CheckoutError("Checkout capture does not support reftable repositories");
     if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
       config[1] = "\trepositoryformatversion = 1";
-      config.push("[extensions]", `\t${key.slice("extensions.".length)} = ${value}`);
-    }
+      carried.push([key, value]);
+      if (key === "extensions.objectformat" && value === "sha256") format = "sha256";
+    } else if (tracking?.test(key)) carried.push([key, value]);
   }
-  const gitDir = mkdtempSync(join(tmpdir(), "loop-checkout-"));
-  const cleanup = () => rmSync(gitDir, { recursive: true, force: true });
+  const gitDir = await mkdtemp(join(tmpdir(), "loop-checkout-"));
+  const cleanup = () => {
+    void rm(gitDir, { recursive: true, force: true }).catch(() => {});
+  };
   try {
-    mkdirSync(join(gitDir, "objects", "info"), { recursive: true });
-    writeFileSync(join(gitDir, "objects", "info", "alternates"), join(common, "objects") + "\n");
-    writeFileSync(join(gitDir, "config"), config.join("\n") + "\n");
-    copyFileSync(join(own, "HEAD"), join(gitDir, "HEAD"));
-    if (existsSync(join(own, "index"))) copyFileSync(join(own, "index"), join(gitDir, "index"));
-    if (existsSync(join(common, "refs"))) cpSync(join(common, "refs"), join(gitDir, "refs"), { recursive: true });
-    else mkdirSync(join(gitDir, "refs"));
-    if (existsSync(join(common, "packed-refs"))) copyFileSync(join(common, "packed-refs"), join(gitDir, "packed-refs"));
+    await mkdir(join(gitDir, "objects", "info"), { recursive: true });
+    await writeFile(join(gitDir, "objects", "info", "alternates"), join(common, "objects") + "\n");
+    await writeFile(join(gitDir, "config"), config.join("\n") + "\n");
+    const settingsFile = plain(gitDir);
+    for (const [key, value] of carried)
+      await must(settingsFile, ["config", "--file", join(gitDir, "config"), "--add", key, value]);
+    await copyFile(join(own, "HEAD"), join(gitDir, "HEAD"));
+    // The index and, for a split index, the shared part it refers to.
+    for (const name of await readdir(own).catch(() => [] as string[]))
+      if (name === "index" || name.startsWith("sharedindex."))
+        await copyFile(join(own, name), join(gitDir, name));
+    await cp(join(common, "refs"), join(gitDir, "refs"), { recursive: true }).catch(() => mkdir(join(gitDir, "refs")));
+    await copyFile(join(common, "packed-refs"), join(gitDir, "packed-refs")).catch(() => {});
   } catch (error) {
     cleanup();
-    throw new CheckoutError("Checkout capture could not prepare an isolated Git directory");
+    throw error instanceof CheckoutError
+      ? error
+      : new CheckoutError("Checkout capture could not prepare an isolated Git directory");
   }
-  return { directory, env: { GIT_DIR: gitDir, GIT_WORK_TREE: top }, cleanup };
+  return {
+    directory,
+    env: { GIT_DIR: gitDir, GIT_WORK_TREE: top, GIT_ATTR_SOURCE: EMPTY_TREE[format] },
+    cleanup,
+  };
 }
 
 async function status(where: Iso) {
@@ -319,7 +346,10 @@ async function remote(where: Iso, branch: string, head: string): Promise<Checkou
   if (!ref) return null;
   const sha = await maybe(where, ["rev-parse", "--verify", "--quiet", ref]);
   if (!sha) return null;
-  const contains = (await git(where, ["merge-base", "--is-ancestor", head, sha])).ok;
+  // Exit 0 means the remote ref contains HEAD, 1 that it does not; anything
+  // else (a missing object, a timeout) is not an answer.
+  const ancestry = await git(where, ["merge-base", "--is-ancestor", head, sha]);
+  const contains = ancestry.code === 0 ? true : ancestry.code === 1 ? false : null;
   return { ref, sha, contains_head: contains, observed_at: now() };
 }
 
@@ -338,7 +368,7 @@ function summarize(row: CheckoutRow): CheckoutSummary {
     additions: files.reduce((n, f) => n + f.additions, 0),
     deletions: files.reduce((n, f) => n + f.deletions, 0),
     untracked: untracked.length,
-    remote: !seen ? "none" : seen.contains_head ? "contains" : "missing",
+    remote: !seen ? "none" : seen.contains_head === null ? "unknown" : seen.contains_head ? "contains" : "missing",
     started_dirty: !!row.start_dirty || !!row.start_untracked,
     overlap: row.overlap ? (JSON.parse(row.overlap) as string[]).length : 0,
     late: !!row.captured_late,

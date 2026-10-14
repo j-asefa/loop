@@ -30,7 +30,7 @@ const {
   checkoutContent,
   PATCH_LIMIT,
 } = await import("../src/server/run-checkouts");
-const { checkoutLine, unquoteGitPath } = await import("../src/shared/checkout");
+const { checkoutLine, unquoteGitPath, patchByFile } = await import("../src/shared/checkout");
 const { resolveCite, checkQuote } = await import("../src/server/briefs/cites");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
@@ -479,6 +479,102 @@ it("does not count a local upstream as a remote", async () => {
   } finally {
     git(project, "config", "--remove-section", `branch.${branch}`);
   }
+});
+
+it("follows the branch's tracking configuration to its remote-tracking ref", async () => {
+  const run = runFixture("thread-tracking");
+  bind("thread-tracking", checkout);
+  const branch = git(checkout, "symbolic-ref", "--short", "HEAD");
+  const base = git(project, "rev-parse", "HEAD");
+  git(project, "config", "remote.company.fetch", "+refs/heads/*:refs/remotes/company/*");
+  git(project, "config", `branch.${branch}.remote`, "company");
+  git(project, "config", `branch.${branch}.merge`, "refs/heads/release");
+  git(project, "update-ref", "refs/remotes/company/release", base);
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    expect(detail.remote).toMatchObject({ ref: "refs/remotes/company/release", sha: base, contains_head: false });
+    expect(detail.summary!.remote).toBe("missing");
+  } finally {
+    git(project, "config", "--remove-section", `branch.${branch}`);
+    git(project, "config", "--remove-section", "remote.company");
+    git(project, "update-ref", "-d", "refs/remotes/company/release");
+  }
+});
+
+it("reports an unanswerable ancestry check as unknown, not as absent", async () => {
+  const run = runFixture("thread-unknown-remote");
+  bind("thread-unknown-remote", checkout);
+  const branch = git(checkout, "symbolic-ref", "--short", "HEAD");
+  const refFile = join(project, ".git", "refs", "remotes", "origin", branch);
+  mkdirSync(join(refFile, ".."), { recursive: true });
+  writeFileSync(refFile, "0123456789abcdef0123456789abcdef01234567\n");
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.remote).toMatchObject({ ref: `refs/remotes/origin/${branch}`, contains_head: null });
+    expect(detail.summary!.remote).toBe("unknown");
+    expect(checkoutLine(detail.summary!)).toContain("remote state unknown");
+  } finally {
+    rmSync(refFile);
+  }
+});
+
+it("captures a checkout that uses a split index", async () => {
+  const run = runFixture("thread-split-index");
+  bind("thread-split-index", checkout);
+  git(checkout, "update-index", "--split-index");
+  try {
+    await startCheckout(run, checkout, project, "g1");
+    await completeCheckout(run.id);
+    const detail = checkoutDetail(owner, run.id)!;
+    expect(detail.error).toBeNull();
+    expect(detail.state).toBe("captured");
+  } finally {
+    git(checkout, "update-index", "--no-split-index");
+  }
+});
+
+it("keys every chunk of a stored patch by the path numstat reports", () => {
+  const patch = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "index 1111111..2222222 100644",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "diff --git a/old name.txt b/new name.txt",
+    "similarity index 100%",
+    "rename from old name.txt",
+    "rename to new name.txt",
+    "diff --git a/bin/run.sh b/bin/run.sh",
+    "old mode 100644",
+    "new mode 100755",
+    "diff --git a/gone.txt b/gone.txt",
+    "deleted file mode 100644",
+    "index 3333333..0000000",
+    "--- a/gone.txt",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-bye",
+    'diff --git "a/notes\\tdraft.txt" "b/notes\\tdraft.txt"',
+    "new file mode 100644",
+    "--- /dev/null",
+    '+++ "b/notes\\tdraft.txt"',
+    "@@ -0,0 +1 @@",
+    "+tabbed",
+    "",
+  ].join("\n");
+  const chunks = patchByFile(patch);
+  expect([...chunks.keys()]).toEqual(["src/a.ts", "new name.txt", "bin/run.sh", "gone.txt", "notes\tdraft.txt"]);
+  expect(chunks.get("src/a.ts")).toContain("+new");
+  expect(chunks.get("new name.txt")).toContain("rename to new name.txt");
+  expect(chunks.get("bin/run.sh")).toContain("new mode 100755");
+  expect(chunks.get("gone.txt")).toContain("-bye");
 });
 
 it("drops the capture request of a run whose start was never captured", async () => {

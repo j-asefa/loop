@@ -5,7 +5,7 @@ import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
 import {
   checkoutLine,
-  unquoteGitPath,
+  patchByFile,
   type CheckoutDetail,
   type CheckoutSummary,
 } from "../shared/checkout";
@@ -33,28 +33,6 @@ export function CheckoutChip({
       <span>{checkoutLine(summary)}</span>
     </button>
   );
-}
-
-// Split the stored unified diff into one chunk per file, keyed by its new
-// path, so each file reads under its own disclosure like a pull request.
-function perFile(patch: string) {
-  const chunks = new Map<string, string>();
-  for (const chunk of patch.split(/^(?=diff --git )/m)) {
-    if (!chunk.trim()) continue;
-    // Paths may be C-quoted ("b/notes\tdraft.txt"); "+++ b/..." names the
-    // new path, and "diff --git" the pair for deletions.
-    // "+++ b/..." names the new path; a deletion has "+++ /dev/null" and
-    // "--- a/..." names the old one. Either may be C-quoted. The "diff
-    // --git" line is not used: with spaces in a path it is ambiguous.
-    const plus = chunk.match(/^\+\+\+ (?:b\/(.*)|("b\/(?:[^"\\]|\\.)*"))$/m);
-    const minus = chunk.match(/^--- (?:a\/(.*)|("a\/(?:[^"\\]|\\.)*"))$/m);
-    const quoted = (q: string) => unquoteGitPath(q).slice(2);
-    const path =
-      plus?.[1] ?? (plus?.[2] ? quoted(plus[2]) : undefined) ??
-      minus?.[1] ?? (minus?.[2] ? quoted(minus[2]) : "");
-    chunks.set(path, chunk.replace(/^diff --git .*\n(?:(?:index|---|\+\+\+|new file mode|deleted file mode|similarity index|rename from|rename to|old mode|new mode) .*\n)*/, ""));
-  }
-  return chunks;
 }
 
 const when = (at: number) =>
@@ -94,7 +72,7 @@ export function CheckoutSheet({
       clearTimeout(timer);
     };
   }, [runId]);
-  const chunks = detail?.patch ? perFile(detail.patch) : new Map<string, string>();
+  const chunks = detail?.patch ? patchByFile(detail.patch) : new Map<string, string>();
   const notes: string[] = [];
   if (detail) {
     if (detail.start_dirty || detail.start_untracked)
@@ -107,7 +85,9 @@ export function CheckoutSheet({
       );
     if (detail.remote)
       notes.push(
-        `${detail.remote.ref} ${detail.remote.contains_head ? "contained" : "did not contain"} this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}. Loop reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch, and it does not say which side is ahead.`,
+        detail.remote.contains_head === null
+          ? `${detail.remote.ref} was found, but Git could not say whether it contained this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}.`
+          : `${detail.remote.ref} ${detail.remote.contains_head ? "contained" : "did not contain"} this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}. Loop reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch, and it does not say which side is ahead.`,
       );
     else if (detail.state === "captured")
       notes.push("No remote-tracking ref for this branch was found locally.");

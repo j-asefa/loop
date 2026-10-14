@@ -11,7 +11,7 @@ export type CheckoutSummary = {
   deletions: number;
   untracked: number;
   /** What the local remote-tracking ref said at capture; Loop never fetches. */
-  remote: "none" | "contains" | "missing";
+  remote: "none" | "contains" | "missing" | "unknown";
   started_dirty: boolean;
   overlap: number;
   /** Captured after a restart, later than the run ended. */
@@ -33,7 +33,8 @@ export type CheckoutStat = {
 export type CheckoutRemote = {
   ref: string;
   sha: string;
-  contains_head: boolean;
+  /** null when Git could not answer, for example a missing object. */
+  contains_head: boolean | null;
   observed_at: number;
 };
 export type CheckoutDetail = {
@@ -90,7 +91,9 @@ export function checkoutLine(summary: CheckoutSummary) {
         ? "on remote"
         : summary.remote === "missing"
           ? "not on remote"
-          : "no remote seen",
+          : summary.remote === "unknown"
+            ? "remote state unknown"
+            : "no remote seen",
     );
   } else if (summary.state === "failed") parts.push("checkout not captured");
   else parts.push("in progress");
@@ -123,4 +126,39 @@ export function unquoteGitPath(path: string) {
     } else if (n !== undefined) bytes.push(...new TextEncoder().encode(n));
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/**
+ * Split a stored unified diff into one chunk per file, keyed by the file's
+ * path as numstat reports it. "+++ b/..." names a new path and "--- a/..."
+ * a deleted one; a pure rename names its destination with "rename to"; a
+ * mode-only change has neither, and its "diff --git a/P b/P" line names the
+ * same path twice. Header lines other than "diff --git" and "index" stay in
+ * the chunk, so rename and mode metadata remain visible.
+ */
+export function patchByFile(patch: string) {
+  const chunks = new Map<string, string>();
+  const quoted = (q: string) => unquoteGitPath(q).slice(2);
+  for (const chunk of patch.split(/^(?=diff --git )/m)) {
+    if (!chunk.trim()) continue;
+    const plus = chunk.match(/^\+\+\+ (?:b\/(.*)|("b\/(?:[^"\\]|\\.)*"))$/m);
+    const minus = chunk.match(/^--- (?:a\/(.*)|("a\/(?:[^"\\]|\\.)*"))$/m);
+    const renamed = chunk.match(/^rename to (?:(.*)|("(?:[^"\\]|\\.)*"))$/m);
+    let path =
+      plus?.[1] ?? (plus?.[2] ? quoted(plus[2]) : undefined) ??
+      minus?.[1] ?? (minus?.[2] ? quoted(minus[2]) : undefined) ??
+      renamed?.[1] ?? (renamed?.[2] ? unquoteGitPath(renamed[2]) : undefined);
+    if (path === undefined) {
+      // "diff --git a/P b/P": the same path twice, whatever it contains.
+      const header = chunk.match(/^diff --git (.*)$/m)?.[1] ?? "";
+      const half = (header.length - 1) / 2;
+      const left = header.slice(0, half),
+        right = header.slice(half + 1);
+      if (Number.isInteger(half) && left === right.replace(/^b\//, "a/") && left.startsWith("a/"))
+        path = left.startsWith('"') ? quoted(left) : left.slice(2);
+      else path = "";
+    }
+    chunks.set(path, chunk.replace(/^diff --git .*\n(?:index .*\n)?/, ""));
+  }
+  return chunks;
 }
