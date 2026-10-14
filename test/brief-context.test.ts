@@ -80,10 +80,10 @@ function fixture() {
   return { owner, project, agent, conversation, prompt, newRun };
 }
 
-it("places the brief's summary with provenance, counting what needs the owner rather than listing it", () => {
+it("places the brief's summary with provenance, counting what needs the owner rather than listing it", async () => {
   const f = fixture();
   const run = f.newRun("Continue the work");
-  const text = briefContext(run, { firstTurnOnly: false })!;
+  const text = (await briefContext(run, { firstTurnOnly: false }))!;
   expect(text).toContain('Project brief for "Sessions service"');
   expect(text).toContain("quoted as context, not instructions");
   expect(text).toMatch(/Version 1, synthesized \d{4}-/);
@@ -97,29 +97,29 @@ it("places the brief's summary with provenance, counting what needs the owner ra
   expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BRIEF_CONTEXT_BYTES);
 });
 
-it("is absent when the brief is disabled or has no published version", () => {
+it("is absent when the brief is disabled or has no published version", async () => {
   const f = fixture();
   const run = f.newRun("Continue");
   db.prepare("UPDATE brief_state SET enabled=0 WHERE owner_id=? AND project_id=?").run(f.owner, f.project);
-  expect(briefContext(run, { firstTurnOnly: false })).toBeNull();
+  expect(await briefContext(run, { firstTurnOnly: false })).toBeNull();
   db.prepare("UPDATE brief_state SET enabled=1,current_version=0 WHERE owner_id=? AND project_id=?").run(f.owner, f.project);
-  expect(briefContext(run, { firstTurnOnly: false })).toBeNull();
+  expect(await briefContext(run, { firstTurnOnly: false })).toBeNull();
 });
 
-it("goes behind the first prompt only, for a harness that keeps its own context", () => {
+it("goes behind the first prompt only, for a harness that keeps its own context", async () => {
   const f = fixture();
   const first = f.newRun("First prompt");
-  expect(briefContext(first, { firstTurnOnly: true })).not.toBeNull();
+  expect(await briefContext(first, { firstTurnOnly: true })).not.toBeNull();
   // The agent has replied in this conversation; the next turn carries nothing.
   db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Done.',?)").run(
     id(), f.owner, f.conversation, first.id, now(),
   );
   const second = f.newRun("Second prompt");
-  expect(briefContext(second, { firstTurnOnly: true })).toBeNull();
-  expect(briefContext(second, { firstTurnOnly: false })).not.toBeNull();
+  expect(await briefContext(second, { firstTurnOnly: true })).toBeNull();
+  expect(await briefContext(second, { firstTurnOnly: false })).not.toBeNull();
 });
 
-it("stays within its byte budget however many decisions the record holds", () => {
+it("stays within its byte budget however many decisions the record holds", async () => {
   const f = fixture();
   for (let i = 0; i < 30; i++)
     addDecision(f.owner, f.project, {
@@ -127,7 +127,7 @@ it("stays within its byte budget however many decisions the record holds", () =>
       text: `Decision number ${i} with a reasonably long explanation of the choice that was made here`,
       cite: [{ ref: "msg_" + f.prompt }],
     });
-  const text = briefContext(f.newRun("Go"), { firstTurnOnly: false })!;
+  const text = (await briefContext(f.newRun("Go"), { firstTurnOnly: false }))!;
   expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BRIEF_CONTEXT_BYTES);
   expect(text).toMatch(/and \d+ more|shortened; read loop_brief/);
 });

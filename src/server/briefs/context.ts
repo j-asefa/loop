@@ -1,8 +1,5 @@
 import { db } from "../db.js";
 import type { Run } from "../queue.js";
-import { agentBriefAccess, assertAgentBriefAccess } from "./tool.js";
-import { readState } from "./store.js";
-import { serveBrief } from "./serve.js";
 
 /**
  * The brief's headline, state and decisions, placed in front of an agent
@@ -33,7 +30,15 @@ const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
  * conversation has an assistant reply from an earlier run: a harness
  * keeps its own context across turns.
  */
-export function briefContext(run: Run, options: { firstTurnOnly: boolean }): string | null {
+export async function briefContext(run: Run, options: { firstTurnOnly: boolean }): Promise<string | null> {
+  // Loaded here rather than at the top: the brief modules reach the native
+  // tool registry, which the runtime path also loads, and a static import
+  // from the runtime would change the evaluation order of that cycle.
+  const [{ agentBriefAccess, assertAgentBriefAccess }, { readState }, { serveBrief }] = await Promise.all([
+    import("./tool.js"),
+    import("./store.js"),
+    import("./serve.js"),
+  ]);
   if (!run.conversation_id || !agentBriefAccess(run)) return null;
   if (options.firstTurnOnly) {
     const replied = db

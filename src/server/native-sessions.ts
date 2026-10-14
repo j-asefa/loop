@@ -1732,7 +1732,7 @@ export class NativeSessions {
     try {
       // A harness keeps its context across turns, so the project's brief
       // is placed behind the first prompt of a conversation only.
-      const brief = briefContext(run, { firstTurnOnly: true });
+      const brief = await briefContext(run, { firstTurnOnly: true });
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
