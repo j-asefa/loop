@@ -381,6 +381,104 @@ try {
       .get(f.owner, idle.id)?.enabled ?? 0,
     0,
   );
+  await page
+    .locator(".project-tabs")
+    .getByRole("button", { name: "Threads", exact: true })
+    .click();
+  await page.reload();
+  await expect(
+    page
+      .locator(".project-tabs")
+      .getByRole("button", { name: "Threads", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  assert.equal(new URL(page.url()).searchParams.has("projectTab"), false);
+  // Two workspace APIs, with colliding project IDs, exercise production source
+  // routing. Filters belong to the source whose selectors supplied those IDs.
+  const source = {
+    id: "cloud:status-fixture",
+    name: "Linked fixture",
+    kind: "cloud",
+  };
+  let linkedFailed = false;
+  const statusRequests = [];
+  await page.route("**/api/agent-sources", (route) =>
+    route.fulfill({ json: [source] }),
+  );
+  await page.route("**/api/agent-sources/*/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/api\/agent-sources\/[^/]+/, "/api");
+    if (path === "/api/projects/status") {
+      statusRequests.push({
+        source: source.id,
+        project: url.searchParams.get("project"),
+        teams: url.searchParams.get("teams"),
+      });
+      if (linkedFailed)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Fixture disconnected" },
+        });
+    }
+    const response = await route.fetch({ url: f.base + path + url.search });
+    if (path !== "/api/projects/status") return route.fulfill({ response });
+    const data = await response.json();
+    data.items = data.items.map((p) => ({ ...p, name: "Linked " + p.name }));
+    return route.fulfill({ response, json: data });
+  });
+  await page.route("**/api/projects/status?*", (route) => {
+    const url = new URL(route.request().url());
+    statusRequests.push({
+      source: "",
+      project: url.searchParams.get("project"),
+      teams: url.searchParams.get("teams"),
+    });
+    return route.continue();
+  });
+  const linkedUrl =
+    f.base + "/?source=" + encodeURIComponent(source.id) + "&filter=status";
+  await page.goto(linkedUrl);
+  await expect(page.locator(".project-status-card")).toHaveCount(6);
+  const linkedCard = page.locator(".project-status-card").filter({
+    has: page.getByRole("link", {
+      name: "Linked " + project.name,
+      exact: true,
+    }),
+  });
+  const localCard = page.locator(".project-status-card").filter({
+    has: page.getByRole("link", { name: project.name, exact: true }),
+  });
+  linkedFailed = true;
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(linkedCard.locator(".project-status-counts")).toContainText(
+    "Last seen",
+  );
+  await expect(localCard.locator(".status-live")).toHaveText("Live");
+  await expect(page.locator(".project-status-card")).toHaveCount(6);
+  linkedFailed = false;
+  await page.getByLabel("Filter by project").selectOption(project.id);
+  await expect(page.locator(".project-status-card")).toHaveCount(1);
+  await expect(linkedCard).toBeVisible();
+  await expect(page.locator(".project-status .field-hint")).toContainText(
+    "Activity and evidence: Linked fixture",
+  );
+  assert(
+    statusRequests.some(
+      (r) => r.source === source.id && r.project === project.id,
+    ),
+  );
+  assert(!statusRequests.some((r) => !r.source && r.project === project.id));
+  const team = f.db
+    .prepare("SELECT id FROM teams WHERE owner_id=? LIMIT 1")
+    .get(f.owner);
+  await page.goto(linkedUrl + "&teams=" + encodeURIComponent(team.id));
+  await expect(page.locator(".project-status-card")).toHaveCount(3);
+  await expect(page.locator(".project-status .field-hint")).toContainText(
+    "Selected teams; briefs and recorded blockers describe the whole project",
+  );
+  assert(
+    statusRequests.some((r) => r.source === source.id && r.teams === team.id),
+  );
+  assert(!statusRequests.some((r) => !r.source && r.teams === team.id));
   assert.deepEqual(errors, []);
   console.log(
     "Status: phone widths, empty evidence, no acknowledgement, stale refresh and setup navigation passed",

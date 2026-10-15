@@ -302,10 +302,14 @@ export function ProjectStatusFeed({
 }) {
   const sourceId = useSourceId(),
     owner = viewOwner();
+  // App's project/team selectors use the current workspace's bootstrap IDs,
+  // just as in Feed. They cannot be applied to another source's namespace.
+  const currentSource = sources?.find((s) => s.id === sourceId) ?? {
+    id: sourceId,
+    name: "This workspace",
+  };
   const activeSources =
-    sources && !project && !teams
-      ? sources
-      : [{ id: sourceId, name: "This workspace" }];
+    sources && !project && !teams ? sources : [currentSource];
   const scope = JSON.stringify([
     owner,
     project,
@@ -589,10 +593,12 @@ function StatusSession({
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
-      {teams && (
+      {(project || teams) && (
         <p className="field-hint">
-          Activity and evidence: selected teams. Briefs and recorded blockers:
-          whole project.
+          Activity and evidence: {sources[0]?.name}.
+          {teams &&
+            " Selected teams; briefs and recorded blockers describe the whole project."}
+          {" Clear filters to see all workspaces."}
         </p>
       )}
       {pages
