@@ -80,6 +80,12 @@ export const SHOW_LATER = "loop-show-later";
 export function showLater(section: LaterSection, focusId?: string) {
   cacheView("later-section", section, viewOwner());
   cacheView("later-focus", focusId || null, viewOwner());
+  const url = new URL(location.href);
+  if (section !== "all") url.searchParams.set("profileTab", section);
+  else url.searchParams.delete("profileTab");
+  url.searchParams.delete("social");
+  if (url.searchParams.get("filter") === "social") url.searchParams.delete("filter");
+  history.replaceState(history.state, "", url.pathname + url.search);
   window.dispatchEvent(
     new CustomEvent<ShowLater>(SHOW_LATER, {
       detail: { section, focusId: focusId || null },
@@ -527,7 +533,7 @@ export function Later({
     return value === "snoozed" ? "reminders" : (value as LaterSection) || "all";
   });
   const [focus, setFocus] = useState<string | null>(
-    () => cachedView<string | null>("later-focus") || null,
+    () => new URLSearchParams(location.search).get("scheduledSend") || cachedView<string | null>("later-focus") || null,
   );
   useEffect(() => cacheView("later-focus", null, viewOwner()), []);
   useEffect(() => {

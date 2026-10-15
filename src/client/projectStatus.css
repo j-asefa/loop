@@ -1,0 +1,201 @@
+.project-status {
+  display: grid;
+  gap: 12px;
+}
+.project-status-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  gap: 12px;
+}
+.project-status-intro p {
+  margin: 4px 0;
+}
+.project-status-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 17px;
+  min-width: 0;
+}
+.project-status-card > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.project-status-name {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.project-status-word {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.project-status-word.status-needs_you,
+.project-status-word.status-blocked {
+  color: var(--orange);
+}
+.project-status-word.status-working {
+  color: var(--green);
+}
+.project-status-word.status-queued {
+  color: var(--blue);
+}
+.project-status-source,
+.project-status-clock,
+.project-status-note,
+.project-status-ledger {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.project-status-record {
+  margin: 15px 0 12px;
+}
+.project-status-clock {
+  margin: 0 0 5px;
+}
+.project-status-clock small {
+  font-size: inherit;
+}
+.project-status-record h3 {
+  font-size: 18px;
+  font-weight: 550;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.project-status-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.5;
+}
+.project-status-counts > span + span::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--muted);
+}
+.project-status-counts > span:first-child {
+  color: var(--muted);
+}
+.project-status-counts > .status-live {
+  color: var(--green);
+}
+.project-status-evidence,
+.project-status-pulls {
+  margin-top: 14px;
+}
+.project-status-caption {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+button.project-status-caption {
+  cursor: pointer;
+  width: 100%;
+}
+.project-status-caption span {
+  font-size: 12px;
+  color: var(--text);
+}
+.project-status-chips {
+  display: flex;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  align-items: start;
+}
+.project-status-chips > div {
+  display: grid;
+  gap: 4px;
+  max-width: 100%;
+}
+.project-status-chips small,
+.project-status-pull-detail small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.project-status-chips .changes-chip {
+  margin: 0;
+  min-height: 30px;
+}
+.project-status-ledger {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 14px;
+}
+.project-status-ledger a {
+  color: inherit;
+  text-decoration: none;
+}
+.project-status-card footer {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+}
+.project-status-card footer a {
+  text-decoration: none;
+}
+.project-status-card footer .primary {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-status-card footer .text-button {
+  margin-left: auto;
+  font-size: 12px;
+}
+.project-status-empty {
+  margin-top: 16px;
+}
+.project-status-older {
+  display: grid;
+  gap: 12px;
+}
+.project-status-pull-detail {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 16px 0;
+}
+.project-status-pull-detail p {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 350px) {
+  .project-status-card {
+    padding: 14px;
+  }
+  .project-status-card > header {
+    flex-wrap: wrap;
+  }
+}

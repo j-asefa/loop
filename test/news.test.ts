@@ -954,6 +954,10 @@ it("remembers what you have read, per owner", async () => {
   const id = first.data.stories[0].id;
   const marked = await send("/social/read", "POST", { stories: ["unknown:gone", id, "hackernews:missing"] }, "lena");
   expect(marked.data).toEqual({ unread: 1 });
+  // Profile badges read the same owner-scoped stored count without loading stories.
+  expect((await get("/social/unread", "lena")).data).toEqual({ unread: 1 });
+  expect((await get("/social/unread", "milo")).data).toEqual({ unread: 2 });
+  expect((await get("/social/unread", "no-feeds")).data).toEqual({ unread: 0 });
   const after = await get("/social", "lena");
   expect(after.data.stories.find((s: any) => s.id === id).read).toBe(true);
   // Only unread, when that is what was asked for.

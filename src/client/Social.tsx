@@ -1042,6 +1042,7 @@ export function Social({
       const next = { ...social, added, own, ...preferences };
       setView(next);
       cacheView<Shown>(KEY, next, owner);
+      window.dispatchEvent(new Event("loop-social-read"));
       setError("");
       // Feeds still loading arrive behind the first paint: ask again for them
       // a few times, then leave it to the five-minute refresh.
@@ -1075,7 +1076,7 @@ export function Social({
         read ? "POST" : "DELETE",
       );
       setView((old) => old && { ...old, unread });
-      // The Social chip's count lives in the Feed's summary.
+      // Refresh any other reader of the owner’s unread count.
       setSearchRevision(revision => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {

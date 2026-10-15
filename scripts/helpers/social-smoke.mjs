@@ -67,6 +67,15 @@ export function seedFeeds(db, owner) {
 
 export async function socialSmoke(page, fixture, shot) {
   const { total, titles } = seedFeeds(fixture.db, fixture.owner);
+  await page.goto(fixture.base + "/?page=profile&profileTab=messages");
+  await expect(page.getByRole("tab", { name: "Messages", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /^Social/ }).locator(".chip-count")).toHaveText(String(total));
+  await expect(page.locator(".news-card")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("tab", { name: /^Social/ }).locator(".chip-count")).toHaveText(String(total));
+  // Explicit Later links outrank the previously selected profile tab.
+  await page.goto(fixture.base + "/?page=profile&profileTab=messages&later=reminders");
+  await expect(page.getByRole("tab", { name: "Reminders", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.goto(fixture.base + "/?filter=social");
   const social = page.getByRole("list", { name: "Social" });
   await page.waitForSelector(".news-card");
@@ -108,13 +117,12 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(controls).toBeHidden();
   await expect(cards).toHaveCount(total);
-  await page.getByRole("tab", { name: "Done", exact: true }).click();
-  await expect(agents).toBeVisible();
+  await page.getByRole("tab", { name: "Messages", exact: true }).click();
   await page.getByRole("tab", { name: /^Social/ }).click();
   await expect(agents).toBeHidden();
   await toggle.click();
   await expect(controls).toBeVisible();
-  await expect(agents).toBeVisible();
+  await expect(agents).toBeHidden();
   await shot("rss-options-open");
   // Stories are unread until read, and the Social chip says how many.
   assert.equal(
@@ -158,7 +166,7 @@ export async function socialSmoke(page, fixture, shot) {
     (n) => document.querySelectorAll(".news-card[data-unread]").length === n,
     total - 1,
   );
-  // The chip's count comes from the Feed's summary, which reloads behind it.
+  // The profile’s Social count follows the reader’s confirmed unread count.
   await page.waitForFunction(
     (text) =>
       [...document.querySelectorAll('[role="tab"]')]

@@ -1,3 +1,4 @@
+import { feedNeeds, feedWorking } from "./feed-predicates.js";
 import { checkoutSummary } from "./run-checkouts.js";
 import { verificationSummary } from "./run-verifications.js";
 import { pullStatus } from "./pr-watches.js";
@@ -220,8 +221,8 @@ flagged AS (
     EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
     c.feed_queued>0 has_queued,
     COALESCE('run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
-    (c.feed_run_state IN ('awaiting_approval','paused') OR (c.feed_run_raw_state IN ('failed','interrupted') AND c.feed_run_dismissed_at IS NULL) OR COALESCE(c.feed_approval_until,0)>@now) is_needs,
-    (c.feed_run_state IN ('running','pausing','waiting_children')) is_working,
+    ${feedNeeds} is_needs,
+    (${feedWorking}) is_working,
     (c.feed_run_raw_state='completed') is_done
   FROM conversations c
   LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id
