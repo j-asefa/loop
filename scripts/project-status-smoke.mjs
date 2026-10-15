@@ -185,11 +185,9 @@ try {
       path: process.env.LOOP_STATUS_SCREENSHOT,
       fullPage: true,
     });
-  const release = page
-    .locator(".project-status-card")
-    .filter({
-      has: page.getByRole("link", { name: project.name, exact: true }),
-    });
+  const release = page.locator(".project-status-card").filter({
+    has: page.getByRole("link", { name: project.name, exact: true }),
+  });
   await release.getByRole("button", { name: /^Changes:/ }).click();
   await expect(
     page
@@ -240,6 +238,132 @@ try {
   await page.unroute("**/api/projects/status?*");
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.locator(".status-live").first()).toHaveText("Live");
+  // A keyboard activation freezes its target until key-up, then applies both
+  // refreshed counts and the requested ordering without requiring a blur.
+  const idleRun = f.db
+    .prepare(
+      `SELECT r.* FROM runs r JOIN conversations c ON c.id=r.conversation_id
+    JOIN project_change_folders p ON p.owner_id=c.owner_id AND p.folder_id=c.feed_folder_id
+    WHERE c.owner_id=? AND p.project_id=? ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1`,
+    )
+    .get(f.owner, idle.id);
+  const idleApproval = randomUUID(),
+    changedAt = Date.now();
+  f.db
+    .prepare(
+      "UPDATE runs SET state='awaiting_approval',updated_at=? WHERE id=?",
+    )
+    .run(changedAt, idleRun.id);
+  f.db
+    .prepare("INSERT INTO approvals VALUES(?,?,?,?,?,'pending',NULL,?,?)")
+    .run(
+      idleApproval,
+      f.owner,
+      idleRun.id,
+      randomUUID(),
+      "{}",
+      changedAt,
+      changedAt + 60_000,
+    );
+  const idleCard = page
+    .locator(".project-status-card")
+    .filter({ has: page.getByRole("link", { name: idle.name, exact: true }) });
+  const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await refresh.focus();
+  const refreshed = page.waitForResponse((r) =>
+    r.url().includes("/api/projects/status?"),
+  );
+  await page.keyboard.down("Enter");
+  await refreshed;
+  await expect(idleCard.locator(".project-status-counts")).toContainText(
+    "Last seen",
+  );
+  await expect(idleCard.locator(".project-status-counts")).toContainText(
+    "No active work",
+  );
+  await page.keyboard.up("Enter");
+  await expect(idleCard.locator(".project-status-counts")).toContainText(
+    "1 needs you",
+  );
+  await expect(page.locator(".project-status-card").first()).toContainText(
+    idle.name,
+  );
+  await expect(refresh).toBeFocused();
+  f.db
+    .prepare("UPDATE approvals SET state='rejected' WHERE id=?")
+    .run(idleApproval);
+  f.db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(idleRun.id);
+  await refresh.press("Enter");
+  await expect(idleCard.locator(".project-status-counts")).toContainText(
+    "No active work",
+  );
+  await expect(idleCard.locator(".status-live")).toHaveText("Live");
+
+  // A revalidated review request selects the PR, even with two watches in the
+  // same conversation. All GitHub reads still use the fixture's offline URL.
+  for (const c of f.db
+    .prepare(
+      `SELECT c.id FROM conversations c JOIN project_change_folders p
+    ON p.owner_id=c.owner_id AND p.folder_id=c.feed_folder_id WHERE c.owner_id=? AND p.project_id=?`,
+    )
+    .all(f.owner, project.id)) {
+    f.db
+      .prepare(
+        "UPDATE approvals SET state='rejected' WHERE run_id IN (SELECT id FROM runs WHERE conversation_id=?)",
+      )
+      .run(c.id);
+    f.db
+      .prepare("UPDATE runs SET state='completed' WHERE conversation_id=?")
+      .run(c.id);
+  }
+  f.db
+    .prepare(
+      "UPDATE pr_watches SET login='james' WHERE owner_id=? AND number=120",
+    )
+    .run(f.owner);
+  const reviewArtifact = randomUUID();
+  f.db
+    .prepare(
+      `INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,created_at,updated_at)
+    VALUES(?,?,?,?,?,'Review reconnect','github_pr',?,?,?)`,
+    )
+    .run(
+      reviewArtifact,
+      f.owner,
+      captured.agent_id,
+      captured.conversation_id,
+      captured.id,
+      JSON.stringify({
+        type: "github_pull_requests",
+        pulls: [
+          {
+            owner: "acme",
+            repo: "loop",
+            number: 120,
+            state: "open",
+            headSha: "head",
+            reviewers: ["james"],
+          },
+        ],
+      }),
+      Date.now(),
+      Date.now(),
+    );
+  f.db
+    .prepare(
+      "INSERT OR IGNORE INTO artifact_publications(artifact_id) VALUES(?)",
+    )
+    .run(reviewArtifact);
+  await refresh.press("Enter");
+  await release
+    .getByRole("button", { name: "Review pull request", exact: true })
+    .click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("pull"))
+    .toBe("acme/loop/120");
+  assert.equal(new URL(page.url()).searchParams.get("page"), "pulls");
+  assert.equal(new URL(page.url()).searchParams.has("conversation"), false);
+  await page.goto(f.base + "/?filter=status");
   // Enable opens source/model setup in the correct project, without enabling.
   await page
     .locator(".project-status-card")

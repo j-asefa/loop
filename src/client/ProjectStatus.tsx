@@ -361,12 +361,14 @@ function StatusSession({
       kind: "checkout" | "verification" | "evidence" | "pulls";
     } | null>(null);
   const interacting = useRef(false),
-    pending = useRef<SourcePage[] | null>(null);
+    pending = useRef<SourcePage[] | null>(null),
+    pendingReorder = useRef(false);
   const hold = useRef(false);
   const actionInFlight = useRef(false);
   hold.current = !!sheet || !!busy;
-  const commit = (next: SourcePage[]) => {
+  const commit = (next: SourcePage[], reorder = false) => {
     pagesRef.current = next;
+    pendingReorder.current ||= reorder;
     if (interacting.current || hold.current) {
       pending.current = next;
       // Freeze action targets/layout while acting, but never freeze a Live
@@ -378,6 +380,8 @@ function StatusSession({
         }),
       );
     } else {
+      if (pendingReorder.current) order.current = [];
+      pendingReorder.current = false;
       setPages(next);
       pending.current = null;
     }
@@ -385,6 +389,8 @@ function StatusSession({
   const release = () => {
     interacting.current = false;
     if (!hold.current && pending.current) {
+      if (pendingReorder.current) order.current = [];
+      pendingReorder.current = false;
       setPages(pending.current);
       pending.current = null;
     }
@@ -430,8 +436,7 @@ function StatusSession({
           },
     );
     cacheView(cacheKey, next, owner);
-    if (reorder && !interacting.current && !hold.current) order.current = [];
-    commit(next);
+    commit(next, reorder);
     setLoading(false);
   };
   useEffect(() => {
@@ -523,6 +528,13 @@ function StatusSession({
             scheduledSend: action.ref,
           }),
         );
+      else if (action.kind === "review")
+        location.assign(
+          statusUrl(card.source.source.id, {
+            page: "pulls",
+            pull: `${action.pull.owner}/${action.pull.repo}/${action.pull.number}`,
+          }),
+        );
       else if (action.conversation)
         onOpen(
           action.conversation,
@@ -561,8 +573,11 @@ function StatusSession({
       }}
       onPointerUpCapture={() => setTimeout(release, 0)}
       onPointerCancel={release}
-      onFocusCapture={() => {
-        interacting.current = true;
+      onKeyDownCapture={(e) => {
+        if (e.key === "Enter" || e.key === " ") interacting.current = true;
+      }}
+      onKeyUpCapture={(e) => {
+        if (e.key === "Enter" || e.key === " ") setTimeout(release, 0);
       }}
       onBlurCapture={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) release();

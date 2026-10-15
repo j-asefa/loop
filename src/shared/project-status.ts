@@ -1,15 +1,18 @@
 import type { CheckoutSummary } from "./checkout.js";
 import type { VerificationSummary } from "./verification.js";
 import type { PullState } from "./pull-state.js";
+import type { PullRequestRef } from "./github.js";
 
 export type ProjectStatusAction = {
   key: string;
-  kind: "approve" | "answer" | "resume" | "failed" | "not_sent" | "review";
   conversation: string | null;
   message: string | null;
   ref: string;
   at: number;
-};
+} & (
+  | { kind: "approve" | "answer" | "resume" | "failed" | "not_sent" }
+  | { kind: "review"; pull: PullRequestRef }
+);
 export type ProjectStatus = {
   id: string;
   name: string;

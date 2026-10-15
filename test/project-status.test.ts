@@ -11,6 +11,7 @@ vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
 const { db, id, now } = await import("../src/server/db");
 const { Problem } = await import("../src/server/domain");
 const { mobile } = await import("../src/server/mobile-routes");
+const { core } = await import("../src/server/core-routes");
 const { applyOutput } = await import("../src/server/briefs/apply");
 const app = express();
 app.use(express.json());
@@ -19,6 +20,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use("/api", mobile);
+app.use("/api", core);
 app.use((e: any, _req: any, res: any, _next: any) =>
   res
     .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
@@ -26,10 +28,10 @@ app.use((e: any, _req: any, res: any, _next: any) =>
 );
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
-async function api(owner: string, path = "/projects/status") {
+async function api(owner: string, path = "/projects/status", method = "GET") {
   const r = await fetch(
     `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
-    { headers: { "x-owner": owner } },
+    { method, headers: { "x-owner": owner } },
   );
   return { status: r.status, data: (await r.json()) as any };
 }
@@ -141,10 +143,10 @@ const unfinished = (thread: string) => ({
   cite: [],
 });
 
-it("uses live precedence, deduplicates paused work with its request, and revalidates the selected action", async () => {
+it("uses live precedence, deduplicates waiting work with its request, and revalidates the selected action", async () => {
   const f = fixture(),
     active = f.run("running"),
-    paused = f.run("paused"),
+    paused = f.run("awaiting_approval"),
     aid = f.approval(paused);
   f.publish([unfinished(paused.conversation)]);
   const view = await api(f.owner);
@@ -188,6 +190,27 @@ it("uses live precedence, deduplicates paused work with its request, and revalid
   );
   f.run("queued");
   expect((await api(f.owner)).data.items[0].status).toBe("queued");
+});
+
+it("removes cancelled approvals from Status and rejects their cached action targets", async () => {
+  const f = fixture(),
+    r = f.run("awaiting_approval"),
+    aid = f.approval(r);
+  const action = `/projects/${f.project}/status-action?key=approval:${aid}`;
+  expect((await api(f.owner, action)).status).toBe(200);
+  expect((await api(f.owner, `/runs/${r.run}/cancel`, "POST")).status).toBe(
+    200,
+  );
+  // Cancellation leaves the pending row for its history; it is not actionable.
+  expect(db.prepare("SELECT state FROM approvals WHERE id=?").get(aid)).toEqual(
+    { state: "pending" },
+  );
+  expect((await api(f.owner)).data.items[0]).toMatchObject({
+    status: "idle",
+    counts: { needs: 0 },
+    actions: [],
+  });
+  expect((await api(f.owner, action)).status).toBe(409);
 });
 
 it("includes native questions, failed/interrupted work and unsent messages without needing a brief", async () => {
@@ -458,9 +481,21 @@ it("deduplicates observed PR review requests and ignores stale-head reviewer lis
   expect(p.actions[0]).toMatchObject({
     kind: "review",
     key: "review:acme/web/42",
+    pull: { owner: "acme", repo: "web", number: 42 },
   });
   expect(p.pulls).toHaveLength(2);
   const target = p.actions[0].key;
+  expect(
+    (
+      await api(
+        f.owner,
+        `/projects/${f.project}/status-action?key=${encodeURIComponent(target)}`,
+      )
+    ).data,
+  ).toMatchObject({
+    kind: "review",
+    pull: { owner: "acme", repo: "web", number: 42 },
+  });
   db.prepare("UPDATE artifacts SET content=? WHERE id=?").run(
     content("old-head", ["james"]),
     artifact,
@@ -483,12 +518,12 @@ it("keeps nested project evidence in its recorded scope and a deterministic acti
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,parent_id,created_at) VALUES(?,?,'project','Nested',?,?)",
   ).run(nested, f.owner, f.project, now());
-  const r = f.run("paused", now(), null, nested);
+  const r = f.run("awaiting_approval", now(), null, nested);
   const first = f.approval(r, 100),
     second = f.approval(r, 100);
   const page = (await api(f.owner)).data;
   const p = page.items.find((p: any) => p.id === nested);
-  expect(p.counts.needs).toBe(2); // two requests, no third paused-run item
+  expect(p.counts.needs).toBe(2); // two requests, no third waiting-run item
   expect(p.actions.map((a: any) => a.ref)).toEqual([first, second].sort());
   expect(p.evidence.run_id).toBe(r.run);
   expect(page.items.find((p: any) => p.id === f.project).counts.needs).toBe(0);

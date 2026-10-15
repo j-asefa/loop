@@ -1,6 +1,6 @@
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
-import { feedNeeds, feedWorking } from "./feed-predicates.js";
+import { feedRunNeeds, feedWorking } from "./feed-predicates.js";
 import { assertProject } from "./briefs/store.js";
 import { synthesisKinds } from "./briefs/schema.js";
 import { pullStateFromWatch, type WatchRow } from "../shared/pull-state.js";
@@ -147,7 +147,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
   };
   const threads =
     read<Thread>(`${scope} SELECT c.id,c.status_project,c.feed_run_id,c.feed_run_state,
-    c.feed_last_activity_at,c.feed_queued,${feedNeeds} needs,(${feedWorking}) working FROM scope c`);
+    c.feed_last_activity_at,c.feed_queued,${feedRunNeeds} needs,(${feedWorking}) working FROM scope c`);
   for (const t of threads) {
     const p = projects.get(t.status_project);
     if (!p) continue;
@@ -173,7 +173,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
       ) message
     FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     JOIN scope c ON c.id=r.conversation_id
-    WHERE a.owner_id=@owner AND a.state='pending' AND a.expires_at>@now`))
+    WHERE a.owner_id=@owner AND a.state='pending' AND a.expires_at>@now AND r.state='awaiting_approval'`))
     add(a.project, {
       key: `approval:${a.id}`,
       kind: "approve",
@@ -327,6 +327,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
           key: `review:${w.repo_owner.toLowerCase()}/${w.repo_name.toLowerCase()}/${w.number}`,
           kind: "review",
           ref: w.id,
+          pull: { owner: w.repo_owner, repo: w.repo_name, number: w.number },
           conversation: w.conversation_id,
           message: null,
           at: a.updated_at,
