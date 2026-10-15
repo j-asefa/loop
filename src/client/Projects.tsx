@@ -113,6 +113,7 @@ export function Projects({
     [briefError, setBriefError] = useState(""),
     [briefLoad, setBriefLoad] = useState(0);
   const choseTab = useRef(false);
+  const requestedTab = useRef(new URLSearchParams(location.search).get("projectTab"));
   useEffect(() => {
     let active = true;
     choseTab.current = false;
@@ -138,8 +139,10 @@ export function Projects({
           const remembered = sessionStorage.getItem(
             "loop-project-tab:" + selected,
           );
+          const requested = requestedTab.current;
+          requestedTab.current = null;
           setPage(
-            remembered ||
+            (requested === "brief" || requested === "threads" ? requested : null) || remembered ||
               (result.settings.enabled
                 ? "brief"
                 : sessionStorage.getItem("loop-project-tab") === "brief"

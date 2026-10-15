@@ -108,13 +108,12 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(controls).toBeHidden();
   await expect(cards).toHaveCount(total);
-  await page.getByRole("tab", { name: "Done", exact: true }).click();
-  await expect(agents).toBeVisible();
+  await page.getByRole("tab", { name: "Messages", exact: true }).click();
   await page.getByRole("tab", { name: /^Social/ }).click();
   await expect(agents).toBeHidden();
   await toggle.click();
   await expect(controls).toBeVisible();
-  await expect(agents).toBeVisible();
+  await expect(agents).toBeHidden();
   await shot("rss-options-open");
   // Stories are unread until read, and the Social chip says how many.
   assert.equal(
@@ -158,7 +157,7 @@ export async function socialSmoke(page, fixture, shot) {
     (n) => document.querySelectorAll(".news-card[data-unread]").length === n,
     total - 1,
   );
-  // The chip's count comes from the Feed's summary, which reloads behind it.
+  // The profile’s Social count follows the reader’s confirmed unread count.
   await page.waitForFunction(
     (text) =>
       [...document.querySelectorAll('[role="tab"]')]

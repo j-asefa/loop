@@ -10,13 +10,14 @@ export type MyProfileData = {
   bio: string | null;
   counts: { messages: number; agents: number; projects: number };
 };
-export type ProfileTab = "messages" | "files" | Exclude<LaterSection, "all">;
+export type ProfileTab = "messages" | "files" | "social" | Exclude<LaterSection, "all">;
 const profileTabs: [ProfileTab, string][] = [
   ["messages", "Messages"],
   ["saved", "Saved"],
   ["reminders", "Reminders"],
   ["scheduled", "Scheduled"],
   ["files", "Files"],
+  ["social", "Social"],
 ];
 
 export function initialsOf(name: string) {
@@ -40,6 +41,8 @@ export function MyProfile({
   onSaved,
   messages,
   files,
+  social,
+  socialUnread,
   later,
   onAgents,
   onProjects,
@@ -51,6 +54,8 @@ export function MyProfile({
   onSaved: (profile: MyProfileData) => void;
   messages: ReactNode;
   files: ReactNode;
+  social?: ReactNode;
+  socialUnread?: number;
   later: (section: Exclude<LaterSection, "all">) => ReactNode;
   /** Open agent management, from the Agents count. */
   onAgents: () => void;
@@ -58,7 +63,8 @@ export function MyProfile({
   onProjects: () => void;
 }) {
   const [tab, setTabState] = useState<ProfileTab>(() => {
-    const value = cachedView<string>("later-section");
+    const params = new URLSearchParams(location.search);
+    const value = params.has("social") || params.get("filter") === "social" ? "social" : params.get("profileTab") || cachedView<string>("later-section");
     return profileTabs.some(([id]) => id === value)
       ? (value as ProfileTab)
       : "messages";
@@ -66,15 +72,21 @@ export function MyProfile({
   const setTab = (value: ProfileTab) => {
     setTabState(value);
     cacheView("later-section", value, viewOwner());
+    const url = new URL(location.href);
+    url.searchParams.set("profileTab", value);
+    if (value !== "social") url.searchParams.delete("social");
+    history.replaceState(history.state, "", url.pathname + url.search);
   };
   // "Show in Later" while your profile is already open switches the tab.
   useEffect(() => {
     const shown = (event: Event) => {
       const { section } = (event as CustomEvent<ShowLater>).detail;
-      if (section !== "all") setTabState(section);
+      if (section !== "all") setTab(section);
     };
+    const social = () => setTabState("social");
+    window.addEventListener("loop-social-open", social);
     window.addEventListener(SHOW_LATER, shown);
-    return () => window.removeEventListener(SHOW_LATER, shown);
+    return () => { window.removeEventListener(SHOW_LATER, shown); window.removeEventListener("loop-social-open", social); };
   }, []);
   const [editing, setEditing] = useState(false);
   const counts = profile?.counts;
@@ -128,7 +140,7 @@ export function MyProfile({
             aria-selected={tab === id}
             onClick={() => setTab(id)}
           >
-            {label}
+            {label}{id === "social" && !!socialUnread && <span className="chip-count">{socialUnread}</span>}
           </button>
         ))}
       </div>
@@ -136,7 +148,7 @@ export function MyProfile({
         role="tabpanel"
         aria-label={profileTabs.find(([id]) => id === tab)?.[1]}
       >
-        {tab === "messages" ? messages : tab === "files" ? files : later(tab)}
+        {tab === "messages" ? messages : tab === "files" ? files : tab === "social" ? social : later(tab)}
       </div>
       {editing && (
         <EditProfile

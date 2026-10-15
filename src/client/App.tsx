@@ -2,6 +2,7 @@ import { StartCodeReview } from "./CodeReview";
 import { SettingsHome } from "./SettingsHome";
 import { PersonalProfile } from "./PersonalProfile";
 import { PersonalFiles } from "./PersonalFiles";
+import { Social } from "./Social";
 import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName } from "./modelChoices";
@@ -177,6 +178,7 @@ const legacyPages: Record<string, { tab: string; filter?: FeedFilter }> = {
 };
 function initialPage() {
   const params = new URLSearchParams(location.search);
+  if (params.has("social") || params.get("filter") === "social") return { tab: "profile" };
   const page = params.get("page") || "";
   if (tabs.some((t) => t.id === page)) return { tab: page };
   if (legacyPages[page]) return legacyPages[page];
@@ -184,8 +186,6 @@ function initialPage() {
 }
 function initialFilter(): FeedFilter {
   const params = new URLSearchParams(location.search);
-  // A notification about a story opens Social on it.
-  if (params.has("social")) return "social";
   const value = params.get("filter");
   // Older "needs" links land on Done, under the Needs you stack.
   return feedFilters.some((f) => f.id === value)
@@ -302,6 +302,7 @@ export default function App() {
     if (replyContext && selected !== replyContext.agentId)
       setReplyContext(null);
   }, [selected]);
+  const [socialUnread, setSocialUnread] = useState<number>();
   const [project, setProject] = useState(
     new URLSearchParams(location.search).get("projectView") || "",
   );
@@ -527,10 +528,10 @@ export default function App() {
     if (story) {
       setProfile(null);
       setConversation(null);
-      setTab("feed");
-      setFeedFilter("social");
+      setTab("profile");
       // Social reads the story from the address, as it does on a cold open.
       history.replaceState(null, "", url.pathname + url.search);
+      window.dispatchEvent(new Event("loop-social-open"));
       window.dispatchEvent(new Event("loop-refresh"));
     } else if (target) {
       setProfile(null);
@@ -906,6 +907,7 @@ export default function App() {
   }
   useEffect(() => {
     const url = new URL(location.href);
+    if (url.searchParams.get("filter") === "social") url.searchParams.set("profileTab", "social");
     for (const [key, value] of Object.entries({
       page: tab === "feed" ? "" : tab,
       filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
@@ -2744,7 +2746,7 @@ export default function App() {
                   </button>
                 </p>
               )}
-              {unified.agents.length > 0 && (
+              {unified.agents.length > 0 && feedFilter !== "status" && (
                 <YourAgents
                   agents={
                     projectFilter || teamSelection.length
@@ -2886,6 +2888,8 @@ export default function App() {
           {profile && ["all", "files"].includes(view) && resultsList}
           {tab === "profile" && !profile && (
             <MyProfile
+              socialUnread={socialUnread}
+              social={<Social onUnread={setSocialUnread} onAsk={availableAgents.length ? askAboutPull : undefined} agents={unified.agents} />}
               name={displayName}
               accountName={accountName}
               profile={myProfile}

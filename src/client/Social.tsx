@@ -979,13 +979,16 @@ function DigestSheet({
 export function Social({
   onAsk,
   agents = [],
+  onUnread,
 }: {
+  onUnread?: (count: number) => void;
   onAsk?: (text: string) => void;
   agents?: { id: string; name: string; retired_at?: number | null }[];
 }) {
   const KEY = "social";
   const cached = cachedView<Shown>(KEY);
   const [view, setView] = useState<Shown | null>(cached || null);
+  useEffect(() => { if (view) onUnread?.(view.unread); }, [view?.unread, onUnread]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [choosing, setChoosing] = useState(false);
@@ -1075,7 +1078,7 @@ export function Social({
         read ? "POST" : "DELETE",
       );
       setView((old) => old && { ...old, unread });
-      // The Social chip's count lives in the Feed's summary.
+      // Refresh any other reader of the owner’s unread count.
       setSearchRevision(revision => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {

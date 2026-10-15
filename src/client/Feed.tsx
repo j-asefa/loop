@@ -68,7 +68,7 @@ import {
 } from "./ThreadTools";
 import { shareLink } from "./Handoff";
 import { threadDraft, sourceDraftId } from "./drafts";
-import { Social } from "./Social";
+import { ProjectStatusFeed } from "./ProjectStatus";
 import {
   feedNextAction,
   preview,
@@ -84,8 +84,8 @@ export type FeedFilter =
   | "done"
   | "working"
   | "queued"
-  // Stories from the public feeds you added, not threads.
-  | "social"
+  // Project overview, not a thread filter.
+  | "status"
   // Project history views (no chip of their own).
   | "outcomes"
   | "unfinished";
@@ -189,10 +189,10 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
   { id: "done", label: "Done" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
-  { id: "social", label: "Social" },
+  { id: "status", label: "Status" },
 ];
 
-const isSocial = (filter: FeedFilter) => filter === "social";
+const isStatus = (filter: FeedFilter) => filter === "status";
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -951,9 +951,8 @@ export function Feed({
   const request = useRef(0);
   const query = (before?: string, which: string = filter) => {
     const q = new URLSearchParams({
-      // Social is not a thread filter; the request only keeps the chip
-      // counts current, from the smallest list.
-      filter: isSocial(which as FeedFilter) ? "needs" : which,
+      // Status uses its own bulk projection; keep this query thread-only.
+      filter: isStatus(which as FeedFilter) ? "needs" : which,
     });
     if (project) q.set("folder", project);
     if (agent) q.set("agent", agent);
@@ -967,7 +966,7 @@ export function Feed({
     pages: new Map(),
   });
   async function loadNeeds() {
-    if (hideFilters) return;
+    if (hideFilters || isStatus(filter)) return;
     const ticket = ++needsRequest.current;
     const owner = viewOwner();
     const key = needsKey();
@@ -999,6 +998,12 @@ export function Feed({
     setNeeds(loaded);
   }
   async function load(append = false, background = false) {
+    if (isStatus(filter)) {
+      ++request.current;
+      ++needsRequest.current;
+      inFlight.current = false;
+      return;
+    }
     if (!append) void loadNeeds();
     // Background refreshes never overlap; filter changes and actions always load.
     if (background && inFlight.current) return;
@@ -1554,7 +1559,6 @@ export function Feed({
     ? {
         working: summary.working,
         queued: summary.queued,
-        social: summary.social_unread,
       }
     : {};
   function selectFilter(nextFilter: FeedFilter) {
@@ -1563,7 +1567,7 @@ export function Feed({
   }
   return (
     <section className="inbox" aria-label="Feed">
-      {!hideFilters && (
+      {!hideFilters && !isStatus(filter) && (
         <AwaySummary
           sources={activeSources}
           onFilter={selectFilter}
@@ -1572,7 +1576,7 @@ export function Feed({
         />
       )}
       {header}
-      {!hideFilters && (
+      {!hideFilters && !isStatus(filter) && (
         <NeedsStack open={needsOpen} onOpen={setNeedsOpen}>
           {needsSlot}
           {!!needsThreads.length && (
@@ -1627,7 +1631,7 @@ export function Feed({
           ))}
         </div>
       )}
-      {(!isSocial(filter) || needsOpen) && error && (
+      {(!isStatus(filter) || needsOpen) && error && (
         <div className="error" role="alert">
           {error}
           <button className="text-button" onClick={() => void load()}>
@@ -1635,15 +1639,15 @@ export function Feed({
           </button>
         </div>
       )}
-      {(!isSocial(filter) || needsOpen) && notice && (
+      {(!isStatus(filter) || needsOpen) && notice && (
         <p role="status" className="field-hint">
           {notice}
         </p>
       )}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>
-        {isSocial(filter) ? (
-          <Social onAsk={onAsk} agents={agents} />
+        {isStatus(filter) ? (
+          <ProjectStatusFeed project={project} teams={teams} sources={sources} revision={revision} onOpen={onOpen} />
         ) : (
           <>
             {loading && !items.length ? (

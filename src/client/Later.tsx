@@ -527,7 +527,7 @@ export function Later({
     return value === "snoozed" ? "reminders" : (value as LaterSection) || "all";
   });
   const [focus, setFocus] = useState<string | null>(
-    () => cachedView<string | null>("later-focus") || null,
+    () => new URLSearchParams(location.search).get("scheduledSend") || cachedView<string | null>("later-focus") || null,
   );
   useEffect(() => cacheView("later-focus", null, viewOwner()), []);
   useEffect(() => {
