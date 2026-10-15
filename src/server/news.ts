@@ -1015,6 +1015,9 @@ export async function socialStories(
 }
 
 export const news = Router();
+news.get("/social/unread", (_req, res) => {
+  res.json({ unread: unreadCount(res.locals.owner) });
+});
 news.get("/social", async (req, res) => {
   res.json(
     await socialStories(res.locals.owner, Date.now(), {

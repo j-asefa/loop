@@ -10,7 +10,8 @@ export type MyProfileData = {
   bio: string | null;
   counts: { messages: number; agents: number; projects: number };
 };
-export type ProfileTab = "messages" | "files" | "social" | Exclude<LaterSection, "all">;
+export type ProfileTab =
+  "messages" | "files" | "social" | Exclude<LaterSection, "all">;
 const profileTabs: [ProfileTab, string][] = [
   ["messages", "Messages"],
   ["saved", "Saved"],
@@ -42,7 +43,6 @@ export function MyProfile({
   messages,
   files,
   social,
-  socialUnread,
   later,
   onAgents,
   onProjects,
@@ -55,16 +55,49 @@ export function MyProfile({
   messages: ReactNode;
   files: ReactNode;
   social?: ReactNode;
-  socialUnread?: number;
   later: (section: Exclude<LaterSection, "all">) => ReactNode;
   /** Open agent management, from the Agents count. */
   onAgents: () => void;
   /** Open the Projects tab, from the Projects count. */
   onProjects: () => void;
 }) {
+  const [socialUnread, setSocialUnread] = useState<number>();
+  useEffect(() => {
+    const owner = viewOwner(),
+      controller = new AbortController();
+    let ticket = 0;
+    const load = async () => {
+      const current = ++ticket;
+      try {
+        const result = await api<{ unread: number }>(
+          "/social/unread",
+          undefined,
+          undefined,
+          controller.signal,
+        );
+        if (
+          !controller.signal.aborted &&
+          current === ticket &&
+          owner === viewOwner()
+        )
+          setSocialUnread(result.unread);
+      } catch {}
+    };
+    void load();
+    const timer = setInterval(() => void load(), 30_000);
+    window.addEventListener("loop-social-read", load);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener("loop-social-read", load);
+    };
+  }, []);
   const [tab, setTabState] = useState<ProfileTab>(() => {
     const params = new URLSearchParams(location.search);
-    const value = params.has("social") || params.get("filter") === "social" ? "social" : params.get("profileTab") || cachedView<string>("later-section");
+    const value =
+      params.has("social") || params.get("filter") === "social"
+        ? "social"
+        : params.get("profileTab") || cachedView<string>("later-section");
     return profileTabs.some(([id]) => id === value)
       ? (value as ProfileTab)
       : "messages";
@@ -86,7 +119,10 @@ export function MyProfile({
     const social = () => setTabState("social");
     window.addEventListener("loop-social-open", social);
     window.addEventListener(SHOW_LATER, shown);
-    return () => { window.removeEventListener(SHOW_LATER, shown); window.removeEventListener("loop-social-open", social); };
+    return () => {
+      window.removeEventListener(SHOW_LATER, shown);
+      window.removeEventListener("loop-social-open", social);
+    };
   }, []);
   const [editing, setEditing] = useState(false);
   const counts = profile?.counts;
@@ -140,7 +176,10 @@ export function MyProfile({
             aria-selected={tab === id}
             onClick={() => setTab(id)}
           >
-            {label}{id === "social" && !!socialUnread && <span className="chip-count">{socialUnread}</span>}
+            {label}
+            {id === "social" && !!socialUnread && (
+              <span className="chip-count">{socialUnread}</span>
+            )}
           </button>
         ))}
       </div>
@@ -148,7 +187,13 @@ export function MyProfile({
         role="tabpanel"
         aria-label={profileTabs.find(([id]) => id === tab)?.[1]}
       >
-        {tab === "messages" ? messages : tab === "files" ? files : tab === "social" ? social : later(tab)}
+        {tab === "messages"
+          ? messages
+          : tab === "files"
+            ? files
+            : tab === "social"
+              ? social
+              : later(tab)}
       </div>
       {editing && (
         <EditProfile

@@ -12,6 +12,7 @@ const { db, id, now } = await import("../src/server/db");
 const { Problem } = await import("../src/server/domain");
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
+const { briefs } = await import("../src/server/briefs/routes");
 const { applyOutput } = await import("../src/server/briefs/apply");
 const app = express();
 app.use(express.json());
@@ -21,6 +22,7 @@ app.use((req, res, next) => {
 });
 app.use("/api", mobile);
 app.use("/api", core);
+app.use("/api", briefs);
 app.use((e: any, _req: any, res: any, _next: any) =>
   res
     .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
@@ -28,10 +30,19 @@ app.use((e: any, _req: any, res: any, _next: any) =>
 );
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
-async function api(owner: string, path = "/projects/status", method = "GET") {
+async function api(
+  owner: string,
+  path = "/projects/status",
+  method = "GET",
+  body?: unknown,
+) {
   const r = await fetch(
     `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
-    { method, headers: { "x-owner": owner } },
+    {
+      method,
+      headers: { "x-owner": owner, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
   );
   return { status: r.status, data: (await r.json()) as any };
 }
@@ -215,13 +226,13 @@ it("removes cancelled approvals from Status and rejects their cached action targ
 
 it("includes native questions, failed/interrupted work and unsent messages without needing a brief", async () => {
   const f = fixture(),
-    r = f.run("paused"),
+    r = f.run("awaiting_approval"),
     failed = f.run("failed"),
     interrupted = f.run("interrupted"),
     d = id(),
     send = id();
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,state,updated_at) VALUES(?,'codex','/fixture','g','active',?)",
+    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,state,updated_at) VALUES(?,'codex','/fixture','g','running',?)",
   ).run(r.conversation, now());
   db.prepare(
     "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,created_at) VALUES(?,?,?,'g','q',?,'pending',?)",
@@ -268,6 +279,60 @@ it("includes native questions, failed/interrupted work and unsent messages witho
   );
   p = (await api(f.owner)).data.items[0];
   expect(p.actions.map((a: any) => a.kind)).toEqual(["resume", "not_sent"]);
+  db.prepare(
+    "UPDATE companion_sessions SET generation='g' WHERE conversation_id=?",
+  ).run(r.conversation);
+  expect((await api(f.owner, `/runs/${r.run}/cancel`, "POST")).status).toBe(
+    200,
+  );
+  expect(
+    (
+      await api(
+        f.owner,
+        `/projects/${f.project}/status-action?key=decision:${d}`,
+      )
+    ).status,
+  ).toBe(409);
+  expect(
+    (await api(f.owner)).data.items[0].actions.map((a: any) => a.kind),
+  ).toEqual(["not_sent"]);
+});
+
+it("remembers enablement when a brief is disabled before its first generation", async () => {
+  const f = fixture();
+  db.prepare(
+    "INSERT INTO brief_state(owner_id,project_id,goal) VALUES(?,?,'Goal without enabling')",
+  ).run(f.owner, f.project);
+  expect((await api(f.owner)).data.items[0].brief.state).toBe("never");
+  db.prepare(
+    'UPDATE connections SET models=\'[{"id":"fixture"}]\' WHERE id=?',
+  ).run(f.connection);
+  const settings = `/projects/${f.project}/brief/settings`;
+  expect(
+    (
+      await api(f.owner, settings, "PUT", {
+        enabled: true,
+        connectionId: f.connection,
+        model: "fixture",
+      })
+    ).status,
+  ).toBe(200);
+  expect((await api(f.owner)).data.items[0].brief.state).toBe("pending");
+  expect(
+    (
+      await api(f.owner, settings, "PUT", {
+        enabled: false,
+        connectionId: null,
+        model: null,
+      })
+    ).status,
+  ).toBe(200);
+  expect((await api(f.owner)).data.items[0].brief).toMatchObject({
+    state: "off",
+    headline: null,
+    questions: null,
+    unfinished: null,
+  });
 });
 
 it("distinguishes all no-brief states, counts overflow, and never acknowledges a brief", async () => {
@@ -402,6 +467,31 @@ it("binds checks to the displayed run and preserves older red PRs with independe
     verification: null,
     telemetry: "observed",
   });
+  // The newest observation wins, even when that run's checkout is older.
+  const otherCapture = id();
+  db.prepare(
+    "INSERT INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,directory,source,branch,start_head,start_dirty,start_untracked,started_at,state,summary,ended_at) VALUES(?,?,?,?,?,'/work','/source','feature','sha',0,0,?,'captured',?,?)",
+  ).run(
+    otherCapture,
+    f.owner,
+    other.run,
+    f.agent,
+    other.conversation,
+    now() - 8000,
+    JSON.stringify({ ...summary, id: otherCapture }),
+    now() - 7000,
+  );
+  db.prepare("UPDATE run_verifications SET observed_at=? WHERE id=?").run(
+    now(),
+    verification,
+  );
+  p = (await api(f.owner)).data.items[0];
+  expect(p.evidence).toMatchObject({
+    run_id: other.run,
+    checkout: { id: otherCapture },
+    verification: { items: [{ id: verification }] },
+  });
+  expect(p.evidence.verification_at).toBeGreaterThan(p.evidence.checkout_at);
 });
 
 it("scopes owners and teams while retaining whole-project brief counts", async () => {

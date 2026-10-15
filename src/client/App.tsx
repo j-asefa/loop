@@ -302,7 +302,6 @@ export default function App() {
     if (replyContext && selected !== replyContext.agentId)
       setReplyContext(null);
   }, [selected]);
-  const [socialUnread, setSocialUnread] = useState<number>();
   const [project, setProject] = useState(
     new URLSearchParams(location.search).get("projectView") || "",
   );
@@ -586,9 +585,10 @@ export default function App() {
     const section = url.searchParams.get("later");
     if (section !== "scheduled" && section !== "reminders") return;
     openLater(section, url.searchParams.get("laterItem") || undefined);
-    url.searchParams.delete("later");
-    url.searchParams.delete("laterItem");
-    history.replaceState(history.state, "", url.pathname + url.search);
+    const current = new URL(location.href);
+    current.searchParams.delete("later");
+    current.searchParams.delete("laterItem");
+    history.replaceState(history.state, "", current.pathname + current.search);
   }, [session?.user?.id]);
 
   /**
@@ -2888,8 +2888,7 @@ export default function App() {
           {profile && ["all", "files"].includes(view) && resultsList}
           {tab === "profile" && !profile && (
             <MyProfile
-              socialUnread={socialUnread}
-              social={<Social onUnread={setSocialUnread} onAsk={availableAgents.length ? askAboutPull : undefined} agents={unified.agents} />}
+              social={<Social onAsk={availableAgents.length ? askAboutPull : undefined} agents={unified.agents} />}
               name={displayName}
               accountName={accountName}
               profile={myProfile}

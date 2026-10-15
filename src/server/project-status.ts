@@ -58,13 +58,14 @@ function build(owner: string, options: Options): ProjectStatusPage {
     name: string;
     created_at: number;
     enabled: number | null;
+    ever_enabled: number | null;
     current_version: number | null;
     last_error: string | null;
     last_run_at: number | null;
     view: string | null;
     synth_at: number | null;
     pending: number;
-  }>(`SELECT f.id,f.name,f.created_at,s.enabled,s.current_version,s.last_error,s.last_run_at,b.view,b.synth_at,
+  }>(`SELECT f.id,f.name,f.created_at,s.enabled,s.ever_enabled,s.current_version,s.last_error,s.last_run_at,b.view,b.synth_at,
       (SELECT count(*) FROM project_changes p WHERE p.owner_id=f.owner_id AND p.project_id=f.id
         AND p.seq>COALESCE(s.basis_through,0)
         AND p.kind IN (${synthesisKinds.map((k) => `'${k}'`).join(",")})
@@ -85,7 +86,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
       pulls: [],
       brief: {
         state: !p.enabled
-          ? p.current_version || p.last_run_at
+          ? p.ever_enabled || p.current_version || p.last_run_at
             ? "off"
             : "never"
           : p.last_error
@@ -193,7 +194,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
     FROM native_decisions d JOIN scope c ON c.id=d.conversation_id
     JOIN runs r ON r.id=d.run_id AND r.owner_id=c.owner_id AND r.conversation_id=c.id
     JOIN companion_sessions s ON s.conversation_id=c.id AND s.generation=d.generation
-    WHERE d.state='pending'`)) {
+    WHERE d.state='pending' AND s.state='running' AND r.state IN ('running','awaiting_approval')`)) {
     let question = false;
     try {
       const q = JSON.parse(d.request).questions;
@@ -356,7 +357,8 @@ function build(owner: string, options: Options): ProjectStatusPage {
       SELECT f.project_id project,r.id,r.conversation_id,a.name,r.input,k.summary,
         COALESCE(k.ended_at,k.started_at) checkout_at,v.at verification_at,o.at output_at,
         row_number() OVER (PARTITION BY f.project_id ORDER BY (k.run_id IS NOT NULL OR v.run_id IS NOT NULL) DESC,
-          COALESCE(k.ended_at,k.started_at,v.at,r.created_at) DESC,r.id) position
+          CASE WHEN k.run_id IS NULL AND v.run_id IS NULL THEN r.created_at
+            ELSE max(COALESCE(k.ended_at,k.started_at,0),COALESCE(v.at,0)) END DESC,r.id) position
       FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
       JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
       JOIN project_change_folders f ON f.owner_id=r.owner_id AND f.folder_id=COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))

@@ -67,6 +67,15 @@ export function seedFeeds(db, owner) {
 
 export async function socialSmoke(page, fixture, shot) {
   const { total, titles } = seedFeeds(fixture.db, fixture.owner);
+  await page.goto(fixture.base + "/?page=profile&profileTab=messages");
+  await expect(page.getByRole("tab", { name: "Messages", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /^Social/ }).locator(".chip-count")).toHaveText(String(total));
+  await expect(page.locator(".news-card")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("tab", { name: /^Social/ }).locator(".chip-count")).toHaveText(String(total));
+  // Explicit Later links outrank the previously selected profile tab.
+  await page.goto(fixture.base + "/?page=profile&profileTab=messages&later=reminders");
+  await expect(page.getByRole("tab", { name: "Reminders", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.goto(fixture.base + "/?filter=social");
   const social = page.getByRole("list", { name: "Social" });
   await page.waitForSelector(".news-card");

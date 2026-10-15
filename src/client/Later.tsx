@@ -80,6 +80,12 @@ export const SHOW_LATER = "loop-show-later";
 export function showLater(section: LaterSection, focusId?: string) {
   cacheView("later-section", section, viewOwner());
   cacheView("later-focus", focusId || null, viewOwner());
+  const url = new URL(location.href);
+  if (section !== "all") url.searchParams.set("profileTab", section);
+  else url.searchParams.delete("profileTab");
+  url.searchParams.delete("social");
+  if (url.searchParams.get("filter") === "social") url.searchParams.delete("filter");
+  history.replaceState(history.state, "", url.pathname + url.search);
   window.dispatchEvent(
     new CustomEvent<ShowLater>(SHOW_LATER, {
       detail: { section, focusId: focusId || null },

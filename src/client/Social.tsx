@@ -979,16 +979,13 @@ function DigestSheet({
 export function Social({
   onAsk,
   agents = [],
-  onUnread,
 }: {
-  onUnread?: (count: number) => void;
   onAsk?: (text: string) => void;
   agents?: { id: string; name: string; retired_at?: number | null }[];
 }) {
   const KEY = "social";
   const cached = cachedView<Shown>(KEY);
   const [view, setView] = useState<Shown | null>(cached || null);
-  useEffect(() => { if (view) onUnread?.(view.unread); }, [view?.unread, onUnread]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [choosing, setChoosing] = useState(false);
@@ -1045,6 +1042,7 @@ export function Social({
       const next = { ...social, added, own, ...preferences };
       setView(next);
       cacheView<Shown>(KEY, next, owner);
+      window.dispatchEvent(new Event("loop-social-read"));
       setError("");
       // Feeds still loading arrive behind the first paint: ask again for them
       // a few times, then leave it to the five-minute refresh.
