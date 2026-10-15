@@ -33,7 +33,10 @@ export function CheckoutChip({
           summary.untracked ? `${summary.untracked} untracked` : "",
         ].filter(Boolean).join(" · ")
       : summary.state === "failed" ? "Diff unavailable" : "Diff pending"
-    : checkoutLine(summary);
+    : checkoutLine({
+        ...summary,
+        branch: summary.branch.replace(/^(loop\/agent-[a-f0-9]{4})[a-f0-9]+$/, "$1"),
+      });
   const count = (value: number) => new Intl.NumberFormat("en", {
     notation: "compact", maximumFractionDigits: 1,
   }).format(value);
