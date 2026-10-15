@@ -39,7 +39,11 @@ export function CheckoutChip({
   }).format(value);
   const line = compact && summary.state === "captured"
     ? summary.additions || summary.deletions
-      ? `+${count(summary.additions)} −${count(summary.deletions)}`
+      ? <>
+          <span className="diff-add-count">+{count(summary.additions)}</span>
+          {" "}
+          <span className="diff-remove-count">−{count(summary.deletions)}</span>
+        </>
       : summary.files
         ? `${count(summary.files)} ${summary.files === 1 ? "file" : "files"}`
         : summary.untracked ? `${count(summary.untracked)} new` : "No changes"
