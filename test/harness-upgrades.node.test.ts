@@ -35,6 +35,7 @@ const packages = {
   claude: "@anthropic-ai/claude-code",
   pi: "@earendil-works/pi-coding-agent",
   opencode: "opencode-ai",
+  gemini: "@google/gemini-cli",
 } as const;
 
 // Every upgrade test injects this runner, so no test spawns a package manager

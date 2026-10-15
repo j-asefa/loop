@@ -12,6 +12,7 @@ export function harnessName(connection: Connection) {
       : "Claude API";
   return {
     openai: "OpenAI API",
+    gemini: "Gemini CLI",
     pi: "Pi",
     opencode: "OpenCode",
     acp: "ACP agent",

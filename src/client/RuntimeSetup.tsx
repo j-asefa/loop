@@ -34,6 +34,7 @@ const labels: Record<string, string> = {
   claude: "Claude Code",
   pi: "Pi",
   opencode: "OpenCode",
+  gemini: "Gemini CLI",
 };
 function authBase(runtime: Runtime) {
   return `/workspace/runtimes/${runtime.name}/auth`;
@@ -99,10 +100,12 @@ export function RuntimeSetup({
     );
     // Read existing attempts without starting a harness or another sign-in.
     const states = await Promise.allSettled(
-      host.runtimes.map(async (runtime) => {
-        const auth = await authStatus(runtime);
-        return [runtimeAuthScope(runtime), auth.attempt?.state] as const;
-      }),
+      host.runtimes
+        .filter((runtime) => runtime.name !== "gemini")
+        .map(async (runtime) => {
+          const auth = await authStatus(runtime);
+          return [runtimeAuthScope(runtime), auth.attempt?.state] as const;
+        }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
     if (revision === authRevision.current)
@@ -125,7 +128,8 @@ export function RuntimeSetup({
         : project;
       await api(`/workspace/runtimes/${runtime.name}/enable`, {
         projectId,
-        billing: runtime.billing || billing,
+        billing:
+          runtime.name === "gemini" ? "existing" : runtime.billing || billing,
       });
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
@@ -201,7 +205,7 @@ export function RuntimeSetup({
       clearTimeout(timer);
     };
   }, [authInProgress, authStates, onAuthState, discovery]);
-  const setupFields = (
+  const projectFields = (
     <>
       <label>
         Project directory for new runtimes
@@ -223,6 +227,11 @@ export function RuntimeSetup({
           Add a desktop directory in Projects before enabling a runtime.
         </p>
       )}
+    </>
+  );
+  const setupFields = (
+    <>
+      {projectFields}
       <label>
         Billing policy for new runtimes
         <select
@@ -332,7 +341,9 @@ export function RuntimeSetup({
                 <div>
                   <h3>{label}</h3>
                   <small>
-                    {runtime.billing === "existing" || runtime.name === "pi"
+                    {runtime.billing === "existing" ||
+                    runtime.name === "pi" ||
+                    runtime.name === "gemini"
                       ? "Existing billing · may incur API charges"
                       : runtime.billing === "subscription"
                         ? "Native subscription"
@@ -386,7 +397,30 @@ export function RuntimeSetup({
                   <p className="settings-intro">
                     {discovery.computer} · Native harness
                   </p>
-                  {runtime.available && discovery.online ? (
+                  {runtime.available &&
+                  discovery.online &&
+                  runtime.name === "gemini" ? (
+                    <>
+                      <p>
+                        On this computer, run <code>gemini</code> and choose{" "}
+                        <strong>Sign in with Google</strong>. Then enable or
+                        refresh Gemini here.
+                      </p>
+                      <p>
+                        Loop uses Gemini CLI’s existing account and billing
+                        configuration. It does not change the sign-in method;
+                        provider charges may apply.
+                      </p>
+                      {runtime.enabled ? (
+                        <p>
+                          Project: <code>{runtime.project}</code>
+                        </p>
+                      ) : (
+                        projectFields
+                      )}
+                      {enableAction}
+                    </>
+                  ) : runtime.available && discovery.online ? (
                     <RuntimeSignIn
                       base={authBase(runtime)}
                       backend="direct"

@@ -13,11 +13,11 @@ process.env.LOOP_DATA_DIR = dir;
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 
-test("runtime-neutral paired host enables and dispatches all four fixture runtimes through app APIs", async () => {
+test("runtime-neutral paired host enables and dispatches all fixture runtimes through app APIs", async () => {
   const bin = join(dir, "bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
-  const names = ["codex", "claude", "pi", "opencode"] as const;
+  const names = ["codex", "claude", "pi", "opencode", "gemini"] as const;
   // Stable releases from the registry at the time of this regression. Discovery
   // must accept updates, then still perform normal adapter/authentication setup.
   const versions = {
@@ -25,8 +25,13 @@ test("runtime-neutral paired host enables and dispatches all four fixture runtim
     claude: "2.1.284",
     pi: "0.87.1",
     opencode: "1.18.33",
+    gemini: "0.64.0",
   };
   for (const name of names) {
+    if (name === "gemini") {
+      await writeFile(join(bin, name), `#!/bin/sh\nexport LOOP_TEST_GEMINI_AUTO=1\nexec '${process.execPath}' '${resolve("test/fixtures/fake-gemini.mjs")}' "$@"\n`, { mode: 0o755 });
+      continue;
+    }
     await writeFile(
       join(bin, name),
       `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_CLAUDE_AUTH=oauth\nexport LOOP_TEST_HARNESS_VERSION=${versions[name]}\nexec '${process.execPath}' '${resolve("test/harness.mjs")}' "$@"\n`,
@@ -71,7 +76,7 @@ test("runtime-neutral paired host enables and dispatches all four fixture runtim
       assert(response.ok, JSON.stringify({ path, result }));
       return result;
     };
-    assert.equal((await api("/workspace")).harnesses.length, 4);
+    assert.equal((await api("/workspace")).harnesses.length, names.length);
     const projectId = (await api("/workspace")).projectPaths[0].folder_id;
     const runtimes = (await api("/workspace/runtimes")).runtimes;
     for (const name of names) {
@@ -99,7 +104,7 @@ test("runtime-neutral paired host enables and dispatches all four fixture runtim
       const message = await failure.text();
       assert.match(message, /CLI sign-in/);
       assert.doesNotMatch(message, /fixture-private-value/);
-      assert.equal((await api("/workspace")).harnesses.length, 4);
+      assert.equal((await api("/workspace")).harnesses.length, names.length);
     } finally {
       if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = previousKey;

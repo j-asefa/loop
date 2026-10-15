@@ -14,12 +14,14 @@ const minimumVersions = {
   claude: "2.1.237",
   pi: "0.87.1",
   opencode: "1.18.32",
+  gemini: "0.64.0",
 };
 const install = {
   codex: "https://developers.openai.com/codex/cli",
   claude: "https://code.claude.com/docs/en/setup",
   pi: "https://github.com/earendil-works/pi",
   opencode: "https://opencode.ai/docs",
+  gemini: "https://geminicli.com/docs/get-started/installation/",
 };
 
 function meetsMinimum(version: string | undefined, minimum: string) {

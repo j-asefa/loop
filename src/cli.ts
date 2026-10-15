@@ -646,11 +646,11 @@ async function main() {
 loop start              Start this computer and show a pairing QR code.
                         Discovers installed harnesses and reuses their native sign-in.
 loop                    Alias for loop start.
-loop start [--providers installed|codex,claude,opencode,pi]
+loop start [--providers installed|codex,claude,opencode,pi,gemini]
      [--execution native]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
 loop server             Start the full server in the foreground.
-loop codex|claude|pi|opencode [--project PATH] [--executable PATH]
+loop codex|claude|pi|opencode|gemini [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
      [--local-only | --public-url https://stable-origin] [--foreground]
                         Start this computer's workspace with that harness,
@@ -711,7 +711,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ).find((k) => values[k] !== undefined);
     if (companion)
       throw new Error(
-        `--${companion} applies to loop start or loop codex|claude|pi|opencode.`,
+        `--${companion} applies to loop start or loop codex|claude|pi|opencode|gemini.`,
       );
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop --help.");
@@ -1016,7 +1016,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       values["acp-arg"]?.length)
   )
     throw new Error(
-      "Runtime options belong to loop codex|claude|pi|opencode|acp. Use loop start without a runtime, then choose it in the app.",
+      "Runtime options belong to loop codex|claude|pi|opencode|gemini|acp. Use loop start without a runtime, then choose it in the app.",
     );
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")
@@ -1086,7 +1086,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   let billing =
     values.billing ??
     preferences.billing?.[selected] ??
-    (selected === "acp" ? "existing" : "subscription");
+    (selected === "acp" || selected === "gemini" ? "existing" : "subscription");
   if (selected === "acp" && billing !== "existing")
     throw new Error(
       "ACP uses the agent's own authentication and billing; choose --billing existing.",

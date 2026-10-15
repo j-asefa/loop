@@ -28,7 +28,7 @@ const BUILD = (() => {
 })();
 const registration = z
   .object({
-    harness: z.enum(["pi", "claude", "codex", "opencode", "acp"]),
+    harness: z.enum(["pi", "claude", "codex", "opencode", "gemini", "acp"]),
     executable: z.string().min(1).max(4096),
     project: z.string().min(1).max(4096),
     version: z.string().max(100),

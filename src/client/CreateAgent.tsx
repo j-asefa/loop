@@ -311,7 +311,7 @@ export function CreateAgent({
         </label>
         <div className="provider-picker">
           {(
-            ["codex", "anthropic", "pi", "opencode", "acp", "openai"] as const
+            ["codex", "anthropic", "pi", "opencode", "gemini", "acp", "openai"] as const
           ).map((p) => (
             <button
               type="button"

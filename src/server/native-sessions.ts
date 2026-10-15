@@ -49,6 +49,7 @@ import { Claude } from "../adapters/claude.js";
 import { Pi } from "../adapters/pi.js";
 import { NativeSetupError } from "../adapters/setup-error.js";
 import { OpenCode } from "../adapters/opencode.js";
+import { Gemini } from "../adapters/gemini.js";
 import { Acp } from "../adapters/acp.js";
 import {
   NotDelivered,
@@ -106,6 +107,7 @@ const classes = {
   pi: Pi,
   opencode: OpenCode,
   acp: Acp,
+  gemini: Gemini,
 };
 const labels = {
   codex: "Codex",
@@ -113,6 +115,7 @@ const labels = {
   pi: "Pi",
   opencode: "OpenCode",
   acp: "ACP agent",
+  gemini: "Gemini CLI",
 };
 
 // Native tools can return far more text than the phone needs to display. Keep
@@ -1257,10 +1260,12 @@ export class NativeSessions {
           });
         // Keep actionable setup guidance at the worker's safe error boundary.
         // Raw process/SDK errors may contain local paths or provider details.
-        if (harness === "acp" && !(error instanceof Problem))
+        if (["acp", "gemini"].includes(harness) && !(error instanceof Problem))
           throw new Problem(
             503,
-            "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run.",
+            harness === "gemini"
+              ? "Gemini CLI setup failed. Run gemini on this computer to check sign-in, then refresh the connection and retry."
+              : "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run.",
           );
         throw error;
       }
@@ -1529,7 +1534,9 @@ export class NativeSessions {
       .get(live.binding.conversation_id) as
       { generation: string | null } | undefined;
     if (current?.generation !== live.generation) return;
-    const transport = live.binding.harness === "acp" ? "acp" : "native";
+    const transport = ["acp", "gemini"].includes(live.binding.harness)
+      ? "acp"
+      : "native";
     if (event.type === "activity_capabilities") {
       ingestNativeCapabilities(live, transport, event.capabilities);
       return;

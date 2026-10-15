@@ -8,6 +8,12 @@ import { discover } from "../src/host-control.js";
 const exec = promisify(execFile);
 
 const versions = {
+  gemini: {
+    minimum: "0.64.0",
+    older: "0.63.0",
+    latest: "0.65.0",
+    format: (v: string) => `${v}\n`,
+  },
   codex: {
     minimum: "0.157.0",
     older: "0.156.99",
@@ -140,7 +146,7 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
         },
       );
       const report = JSON.parse(stdout);
-      assert.equal(report.harnesses.length, 4);
+      assert.equal(report.harnesses.length, Object.keys(versions).length);
       for (const [name, { latest }] of Object.entries(versions)) {
         const harness = report.harnesses.find(
           (h: { name: string }) => h.name === name,

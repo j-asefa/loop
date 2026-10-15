@@ -15,6 +15,7 @@ import { nativeSessions, OWNER } from "./native-sessions.js";
 import { nativeSignIns } from "./native-auth.js";
 
 export const companion = express.Router();
+const runtimeHarness = z.enum(["codex", "claude", "pi", "opencode", "gemini"]);
 const authHarness = z.enum(["codex", "claude", "pi", "opencode"]);
 async function authOptions(
   name: z.infer<typeof authHarness>,
@@ -129,7 +130,7 @@ const probes = new Map<
   { at: number; probe: ReturnType<typeof discover> }
 >();
 function recentDiscover(
-  name: z.infer<typeof authHarness>,
+  name: z.infer<typeof runtimeHarness>,
   executable?: string,
   fresh = false,
 ) {
@@ -146,7 +147,7 @@ companion.get("/workspace/runtimes", async (req, res) => {
   const fresh = req.query.fresh === "1";
   const registered = nativeSessions.registrations();
   const runtimes = await Promise.all(
-    (["codex", "claude", "pi", "opencode"] as const).map(async (name) => {
+    runtimeHarness.options.map(async (name) => {
       const enabled = registered.find((r) => r.name === name);
       const saved = enabled ? nativeSessions.registration(name) : undefined;
       const probe = await recentDiscover(name, saved?.executable, fresh);
@@ -173,13 +174,13 @@ companion.get("/workspace/runtimes", async (req, res) => {
 });
 companion.get("/workspace/runtimes/:name/upgrade", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const name = authHarness.parse(req.params.name);
+  const name = runtimeHarness.parse(req.params.name);
   const saved = nativeSessions.registrations().some((r) => r.name === name) ? nativeSessions.registration(name) : undefined;
   const probe = await discover(name, saved?.executable);
   res.json({ upgrade: upgrades.status(name), ...(probe.installed ? upgrades.availability(name, probe.executable!) : { canUpgrade: false, upgradeHelp: "Install this runtime on the computer first." }) });
 });
 companion.post("/workspace/runtimes/:name/upgrade", async (req, res) => {
-  const name = authHarness.parse(req.params.name);
+  const name = runtimeHarness.parse(req.params.name);
   const { commandId } = z.object({ commandId: z.string().uuid() }).strict().parse(req.body);
   let release: () => void;
   try {
@@ -213,23 +214,21 @@ companion.post("/workspace/runtimes/:name/upgrade", async (req, res) => {
 });
 // Clears a finished upgrade outcome; retry is a new upgrade request.
 companion.delete("/workspace/runtimes/:name/upgrade", (req, res) => {
-  const name = authHarness.parse(req.params.name);
+  const name = runtimeHarness.parse(req.params.name);
   try {
     upgrades.dismiss(name);
   } catch (error) { throw new Problem(409, (error as Error).message); }
   res.json({ upgrade: null });
 });
 companion.post("/workspace/runtimes/:name/upgrade/recover", (req, res) => {
-  const name = authHarness.parse(req.params.name);
+  const name = runtimeHarness.parse(req.params.name);
   const { commandId } = z.object({ confirmedStopped: z.literal(true), commandId: z.string().uuid() }).strict().parse(req.body);
   try { upgrades.recover(name, commandId); }
   catch (error) { throw new Problem(409, (error as Error).message); }
   res.json({ upgrade: upgrades.status(name) });
 });
 companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
-  const name = z
-    .enum(["codex", "claude", "pi", "opencode"])
-    .parse(req.params.name);
+  const name = runtimeHarness.parse(req.params.name);
   if (nativeSignIns.inProgress(name))
     throw new Problem(
       409,
@@ -265,10 +264,13 @@ companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
       409,
       "This runtime is already bound to another project. Stop the desktop workspace before changing its project.",
     );
-  if (input.billing === "subscription" && name === "opencode")
+  if (
+    input.billing === "subscription" &&
+    (name === "opencode" || name === "gemini")
+  )
     throw new Problem(
       422,
-      "OpenCode cannot verify subscription billing. Choose existing native configuration instead.",
+      `${name === "gemini" ? "Gemini CLI" : "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
     );
   const probe = await discover(name, saved?.executable);
   if (!probe.installed || !probe.supported || !probe.version)

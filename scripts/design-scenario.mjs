@@ -1,4 +1,5 @@
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
+import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
 import { briefSmoke } from "./helpers/brief-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
@@ -37,6 +38,7 @@ import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  gemini: geminiSmoke,
   brief: briefSmoke,
   "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {

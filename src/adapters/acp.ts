@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
@@ -59,7 +60,20 @@ export class Acp implements Adapter {
     liveAttach: false,
     terminal: false,
   };
-  models = [{ id: "native-default", name: "Use agent default" }];
+  models: import("../shared/models.js").ModelOption[] = [
+    { id: "native-default", name: "Use agent default" },
+  ];
+  protected verifySessionOnProbe = false;
+  protected environment(): NodeJS.ProcessEnv {
+    return process.env;
+  }
+  protected billing(): Billing {
+    return {
+      mode: "existing",
+      description:
+        "ACP agent uses its own local authentication and billing configuration.",
+    };
+  }
   commands: NativeCommand[] = [];
   activityCapabilities = undiscoveredCapabilities("ACP initialize pending");
   settings: SettingsData = { options: [], revision: 0 };
@@ -120,7 +134,7 @@ export class Acp implements Adapter {
       shell: false,
       detached: true,
       stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      env: this.environment(),
     });
     this.child = child;
     own(child);
@@ -208,7 +222,7 @@ export class Acp implements Adapter {
         type: "activity_capabilities",
         capabilities: this.activityCapabilities,
       });
-      if (init.authMethods?.length) {
+      if (init.authMethods?.length && !this.verifySessionOnProbe) {
         // Authentication methods are agent-specific; do not claim a successful login.
         this.emit({
           type: "error",
@@ -216,13 +230,10 @@ export class Acp implements Adapter {
             "ACP agent offers authentication methods. Sign in with the agent's own CLI if session creation requires it.",
         });
       }
-      // Probes discover capabilities without creating or loading a session.
-      if (this.options.probeOnly)
-        return {
-          mode: "existing",
-          description:
-            "ACP agent uses its own local authentication and billing configuration.",
-        };
+      // Generic ACP probes only initialize. Known harnesses can require a
+      // prompt-free session to verify authentication and discover models.
+      if (this.options.probeOnly && !this.verifySessionOnProbe)
+        return this.billing();
       const mcpServers =
         this.options.workspaceTools &&
         init.agentCapabilities?.mcpCapabilities?.http
@@ -256,6 +267,7 @@ export class Acp implements Adapter {
           "ACP session/load",
         );
         this.supportsConfig = loaded.configOptions != null;
+        this.refreshModels(loaded);
         this.refreshSettings(
           loaded.configOptions || [],
           loaded.modes || undefined,
@@ -270,25 +282,65 @@ export class Acp implements Adapter {
           "ACP session/new",
         );
         this.session = result.sessionId;
+        this.refreshModels(result);
         this.supportsConfig = result.configOptions != null;
         this.refreshSettings(
           result.configOptions || [],
           result.modes || undefined,
         );
       }
+      if (this.options.probeOnly) return this.billing();
+      if (this.options.model && this.options.model !== "native-default") {
+        if (!this.models.some((model) => model.id === this.options.model))
+          throw new SafeAcpError(
+            "Selected model is not in the agent's session catalog.",
+          );
+        await within(
+          this.connection.request("session/set_model", {
+            sessionId: this.session,
+            modelId: this.options.model,
+          }),
+          "ACP session/set_model",
+        );
+      }
       this.emit({ type: "metadata", nativeSession: this.session });
       this.emit({ type: "status", status: "ready" });
-      return {
-        mode: "existing",
-        description:
-          "ACP agent uses its own local authentication and billing configuration.",
-      };
+      return this.billing();
     } catch (error) {
       await this.dispose();
       throw new Error(
         `ACP setup failed: ${error instanceof SafeAcpError ? error.message : "The agent did not complete setup."} Check the agent executable, local sign-in, and ACP compatibility.`,
       );
     }
+  }
+  private refreshModels(response: unknown) {
+    // Gemini still reports the ACP model extension, removed from SDK 1.5's
+    // static types. Validate the native catalog before exposing it to the UI.
+    const parsed = z
+      .object({
+        models: z
+          .object({
+            availableModels: z
+              .array(
+                z.object({
+                  modelId: z.string().min(1).max(200),
+                  name: z.string().min(1).max(200),
+                }),
+              )
+              .max(300),
+          })
+          .optional(),
+      })
+      .safeParse(response);
+    const state = parsed.success ? parsed.data.models : undefined;
+    if (!state) return;
+    this.models = [
+      { id: "native-default", name: "Use agent default" },
+      ...state.availableModels.map((model) => ({
+        id: model.modelId,
+        name: model.name,
+      })),
+    ];
   }
   async prompt(value: string) {
     if (
@@ -397,7 +449,11 @@ export class Acp implements Adapter {
         v: ACTIVITY_VERSION,
         kind,
         id: id.slice(0, 300),
-        source: { transport: "acp", harness: "acp", origin: "acp" },
+        source: {
+          transport: "acp",
+          harness: this.options.harness,
+          origin: "acp",
+        },
         seq: (this.sequence.get(key) || 0) + 1,
         replay,
         patch,

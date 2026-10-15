@@ -1,6 +1,6 @@
 # Native harnesses
 
-Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi and OpenCode on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
+Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode and Gemini CLI on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
 
 ```sh
 loop
@@ -8,7 +8,7 @@ loop start --project /absolute/path/to/project
 loop start --providers codex,claude
 ```
 
-The default selection is `installed` (all four supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
+The default selection is `installed` (all five supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
 
 ## Agent worktrees
 
@@ -28,6 +28,7 @@ Harnesses own their context, tools, configuration and credential homes. Loop inv
 | Claude Code | Verified native subscription | Live steering |
 | Pi | Existing native configuration; provider charges may apply | Live steering |
 | OpenCode | Existing native configuration; provider charges may apply | Next-turn queue |
+| Gemini CLI | Existing native sign-in and billing configuration | Next-turn queue |
 | Custom ACP | Explicit desktop registration | Next-turn queue |
 
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
@@ -45,10 +46,19 @@ loop codex --billing existing
 loop claude --project /absolute/path/to/project
 loop pi
 loop opencode
+loop gemini
 loop acp --executable /absolute/path/to/agent --acp-arg serve
 ```
 
 These commands enable the harness in the same running workspace. Executable paths are chosen on the computer, never supplied by browser input. See `loop --help` for options. Native history discovery and explicit forks are available in the app; a fork does not silently transfer native context between harnesses.
+
+## Gemini CLI
+
+Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) **0.64.0 or newer**, then run `gemini` on the execution computer and choose **Sign in with Google**. After sign-in, run `loop gemini` in your project, or enable Gemini CLI in **Settings → Provider connections → Harnesses**. `loop start --providers gemini` limits automatic discovery to Gemini. Loop does not install the CLI or perform Google sign-in in the phone browser.
+
+Loop uses Gemini's [ACP mode](https://geminicli.com/docs/cli/acp-mode/) for native tools, approvals, model selection and conversation resume. Account and model checks create a native session without submitting a model prompt. Gemini keeps its credentials and conversation context; Loop never calls ACP `authenticate`, changes the saved sign-in method or falls back to another billing method. Saved agent instructions accompany each explicit Gemini prompt, including after a resume; earlier user tasks are not replayed. Follow-up messages during a turn queue for the next turn.
+
+Gemini defaults to `--billing existing`: its selected CLI account and configuration determine usage charges. ACP does not attest subscription entitlement, so `--billing subscription` is rejected. Choose Google sign-in in the CLI if that is the account you intend to use; a CLI already configured for API billing retains that configuration. Model choices come from Gemini's session catalog. A missing or expired sign-in blocks enablement until you sign in again on the computer. Gemini is discovered on PATH; the supplied Docker images do not install it.
 
 ## Cross-harness teams and handoffs
 

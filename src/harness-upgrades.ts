@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
-export type UpgradeHarness = "codex" | "claude" | "pi" | "opencode";
+export type UpgradeHarness = "codex" | "claude" | "pi" | "opencode" | "gemini";
 export type Upgrade = {
   commandId: string;
   name: UpgradeHarness;
@@ -42,6 +42,7 @@ const packages = {
   claude: "@anthropic-ai/claude-code",
   pi: "@earendil-works/pi-coding-agent",
   opencode: "opencode-ai",
+  gemini: "@google/gemini-cli",
 };
 const READY =
   "New sessions use the updated runtime; refresh its models before creating an agent.";
@@ -130,6 +131,7 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
       claude: ["claude-code", "claude-code@latest"],
       pi: ["pi"],
       opencode: ["opencode"],
+      gemini: ["gemini-cli"],
     };
     if (!allowed[name].includes(brew[3]))
       throw new Error(

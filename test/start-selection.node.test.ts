@@ -4,7 +4,14 @@ import { selectedHarnesses } from "../src/start-selection.js";
 import { migrateLaunchArgs } from "../src/service.js";
 
 test("one launch selects all installed harnesses, with explicit opt-in subsets", () => {
-  assert.deepEqual(selectedHarnesses(), ["codex", "claude", "pi", "opencode"]);
+  assert.deepEqual(selectedHarnesses(), [
+    "codex",
+    "claude",
+    "pi",
+    "opencode",
+    "gemini",
+  ]);
+  assert.deepEqual(selectedHarnesses("gemini,codex"), ["gemini", "codex"]);
   assert.deepEqual(selectedHarnesses("both"), ["codex", "claude"]);
   assert.deepEqual(selectedHarnesses("pi,codex,pi"), ["pi", "codex"]);
   assert.throws(() => selectedHarnesses("acp"), /Register custom ACP/);
