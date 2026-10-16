@@ -45,9 +45,9 @@ it("labels last-seen counts instead of claiming live zeroes after a failed sourc
     false,
   );
   expect(html).toContain("Last seen");
-  expect(html).toContain("2 needs you");
+  expect(html).toContain("2 waiting for you");
   expect(html).not.toContain("status-live");
-  expect(html).not.toContain("No active work");
+  expect(html).not.toContain("No agents working");
 });
 it("keeps missing brief counts unknown and waiting approval ahead of enable", () => {
   const html = render({
@@ -70,12 +70,12 @@ it("keeps missing brief counts unknown and waiting approval ahead of enable", ()
     html.indexOf("Enable brief"),
   );
   expect(html).not.toContain("0 unfinished");
-  expect(html).toContain("Blockers not recorded");
+  expect(html).toContain("No blocker information");
   expect(html).toContain("source=docker%3Aone");
 });
 it("hides empty compact chips but distinguishes uncaptured and unavailable observations", () => {
   let html = render();
-  expect(html).toContain("No captured run or linked PR");
+  expect(html).toContain("No task details or pull requests recorded");
   expect(html).not.toContain("changes-chip");
   const evidence: NonNullable<ProjectStatus["evidence"]> = {
     run_id: "run",
@@ -89,10 +89,49 @@ it("hides empty compact chips but distinguishes uncaptured and unavailable obser
     telemetry: "unavailable",
   };
   html = render({ evidence });
-  expect(html).toContain("Checkout not captured");
-  expect(html).toContain("Verification telemetry unavailable");
-  expect(html).not.toContain("No checks observed");
+  expect(html).toContain("File changes not recorded");
+  expect(html).toContain("Check results unavailable");
+  expect(html).not.toContain("No checks recorded");
   expect(
     render({ evidence: { ...evidence, telemetry: "observed" } }),
-  ).toContain("No checks observed");
+  ).toContain("No checks recorded");
+});
+
+it("shows useful brief context before the collapsed technical details", () => {
+  const html = render({
+    brief: {
+      state: "ready",
+      headline: "Tabs need a repair",
+      synthesized_at: 1000,
+      pending: 0,
+      unfinished: 145,
+      questions: 97,
+      blockers: 141,
+      highlights: {
+        updated_at: 2000,
+        progress: [{ id: "s", text: "The tab reset is confirmed." }],
+        task: {
+          id: "t",
+          text: "Fix tab persistence",
+          next: "Save the selection and test reloads.",
+          blocker: "Selection is lost on reload.",
+        },
+        question: { id: "q", text: "Should filters also be remembered?" },
+      },
+    },
+  });
+  const visible = html.slice(0, html.indexOf("<details"));
+  for (const text of [
+    "Where things stand",
+    "The tab reset is confirmed.",
+    "Next up",
+    "Fix tab persistence",
+    "Blocked by",
+    "Selection is lost on reload.",
+    "Save the selection and test reloads.",
+    "Should filters also be remembered?",
+  ])
+    expect(visible).toContain(text);
+  expect(visible).not.toContain("141 recorded");
+  expect(render()).not.toContain('aria-label="Brief summary"');
 });

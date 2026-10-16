@@ -24,6 +24,18 @@ export type ProjectStatus = {
   brief: {
     state: "never" | "pending" | "failed" | "off" | "ready";
     headline: string | null;
+    /** Optional for cached responses and workspaces running an older version. */
+    highlights?: {
+      updated_at: number;
+      progress: { id: string; text: string }[];
+      task: {
+        id: string;
+        text: string;
+        next: string | null;
+        blocker: string | null;
+      } | null;
+      question: { id: string; text: string } | null;
+    };
     synthesized_at: number | null;
     pending: number;
     unfinished: number | null;

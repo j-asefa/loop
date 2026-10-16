@@ -618,3 +618,79 @@ it("keeps nested project evidence in its recorded scope and a deterministic acti
   expect(p.evidence.run_id).toBe(r.run);
   expect(page.items.find((p: any) => p.id === f.project).counts.needs).toBe(0);
 });
+
+it("summarizes active project records with paired blockers and next steps, bounded and owner scoped", async () => {
+  const f = fixture(),
+    other = fixture(f.owner),
+    outsider = fixture();
+  const task = f.run("completed"),
+    unblocked = f.run("completed");
+  f.publish([
+    ...Array.from({ length: 4 }, (_, i) => ({
+      kind: "state",
+      text: `Progress ${i}`,
+    })),
+    {
+      ...unfinished(task.conversation),
+      text: "Repair tab persistence",
+      next: "Save the selected tab",
+      blocker: "Tab resets on reload",
+    },
+    {
+      ...unfinished(unblocked.conversation),
+      text: "Update docs",
+      next: "Write setup guide",
+      blocker: "",
+    },
+    { kind: "question", text: "Should filters persist too?", asked_by: "you" },
+    {
+      kind: "question",
+      text: "Already answered",
+      asked_by: "you",
+      status: "dropped",
+    },
+    { kind: "state", text: "Old progress", status: "retired" },
+  ]);
+  other.publish([{ kind: "state", text: "Other project" }]);
+  outsider.publish([{ kind: "state", text: "Private project" }]);
+  const team = id();
+  db.prepare(
+    "INSERT INTO teams(id,owner_id,name,manager_id,created_at) VALUES(?, ?, 'Summary scope', ?, ?)",
+  ).run(team, f.owner, f.agent, now());
+  let result = await api(
+    f.owner,
+    `/projects/status?project=${f.project}&teams=${team}`,
+  );
+  let p = result.data.items[0];
+  expect(result.data.items).toHaveLength(1);
+  expect(p.brief.highlights.progress).toHaveLength(2);
+  expect(p.brief.highlights.task).toMatchObject({
+    text: "Repair tab persistence",
+    next: "Save the selected tab",
+    blocker: "Tab resets on reload",
+  });
+  expect(p.brief.highlights.question.text).toBe("Should filters persist too?");
+  expect(p.brief.highlights.updated_at).toBeGreaterThan(0);
+  expect(JSON.stringify(p.brief.highlights)).not.toMatch(
+    /Other project|Private project|Old progress|Already answered/,
+  );
+  expect(p.counts).toEqual({ needs: 0, working: 0, queued: 0 });
+  db.prepare(
+    "UPDATE brief_items SET status='done' WHERE project_id=? AND text='Repair tab persistence'",
+  ).run(f.project);
+  db.prepare(
+    "UPDATE brief_items SET cite_stale=1 WHERE project_id=? AND kind IN ('state','question')",
+  ).run(f.project);
+  p = (await api(f.owner, `/projects/status?project=${f.project}`)).data
+    .items[0];
+  expect(p.brief.highlights.task).toMatchObject({
+    text: "Update docs",
+    next: "Write setup guide",
+    blocker: null,
+  });
+  expect(p.brief.highlights.progress).toEqual([]);
+  expect(p.brief.highlights.question).toBeNull();
+  expect(
+    db.prepare("SELECT * FROM brief_acks WHERE owner_id=?").all(f.owner),
+  ).toEqual([]);
+});

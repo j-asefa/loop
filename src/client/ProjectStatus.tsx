@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  ChevronRight,
+  CircleHelp,
+  Clock3,
+  FolderOpen,
+  ListTodo,
+  RefreshCw,
+  Rows3,
+  TriangleAlert,
+} from "lucide-react";
 import { apiInWorkspace } from "./api";
 import { useSourceId } from "./SourceContext";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
@@ -9,6 +21,7 @@ import { CheckoutChip, CheckoutSheet } from "./Checkout";
 import { VerificationChip, VerificationSheet } from "./Verification";
 import { PullStateChip } from "./PullState";
 import { Sheet } from "./components";
+import { Chip } from "./ThreadTools";
 import type { AgentSource } from "./agentSources";
 import {
   compareProjectStatus,
@@ -34,6 +47,13 @@ const actionLabel: Record<ProjectStatusAction["kind"], string> = {
   failed: "Review failed work",
   not_sent: "Review unsent message",
   review: "Review pull request",
+};
+const statusLabel: Record<ProjectStatus["status"], string> = {
+  needs_you: "Needs you",
+  blocked: "Blockers recorded",
+  working: "In progress",
+  queued: "Queued",
+  idle: "Quiet",
 };
 const briefLabel: Record<ProjectStatus["brief"]["state"], string> = {
   never: "No brief enabled",
@@ -106,134 +126,144 @@ export function ProjectStatusCard({
       e.checkout.files > 0 ||
       e.checkout.untracked > 0);
   const showVerification = !!e?.verification?.items.length;
+  const highlights = b.highlights;
   const attention = p.actions[0];
   const setup = b.state === "never" || b.state === "off";
   return (
-    <article
-      className="project-status-card"
-      onClick={(event) => {
-        if (!(event.target as HTMLElement).closest("a,button"))
-          location.assign(destination);
-      }}
-    >
+    <article className="project-status-card">
       <header>
-        <a href={destination} className="project-status-name">
-          {p.name}
+        <a href={destination} className="project-status-identity">
+          <span className="project-status-icon" aria-hidden="true">
+            <FolderOpen size={21} />
+          </span>
+          <span className="project-status-name">{p.name}</span>
         </a>
-        <span className={`project-status-word status-${p.status}`}>
-          {p.status.replace("_", " ")}
+        <Chip
+          tone={
+            !fresh
+              ? "idle"
+              : p.status === "needs_you"
+                ? "needs"
+                : p.status === "blocked"
+                  ? "failed"
+                  : p.status
+          }
+        >
+          {statusLabel[p.status]}
           {!fresh && " · last seen"}
-        </span>
+        </Chip>
       </header>
       {sourceName && <p className="project-status-source">{sourceName}</p>}
+      <p className="project-status-counts">
+        <span className={fresh ? "status-live" : ""}>
+          {fresh ? "Now" : `Last seen ${relativeTime(observedAt)}`}
+        </span>
+        {p.counts.needs > 0 && <span>{p.counts.needs} waiting for you</span>}
+        {p.counts.working > 0 && <span>{p.counts.working} working</span>}
+        {p.counts.queued > 0 && <span>{p.counts.queued} queued</span>}
+        {!p.counts.needs && !p.counts.working && !p.counts.queued && (
+          <span>No agents working</span>
+        )}
+      </p>
       <div className="project-status-record">
-        <p className="project-status-clock">
-          {b.synthesized_at === null ? (
-            "Project brief"
-          ) : (
-            <Stamp at={b.synthesized_at} prefix="Brief" />
-          )}
-          {b.pending > 0 && (
-            <span>
-              {" "}
-              · {b.pending} {b.pending === 1 ? "update" : "updates"} pending
+        <div className="project-status-record-heading">
+          <span className="project-status-eyebrow">Latest update</span>
+          {b.synthesized_at !== null && (
+            <span className="project-status-clock">
+              <Clock3 size={12} aria-hidden="true" />
+              <Stamp at={b.synthesized_at} prefix="" />
             </span>
           )}
-          {b.state !== "ready" && b.synthesized_at !== null && (
-            <span> · {briefLabel[b.state]}</span>
-          )}
+        </div>
+        {(b.pending > 0 ||
+          (b.state !== "ready" && b.synthesized_at !== null)) && (
+          <p className="project-status-note">
+            {b.pending > 0 && (
+              <span>
+                {b.pending} {b.pending === 1 ? "update" : "updates"} pending
+              </span>
+            )}
+            {b.state !== "ready" && b.synthesized_at !== null && (
+              <span>
+                {b.pending > 0 && " · "}
+                {briefLabel[b.state]}
+              </span>
+            )}
+          </p>
+        )}
+        <p className="project-status-summary">
+          {b.headline || briefLabel[b.state]}
         </p>
-        <h3>{b.headline || briefLabel[b.state]}</h3>
         {b.headline && b.state !== "ready" && b.synthesized_at === null && (
           <p className="muted">{briefLabel[b.state]}</p>
         )}
       </div>
-      <p className="project-status-counts">
-        <span className={fresh ? "status-live" : ""}>
-          {fresh ? "Live" : `Last seen ${relativeTime(observedAt)}`}
-        </span>
-        {p.counts.needs > 0 && <span>{p.counts.needs} needs you</span>}
-        {p.counts.working > 0 && <span>{p.counts.working} working</span>}
-        {p.counts.queued > 0 && <span>{p.counts.queued} queued</span>}
-        {!p.counts.needs && !p.counts.working && !p.counts.queued && (
-          <span>No active work</span>
-        )}
-      </p>
-      {b.blockers === null ? (
-        <p className="project-status-note">Blockers not recorded in a brief</p>
-      ) : (
-        b.blockers > 0 && (
-          <p className="project-status-note">
-            {b.blockers} recorded {b.blockers === 1 ? "blocker" : "blockers"}
-          </p>
-        )
-      )}
-      {e ? (
-        <div className="project-status-evidence">
-          <button
-            type="button"
-            className="project-status-caption"
-            onClick={() => onEvidence("evidence")}
+      {highlights &&
+        (highlights.progress.length > 0 ||
+          highlights.task ||
+          highlights.question) && (
+          <section
+            className="project-status-highlights"
+            aria-label="Brief summary"
           >
-            Latest recorded run · @{e.agent}
-            <br />
-            <span>{e.task}</span>
-          </button>
-          {(showCheckout || showVerification) && (
-            <div className="project-status-chips">
-              {showCheckout && e.checkout && (
-                <div>
-                  <CheckoutChip
-                    compact
-                    summary={e.checkout}
-                    onOpen={() => onEvidence("checkout")}
-                  />
-                  <Stamp at={e.checkout_at} prefix="Captured" />
-                </div>
-              )}
-              {showVerification && (
-                <div>
-                  <VerificationChip
-                    compact
-                    summary={e.verification}
-                    onOpen={() => onEvidence("verification")}
-                  />
-                  <Stamp at={e.verification_at} prefix="Observed" />
-                </div>
-              )}
-            </div>
-          )}
-          {(!showCheckout || !showVerification) && (
-            <p className="project-status-note">
-              {[
-                !showCheckout
-                  ? e.checkout
-                    ? `No tracked changes · captured ${e.checkout_at === null ? "time unavailable" : relativeTime(e.checkout_at)}`
-                    : "Checkout not captured"
-                  : "",
-                !showVerification
-                  ? e.telemetry === "unavailable"
-                    ? "Verification telemetry unavailable"
-                    : `No checks observed · ${e.verification_at === null ? "time unavailable" : relativeTime(e.verification_at)}`
-                  : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+            <p className="project-status-clock">
+              From the brief <span aria-hidden="true">·</span>{" "}
+              <Stamp at={highlights.updated_at} prefix="" />
             </p>
-          )}
-        </div>
-      ) : (
-        !p.pulls.length && (
-          <p className="project-status-note project-status-empty">
-            No captured run or linked PR
-          </p>
-        )
-      )}
+            {highlights.progress.length > 0 && (
+              <div className="project-status-progress">
+                <h3>
+                  <Rows3 size={15} aria-hidden="true" /> Where things stand
+                </h3>
+                <ul role="list">
+                  {highlights.progress.map((item) => (
+                    <li key={item.id}>{item.text}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {highlights.task && (
+              <div className="project-status-next">
+                <h3>
+                  <ListTodo size={15} aria-hidden="true" /> Next up
+                </h3>
+                <p className="project-status-task-name">
+                  {highlights.task.text}
+                </p>
+                {highlights.task.blocker && (
+                  <div className="project-status-blocker">
+                    <TriangleAlert size={15} aria-hidden="true" />
+                    <p>
+                      <strong>Blocked by</strong>
+                      <span>{highlights.task.blocker}</span>
+                    </p>
+                  </div>
+                )}
+                {highlights.task.next &&
+                  highlights.task.next !== highlights.task.text && (
+                    <div className="project-status-step">
+                      <ArrowRight size={15} aria-hidden="true" />
+                      <p>
+                        <strong>Next step</strong>
+                        <span>{highlights.task.next}</span>
+                      </p>
+                    </div>
+                  )}
+              </div>
+            )}
+            {highlights.question && (
+              <div className="project-status-question">
+                <h3>
+                  <CircleHelp size={15} aria-hidden="true" /> Open question
+                </h3>
+                <p>{highlights.question.text}</p>
+              </div>
+            )}
+          </section>
+        )}
       {!!p.pulls.length && (
         <div className="project-status-pulls">
-          <p className="project-status-caption">
-            Project PR {p.pulls.length === 1 ? "observation" : "observations"}
-          </p>
+          <p className="project-status-caption">Pull requests</p>
           <div className="project-status-chips">
             <div>
               <PullStateChip
@@ -245,20 +275,114 @@ export function ProjectStatusCard({
             </div>
             {p.pulls.length > 1 && (
               <button className="text-button" onClick={onPulls}>
-                All {p.pulls.length} watches <ChevronRight size={14} />
+                View all {p.pulls.length} <ChevronRight size={14} />
               </button>
             )}
           </div>
         </div>
       )}
-      {(b.unfinished !== null || b.questions !== null) && (
-        <p className="project-status-ledger">
-          <a href={brief}>
-            {b.unfinished ?? "Unknown"} unfinished · {b.questions ?? "Unknown"}{" "}
-            open {b.questions === 1 ? "question" : "questions"}
-          </a>
-        </p>
-      )}
+      <details className="project-status-details">
+        <summary>
+          <span>
+            <BookOpen size={15} aria-hidden="true" /> Details
+          </span>
+          <ChevronRight size={15} aria-hidden="true" />
+        </summary>
+        <div className="project-status-detail-body">
+          <p className="project-status-caption">
+            Recorded in the brief · separate from current activity
+          </p>
+          {b.blockers === null ? (
+            <p className="project-status-note">
+              No blocker information in the brief
+            </p>
+          ) : (
+            b.blockers > 0 && (
+              <p className="project-status-note">
+                {b.blockers} recorded{" "}
+                {b.blockers === 1 ? "blocker" : "blockers"}
+              </p>
+            )
+          )}
+          {(b.unfinished !== null || b.questions !== null) && (
+            <dl className="project-status-ledger">
+              {b.unfinished !== null && (
+                <div>
+                  <dt>Unfinished tasks</dt>
+                  <dd>{b.unfinished}</dd>
+                </div>
+              )}
+              {b.questions !== null && (
+                <div>
+                  <dt>Open questions</dt>
+                  <dd>{b.questions}</dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {e ? (
+            <div className="project-status-evidence">
+              <button
+                type="button"
+                className="project-status-caption"
+                onClick={() => onEvidence("evidence")}
+              >
+                Latest task · @{e.agent}
+                <br />
+                <span>{e.task}</span>
+              </button>
+              {(showCheckout || showVerification) && (
+                <div className="project-status-chips">
+                  {showCheckout && e.checkout && (
+                    <div>
+                      <CheckoutChip
+                        compact
+                        summary={e.checkout}
+                        onOpen={() => onEvidence("checkout")}
+                      />
+                      <Stamp at={e.checkout_at} prefix="Captured" />
+                    </div>
+                  )}
+                  {showVerification && (
+                    <div>
+                      <VerificationChip
+                        compact
+                        summary={e.verification}
+                        onOpen={() => onEvidence("verification")}
+                      />
+                      <Stamp at={e.verification_at} prefix="Observed" />
+                    </div>
+                  )}
+                </div>
+              )}
+              {(!showCheckout || !showVerification) && (
+                <p className="project-status-note">
+                  {[
+                    !showCheckout
+                      ? e.checkout
+                        ? `No tracked changes · captured ${e.checkout_at === null ? "time unavailable" : relativeTime(e.checkout_at)}`
+                        : "File changes not recorded"
+                      : "",
+                    !showVerification
+                      ? e.telemetry === "unavailable"
+                        ? "Check results unavailable"
+                        : `No checks recorded · ${e.verification_at === null ? "time unavailable" : relativeTime(e.verification_at)}`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+            </div>
+          ) : (
+            !p.pulls.length && (
+              <p className="project-status-note project-status-empty">
+                No task details or pull requests recorded
+              </p>
+            )
+          )}
+        </div>
+      </details>
       <footer>
         {attention ? (
           <button
@@ -278,9 +402,23 @@ export function ProjectStatusCard({
             Review brief <ChevronRight size={15} />
           </a>
         ) : null}
-        <a className="text-button" href={setup && !attention ? threads : brief}>
-          {setup ? (attention ? "Enable brief" : "Threads") : "Brief"}{" "}
-          <ChevronRight size={15} />
+        <a
+          className={
+            "text-button project-status-open" +
+            (!attention && !setup && b.state !== "failed"
+              ? " project-status-main-action"
+              : "")
+          }
+          href={setup && !attention ? threads : brief}
+        >
+          {setup
+            ? attention
+              ? "Enable brief"
+              : "View threads"
+            : p.status === "blocked" && !attention
+              ? "Review blockers"
+              : "Read brief"}{" "}
+          <ArrowUpRight size={16} aria-hidden="true" />
         </a>
       </footer>
     </article>
@@ -680,8 +818,8 @@ function StatusSession({
           ) : (
             <p>
               {sheet.card.project.evidence!.telemetry === "observed"
-                ? "No checks observed"
-                : "Verification telemetry unavailable"}
+                ? "No checks recorded"
+                : "Check results unavailable"}
             </p>
           )}
           <button

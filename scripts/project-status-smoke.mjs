@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chromium, expect } from "@playwright/test";
+import { chromium, webkit, expect } from "@playwright/test";
 import { designFixture } from "./helpers/design-fixture.mjs";
 
 // Production app and API, in an isolated workspace with no executing worker.
 const f = await designFixture();
 let browser;
 try {
-  browser = await chromium.launch({
+  const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+  browser = await engine.launch({
     headless: true,
     executablePath: process.env.CHROMIUM_PATH || undefined,
   });
@@ -15,6 +16,7 @@ try {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
+    serviceWorkers: "block",
   });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -188,6 +190,15 @@ try {
   const release = page.locator(".project-status-card").filter({
     has: page.getByRole("link", { name: project.name, exact: true }),
   });
+  const details = release.locator(".project-status-details");
+  await expect(release.getByRole("button", { name: /^Changes:/ })).toBeHidden();
+  await details.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(details).toHaveAttribute("open", "");
+  assert(
+    page.url().includes("filter=status"),
+    "Details must not navigate away",
+  );
   await release.getByRole("button", { name: /^Changes:/ }).click();
   await expect(
     page
@@ -208,7 +219,7 @@ try {
     .getByRole("dialog")
     .getByRole("button", { name: "Close", exact: true })
     .click();
-  await release.getByRole("button", { name: /All 2 watches/ }).click();
+  await release.getByRole("button", { name: /View all 2/ }).click();
   await expect(
     page.getByRole("dialog").locator(".project-status-pull-detail"),
   ).toHaveCount(2);
@@ -221,7 +232,7 @@ try {
     .click();
   // A failed refresh keeps the actual counts and explicitly marks them stale.
   const before = await page.locator(".project-status-counts").allTextContents();
-  await page.route("**/api/projects/status?*", (route) =>
+  await page.route(/\/api\/projects\/status(?:\?.*)?$/, (route) =>
     route.fulfill({
       status: 503,
       contentType: "application/json",
@@ -234,10 +245,10 @@ try {
   );
   const after = await page.locator(".project-status-counts").allTextContents();
   assert.equal(after.length, before.length);
-  assert(!after.some((s) => s.startsWith("Live")));
-  await page.unroute("**/api/projects/status?*");
+  assert(!after.some((s) => s.startsWith("Now")));
+  await page.unroute(/\/api\/projects\/status(?:\?.*)?$/);
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(page.locator(".status-live").first()).toHaveText("Live");
+  await expect(page.locator(".status-live").first()).toHaveText("Now");
   // A keyboard activation freezes its target until key-up, then applies both
   // refreshed counts and the requested ordering without requiring a blur.
   const idleRun = f.db
@@ -270,8 +281,8 @@ try {
     .filter({ has: page.getByRole("link", { name: idle.name, exact: true }) });
   const refresh = page.getByRole("button", { name: "Refresh", exact: true });
   await refresh.focus();
-  const refreshed = page.waitForResponse((r) =>
-    r.url().includes("/api/projects/status?"),
+  const refreshed = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === "/api/projects/status",
   );
   await page.keyboard.down("Enter");
   await refreshed;
@@ -279,11 +290,11 @@ try {
     "Last seen",
   );
   await expect(idleCard.locator(".project-status-counts")).toContainText(
-    "No active work",
+    "No agents working",
   );
   await page.keyboard.up("Enter");
   await expect(idleCard.locator(".project-status-counts")).toContainText(
-    "1 needs you",
+    "1 waiting for you",
   );
   await expect(page.locator(".project-status-card").first()).toContainText(
     idle.name,
@@ -295,9 +306,9 @@ try {
   f.db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(idleRun.id);
   await refresh.press("Enter");
   await expect(idleCard.locator(".project-status-counts")).toContainText(
-    "No active work",
+    "No agents working",
   );
-  await expect(idleCard.locator(".status-live")).toHaveText("Live");
+  await expect(idleCard.locator(".status-live")).toHaveText("Now");
 
   // A revalidated review request selects the PR, even with two watches in the
   // same conversation. All GitHub reads still use the fixture's offline URL.
@@ -425,7 +436,7 @@ try {
     data.items = data.items.map((p) => ({ ...p, name: "Linked " + p.name }));
     return route.fulfill({ response, json: data });
   });
-  await page.route("**/api/projects/status?*", (route) => {
+  await page.route(/\/api\/projects\/status(?:\?.*)?$/, (route) => {
     const url = new URL(route.request().url());
     statusRequests.push({
       source: "",
@@ -452,7 +463,7 @@ try {
   await expect(linkedCard.locator(".project-status-counts")).toContainText(
     "Last seen",
   );
-  await expect(localCard.locator(".status-live")).toHaveText("Live");
+  await expect(localCard.locator(".status-live")).toHaveText("Now");
   await expect(page.locator(".project-status-card")).toHaveCount(6);
   linkedFailed = false;
   await page.getByLabel("Filter by project").selectOption(project.id);
@@ -479,6 +490,113 @@ try {
     statusRequests.some((r) => r.source === source.id && r.teams === team.id),
   );
   assert(!statusRequests.some((r) => !r.source && r.teams === team.id));
+  // A dense recorded brief stays readable without promoting historical totals
+  // into current requests. Use the same long wording as the reported card.
+  const densePage = await f.api("/projects/status");
+  const dense = structuredClone(densePage.items[0]);
+  await page.route("**/api/agent-sources", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  dense.name = "loop";
+  dense.status = "blocked";
+  dense.counts = { needs: 0, working: 0, queued: 0 };
+  dense.actions = [];
+  dense.pulls = [];
+  dense.brief = {
+    state: "ready",
+    headline:
+      "c96cd311 consolidation confirms P2 tab persistence; reported P1 filtering loss is unsubstantiated. Repair and validation pending.",
+    synthesized_at: Date.now() - 3 * 60 * 60_000,
+    pending: 0,
+    highlights: {
+      updated_at: Date.now() - 3 * 60 * 60_000,
+      progress: [
+        {
+          id: "state-tabs",
+          text: "Review confirms the selected tab is still lost when the app reopens.",
+        },
+        {
+          id: "state-filters",
+          text: "The reported filtering problem has not been reproduced.",
+        },
+      ],
+      task: {
+        id: "task-tabs",
+        text: "Keep the selected tab after reopening",
+        blocker: "The fix and validation are still pending.",
+        next: "Save the tab selection, then test reopening and navigation.",
+      },
+      question: {
+        id: "question-filters",
+        text: "What steps reproduce the filtering problem?",
+      },
+    },
+    blockers: 141,
+    unfinished: 145,
+    questions: 97,
+  };
+  await page.route(/\/api\/projects\/status(?:\?.*)?$/, (route) =>
+    route.fulfill({
+      json: { ...densePage, items: [dense] },
+    }),
+  );
+  await page.goto(f.base + "/?filter=status");
+  const denseCard = page.locator(".project-status-card").first();
+  await expect(denseCard).toContainText(dense.brief.headline);
+  await expect(denseCard.getByText("141 recorded blockers")).toBeHidden();
+  await expect(
+    denseCard.getByRole("link", { name: "Review blockers" }),
+  ).toBeVisible();
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+    for (const text of [
+      "Where things stand",
+      "Next up",
+      dense.brief.highlights.task.next,
+      dense.brief.highlights.question.text,
+    ]) {
+      await expect(denseCard.getByText(text, { exact: false })).toBeVisible();
+    }
+  }
+  // Illustrative brief content for the design preview, not a live project read.
+  dense.brief.headline =
+    "Tabs still reset after reopening. The fix is next; the filtering issue remains unconfirmed.";
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(denseCard).toContainText(dense.brief.headline);
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (process.env.LOOP_STATUS_SCREENSHOT) {
+    // Keep fixed app navigation outside the card-only design capture.
+    await page.setViewportSize({ width: 390, height: 1400 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(
+        (theme) => (document.documentElement.dataset.theme = theme),
+        theme,
+      );
+      await denseCard.screenshot({
+        path: process.env.LOOP_STATUS_SCREENSHOT.replace(
+          /\.png$/,
+          `-${theme}-card.png`,
+        ),
+      });
+    }
+  }
+  const denseDetails = denseCard.locator(".project-status-details");
+  await denseDetails.locator("summary").click();
+  await expect(denseCard.getByText("141 recorded blockers")).toBeVisible();
+  await expect(denseCard.locator(".project-status-ledger")).toContainText(
+    "145",
+  );
+  await expect(denseCard.locator(".project-status-ledger")).toContainText("97");
+  await denseDetails.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(denseCard.getByText("141 recorded blockers")).toBeHidden();
+  assert(page.url().includes("filter=status"));
   assert.deepEqual(errors, []);
   console.log(
     "Status: phone widths, empty evidence, no acknowledgement, stale refresh and setup navigation passed",

@@ -126,6 +126,53 @@ function build(owner: string, options: Options): ProjectStatusPage {
         blockers: row.blockers,
       });
   }
+  // A small, project-wide reading summary from the current ledger, including
+  // overflow items. Keep a task's blocker and next step together. Resolved or
+  // stale-citation items must never be promoted back into the summary.
+  for (const row of read<{
+    project_id: string;
+    id: string;
+    kind: "state" | "unfinished" | "question";
+    text: string;
+    next: string | null;
+    blocker: string | null;
+    updated_at: number;
+  }>(`
+    WITH ranked AS (
+      SELECT *, row_number() OVER (
+        PARTITION BY project_id,kind
+        ORDER BY (kind='unfinished' AND length(trim(COALESCE(blocker,'')))>0) DESC,
+          pinned DESC,updated_at DESC,id ASC
+      ) rank
+      FROM brief_items WHERE owner_id=@owner AND cite_stale=0
+        AND (@project IS NULL OR project_id=@project)
+        AND ((kind='state' AND status='active') OR (kind IN ('unfinished','question') AND status='open'))
+    ) SELECT project_id,id,kind,text,next,blocker,updated_at FROM ranked
+      WHERE rank <= CASE WHEN kind='state' THEN 2 ELSE 1 END
+      ORDER BY project_id,kind,rank`)) {
+    const p = projects.get(row.project_id);
+    if (!p) continue;
+    const highlights = (p.brief.highlights ??= {
+      updated_at: row.updated_at,
+      progress: [],
+      task: null,
+      question: null,
+    });
+    highlights.updated_at = Math.max(highlights.updated_at, row.updated_at);
+    if (row.kind === "state") {
+      if (row.text !== p.brief.headline)
+        highlights.progress.push({ id: row.id, text: row.text });
+    } else if (row.kind === "question") {
+      highlights.question = { id: row.id, text: row.text };
+    } else {
+      highlights.task = {
+        id: row.id,
+        text: row.text,
+        next: row.next?.trim() || null,
+        blocker: row.blocker?.trim() || null,
+      };
+    }
+  }
   // Changes are semantic events; successful watch polling and synthesis do not
   // append one. Scope activity to teams while the recorded Brief stays whole.
   for (const row of read<{ project_id: string; at: number }>(`
