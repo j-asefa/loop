@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -21,6 +21,7 @@ import { CheckoutChip, CheckoutSheet } from "./Checkout";
 import { VerificationChip, VerificationSheet } from "./Verification";
 import { PullStateChip } from "./PullState";
 import { Sheet } from "./components";
+import { BriefSourceSheet, type BriefEvidenceTarget } from "./BriefSourceSheet";
 import { Chip } from "./ThreadTools";
 import type { AgentSource } from "./agentSources";
 import {
@@ -103,6 +104,9 @@ export function ProjectStatusCard({
   onAction,
   onEvidence,
   onPulls,
+  onBriefSource,
+  onRequests,
+  teams,
 }: {
   item: ProjectStatus;
   fresh: boolean;
@@ -114,6 +118,9 @@ export function ProjectStatusCard({
   onAction: (action: ProjectStatusAction) => void;
   onEvidence: (kind: "checkout" | "verification" | "evidence") => void;
   onPulls: () => void;
+  onBriefSource?: (target: BriefEvidenceTarget) => void;
+  onRequests?: () => void;
+  teams?: string;
 }) {
   const readable = createReadableText(agents);
   const b = p.brief,
@@ -138,6 +145,54 @@ export function ProjectStatusCard({
   const highlights = b.highlights;
   const attention = p.actions[0];
   const setup = b.state === "never" || b.state === "off";
+  const briefSection = (section: string) => brief + "&briefSection=" + section;
+  const briefItems = (kind: string) => brief + "&briefKind=" + kind;
+  const activity = (filter: string) =>
+    statusUrl(sourceId, {
+      page: "feed",
+      project: p.id,
+      filter,
+      ...(teams ? { teams } : {}),
+    });
+  const sourceLink = (item: string, children: ReactNode, className = "") => {
+    const target = {
+      item,
+      ...(item === "headline" ? { version: b.version } : {}),
+    };
+    const query = new URLSearchParams({ briefEvidence: item });
+    if (target.version) query.set("briefVersion", String(target.version));
+    return (
+      <a
+        className={"project-status-link " + className}
+        href={brief + "&" + query}
+        onClick={(event) => {
+          if (
+            !onBriefSource ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          event.preventDefault();
+          onBriefSource(target);
+        }}
+      >
+        {children}
+      </a>
+    );
+  };
+  const statusTarget =
+    p.status === "blocked"
+      ? briefItems("unfinished")
+      : activity(
+          p.status === "working"
+            ? "working"
+            : p.status === "queued"
+              ? "queued"
+              : "done",
+        );
   return (
     <article className="project-status-card">
       <header>
@@ -147,66 +202,134 @@ export function ProjectStatusCard({
           </span>
           <span className="project-status-name">{readable(p.name)}</span>
         </a>
-        <Chip
-          tone={
-            !fresh
-              ? "idle"
-              : p.status === "needs_you"
-                ? "needs"
-                : p.status === "blocked"
-                  ? "failed"
-                  : p.status
-          }
+        <a
+          className="project-status-state-link"
+          href={statusTarget}
+          onClick={(event) => {
+            if (
+              p.status === "needs_you" &&
+              onRequests &&
+              event.button === 0 &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.shiftKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              onRequests();
+            }
+          }}
         >
-          {statusLabel[p.status]}
-          {!fresh && " · last seen"}
-        </Chip>
+          <Chip
+            tone={
+              !fresh
+                ? "idle"
+                : p.status === "needs_you"
+                  ? "needs"
+                  : p.status === "blocked"
+                    ? "failed"
+                    : p.status
+            }
+          >
+            {statusLabel[p.status]}
+            {!fresh && " · last seen"}
+          </Chip>
+        </a>
       </header>
       {sourceName && (
-        <p className="project-status-source">{readable(sourceName)}</p>
+        <p className="project-status-source">
+          <a
+            className="project-status-link"
+            href={statusUrl(sourceId, { page: "feed", filter: "status" })}
+          >
+            {readable(sourceName)}
+          </a>
+        </p>
       )}
       <p className="project-status-counts">
         <span className={fresh ? "status-live" : ""}>
-          {fresh ? "Now" : `Last seen ${relativeTime(observedAt)}`}
+          <a className="project-status-link" href={threads}>
+            {fresh ? "Now" : `Last seen ${relativeTime(observedAt)}`}
+          </a>
         </span>
-        {p.counts.needs > 0 && <span>{p.counts.needs} waiting for you</span>}
-        {p.counts.working > 0 && <span>{p.counts.working} working</span>}
-        {p.counts.queued > 0 && <span>{p.counts.queued} queued</span>}
+        {p.counts.needs > 0 && (
+          <span>
+            <button className="project-status-link" onClick={onRequests}>
+              {p.counts.needs} waiting for you
+            </button>
+          </span>
+        )}
+        {p.counts.working > 0 && (
+          <span>
+            <a className="project-status-link" href={activity("working")}>
+              {p.counts.working} working
+            </a>
+          </span>
+        )}
+        {p.counts.queued > 0 && (
+          <span>
+            <a className="project-status-link" href={activity("queued")}>
+              {p.counts.queued} queued
+            </a>
+          </span>
+        )}
         {!p.counts.needs && !p.counts.working && !p.counts.queued && (
-          <span>No agents working</span>
+          <span>
+            <a className="project-status-link" href={threads}>
+              No agents working
+            </a>
+          </span>
         )}
       </p>
       <div className="project-status-record">
         <div className="project-status-record-heading">
-          <span className="project-status-eyebrow">Latest update</span>
+          <a
+            className="project-status-eyebrow project-status-link"
+            href={brief}
+          >
+            Latest update
+          </a>
           {b.synthesized_at !== null && (
-            <span className="project-status-clock">
+            <a
+              className="project-status-clock project-status-link"
+              href={brief}
+            >
               <Clock3 size={12} aria-hidden="true" />
               <Stamp at={b.synthesized_at} prefix="" />
-            </span>
+            </a>
           )}
         </div>
         {(b.pending > 0 ||
           (b.state !== "ready" && b.synthesized_at !== null)) && (
           <p className="project-status-note">
             {b.pending > 0 && (
-              <span>
+              <a className="project-status-link" href={brief}>
                 {b.pending} {b.pending === 1 ? "update" : "updates"} pending
-              </span>
+              </a>
             )}
             {b.state !== "ready" && b.synthesized_at !== null && (
-              <span>
+              <a className="project-status-link" href={brief}>
                 {b.pending > 0 && " · "}
                 {briefLabel[b.state]}
-              </span>
+              </a>
             )}
           </p>
         )}
         <p className="project-status-summary">
-          {readable(b.headline || briefLabel[b.state])}
+          {b.headline ? (
+            sourceLink("headline", readable(b.headline))
+          ) : (
+            <a className="project-status-link" href={brief}>
+              {readable(briefLabel[b.state])}
+            </a>
+          )}
         </p>
         {b.headline && b.state !== "ready" && b.synthesized_at === null && (
-          <p className="muted">{briefLabel[b.state]}</p>
+          <p className="muted">
+            <a className="project-status-link" href={brief}>
+              {briefLabel[b.state]}
+            </a>
+          </p>
         )}
       </div>
       {highlights &&
@@ -217,64 +340,86 @@ export function ProjectStatusCard({
             className="project-status-highlights"
             aria-label="Brief summary"
           >
-            <p className="project-status-clock">
+            <a
+              className="project-status-clock project-status-link"
+              href={brief}
+            >
               From the brief <span aria-hidden="true">·</span>{" "}
               <Stamp at={highlights.updated_at} prefix="" />
-            </p>
+            </a>
             {highlights.progress.length > 0 && (
               <div className="project-status-progress">
                 <h3>
-                  <Rows3 size={15} aria-hidden="true" /> Where things stand
+                  <Rows3 size={15} aria-hidden="true" />{" "}
+                  <a
+                    className="project-status-link"
+                    href={briefSection("state")}
+                  >
+                    Where things stand
+                  </a>
                 </h3>
                 <ul role="list">
                   {highlights.progress.map((item) => (
-                    <li key={item.id}>{readable(item.text)}</li>
+                    <li key={item.id}>
+                      {sourceLink(item.id, readable(item.text))}
+                    </li>
                   ))}
                 </ul>
               </div>
             )}
-            {highlights.task && (
-              <div className="project-status-next">
-                <h3>
-                  <ListTodo size={15} aria-hidden="true" /> Next up
-                </h3>
-                <p className="project-status-task-name">
-                  {readable(highlights.task.text)}
-                </p>
-                {highlights.task.blocker && (
-                  <div className="project-status-blocker">
-                    <TriangleAlert size={15} aria-hidden="true" />
-                    <p>
-                      <strong>Blocked by</strong>
-                      <span>{readable(highlights.task.blocker)}</span>
-                    </p>
-                  </div>
-                )}
-                {highlights.task.next &&
-                  highlights.task.next !== highlights.task.text && (
-                    <div className="project-status-step">
-                      <ArrowRight size={15} aria-hidden="true" />
+            {highlights.task &&
+              sourceLink(
+                highlights.task.id,
+                <>
+                  <h3>
+                    <ListTodo size={15} aria-hidden="true" /> Next up
+                  </h3>
+                  <p className="project-status-task-name">
+                    {readable(highlights.task.text)}
+                  </p>
+                  {highlights.task.blocker && (
+                    <div className="project-status-blocker">
+                      <TriangleAlert size={15} aria-hidden="true" />
                       <p>
-                        <strong>Next step</strong>
-                        <span>{readable(highlights.task.next)}</span>
+                        <strong>Blocked by</strong>
+                        <span>{readable(highlights.task.blocker)}</span>
                       </p>
                     </div>
                   )}
-              </div>
-            )}
-            {highlights.question && (
-              <div className="project-status-question">
-                <h3>
-                  <CircleHelp size={15} aria-hidden="true" /> Open question
-                </h3>
-                <p>{readable(highlights.question.text)}</p>
-              </div>
-            )}
+                  {highlights.task.next &&
+                    highlights.task.next !== highlights.task.text && (
+                      <div className="project-status-step">
+                        <ArrowRight size={15} aria-hidden="true" />
+                        <p>
+                          <strong>Next step</strong>
+                          <span>{readable(highlights.task.next)}</span>
+                        </p>
+                      </div>
+                    )}
+                </>,
+                "project-status-next",
+              )}
+            {highlights.question &&
+              sourceLink(
+                highlights.question.id,
+                <>
+                  <h3>
+                    <CircleHelp size={15} aria-hidden="true" /> Open question
+                  </h3>
+                  <p>{readable(highlights.question.text)}</p>
+                </>,
+                "project-status-question",
+              )}
           </section>
         )}
       {!!p.pulls.length && (
         <div className="project-status-pulls">
-          <p className="project-status-caption">Pull requests</p>
+          <button
+            className="project-status-caption project-status-link"
+            onClick={onPulls}
+          >
+            Pull requests
+          </button>
           <div className="project-status-chips">
             <div>
               <PullStateChip
@@ -282,7 +427,9 @@ export function ProjectStatusCard({
                 state={p.pulls[0].state}
                 onOpen={onPulls}
               />
-              <Stamp at={p.pulls[0].state.checked_at} prefix="Checked" />
+              <button className="project-status-link" onClick={onPulls}>
+                <Stamp at={p.pulls[0].state.checked_at} prefix="Checked" />
+              </button>
             </div>
             {p.pulls.length > 1 && (
               <button className="text-button" onClick={onPulls}>
@@ -301,17 +448,29 @@ export function ProjectStatusCard({
         </summary>
         <div className="project-status-detail-body">
           <p className="project-status-caption">
-            Recorded in the brief · separate from current activity
+            <a className="project-status-link" href={brief}>
+              Recorded in the brief · separate from current activity
+            </a>
           </p>
           {b.blockers === null ? (
             <p className="project-status-note">
-              No blocker information in the brief
+              <a
+                className="project-status-link"
+                href={briefItems("unfinished")}
+              >
+                No blocker information in the brief
+              </a>
             </p>
           ) : (
             b.blockers > 0 && (
               <p className="project-status-note">
-                {b.blockers} recorded{" "}
-                {b.blockers === 1 ? "blocker" : "blockers"}
+                <a
+                  className="project-status-link"
+                  href={briefItems("unfinished")}
+                >
+                  {b.blockers} recorded{" "}
+                  {b.blockers === 1 ? "blocker" : "blockers"}
+                </a>
               </p>
             )
           )}
@@ -319,14 +478,42 @@ export function ProjectStatusCard({
             <dl className="project-status-ledger">
               {b.unfinished !== null && (
                 <div>
-                  <dt>Unfinished tasks</dt>
-                  <dd>{b.unfinished}</dd>
+                  <dt>
+                    <a
+                      className="project-status-link"
+                      href={briefItems("unfinished")}
+                    >
+                      Unfinished tasks
+                    </a>
+                  </dt>
+                  <dd>
+                    <a
+                      className="project-status-link"
+                      href={briefItems("unfinished")}
+                    >
+                      {b.unfinished}
+                    </a>
+                  </dd>
                 </div>
               )}
               {b.questions !== null && (
                 <div>
-                  <dt>Open questions</dt>
-                  <dd>{b.questions}</dd>
+                  <dt>
+                    <a
+                      className="project-status-link"
+                      href={briefItems("question")}
+                    >
+                      Open questions
+                    </a>
+                  </dt>
+                  <dd>
+                    <a
+                      className="project-status-link"
+                      href={briefItems("question")}
+                    >
+                      {b.questions}
+                    </a>
+                  </dd>
                 </div>
               )}
             </dl>
@@ -335,7 +522,7 @@ export function ProjectStatusCard({
             <div className="project-status-evidence">
               <button
                 type="button"
-                className="project-status-caption"
+                className="project-status-caption project-status-link"
                 onClick={() => onEvidence("evidence")}
               >
                 Latest task ·{" "}
@@ -352,7 +539,12 @@ export function ProjectStatusCard({
                         summary={e.checkout}
                         onOpen={() => onEvidence("checkout")}
                       />
-                      <Stamp at={e.checkout_at} prefix="Captured" />
+                      <button
+                        className="project-status-link"
+                        onClick={() => onEvidence("checkout")}
+                      >
+                        <Stamp at={e.checkout_at} prefix="Captured" />
+                      </button>
                     </div>
                   )}
                   {showVerification && (
@@ -362,34 +554,46 @@ export function ProjectStatusCard({
                         summary={e.verification}
                         onOpen={() => onEvidence("verification")}
                       />
-                      <Stamp at={e.verification_at} prefix="Observed" />
+                      <button
+                        className="project-status-link"
+                        onClick={() => onEvidence("verification")}
+                      >
+                        <Stamp at={e.verification_at} prefix="Observed" />
+                      </button>
                     </div>
                   )}
                 </div>
               )}
               {(!showCheckout || !showVerification) && (
                 <p className="project-status-note">
-                  {[
-                    !showCheckout
-                      ? e.checkout
-                        ? `No tracked changes · captured ${e.checkout_at === null ? "time unavailable" : relativeTime(e.checkout_at)}`
-                        : "File changes not recorded"
-                      : "",
-                    !showVerification
-                      ? e.telemetry === "unavailable"
-                        ? "Check results unavailable"
-                        : `No checks recorded · ${e.verification_at === null ? "time unavailable" : relativeTime(e.verification_at)}`
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  <button
+                    className="project-status-link"
+                    onClick={() => onEvidence("evidence")}
+                  >
+                    {[
+                      !showCheckout
+                        ? e.checkout
+                          ? `No tracked changes · captured ${e.checkout_at === null ? "time unavailable" : relativeTime(e.checkout_at)}`
+                          : "File changes not recorded"
+                        : "",
+                      !showVerification
+                        ? e.telemetry === "unavailable"
+                          ? "Check results unavailable"
+                          : `No checks recorded · ${e.verification_at === null ? "time unavailable" : relativeTime(e.verification_at)}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </button>
                 </p>
               )}
             </div>
           ) : (
             !p.pulls.length && (
               <p className="project-status-note project-status-empty">
-                No task details or pull requests recorded
+                <a className="project-status-link" href={threads}>
+                  No task details or pull requests recorded
+                </a>
               </p>
             )
           )}
@@ -421,7 +625,13 @@ export function ProjectStatusCard({
               ? " project-status-main-action"
               : "")
           }
-          href={setup && !attention ? threads : brief}
+          href={
+            setup && !attention
+              ? threads
+              : p.status === "blocked" && !attention
+                ? briefItems("unfinished")
+                : brief
+          }
         >
           {setup
             ? attention
@@ -512,14 +722,18 @@ function StatusSession({
   const [older, setOlder] = useState(false),
     [sheet, setSheet] = useState<{
       card: Card;
-      kind: "checkout" | "verification" | "evidence" | "pulls";
+      kind: "checkout" | "verification" | "evidence" | "pulls" | "requests";
     } | null>(null);
+  const [briefSource, setBriefSource] = useState<{
+    card: Card;
+    target: BriefEvidenceTarget;
+  } | null>(null);
   const interacting = useRef(false),
     pending = useRef<SourcePage[] | null>(null),
     pendingReorder = useRef(false);
   const hold = useRef(false);
   const actionInFlight = useRef(false);
-  hold.current = !!sheet || !!busy;
+  hold.current = !!sheet || !!busy || !!briefSource;
   const commit = (next: SourcePage[], reorder = false) => {
     pagesRef.current = next;
     pendingReorder.current ||= reorder;
@@ -639,8 +853,8 @@ function StatusSession({
     void load();
   }, [revision]);
   useEffect(() => {
-    if (!sheet && !busy) release();
-  }, [sheet, busy]);
+    if (!sheet && !busy && !briefSource) release();
+  }, [sheet, busy, briefSource]);
   const cards = pages.flatMap(
     (source) =>
       source.page?.items.map((project) => ({ project, source })) ?? [],
@@ -695,6 +909,7 @@ function StatusSession({
           action.message ?? undefined,
           card.source.source.id,
         );
+      setSheet(null);
     } catch (e) {
       if (alive.current && owner === viewOwner()) {
         setError((e as Error).message);
@@ -718,6 +933,12 @@ function StatusSession({
       onAction={(a) => void act(card, a)}
       onEvidence={(kind) => setSheet({ card, kind })}
       onPulls={() => setSheet({ card, kind: "pulls" })}
+      onBriefSource={(target) => setBriefSource({ card, target })}
+      onRequests={() => {
+        setError("");
+        setSheet({ card, kind: "requests" });
+      }}
+      teams={teams}
     />
   );
   return (
@@ -786,6 +1007,41 @@ function StatusSession({
           </button>
           {older && cards.filter((c) => c.project.older).map(render)}
         </div>
+      )}
+      {briefSource && (
+        <BriefSourceSheet
+          project={briefSource.card.project.id}
+          target={briefSource.target}
+          sourceId={briefSource.card.source.source.id}
+          agents={briefSource.card.source.page?.agents ?? []}
+          onClose={() => setBriefSource(null)}
+        />
+      )}
+      {sheet?.kind === "requests" && (
+        <Sheet title="Waiting for you" onClose={() => setSheet(null)}>
+          {error && (
+            <p className="error" role="alert">
+              {readableText(error)}
+            </p>
+          )}
+          <div className="project-status-requests">
+            {sheet.card.project.actions.map((action) => (
+              <button
+                key={action.key}
+                disabled={!!busy}
+                onClick={() => void act(sheet.card, action)}
+              >
+                <span>
+                  <strong>{action.title || actionLabel[action.kind]}</strong>
+                  <small>
+                    {actionLabel[action.kind]} · {relativeTime(action.at)}
+                  </small>
+                </span>
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        </Sheet>
       )}
       {sheet?.kind === "checkout" && sheet.card.project.evidence && (
         <CheckoutSheet

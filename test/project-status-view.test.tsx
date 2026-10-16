@@ -37,6 +37,7 @@ function render(
       observedAt={1000}
       sourceId="docker:one"
       agents={agents}
+      teams="team-one"
       busy={false}
       onAction={() => {}}
       onEvidence={() => {}}
@@ -53,6 +54,13 @@ it("labels last-seen counts instead of claiming live zeroes after a failed sourc
   expect(html).toContain("2 waiting for you");
   expect(html).not.toContain("status-live");
   expect(html).not.toContain("No agents working");
+  expect(html).toContain(
+    "page=feed&amp;project=project&amp;filter=working&amp;teams=team-one",
+  );
+  expect(html).toContain(
+    "page=feed&amp;project=project&amp;filter=queued&amp;teams=team-one",
+  );
+  expect(html).toContain("source=docker%3Aone");
 });
 
 it("keeps identifiers and payloads out of all card text while retaining navigation targets", () => {
@@ -158,6 +166,7 @@ it("shows useful brief context before the collapsed technical details", () => {
     brief: {
       state: "ready",
       headline: "Tabs need a repair",
+      version: 7,
       synthesized_at: 1000,
       pending: 0,
       unfinished: 145,
@@ -189,5 +198,10 @@ it("shows useful brief context before the collapsed technical details", () => {
   ])
     expect(visible).toContain(text);
   expect(visible).not.toContain("141 recorded");
+  expect(visible).toContain("briefEvidence=headline&amp;briefVersion=7");
+  for (const id of ["s", "t", "q"])
+    expect(visible).toContain("briefEvidence=" + id);
+  expect(html).toContain("briefKind=unfinished");
+  expect(html).toContain("briefKind=question");
   expect(render()).not.toContain('aria-label="Brief summary"');
 });

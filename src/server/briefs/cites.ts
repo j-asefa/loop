@@ -76,11 +76,12 @@ export function resolveCite(
       )
       .get(verification.run_id, owner) as { project_id: string } | undefined;
     if (scope?.project_id !== project) return null;
+    const run = runInfo(verification.run_id, owner);
     return {
       kind: "verification",
       content: verificationContent(verification),
-      ...runInfo(verification.run_id, owner),
-      conversation: verification.conversation_id,
+      ...run,
+      conversation: verification.conversation_id ?? run.conversation,
       recordedAt: verification.observed_at,
     };
   }
@@ -100,11 +101,12 @@ export function resolveCite(
       )
       .get(checkout.run_id, owner) as { project_id: string } | undefined;
     if (scope?.project_id !== project) return null;
+    const run = runInfo(checkout.run_id, owner);
     return {
       kind: "checkout",
       content: checkoutContent(checkout),
-      ...runInfo(checkout.run_id, owner),
-      conversation: checkout.conversation_id,
+      ...run,
+      conversation: checkout.conversation_id ?? run.conversation,
       recordedAt: checkout.ended_at ?? checkout.started_at,
     };
   }

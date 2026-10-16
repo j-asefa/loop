@@ -9,6 +9,7 @@ export type ProjectStatusAction = {
   message: string | null;
   ref: string;
   at: number;
+  title?: string;
 } & (
   | { kind: "approve" | "answer" | "resume" | "failed" | "not_sent" }
   | { kind: "review"; pull: PullRequestRef }
@@ -24,6 +25,8 @@ export type ProjectStatus = {
   brief: {
     state: "never" | "pending" | "failed" | "off" | "ready";
     headline: string | null;
+    /** Pins headline evidence to the version displayed on the card. */
+    version?: number | null;
     /** Optional for cached responses and workspaces running an older version. */
     highlights?: {
       updated_at: number;

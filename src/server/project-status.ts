@@ -103,6 +103,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
               ? "ready"
               : "pending",
         headline: p.view ? (JSON.parse(p.view).headline?.text ?? null) : null,
+        version: p.current_version,
         synthesized_at: p.synth_at,
         pending: p.pending,
         unfinished: p.view ? 0 : null,
@@ -193,6 +194,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
   }
   type Thread = {
     id: string;
+    title: string;
     status_project: string;
     feed_run_id: string | null;
     feed_run_state: string | null;
@@ -202,7 +204,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
     working: number;
   };
   const threads =
-    read<Thread>(`${scope} SELECT c.id,c.status_project,c.feed_run_id,c.feed_run_state,
+    read<Thread>(`${scope} SELECT c.id,c.title,c.status_project,c.feed_run_id,c.feed_run_state,
     c.feed_last_activity_at,c.feed_queued,${feedRunNeeds} needs,(${feedWorking}) working FROM scope c`);
   for (const t of threads) {
     const p = projects.get(t.status_project);
@@ -457,7 +459,12 @@ function build(owner: string, options: Options): ProjectStatusPage {
         items?.length || r.output_at !== null ? "observed" : "unavailable",
     };
   }
+  const titles = new Map(threads.map((thread) => [thread.id, thread.title]));
   for (const p of projects.values()) {
+    for (const action of p.actions) {
+      const title = action.conversation && titles.get(action.conversation);
+      if (title) action.title = readable(title);
+    }
     p.actions.sort(
       (a, b) =>
         priority[a.kind] - priority[b.kind] ||

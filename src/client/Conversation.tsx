@@ -235,8 +235,14 @@ export function Conversation({
     } | null>(null),
     [forkFrom, setForkFrom] = useState<ConversationMessage | null>(null),
     [quoteFrom, setQuoteFrom] = useState<ConversationMessage | null>(null),
-    [checkout, setCheckout] = useState<string | null>(null),
-    [verification, setVerification] = useState<string | null>(null),
+    [checkout, setCheckout] = useState<string | null>(() => {
+      const query = new URLSearchParams(location.search);
+      return query.get("conversation") === id ? query.get("checkout") : null;
+    }),
+    [verification, setVerification] = useState<string | null>(() => {
+      const query = new URLSearchParams(location.search);
+      return query.get("conversation") === id ? query.get("verification") : null;
+    }),
     [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
     [usageData, setUsage] = useState<{
       conversationId: string;
@@ -253,6 +259,14 @@ export function Conversation({
     [origin, setOrigin] = useState<{ messageId: string | null } | null>(null),
     [resumed, setResumed] = useState(false),
     [editQueued, setEditQueued] = useState<QueuedMessage | null>(null);
+  useEffect(() => {
+    const url = new URL(location.href);
+    if (url.searchParams.get("conversation") !== id) return;
+    if (!url.searchParams.has("checkout") && !url.searchParams.has("verification")) return;
+    url.searchParams.delete("checkout");
+    url.searchParams.delete("verification");
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+  }, [id]);
   const usage =
     usageData?.conversationId === id && usageData.sourceId === sourceId
       ? usageData

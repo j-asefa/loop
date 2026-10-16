@@ -517,7 +517,7 @@ export default function App() {
   // message, or a result. Any other link loads normally.
   const openLink = useRef((_url: URL) => {});
   openLink.current = (url: URL) => {
-    if (!session?.user) {
+    if (!session?.user || url.searchParams.has("checkout") || url.searchParams.has("verification")) {
       location.assign(url.href);
       return;
     }

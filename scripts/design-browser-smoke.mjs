@@ -6,6 +6,7 @@ const names = [
   "agent-mail",
   "brief",
   "workspace-project",
+  "status-links",
   "execution-environments",
   "main-composer-keyboard",
   "clear-search",

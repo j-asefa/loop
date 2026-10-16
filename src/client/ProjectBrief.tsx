@@ -9,6 +9,7 @@ import {
 import { executionSourceId } from "./sourceRouting";
 import { viewOwner } from "./viewCache";
 import { Sheet } from "./components";
+import { BriefSourceSheet, type BriefEvidenceTarget } from "./BriefSourceSheet";
 import { ReadableTextProvider, useReadableText } from "./ReadableText";
 import { readableAuthor } from "../shared/readable-text";
 import { ConnectionDetails } from "./ConnectionDetails";
@@ -205,6 +206,20 @@ function ProjectBriefSession({
     [editing, setEditing] = useState(false),
     [detailTab, setDetailTab] = useState<"evidence" | "history">("evidence"),
     [sourceRef, setSourceRef] = useState("");
+  const [linkedEvidence, setLinkedEvidence] =
+    useState<BriefEvidenceTarget | null>(() => {
+      const params = new URLSearchParams(location.search),
+        item = params.get("briefEvidence");
+      const version = Number(params.get("briefVersion"));
+      return item
+        ? {
+            item,
+            ...(Number.isSafeInteger(version) && version > 0
+              ? { version }
+              : {}),
+          }
+        : null;
+    });
   const [goal, setGoal] = useState(""),
     [text, setText] = useState(""),
     [why, setWhy] = useState(""),
@@ -294,7 +309,8 @@ function ProjectBriefSession({
     };
   }, []);
   useEffect(() => {
-    if (!valid() || (!page.settings.enabled && !viewRecorded)) return;
+    if (!valid() || linkedEvidence || (!page.settings.enabled && !viewRecorded))
+      return;
     const own = ++ackRequest.current;
     void acknowledgements
       .acknowledge(page.version, page.acknowledged_version, (version) =>
@@ -306,7 +322,7 @@ function ProjectBriefSession({
       .catch((error) => {
         if (valid() && own === ackRequest.current) setAckError(error.message);
       });
-  }, [page, viewRecorded]);
+  }, [page, viewRecorded, linkedEvidence]);
   const invalidateDetails = () => {
     itemsRequest.current++;
     historyRequest.current++;
@@ -467,6 +483,35 @@ function ProjectBriefSession({
       }
     }
   };
+  useEffect(() => {
+    const url = new URL(location.href);
+    const section = url.searchParams.get("briefSection");
+    if (
+      ["state", "decisions", "open_questions", "unfinished"].includes(
+        section || "",
+      )
+    ) {
+      setSection(section as BriefSection);
+      setViewRecorded(true);
+    }
+    const kind = url.searchParams.get("briefKind");
+    if (["state", "decision", "question", "unfinished"].includes(kind || "")) {
+      setViewRecorded(true);
+      void showAll(kind as Item["kind"]);
+    }
+    for (const key of [
+      "briefSection",
+      "briefKind",
+      "briefEvidence",
+      "briefVersion",
+    ])
+      url.searchParams.delete(key);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
+  }, []);
   const decisionSources = async () => {
     if (!valid() || choicesLoading.current) return;
     choicesLoading.current = true;
@@ -626,6 +671,15 @@ function ProjectBriefSession({
     ) : undefined;
   return (
     <>
+      {linkedEvidence && (
+        <BriefSourceSheet
+          project={projectId}
+          target={linkedEvidence}
+          sourceId={workspace}
+          agents={agents}
+          onClose={() => setLinkedEvidence(null)}
+        />
+      )}
       {(loadError || ackError) && (
         <div className="brief-notice error" role="alert">
           <p>{readable(loadError || ackError)}</p>

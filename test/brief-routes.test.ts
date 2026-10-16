@@ -164,6 +164,7 @@ it("scopes every production route to an owned project before parsing input", asy
     ["/items", "POST", {}],
     ["/versions", "GET"],
     ["/decision-sources", "GET"],
+    ["/evidence?item=headline", "GET"],
   ] as [string, string, unknown?][])
     expect((await api(other.owner, w.root + path, method, body)).status).toBe(
       404,
@@ -496,6 +497,75 @@ it("resolves citation navigation to the exact message without returning unowned 
   expect((await w.get()).data.sources[ref].message).toBeNull();
   db.prepare("UPDATE artifacts SET archived=1 WHERE id=?").run(w.artifact);
   expect((await w.get()).data.sources[ref]).toBeUndefined();
+});
+
+it("opens Status evidence for the displayed headline version and exact item without acknowledging", async () => {
+  const w = fixture();
+  w.publish();
+  const first = (await w.get()).data;
+  const item = first.state[0];
+  w.publish({
+    headline: { text: "A newer update", cite: [{ ref: "msg_" + w.prompt }] },
+    items: [],
+  });
+  const before = w.state();
+  const headline = await w.request("/evidence?item=headline&version=1");
+  expect(headline.status).toBe(200);
+  expect(headline.data).toMatchObject({
+    text: "Storage is ready",
+    sources: {
+      ["res_" + w.artifact]: {
+        conversation: w.conversation,
+        message: w.message,
+        kind: "result",
+        run: w.run,
+      },
+    },
+  });
+  const detail = await w.request("/evidence?item=" + item.id);
+  expect(detail.data.text).toBe(item.text);
+  expect(detail.data.cite).toEqual(item.cite);
+  expect(w.state()).toEqual(before);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM brief_acks WHERE owner_id=?")
+      .get(w.owner),
+  ).toEqual({ n: 0 });
+  expect((await w.request("/evidence?item=headline&version=999")).status).toBe(
+    404,
+  );
+  expect((await w.request("/evidence?item=missing")).status).toBe(404);
+  const other = fixture();
+  expect((await other.request("/evidence?item=" + item.id)).status).toBe(404);
+  // A formerly cited result is never replaced with an unrelated source.
+  db.prepare("UPDATE artifacts SET archived=1 WHERE id=?").run(w.artifact);
+  expect((await w.request("/evidence?item=" + item.id)).data).toMatchObject({
+    cite: item.cite,
+    sources: {},
+  });
+});
+
+it("exposes exact run destinations for observed checks in Status evidence", async () => {
+  const w = fixture(),
+    verification = id();
+  db.prepare(
+    "INSERT INTO run_verifications(id,owner_id,run_id,kind,tools,command,status,exit_code,observed_at) VALUES(?,?,?,'test','[\"vitest\"]','vitest','passed',0,?)",
+  ).run(verification, w.owner, w.run, now());
+  expect(
+    w.publish({
+      headline: {
+        text: "Checks passed",
+        cite: [{ ref: "ver_" + verification }],
+      },
+      items: [],
+    }).outcome,
+  ).toBe("published");
+  const result = await w.request("/evidence?item=headline&version=1");
+  expect(result.data.sources["ver_" + verification]).toMatchObject({
+    kind: "verification",
+    run: w.run,
+    conversation: w.conversation,
+  });
 });
 
 it("pages the full ledger and shows superseded replacement text without dropping rows", async () => {

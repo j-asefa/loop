@@ -210,6 +210,35 @@ it("uses existing conversation/message anchors for citations and pending approva
     ),
   ).toBe("/?source=docker%3Afixture&artifact=file");
   expect(
+    briefSourceUrl(
+      { conversation: "thread", message: null, artifact: "file" },
+      "docker:fixture",
+    ),
+  ).toBe("/?source=docker%3Afixture&artifact=file");
+  expect(
+    briefSourceUrl(
+      {
+        conversation: "thread",
+        message: "answer",
+        artifact: null,
+        kind: "checkout",
+        run: "run",
+      },
+      "docker:fixture",
+    ),
+  ).toBe(
+    "/?source=docker%3Afixture&conversation=thread&message=answer&checkout=run",
+  );
+  expect(
+    briefSourceUrl({
+      conversation: "thread",
+      message: "answer",
+      artifact: null,
+      kind: "verification",
+      run: "run",
+    }),
+  ).toBe("/?conversation=thread&message=answer&verification=run");
+  expect(
     briefSourceUrl({ conversation: null, message: null, artifact: null }),
   ).toBeNull();
 });

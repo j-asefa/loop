@@ -2,12 +2,26 @@ import type { Brief, Change, Item } from "../server/briefs/schema.js";
 export type { Brief, Change, Item };
 export type BriefSource = {
   ref: string;
+  kind?:
+    | "result"
+    | "message"
+    | "saved"
+    | "approval"
+    | "pr"
+    | "checkout"
+    | "verification";
+  run?: string;
   title: string;
   at: number | null;
   conversation: string | null;
   message: string | null;
   artifact: string | null;
   excerpt: string;
+};
+export type BriefEvidencePage = {
+  text: string;
+  cite: Item["cite"];
+  sources: Record<string, BriefSource>;
 };
 export type BriefPage = Brief & {
   settings: {

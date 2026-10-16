@@ -18,14 +18,25 @@ export function briefAttentionUrl(
 }
 
 export function briefSourceUrl(
-  source: Pick<BriefSource, "conversation" | "message" | "artifact">,
+  source: Pick<BriefSource, "conversation" | "message" | "artifact"> &
+    Pick<Partial<BriefSource>, "kind" | "run">,
   workspace = "",
 ) {
   const params = new URLSearchParams();
   if (workspace) params.set("source", workspace);
   if (source.conversation) {
+    // A published result without a message anchor opens the actual file.
+    if (source.artifact && !source.message) {
+      params.set("artifact", source.artifact);
+      return "/?" + params;
+    }
     params.set("conversation", source.conversation);
     if (source.message) params.set("message", source.message);
+    if (
+      source.run &&
+      (source.kind === "checkout" || source.kind === "verification")
+    )
+      params.set(source.kind, source.run);
   } else if (source.artifact) params.set("artifact", source.artifact);
   else return null;
   return "/?" + params;

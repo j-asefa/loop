@@ -78,6 +78,8 @@ function source(
       { id: string; created_at: number } | undefined;
   return {
     ref: cite.ref,
+    kind: resolved.kind,
+    run: resolved.runId,
     title: thread?.title ?? "Saved result",
     conversation: thread?.id ?? null,
     message: message?.id ?? null,
@@ -156,6 +158,49 @@ function readPage(owner: string, project: string): BriefPage {
 briefs.get<{ id: string; itemId: string }>(root, (req, res) =>
   res.json(readPage(res.locals.owner, req.params.id)),
 );
+// Resolve only the item the reader opens. Status stays a bounded bulk read;
+// evidence reads neither acknowledge nor regenerate the Brief.
+briefs.get<{ id: string }>(root + "/evidence", (req, res) => {
+  const input = z
+    .object({
+      item: z.string().min(1).max(150),
+      version: z.coerce.number().int().positive().optional(),
+    })
+    .strict()
+    .parse(req.query);
+  const owner = res.locals.owner,
+    project = req.params.id;
+  res.json(
+    db.transaction(() => {
+      let item: { text: string; cite: Cite[] } | undefined;
+      if (input.item === "headline") {
+        const row = db
+          .prepare(
+            "SELECT view FROM project_briefs WHERE owner_id=? AND project_id=? AND version=? AND state='published'",
+          )
+          .get(
+            owner,
+            project,
+            input.version ?? readState(owner, project).current_version,
+          ) as { view: string } | undefined;
+        item = (row && (JSON.parse(row.view) as View).headline) || undefined;
+      } else {
+        const row = db
+          .prepare(
+            "SELECT * FROM brief_items WHERE owner_id=? AND project_id=? AND id=?",
+          )
+          .get(owner, project, input.item) as Record<string, any> | undefined;
+        if (row) {
+          const record = publicItem(decodeItem(row));
+          item = { text: record.text, cite: itemCites([record]) };
+        }
+      }
+      if (!item)
+        throw new Problem(404, "This brief item is no longer available.");
+      return { ...item, sources: sources(owner, project, item.cite) };
+    })(),
+  );
+});
 briefs.get<{ id: string }>(root + "/decision-sources", (req, res) => {
   const owner = res.locals.owner,
     project = req.params.id;
