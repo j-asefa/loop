@@ -24,8 +24,11 @@ export function CheckoutChip({
   onOpen: () => void;
   compact?: boolean;
 }) {
+  const historical = compact && summary.state === "captured" && summary.scope !== "run";
   const description = compact
-    ? summary.state === "captured"
+    ? historical
+      ? "Historical checkout comparison; changes during this run were not captured"
+      : summary.state === "captured"
       ? [
           summary.files
             ? `${summary.files} ${summary.files === 1 ? "file" : "files"} +${summary.additions} −${summary.deletions}`
@@ -40,7 +43,7 @@ export function CheckoutChip({
   const count = (value: number) => new Intl.NumberFormat("en", {
     notation: "compact", maximumFractionDigits: 1,
   }).format(value);
-  const line = compact && summary.state === "captured"
+  const line = historical ? "Earlier checkout" : compact && summary.state === "captured"
     ? summary.additions || summary.deletions
       ? <>
           <span className="diff-add-count">+{count(summary.additions)}</span>
@@ -113,6 +116,10 @@ export function CheckoutSheet({
   const chunks = detail?.patch ? patchByFile(detail.patch) : new Map<string, string>();
   const notes: string[] = [];
   if (detail) {
+    if (detail.summary?.scope === "run")
+      notes.push("Changes during this run. Pre-existing tracked edits are excluded; untracked entries list new paths only.");
+    else if (detail.state === "captured")
+      notes.push("Historical comparison against the source checkout. These totals include earlier repository changes and do not measure this run's edits.");
     if (detail.start_dirty || detail.start_untracked)
       notes.push(
         "The checkout already had changes before this run started, so this record brackets an interval rather than proving which run made each change.",

@@ -126,7 +126,7 @@ it("records the worktree before and after a run, as Loop observed it", async () 
     late: false,
   });
   expect(checkoutLine(detail.summary!)).toBe(
-    `${detail.branch} · 1 commit ahead · 1 file +3 −1 · 1 untracked · no remote seen`,
+    `${detail.branch} · 1 commit since start · 1 file +3 −1 · 1 untracked · no remote seen`,
   );
   // The worktree itself was only read.
   expect(git(checkout, "status", "--porcelain")).toContain("new.txt");
@@ -151,6 +151,126 @@ it("is a brief citation scoped to the run's project, with checked quotes", () =>
   expect(checkQuote(cite!.content, "tests pass")).toBe(false);
   expect(resolveCite(owner, otherFolder, { ref })).toBeNull();
   expect(resolveCite("someone-else", folder, { ref })).toBeNull();
+});
+
+it("counts each run's edits when separate agents start far ahead of the source checkout", async () => {
+  const repo = join(dir, "stale-source");
+  mkdirSync(repo);
+  gitProject(repo);
+  const initialBranch = git(repo, "branch", "--show-current");
+  git(repo, "switch", "-c", "newer-main");
+  writeFileSync(join(repo, "shared.txt"), "already on main\n".repeat(100));
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "shared repository history");
+  const newer = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", initialBranch);
+  const first = join(dir, "stale-first"), second = join(dir, "stale-second");
+  git(repo, "worktree", "add", "-b", "first", first, newer);
+  git(repo, "worktree", "add", "-b", "second", second, newer);
+  const idle = runFixture("thread-stale-idle"), editing = runFixture("thread-stale-editing");
+  await startCheckout(idle, first, repo, "g1");
+  await startCheckout(editing, second, repo, "g1");
+  await completeCheckout(idle.id);
+  expect(checkoutSummary(owner, idle.id)).toMatchObject({ scope: "run", files: 0, additions: 0, deletions: 0, ahead: 0 });
+  writeFileSync(join(second, "tracked.txt"), "this run\n");
+  git(second, "commit", "-am", "run edit");
+  writeFileSync(join(second, "tracked.txt"), "this run\nand an uncommitted line\n");
+  // Moving the shared source during the run cannot move its baseline.
+  git(repo, "switch", "newer-main");
+  await completeCheckout(editing.id);
+  const detail = checkoutDetail(owner, editing.id)!;
+  expect(detail).toMatchObject({ state: "captured", base_ref: "run start", base_sha: newer, ahead: 1, behind: 0 });
+  expect(detail.files).toEqual([{ path: "tracked.txt", additions: 2, deletions: 1, binary: false }]);
+  expect(detail.patch).not.toContain("shared.txt");
+  expect(checkoutSummary(owner, idle.id)!.files).toBe(0);
+  // A later no-op turn on the editing agent does not repeat earlier edits.
+  const followup = runFixture("thread-stale-followup");
+  await startCheckout(followup, second, repo, "g2");
+  await completeCheckout(followup.id);
+  expect(checkoutSummary(owner, followup.id)).toMatchObject({ files: 0, additions: 0, deletions: 0, ahead: 0 });
+});
+
+it("subtracts pre-existing staged, unstaged and binary edits without modifying the checkout", async () => {
+  const repo = join(dir, "dirty-baseline");
+  mkdirSync(repo);
+  gitProject(repo);
+  writeFileSync(join(repo, "tracked.txt"), "existing staged\n");
+  writeFileSync(join(repo, "staged.txt"), "existing new file\n");
+  writeFileSync(join(repo, "binary.dat"), Buffer.from([0, 1, 2, 3]));
+  git(repo, "add", ".");
+  writeFileSync(join(repo, "tracked.txt"), "existing staged\nexisting unstaged\n");
+  writeFileSync(join(repo, "old-untracked.txt"), "existing untracked\n");
+  const before = git(repo, "status", "--porcelain");
+  const index = git(repo, "diff", "--cached", "--binary");
+  const head = git(repo, "rev-parse", "HEAD");
+  const run = runFixture("thread-dirty-baseline");
+  await startCheckout(run, repo, repo, "g1");
+  await completeCheckout(run.id);
+  expect(checkoutSummary(owner, run.id)).toMatchObject({ scope: "run", files: 0, additions: 0, deletions: 0, untracked: 0 });
+  expect(git(repo, "status", "--porcelain")).toBe(before);
+  expect(git(repo, "diff", "--cached", "--binary")).toBe(index);
+  expect(git(repo, "rev-parse", "HEAD")).toBe(head);
+  expect(checkoutDetail(owner, run.id)).not.toHaveProperty("start_patch");
+  writeFileSync(join(repo, "tracked.txt"), "existing staged\nexisting unstaged\nnew in run\n");
+  writeFileSync(join(repo, "binary.dat"), Buffer.from([0, 4, 5, 6]));
+  git(repo, "commit", "-am", "commit both earlier work and new edits");
+  writeFileSync(join(repo, "staged.txt"), "existing new file\nnew uncommitted line\n");
+  writeFileSync(join(repo, "new-untracked.txt"), "new\n");
+  await completeCheckout(run.id);
+  const detail = checkoutDetail(owner, run.id)!;
+  expect(detail.error).toBeNull();
+  expect(detail.files).toEqual([
+    { path: "binary.dat", additions: 0, deletions: 0, binary: true },
+    { path: "staged.txt", additions: 1, deletions: 0, binary: false },
+    { path: "tracked.txt", additions: 1, deletions: 0, binary: false },
+  ]);
+  expect(detail.untracked).toEqual(["new-untracked.txt"]);
+  expect(detail.patch).toContain("+new in run");
+  expect(detail.patch).not.toContain("+existing staged");
+});
+
+it("preserves historical cumulative observations and their citations", async () => {
+  const run = runFixture("thread-legacy-baseline");
+  await startCheckout(run, checkout, project, "g1");
+  // The shape left by migration 091: no run snapshot was recorded.
+  db.prepare("UPDATE run_checkouts SET start_patch=NULL,start_untracked_paths=NULL,base_ref='main',base_sha=? WHERE run_id=?")
+    .run(git(project, "rev-parse", "HEAD"), run.id);
+  await completeCheckout(run.id);
+  const first = checkoutDetail(owner, run.id)!;
+  expect(first.summary!.scope).toBeUndefined();
+  expect(first.summary!.additions).toBeGreaterThan(0);
+  const content = checkoutContent(first);
+  await completeCheckout(run.id);
+  expect(resolveCite(owner, folder, { ref: "chk_" + first.id })!.content).toBe(content);
+});
+
+it("counts restoring a file deleted before the run even when the final checkout is clean", async () => {
+  const repo = join(dir, "deleted-baseline");
+  mkdirSync(repo);
+  gitProject(repo);
+  rmSync(join(repo, "tracked.txt"));
+  const run = runFixture("thread-deleted-baseline");
+  await startCheckout(run, repo, repo, "g1");
+  writeFileSync(join(repo, "tracked.txt"), "committed");
+  await completeCheckout(run.id);
+  const detail = checkoutDetail(owner, run.id)!;
+  expect(detail.error).toBeNull();
+  expect(detail.working!.files).toEqual([]);
+  expect(detail.files).toEqual([{ path: "tracked.txt", additions: 1, deletions: 0, binary: false }]);
+  expect(detail.patch).toContain("+committed");
+});
+
+it("fails capture instead of using an incomplete starting snapshot", async () => {
+  const repo = join(dir, "oversized-baseline");
+  mkdirSync(repo);
+  gitProject(repo);
+  writeFileSync(join(repo, "tracked.txt"), "existing change\n".repeat(300000));
+  const run = runFixture("thread-oversized-baseline");
+  await startCheckout(run, repo, repo, "g1");
+  expect(checkoutDetail(owner, run.id)).toMatchObject({ state: "failed", start_head: "" });
+  expect(checkoutDetail(owner, run.id)!.error).toContain("complete run baseline");
+  await completeCheckout(run.id);
+  expect(checkoutSummary(owner, run.id)!.state).toBe("failed");
 });
 
 it("is not citable while its capture is still in progress", async () => {
@@ -311,6 +431,7 @@ it("clears an earlier observation when a recapture fails", async () => {
   const run = runFixture("thread-recapture");
   bind("thread-recapture", checkout);
   await startCheckout(run, checkout, project, "g1");
+  writeFileSync(join(checkout, "tracked.txt"), "changed during the run\n");
   await completeCheckout(run.id);
   const captured = checkoutDetail(owner, run.id)!;
   expect(captured.state).toBe("captured");
@@ -340,6 +461,7 @@ it("never runs a filter a worktree's .gitattributes selects, whatever the user's
   process.env.GIT_CONFIG_GLOBAL = globalConfig;
   try {
     await startCheckout(run, checkout, project, "g1");
+    writeFileSync(join(checkout, "tracked.txt"), "touched during capture test\n");
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.state).toBe("captured");
@@ -604,7 +726,7 @@ it("compares the working tree the way the repository does, line endings included
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.error).toBeNull();
     expect(detail.working!.files.map((f) => f.path)).not.toContain("crlf.txt");
-    expect(detail.files.map((f) => f.path)).toContain("crlf.txt"); // committed on the branch
+    expect(detail.files.map((f) => f.path)).not.toContain("crlf.txt"); // committed before the run
   } finally {
     git(project, "config", "--unset", "core.autocrlf");
     writeFileSync(join(checkout, "crlf.txt"), "a\nb\n");
@@ -633,6 +755,7 @@ it("honours line-ending attributes, exclusions and worktree-scoped settings", as
   writeFileSync(join(checkout, "blob.bin"), "expanded content\n");
   try {
     await startCheckout(run, checkout, project, "g1");
+    writeFileSync(join(checkout, "blob.bin"), "expanded content\nchanged during run\n");
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.error).toBeNull();
@@ -710,7 +833,7 @@ it("sees allowlisted settings the repository supplies through an included file",
   }
 });
 
-it("never carries counts from an earlier observation into a new one", async () => {
+it("keeps a run baseline usable even when the source checkout disappears", async () => {
   const run = runFixture("thread-stale-counts");
   bind("thread-stale-counts", checkout);
   await startCheckout(run, checkout, project, "g1");
@@ -721,9 +844,9 @@ it("never carries counts from an earlier observation into a new one", async () =
   await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.state).toBe("captured");
-  expect(detail.ahead).toBeNull();
-  expect(detail.behind).toBeNull();
-  expect(detail.summary!.ahead).toBeNull();
+  expect(detail.ahead).toBe(0);
+  expect(detail.behind).toBe(0);
+  expect(detail.summary!.ahead).toBe(0);
 });
 
 it("drops the capture request of a run whose start was never captured", async () => {

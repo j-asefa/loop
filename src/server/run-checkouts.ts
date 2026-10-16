@@ -57,6 +57,8 @@ export type CheckoutRow = {
   base_ref: string | null;
   base_sha: string | null;
   start_head: string;
+  start_patch: string | null;
+  start_untracked_paths: string | null;
   start_dirty: number;
   start_untracked: number;
   started_at: number;
@@ -95,6 +97,8 @@ export type CheckoutDetail = Omit<
   | "capture_token"
   | "capture_started_at"
   | "capture_pending"
+  | "start_patch"
+  | "start_untracked_paths"
 > & {
   files: CheckoutFile[];
   committed: CheckoutStat | null;
@@ -389,6 +393,21 @@ async function patch(where: Iso, base: string) {
   return { patch: result.out, bytes: full, truncated: false };
 }
 
+/** Rebuild the saved tracked state entirely inside our disposable Git directory. */
+async function runBase(where: Iso, row: CheckoutRow) {
+  if (!row.start_patch) return row.start_head;
+  const gitDir = where.env.GIT_DIR!;
+  const snapshot = {
+    ...where,
+    env: { ...where.env, GIT_INDEX_FILE: join(gitDir, "run-start.index") },
+  };
+  const patchFile = join(gitDir, "run-start.patch");
+  await writeFile(patchFile, row.start_patch, { mode: 0o600 });
+  await must(snapshot, ["read-tree", row.start_head]);
+  await must(snapshot, ["apply", "--cached", "--binary", "--whitespace=nowarn", "--", patchFile]);
+  return must(snapshot, ["write-tree"]);
+}
+
 async function remote(where: Iso, branch: string, head: string): Promise<CheckoutRemote | null> {
   // The upstream when one is set, otherwise the conventional origin ref, and
   // only a remote-tracking ref: an upstream on "." is a local branch and
@@ -419,6 +438,7 @@ function summarize(row: CheckoutRow): CheckoutSummary {
   return {
     id: row.id,
     state: row.state,
+    ...(row.start_patch != null ? { scope: "run" as const } : {}),
     branch: row.branch,
     base_ref: row.base_ref,
     ahead: row.ahead ?? null,
@@ -442,6 +462,8 @@ export function checkoutContent(detail: CheckoutDetail) {
     detail.summary ? checkoutLine(detail.summary) : `${detail.branch} · not captured`,
     `Base ${detail.base_ref ?? "unknown"} at ${detail.base_sha ?? "unknown"}; start HEAD ${detail.start_head || "unknown"}; end HEAD ${detail.end_head ?? "unknown"}.`,
   ];
+  if (detail.summary?.scope === "run")
+    lines.push("File counts and patch compare tracked content at run start and end; pre-existing tracked edits are excluded. Untracked entries are new paths only.");
   if (detail.start_dirty || detail.start_untracked)
     lines.push("The checkout already had changes before this run; this record brackets an interval, not exclusive authorship.");
   if (detail.overlap.length)
@@ -471,8 +493,10 @@ function select(runId: string, owner?: string) {
 }
 
 export function toDetail(row: CheckoutRow): CheckoutDetail {
+  // The baseline is capture machinery, not another browser-visible patch.
+  const { start_patch, start_untracked_paths, ...detail } = row;
   return {
-    ...row,
+    ...detail,
     files: row.files ? JSON.parse(row.files) : [],
     committed: row.committed ? JSON.parse(row.committed) : null,
     working: row.working ? JSON.parse(row.working) : null,
@@ -512,8 +536,8 @@ export function checkoutById(owner: string, checkoutId: string): CheckoutDetail 
 // Prepared on first use: this module is loaded by the queue, which some
 // fixtures import against databases that have not run every migration.
 const INSERT = () => db.prepare(
-  `INSERT OR IGNORE INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,generation,directory,source,branch,base_ref,base_sha,start_head,start_dirty,start_untracked,started_at,state,error,summary)
-   VALUES(@id,@owner_id,@run_id,@agent_id,@conversation_id,@generation,@directory,@source,@branch,@base_ref,@base_sha,@start_head,@start_dirty,@start_untracked,@started_at,@state,@error,@summary)`,
+  `INSERT OR IGNORE INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,generation,directory,source,branch,base_ref,base_sha,start_head,start_patch,start_untracked_paths,start_dirty,start_untracked,started_at,state,error,summary)
+   VALUES(@id,@owner_id,@run_id,@agent_id,@conversation_id,@generation,@directory,@source,@branch,@base_ref,@base_sha,@start_head,@start_patch,@start_untracked_paths,@start_dirty,@start_untracked,@started_at,@state,@error,@summary)`,
 );
 
 /** The start capture's overall budget: it runs before the agent is dispatched. */
@@ -556,11 +580,13 @@ export async function startCheckout(
       iso = await isolate(directory);
       const branch = (await maybe(iso, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? "HEAD";
       const head = await must(iso, ["rev-parse", "--verify", "HEAD"]);
-      const baseRef = await maybe(plain(source), ["symbolic-ref", "--short", "--quiet", "HEAD"]);
-      const sourceHead = await maybe(plain(source), ["rev-parse", "--verify", "HEAD"]);
-      const baseSha = sourceHead ? await maybe(iso, ["merge-base", head, sourceHead]) : null;
       const { tracked, untracked } = await status(iso);
-      return { branch, head, baseRef, baseSha, tracked, untracked };
+      // Unlike the display patch this must be complete: never pretend a
+      // shortened baseline can establish which edits happened in this run.
+      const baseline = await git(iso, [...DIFF, "--binary", "--full-index", "--no-renames", head, "--"]);
+      if (!baseline.ok)
+        throw new CheckoutError("Could not capture the complete run baseline (maximum 4 MB)");
+      return { branch, head, startPatch: baseline.out, tracked, untracked };
     } finally {
       if (budgetPassed) iso?.cleanup();
     }
@@ -577,13 +603,15 @@ export async function startCheckout(
         }, START_BUDGET_MS);
       }),
     ]);
-    const { branch, head, baseRef, baseSha, tracked, untracked } = observed;
+    const { branch, head, startPatch, tracked, untracked } = observed;
     row = {
       ...base,
       branch,
-      base_ref: baseRef,
-      base_sha: baseSha,
+      base_ref: "run start",
+      base_sha: head,
       start_head: head,
+      start_patch: startPatch,
+      start_untracked_paths: JSON.stringify(untracked),
       start_dirty: tracked.length ? 1 : 0,
       start_untracked: untracked.length ? 1 : 0,
       state: "started",
@@ -596,6 +624,8 @@ export async function startCheckout(
       base_ref: null,
       base_sha: null,
       start_head: "",
+      start_patch: null,
+      start_untracked_paths: null,
       start_dirty: 0,
       start_untracked: 0,
       state: "failed",
@@ -680,10 +710,12 @@ async function captureClaimed(
     // SHA rather than resolving the symbolic HEAD again.
     const head = await must(directory, ["rev-parse", "--verify", "HEAD"]);
     const branch = (await maybe(directory, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? row.branch;
-    const sourceHead = await maybe(plain(row.source), ["rev-parse", "--verify", "HEAD"]);
-    const base = sourceHead
+    const runScoped = row.start_patch != null;
+    const sourceHead = runScoped ? row.start_head : await maybe(plain(row.source), ["rev-parse", "--verify", "HEAD"]);
+    const base = runScoped ? row.start_head : sourceHead
       ? ((await maybe(directory, ["merge-base", head, sourceHead])) ?? row.base_sha)
       : row.base_sha;
+    const diffBase = runScoped ? await runBase(directory, row) : base ?? head;
     fields.end_head = head;
     fields.branch = branch;
     fields.base_sha = base;
@@ -696,18 +728,19 @@ async function captureClaimed(
       }
     }
     const { untracked } = await status(directory);
-    fields.untracked = JSON.stringify(untracked);
+    const initialUntracked = new Set<string>(JSON.parse(row.start_untracked_paths ?? "[]"));
+    fields.untracked = JSON.stringify(untracked.filter((path) => !initialUntracked.has(path)));
     const working = await numstat(directory, [head, "--"]);
     const committed = base ? await numstat(directory, [base, head, "--"]) : null;
+    const files = (await numstat(directory, [diffBase, "--"])).files;
     const raw = await filtered(directory, [
-      ...new Set([...working.files, ...(committed?.files ?? [])].map((f) => f.path)),
+      ...new Set([...working.files, ...(committed?.files ?? []), ...files].map((f) => f.path)),
     ]);
     for (const file of working.files) if (raw.has(file.path)) file.filtered = true;
     fields.working = JSON.stringify(working);
     if (base) {
       for (const file of committed!.files) if (raw.has(file.path)) file.filtered = true;
       fields.committed = JSON.stringify(committed);
-      const files = (await numstat(directory, [base, "--"])).files;
       for (const file of files) if (raw.has(file.path)) file.filtered = true;
       fields.files = JSON.stringify(files);
     } else {
@@ -716,7 +749,7 @@ async function captureClaimed(
       fields.committed = null;
       fields.files = JSON.stringify(working.files);
     }
-    const p = await patch(directory, base ?? head);
+    const p = await patch(directory, diffBase);
     fields.patch = p.patch;
     fields.patch_bytes = p.bytes;
     fields.patch_truncated = p.truncated ? 1 : 0;

@@ -2,6 +2,8 @@
 export type CheckoutSummary = {
   id: string;
   state: "started" | "captured" | "failed";
+  /** Absent on historical cumulative comparisons with the source checkout. */
+  scope?: "run";
   branch: string;
   base_ref: string | null;
   ahead: number | null;
@@ -77,9 +79,9 @@ export function checkoutLine(summary: CheckoutSummary) {
   const parts = [summary.branch];
   if (summary.ahead != null) {
     parts.push(
-      summary.ahead === 1 ? "1 commit ahead" : `${summary.ahead} commits ahead`,
+      `${summary.ahead} ${summary.ahead === 1 ? "commit" : "commits"} ${summary.scope === "run" ? "since start" : "ahead"}`,
     );
-    if (summary.behind) parts.push(`${summary.behind} behind`);
+    if (summary.behind) parts.push(`${summary.behind} ${summary.scope === "run" ? "removed since start" : "behind"}`);
   }
   if (summary.state === "captured") {
     parts.push(
