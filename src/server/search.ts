@@ -243,7 +243,7 @@ function filterSql(owner: string, filters: SearchFilters) {
   // theirs comes from the conversation: its project, else its latest run's.
   if (filters.folders) {
     clauses.push(
-      `COALESCE(d.folder_id,(SELECT COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) FROM conversations c WHERE c.id=d.conversation_id AND c.owner_id=d.owner_id)) IN (SELECT value FROM json_each(?))`,
+      `EXISTS(SELECT 1 FROM json_each(?) WHERE value IS COALESCE(d.folder_id,(SELECT COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) FROM conversations c WHERE c.id=d.conversation_id AND c.owner_id=d.owner_id)))`,
     );
     params.push(JSON.stringify(filters.folders));
   }
@@ -283,7 +283,7 @@ export type SearchFilters = {
   agent?: string;
   folder?: string;
   /** Folders of one project (see projectFolders). */
-  folders?: string[];
+  folders?: (string | null)[];
   kind?: string;
   from?: number;
   to?: number;

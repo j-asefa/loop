@@ -32,14 +32,14 @@ function runProject(run: Run): string | null {
     : null;
   if (run.conversation_id && !conversation) return null;
   const folder = conversation?.project_id ?? JSON.parse(run.payload).folderId;
-  if (typeof folder !== "string") return null;
+  if (folder != null && typeof folder !== "string") return null;
   return (
     (
       db
         .prepare(
-          "SELECT project_id FROM project_change_folders WHERE owner_id=? AND folder_id=?",
+          "SELECT project_id FROM project_change_folders WHERE owner_id=? AND folder_id IS ?",
         )
-        .get(run.owner_id, folder) as { project_id: string } | undefined
+        .get(run.owner_id, folder ?? null) as { project_id: string } | undefined
     )?.project_id ?? null
   );
 }

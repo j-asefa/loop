@@ -49,9 +49,11 @@ import type { Agent, Connection, Message } from "../shared/types.js";
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
+import { ensureWorkspaceProject } from "./workspace-project.js";
 export const core = Router();
 core.use(viewportDiagnostics);
-core.get("/bootstrap", (_req, res) =>
+core.get("/bootstrap", (_req, res) => {
+  ensureWorkspaceProject(res.locals.owner);
   res.json({
     environmentName: hostEnvironmentName(),
     teams: listTeams(res.locals.owner),
@@ -65,7 +67,7 @@ core.get("/bootstrap", (_req, res) =>
       .all(res.locals.owner),
     folders: db
       .prepare(
-        "SELECT f.*,p.path FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.owner_id=? ORDER BY f.name",
+        "SELECT f.*,p.path,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.owner_id=? ORDER BY f.name",
       )
       .all(res.locals.owner),
     identityProviders: process.env.GITHUB_CLIENT_ID ? ["github"] : [],
@@ -73,8 +75,8 @@ core.get("/bootstrap", (_req, res) =>
       codex: runtimeConfigured(),
       claudeLogin: runtimeConfigured(),
     },
-  }),
-);
+  });
+});
 const connectionInput = z.object({
   provider: z.enum(["openai", "anthropic"]),
   label: z.string().trim().min(1).max(80),
@@ -657,7 +659,7 @@ core.get("/results", (req, res) => {
   }
   if (req.query.folder) {
     owned("folders", String(req.query.folder), res.locals.owner);
-    where += " AND a.folder_id IN (SELECT value FROM json_each(?))";
+    where += " AND EXISTS(SELECT 1 FROM json_each(?) WHERE value IS a.folder_id)";
     params.push(
       JSON.stringify(
         projectFolders(res.locals.owner, String(req.query.folder)),
@@ -682,7 +684,7 @@ core.get("/results", (req, res) => {
     }
     if (req.query.folder) {
       filter +=
-        " AND EXISTS (SELECT 1 FROM runs fr WHERE fr.id=m.run_id AND json_extract(fr.payload,'$.folderId') IN (SELECT value FROM json_each(?)))";
+        " AND EXISTS (SELECT 1 FROM runs fr WHERE fr.id=m.run_id AND EXISTS(SELECT 1 FROM json_each(?) WHERE value IS json_extract(fr.payload,'$.folderId')))";
       values.push(
         JSON.stringify(
           projectFolders(res.locals.owner, String(req.query.folder)),

@@ -5,6 +5,7 @@ const names = [
   "gemini",
   "agent-mail",
   "brief",
+  "workspace-project",
   "execution-environments",
   "main-composer-keyboard",
   "clear-search",

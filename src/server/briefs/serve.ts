@@ -91,13 +91,13 @@ function buildBrief(owner: string, project: string): Brief {
                   { folder_id: string | null } | undefined
               )?.folder_id
             : null);
-        const scope = folder
+        const scope = folder || !send.conversation_id
           ? (
               db
                 .prepare(
-                  "SELECT project_id FROM project_change_folders WHERE owner_id=? AND folder_id=?",
+                  "SELECT project_id FROM project_change_folders WHERE owner_id=? AND folder_id IS ?",
                 )
-                .get(owner, folder) as { project_id: string } | undefined
+                .get(owner, folder ?? null) as { project_id: string } | undefined
             )?.project_id
           : send.conversation_id
             ? conversationProject(owner, send.conversation_id)

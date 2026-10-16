@@ -3934,7 +3934,7 @@ export default function App() {
                 defaultValue={profile.folder_id || ""}
               >
                 <option value="">Workspace</option>
-                {data.folders.map((f) => (
+                {data.folders.filter((f) => !f.is_workspace).map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
                   </option>

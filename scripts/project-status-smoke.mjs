@@ -162,7 +162,7 @@ try {
   await expect(
     page.getByRole("tab", { name: "Status", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".project-status-card")).toHaveCount(3);
+  await expect(page.locator(".project-status-card")).toHaveCount(4);
   await expect(page.locator(".your-agents")).toHaveCount(0);
   await expect(page.locator(".needs-stack")).toHaveCount(0);
   assert.equal(
@@ -448,7 +448,7 @@ try {
   const linkedUrl =
     f.base + "/?source=" + encodeURIComponent(source.id) + "&filter=status";
   await page.goto(linkedUrl);
-  await expect(page.locator(".project-status-card")).toHaveCount(6);
+  await expect(page.locator(".project-status-card")).toHaveCount(8);
   const linkedCard = page.locator(".project-status-card").filter({
     has: page.getByRole("link", {
       name: "Linked " + project.name,
@@ -464,7 +464,7 @@ try {
     "Last seen",
   );
   await expect(localCard.locator(".status-live")).toHaveText("Now");
-  await expect(page.locator(".project-status-card")).toHaveCount(6);
+  await expect(page.locator(".project-status-card")).toHaveCount(8);
   linkedFailed = false;
   await page.getByLabel("Filter by project").selectOption(project.id);
   await expect(page.locator(".project-status-card")).toHaveCount(1);
@@ -482,7 +482,7 @@ try {
     .prepare("SELECT id FROM teams WHERE owner_id=? LIMIT 1")
     .get(f.owner);
   await page.goto(linkedUrl + "&teams=" + encodeURIComponent(team.id));
-  await expect(page.locator(".project-status-card")).toHaveCount(3);
+  await expect(page.locator(".project-status-card")).toHaveCount(4);
   await expect(page.locator(".project-status .field-hint")).toContainText(
     "Selected teams; briefs and recorded blockers describe the whole project",
   );

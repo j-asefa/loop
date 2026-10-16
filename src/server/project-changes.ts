@@ -17,7 +17,7 @@ export type ProjectChangeKind =
   | "brief_edit"
   | "tombstone";
 
-/** Append inside the caller's transaction. Unscoped work has no project brief. */
+/** Append inside the caller's transaction. Unassigned work belongs to the default Workspace project once initialized. */
 export function recordChange(
   owner: string,
   project: string | null | undefined,
@@ -70,7 +70,7 @@ export function recordChange(
     LEFT JOIN conversations c ON c.id=@conversation AND c.owner_id=@owner
     WHERE f.owner_id=@owner
       AND (@conversation IS NULL OR c.id IS NOT NULL)
-      AND f.folder_id=COALESCE(c.project_id,@project,(
+      AND f.folder_id IS COALESCE(c.project_id,@project,(
         SELECT json_extract(r.payload,'$.folderId') FROM runs r
         WHERE r.owner_id=@owner AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1
       )) RETURNING project_id`,

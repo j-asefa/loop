@@ -41,7 +41,7 @@ export function personalFiles(
   }
   if (query.project) {
     owned("folders", query.project, owner);
-    where += " AND a.folder_id IN (SELECT value FROM json_each(?))";
+    where += " AND EXISTS(SELECT 1 FROM json_each(?) WHERE value IS a.folder_id)";
     params.push(JSON.stringify(projectFolders(owner, query.project)));
   }
   const type = `CASE WHEN o.mime LIKE 'image/%' THEN 'image'

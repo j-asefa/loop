@@ -263,13 +263,15 @@ export function Projects({
                   project
                 </p>
               </div>
-              <button
-                className="icon-button"
-                aria-label="Edit project"
-                onClick={onEdit}
-              >
-                <Pencil size={18} />
-              </button>
+              {!current.is_workspace && (
+                <button
+                  className="icon-button"
+                  aria-label="Edit project"
+                  onClick={onEdit}
+                >
+                  <Pencil size={18} />
+                </button>
+              )}
             </div>
             {briefMode && (
               <button

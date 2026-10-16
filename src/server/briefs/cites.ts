@@ -71,8 +71,8 @@ export function resolveCite(
         `SELECT f.project_id FROM runs r
          LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
          JOIN project_change_folders f ON f.owner_id=r.owner_id
-           AND f.folder_id=COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
-         WHERE r.id=? AND r.owner_id=?`,
+           AND f.folder_id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
+         WHERE r.id=? AND r.owner_id=? AND (r.conversation_id IS NULL OR c.id IS NOT NULL)`,
       )
       .get(verification.run_id, owner) as { project_id: string } | undefined;
     if (scope?.project_id !== project) return null;
@@ -95,8 +95,8 @@ export function resolveCite(
         `SELECT f.project_id FROM runs r
          LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
          JOIN project_change_folders f ON f.owner_id=r.owner_id
-           AND f.folder_id=COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
-         WHERE r.id=? AND r.owner_id=?`,
+           AND f.folder_id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
+         WHERE r.id=? AND r.owner_id=? AND (r.conversation_id IS NULL OR c.id IS NOT NULL)`,
       )
       .get(checkout.run_id, owner) as { project_id: string } | undefined;
     if (scope?.project_id !== project) return null;

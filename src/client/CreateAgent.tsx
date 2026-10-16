@@ -103,7 +103,7 @@ export function CreateAgent({
     accounts.find((c) => connectionKey(c) === connection) || accounts[0];
   const source = selected?.sourceId || "";
   const availableFolders = folders.filter(
-    (item) => (item.sourceId || "") === source,
+    (item) => (item.sourceId || "") === source && !item.is_workspace,
   );
   useEffect(() => {
     let cancelled = false;
@@ -297,7 +297,7 @@ export function CreateAgent({
             }
             onChange={(event) => setFolderChoice(event.target.value)}
           >
-            <option value="">No project (unfiled)</option>
+            <option value="">Workspace</option>
             {availableFolders.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}

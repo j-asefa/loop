@@ -67,6 +67,7 @@ export type Artifact = {
   provider?: Provider;
 };
 export type Folder = {
+  is_workspace?: boolean | number;
   path?: string;
   id: string;
   name: string;

@@ -161,7 +161,7 @@ export function conversationProject(
       db
         .prepare(
           `SELECT f.project_id FROM conversations c JOIN project_change_folders f
-    ON f.owner_id=c.owner_id AND f.folder_id=COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1))
+    ON f.owner_id=c.owner_id AND f.folder_id IS COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1))
     WHERE c.owner_id=? AND c.id=?`,
         )
         .get(owner, conversation) as { project_id: string } | undefined
@@ -182,7 +182,7 @@ export function watchProject(
         .prepare(
           `SELECT f.project_id FROM pr_watches w
     JOIN conversations c ON c.id=w.conversation_id AND c.owner_id=w.owner_id
-    JOIN project_change_folders f ON f.owner_id=w.owner_id AND f.folder_id=COALESCE(
+    JOIN project_change_folders f ON f.owner_id=w.owner_id AND f.folder_id IS COALESCE(
       c.project_id,@recorded,
       (SELECT p.project_id FROM project_changes p WHERE p.owner_id=w.owner_id AND p.kind='pr_update'
         AND substr(p.ref,1,length(w.id)+1)=w.id||':' ORDER BY p.seq DESC LIMIT 1),

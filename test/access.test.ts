@@ -179,7 +179,7 @@ it("opens a persistent personal workspace without accounts or cookies and reject
     (await (await server.request("/bootstrap")).json()).folders.map(
       (f: any) => f.name,
     ),
-  ).toEqual([folder.name]);
+  ).toEqual([folder.name, "Workspace"]);
 }, 30000);
 
 it("reuses an existing account's workspace, preserves multi-user isolation and requires an explicit choice between accounts", async () => {
@@ -285,13 +285,12 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
   expect(
     (await foreignHistory.json()).items.map((item: { id: string }) => item.id),
   ).toEqual(["foreign-prompt"]);
-  expect(
-    (
-      await (
-        await server.request("/bootstrap", undefined, { cookie: otherCookie })
-      ).json()
-    ).folders,
-  ).toHaveLength(0);
+  const foreignFolders = (
+    await (await server.request("/bootstrap", undefined, { cookie: otherCookie })).json()
+  ).folders;
+  expect(foreignFolders).toHaveLength(1);
+  expect(foreignFolders[0]).toMatchObject({ name: "Workspace", is_workspace: 1, owner_id: otherOwner });
+  expect(foreignFolders[0].id).not.toBe(folder.id);
   expect(
     (
       await server.request(

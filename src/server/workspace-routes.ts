@@ -7,6 +7,7 @@ import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { projectFolders } from "./results.js";
+import { ensureWorkspaceProject, isWorkspaceProject } from "./workspace-project.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
 import { uploadFile } from "./uploads.js";
@@ -45,13 +46,14 @@ workspace.post(
     res.status(201).json(uploadFile(res.locals.owner, req.file, options));
   },
 );
-workspace.get("/folders", (_req, res) =>
+workspace.get("/folders", (_req, res) => {
+  ensureWorkspaceProject(res.locals.owner);
   res.json(
     db
-      .prepare("SELECT * FROM folders WHERE owner_id=? ORDER BY name")
+      .prepare("SELECT f.*,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f WHERE f.owner_id=? ORDER BY f.name")
       .all(res.locals.owner),
-  ),
-);
+  );
+});
 workspace.post("/folders", (req, res) => {
   const d = z
     .object({
@@ -67,6 +69,8 @@ workspace.post("/folders", (req, res) => {
     })
     .parse(req.body);
   if (d.parentId) owned("folders", d.parentId, res.locals.owner);
+  if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
+    d.parentId = null;
   if (
     db
       .prepare(
@@ -97,6 +101,8 @@ workspace.post("/folders", (req, res) => {
 });
 workspace.patch("/folders/:id", (req, res) => {
   const f = owned<any>("folders", req.params.id, res.locals.owner);
+  if (isWorkspaceProject(res.locals.owner, f.id))
+    throw new Problem(400, "The default Workspace project cannot be renamed, moved, or assigned a directory.");
   const d = z
     .object({
       name: z
@@ -110,6 +116,8 @@ workspace.patch("/folders/:id", (req, res) => {
       parentId: z.string().nullable().optional(),
     })
     .parse(req.body);
+  if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
+    d.parentId = null;
   let p = d.parentId === undefined ? f.parent_id : d.parentId;
   const visited = new Set([f.id]);
   while (p) {
@@ -156,7 +164,9 @@ workspace.get("/artifacts", (req, res) => {
   if (req.query.folder === "inbox") where += " AND a.folder_id IS NULL";
   else if (req.query.folder) {
     owned("folders", String(req.query.folder), res.locals.owner);
-    where += " AND a.folder_id=?";
+    where += isWorkspaceProject(res.locals.owner, String(req.query.folder))
+      ? " AND (a.folder_id=? OR a.folder_id IS NULL)"
+      : " AND a.folder_id=?";
     args.push(req.query.folder);
   }
   if (req.query.pinned === "1") where += " AND a.pinned=1";

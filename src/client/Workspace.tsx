@@ -111,7 +111,7 @@ export function FolderForm({
           <select name="parent" defaultValue={existing?.parent_id || parent}>
             <option value="">Workspace</option>
             {folders
-              .filter((f) => f.id !== existing?.id)
+              .filter((f) => f.id !== existing?.id && !f.is_workspace)
               .map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
@@ -331,7 +331,7 @@ export function Saved({
   const current = folders.find((f) => f.id === folder);
   return (
     <>
-      {current && !embedded && view === "folders" && (
+      {current && !current.is_workspace && !embedded && view === "folders" && (
         <button className="text-button" onClick={onEdit}>
           Rename or move this folder
         </button>
@@ -376,7 +376,7 @@ export function Saved({
           )}
           <div className="folder-grid">
             {folders
-              .filter((f) => f.parent_id === (folder || null))
+              .filter((f) => f.parent_id === (folder || null) || (current?.is_workspace && f.kind === "folder" && f.parent_id === null))
               .map((f) => (
                 <button key={f.id} onClick={() => onFolder(f.id)}>
                   <Folder size={25} />

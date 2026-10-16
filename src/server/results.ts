@@ -1,6 +1,18 @@
 import { db } from "./db.js";
+import { isWorkspaceProject } from "./workspace-project.js";
 
-export function projectFolders(owner: string, project: string): string[] {
+export function projectFolders(
+  owner: string,
+  project: string,
+): (string | null)[] {
+  if (isWorkspaceProject(owner, project))
+    return (
+      db
+        .prepare(
+          "SELECT folder_id FROM project_change_folders WHERE owner_id=? AND project_id=?",
+        )
+        .all(owner, project) as { folder_id: string | null }[]
+    ).map((row) => row.folder_id);
   return (
     db
       .prepare(

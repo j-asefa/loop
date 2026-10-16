@@ -1566,11 +1566,14 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   const r = db.prepare("SELECT id FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(cid) as any;
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(r.id);
   const summary = (await api(w.owner, "/projects/summary")).data.items;
-  expect(summary.map((s: any) => s.name)).toEqual(["Alpha", "Beta"]);
-  expect(summary[0]).toMatchObject({ id: project, agents: 1, working: 1, needs: 0, latest_result: null });
-  expect(summary[0].last_activity_at).toBeGreaterThan(0);
-  expect(summary[1]).toMatchObject({ agents: 0, last_activity_at: null });
-  expect((await api("intruder", "/projects/summary")).data.items).toEqual([]);
+  expect(summary.map((s: any) => s.name).sort()).toEqual(["Alpha", "Beta", "Workspace"]);
+  const alpha = summary.find((s: any) => s.id === project);
+  expect(alpha).toMatchObject({ agents: 1, working: 1, needs: 0, latest_result: null });
+  expect(alpha.last_activity_at).toBeGreaterThan(0);
+  expect(summary.find((s: any) => s.id === empty)).toMatchObject({ agents: 0, last_activity_at: null });
+  const foreign = (await api("intruder", "/projects/summary")).data.items;
+  expect(foreign).toHaveLength(1);
+  expect(foreign[0]).toMatchObject({ name: "Workspace", agents: 0, working: 0, needs: 0, last_activity_at: null });
 });
 
 it("keeps your profile per owner, with counts matching your prompt history", async () => {

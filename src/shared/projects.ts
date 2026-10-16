@@ -5,11 +5,14 @@ export function belongsToProject(
   projectId: string,
   folders: Folder[],
 ) {
+  const workspace = folders.some((f) => f.id === projectId && f.is_workspace);
   const visited = new Set<string>();
   while (folderId && !visited.has(folderId)) {
     if (folderId === projectId) return true;
     visited.add(folderId);
-    folderId = folders.find((f) => f.id === folderId)?.parent_id;
+    const folder = folders.find((f) => f.id === folderId);
+    if (!folder || (workspace && folder.kind === "project")) return false;
+    folderId = folder.parent_id;
   }
-  return false;
+  return workspace && !folderId;
 }

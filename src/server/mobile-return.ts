@@ -1,3 +1,4 @@
+import { ensureWorkspaceProject } from "./workspace-project.js";
 import { feedNeeds, feedWorking } from "./feed-predicates.js";
 import { checkoutSummary } from "./run-checkouts.js";
 import { verificationSummary } from "./run-verifications.js";
@@ -57,11 +58,16 @@ function decode<T>(value: string, schema: z.ZodType<T>, label: string): T {
   }
 }
 
-// Top-level project for every folder of the owner (same rule as personal history).
+// Top-level named projects keep their existing grouping. Workspace covers only
+// unassigned work and ordinary folders outside an explicit project.
 const FOLDER_PROJECT = `folder_project(id,project_id) AS (
   SELECT id,id FROM folders WHERE owner_id=@owner AND kind='project' AND parent_id IS NULL
-  UNION ALL
-  SELECT f.id,p.project_id FROM folders f JOIN folder_project p ON f.parent_id=p.id WHERE f.owner_id=@owner
+  UNION
+  SELECT folder_id,project_id FROM project_change_folders
+    WHERE owner_id=@owner AND project_id=(SELECT project_id FROM workspace_projects WHERE owner_id=@owner)
+  UNION
+  SELECT f.id,p.project_id FROM folders f JOIN folder_project p ON f.parent_id=p.id
+    WHERE f.owner_id=@owner AND p.project_id IS NOT (SELECT project_id FROM workspace_projects WHERE owner_id=@owner)
 )`;
 // A conversation's folder: its recorded project, else its latest run's folder.
 const conversationFolder = (c: string) =>
@@ -229,7 +235,7 @@ flagged AS (
   WHERE c.owner_id=@owner AND c.feed_visible=1
     ${teams ? "AND c.team_id IN (SELECT value FROM json_each(@teams))" : ""}
     ${agent ? "AND c.agent_id=@agent" : ""}
-    ${folders ? "AND c.feed_folder_id IN (SELECT value FROM json_each(@folders))" : ""}
+    ${folders ? "AND EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS c.feed_folder_id)" : ""}
 )`;
 }
 
@@ -282,7 +288,7 @@ SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
   l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at
 FROM chosen k
 LEFT JOIN agents g ON g.id=k.agent_id AND g.owner_id=@owner
-LEFT JOIN folder_project fp ON fp.id=k.folder_id
+LEFT JOIN folder_project fp ON fp.id IS k.folder_id
 LEFT JOIN folders pf ON pf.id=fp.project_id AND pf.owner_id=@owner
 LEFT JOIN messages m ON m.id=k.message_id
 LEFT JOIN messages t ON t.id=k.trigger_id
@@ -303,7 +309,7 @@ export function feed(
   if (options.agent) owned("agents", options.agent, owner);
   const filter = options.filter || "all";
   const teams = options.teams?.length ? options.teams : undefined;
-  let folders: string[] | undefined;
+  let folders: (string | null)[] | undefined;
   if (options.folder) {
     owned("folders", options.folder, owner);
     folders = projectFolders(owner, options.folder);
@@ -437,13 +443,12 @@ export function setDoneCardHidden(
 }
 
 function projectFor(owner: string, folder: string | null | undefined) {
-  if (!folder) return null;
   return (
     (db
       .prepare(
-        `WITH RECURSIVE ${FOLDER_PROJECT} SELECT p.id,p.name FROM folder_project fp JOIN folders p ON p.id=fp.project_id AND p.owner_id=@owner WHERE fp.id=@folder`,
+        `WITH RECURSIVE ${FOLDER_PROJECT} SELECT p.id,p.name FROM folder_project fp JOIN folders p ON p.id=fp.project_id AND p.owner_id=@owner WHERE fp.id IS @folder`,
       )
-      .get({ owner, folder }) as { id: string; name: string } | undefined) ||
+      .get({ owner, folder: folder ?? null }) as { id: string; name: string } | undefined) ||
     null
   );
 }
@@ -716,7 +721,7 @@ export function briefAttention(owner: string, project: string) {
       .prepare(
         "SELECT folder_id FROM project_change_folders WHERE owner_id=? AND project_id=?",
       )
-      .all(owner, project) as { folder_id: string }[]
+      .all(owner, project) as { folder_id: string | null }[]
   ).map((r) => r.folder_id);
   const rows = db
     .prepare(
@@ -912,10 +917,10 @@ export function listSaved(
       JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=b.owner_id
       LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=b.owner_id
       LEFT JOIN agents a ON a.id=COALESCE(r.agent_id,c.agent_id) AND a.owner_id=b.owner_id
-      LEFT JOIN folder_project fp ON fp.id=COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)
+      LEFT JOIN folder_project fp ON fp.id IS COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)
       LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=b.owner_id
       WHERE b.owner_id=@owner AND ${after("b.created_at", "'m:'||b.message_id")}
-        AND (@folders IS NULL OR COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) IN (SELECT value FROM json_each(@folders)))
+        AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)))
         AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
         AND (@q IS NULL OR m.content LIKE @q ESCAPE '\\' OR c.title LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
       ORDER BY b.created_at DESC,key DESC LIMIT @limit`,
@@ -938,7 +943,7 @@ export function listSaved(
       WHERE a.owner_id=@owner AND a.archived=0 AND a.pinned=1 AND ${fileArtifactSql}
         AND json_extract(a.metadata,'$.snippet') IS NULL
         AND ${after("COALESCE(p.saved_at,a.updated_at)", "'a:'||a.id")}
-        AND (@folders IS NULL OR a.folder_id IN (SELECT value FROM json_each(@folders)))
+        AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS a.folder_id))
         AND (@teams IS NULL OR a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=@owner AND team_id IN (SELECT value FROM json_each(@teams))))
         AND (@q IS NULL OR a.title LIKE @q ESCAPE '\\' OR a.content LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
       ORDER BY COALESCE(p.saved_at,a.updated_at) DESC,key DESC LIMIT @limit`,
@@ -2358,6 +2363,7 @@ export function listSnippets(owner: string) {
 // ---------------------------------------------------------------------------
 // 12. Project summaries
 export function projectSummaries(owner: string) {
+  ensureWorkspaceProject(owner);
   const projects = db
     .prepare(
       "SELECT id,name FROM folders WHERE owner_id=? AND kind='project' AND parent_id IS NULL",
@@ -2372,24 +2378,25 @@ export function projectSummaries(owner: string) {
       ).map((row) => [row.project_id, row]),
     );
   const agents = byProject<{ n: number }>(
-    "SELECT fp.project_id,count(*) n FROM agents a JOIN folder_project fp ON fp.id=a.folder_id WHERE a.owner_id=@owner AND a.retired_at IS NULL GROUP BY fp.project_id",
+    "SELECT fp.project_id,count(*) n FROM agents a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.retired_at IS NULL GROUP BY fp.project_id",
   );
   const runs = byProject<{ last: number; working: number; needs: number }>(
     `SELECT fp.project_id,max(r.updated_at) last,
       sum(r.state IN ('running','pausing')) working,
       sum(r.attention_dismissed_at IS NULL AND (r.state IN ('awaiting_approval','paused') OR r.state IN ('failed','interrupted'))) needs
-    FROM runs r JOIN folder_project fp ON fp.id=json_extract(r.payload,'$.folderId')
-    WHERE r.owner_id=@owner GROUP BY fp.project_id`,
+    FROM runs r LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
+    JOIN folder_project fp ON fp.id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
+    WHERE r.owner_id=@owner AND (r.conversation_id IS NULL OR c.id IS NOT NULL) GROUP BY fp.project_id`,
   );
   const artifacts = byProject<{ last: number }>(
-    "SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id=a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id",
+    "SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id",
   );
   const latest = byProject<{ id: string; title: string; created_at: number }>(
     `SELECT project_id,id,title,created_at FROM (
       SELECT fp.project_id,a.id,a.title,a.created_at,
         row_number() OVER (PARTITION BY fp.project_id ORDER BY p.sequence DESC) n
       FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id
-      JOIN folder_project fp ON fp.id=a.folder_id
+      JOIN folder_project fp ON fp.id IS a.folder_id
       LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
       WHERE a.owner_id=@owner AND a.archived=0 AND a.feed_hidden=0 AND ${resultOutputSql}
     ) WHERE n=1`,

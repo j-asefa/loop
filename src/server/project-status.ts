@@ -12,6 +12,7 @@ import {
   type ProjectStatusPage,
 } from "../shared/project-status.js";
 import { createReadableText } from "../shared/readable-text.js";
+import { ensureWorkspaceProject } from "./workspace-project.js";
 import type { PullRequestCard } from "../shared/github.js";
 
 type Options = { project?: string; teams?: string[] };
@@ -25,12 +26,14 @@ const priority: Record<ProjectStatusAction["kind"], number> = {
 };
 const month = 30 * 24 * 3600_000;
 
-/** One consistent, read-only snapshot. Query count does not grow with projects;
- * neither the Brief page builder nor its acknowledgement path is involved. */
+/** Initialize the default project, then take one consistent read-only snapshot.
+ * Query count does not grow with projects; the Brief acknowledgement path is
+ * never involved. */
 export function projectStatuses(
   owner: string,
   options: Options = {},
 ): ProjectStatusPage {
+  ensureWorkspaceProject(owner);
   if (options.project) assertProject(owner, options.project);
   return db.transaction(() => build(owner, options)).deferred();
 }
@@ -53,7 +56,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
   // The nearest project matches the Brief's scope, including nested projects.
   const scope = `WITH scope AS (
     SELECT c.*, f.project_id status_project FROM conversations c
-    JOIN project_change_folders f ON f.owner_id=c.owner_id AND f.folder_id=c.feed_folder_id
+    JOIN project_change_folders f ON f.owner_id=c.owner_id AND f.folder_id IS c.feed_folder_id
     WHERE c.owner_id=@owner AND c.feed_visible=1 AND (@project IS NULL OR f.project_id=@project)
       AND (@teams='null' OR c.team_id IN (SELECT value FROM json_each(@teams)))
   )`;
@@ -289,7 +292,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
     SELECT s.id,f.project_id project,s.conversation_id conversation,s.created_at at
     FROM scheduled_sends s JOIN agents a ON a.id=s.agent_id AND a.owner_id=s.owner_id
     LEFT JOIN conversations c ON c.id=s.conversation_id AND c.owner_id=s.owner_id
-    JOIN project_change_folders f ON f.owner_id=s.owner_id AND f.folder_id=COALESCE(s.folder_id,
+    JOIN project_change_folders f ON f.owner_id=s.owner_id AND f.folder_id IS COALESCE(s.folder_id,
       CASE WHEN s.conversation_id IS NOT NULL THEN c.feed_folder_id WHEN s.folder_chosen=0 THEN a.folder_id END)
     WHERE s.owner_id=@owner AND s.state='failed' AND (@project IS NULL OR f.project_id=@project)
       AND (@teams='null' OR c.team_id IN (SELECT value FROM json_each(@teams)))`)) {
@@ -315,7 +318,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
   };
   const watches = read<Watch>(`SELECT w.*,f.project_id project FROM pr_watches w
     JOIN conversations c ON c.id=w.conversation_id AND c.owner_id=w.owner_id
-    JOIN project_change_folders f ON f.owner_id=w.owner_id AND f.folder_id=COALESCE(c.project_id,
+    JOIN project_change_folders f ON f.owner_id=w.owner_id AND f.folder_id IS COALESCE(c.project_id,
       (SELECT p.project_id FROM project_changes p WHERE p.owner_id=w.owner_id AND p.kind='pr_update'
         AND substr(p.ref,1,length(w.id)+1)=w.id||':' ORDER BY p.seq DESC LIMIT 1),
       (SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=w.owner_id
@@ -413,7 +416,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
             ELSE max(COALESCE(k.ended_at,k.started_at,0),COALESCE(v.at,0)) END DESC,r.id) position
       FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
       JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
-      JOIN project_change_folders f ON f.owner_id=r.owner_id AND f.folder_id=COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
+      JOIN project_change_folders f ON f.owner_id=r.owner_id AND f.folder_id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
       LEFT JOIN run_checkouts k ON k.run_id=r.id AND k.owner_id=r.owner_id
       LEFT JOIN ver v ON v.run_id=r.id LEFT JOIN outputs o ON o.run_id=r.id
       WHERE r.owner_id=@owner AND (@project IS NULL OR f.project_id=@project)

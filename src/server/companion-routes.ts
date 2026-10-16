@@ -309,6 +309,8 @@ companion.post("/workspace/projects", (req, res) => {
 });
 companion.patch("/workspace/projects/:id", (req, res) => {
   owned("folders", String(req.params.id), OWNER);
+  if (db.prepare("SELECT 1 FROM workspace_projects WHERE owner_id=? AND project_id=?").get(OWNER, req.params.id))
+    throw new Problem(400, "Choose a named project for a local directory.");
   const { path } = z
     .object({ path: z.string().min(1).max(4096) })
     .parse(req.body);
