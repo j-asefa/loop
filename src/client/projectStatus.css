@@ -125,23 +125,23 @@
 .project-status-counts {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-size: 12px;
   margin: 12px 0 0;
   line-height: 1.5;
 }
-.project-status-counts > span + span::before {
-  content: "·";
-  margin-right: 8px;
-  color: var(--muted);
-}
 .project-status-counts > :first-child {
   color: var(--muted);
+  margin-right: 2px;
 }
-.project-status-counts > .status-live {
-  color: var(--muted);
+.project-status-counts > .status-live > a::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
 }
 .project-status-evidence,
 .project-status-pulls {
@@ -227,13 +227,10 @@ button.project-status-caption {
   gap: 8px;
   margin: 12px 0 0;
 }
-.project-status-ledger > div {
+.project-status-total {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.project-status-ledger dd {
-  margin: 0;
+  align-items: center;
+  gap: 8px;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -343,27 +340,8 @@ button.project-status-caption {
   display: grid;
   gap: 8px;
   margin: 0;
-  padding: 0 0 0 22px;
+  padding: 0;
   list-style: none;
-}
-.project-status-highlights li {
-  position: relative;
-}
-.project-status-highlights li::before {
-  content: "";
-  position: absolute;
-  left: -18px;
-  top: 0.65em;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--brass);
-}
-.project-status-next {
-  padding: 15px;
-  border: 1px solid color-mix(in srgb, var(--brass) 32%, var(--line));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--brass) 6%, var(--surface));
 }
 .project-status-next h3 {
   color: var(--brass-text);
@@ -402,17 +380,12 @@ button.project-status-caption {
 .project-status-step strong {
   color: var(--brass-text);
 }
-.project-status-question > p {
-  padding-left: 22px;
-}
-
-/* Content links retain the card's hierarchy, with visible affordances at rest. */
+/* Reading surfaces, arrows and pills indicate actions without underlining prose. */
 .project-status-link {
   color: inherit;
   text-align: inherit;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
-  text-underline-offset: 3px;
+  text-decoration: none;
+  border-radius: 4px;
   cursor: pointer;
 }
 button.project-status-link {
@@ -429,33 +402,94 @@ button.project-status-link {
 }
 .project-status-link:hover {
   color: var(--brass-text);
-  text-decoration-color: currentColor;
+  background: color-mix(in srgb, var(--brass) 7%, var(--surface));
+}
+.project-status-card a:hover {
+  text-decoration: none;
+}
+.project-status-identity:hover .project-status-icon {
+  border-color: var(--brass);
+}
+.project-status-state-link:hover .status-chip {
+  box-shadow: 0 0 0 1px currentColor;
 }
 .project-status-counts .project-status-link {
   display: inline-flex;
-  min-height: 28px;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+}
+.project-status-counts .project-status-count {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--secondary) 35%, var(--surface));
+  color: var(--text);
+}
+.project-status-counts .project-status-count:hover {
+  border-color: var(--brass);
+  background: color-mix(in srgb, var(--brass) 8%, var(--surface));
+}
+.project-status-count svg,
+.project-status-total svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.project-status-progress h3 > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.project-status-surface {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--secondary) 24%, var(--surface));
+}
+.project-status-surface-arrow {
+  flex-shrink: 0;
+  color: var(--brass-text);
+  margin-top: 2px;
+}
+.project-status-surface:hover {
+  color: inherit;
+  border-color: var(--brass);
+  background: color-mix(in srgb, var(--brass) 7%, var(--surface));
+}
+.project-status-surface:active,
+.project-status-counts .project-status-count:active {
+  background: color-mix(in srgb, var(--brass) 13%, var(--surface));
+}
+.project-status-progress li .project-status-surface {
+  padding: 12px;
+  border-radius: 12px;
   align-items: center;
 }
-.project-status-progress .project-status-link {
-  display: block;
-  min-height: 24px;
+.project-status-ledger .project-status-surface {
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.project-status-next.project-status-surface {
+  border-color: color-mix(in srgb, var(--brass) 32%, var(--line));
+  background: color-mix(in srgb, var(--brass) 6%, var(--surface));
+}
+.project-status-next.project-status-surface:hover {
+  border-color: var(--brass);
+  background: color-mix(in srgb, var(--brass) 11%, var(--surface));
+}
+.project-status-next.project-status-surface:active {
+  background: color-mix(in srgb, var(--brass) 16%, var(--surface));
 }
 .project-status-link:focus-visible,
 .project-status-state-link:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 4px;
-  border-radius: 4px;
-}
-.project-status-next.project-status-link,
-.project-status-question.project-status-link {
-  display: block;
-  text-decoration: none;
-}
-.project-status-next .project-status-task-name,
-.project-status-question > p {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
 }
 .project-status-state-link {
   max-width: 52%;

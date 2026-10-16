@@ -638,7 +638,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   if (process.env.LOOP_STATUS_SCREENSHOT) {
     // Keep fixed app navigation outside the card-only design capture.
-    await page.setViewportSize({ width: 390, height: 1400 });
+    await page.setViewportSize({ width: 390, height: 2000 });
     for (const theme of ["light", "dark"]) {
       await page.evaluate(
         (theme) => (document.documentElement.dataset.theme = theme),

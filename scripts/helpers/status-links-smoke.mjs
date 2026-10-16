@@ -152,7 +152,8 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
   await open();
   await card
     .getByRole("link", { name: view.headline.text, exact: true })
-    .click();
+    // The whole inset card, including its padding, opens the source.
+    .click({ position: { x: 6, y: 6 } });
   await expect(page).toHaveURL(
     new RegExp(`conversation=${done.conversation}.*message=${done.message}`),
   );
@@ -179,7 +180,10 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
     [items[2], "Verification"],
   ]) {
     await open();
-    await card.getByRole("link").filter({ hasText: item.text }).click();
+    await card
+      .getByRole("link")
+      .filter({ hasText: item.text })
+      .click({ position: { x: 6, y: 6 } });
     await expect(
       page.getByRole("dialog", { name: title, exact: true }),
     ).toBeVisible();
@@ -244,7 +248,9 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
   await sources.getByRole("button", { name: "Close", exact: true }).click();
   await open();
   await card.locator(".project-status-details summary").click();
-  await card.getByRole("link", { name: "Open questions", exact: true }).click();
+  await card
+    .getByRole("link", { name: "Open questions 1", exact: true })
+    .click();
   await expect(page.locator("dialog.brief-sheet[open]")).toContainText(
     items[2].text,
   );

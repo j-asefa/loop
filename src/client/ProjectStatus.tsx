@@ -164,7 +164,7 @@ export function ProjectStatusCard({
     if (target.version) query.set("briefVersion", String(target.version));
     return (
       <a
-        className={"project-status-link " + className}
+        className={"project-status-link project-status-surface " + className}
         href={brief + "&" + query}
         onClick={(event) => {
           if (
@@ -180,7 +180,12 @@ export function ProjectStatusCard({
           onBriefSource(target);
         }}
       >
-        {children}
+        <div>{children}</div>
+        <ArrowUpRight
+          className="project-status-surface-arrow"
+          size={17}
+          aria-hidden="true"
+        />
       </a>
     );
   };
@@ -234,6 +239,7 @@ export function ProjectStatusCard({
           >
             {statusLabel[p.status]}
             {!fresh && " · last seen"}
+            <ChevronRight size={12} aria-hidden="true" />
           </Chip>
         </a>
       </header>
@@ -255,29 +261,45 @@ export function ProjectStatusCard({
         </span>
         {p.counts.needs > 0 && (
           <span>
-            <button className="project-status-link" onClick={onRequests}>
+            <button
+              className="project-status-link project-status-count"
+              onClick={onRequests}
+            >
               {p.counts.needs} waiting for you
+              <ChevronRight size={12} aria-hidden="true" />
             </button>
           </span>
         )}
         {p.counts.working > 0 && (
           <span>
-            <a className="project-status-link" href={activity("working")}>
+            <a
+              className="project-status-link project-status-count"
+              href={activity("working")}
+            >
               {p.counts.working} working
+              <ChevronRight size={12} aria-hidden="true" />
             </a>
           </span>
         )}
         {p.counts.queued > 0 && (
           <span>
-            <a className="project-status-link" href={activity("queued")}>
+            <a
+              className="project-status-link project-status-count"
+              href={activity("queued")}
+            >
               {p.counts.queued} queued
+              <ChevronRight size={12} aria-hidden="true" />
             </a>
           </span>
         )}
         {!p.counts.needs && !p.counts.working && !p.counts.queued && (
           <span>
-            <a className="project-status-link" href={threads}>
+            <a
+              className="project-status-link project-status-count"
+              href={threads}
+            >
               No agents working
+              <ChevronRight size={12} aria-hidden="true" />
             </a>
           </span>
         )}
@@ -289,6 +311,7 @@ export function ProjectStatusCard({
             href={brief}
           >
             Latest update
+            <ChevronRight size={12} aria-hidden="true" />
           </a>
           {b.synthesized_at !== null && (
             <a
@@ -316,15 +339,23 @@ export function ProjectStatusCard({
             )}
           </p>
         )}
-        <p className="project-status-summary">
+        <div className="project-status-summary">
           {b.headline ? (
             sourceLink("headline", readable(b.headline))
           ) : (
-            <a className="project-status-link" href={brief}>
-              {readable(briefLabel[b.state])}
+            <a
+              className="project-status-link project-status-surface"
+              href={brief}
+            >
+              <span>{readable(briefLabel[b.state])}</span>
+              <ArrowUpRight
+                className="project-status-surface-arrow"
+                size={17}
+                aria-hidden="true"
+              />
             </a>
           )}
-        </p>
+        </div>
         {b.headline && b.state !== "ready" && b.synthesized_at === null && (
           <p className="muted">
             <a className="project-status-link" href={brief}>
@@ -347,6 +378,7 @@ export function ProjectStatusCard({
             >
               From the brief <span aria-hidden="true">·</span>{" "}
               <Stamp at={highlights.updated_at} prefix="" />
+              <ChevronRight size={12} aria-hidden="true" />
             </a>
             {highlights.progress.length > 0 && (
               <div className="project-status-progress">
@@ -357,6 +389,7 @@ export function ProjectStatusCard({
                     href={briefSection("state")}
                   >
                     Where things stand
+                    <ChevronRight size={12} aria-hidden="true" />
                   </a>
                 </h3>
                 <ul role="list">
@@ -481,48 +514,32 @@ export function ProjectStatusCard({
             )
           )}
           {(b.unfinished !== null || b.questions !== null) && (
-            <dl className="project-status-ledger">
+            <div className="project-status-ledger">
               {b.unfinished !== null && (
-                <div>
-                  <dt>
-                    <a
-                      className="project-status-link"
-                      href={briefItems("unfinished")}
-                    >
-                      Unfinished tasks
-                    </a>
-                  </dt>
-                  <dd>
-                    <a
-                      className="project-status-link"
-                      href={briefItems("unfinished")}
-                    >
-                      {b.unfinished}
-                    </a>
-                  </dd>
-                </div>
+                <a
+                  className="project-status-link project-status-surface"
+                  href={briefItems("unfinished")}
+                >
+                  <span>Unfinished tasks</span>
+                  <span className="project-status-total">
+                    {b.unfinished}
+                    <ChevronRight size={14} aria-hidden="true" />
+                  </span>
+                </a>
               )}
               {b.questions !== null && (
-                <div>
-                  <dt>
-                    <a
-                      className="project-status-link"
-                      href={briefItems("question")}
-                    >
-                      Open questions
-                    </a>
-                  </dt>
-                  <dd>
-                    <a
-                      className="project-status-link"
-                      href={briefItems("question")}
-                    >
-                      {b.questions}
-                    </a>
-                  </dd>
-                </div>
+                <a
+                  className="project-status-link project-status-surface"
+                  href={briefItems("question")}
+                >
+                  <span>Open questions</span>
+                  <span className="project-status-total">
+                    {b.questions}
+                    <ChevronRight size={14} aria-hidden="true" />
+                  </span>
+                </a>
               )}
-            </dl>
+            </div>
           )}
           {e ? (
             <div className="project-status-evidence">

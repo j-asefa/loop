@@ -12,6 +12,7 @@
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
+  background: color-mix(in srgb, var(--secondary) 24%, var(--surface));
   color: var(--text);
   text-decoration: none;
   overflow-wrap: anywhere;
@@ -38,12 +39,15 @@
 .status-source-link > span {
   color: var(--brass-text);
   font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  font-weight: 600;
 }
 .status-source-link:hover {
+  text-decoration: none;
   border-color: var(--brass);
   background: color-mix(in srgb, var(--brass) 5%, var(--surface));
+}
+.status-source-link:active {
+  background: color-mix(in srgb, var(--brass) 11%, var(--surface));
 }
 .status-source-link:focus-visible {
   outline: 2px solid var(--brass);
