@@ -1,6 +1,6 @@
 import { plainPreview } from "../shared/text";
 import { SESSION_KINDS } from "../agent-activities";
-import type { ActivityRecord, FileEntry } from "../agent-activities";
+import type { ActivityRecord } from "../agent-activities";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -108,40 +108,6 @@ export function runStatus(
   }
 }
 
-/** One reported edit to a file, with its own outcome. */
-export type ChangeEdit = FileEntry & {
-  additions: number;
-  deletions: number;
-  state: string;
-};
-/**
- * Every reported edit to one path, in order. Only applied edits count as
- * changes; proposed, unconfirmed and failed edits are kept but not counted.
- */
-export type ChangedFile = {
-  path: string;
-  operation: FileEntry["operation"];
-  edits: ChangeEdit[];
-  additions: number;
-  deletions: number;
-  /**
-   * "applied" if any edit was applied; else "proposed" if any was only
-   * proposed; "failed" if every edit failed; otherwise "unavailable": the
-   * tool never reported whether its edits were applied.
-   */
-  state: "applied" | "proposed" | "failed" | "unavailable";
-};
-export type ChangeSummary = {
-  files: ChangedFile[];
-  /** Line totals of applied edits only. */
-  additions: number;
-  deletions: number;
-  applied: number;
-  proposed: number;
-  failed: number;
-  unavailable: number;
-};
-
 /** An activity record with the run it was reported in (from trusted context). */
 export type RunActivity = { run: string | null; record: ActivityRecord };
 
@@ -159,8 +125,8 @@ const recordKey = ({ run, record }: RunActivity) =>
 
 /**
  * Recorded activity (saved on messages) and live activity for the same runs,
- * merged in one place so every view counts the same edits. Only copies of
- * the same record (same run and producer) collapse: a record saved on
+ * merged for the tool activity view. Only copies of the same record
+ * (same run and producer) collapse: a record saved on
  * several messages appears once, as its latest copy, and a live record
  * replaces its recorded copy.
  */
@@ -168,78 +134,13 @@ export function mergeActivityRecords(
   recorded: RunActivity[],
   live: RunActivity[],
 ) {
-  const merged = new Map<string, ActivityRecord>();
+  const merged = new Map<string, RunActivity>();
   for (const item of [...recorded, ...live]) {
     const key = recordKey(item);
     merged.delete(key);
-    merged.set(key, item.record);
+    merged.set(key, item);
   }
   return [...merged.values()];
-}
-
-function lineCounts(file: FileEntry) {
-  if (file.patch != null) {
-    let additions = 0,
-      deletions = 0;
-    for (const line of file.patch.split("\n")) {
-      if (line.startsWith("+++") || line.startsWith("---")) continue;
-      if (line.startsWith("+")) additions++;
-      else if (line.startsWith("-")) deletions++;
-    }
-    return { additions, deletions };
-  }
-  const count = (text?: string | null) =>
-    text ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0;
-  if (file.operation === "create") return { additions: count(file.after), deletions: 0 };
-  if (file.operation === "delete") return { additions: 0, deletions: count(file.before) };
-  return { additions: 0, deletions: 0 };
-}
-
-/**
- * Groups a run's reported file activity by path. Each activity record is one
- * edit (a record's latest data replaces its earlier data), so successive
- * edits to a path are all kept, in order. This is what the agent's tools
- * reported, not a diff of the working tree. Display only: nothing here
- * applies a change.
- */
-export function summarizeChanges(records: ActivityRecord[]): ChangeSummary {
-  const byPath = new Map<string, ChangeEdit[]>();
-  for (const record of records) {
-    if (record.kind !== "file_change") continue;
-    for (const file of record.data.files)
-      byPath.set(file.path, [
-        ...(byPath.get(file.path) || []),
-        { ...file, ...lineCounts(file), state: record.data.state },
-      ]);
-  }
-  const files = [...byPath].map(([path, edits]): ChangedFile => {
-    const applied = edits.filter((edit) => edit.state === "applied");
-    return {
-      path,
-      operation: (applied.at(-1) || edits.at(-1)!).operation,
-      edits,
-      additions: applied.reduce((sum, edit) => sum + edit.additions, 0),
-      deletions: applied.reduce((sum, edit) => sum + edit.deletions, 0),
-      state: applied.length
-        ? "applied"
-        : edits.some((edit) => edit.state === "proposed")
-          ? "proposed"
-          : edits.every((edit) => edit.state === "failed")
-            ? "failed"
-            : "unavailable",
-    };
-  });
-  const count = (state: ChangedFile["state"]) =>
-    files.filter((file) => file.state === state).length;
-  return {
-    files,
-    additions: files.reduce((sum, file) => sum + file.additions, 0),
-    deletions: files.reduce((sum, file) => sum + file.deletions, 0),
-    applied: count("applied"),
-    proposed: count("proposed"),
-    failed: count("failed"),
-    unavailable: count("unavailable"),
-  };
 }
 
 /** Compact token counts: 950 → "950", 12_300 → "12.3k", 2_400_000 → "2.4M". */
@@ -357,44 +258,11 @@ export function feedNextAction(
   return null;
 }
 
-/** What Loop knows about where reported changes were made. */
+/** Context for an editable follow-up on a captured Git diff. */
 export type ChangeContext = {
-  agentName?: string;
   projectName?: string;
-  /** When the run (or runs) that reported the edits started. */
   runStartedAt?: number[];
-  /** Commands the agent reported running, with their reported outcome. */
-  commands: {
-    command: string;
-    cwd?: string | null;
-    status?: string;
-    exitCode?: number | null;
-  }[];
 };
-
-/**
- * A reported command as a person would have typed it: harnesses often wrap
- * commands in a login shell (`/bin/bash -lc '…'`), which only adds noise.
- */
-export function displayCommand(command: string) {
-  const wrapped = command
-    .trim()
-    .match(/^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/);
-  if (!wrapped) return command.trim();
-  return wrapped[1] === "'"
-    ? wrapped[2].replaceAll(`'\\''`, "'")
-    : wrapped[2].replace(/\\(["\\$`])/g, "$1");
-}
-
-/** Short outcome of a reported command, and whether it went wrong. */
-export function commandOutcome(command: ChangeContext["commands"][number]) {
-  if (command.status === "running") return { label: "running", failed: false };
-  if (command.exitCode === 0) return { label: "exit 0", failed: false };
-  if (command.exitCode != null)
-    return { label: `exit ${command.exitCode}`, failed: true };
-  if (command.status === "failed") return { label: "failed", failed: true };
-  return { label: "no exit code", failed: false };
-}
 
 const runPhrase = (context?: ChangeContext) => {
   const starts = context?.runStartedAt || [];
@@ -405,9 +273,9 @@ const runPhrase = (context?: ChangeContext) => {
 };
 
 /**
- * Prompts for follow-up actions on reported edits. They ask the agent to
- * check the full working tree first, because the list holds only what its
- * tools reported. Each one is an editable draft; nothing here changes files.
+ * Prompts for follow-up actions on a captured Git diff. The checkout may
+ * have changed since capture, so the agent must verify it before acting.
+ * Each prompt is an editable draft; nothing here changes files.
  */
 export function changePrompts(paths: string[], context?: ChangeContext) {
   const where = [
@@ -418,11 +286,10 @@ export function changePrompts(paths: string[], context?: ChangeContext) {
     .join(" ");
   const list = paths.map((path) => `- ${path}`).join("\n");
   const verify =
-    "First run `git status` and `git diff` in the repository and check the full set of changes, including any not in this list: it only has the edits your tools reported. Tell me the repository and branch.";
+    "First run `git status` and `git diff` in the repository and check the full set of changes, including committed and uncommitted changes. This list comes from a saved Git snapshot; the checkout may have changed since it was captured. Tell me the repository and branch.";
   return {
-    commit: `${verify}\nThen commit the changes ${where} with a clear message. Reported applied edits:\n${list}`,
-    pr: `${verify}\nThen push the changes ${where} to a new branch and open a pull request. Send me the branch name and the pull request link. Reported applied edits:\n${list}`,
-    revert: `${verify}\nThen revert only the edits you made ${where} to these files, keeping any other changes. Reported applied edits:\n${list}`,
+    commit: `${verify}\nThen commit the changes ${where} with a clear message. Files in the captured Git diff:\n${list}`,
+    pr: `${verify}\nThen push the changes ${where} to a new branch and open a pull request. Send me the branch name and the pull request link. Files in the captured Git diff:\n${list}`,
+    revert: `${verify}\nThen revert only the edits you made ${where} to these files, keeping any other changes. Files in the captured Git diff:\n${list}`,
   };
 }
-

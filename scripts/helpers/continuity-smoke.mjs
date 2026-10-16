@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { seedCheckout } from "./checkout-fixture.mjs";
 
 // Continuity journeys: resume unfinished work from the Feed, return to an
 // earlier point in a long thread and back, defer with Remind me and Send
 // later (with links, Undo and recovery), find saved decisions and project
-// history, manage queued messages, and review reported file activity.
+// history, manage queued messages, and review captured Git changes.
 // Everything goes through the production routes and persisted state; the
 // fixture has no worker, so queued and scheduled work stays put.
 export async function continuitySmoke(page, fixture, capture) {
@@ -166,8 +167,7 @@ export async function continuitySmoke(page, fixture, capture) {
     }),
     now - 4000,
   );
-  // A later run that reuses the activity id "e1" for a different file: the
-  // thread review must keep both runs' edits.
+  // A later run reuses an activity id. Its reported edit leaves no net Git change.
   const laterRun = randomUUID();
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -180,6 +180,18 @@ export async function continuitySmoke(page, fixture, capture) {
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Updated the header.',?,?)",
   ).run(randomUUID(), owner, changeConversation, laterRun,
     JSON.stringify({ activities: [fileRecord("e1", "src/header.tsx", "+h", "applied")] }), now - 3400);
+
+  // Git includes a shell-written file and the net result of repeated edits.
+  // These totals intentionally disagree with the tool records above.
+  seedCheckout(db, changeRun, {
+    files: [
+      { path: "src/settings.tsx", additions: 1, deletions: 1, binary: false },
+      { path: "src/shell-only.ts", additions: 3, deletions: 0, binary: false },
+    ],
+    patch: "diff --git a/src/settings.tsx b/src/settings.tsx\n--- a/src/settings.tsx\n+++ b/src/settings.tsx\n@@ -1 +1 @@\n-old\n+net result\n"
+      + "diff --git a/src/shell-only.ts b/src/shell-only.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/shell-only.ts\n@@ -0,0 +1,3 @@\n+shell one\n+shell two\n+shell three\n",
+  });
+  seedCheckout(db, laterRun, { files: [] });
 
   // A thread of its own with a running task (earlier smokes change the
   // fixture's shared threads).
@@ -635,49 +647,43 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.locator("#composer").fill("");
     await closeThread();
 
-    // 8. Reported file activity: two edits to one file, one failed edit.
+    // 8. One Git review per run, even when tool reports disagree.
     await page.goto(`${fixture.base}/?conversation=${changeConversation}`, {
       waitUntil: "networkidle",
     });
-    // The thread-wide review counts both runs' files, though they share an id.
+    await expect(thread().locator(".checkout-chip")).toHaveCount(2);
+    await expect(thread().locator(".changes-chip:not(.checkout-chip):not(.verification-chip):not(.pull-state-chip)")).toHaveCount(0);
     await thread().getByRole("button", { name: "Conversation options", exact: true }).click();
-    await expect(
-      dialog().getByRole("menuitem", { name: /^Review reported changes/ }),
-    ).toContainText("2 files with applied edits");
-    await dialog().getByRole("menuitem", { name: /^Review reported changes/ }).click();
-    await expect(dialog().locator(".changes-group").first()).toContainText("src/settings.tsx");
-    await expect(dialog().locator(".changes-group").first()).toContainText("src/header.tsx");
+    await dialog().getByRole("menuitem", { name: /^Review changes/ }).click();
+    await expect(dialog()).toHaveAttribute("aria-label", "Checkout");
+    await expect(dialog().locator(".changes-total")).toContainText("no changes");
+    await expect(dialog().locator(".pull-file")).toHaveCount(0);
+    await expect(dialog().getByRole("button", { name: "Ask to commit" })).toHaveCount(0);
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
-    const chip = thread().locator(".changes-chip").first();
-    await expect(chip).toContainText("1 file changed");
-    await expect(chip).toContainText("1 failed");
+    const chip = messageIn(changeAnswer).locator(".checkout-chip");
+    await expect(chip).toContainText("2 files +4 −1");
     await chip.click();
-    await expect(dialog()).toHaveAttribute("aria-label", "Reported file activity");
-    await expect(dialog().locator(".changes-group h3")).toHaveText([
-      "Applied · 1",
-      "Failed · 1",
-    ]);
-    await expect(dialog()).toContainText("Edit 2 of 2");
-    await expect(dialog().locator(".changes-total")).toContainText(
-      "1 file with applied edits",
-    );
-    await expect(dialog().locator(".changes-meta")).toContainText("/work/site");
-    // Commands start collapsed, without the login-shell wrapper.
-    const commands = dialog().locator(".changes-commands");
-    await expect(commands.locator("summary")).toHaveText("Commands run · 2 · 1 failed");
-    await commands.locator("summary").click();
-    await expect(commands.locator("li code")).toHaveText([
-      "npm test -- settings",
-      "npm run lint | tail -5",
-    ]);
-    await expect(commands.locator(".command-outcome")).toHaveText(["exit 0", "exit 1"]);
+    await expect(dialog()).toHaveAttribute("aria-label", "Checkout");
+    await expect(dialog().locator(".changes-total")).toContainText("2 files +4 −1");
+    await expect(dialog().locator(".pull-file-path")).toHaveText(["src/settings.tsx", "src/shell-only.ts"]);
+    await expect(dialog()).toContainText("net result");
+    await expect(dialog()).toContainText("shell three");
+    await expect(dialog()).not.toContainText("theme.css");
     await capture("continuity-change-review");
     await dialog().getByRole("button", { name: "Ask to commit" }).click();
     const prompt = await page.locator("#composer").inputValue();
-    assert.match(prompt, /git diff/);
+    assert.match(prompt, /saved Git snapshot/);
     assert.match(prompt, /src\/settings\.tsx/);
-    assert.doesNotMatch(prompt, /theme\.css/, "A failed edit was offered to commit");
+    assert.match(prompt, /src\/shell-only\.ts/);
+    assert.doesNotMatch(prompt, /theme\.css/, "A failed tool edit was offered to commit");
     await page.locator("#composer").fill("");
+    // Raw tool history remains accessible, without supplying diff totals.
+    await thread().getByRole("button", { name: "Conversation options", exact: true }).click();
+    await dialog().getByRole("menuitem", { name: "Tool activity", exact: true }).click();
+    await expect(dialog()).toContainText("src/settings.tsx");
+    await expect(dialog()).toContainText("src/theme.css");
+    await expect(dialog()).toContainText("src/header.tsx");
+    await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await closeThread();
 
     // 9. Keyboard: the message menu, More and focus return work without a

@@ -4,6 +4,7 @@ import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { readableText } from "../shared/readable-text";
+import { changePrompts } from "./threadView";
 import {
   checkoutLine,
   patchByFile,
@@ -81,10 +82,16 @@ export function CheckoutSheet({
   runId,
   load,
   onClose,
+  onAsk,
+  agentName,
+  projectName,
 }: {
   runId: string;
   load: (runId: string) => Promise<CheckoutDetail>;
   onClose: () => void;
+  onAsk?: (prompt: string) => void;
+  agentName?: string;
+  projectName?: string;
 }) {
   const [detail, setDetail] = useState<CheckoutDetail | null>(null);
   const [error, setError] = useState("");
@@ -115,6 +122,14 @@ export function CheckoutSheet({
     };
   }, [runId]);
   const chunks = detail?.patch ? patchByFile(detail.patch) : new Map<string, string>();
+  const prompts = detail ? changePrompts(detail.files.map((file) => file.path), {
+    projectName,
+    runStartedAt: [detail.started_at],
+  }) : null;
+  const ask = (prompt: string) => {
+    onClose();
+    onAsk?.(prompt);
+  };
   const notes: string[] = [];
   if (detail) {
     if (detail.summary?.scope === "run")
@@ -211,6 +226,25 @@ export function CheckoutSheet({
                   </li>
                 ))}
               </ul>
+            </>
+          )}
+          {onAsk && prompts && detail.state === "captured" && detail.summary?.scope === "run" && detail.files.length > 0 && (
+            <>
+              <div className="changes-actions">
+                <button type="button" className="primary" onClick={() => ask(prompts.commit)}>
+                  Ask to commit
+                </button>
+                <button type="button" className="secondary" onClick={() => ask(prompts.pr)}>
+                  Ask for a PR
+                </button>
+                <button type="button" className="secondary danger" onClick={() => ask(prompts.revert)}>
+                  Ask to revert
+                </button>
+              </div>
+              <p className="field-hint">
+                Fills in an editable prompt asking @{agentName || "the agent"} to check the full diff first.
+                Nothing is sent until you send it.
+              </p>
             </>
           )}
         </>

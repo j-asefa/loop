@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { chromium, expect } from "@playwright/test";
+import { seedCheckout } from "./helpers/checkout-fixture.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -60,6 +61,10 @@ for (const engine of selectedEngines()) {
         lastRun = run;
       }
     })();
+    const gitSummary = seedCheckout(db, lastRun, {
+      files: [{ path: "git-review.ts", additions: 1, deletions: 1, binary: false }],
+      patch: "diff --git a/git-review.ts b/git-review.ts\n--- a/git-review.ts\n+++ b/git-review.ts\n@@ -1 +1 @@\n-old\n+captured\n",
+    });
     const addActivity = db.prepare(
       "INSERT INTO agent_activities(owner_id,scope,activity_key,conversation_id,run_id,kind,record,sequence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,1,1)",
     );
@@ -228,16 +233,15 @@ for (const engine of selectedEngines()) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await composer.locator("textarea").fill("");
-    // The older file record is below the recent snapshot but belongs to a
-    // displayed result; its review chip must still be available immediately.
-    await expect(
-      page
-        .locator(".conversation-sheet")
-        .getByRole("button", {
-          name: /file.*changed|reported.*change|file.*edit/i,
-        })
-        .first(),
-    ).toBeVisible();
+    // The Git review is available without paging through old tool edits.
+    const checkout = page.locator(".conversation-sheet .checkout-chip");
+    await expect(checkout).toHaveCount(1);
+    await expect(checkout).toContainText("1 file +1 −1");
+    await checkout.click();
+    const review = page.getByRole("dialog", { name: "Checkout", exact: true });
+    await expect(review.locator(".pull-file-path")).toHaveText(["git-review.ts"]);
+    await expect(review).not.toContainText("old-review.ts");
+    await review.getByRole("button", { name: "Close", exact: true }).click();
     assert.equal(
       reads.filter(
         (url) =>
@@ -305,9 +309,25 @@ for (const engine of selectedEngines()) {
         url.searchParams.get("tools") !== "0",
     );
     assert.equal(update.searchParams.get("after"), "1201");
+    await tools.getByRole("button", { name: "Close", exact: true }).click();
+    // A pending or failed capture must never substitute the reported edits.
+    for (const [state, label] of [["started", "in progress"], ["failed", "checkout not captured"]]) {
+      db.prepare("UPDATE run_checkouts SET state=?,files=NULL,patch=NULL,summary=? WHERE run_id=?")
+        .run(state, JSON.stringify({ ...gitSummary, state, files: 0, additions: 0, deletions: 0, ahead: null }), lastRun);
+      await page.reload();
+      await expect(checkout).toHaveCount(1);
+      await expect(checkout).toContainText(label);
+      await expect(checkout).not.toContainText("+1");
+      await expect(page.locator(".conversation-sheet button.changes-chip:not(.checkout-chip)")).toHaveCount(0);
+    }
+    // With no Git record, tool edits stay in activity and provide no diff badge.
+    db.prepare("DELETE FROM run_checkouts WHERE run_id=?").run(lastRun);
+    await page.reload();
+    await expect(transcript.getByText("History answer 239", { exact: true })).toBeVisible();
+    await expect(page.locator(".conversation-sheet button.changes-chip")).toHaveCount(0);
     assert.deepEqual(errors, []);
     console.log(
-      `${engine.name()}: bounded transcript opening, requested older activity and historical file reviews passed`,
+      `${engine.name()}: bounded transcript opening, requested older activity and saved Git reviews passed`,
     );
   } finally {
     await browser?.close();

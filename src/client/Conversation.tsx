@@ -7,7 +7,7 @@ import {
   visibleActivities,
   recordedSessionControls,
 } from "./activityView";
-import { ActivityRecords } from "./ActivityRecords";
+import { ActivityView } from "./ActivityRecords";
 import { SessionActivityControls } from "./SessionActivityControls";
 import type { ActivityRecord } from "../agent-activities";
 import {
@@ -60,8 +60,6 @@ import { RunFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
 import {
   ActionSheet,
-  ChangesChip,
-  ChangesSheet,
   Chip,
   ForkSheet,
   LaterSheet,
@@ -72,7 +70,6 @@ import {
   messageActions,
   undoReminder,
   useSwipe,
-  type ChangeContext,
 } from "./ThreadTools";
 import { notify } from "./toast";
 import { HandoffSheet, shareLink } from "./Handoff";
@@ -83,9 +80,7 @@ import {
   preview,
   runStatus,
   startsNewDay,
-  summarizeChanges,
   timeLabel,
-  type ChangeSummary,
 } from "./threadView";
 
 type Usage = { input_tokens: number; output_tokens: number };
@@ -240,10 +235,6 @@ export function Conversation({
     } | null>(null),
     [forkFrom, setForkFrom] = useState<ConversationMessage | null>(null),
     [quoteFrom, setQuoteFrom] = useState<ConversationMessage | null>(null),
-    [changes, setChanges] = useState<{
-      summary: ChangeSummary;
-      context: ChangeContext;
-    } | null>(null),
     [checkout, setCheckout] = useState<string | null>(null),
     [verification, setVerification] = useState<string | null>(null),
     [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
@@ -272,33 +263,21 @@ export function Conversation({
   );
   const activityItems = activityHistory.items;
   const allActivities = visibleActivities(activityItems);
-  // The transcript shows only public messages. Tool calls, command output and
-  // plan progress stay inspectable from the options menu; file changes have
-  // their own per-run review.
-  const toolActivities = allActivities.filter((item) =>
-    ["tool", "output", "plan"].includes(item.record.kind),
-  );
-  // Older messages carry their activity in metadata rather than the live
-  // activity store; include those records unless the store has them too.
+  // Tool-reported edits remain inspectable as activity. File totals and
+  // review use the Git checkout record exclusively.
   const toolRecords = () => {
-    const live = toolActivities.map((item) => item.record);
-    const same = (a: ActivityRecord, b: ActivityRecord) =>
-      a.id === b.id &&
-      a.kind === b.kind &&
-      a.source.transport === b.source.transport &&
-      a.source.harness === b.source.harness;
-    const saved = (data?.messages || []).flatMap((m) => {
-      const meta = parse<any>(m.metadata, {});
+    const kinds = ["tool", "output", "plan", "file_change"];
+    const recorded = (data?.messages || []).flatMap((message) => {
+      const meta = parse<any>(message.metadata, {});
       return (
-        (meta.activities || (meta.activity ? [meta.activity] : [])) as
-          ActivityRecord[]
-      ).filter(
-        (record) =>
-          ["tool", "output", "plan"].includes(record?.kind) &&
-          !live.some((other) => same(other, record)),
-      );
+        (meta.activities || (meta.activity ? [meta.activity] : [])) as ActivityRecord[]
+      ).filter((record) => kinds.includes(record?.kind))
+        .map((record) => ({ run: message.run_id ?? null, record }));
     });
-    return [...live, ...saved];
+    const live = allActivities
+      .filter((item) => kinds.includes(item.record.kind))
+      .map((item) => ({ run: item.run, record: item.record }));
+    return mergeActivityRecords(recorded, live);
   };
   const [newProvider, setNewProvider] = useState<Agent | null>(null);
   // The link target, a jump from the outline, or where you left off.
@@ -736,73 +715,9 @@ export function Conversation({
     workRef.current?.(active ? { state: workState, steerable } : null);
   }, [workState, steerable]);
   useEffect(() => () => workRef.current?.(null), []);
-  // All file changes for a run, from live activities and saved history.
-  // Every view of file changes merges recorded and live activity the same
-  // way, so the run chip and the thread review count the same edits.
-  function changeRecords(runId?: string) {
-    // Each record keeps the run it belongs to: runs may reuse activity ids.
-    const recorded = (data?.messages || [])
-      .filter((m) => !runId || m.run_id === runId)
-      .flatMap((m) => {
-        const meta = parse<any>(m.metadata, {});
-        return (
-          (meta.activities ||
-            (meta.activity ? [meta.activity] : [])) as ActivityRecord[]
-        ).map((record) => ({ run: m.run_id ?? null, record }));
-      });
-    const live = allActivities
-      .filter((a) => !runId || a.run === runId)
-      .map((a) => ({ run: a.run, record: a.record }));
-    return mergeActivityRecords(recorded, live);
-  }
-  /** Where reported changes were made, as far as Loop knows. */
-  function changeContext(runId?: string): ChangeContext {
-    // The run asked about, or every run in the thread that reported edits.
-    const runs = runId
-      ? [runId]
-      : [
-          ...new Set(
-            (data?.messages || []).map((m) => m.run_id).filter(Boolean) as string[],
-          ),
-        ].filter(
-          (run) =>
-            summarizeChanges(changeRecords(run)).files.length > 0,
-        );
-    const starts = runs
-      .map((run) =>
-        Math.min(
-          ...(data?.messages || [])
-            .filter((m) => m.run_id === run)
-            .map((m) => m.created_at),
-        ),
-      )
-      .filter(Number.isFinite)
-      .sort((a, b) => a - b);
-    return {
-      agentName: agent?.name,
-      projectName: project?.name,
-      runStartedAt: starts,
-      commands: changeRecords(runId)
-        .filter((r) => r.kind === "output")
-        .map((r) => {
-          const output = r.data as {
-            command?: string | null;
-            cwd?: string | null;
-            status?: string;
-            exitCode?: number | null;
-          };
-          return {
-            command: output.command || "",
-            cwd: output.cwd,
-            status: output.status,
-            exitCode: output.exitCode,
-          };
-        })
-        .filter((c) => c.command),
-    };
-  }
-  const runChanges = (runId: string) => summarizeChanges(changeRecords(runId));
-  const threadChanges = summarizeChanges(changeRecords());
+  const latestCheckout = [...(data?.messages || [])]
+    .reverse()
+    .find((message) => message.run_id && message.run_checkout);
   const title = data?.conversation.title || "Conversation";
   let previousAt: number | undefined;
   const heading = (
@@ -887,18 +802,14 @@ export function Conversation({
               onSelect: () =>
                 setLaterFor({ kind: "conversation", id, title }),
             },
-            ...(threadChanges.files.length
+            ...(latestCheckout
               ? [
                   {
                     id: "changes",
-                    label: "Review reported changes",
-                    hint: `${threadChanges.applied} files with applied edits · +${threadChanges.additions} −${threadChanges.deletions}`,
+                    label: "Review changes",
+                    hint: "Latest recorded Git checkout",
                     icon: <FileDiff size={20} />,
-                    onSelect: () =>
-                      setChanges({
-                        summary: threadChanges,
-                        context: changeContext(),
-                      }),
+                    onSelect: () => setCheckout(latestCheckout.run_id!),
                   },
                 ]
               : []),
@@ -1121,20 +1032,20 @@ export function Conversation({
         <CheckoutSheet
           runId={checkout}
           load={(runId) => api(`/runs/${runId}/checkout`)}
-          onClose={() => setCheckout(null)}
-        />
-      )}
-      {changes && (
-        <ChangesSheet
-          summary={changes.summary}
-          context={changes.context}
-          onClose={() => setChanges(null)}
+          agentName={agent?.name}
+          projectName={project?.name}
           onAsk={agent && !imported ? onUsePrompt : undefined}
+          onClose={() => setCheckout(null)}
         />
       )}
       {showToolActivity && (
         <Sheet title="Tool activity" onClose={() => setShowToolActivity(false)}>
-          <ActivityRecords records={toolRecords()} />
+          {toolRecords().map(({ run, record }) => (
+            <ActivityView
+              key={[run, record.source.transport, record.source.origin, record.kind, record.id].join(":")}
+              record={record}
+            />
+          ))}
           {activityHistory.loading && <p role="status">Loading tool activity…</p>}
           {!activityHistory.loading && !activityHistory.error && !toolRecords().length && !activityHistory.hasEarlier && (
             <p className="field-hint">No tool activity yet.</p>
@@ -1311,7 +1222,6 @@ export function Conversation({
                     !parse<any>(other.metadata, {}).progress,
                 )
               )?.id === m.id;
-            const changed = finalForRun ? runChanges(m.run_id!) : null;
             return (
               <div key={m.id} className="message-slot">
                 {newDay && (
@@ -1467,17 +1377,6 @@ export function Conversation({
                   )}
                   {finalForRun && (
                     <>
-                      {changed && (
-                        <ChangesChip
-                          summary={changed}
-                          onOpen={() =>
-                            setChanges({
-                              summary: changed,
-                              context: changeContext(m.run_id!),
-                            })
-                          }
-                        />
-                      )}
                       {m.run_checkout && (
                         <CheckoutChip
                           summary={parse<CheckoutSummary>(

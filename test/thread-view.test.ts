@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   changePrompts,
-  commandOutcome,
   compactNumber,
-  displayCommand,
   dayLabel,
   duration,
   feedNextAction,
@@ -15,7 +13,6 @@ import {
   runStatus,
   runTiming,
   startsNewDay,
-  summarizeChanges,
 } from "../src/client/threadView";
 import type { ActivityRecord } from "../src/agent-activities";
 
@@ -85,81 +82,6 @@ describe("previews", () => {
   });
 });
 
-const change = (
-  id: string,
-  files: { path: string; operation: string; patch?: string; after?: string }[],
-  state = "applied",
-) =>
-  ({
-    kind: "file_change",
-    id,
-    data: { state, files: files.map((f) => ({ content: "available", ...f })) },
-  }) as unknown as ActivityRecord;
-
-describe("change summaries", () => {
-  it("keeps every edit per path and counts only applied ones", () => {
-    const summary = summarizeChanges([
-      change("1", [
-        { path: "src/a.ts", operation: "modify", patch: "--- a\n+++ b\n+one\n-two" },
-      ]),
-      { kind: "plan", id: "p", data: { steps: [] } } as unknown as ActivityRecord,
-      change("2", [
-        { path: "src/a.ts", operation: "modify", patch: "+one\n+two\n-three" },
-        { path: "src/new.ts", operation: "create", after: "x\ny\n" },
-      ]),
-      // A later failed edit neither replaces the applied history nor counts.
-      change("3", [{ path: "src/a.ts", operation: "modify", patch: "+bad" }], "failed"),
-      change("4", [{ path: "src/idea.ts", operation: "create", after: "z\n" }], "proposed"),
-      change("5", [{ path: "src/broken.ts", operation: "modify", patch: "+x" }], "failed"),
-    ]);
-    const a = summary.files.find((f) => f.path === "src/a.ts")!;
-    expect(a.edits.map((e) => [e.state, e.additions, e.deletions])).toEqual([
-      ["applied", 1, 1],
-      ["applied", 2, 1],
-      ["failed", 1, 0],
-    ]);
-    expect(a).toMatchObject({ state: "applied", additions: 3, deletions: 2 });
-    expect(summary.files.find((f) => f.path === "src/new.ts")).toMatchObject({
-      state: "applied",
-      additions: 2,
-    });
-    expect(summary.files.find((f) => f.path === "src/idea.ts")).toMatchObject({
-      state: "proposed",
-      additions: 0,
-    });
-    expect(summary).toMatchObject({
-      additions: 5,
-      deletions: 2,
-      applied: 2,
-      proposed: 1,
-      failed: 1,
-    });
-  });
-  it("returns an empty summary without file changes", () => {
-    expect(summarizeChanges([])).toEqual({
-      files: [],
-      additions: 0,
-      deletions: 0,
-      applied: 0,
-      proposed: 0,
-      failed: 0,
-      unavailable: 0,
-    });
-  });
-  it("keeps edits whose outcome was never reported apart from proposed ones", () => {
-    const summary = summarizeChanges([
-      change("1", [{ path: "a.ts", operation: "modify", patch: "+x" }], "unknown"),
-      change("2", [{ path: "b.ts", operation: "modify", patch: "+y" }], "unknown"),
-      change("3", [{ path: "b.ts", operation: "modify", patch: "+z" }], "proposed"),
-    ]);
-    expect(summary.files.map((f) => [f.path, f.state])).toEqual([
-      ["a.ts", "unavailable"],
-      ["b.ts", "proposed"],
-    ]);
-    expect(summary).toMatchObject({ applied: 0, additions: 0, proposed: 1, unavailable: 1 });
-  });
-});
-
 describe("merging recorded and live activity", () => {
   const source = { transport: "acp", harness: "codex", origin: "acp" };
   const record = (id: string, files: string[], state = "applied") =>
@@ -182,11 +104,9 @@ describe("merging recorded and live activity", () => {
     ];
     const live = [inRun("r1", record("e2", ["b.ts"])), inRun("r1", record("e3", ["c.ts"], "failed"))];
     const merged = mergeActivityRecords(recorded, live);
-    expect(merged.map((r) => r.id)).toEqual(["e1", "e2", "e3"]);
+    expect(merged.map(({ record }) => record.id)).toEqual(["e1", "e2", "e3"]);
     // The latest copy wins: e1 was applied after being proposed.
-    expect((merged[0].data as any).state).toBe("applied");
-    const summary = summarizeChanges(merged);
-    expect(summary).toMatchObject({ applied: 2, failed: 1, additions: 2 });
+    expect((merged[0].record.data as any).state).toBe("applied");
   });
   it("keeps edits from different runs that reuse an activity id", () => {
     // Turn-scoped ids such as item_1:0 restart in every run.
@@ -194,9 +114,9 @@ describe("merging recorded and live activity", () => {
       [inRun("r1", record("item_1:0", ["first.ts"])), inRun("r2", record("item_1:0", ["second.ts"]))],
       [],
     );
-    const summary = summarizeChanges(merged);
-    expect(summary.files.map((f) => f.path)).toEqual(["first.ts", "second.ts"]);
-    expect(summary.applied).toBe(2);
+    expect(merged.map(({ run }) => run)).toEqual(["r1", "r2"]);
+    expect(merged.flatMap(({ record }) => (record.data as any).files.map((file: any) => file.path)))
+      .toEqual(["first.ts", "second.ts"]);
   });
   it("keeps records with the same id from different producers apart", () => {
     const other = {
@@ -268,11 +188,11 @@ describe("change follow-up prompts", () => {
     const prompts = changePrompts(["src/a.ts", "src/b.ts"], {
       projectName: "Site",
       runStartedAt: [start],
-      commands: [],
     });
     for (const prompt of Object.values(prompts)) {
       expect(prompt).toContain("git diff");
-      expect(prompt).toContain("only has the edits your tools reported");
+      expect(prompt).toContain("saved Git snapshot");
+      expect(prompt).not.toContain("tools reported");
       expect(prompt).toContain("in the Site project");
       expect(prompt).toContain("- src/a.ts\n- src/b.ts");
     }
@@ -302,29 +222,5 @@ describe("later choices", () => {
   it("skips this evening once it is too close", () => {
     const late = new Date(2026, 8, 30, 18, 30).getTime();
     expect(laterChoices(late).some((c) => c.id === "tonight")).toBe(false);
-  });
-});
-
-describe("reported commands", () => {
-  it("drops the login-shell wrapper harnesses add", () => {
-    expect(displayCommand("/bin/bash -lc 'gh pr checks 57 | tail -5'")).toBe(
-      "gh pr checks 57 | tail -5",
-    );
-    expect(displayCommand(String.raw`bash -lc 'echo '\''hi'\'''`)).toBe("echo 'hi'");
-    expect(displayCommand('/usr/bin/zsh -c "echo \\"$HOME\\""')).toBe(
-      'echo "$HOME"',
-    );
-    expect(displayCommand("  npm test  ")).toBe("npm test");
-    // Not a whole-command wrapper: left alone.
-    expect(displayCommand("bash -lc 'a' && b")).toBe("bash -lc 'a' && b");
-  });
-  it("labels outcomes and flags failures", () => {
-    const c = (status: string, exitCode?: number | null) =>
-      commandOutcome({ command: "x", status, exitCode });
-    expect(c("running")).toEqual({ label: "running", failed: false });
-    expect(c("exited", 0)).toEqual({ label: "exit 0", failed: false });
-    expect(c("exited", 130)).toEqual({ label: "exit 130", failed: true });
-    expect(c("failed", null)).toEqual({ label: "failed", failed: true });
-    expect(c("unknown")).toEqual({ label: "no exit code", failed: false });
   });
 });
