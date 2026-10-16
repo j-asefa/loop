@@ -237,6 +237,14 @@ for (const engine of selectedEngines()) {
     const checkout = page.locator(".conversation-sheet .checkout-chip");
     await expect(checkout).toHaveCount(1);
     await expect(checkout).toContainText("1 file +1 −1");
+    await expect(checkout.locator(".diff-add-count")).toHaveText("+1");
+    await expect(checkout.locator(".diff-remove-count")).toHaveText("−1");
+    assert.equal(await checkout.evaluate((element) => {
+      const color = (selector) => getComputedStyle(element.querySelector(selector)).color;
+      return color(".diff-add-count") !== color(".diff-remove-count") &&
+        color(".diff-add-count") !== getComputedStyle(element).color &&
+        color(".diff-remove-count") !== getComputedStyle(element).color;
+    }), true, "Conversation additions and deletions must use distinct diff colours");
     await checkout.click();
     const review = page.getByRole("dialog", { name: "Checkout", exact: true });
     await expect(review.locator(".pull-file-path")).toHaveText(["git-review.ts"]);

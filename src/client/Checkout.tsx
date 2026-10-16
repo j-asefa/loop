@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { FileDiff, GitBranch } from "lucide-react";
 import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
@@ -7,6 +7,7 @@ import { readableText } from "../shared/readable-text";
 import { changePrompts } from "./threadView";
 import {
   checkoutLine,
+  checkoutParts,
   patchByFile,
   type CheckoutDetail,
   type CheckoutSummary,
@@ -55,7 +56,16 @@ export function CheckoutChip({
       : summary.files
         ? `${count(summary.files)} ${summary.files === 1 ? "file" : "files"}`
         : summary.untracked ? `${count(summary.untracked)} new` : "No changes"
-    : description;
+    : compact ? description : checkoutParts({ ...summary, branch: readableText(summary.branch) }).map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 && " · "}
+          {typeof part === "string" ? part : <>
+            {part.files} {part.files === 1 ? "file" : "files"}{" "}
+            <span className="diff-add-count">+{part.additions}</span>{" "}
+            <span className="diff-remove-count">−{part.deletions}</span>
+          </>}
+        </Fragment>
+      ));
   const Icon = compact ? FileDiff : GitBranch;
   return (
     <button

@@ -75,8 +75,8 @@ export type CheckoutDetail = {
 };
 
 /** The card line. The same text is the brief's citable headline. */
-export function checkoutLine(summary: CheckoutSummary) {
-  const parts = [summary.branch];
+export function checkoutParts(summary: CheckoutSummary) {
+  const parts: (string | { files: number; additions: number; deletions: number })[] = [summary.branch];
   if (summary.ahead != null) {
     parts.push(
       `${summary.ahead} ${summary.ahead === 1 ? "commit" : "commits"} ${summary.scope === "run" ? "since start" : "ahead"}`,
@@ -86,7 +86,7 @@ export function checkoutLine(summary: CheckoutSummary) {
   if (summary.state === "captured") {
     parts.push(
       summary.files
-        ? `${summary.files} ${summary.files === 1 ? "file" : "files"} +${summary.additions} −${summary.deletions}`
+        ? { files: summary.files, additions: summary.additions, deletions: summary.deletions }
         : "no changes",
     );
     if (summary.untracked) parts.push(`${summary.untracked} untracked`);
@@ -101,7 +101,13 @@ export function checkoutLine(summary: CheckoutSummary) {
     );
   } else if (summary.state === "failed") parts.push("checkout not captured");
   else parts.push("in progress");
-  return parts.join(" · ");
+  return parts;
+}
+
+export function checkoutLine(summary: CheckoutSummary) {
+  return checkoutParts(summary).map((part) => typeof part === "string" ? part
+    : `${part.files} ${part.files === 1 ? "file" : "files"} +${part.additions} −${part.deletions}`,
+  ).join(" · ");
 }
 
 /**
