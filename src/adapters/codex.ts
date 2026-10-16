@@ -6,6 +6,7 @@ import { modelOptions } from "../../runtime/model-options.mjs";
 import { Native } from "../native.js";
 import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";
+import { codexApprovalDetail } from "./codex-approval-display.js";
 import { codexTokens, type Tokens } from "./usage.js";
 import type { Billing, Request } from "../protocol.js";
 import {
@@ -580,7 +581,9 @@ export class Codex implements Adapter {
                   ? `Allow ${toolApproval.tool || "tool call"}?`
                   : "MCP elicitation (form/URL completion unavailable)"
                 : "Codex permission",
-            detail: JSON.stringify(p, null, 2),
+            detail: toolApproval
+              ? codexApprovalDetail(p)
+              : JSON.stringify(p, null, 2),
             choices,
             allow:
               m.method === "mcpServer/elicitation/request" && !toolApproval

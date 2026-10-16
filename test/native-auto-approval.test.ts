@@ -7,6 +7,7 @@ import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { NativeOutput } from "../src/server/native-output";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
@@ -87,6 +88,91 @@ const approval: Request = {
   choices: ["allow", "deny"],
   allow: "allow",
 };
+
+function fileApproval(bytes = 100000) {
+  const content = Buffer.alloc(bytes, 42).toString("base64");
+  return {
+    ...codexToolApproval,
+    message: 'Allow the loop_workspace MCP server to run tool "loop_publish_file"?',
+    _meta: {
+      codex_approval_kind: "mcp_tool_call",
+      tool_params: { title: "preview.png", encoding: "base64", content },
+      tool_params_display: [{ name: "content", value: content }],
+    },
+  };
+}
+
+it.each([
+  ["default", "accept", 24000],
+  ["default", "accept", 100000],
+  ["default", "decline", 100000],
+  ["default", "cancel", 100000],
+  ["bypassPermissions", "accept", 100000],
+] as const)("large Codex file approvals preserve %s / %s decisions for %i bytes", async (mode, choice, bytes) => {
+  const { live, answer, state, run, sessions } = session(
+    `file-${mode}-${choice}-${bytes}`, mode, "codex",
+  );
+  const params = fileApproval(bytes);
+  const original = structuredClone(params);
+  const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+  const decision = () => db.prepare(
+    "SELECT id,state,request FROM native_decisions WHERE run_id=?",
+  ).get(run.id) as any;
+  try {
+    await live.adapter.start();
+    await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
+    await vi.waitFor(() => expect(decision()).toBeDefined());
+    const stored = decision();
+    expect(stored.request.length).toBeLessThan(64000);
+    expect(stored.request).not.toContain(params._meta.tool_params.content);
+    const detail = JSON.parse(JSON.parse(stored.request).detail);
+    expect(detail._meta.tool_params.title).toBe("preview.png");
+    expect(detail._meta.tool_params.encoding).toBe("base64");
+    expect(detail._meta.tool_params.content).toContain(`${bytes} bytes`);
+    expect(detail._meta.tool_params.content).toContain(
+      createHash("sha256").update(Buffer.alloc(bytes, 42)).digest("hex"),
+    );
+    expect(detail._meta.tool_params_display[0].value).toBe(detail._meta.tool_params.content);
+    if (mode === "default") {
+      expect(state()).toBe("awaiting_approval");
+      expect(answer).not.toHaveBeenCalled();
+      // The display summary must not replace the native call being approved.
+      expect((live.adapter as any).requests.get("102").params).toMatchObject(original);
+      await sessions.answer(stored.id, "file-decision", { choice });
+      await sessions.answer(stored.id, "file-decision", { choice });
+    }
+    await vi.waitFor(() => expect(decision().state).toBe("resolved"));
+    expect(answer).toHaveBeenCalledExactlyOnceWith("102", { choice });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(state()).toBe("running");
+  } finally {
+    await live.adapter.dispose();
+  }
+});
+
+it("keeps oversized non-file decisions and unrecognized payloads subject to the size guard", () => {
+  const { live, sessions, run } = session("file-guard", "default", "codex");
+  const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+  const original = fileApproval();
+  const variants = [
+    { ...original, serverName: "another_server" },
+    { ...original, message: "Run another tool?" },
+    { ...original, _meta: { ...original._meta, tool_name: "another_tool" } },
+    { ...original, requestedSchema: { type: "object", properties: { answer: { type: "string" } } } },
+    { ...original, _meta: { ...original._meta, tool_params: { ...original._meta.tool_params, encoding: "utf8" } } },
+    { ...original, _meta: { ...original._meta, tool_params: { ...original._meta.tool_params, content: "!".repeat(70000) } } },
+    { ...original, _meta: { ...original._meta, tool_params: { ...original._meta.tool_params, title: "x".repeat(70000) } } },
+    { ...original, _meta: { ...original._meta, tool_params_display: [{ name: "content", value: "different".repeat(10000) }] } },
+  ];
+  for (const params of variants) {
+    interrupt.mockClear();
+    (live.adapter as any).message({ id: 102, method: "mcpServer/elicitation/request", params });
+    expect(interrupt).toHaveBeenCalledOnce();
+    expect(interrupt.mock.calls[0][0]).toBe(run.id);
+    expect(live.requests.size).toBe(0);
+  }
+  expect(db.prepare("SELECT id FROM native_decisions WHERE run_id=?").all(run.id)).toEqual([]);
+});
 
 it.each([
   ["council", codexToolApproval],
