@@ -127,6 +127,26 @@ if (args.includes("app-server")) {
             item: { type: "agentMessage", text: JSON.stringify(value) },
           },
         });
+        for (const [turnId, outputTokens] of [
+          ["other-turn", 999],
+          ["brief-turn", 10],
+          ["brief-turn", 20],
+        ])
+          send({
+            method: "thread/tokenUsage/updated",
+            params: {
+              threadId: "brief-thread",
+              turnId,
+              tokenUsage: {
+                total: {
+                  inputTokens: 100,
+                  cachedInputTokens: 60,
+                  outputTokens,
+                  reasoningOutputTokens: 5,
+                },
+              },
+            },
+          });
         send({
           method: "turn/completed",
           params: {
@@ -169,6 +189,12 @@ if (args.includes("app-server")) {
         subtype: "success",
         structured_output: value,
         session_id: "brief-claude",
+        usage: {
+          input_tokens: 50,
+          cache_read_input_tokens: 30,
+          cache_creation_input_tokens: 20,
+          output_tokens: 20,
+        },
       });
     }),
   );

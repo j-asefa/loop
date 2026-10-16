@@ -59,6 +59,26 @@ try {
         t,
       );
   }
+  f.db
+    .prepare(
+      "INSERT INTO brief_generation_usage(generation_id,owner_id,project_id,started_at,usage) VALUES(?,?,?,?,?)",
+    )
+    .run(
+      randomUUID(),
+      f.owner,
+      project.id,
+      Date.now(),
+      JSON.stringify({
+        at: Date.now(),
+        model: "fixture",
+        outcome: "published",
+        attempts: 2,
+        reported_attempts: 2,
+        input_tokens: 12345,
+        output_tokens: 678,
+        total_tokens: 13023,
+      }),
+    );
   // The second project is progressing; the third is idle with no brief.
   for (const c of f.db
     .prepare(
@@ -190,6 +210,32 @@ try {
   const release = page.locator(".project-status-card").filter({
     has: page.getByRole("link", { name: project.name, exact: true }),
   });
+  const usage = release.locator(".brief-token-usage");
+  await expect(usage.locator("summary")).toHaveText(
+    "Brief generation · 13,023 tokens",
+  );
+  await usage.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(usage.getByText("Input tokens", { exact: true })).toBeVisible();
+  await expect(usage.getByText("12,345", { exact: true })).toBeVisible();
+  await expect(usage.getByText("2 requests, including retries.")).toBeVisible();
+  await expect(
+    usage.getByText(/Displaying it makes no additional model request/),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (process.env.LOOP_STATUS_SCREENSHOT)
+    await page.screenshot({
+      path: process.env.LOOP_STATUS_SCREENSHOT,
+      fullPage: true,
+    });
+  await usage.locator("summary").click();
   const details = release.locator(".project-status-details");
   await expect(release.getByRole("button", { name: /^Changes:/ })).toBeHidden();
   await details.locator("summary").focus();

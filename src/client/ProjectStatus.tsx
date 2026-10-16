@@ -31,6 +31,7 @@ import {
   type ProjectStatusPage,
 } from "../shared/project-status";
 import "./projectStatus.css";
+import { BriefTokenUsage } from "./BriefTokenUsage";
 import {
   createReadableText,
   readableAuthor,
@@ -412,6 +413,11 @@ export function ProjectStatusCard({
               )}
           </section>
         )}
+      <BriefTokenUsage
+        usage={b.generation_usage}
+        recorded={b.synthesized_at !== null}
+        statusCard
+      />
       {!!p.pulls.length && (
         <div className="project-status-pulls">
           <button

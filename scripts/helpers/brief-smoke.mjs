@@ -168,6 +168,24 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   db.prepare(
     "UPDATE brief_state SET current_version=1,basis_through=? WHERE owner_id=? AND project_id=?",
   ).run(through, owner, project);
+  db.prepare(
+    "INSERT INTO brief_generation_usage(generation_id,owner_id,project_id,started_at,usage) VALUES(?,?,?,?,?)",
+  ).run(
+    randomUUID(),
+    owner,
+    project,
+    now,
+    JSON.stringify({
+      at: now,
+      model: "openai-fixture",
+      outcome: "published",
+      attempts: 2,
+      reported_attempts: 2,
+      input_tokens: 12345,
+      output_tokens: 678,
+      total_tokens: 13023,
+    }),
+  );
   const acks = [];
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith(root + "/ack"))
@@ -206,6 +224,16 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   await expect
     .poll(async () => (await api(root)).settings.connectionId)
     .toBe(subscriptions[0].id);
+  const usage = page.locator(".project-brief .brief-token-usage");
+  await expect(usage.locator("summary")).toHaveText(
+    "Brief generation · 13,023 tokens",
+  );
+  await usage.locator("summary").click();
+  await expect(usage.getByText("Input tokens", { exact: true })).toBeVisible();
+  await expect(usage.getByText("12,345", { exact: true })).toBeVisible();
+  await expect(usage.getByText("2 requests, including retries.")).toBeVisible();
+  await capture("brief-token-usage");
+  await usage.locator("summary").click();
   await page
     .getByRole("button", { name: "Brief settings", exact: true })
     .click();

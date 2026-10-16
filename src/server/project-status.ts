@@ -72,8 +72,11 @@ function build(owner: string, options: Options): ProjectStatusPage {
     last_run_at: number | null;
     view: string | null;
     synth_at: number | null;
+    generation_usage: string | null;
     pending: number;
   }>(`SELECT f.id,f.name,f.created_at,s.enabled,s.ever_enabled,s.current_version,s.last_error,s.last_run_at,b.view,b.synth_at,
+      (SELECT u.usage FROM brief_generation_usage u WHERE u.owner_id=f.owner_id AND u.project_id=f.id
+        ORDER BY u.started_at DESC,u.rowid DESC LIMIT 1) generation_usage,
       (SELECT count(*) FROM project_changes p WHERE p.owner_id=f.owner_id AND p.project_id=f.id
         AND p.seq>COALESCE(s.basis_through,0)
         AND p.kind IN (${synthesisKinds.map((k) => `'${k}'`).join(",")})
@@ -93,6 +96,9 @@ function build(owner: string, options: Options): ProjectStatusPage {
       evidence: null,
       pulls: [],
       brief: {
+        generation_usage: p.generation_usage
+          ? JSON.parse(p.generation_usage)
+          : null,
         state: !p.enabled
           ? p.ever_enabled || p.current_version || p.last_run_at
             ? "off"

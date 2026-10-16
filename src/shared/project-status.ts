@@ -2,6 +2,7 @@ import type { CheckoutSummary } from "./checkout.js";
 import type { VerificationSummary } from "./verification.js";
 import type { PullState } from "./pull-state.js";
 import type { PullRequestRef } from "./github.js";
+import type { BriefGenerationUsage } from "./brief-usage.js";
 
 export type ProjectStatusAction = {
   key: string;
@@ -23,6 +24,7 @@ export type ProjectStatus = {
   counts: { needs: number; working: number; queued: number };
   actions: ProjectStatusAction[];
   brief: {
+    generation_usage?: BriefGenerationUsage | null;
     state: "never" | "pending" | "failed" | "off" | "ready";
     headline: string | null;
     /** Pins headline evidence to the version displayed on the card. */

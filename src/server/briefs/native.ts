@@ -106,7 +106,11 @@ export async function* nativeBriefStream(
           const event = JSON.parse(line);
           if (event.error) throw runtimeFailed();
           if (event.done) done = true;
-          if (event.chunk?.toolCall || event.chunk?.text) {
+          if (
+            event.chunk?.toolCall ||
+            event.chunk?.text ||
+            event.chunk?.usage
+          ) {
             bytes += Buffer.byteLength(line);
             if (bytes > 200_000 || chunks.length >= 100) throw runtimeFailed();
             chunks.push(event.chunk);
@@ -135,7 +139,14 @@ export async function* nativeBriefStream(
           input: { ...input, signal: undefined, steering: undefined },
         }) + "\n",
       );
-    await completion;
+    try {
+      await completion;
+    } catch (error) {
+      // A failed request can still consume tokens. Preserve its accounting,
+      // without releasing a structured result from an unsuccessful process.
+      for (const chunk of chunks) if (chunk.usage) yield { usage: chunk.usage };
+      throw error;
+    }
     yield* chunks;
   } finally {
     input.signal.removeEventListener("abort", stop);

@@ -29,6 +29,7 @@ vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
 vi.stubEnv("LOOP_RUNTIME_TOKEN", token);
 const { db } = await import("../src/server/db");
 const { runDueBriefs } = await import("../src/server/briefs/generate");
+const { latestBriefUsage } = await import("../src/server/briefs/usage");
 const { readState } = await import("../src/server/briefs/store");
 const { serveBrief } = await import("../src/server/briefs/serve");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -110,6 +111,14 @@ for (const provider of ["codex", "anthropic"] as const) {
     expect(serveBrief(w.owner, w.project).headline?.text).toBe(
       "Subscription brief",
     );
+    expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+      outcome: "published",
+      attempts: 1,
+      reported_attempts: 1,
+      input_tokens: 100,
+      output_tokens: 20,
+      total_tokens: 120,
+    });
     const dispatched = request.mock.calls.filter(([url]) =>
       String(url).endsWith("/runtime"),
     );

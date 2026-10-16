@@ -23,6 +23,7 @@ const { submit } = await import("../src/server/agent-runtime");
 const { sendMail } = await import("../src/server/agent-mail");
 const { claim, transition } = await import("../src/server/queue");
 const { resolveCite } = await import("../src/server/briefs/cites");
+const { latestBriefUsage } = await import("../src/server/briefs/usage");
 const restore: (() => void)[] = [];
 afterEach(() => {
   for (const fn of restore.splice(0).reverse()) fn();
@@ -113,10 +114,12 @@ function good(input: ChatInput) {
 }
 function scripted(
   handler: (input: ChatInput, call: number) => unknown | Promise<unknown>,
+  usage: (call: number) => unknown[] = () => [],
+  provider: "openai" | "anthropic" = "openai",
 ) {
   const calls: ChatInput[] = [];
   restore.push(
-    withTestAdapter("openai", {
+    withTestAdapter(provider, {
       async models() {
         return [];
       },
@@ -129,6 +132,7 @@ function scripted(
           }) as unknown as ChatInput,
         );
         const output = await handler(input, calls.length);
+        for (const value of usage(calls.length)) yield { usage: value };
         if (output !== undefined)
           yield {
             toolCall: {
@@ -793,4 +797,130 @@ it("applies the handoff's per-item recovery after the one retry instead of rejec
     ["Supported state"],
   );
   expect(w.state().basis_through).toBeGreaterThan(0);
+});
+
+it("records provider totals once per request and includes validation retries", async () => {
+  const w = fixture();
+  scripted(
+    (input, n) => (n === 1 ? {} : good(input)),
+    () => [
+      { input_tokens: 100, output_tokens: 10 },
+      {
+        input_tokens: 100,
+        output_tokens: 20,
+        input_tokens_details: { cached_tokens: 60 },
+        output_tokens_details: { reasoning_tokens: 5 },
+      },
+    ],
+  );
+  expect(await runDueBriefs()).toBe(1);
+  expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+    outcome: "published",
+    attempts: 2,
+    reported_attempts: 2,
+    input_tokens: 200,
+    output_tokens: 40,
+    total_tokens: 240,
+  });
+  expect(latestBriefUsage("other-owner", w.project)).toBeNull();
+});
+
+it("merges Anthropic streaming snapshots and includes cache reads and writes once", async () => {
+  const w = fixture();
+  db.prepare("UPDATE connections SET provider='anthropic' WHERE id=?").run(
+    w.connection,
+  );
+  scripted(
+    good,
+    () => [
+      {
+        input_tokens: 100,
+        output_tokens: 1,
+        cache_read_input_tokens: 50,
+        cache_creation_input_tokens: 25,
+      },
+      { output_tokens: 20 },
+      { output_tokens: 20 },
+    ],
+    "anthropic",
+  );
+  expect(await runDueBriefs()).toBe(1);
+  expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+    attempts: 1,
+    reported_attempts: 1,
+    input_tokens: 175,
+    output_tokens: 20,
+    total_tokens: 195,
+  });
+});
+
+it("retains partial usage for failed validation without inventing missing retry totals", async () => {
+  const w = fixture();
+  scripted(
+    () => ({}),
+    (n) => (n === 1 ? [{ input_tokens: 100, output_tokens: 20 }] : []),
+  );
+  expect(await runDueBriefs()).toBe(0);
+  expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+    outcome: "failed",
+    attempts: 2,
+    reported_attempts: 1,
+    input_tokens: 100,
+    output_tokens: 20,
+    total_tokens: 120,
+  });
+});
+
+it("records unavailable usage as unknown and preserves real zero counts", async () => {
+  const w = fixture();
+  scripted(good, () => [{ input_tokens: -1, output_tokens: 20 }]);
+  expect(await runDueBriefs()).toBe(1);
+  expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+    reported_attempts: 0,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: null,
+  });
+  const zero = fixture();
+  scripted(good, () => [{ input_tokens: 0, output_tokens: 0 }]);
+  expect(await runDueBriefs()).toBe(1);
+  expect(latestBriefUsage(zero.owner, zero.project)?.total_tokens).toBe(0);
+});
+
+it("records paid unchanged passes and discarded work separately from published versions", async () => {
+  const w = fixture();
+  let output: unknown;
+  scripted(
+    (input) => (output ??= good(input)),
+    () => [{ input_tokens: 100, output_tokens: 20 }],
+  );
+  expect(await runDueBriefs()).toBe(1);
+  w.result();
+  w.due();
+  expect(await runDueBriefs()).toBe(0);
+  expect(w.versions()).toHaveLength(1);
+  expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+    outcome: "unchanged",
+    total_tokens: 120,
+  });
+  w.result();
+  w.due();
+  scripted(
+    (input) => {
+      db.prepare(
+        "UPDATE brief_state SET generation_id='new-generation' WHERE project_id=?",
+      ).run(w.project);
+      return good(input);
+    },
+    () => [{ input_tokens: 300, output_tokens: 40 }],
+  );
+  expect(await runDueBriefs()).toBe(0);
+  expect(w.state().generation_id).toBe("new-generation");
+  expect(latestBriefUsage(w.owner, w.project)).toMatchObject({
+    outcome: "discarded",
+    total_tokens: 340,
+  });
+  db.prepare("UPDATE brief_state SET enabled=0 WHERE project_id=?").run(
+    w.project,
+  );
 });

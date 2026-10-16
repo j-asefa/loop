@@ -20,6 +20,7 @@ import { briefAttentionUrl, briefSourceUrl } from "./briefView";
 import { relativeTime } from "./threadView";
 import { useReadableAuthor, useReadableText } from "./ReadableText";
 import type { BriefPage, BriefSource, Item } from "../shared/briefs";
+import { BriefTokenUsage } from "./BriefTokenUsage";
 
 export const briefSections = [
   ["state", "State", "state"],
@@ -454,6 +455,10 @@ export function ProjectBriefView({
             <ArrowUpRight size={13} aria-hidden="true" />
           </button>
         </div>
+        <BriefTokenUsage
+          usage={brief.generation_usage}
+          recorded={brief.basis.synth_at !== null}
+        />
         {(brief.basis.pending > 0 ||
           brief.basis.unincorporated_before !== null) && (
           <div className="brief-notice">

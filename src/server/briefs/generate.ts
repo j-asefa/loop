@@ -24,6 +24,8 @@ import {
   GENERATION_TIMEOUT_MS,
 } from "./schedule.js";
 import { ledger, readState, selectView, type State } from "./store.js";
+import { BriefUsage } from "./usage.js";
+import type { BriefGenerationUsage } from "../../shared/brief-usage.js";
 
 class RetryOutput extends Error {
   constructor(readonly result: ApplyResult) {
@@ -275,6 +277,8 @@ export async function runDueBriefs(
     const messages: ChatMessage[] = [{ role: "user", content: input.prompt }];
     let errors: ValidationError[] = [];
     let completed = false;
+    const usage = new BriefUsage();
+    let outcome: BriefGenerationUsage["outcome"] = "failed";
     for (let attempt = 0; attempt < 2; attempt++) {
       let call: ToolCall | undefined;
       try {
@@ -282,6 +286,7 @@ export async function runDueBriefs(
         // Recheck before transmitting the captured project input again.
         const { owns, matches } = currentGeneration(state);
         if (!owns || !matches) {
+          outcome = "discarded";
           db.transaction(() => finish(state, input, "discarded")).immediate();
           completed = true;
           break;
@@ -290,6 +295,7 @@ export async function runDueBriefs(
         const stream = isNativeConnection(connection)
           ? nativeBriefStream
           : streamConnection;
+        usage.start(connection.provider);
         for await (const chunk of stream(connection, {
           model: state.model!,
           instructions: SYSTEM_INSTRUCTIONS,
@@ -305,9 +311,11 @@ export async function runDueBriefs(
             },
           ],
           toolChoice: "submit_brief",
-        }))
+        })) {
+          usage.observe(chunk.usage);
           if (!call && chunk.toolCall?.name === "submit_brief")
             call = chunk.toolCall;
+        }
         signal.throwIfAborted();
         const result = applyAttempt(
           state,
@@ -316,6 +324,7 @@ export async function runDueBriefs(
           attempt === 0,
         );
         if (result.outcome === "discarded") {
+          outcome = "discarded";
           completed = true;
           break;
         }
@@ -335,6 +344,7 @@ export async function runDueBriefs(
           continue;
         }
         if (result.outcome === "failed") break;
+        outcome = result.outcome === "published" ? "published" : "unchanged";
         if (result.outcome === "published") {
           console.log(
             `Loop brief ${state.project_id}: published version ${result.version}`,
@@ -345,9 +355,10 @@ export async function runDueBriefs(
         break;
       } catch (error) {
         if (signal.aborted) {
-          if (shutdown?.aborted)
+          if (shutdown?.aborted) {
+            outcome = "discarded";
             db.transaction(() => finish(state, input, "discarded")).immediate();
-          else
+          } else
             failed(state, input, [
               {
                 code: "invalid_output",
@@ -364,6 +375,30 @@ export async function runDueBriefs(
       }
     }
     if (!completed) failed(state, input, errors);
+    // A late response may be discarded, but its reported usage still belongs
+    // to this generation. Never attach it to the newer generation's record.
+    if (outcome === "failed") {
+      const { current, matches } = currentGeneration(state);
+      if (!matches || current.generation_id !== null) outcome = "discarded";
+    }
+    const recorded: BriefGenerationUsage = {
+      ...usage.snapshot(),
+      at: now(),
+      model: state.model,
+      outcome,
+    };
+    db.prepare(
+      `INSERT INTO brief_generation_usage(generation_id,owner_id,project_id,started_at,usage)
+      SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM folders WHERE id=? AND owner_id=?)`,
+    ).run(
+      state.generation_id,
+      state.owner_id,
+      state.project_id,
+      state.last_run_at ?? at,
+      JSON.stringify(recorded),
+      state.project_id,
+      state.owner_id,
+    );
   }
   return published;
 }

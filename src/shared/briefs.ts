@@ -1,4 +1,5 @@
 import type { Brief, Change, Item } from "../server/briefs/schema.js";
+import type { BriefGenerationUsage } from "./brief-usage.js";
 export type { Brief, Change, Item };
 export type BriefSource = {
   ref: string;
@@ -24,6 +25,7 @@ export type BriefEvidencePage = {
   sources: Record<string, BriefSource>;
 };
 export type BriefPage = Brief & {
+  generation_usage?: BriefGenerationUsage | null;
   settings: {
     enabled: boolean;
     connectionId: string | null;

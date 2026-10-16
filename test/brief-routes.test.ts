@@ -697,3 +697,37 @@ it("does not skip or repeat ledger items when another device edits between pages
     new Set([...first.items, ...rest.items].map((item) => item.id)).size,
   ).toBe(55);
 });
+
+it("serves the same latest generation accounting on Brief and Status, scoped to its owner", async () => {
+  const w = fixture(),
+    other = fixture();
+  w.publish();
+  expect((await w.get()).data.generation_usage).toBeNull();
+  const usage = {
+    at: now(),
+    model: "fixture",
+    outcome: "published",
+    attempts: 2,
+    reported_attempts: 2,
+    input_tokens: 1000,
+    output_tokens: 200,
+    total_tokens: 1200,
+  };
+  db.prepare(
+    "INSERT INTO brief_generation_usage(generation_id,owner_id,project_id,started_at,usage) VALUES(?,?,?,?,?)",
+  ).run(id(), w.owner, w.project, now(), JSON.stringify(usage));
+  const { projectStatuses } = await import("../src/server/project-status");
+  expect((await w.get()).data.generation_usage).toEqual(usage);
+  expect(
+    projectStatuses(w.owner).items.find((item) => item.id === w.project)?.brief
+      .generation_usage,
+  ).toEqual(usage);
+  // Editing does not spend tokens or erase the last generation.
+  await w.request("/goal", "PUT", { text: "An owner edit" });
+  expect((await w.get()).data.generation_usage).toEqual(usage);
+  expect((await other.get()).data.generation_usage).toBeNull();
+  expect((await api(other.owner, w.root)).status).toBe(404);
+  expect(
+    projectStatuses(other.owner).items.some((item) => item.id === w.project),
+  ).toBe(false);
+});

@@ -475,3 +475,31 @@ it("labels thread fallbacks and repeated answer references according to availabl
   expect(html).not.toContain("<time");
   expect(html.match(/Answer evidence/g)).toHaveLength(1);
 });
+
+it("shows generation tokens with a breakdown, retries and unavailable historical usage", () => {
+  const brief = fixture();
+  expect(
+    renderToStaticMarkup(<ProjectBriefView brief={brief} {...actions} />),
+  ).toContain("Token usage unavailable");
+  brief.generation_usage = {
+    at: 1000,
+    model: "fixture-model",
+    outcome: "published",
+    attempts: 2,
+    reported_attempts: 2,
+    input_tokens: 1000,
+    output_tokens: 200,
+    total_tokens: 1200,
+  };
+  const html = renderToStaticMarkup(
+    <ProjectBriefView brief={brief} {...actions} />,
+  );
+  expect(html).toContain("1,200 tokens");
+  expect(html).toContain("Input tokens");
+  expect(html).toContain("Output tokens");
+  expect(html).toContain("2 requests, including retries.");
+  brief.generation_usage.reported_attempts = 1;
+  expect(
+    renderToStaticMarkup(<ProjectBriefView brief={brief} {...actions} />),
+  ).toContain("At least 1,200 tokens");
+});

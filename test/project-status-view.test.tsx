@@ -205,3 +205,34 @@ it("shows useful brief context before the collapsed technical details", () => {
   expect(html).toContain("briefKind=question");
   expect(render()).not.toContain('aria-label="Brief summary"');
 });
+
+it("shows the shared brief generation tokens and identifies failed or partial attempts", () => {
+  const brief: ProjectStatus["brief"] = {
+    state: "failed",
+    headline: "Earlier brief",
+    synthesized_at: 1000,
+    pending: 3,
+    unfinished: 0,
+    questions: 0,
+    blockers: 0,
+    generation_usage: {
+      at: 2000,
+      model: "fixture",
+      outcome: "failed",
+      attempts: 2,
+      reported_attempts: 1,
+      input_tokens: 1000,
+      output_tokens: 200,
+      total_tokens: 1200,
+    },
+  };
+  const html = render({ brief });
+  expect(html).toContain("At least 1,200 tokens");
+  expect(html).toContain("Generation failed");
+  expect(html).toContain("Usage reported for 1 of 2 requests");
+  expect(html).toContain("Displaying it makes no additional model request");
+  expect(render({ brief: { ...brief, generation_usage: null } })).toContain(
+    "Token usage unavailable",
+  );
+  expect(render()).not.toContain("brief-token-usage");
+});

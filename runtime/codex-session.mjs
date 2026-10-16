@@ -306,6 +306,20 @@ export class CodexSession {
         if (m.params?.turnId && m.params.turnId !== turnId) continue;
         if (m.method === "turn/completed" && m.params.turn?.id !== turnId)
           continue;
+        // Projection threads are fresh and ephemeral, so their total is this
+        // request's usage, including all structured-output work in the turn.
+        if (projection && m.method === "thread/tokenUsage/updated") {
+          const usage = m.params.tokenUsage?.total;
+          if (usage)
+            output({
+              chunk: {
+                usage: {
+                  input_tokens: usage.inputTokens,
+                  output_tokens: usage.outputTokens,
+                },
+              },
+            });
+        }
         const trace = codexTrace(clean(m), traces);
         if (trace) output({ chunk: { trace } });
         const activity = codexActivity(clean(m));

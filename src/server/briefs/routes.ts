@@ -24,6 +24,7 @@ import {
 } from "./owner.js";
 import { markDue } from "./schedule.js";
 import { serveBrief } from "./serve.js";
+import { latestBriefUsage } from "./usage.js";
 import {
   assertProject,
   decodeItem,
@@ -135,6 +136,7 @@ function readPage(owner: string, project: string): BriefPage {
       .get(owner, project) as { model: string } | undefined;
     return {
       ...brief,
+      generation_usage: latestBriefUsage(owner, project),
       settings: {
         enabled: !!state.enabled,
         connectionId: state.connection_id,
