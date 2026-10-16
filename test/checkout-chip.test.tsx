@@ -21,9 +21,10 @@ const summary: CheckoutSummary = {
   error: null,
 };
 
-it("shows four agent ID characters in the checkout chip", () => {
+it("names the agent branch without exposing its internal identifier", () => {
   const html = renderToStaticMarkup(<CheckoutChip summary={summary} onOpen={() => {}} />);
-  expect(html).toContain("loop/agent-aaa9 · 1 commit ahead · 5 files +99 −17 · on remote");
+  expect(html).toContain("the agent’s branch · 1 commit ahead · 5 files +99 −17 · on remote");
+  expect(html).not.toContain("loop/agent-");
   expect(html).not.toContain(summary.branch);
 });
 
@@ -42,7 +43,7 @@ it("shows the run-scoped counts on feed cards", () => {
   expect(html).not.toContain("Earlier checkout");
 });
 
-it.each(["main", "feature/long-descriptive-branch-name", "loop/agent-custom-branch", "loop/agent-abcd"])(
+it.each(["main", "feature/long-descriptive-branch-name", "loop/agent-custom-branch"])(
   "preserves the branch label %s",
   (branch) => {
     const html = renderToStaticMarkup(

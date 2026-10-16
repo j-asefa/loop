@@ -154,6 +154,30 @@ const unfinished = (thread: string) => ({
   cite: [],
 });
 
+it("provides only this owner's agent names and formats task previews before truncation", async () => {
+  const f = fixture(),
+    other = fixture();
+  db.prepare("UPDATE agents SET name='forest' WHERE id=?").run(f.agent);
+  db.prepare("UPDATE agents SET name='private-agent' WHERE id=?").run(
+    other.agent,
+  );
+  const r = f.run("completed");
+  const input = `Review ${"YWJj".repeat(100)} with @${f.agent}, then fix the layout.`;
+  db.prepare("UPDATE runs SET input=? WHERE id=?").run(input, r.run);
+  const { data, status } = await api(f.owner);
+  expect(status).toBe(200);
+  expect(data.agents).toEqual([{ id: f.agent, name: "forest" }]);
+  expect(data.items[0].evidence).toMatchObject({
+    run_id: r.run,
+    conversation: r.conversation,
+    agent: "forest",
+    task: "Review [encoded content omitted] with @forest, then fix the layout.",
+  });
+  expect(db.prepare("SELECT input FROM runs WHERE id=?").get(r.run)).toEqual({
+    input,
+  });
+});
+
 it("uses live precedence, deduplicates waiting work with its request, and revalidates the selected action", async () => {
   const f = fixture(),
     active = f.run("running"),

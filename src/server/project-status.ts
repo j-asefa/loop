@@ -11,6 +11,7 @@ import {
   type ProjectStatusAction,
   type ProjectStatusPage,
 } from "../shared/project-status.js";
+import { createReadableText } from "../shared/readable-text.js";
 import type { PullRequestCard } from "../shared/github.js";
 
 type Options = { project?: string; teams?: string[] };
@@ -35,6 +36,10 @@ export function projectStatuses(
 }
 
 function build(owner: string, options: Options): ProjectStatusPage {
+  const agents = db
+    .prepare("SELECT id,name FROM agents WHERE owner_id=?")
+    .all(owner) as { id: string; name: string }[];
+  const readable = createReadableText(agents);
   const at = now(),
     teams = options.teams?.length ? options.teams : null;
   const args = {
@@ -440,7 +445,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
       run_id: r.id,
       conversation: r.conversation_id,
       agent: r.name,
-      task: r.input.slice(0, 240),
+      task: readable(r.input).slice(0, 240),
       checkout: r.summary ? JSON.parse(r.summary) : null,
       checkout_at: r.checkout_at,
       verification: items?.length ? summarize(items) : null,
@@ -492,6 +497,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
   }
   return {
     owner_id: owner,
+    agents,
     observed_at: at,
     teams,
     items: [...projects.values()].sort(compareProjectStatus),

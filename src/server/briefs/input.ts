@@ -296,8 +296,12 @@ export function buildInput(state: State): BriefInput {
       (i) =>
         `${i.id} ${i.kind} ${i.status}: ${oneLine(i.text.slice(0, 120))} [${refs(i.cite)}]`,
     );
+  const agents = db
+    .prepare("SELECT id,name FROM agents WHERE owner_id=? ORDER BY id")
+    .all(owner) as { id: string; name: string }[];
   return {
     prompt: [
+      `AGENTS (display names for prose; ids only for structured fields)\n${agents.map((agent) => `${agent.id}: ${JSON.stringify(agent.name)}`).join("\n")}`,
       `GOAL\n${state.goal ?? "none set"}`,
       `PINNED\n${items
         .filter((i) => i.pinned)

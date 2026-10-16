@@ -1,6 +1,7 @@
 import { ArrowUpRight, Link2, Pin } from "lucide-react";
 import type { BriefSource, BriefVersion, Item } from "../shared/briefs";
 import { briefSourceUrl } from "./briefView";
+import { useReadableText } from "./ReadableText";
 
 export const briefItemLabels = {
   state: "State",
@@ -27,15 +28,20 @@ export function BriefItemSummary({
   author: (id: string) => string;
   replacement?: string;
 }) {
+  const readable = useReadableText();
   return (
     <header className="brief-item-summary">
       <h3 className={item.status === "superseded" ? "brief-superseded" : ""}>
-        {item.text}
+        {readable(item.text)}
       </h3>
-      {item.why && <p className="brief-item-reason">{item.why}</p>}
+      {item.why && <p className="brief-item-reason">{readable(item.why)}</p>}
       <div className="brief-detail-meta">
-        {item.decided_by && <span>Decided by {author(item.decided_by)}</span>}
-        {item.asked_by && <span>Asked by {author(item.asked_by)}</span>}
+        {item.decided_by && (
+          <span>Decided by {readable(author(item.decided_by))}</span>
+        )}
+        {item.asked_by && (
+          <span>Asked by {readable(author(item.asked_by))}</span>
+        )}
         {!item.decided_by && !item.asked_by && (
           <span>
             {item.author === "owner" ? "By you" : "From the project record"}
@@ -57,19 +63,19 @@ export function BriefItemSummary({
       {item.next && (
         <p className="brief-item-context">
           <strong>Next</strong>
-          {item.next}
+          {readable(item.next)}
         </p>
       )}
       {item.blocker && (
         <p className="brief-item-context brief-blocker">
           <strong>Blocked</strong>
-          {item.blocker}
+          {readable(item.blocker)}
         </p>
       )}
       {replacement && (
         <p className="brief-item-context">
           <strong>Replaced by</strong>
-          {replacement}
+          {readable(replacement)}
         </p>
       )}
     </header>
@@ -87,12 +93,20 @@ export function BriefEvidence({
   workspace: string;
   onNavigate: (url: string) => void;
 }) {
+  const readable = useReadableText();
   const cites = itemCitations(item);
   return (
     <div className="brief-evidence">
       {cites.map((cite, index) => {
         const source = sources[cite.ref],
           href = source && briefSourceUrl(source, workspace);
+        const excerpt =
+          cite.quote ||
+          source?.excerpt ||
+          (source
+            ? "No excerpt available."
+            : "The source is no longer available.");
+        const displayExcerpt = readable(excerpt);
         return (
           <article className="brief-source" key={cite.ref + index}>
             <div className="brief-source-head">
@@ -100,7 +114,7 @@ export function BriefEvidence({
               <div>
                 <h4>
                   {source
-                    ? source.title || "Untitled source"
+                    ? readable(source.title || "Untitled source")
                     : "Source unavailable"}
                 </h4>
                 {source?.at != null && (
@@ -111,13 +125,10 @@ export function BriefEvidence({
                 {index >= item.cite.length && <span>Answer evidence</span>}
               </div>
             </div>
-            <blockquote>
-              {cite.quote ||
-                source?.excerpt ||
-                (source
-                  ? "No excerpt available."
-                  : "The source is no longer available.")}
-            </blockquote>
+            <blockquote>{displayExcerpt}</blockquote>
+            {displayExcerpt !== excerpt && (
+              <p className="muted">Open the source for the original wording.</p>
+            )}
             {href ? (
               <a
                 href={href}
@@ -164,6 +175,7 @@ export function BriefHistoryList({
   onRetry: () => void;
   onMore: () => void;
 }) {
+  const readable = useReadableText();
   const versions =
     history?.items.filter(
       (version) =>
@@ -190,7 +202,7 @@ export function BriefHistoryList({
       )}
       {error && (
         <div className="brief-notice error" role="alert">
-          <p>{error}</p>
+          <p>{readable(error)}</p>
           <button
             type="button"
             className="text-button"

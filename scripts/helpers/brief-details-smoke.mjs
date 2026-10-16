@@ -1,6 +1,7 @@
 import { briefStatesSmoke } from "./brief-states-smoke.mjs";
 import { briefHistorySmoke } from "./brief-history-smoke.mjs";
 import { briefPaginationSmoke } from "./brief-pagination-smoke.mjs";
+import { briefReadableSmoke } from "./brief-readable-smoke.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
@@ -51,6 +52,8 @@ export async function briefDetailsSmoke(
     .getByRole("button", { name: "Enable brief", exact: true })
     .click();
   await expect(sheet).toHaveCount(0);
+
+  await briefReadableSmoke(page, fixture, { project, ids, thread }, refresh);
 
   // An evidence load failure is not an empty record and never clears the draft.
   let releaseChoices;

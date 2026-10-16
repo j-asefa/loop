@@ -9,6 +9,8 @@ import { ProjectBriefView } from "../src/client/ProjectBrief";
 import { BriefItemCard } from "../src/client/ProjectBriefView";
 import { BriefAcknowledgements, briefSourceUrl } from "../src/client/briefView";
 import type { BriefPage, Item } from "../src/shared/briefs";
+import { ReadableTextProvider } from "../src/client/ReadableText";
+import { readableAuthor } from "../src/shared/readable-text";
 
 function fixture(): BriefPage {
   const item: Item = {
@@ -96,6 +98,63 @@ const actions = {
   onHistory: vi.fn(),
   onDecision: vi.fn(),
 };
+it("uses readable names across old brief content and evidence without rewriting source links or records", () => {
+  const agent = "3dd35f59-14de-44cb-9914-d991edfc28ce";
+  const thread = "2c20ef58-0ba2-4ef6-b87c-a74e724432f5";
+  const payload = "YWJj".repeat(100);
+  const agents = [{ id: agent, name: "forest" }];
+  const brief = fixture();
+  brief.headline!.text = `@${agent} is reviewing thread ${thread}.`;
+  brief.goal!.text = `Review ${payload} with @${agent}.`;
+  brief.sources.res_1.title = `Review from @${agent}`;
+  brief.sources.res_1.conversation = thread;
+  const item: Item = {
+    ...brief.decisions[0],
+    text: `Review snapshot ${thread}`,
+    why: `@${agent} found a layout issue`,
+    decided_by: agent,
+    next: `Ask @${agent} to test`,
+    blocker: `Upload ${payload}`,
+    cite: [{ ref: "res_1", quote: `@${agent} reviewed ${payload}` }],
+  };
+  brief.decisions = [item];
+  const original = structuredClone(brief);
+  const html = renderToStaticMarkup(
+    <ReadableTextProvider agents={agents}>
+      <ProjectBriefView brief={brief} {...actions} section="decisions" />
+      <BriefItemCard
+        item={item}
+        sources={brief.sources}
+        workspace="docker:fixture"
+        author={(id) => readableAuthor(id, agents)}
+        onNavigate={actions.onNavigate}
+        onItem={actions.onItem}
+      />
+      <BriefItemSummary
+        item={item}
+        author={(id) => readableAuthor(id, agents)}
+        replacement={`Review by @${agent}`}
+      />
+      <BriefEvidence
+        item={item}
+        sources={brief.sources}
+        workspace="docker:fixture"
+        onNavigate={actions.onNavigate}
+      />
+    </ReadableTextProvider>,
+  );
+  const text = html.replace(/<[^>]*>/g, "");
+  expect(text).toContain("@forest is reviewing the conversation");
+  expect(text).toContain("Decided by @forest");
+  expect(text).toContain("Ask @forest to test");
+  expect(text).toContain("Review from @forest");
+  expect(text).toContain("Open the source for the original wording.");
+  for (const token of [agent, thread, payload])
+    expect(text).not.toContain(token);
+  expect(html).toContain('aria-label="Open source: Review from @forest"');
+  expect(html).toContain(`conversation=${thread}&amp;message=answer`);
+  expect(brief).toEqual(original);
+});
 it("counts the current record including overflow without rendering every category", () => {
   const html = renderToStaticMarkup(
     <ProjectBriefView brief={fixture()} {...actions} />,

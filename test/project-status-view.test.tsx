@@ -3,7 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ProjectStatusCard } from "../src/client/ProjectStatus";
 import type { ProjectStatus } from "../src/shared/project-status";
 afterEach(() => vi.unstubAllGlobals());
-function render(overrides: Partial<ProjectStatus> = {}, fresh = true) {
+function render(
+  overrides: Partial<ProjectStatus> = {},
+  fresh = true,
+  agents: { id: string; name: string }[] = [],
+) {
   vi.stubGlobal("location", new URL("https://loop.test/"));
   const item: ProjectStatus = {
     id: "project",
@@ -32,6 +36,7 @@ function render(overrides: Partial<ProjectStatus> = {}, fresh = true) {
       fresh={fresh}
       observedAt={1000}
       sourceId="docker:one"
+      agents={agents}
       busy={false}
       onAction={() => {}}
       onEvidence={() => {}}
@@ -48,6 +53,57 @@ it("labels last-seen counts instead of claiming live zeroes after a failed sourc
   expect(html).toContain("2 waiting for you");
   expect(html).not.toContain("status-live");
   expect(html).not.toContain("No agents working");
+});
+
+it("keeps identifiers and payloads out of all card text while retaining navigation targets", () => {
+  const agent = "3dd35f59-14de-44cb-9914-d991edfc28ce";
+  const project = "2c20ef58-0ba2-4ef6-b87c-a74e724432f5";
+  const payload = "YWJj".repeat(100);
+  const html = render(
+    {
+      id: project,
+      evidence: {
+        run_id: project,
+        conversation: project,
+        agent,
+        task: `Review ${payload} with @${agent}`,
+        checkout: null,
+        checkout_at: null,
+        verification: null,
+        verification_at: null,
+        telemetry: "unavailable",
+      },
+      brief: {
+        state: "ready",
+        headline: `@${agent} is reviewing thread ${project}`,
+        synthesized_at: 1000,
+        pending: 0,
+        unfinished: 1,
+        questions: 1,
+        blockers: 1,
+        highlights: {
+          updated_at: 1000,
+          progress: [{ id: project, text: `Review by ${agent} is ready.` }],
+          task: {
+            id: project,
+            text: `Review snapshot ${project}`,
+            next: `Ask @${agent}`,
+            blocker: `Waiting on ${payload}`,
+          },
+          question: { id: project, text: `Should @${agent} proceed?` },
+        },
+      },
+    },
+    true,
+    [{ id: agent, name: "forest" }],
+  );
+  const text = html.replace(/<[^>]*>/g, "");
+  expect(text).toContain("@forest is reviewing the conversation");
+  expect(text).toContain("Latest task · @forest");
+  expect(text).not.toContain("@@forest");
+  for (const token of [project, agent, payload])
+    expect(text).not.toContain(token);
+  expect(html).toContain(`projectView=${project}`);
 });
 it("keeps missing brief counts unknown and waiting approval ahead of enable", () => {
   const html = render({

@@ -542,7 +542,10 @@ try {
   );
   await page.goto(f.base + "/?filter=status");
   const denseCard = page.locator(".project-status-card").first();
-  await expect(denseCard).toContainText(dense.brief.headline);
+  await expect(denseCard).toContainText(
+    "consolidation confirms P2 tab persistence",
+  );
+  await expect(denseCard).not.toContainText("c96cd311");
   await expect(denseCard.getByText("141 recorded blockers")).toBeHidden();
   await expect(
     denseCard.getByRole("link", { name: "Review blockers" }),
@@ -564,6 +567,23 @@ try {
       await expect(denseCard.getByText(text, { exact: false })).toBeVisible();
     }
   }
+  // Cached briefs can contain internal identities and uploaded payloads. They
+  // are readable immediately, without regenerating the brief or changing IDs.
+  const readableTask = { ...dense.brief.highlights.task };
+  const displayAgent = densePage.agents[0];
+  const encoded = "YWJj".repeat(100);
+  dense.brief.highlights.task.next = `Ask @${displayAgent.id} to review thread ${project.id}.`;
+  dense.brief.highlights.task.blocker = `Check the attachment: ${encoded}`;
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(denseCard).toContainText(
+    `Ask @${displayAgent.name} to review the conversation.`,
+  );
+  for (const token of [displayAgent.id, project.id, encoded])
+    await expect(denseCard).not.toContainText(token);
+  await expect(
+    denseCard.getByRole("link", { name: "Review blockers" }),
+  ).toHaveAttribute("href", new RegExp("projectView=" + dense.id));
+  dense.brief.highlights.task = readableTask;
   // Illustrative brief content for the design preview, not a live project read.
   dense.brief.headline =
     "Tabs still reset after reopening. The fix is next; the filtering issue remains unconfirmed.";

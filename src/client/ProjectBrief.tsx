@@ -9,6 +9,8 @@ import {
 import { executionSourceId } from "./sourceRouting";
 import { viewOwner } from "./viewCache";
 import { Sheet } from "./components";
+import { ReadableTextProvider, useReadableText } from "./ReadableText";
+import { readableAuthor } from "../shared/readable-text";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { ConnectionPicker, ModelPicker } from "./ConnectionPicker";
 import { modelGroups } from "./modelChoices";
@@ -168,12 +170,14 @@ export function ProjectBrief(props: Props) {
   const workspace = executionSourceId(),
     owner = viewOwner();
   return (
-    <ProjectBriefSession
-      key={JSON.stringify([owner, workspace, props.projectId])}
-      {...props}
-      workspace={workspace}
-      owner={owner}
-    />
+    <ReadableTextProvider agents={props.agents}>
+      <ProjectBriefSession
+        key={JSON.stringify([owner, workspace, props.projectId])}
+        {...props}
+        workspace={workspace}
+        owner={owner}
+      />
+    </ReadableTextProvider>
   );
 }
 
@@ -188,6 +192,7 @@ function ProjectBriefSession({
   workspace,
   owner,
 }: Props & { workspace: string; owner: string | undefined }) {
+  const readable = useReadableText();
   const [page, setPage] = useState(initial),
     [loadError, setLoadError] = useState(""),
     [ackError, setAckError] = useState(""),
@@ -254,7 +259,8 @@ function ProjectBriefSession({
               ...next.unfinished,
             ].flatMap(itemCitations),
           ]) {
-            if (next.sources[cite.ref]) sources[cite.ref] = next.sources[cite.ref];
+            if (next.sources[cite.ref])
+              sources[cite.ref] = next.sources[cite.ref];
             else delete sources[cite.ref];
           }
           return { ...current, sources };
@@ -357,12 +363,7 @@ function ProjectBriefSession({
       if (valid()) setBusy(false);
     }
   };
-  const author = (id: string) =>
-    id === "you"
-      ? "you"
-      : agents.find((agent) => agent.id === id)
-        ? "@" + agents.find((agent) => agent.id === id)!.name
-        : id;
+  const author = (id: string) => readableAuthor(id, agents);
   const history = async (more = false) => {
     if (
       !valid() ||
@@ -412,8 +413,8 @@ function ProjectBriefSession({
       replacement: ledger?.replacements[item.id],
     });
     setSourceRef("");
-    setText(item.text);
-    setWhy(item.why || "");
+    setText(readable(item.text));
+    setWhy(readable(item.why || ""));
     setEditing(false);
     setDetailTab("evidence");
     setVersions(null);
@@ -505,9 +506,10 @@ function ProjectBriefSession({
         .map((ref) => sources[ref])
         .filter((source) => source && briefSourceUrl(source, workspace))
     : [];
-  const chosenSource = sourceChoices.length === 1
-    ? sourceChoices[0]
-    : sourceChoices.find((source) => source.ref === sourceRef);
+  const chosenSource =
+    sourceChoices.length === 1
+      ? sourceChoices[0]
+      : sourceChoices.find((source) => source.ref === sourceRef);
   const sourceUrl = chosenSource && briefSourceUrl(chosenSource, workspace);
   const itemPath = item ? `/items/${encodeURIComponent(item.id)}` : "";
   const historyList = (
@@ -569,7 +571,8 @@ function ProjectBriefSession({
               <option value="">Choose a source</option>
               {sourceChoices.map((source) => (
                 <option key={source.ref} value={source.ref}>
-                  {source.title} · {source.excerpt.slice(0, 60)}
+                  {readable(source.title)} ·{" "}
+                  {readable(source.excerpt).slice(0, 60)}
                 </option>
               ))}
             </select>
@@ -611,8 +614,8 @@ function ProjectBriefSession({
             disabled={busy}
             onClick={() => {
               setActionError("");
-              setText(item.text);
-              setWhy(item.why || "");
+              setText(readable(item.text));
+              setWhy(readable(item.why || ""));
               setEditing(true);
             }}
           >
@@ -625,7 +628,7 @@ function ProjectBriefSession({
     <>
       {(loadError || ackError) && (
         <div className="brief-notice error" role="alert">
-          <p>{loadError || ackError}</p>
+          <p>{readable(loadError || ackError)}</p>
           <button
             type="button"
             className="text-button"
@@ -638,7 +641,7 @@ function ProjectBriefSession({
       )}
       {actionError && !sheet && (
         <p className="error" role="alert">
-          {actionError}
+          {readable(actionError)}
         </p>
       )}
       {busy && (
@@ -662,7 +665,7 @@ function ProjectBriefSession({
           onItem={openItem}
           onAll={(kind) => void showAll(kind)}
           onGoal={() => {
-            if (open("goal")) setGoal(page.goal?.text || "");
+            if (open("goal")) setGoal(readable(page.goal?.text || ""));
           }}
           onSettings={() => open("settings")}
           onHistory={() => {
@@ -724,7 +727,7 @@ function ProjectBriefSession({
         >
           {actionError && (
             <p className="error" role="alert">
-              {actionError}
+              {readable(actionError)}
             </p>
           )}
           {sheet === "settings" && (
@@ -740,7 +743,16 @@ function ProjectBriefSession({
               id={formId}
               onSubmit={(event) => {
                 event.preventDefault();
-                void mutate("/goal", { text: goal.trim() || null }, "PUT");
+                void mutate(
+                  "/goal",
+                  {
+                    text:
+                      goal === readable(page.goal?.text || "")
+                        ? page.goal?.text || null
+                        : goal.trim() || null,
+                  },
+                  "PUT",
+                );
               }}
             >
               <p className="muted">
@@ -800,7 +812,7 @@ function ProjectBriefSession({
               )}
               {choicesError && (
                 <div className="brief-notice error" role="alert">
-                  <p>{choicesError}</p>
+                  <p>{readable(choicesError)}</p>
                   <button
                     type="button"
                     className="text-button"
@@ -822,7 +834,8 @@ function ProjectBriefSession({
                   >
                     {choices.map((choice) => (
                       <option key={choice.ref} value={choice.ref}>
-                        {choice.title} · {choice.excerpt.slice(0, 80)}
+                        {readable(choice.title)} ·{" "}
+                        {readable(choice.excerpt).slice(0, 80)}
                       </option>
                     ))}
                   </select>
@@ -846,7 +859,7 @@ function ProjectBriefSession({
               )}
               {allError && (
                 <div className="brief-notice error" role="alert">
-                  <p>{allError}</p>
+                  <p>{readable(allError)}</p>
                   <button
                     type="button"
                     className="text-button"
@@ -897,8 +910,14 @@ function ProjectBriefSession({
                   void mutate(
                     itemPath,
                     {
-                      text: text.trim(),
-                      ...(item.kind === "decision" && { why: why.trim() }),
+                      text:
+                        text === readable(item.text) ? item.text : text.trim(),
+                      ...(item.kind === "decision" && {
+                        why:
+                          why === readable(item.why || "")
+                            ? item.why || ""
+                            : why.trim(),
+                      }),
                     },
                     "PATCH",
                   );

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { briefAttentionUrl, briefSourceUrl } from "./briefView";
 import { relativeTime } from "./threadView";
+import { useReadableAuthor, useReadableText } from "./ReadableText";
 import type { BriefPage, BriefSource, Item } from "../shared/briefs";
 
 export const briefSections = [
@@ -124,6 +125,7 @@ export function BriefCitations({
   workspace: string;
   onNavigate: (url: string) => void;
 }) {
+  const readable = useReadableText();
   const cites = [
     ...item.cite,
     ...(item.answered_cite ? [item.answered_cite] : []),
@@ -142,10 +144,10 @@ export function BriefCitations({
               event.preventDefault();
               onNavigate(href);
             }}
-            aria-label={`Open source: ${source.title}`}
+            aria-label={`Open source: ${readable(source.title)}`}
           >
             <ArrowUpRight size={14} aria-hidden="true" />
-            {source.title}
+            {readable(source.title)}
           </a>
         ) : (
           <span className="chip muted" key={cite.ref + index}>
@@ -178,6 +180,7 @@ export function BriefItemCard({
   replacement?: string;
   compact?: boolean;
 }) {
+  const readable = useReadableText();
   const Icon = item.pinned ? Pin : itemIcons[item.kind];
   const sourcesCount = new Set([
     ...item.cite.map((cite) => cite.ref),
@@ -195,22 +198,26 @@ export function BriefItemCard({
           <span
             className={item.status === "superseded" ? "brief-superseded" : ""}
           >
-            {item.text}
+            {readable(item.text)}
           </span>
           {!compact && (
             <>
-              {item.why && <small>{item.why}</small>}
-              {item.asked_by && <small>Asked by {author(item.asked_by)}</small>}
-              {item.decided_by && (
-                <small>Decided by {author(item.decided_by)}</small>
+              {item.why && <small>{readable(item.why)}</small>}
+              {item.asked_by && (
+                <small>Asked by {readable(author(item.asked_by))}</small>
               )}
-              {item.next && <small>Next · {item.next}</small>}
+              {item.decided_by && (
+                <small>Decided by {readable(author(item.decided_by))}</small>
+              )}
+              {item.next && <small>Next · {readable(item.next)}</small>}
               {item.blocker && (
                 <small className="brief-blocker">
-                  Blocked · {item.blocker}
+                  Blocked · {readable(item.blocker)}
                 </small>
               )}
-              {replacement && <small>Replaced by · {replacement}</small>}
+              {replacement && (
+                <small>Replaced by · {readable(replacement)}</small>
+              )}
             </>
           )}
           <span className="brief-markers">
@@ -267,7 +274,7 @@ export function ProjectBriefView({
   section,
   onSectionChange,
   workspace = "",
-  author = (id) => id,
+  author: authorOverride,
   onNavigate,
   onItem,
   onAll,
@@ -276,6 +283,9 @@ export function ProjectBriefView({
   onHistory,
   onDecision,
 }: ViewProps) {
+  const readable = useReadableText();
+  const defaultAuthor = useReadableAuthor();
+  const author = authorOverride ?? defaultAuthor;
   const selected = briefSections.find(([key]) => key === section)!;
   const changed = new Set(brief.changes.map((change) => change.id));
   const needs = brief.needs_you;
@@ -340,12 +350,14 @@ export function ProjectBriefView({
             <Settings2 size={17} />
           </button>
         </div>
-        <h2>{brief.headline?.text || "Your project, taking shape."}</h2>
+        <h2>
+          {readable(brief.headline?.text || "Your project, taking shape.")}
+        </h2>
         {brief.goal ? (
           <button type="button" className="brief-goal" onClick={onGoal}>
             <span>
               <small>Goal · you</small>
-              <strong>{brief.goal.text}</strong>
+              <strong>{readable(brief.goal.text)}</strong>
             </span>
             <Pencil size={14} aria-hidden="true" />
           </button>
@@ -377,8 +389,8 @@ export function ProjectBriefView({
             </summary>
             <div className="brief-provenance-detail">
               <p>
-                {brief.basis.window} ·{" "}
-                {brief.coverage.model || "No model generation yet"}
+                {readable(brief.basis.window)} ·{" "}
+                {readable(brief.coverage.model || "No model generation yet")}
               </p>
               {brief.headline && (
                 <BriefCitations
@@ -406,7 +418,7 @@ export function ProjectBriefView({
                       {artifact.kind === "chart"
                         ? "Published chart"
                         : "Published file"}{" "}
-                      · {artifact.state}
+                      · {readable(artifact.state)}
                       <ArrowUpRight size={14} aria-hidden="true" />
                     </a>
                   );
@@ -459,7 +471,9 @@ export function ProjectBriefView({
         )}
         {brief.settings.lastError && (
           <div className="brief-notice error" role="alert">
-            <p>The brief could not update. {brief.settings.lastError}</p>
+            <p>
+              The brief could not update. {readable(brief.settings.lastError)}
+            </p>
             <button type="button" className="text-button" onClick={onSettings}>
               Check brief settings
             </button>

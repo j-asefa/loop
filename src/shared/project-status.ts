@@ -59,6 +59,8 @@ export type ProjectStatus = {
 };
 export type ProjectStatusPage = {
   owner_id: string;
+  /** Display names from this workspace only; optional for older responses. */
+  agents?: { id: string; name: string }[];
   observed_at: number;
   /** Activity and evidence follow teams; the brief always describes the project. */
   teams: string[] | null;

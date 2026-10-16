@@ -3,6 +3,7 @@ import { FileDiff, GitBranch } from "lucide-react";
 import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
+import { readableText } from "../shared/readable-text";
 import {
   checkoutLine,
   patchByFile,
@@ -38,7 +39,7 @@ export function CheckoutChip({
       : summary.state === "failed" ? "Diff unavailable" : "Diff pending"
     : checkoutLine({
         ...summary,
-        branch: summary.branch.replace(/^(loop\/agent-[a-f0-9]{4})[a-f0-9]+$/, "$1"),
+        branch: readableText(summary.branch),
       });
   const count = (value: number) => new Intl.NumberFormat("en", {
     notation: "compact", maximumFractionDigits: 1,
@@ -148,18 +149,18 @@ export function CheckoutSheet({
   }
   return (
     <Sheet title="Checkout" wide onClose={onClose} className="changes-sheet">
-      {error && <p className="field-error">{error}</p>}
+      {error && <p className="field-error">{readableText(error)}</p>}
       {!detail && !error && <p role="status">Loading checkout…</p>}
       {detail && (
         <>
           <div className="changes-head">
             <p className="changes-total">
-              {detail.summary ? checkoutLine(detail.summary) : detail.branch}
+              {readableText(detail.summary ? checkoutLine(detail.summary) : detail.branch)}
             </p>
             <p className="changes-meta">
               Observed by Loop
               {detail.ended_at ? ` at ${when(detail.ended_at)}` : ` from ${when(detail.started_at)}`}
-              {" · "}base {detail.base_ref ?? "unknown"} <code>{short(detail.base_sha)}</code>
+              {" · "}base {readableText(detail.base_ref ?? "unknown")} <code>{short(detail.base_sha)}</code>
               {" · "}start <code>{short(detail.start_head)}</code>
               {detail.end_head && (
                 <>
@@ -169,7 +170,7 @@ export function CheckoutSheet({
             </p>
             {notes.map((note) => (
               <p key={note} className="field-hint checkout-note">
-                {note}
+                {readableText(note)}
               </p>
             ))}
           </div>

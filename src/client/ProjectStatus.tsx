@@ -30,6 +30,12 @@ import {
   type ProjectStatusPage,
 } from "../shared/project-status";
 import "./projectStatus.css";
+import {
+  createReadableText,
+  readableAuthor,
+  readableText,
+  type DisplayAgent,
+} from "../shared/readable-text";
 
 type SourcePage = {
   source: AgentSource;
@@ -91,6 +97,7 @@ export function ProjectStatusCard({
   fresh,
   observedAt,
   sourceName,
+  agents = [],
   sourceId,
   busy,
   onAction,
@@ -101,12 +108,14 @@ export function ProjectStatusCard({
   fresh: boolean;
   observedAt: number;
   sourceName?: string;
+  agents?: DisplayAgent[];
   sourceId: string;
   busy: boolean;
   onAction: (action: ProjectStatusAction) => void;
   onEvidence: (kind: "checkout" | "verification" | "evidence") => void;
   onPulls: () => void;
 }) {
+  const readable = createReadableText(agents);
   const b = p.brief,
     e = p.evidence;
   const brief = statusUrl(sourceId, {
@@ -136,7 +145,7 @@ export function ProjectStatusCard({
           <span className="project-status-icon" aria-hidden="true">
             <FolderOpen size={21} />
           </span>
-          <span className="project-status-name">{p.name}</span>
+          <span className="project-status-name">{readable(p.name)}</span>
         </a>
         <Chip
           tone={
@@ -153,7 +162,9 @@ export function ProjectStatusCard({
           {!fresh && " · last seen"}
         </Chip>
       </header>
-      {sourceName && <p className="project-status-source">{sourceName}</p>}
+      {sourceName && (
+        <p className="project-status-source">{readable(sourceName)}</p>
+      )}
       <p className="project-status-counts">
         <span className={fresh ? "status-live" : ""}>
           {fresh ? "Now" : `Last seen ${relativeTime(observedAt)}`}
@@ -192,7 +203,7 @@ export function ProjectStatusCard({
           </p>
         )}
         <p className="project-status-summary">
-          {b.headline || briefLabel[b.state]}
+          {readable(b.headline || briefLabel[b.state])}
         </p>
         {b.headline && b.state !== "ready" && b.synthesized_at === null && (
           <p className="muted">{briefLabel[b.state]}</p>
@@ -217,7 +228,7 @@ export function ProjectStatusCard({
                 </h3>
                 <ul role="list">
                   {highlights.progress.map((item) => (
-                    <li key={item.id}>{item.text}</li>
+                    <li key={item.id}>{readable(item.text)}</li>
                   ))}
                 </ul>
               </div>
@@ -228,14 +239,14 @@ export function ProjectStatusCard({
                   <ListTodo size={15} aria-hidden="true" /> Next up
                 </h3>
                 <p className="project-status-task-name">
-                  {highlights.task.text}
+                  {readable(highlights.task.text)}
                 </p>
                 {highlights.task.blocker && (
                   <div className="project-status-blocker">
                     <TriangleAlert size={15} aria-hidden="true" />
                     <p>
                       <strong>Blocked by</strong>
-                      <span>{highlights.task.blocker}</span>
+                      <span>{readable(highlights.task.blocker)}</span>
                     </p>
                   </div>
                 )}
@@ -245,7 +256,7 @@ export function ProjectStatusCard({
                       <ArrowRight size={15} aria-hidden="true" />
                       <p>
                         <strong>Next step</strong>
-                        <span>{highlights.task.next}</span>
+                        <span>{readable(highlights.task.next)}</span>
                       </p>
                     </div>
                   )}
@@ -256,7 +267,7 @@ export function ProjectStatusCard({
                 <h3>
                   <CircleHelp size={15} aria-hidden="true" /> Open question
                 </h3>
-                <p>{highlights.question.text}</p>
+                <p>{readable(highlights.question.text)}</p>
               </div>
             )}
           </section>
@@ -327,9 +338,10 @@ export function ProjectStatusCard({
                 className="project-status-caption"
                 onClick={() => onEvidence("evidence")}
               >
-                Latest task · @{e.agent}
+                Latest task ·{" "}
+                {readableAuthor("@" + e.agent.replace(/^@/, ""), agents)}
                 <br />
-                <span>{e.task}</span>
+                <span>{readable(e.task)}</span>
               </button>
               {(showCheckout || showVerification) && (
                 <div className="project-status-chips">
@@ -699,6 +711,7 @@ function StatusSession({
       item={card.project}
       fresh={card.source.fresh}
       observedAt={card.source.page!.observed_at}
+      agents={card.source.page?.agents}
       sourceId={card.source.source.id}
       sourceName={sources.length > 1 ? card.source.source.name : undefined}
       busy={busy === keyOf(card)}
@@ -733,7 +746,8 @@ function StatusSession({
       </div>
       {(project || teams) && (
         <p className="field-hint">
-          Activity and evidence: {sources[0]?.name}.
+          Activity and evidence:{" "}
+          {readableText(sources[0]?.name || "This workspace")}.
           {teams &&
             " Selected teams; briefs and recorded blockers describe the whole project."}
           {" Clear filters to see all workspaces."}
@@ -743,7 +757,7 @@ function StatusSession({
         .filter((p) => p.error)
         .map((p) => (
           <p className="error" role="status" key={p.source.id}>
-            {p.source.name}:{" "}
+            {readableText(p.source.name)}:{" "}
             {p.page
               ? `Last seen ${relativeTime(p.page.observed_at)}. Couldn’t refresh.`
               : "Status unavailable."}
@@ -751,7 +765,7 @@ function StatusSession({
         ))}
       {error && (
         <p className="error" role="alert">
-          {error}
+          {readableText(error)}
         </p>
       )}
       {loading && !cards.length ? (
@@ -797,8 +811,14 @@ function StatusSession({
       {sheet?.kind === "evidence" && (
         <Sheet title="Recorded run" onClose={() => setSheet(null)}>
           <p>
-            @{sheet.card.project.evidence!.agent} ·{" "}
-            {sheet.card.project.evidence!.task}
+            {readableAuthor(
+              "@" + sheet.card.project.evidence!.agent.replace(/^@/, ""),
+              sheet.card.source.page?.agents,
+            )}{" "}
+            ·{" "}
+            {createReadableText(sheet.card.source.page?.agents)(
+              sheet.card.project.evidence!.task,
+            )}
           </p>
           <p className="muted">
             Checkout and verification belong to this run. Project PR

@@ -154,15 +154,26 @@ export async function briefStatesSmoke(
   // Oversized real-contract strings/counts and user text scaling must wrap.
   snapshot = {
     ...normal,
-    headline: { ...normal.headline, text: "A".repeat(140) },
-    goal: { text: "B".repeat(200) },
+    headline: {
+      ...normal.headline,
+      text: "The release review is ready and the remaining layout checks need attention. "
+        .repeat(2)
+        .slice(0, 140),
+    },
+    goal: {
+      text: "Ship a readable project brief with clear next steps and evidence for every decision. "
+        .repeat(3)
+        .slice(0, 200),
+    },
     needs_you: [],
     state: [
       {
         ...normal.decisions[0],
         kind: "state",
         id: "long-state",
-        text: "C".repeat(240),
+        text: "The phone review covers navigation, readability and touch targets across every section. "
+          .repeat(3)
+          .slice(0, 240),
       },
     ],
     overflow: { ...normal.overflow, decisions: 123456 },

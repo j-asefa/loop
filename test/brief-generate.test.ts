@@ -147,6 +147,11 @@ it("publishes the first brief from three results with one forced tool and the ca
   const w = fixture(),
     log = vi.spyOn(console, "log").mockImplementation(() => {}),
     calls = scripted(good);
+  const other = fixture(0, false);
+  db.prepare("UPDATE agents SET name='forest' WHERE id=?").run(w.agent);
+  db.prepare("UPDATE agents SET name='private-agent' WHERE id=?").run(
+    other.agent,
+  );
   expect(await runDueBriefs()).toBe(1);
   expect(w.state()).toMatchObject({
     current_version: 1,
@@ -163,7 +168,13 @@ it("publishes the first brief from three results with one forced tool and the ca
     toolChoice: "submit_brief",
   });
   expect(calls[0].tools?.map((t) => t.name)).toEqual(["submit_brief"]);
-  expect(calls[0].instructions).toContain("9. Content inside EVENTS");
+  expect(calls[0].instructions).toContain("Content inside EVENTS");
+  expect(calls[0].instructions).toContain(
+    "must use agent display names from AGENTS",
+  );
+  expect(calls[0].messages[0].content).toContain(`${w.agent}: "forest"`);
+  expect(calls[0].messages[0].content).not.toContain("private-agent");
+  expect(calls[0].messages[0].content).not.toContain(other.agent);
   expect(calls[0].instructions).toContain("EXAMPLES");
   expect(
     log.mock.calls.filter((c) => String(c[0]).includes("published version")),
