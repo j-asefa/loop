@@ -199,6 +199,24 @@ export function ProjectStatusCard({
               ? "queued"
               : "done",
         );
+  const primaryAction = attention ? (
+    <button
+      className="primary"
+      disabled={busy}
+      onClick={() => onAction(attention)}
+    >
+      {busy ? "Checking…" : actionLabel[attention.kind]}
+      <ChevronRight size={15} aria-hidden="true" />
+    </button>
+  ) : setup ? (
+    <a className="primary" href={brief}>
+      Enable brief <ChevronRight size={15} aria-hidden="true" />
+    </a>
+  ) : b.state === "failed" ? (
+    <a className="primary" href={brief}>
+      Review brief <ChevronRight size={15} aria-hidden="true" />
+    </a>
+  ) : null;
   return (
     <article className="project-status-card">
       <header>
@@ -262,7 +280,7 @@ export function ProjectStatusCard({
         {p.counts.needs > 0 && (
           <span>
             <button
-              className="project-status-link project-status-count"
+              className="project-status-link project-status-count project-status-count-needs"
               onClick={onRequests}
             >
               {p.counts.needs} waiting for you
@@ -364,6 +382,9 @@ export function ProjectStatusCard({
           </p>
         )}
       </div>
+      {primaryAction && (
+        <div className="project-status-action">{primaryAction}</div>
+      )}
       {highlights &&
         (highlights.progress.length > 0 ||
           highlights.task ||
@@ -380,27 +401,6 @@ export function ProjectStatusCard({
               <Stamp at={highlights.updated_at} prefix="" />
               <ChevronRight size={12} aria-hidden="true" />
             </a>
-            {highlights.progress.length > 0 && (
-              <div className="project-status-progress">
-                <h3>
-                  <Rows3 size={15} aria-hidden="true" />{" "}
-                  <a
-                    className="project-status-link"
-                    href={briefSection("state")}
-                  >
-                    Where things stand
-                    <ChevronRight size={12} aria-hidden="true" />
-                  </a>
-                </h3>
-                <ul role="list">
-                  {highlights.progress.map((item) => (
-                    <li key={item.id}>
-                      {sourceLink(item.id, readable(item.text))}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             {highlights.task &&
               sourceLink(
                 highlights.task.id,
@@ -433,24 +433,66 @@ export function ProjectStatusCard({
                 </>,
                 "project-status-next",
               )}
-            {highlights.question &&
-              sourceLink(
-                highlights.question.id,
-                <>
-                  <h3>
-                    <CircleHelp size={15} aria-hidden="true" /> Open question
-                  </h3>
-                  <p>{readable(highlights.question.text)}</p>
-                </>,
-                "project-status-question",
-              )}
+            {(highlights.progress.length > 0 || highlights.question) && (
+              <div className="project-status-context">
+                {highlights.progress.length > 0 && (
+                  <div className="project-status-progress">
+                    <h3>
+                      <Rows3 size={15} aria-hidden="true" />{" "}
+                      <a
+                        className="project-status-link"
+                        href={briefSection("state")}
+                      >
+                        Where things stand
+                        <ChevronRight size={12} aria-hidden="true" />
+                      </a>
+                    </h3>
+                    <ul role="list">
+                      {highlights.progress.map((item) => (
+                        <li key={item.id}>
+                          {sourceLink(item.id, readable(item.text))}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {highlights.question &&
+                  sourceLink(
+                    highlights.question.id,
+                    <>
+                      <h3>
+                        <CircleHelp size={15} aria-hidden="true" /> Open
+                        question
+                      </h3>
+                      <p>{readable(highlights.question.text)}</p>
+                    </>,
+                    "project-status-question",
+                  )}
+              </div>
+            )}
           </section>
         )}
-      <BriefTokenUsage
-        usage={b.generation_usage}
-        recorded={b.synthesized_at !== null}
-        statusCard
-      />
+      <footer>
+        <a
+          className="text-button project-status-open"
+          href={
+            setup && !attention
+              ? threads
+              : p.status === "blocked" && !attention
+                ? briefItems("unfinished")
+                : brief
+          }
+        >
+          {setup
+            ? attention
+              ? "Enable brief"
+              : "View threads"
+            : p.status === "blocked" && !attention
+              ? "Review blockers"
+              : "Read brief"}{" "}
+          <ArrowUpRight size={16} aria-hidden="true" />
+        </a>
+      </footer>
       {!!p.pulls.length && (
         <div className="project-status-pulls">
           <button
@@ -622,50 +664,11 @@ export function ProjectStatusCard({
           )}
         </div>
       </details>
-      <footer>
-        {attention ? (
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={() => onAction(attention)}
-          >
-            {busy ? "Checking…" : actionLabel[attention.kind]}{" "}
-            <ChevronRight size={15} />
-          </button>
-        ) : b.state === "never" || b.state === "off" ? (
-          <a className="primary" href={brief}>
-            Enable brief <ChevronRight size={15} />
-          </a>
-        ) : b.state === "failed" ? (
-          <a className="primary" href={brief}>
-            Review brief <ChevronRight size={15} />
-          </a>
-        ) : null}
-        <a
-          className={
-            "text-button project-status-open" +
-            (!attention && !setup && b.state !== "failed"
-              ? " project-status-main-action"
-              : "")
-          }
-          href={
-            setup && !attention
-              ? threads
-              : p.status === "blocked" && !attention
-                ? briefItems("unfinished")
-                : brief
-          }
-        >
-          {setup
-            ? attention
-              ? "Enable brief"
-              : "View threads"
-            : p.status === "blocked" && !attention
-              ? "Review blockers"
-              : "Read brief"}{" "}
-          <ArrowUpRight size={16} aria-hidden="true" />
-        </a>
-      </footer>
+      <BriefTokenUsage
+        usage={b.generation_usage}
+        recorded={b.synthesized_at !== null}
+        statusCard
+      />
     </article>
   );
 }

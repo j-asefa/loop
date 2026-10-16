@@ -37,17 +37,17 @@
 .project-status-icon {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  border: 1px solid color-mix(in srgb, var(--brass) 22%, var(--line));
-  border-radius: 12px;
-  color: var(--brass-text);
-  background: color-mix(in srgb, var(--brass) 10%, var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--surface);
 }
 .project-status-name {
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 600;
   letter-spacing: -0.35px;
   overflow-wrap: anywhere;
 }
@@ -74,7 +74,7 @@
   margin: 8px 0 0;
 }
 .project-status-record {
-  margin: 22px 0 0;
+  margin: 20px 0 0;
 }
 .project-status-record-heading {
   display: flex;
@@ -82,23 +82,17 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 6px 10px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 .project-status-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: var(--brass-text);
+  color: var(--muted);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 1.1px;
   text-transform: uppercase;
-}
-.project-status-eyebrow::before {
-  content: "";
-  width: 12px;
-  height: 2px;
-  background: currentColor;
 }
 .project-status-clock {
   display: flex;
@@ -111,10 +105,10 @@
   font-size: inherit;
 }
 .project-status-summary {
-  font-size: 21px;
-  font-weight: 550;
-  line-height: 1.3;
-  letter-spacing: -0.55px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.65px;
   text-wrap: pretty;
   margin: 0;
   overflow-wrap: anywhere;
@@ -126,10 +120,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
   color: var(--muted);
   font-size: 12px;
-  margin: 12px 0 0;
+  margin: 8px 0 0;
   line-height: 1.5;
 }
 .project-status-counts > :first-child {
@@ -190,7 +184,7 @@ button.project-status-caption {
 }
 .project-status-details {
   border-top: 1px solid var(--line);
-  margin-top: 20px;
+  margin-top: 8px;
 }
 .project-status-details > summary {
   display: flex;
@@ -222,6 +216,14 @@ button.project-status-caption {
 .project-status-detail-body {
   padding: 4px 0 16px;
 }
+.project-status-card > .brief-token-usage {
+  margin-top: 0;
+  border-top: 1px solid var(--line);
+}
+.project-status-card > .brief-token-usage summary {
+  padding: 12px 0;
+  font-size: 11px;
+}
 .project-status-ledger {
   display: grid;
   gap: 8px;
@@ -241,20 +243,25 @@ button.project-status-caption {
 .project-status-card footer {
   display: flex;
   gap: 10px;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 10px;
   flex-wrap: wrap;
 }
 .project-status-card footer a {
   text-decoration: none;
 }
-.project-status-card footer .primary {
+.project-status-action {
+  margin-top: 16px;
+}
+.project-status-action .primary {
   min-height: 44px;
-  padding: 8px 12px;
-  font-size: 12px;
-  display: inline-flex;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 .project-status-card footer .text-button {
@@ -264,19 +271,11 @@ button.project-status-caption {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--brass-text);
-  font-weight: 600;
-}
-.project-status-card footer .project-status-main-action {
-  width: 100%;
-  justify-content: space-between;
-  padding: 0 16px;
-  border: 1px solid var(--brass);
-  border-radius: 999px;
   color: var(--text);
+  font-weight: 500;
 }
-.project-status-main-action svg {
-  color: var(--brass-text);
+.project-status-open svg {
+  color: var(--muted);
 }
 .project-status-empty {
   margin-top: 16px;
@@ -307,16 +306,15 @@ button.project-status-caption {
 
 .project-status-highlights {
   display: grid;
-  gap: 18px;
-  margin-top: 20px;
+  gap: 16px;
+  margin-top: 18px;
   font-size: 14px;
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
 .project-status-highlights > .project-status-clock {
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-  margin: 0 0 -7px;
+  margin: 0 0 -8px;
+  font-size: 10px;
 }
 .project-status-highlights h3 {
   display: flex;
@@ -338,7 +336,7 @@ button.project-status-caption {
 }
 .project-status-highlights ul {
   display: grid;
-  gap: 8px;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -347,7 +345,7 @@ button.project-status-caption {
   color: var(--brass-text);
 }
 .project-status-task-name {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: -0.2px;
@@ -357,8 +355,9 @@ button.project-status-caption {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 10px;
   font-size: 13px;
+  color: var(--muted);
 }
 .project-status-blocker > svg,
 .project-status-step > svg {
@@ -378,7 +377,7 @@ button.project-status-caption {
   margin-bottom: 2px;
 }
 .project-status-step strong {
-  color: var(--brass-text);
+  color: var(--muted);
 }
 /* Reading surfaces, arrows and pills indicate actions without underlining prose. */
 .project-status-link {
@@ -395,7 +394,7 @@ button.project-status-link {
   padding: 0;
 }
 .project-status-eyebrow.project-status-link {
-  color: var(--brass-text);
+  color: var(--muted);
 }
 .project-status-caption.project-status-link {
   font-size: 11px;
@@ -420,11 +419,18 @@ button.project-status-link {
   gap: 5px;
 }
 .project-status-counts .project-status-count {
-  padding: 5px 9px;
-  border: 1px solid var(--line);
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+.project-status-counts .project-status-count-needs {
+  padding-inline: 9px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--secondary) 35%, var(--surface));
-  color: var(--text);
+  background: color-mix(in srgb, var(--brass) 12%, var(--surface));
+  color: var(--brass-text);
+  font-weight: 600;
 }
 .project-status-counts .project-status-count:hover {
   border-color: var(--brass);
@@ -452,7 +458,7 @@ button.project-status-link {
 }
 .project-status-surface-arrow {
   flex-shrink: 0;
-  color: var(--brass-text);
+  color: var(--muted);
   margin-top: 2px;
 }
 .project-status-surface:hover {
@@ -464,10 +470,65 @@ button.project-status-link {
 .project-status-counts .project-status-count:active {
   background: color-mix(in srgb, var(--brass) 13%, var(--surface));
 }
+.project-status-summary .project-status-surface {
+  padding: 8px 0;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.project-status-summary .project-status-surface-arrow {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+.project-status-summary .project-status-surface:hover {
+  background: color-mix(in srgb, var(--secondary) 28%, var(--surface));
+}
+.project-status-context {
+  display: grid;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.project-status-context h3 {
+  margin-bottom: 2px;
+}
+.project-status-progress li + li {
+  border-top: 1px solid var(--line);
+}
+.project-status-context .project-status-surface {
+  padding: 10px 0;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+}
+.project-status-context .project-status-surface:hover {
+  background: color-mix(in srgb, var(--secondary) 35%, var(--surface));
+  color: var(--text);
+}
+.project-status-context .project-status-surface-arrow {
+  width: 14px;
+  height: 14px;
+}
 .project-status-progress li .project-status-surface {
-  padding: 12px;
-  border-radius: 12px;
+  min-height: 44px;
   align-items: center;
+}
+.project-status-context .project-status-question {
+  padding: 12px;
+  border-radius: 0 8px 8px 0;
+  border-left: 2px solid var(--line);
+  background: color-mix(in srgb, var(--secondary) 18%, var(--surface));
+}
+.project-status-question h3 {
+  margin-bottom: 5px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
 }
 .project-status-ledger .project-status-surface {
   align-items: center;
@@ -476,8 +537,13 @@ button.project-status-link {
   border-radius: 10px;
 }
 .project-status-next.project-status-surface {
-  border-color: color-mix(in srgb, var(--brass) 32%, var(--line));
-  background: color-mix(in srgb, var(--brass) 6%, var(--surface));
+  padding: 16px;
+  border-color: color-mix(in srgb, var(--brass) 25%, var(--line));
+  border-left: 3px solid var(--brass);
+  background: color-mix(in srgb, var(--brass) 8%, var(--surface));
+}
+.project-status-next > .project-status-surface-arrow {
+  color: var(--brass-text);
 }
 .project-status-next.project-status-surface:hover {
   border-color: var(--brass);
