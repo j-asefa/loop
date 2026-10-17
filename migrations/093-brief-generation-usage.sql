@@ -9,3 +9,5 @@ CREATE TABLE brief_generation_usage (
 );
 CREATE INDEX brief_generation_usage_latest
   ON brief_generation_usage(owner_id, project_id, started_at DESC);
+
+INSERT INTO schema_version VALUES(93,unixepoch()*1000);

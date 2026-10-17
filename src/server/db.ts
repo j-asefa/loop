@@ -139,6 +139,17 @@ db.transaction(() => {
     )
   )
     db.exec("UPDATE schema_version SET version=83 WHERE version=80");
+  // Brief migrations 93/94 originally omitted their completion records.
+  // Recognize the applied schema so restarting preserves usage and owner text.
+  if (!version(93) && table("brief_generation_usage"))
+    db.exec("INSERT INTO schema_version VALUES(93,unixepoch()*1000)");
+  if (
+    !version(94) &&
+    (db.pragma("table_info(brief_items)") as { name: string }[]).some(
+      (column) => column.name === "summary",
+    )
+  )
+    db.exec("INSERT INTO schema_version VALUES(94,unixepoch()*1000)");
   for (const migration of readdirSync(
     new URL("../../migrations/", import.meta.url),
   )
