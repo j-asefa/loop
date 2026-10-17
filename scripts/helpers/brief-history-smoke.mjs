@@ -18,25 +18,27 @@ export async function briefHistorySmoke(
     exact: true,
   });
   // Retired state is absent from the compact page; its evidence must come from the ledger.
-  await record.getByRole("tab", { name: /^State/ }).click();
+  await record.getByRole("tab", { name: /^Updates/ }).click();
   await expect(record).toContainText("No current state recorded.");
   const full = () =>
     record
-      .getByRole("button", { name: "View full state record", exact: true })
+      .getByRole("button", { name: "View full update record", exact: true })
       .click();
   await full();
   await sheet.locator(".brief-item-open").first().click();
   await expect(sheet.locator(".brief-source a")).toHaveCount(2);
   await expect(sheet).toContainText("retired");
-  const refreshed = page.waitForResponse((response) =>
-    response.url().endsWith(root) && response.request().method() === "GET",
+  const refreshed = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(root) && response.request().method() === "GET",
   );
   await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
   await refreshed;
   await page.evaluate(
-    () => new Promise((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(resolve)),
-    ),
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
   );
   await expect(sheet.locator(".brief-source a")).toHaveCount(2);
   await close();

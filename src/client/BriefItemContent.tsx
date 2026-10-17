@@ -2,6 +2,7 @@ import { ArrowUpRight, Link2, Pin } from "lucide-react";
 import type { BriefSource, BriefVersion, Item } from "../shared/briefs";
 import { briefSourceUrl } from "./briefView";
 import { useReadableText } from "./ReadableText";
+import { BriefRequest } from "./BriefRequest";
 
 export const briefItemLabels = {
   state: "State",
@@ -15,8 +16,17 @@ export const briefLifecycle = {
   question: { status: "answered", label: "Mark answered" },
   unfinished: { status: "done", label: "Mark done" },
 };
-export function itemCitations(item: Pick<Item, "cite" | "answered_cite">) {
-  return [...item.cite, ...(item.answered_cite ? [item.answered_cite] : [])];
+export function itemCitations(
+  item: Pick<Item, "cite" | "answered_cite" | "summary">,
+) {
+  return [
+    ...item.cite,
+    ...(item.answered_cite ? [item.answered_cite] : []),
+    ...(item.summary?.request &&
+    !item.cite.some((c) => c.ref === item.summary?.request?.ref)
+      ? [item.summary.request]
+      : []),
+  ];
 }
 
 export function BriefItemSummary({
@@ -32,8 +42,17 @@ export function BriefItemSummary({
   return (
     <header className="brief-item-summary">
       <h3 className={item.status === "superseded" ? "brief-superseded" : ""}>
-        {readable(item.text)}
+        {readable(item.summary?.title ?? item.text)}
       </h3>
+      {item.summary?.update && (
+        <p className="brief-item-reason">{readable(item.summary.update)}</p>
+      )}
+      {item.summary && (
+        <details className="brief-reading-context">
+          <summary>More context</summary>
+          <p>{readable(item.text)}</p>
+        </details>
+      )}
       {item.why && <p className="brief-item-reason">{readable(item.why)}</p>}
       <div className="brief-detail-meta">
         {item.decided_by && (
@@ -97,6 +116,12 @@ export function BriefEvidence({
   const cites = itemCitations(item);
   return (
     <div className="brief-evidence">
+      <BriefRequest
+        summary={item.summary}
+        sources={sources}
+        workspace={workspace}
+        onNavigate={onNavigate}
+      />
       {cites.map((cite, index) => {
         const source = sources[cite.ref],
           href = source && briefSourceUrl(source, workspace);
@@ -122,10 +147,19 @@ export function BriefEvidence({
                     {new Date(source.at).toLocaleString()}
                   </time>
                 )}
-                {index >= item.cite.length && <span>Answer evidence</span>}
+                {index === item.cite.length && item.answered_cite && (
+                  <span>Answer evidence</span>
+                )}
               </div>
             </div>
-            <blockquote>{displayExcerpt}</blockquote>
+            {item.summary ? (
+              <details className="brief-reading-context">
+                <summary>Read original text</summary>
+                <blockquote>{displayExcerpt}</blockquote>
+              </details>
+            ) : (
+              <blockquote>{displayExcerpt}</blockquote>
+            )}
             {displayExcerpt !== excerpt && (
               <p className="muted">Open the source for the original wording.</p>
             )}

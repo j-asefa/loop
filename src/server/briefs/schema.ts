@@ -21,7 +21,9 @@ export const synthesisKinds = [
 ] as const;
 export const Cite = z
   .object({
-    ref: z.string().regex(/^(?:(?:res|msg|saved|approval|chk|ver)_.+|pr_\d+:c_.+)$/),
+    ref: z
+      .string()
+      .regex(/^(?:(?:res|msg|saved|approval|chk|ver)_.+|pr_\d+:c_.+)$/),
     quote: z.string().max(300).optional(),
   })
   .strict();
@@ -34,12 +36,36 @@ export const Evidence = z.enum([
   "applied",
 ]);
 export const Headline = z
-  .object({ text: z.string().max(140), cite: z.array(Cite) })
+  .object({
+    text: z.string().max(140),
+    update: z.string().max(160).optional(),
+    cite: z.array(Cite),
+  })
   .strict();
+/** Reading layer; the full record and citations remain available on opening. */
+export const ItemSummary = z
+  .object({
+    title: z.string().min(1).max(80),
+    update: z.string().min(1).max(160).optional(),
+    stage: z
+      .enum([
+        "in_progress",
+        "needs_review",
+        "on_main",
+        "awaiting_update",
+        "waiting",
+        "done",
+      ])
+      .optional(),
+    request: Cite.optional(),
+  })
+  .strict();
+export type ItemSummary = z.infer<typeof ItemSummary>;
 const common = {
   id: z.string().optional(),
   text: z.string().max(240),
   cite: z.array(Cite),
+  summary: ItemSummary.optional(),
 };
 export const OutputItem = z.discriminatedUnion("kind", [
   z
@@ -90,6 +116,7 @@ export const Item = z
     id: z.string(),
     kind: z.enum(["state", "decision", "question", "unfinished"]),
     text: z.string().max(240),
+    summary: ItemSummary.optional(),
     why: z.string().max(240).optional(),
     status: z.string(),
     cite: z.array(Cite),

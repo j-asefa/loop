@@ -67,6 +67,7 @@ export function decodeItem(r: Record<string, any>): LedgerItem {
     id: r.id,
     kind: r.kind,
     text: r.text,
+    ...(r.summary != null && { summary: JSON.parse(r.summary) }),
     status: r.status,
     cite: JSON.parse(r.cites),
     pinned: !!r.pinned,

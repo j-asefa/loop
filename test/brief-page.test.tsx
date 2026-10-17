@@ -161,7 +161,7 @@ it("counts the current record including overflow without rendering every categor
   );
   expect(html).toContain("Decisions<span>21</span>");
   expect(html).toContain("No current state recorded.");
-  expect(html).toContain("View full state record");
+  expect(html).toContain("View full update record");
   expect(html).not.toContain("Use SQLite");
   expect(html).toContain("Goal · you");
   expect(html).toContain("40 results · 3 threads");
@@ -502,4 +502,68 @@ it("shows generation tokens with a breakdown, retries and unavailable historical
   expect(
     renderToStaticMarkup(<ProjectBriefView brief={brief} {...actions} />),
   ).toContain("At least 1,200 tokens");
+});
+
+it("shows short titles and qualified updates, with the original wording and full detail one level deeper", () => {
+  const brief = fixture();
+  const item: Item = {
+    ...brief.decisions[0],
+    kind: "state",
+    pinned: false,
+    cite_stale: false,
+    text: "Detailed provenance: forest reports the implementation and push; the running app has not yet been updated.",
+    summary: {
+      title: "Make everything clickable",
+      update: "forest reports source links on main. App update pending.",
+      stage: "awaiting_update",
+      request: { ref: "msg_request", quote: "Everything should be clickable" },
+    },
+  };
+  brief.state = [item];
+  brief.sources.msg_request = {
+    ref: "msg_request",
+    title: "Source links",
+    at: 1,
+    conversation: "thread",
+    message: "request",
+    artifact: null,
+    excerpt: "Everything should be clickable",
+    owner_message: true,
+    verified_quotes: ["Everything should be clickable"],
+  };
+  const html = renderToStaticMarkup(
+    <ProjectBriefView brief={brief} {...actions} />,
+  );
+  expect(html).toContain("Make everything clickable");
+  expect(html).toContain("App update pending.");
+  expect(html).toContain("Waiting for an app update");
+  expect(html).not.toContain("Detailed provenance");
+  expect(html).toContain("projectTab=brief&amp;briefEvidence=headline");
+  const evidence = renderToStaticMarkup(
+    <BriefEvidence
+      item={item}
+      sources={brief.sources}
+      workspace="docker:one"
+      onNavigate={() => {}}
+    />,
+  );
+  expect(evidence).toContain("In your words");
+  expect(evidence).toContain("Everything should be clickable");
+  expect(evidence).toContain("message=request");
+  const details = renderToStaticMarkup(
+    <BriefItemSummary item={item} author={(s) => s} />,
+  );
+  expect(details).toContain("More context");
+  expect(details).toContain("Detailed provenance");
+  brief.sources.msg_request.verified_quotes = [];
+  const changed = renderToStaticMarkup(
+    <BriefEvidence
+      item={item}
+      sources={brief.sources}
+      workspace=""
+      onNavigate={() => {}}
+    />,
+  );
+  expect(changed).not.toContain("In your words");
+  expect(changed).toContain("The original request is no longer available.");
 });

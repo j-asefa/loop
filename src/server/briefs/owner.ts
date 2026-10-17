@@ -139,11 +139,12 @@ export function editItem(
     if (!words && next.status === item.status && next.pinned === item.pinned)
       return;
     db.prepare(
-      `UPDATE brief_items SET text=?,why=?,status=?,pinned=?,author=?,owner_rev=owner_rev+1,last_version=?,updated_at=?
+      `UPDATE brief_items SET text=?,why=?,summary=?,status=?,pinned=?,author=?,owner_rev=owner_rev+1,last_version=?,updated_at=?
       WHERE owner_id=? AND project_id=? AND id=?`,
     ).run(
       next.text,
       next.why || null,
+      words ? null : item.summary ? JSON.stringify(item.summary) : null,
       next.status,
       Number(next.pinned),
       words ? "owner" : item.author,

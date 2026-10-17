@@ -154,6 +154,10 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
     .getByRole("link", { name: view.headline.text, exact: true })
     // The whole inset card, including its padding, opens the source.
     .click({ position: { x: 6, y: 6 } });
+  await page
+    .getByRole("dialog", { name: "Request & sources", exact: true })
+    .getByRole("link", { name: "Open original message", exact: true })
+    .click();
   await expect(page).toHaveURL(
     new RegExp(`conversation=${done.conversation}.*message=${done.message}`),
   );
@@ -163,7 +167,10 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
   await open();
   await card.getByRole("link", { name: items[0].text, exact: true }).focus();
   await page.keyboard.press("Enter");
-  const sources = page.getByRole("dialog", { name: "Sources", exact: true });
+  const sources = page.getByRole("dialog", {
+    name: "Request & sources",
+    exact: true,
+  });
   await expect(sources.locator(".status-source-link")).toHaveCount(2);
   await expect(sources.locator("a").first()).toHaveAttribute(
     "href",
@@ -184,6 +191,15 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
       .getByRole("link")
       .filter({ hasText: item.text })
       .click({ position: { x: 6, y: 6 } });
+    await sources
+      .getByRole("link", {
+        name:
+          title === "Checkout"
+            ? "Open recorded changes"
+            : "Open recorded checks",
+        exact: true,
+      })
+      .click();
     await expect(
       page.getByRole("dialog", { name: title, exact: true }),
     ).toBeVisible();
@@ -280,7 +296,7 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
   await expect(card).toHaveCount(1);
   await card.getByRole("link", { name: items[0].text, exact: true }).click();
   await expect(sources.locator(".status-source-link")).toHaveCount(2);
-  for (const link of await sources.locator(".status-source-link").all())
+  for (const link of await sources.locator(".status-source-link a").all())
     await expect(link).toHaveAttribute("href", /source=docker%3Astatus-links/);
   assert.equal(evidenceRequests.length, 1);
   await sources.getByRole("button", { name: "Close", exact: true }).click();
@@ -288,4 +304,144 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
     await page.setViewportSize({ width, height: 844 });
     await capture("clickable-status-" + width);
   }
+
+  // Exercise the new reading layer through the real Workspace API and UI.
+  await page.unroute("**/api/agent-sources");
+  await page.unroute("**/api/agent-sources/*/**");
+  // The approved reading preview is quiet; action handling was verified above.
+  db.prepare("UPDATE approvals SET state='approved' WHERE id=?").run(approval);
+  for (const work of [working, queued, waiting])
+    db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(work.run);
+  const request = "Everything should be clickable and link to the source";
+  db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+    request,
+    done.message,
+  );
+  const reading = {
+    title: "Make everything clickable",
+    update: "forest reports source links on main.",
+    stage: "on_main",
+    request: { ref: "msg_" + done.message, quote: request },
+  };
+  db.prepare(
+    "UPDATE brief_items SET text=?,summary=?,updated_at=? WHERE id=?",
+  ).run(
+    "The detailed record keeps the implementation and verification provenance.",
+    JSON.stringify(reading),
+    at + 2,
+    items[0].id,
+  );
+  const pending = randomUUID();
+  db.prepare(
+    "INSERT INTO brief_items(id,owner_id,project_id,kind,text,summary,status,cites,author,first_version,last_version,created_at,updated_at) VALUES(?,?,?,'state',?,?,'active',?,'model',1,1,?,?)",
+  ).run(
+    pending,
+    owner,
+    project.id,
+    "The running app still needs an update after the reported fix.",
+    JSON.stringify({
+      title: "Show each agent’s own diff",
+      update: "alder reports the fix on main. App update pending.",
+      stage: "awaiting_update",
+    }),
+    JSON.stringify([refs[0]]),
+    at,
+    at + 1,
+  );
+  db.prepare(
+    "UPDATE brief_items SET text='Review the wording',next='Then update how briefs and cards are written.',blocker=NULL WHERE id=?",
+  ).run(items[1].id);
+  view.headline.text = "Shorter briefs, in your words.";
+  view.headline.update = "Approach agreed. Wording preview ready.";
+  view.state.push(pending);
+  db.prepare(
+    "UPDATE project_briefs SET view=? WHERE project_id=? AND version=1",
+  ).run(JSON.stringify(view), project.id);
+  const through = db
+    .prepare(
+      "SELECT max(seq) seq FROM project_changes WHERE owner_id=? AND project_id=?",
+    )
+    .get(owner, project.id).seq;
+  db.prepare(
+    "UPDATE brief_state SET basis_through=? WHERE owner_id=? AND project_id=?",
+  ).run(through, owner, project.id);
+  await open();
+  await expect(card).toContainText(reading.title);
+  await expect(card).toContainText("App update pending.");
+  await expect(card).not.toContainText("The detailed record");
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    await capture("workspace-reading-status-" + width);
+  }
+  await page.setViewportSize({ width: 390, height: 1700 });
+  await capture("workspace-reading-status-full");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await card.getByRole("link").filter({ hasText: reading.title }).focus();
+  await page.keyboard.press("Enter");
+  await expect(sources).toContainText("In your words");
+  await expect(sources.locator(".brief-request blockquote")).toHaveText(
+    request,
+  );
+  await expect(
+    sources.getByRole("link", { name: "Open your message" }),
+  ).toHaveAttribute("href", new RegExp("message=" + done.message));
+  await expect(
+    sources.getByText(
+      "The detailed record keeps the implementation and verification provenance.",
+      { exact: true },
+    ),
+  ).not.toBeVisible();
+  await capture("workspace-reading-sources");
+  await sources.getByText("More context", { exact: true }).click();
+  await expect(
+    sources.getByText(
+      "The detailed record keeps the implementation and verification provenance.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await sources.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    card.getByRole("link").filter({ hasText: reading.title }),
+  ).toBeFocused();
+  await page.goto(
+    f.base + `/?page=projects&projectView=${project.id}&projectTab=brief`,
+  );
+  const record = page.getByRole("region", {
+    name: "Project record",
+    exact: true,
+  });
+  await expect(record).toContainText("Waiting for an app update");
+  await expect(record).toContainText("On main");
+  await expect(record).not.toContainText("The detailed record");
+  await page.getByRole("tab", { name: /^Updates / }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: /^Decisions / })).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      true,
+    );
+    await capture("workspace-reading-brief-" + width);
+  }
+  await page.setViewportSize({ width: 390, height: 1400 });
+  await capture("workspace-reading-brief-full");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await capture("workspace-reading-brief-dark");
+  await record.getByRole("button").filter({ hasText: reading.title }).click();
+  const detail = page.locator("dialog.brief-sheet[open]");
+  await expect(detail.locator(".brief-request blockquote")).toHaveText(request);
+  await expect(
+    detail.getByRole("link", { name: "Open your message" }),
+  ).toHaveAttribute("href", new RegExp("message=" + done.message));
 }

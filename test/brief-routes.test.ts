@@ -731,3 +731,40 @@ it("serves the same latest generation accounting on Brief and Status, scoped to 
     projectStatuses(other.owner).items.some((item) => item.id === w.project),
   ).toBe(false);
 });
+
+it("serves original requests and compact wording without mistaking changed quotes for owner language", async () => {
+  const w = fixture();
+  const quote = "Use SQLite.";
+  // The exact request may be beyond the normal source excerpt window.
+  db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+    "Context ".repeat(600) + quote,
+    w.prompt,
+  );
+  const summary = {
+    title: "Use SQLite",
+    update: "Ready for review.",
+    stage: "needs_review",
+    request: { ref: "msg_" + w.prompt, quote },
+  };
+  w.publish({
+    ...w.output,
+    headline: { ...w.output.headline, update: "Review the storage change." },
+    items: [{ ...w.output.items[0], summary }],
+  });
+  const page = (await w.get()).data;
+  expect(page.state[0].summary).toEqual(summary);
+  expect(page.headline.update).toBe("Review the storage change.");
+  expect(page.sources[summary.request.ref]).toMatchObject({
+    owner_message: true,
+    verified_quotes: [quote],
+  });
+  const target = "/evidence?item=" + page.state[0].id;
+  const evidence = (await w.request(target)).data;
+  expect(evidence.summary).toEqual(summary);
+  expect(evidence.sources[summary.request.ref].message).toBe(w.prompt);
+  db.prepare(
+    "UPDATE messages SET content='A different request.' WHERE id=?",
+  ).run(w.prompt);
+  const changed = (await w.request(target)).data;
+  expect(changed.sources[summary.request.ref].verified_quotes).toBeUndefined();
+});

@@ -687,6 +687,11 @@ it("summarizes active project records with paired blockers and next steps, bound
     ...Array.from({ length: 4 }, (_, i) => ({
       kind: "state",
       text: `Progress ${i}`,
+      summary: {
+        title: `Work ${i}`,
+        update: "Fix reported on main. App update pending.",
+        stage: "awaiting_update",
+      },
     })),
     {
       ...unfinished(task.conversation),
@@ -722,6 +727,10 @@ it("summarizes active project records with paired blockers and next steps, bound
   let p = result.data.items.find((p: any) => p.id === f.project);
   expect(result.data.items).toHaveLength(1);
   expect(p.brief.highlights.progress).toHaveLength(2);
+  expect(p.brief.highlights.progress[0].summary).toMatchObject({
+    update: "Fix reported on main. App update pending.",
+    stage: "awaiting_update",
+  });
   expect(p.brief.highlights.task).toMatchObject({
     text: "Repair tab persistence",
     next: "Save the selected tab",

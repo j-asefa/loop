@@ -3,6 +3,7 @@ import type { VerificationSummary } from "./verification.js";
 import type { PullState } from "./pull-state.js";
 import type { PullRequestRef } from "./github.js";
 import type { BriefGenerationUsage } from "./brief-usage.js";
+import type { ItemSummary } from "../server/briefs/schema.js";
 
 export type ProjectStatusAction = {
   key: string;
@@ -27,19 +28,21 @@ export type ProjectStatus = {
     generation_usage?: BriefGenerationUsage | null;
     state: "never" | "pending" | "failed" | "off" | "ready";
     headline: string | null;
+    update?: string | null;
     /** Pins headline evidence to the version displayed on the card. */
     version?: number | null;
     /** Optional for cached responses and workspaces running an older version. */
     highlights?: {
       updated_at: number;
-      progress: { id: string; text: string }[];
+      progress: { id: string; text: string; summary?: ItemSummary }[];
       task: {
         id: string;
         text: string;
+        summary?: ItemSummary;
         next: string | null;
         blocker: string | null;
       } | null;
-      question: { id: string; text: string } | null;
+      question: { id: string; text: string; summary?: ItemSummary } | null;
     };
     synthesized_at: number | null;
     pending: number;

@@ -431,7 +431,7 @@ export async function briefSmoke(page, fixture, _engine, capture) {
   );
   await expect(sheet.locator(".brief-item")).toHaveCount(22);
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
-  await selectRecord("State");
+  await selectRecord("Updates");
   await page
     .locator(".brief-item-open")
     .filter({ hasText: "Routing and durable publication" })

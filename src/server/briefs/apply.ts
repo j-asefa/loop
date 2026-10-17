@@ -3,6 +3,7 @@ import {
   Output,
   OutputItem,
   Headline,
+  ItemSummary,
   type Cite,
   type Change,
   type ValidationError,
@@ -59,6 +60,7 @@ const fields: Record<string, string[]> = {
     "blocker",
   ],
 };
+for (const names of Object.values(fields)) names.push("summary");
 const object = (value: unknown): value is Record<string, any> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 /** Recoverable model mistakes are normalized before the strict tool schema. */
@@ -119,10 +121,13 @@ export function normalizeOutput(input: unknown, existing: LedgerItem[] = []) {
     if (!["headline", "items"].includes(key))
       error("derived_field", "", `Ignored ${key}`);
   for (const key of Object.keys(input.headline))
-    if (!["text", "cite"].includes(key))
+    if (!["text", "update", "cite"].includes(key))
       error("derived_field", "headline", `Ignored ${key}`);
   const headline = Headline.safeParse({
     text: bounded(input.headline.text, 140, "headline", "headline"),
+    ...(input.headline.update !== undefined && {
+      update: input.headline.update,
+    }),
     cite: cites(input.headline.cite, "headline"),
   });
   if (!headline.success) {
@@ -157,6 +162,18 @@ export function normalizeOutput(input: unknown, existing: LedgerItem[] = []) {
           key,
         );
     item.cite = cites(item.cite, key);
+    if (item.summary !== undefined) {
+      // Do not truncate the reading layer: a cut sentence can lose a caveat.
+      const summary = ItemSummary.safeParse(item.summary);
+      if (!summary.success) {
+        error(
+          "invalid_output",
+          key,
+          "Invalid reading summary: " + summary.error.message,
+        );
+        delete item.summary;
+      } else item.summary = summary.data;
+    }
     if (item.answered_cite)
       item.answered_cite = cites([item.answered_cite], key)[0];
     // Omitting a field does not erase a choice's already recorded evidence.
@@ -366,7 +383,11 @@ export function applyOutput(
           checkCites(
             owner,
             project,
-            [...row.cite, ...(row.answered_cite ? [row.answered_cite] : [])],
+            [
+              ...row.cite,
+              ...(row.answered_cite ? [row.answered_cite] : []),
+              ...(row.summary?.request ? [row.summary.request] : []),
+            ],
             row.id,
             errors,
           );
@@ -401,6 +422,31 @@ export function applyOutput(
             errors,
             normalized.originalQuotes,
           );
+          const request = old?.pinned
+            ? old.summary?.request
+            : proposed.summary?.request;
+          if (request) {
+            const resolved = checkCites(
+              owner,
+              project,
+              [request],
+              itemId,
+              errors,
+            )[0];
+            if (
+              !resolved ||
+              resolved.kind !== "message" ||
+              resolved.role !== "user" ||
+              resolved.automated ||
+              !request.quote?.trim()
+            )
+              errors.push({
+                code: "evidence_mismatch",
+                id: itemId,
+                message:
+                  "The original request must quote a real owner message in this project",
+              });
+          }
           const answerCite =
             proposed.kind === "question"
               ? proposed.answered_cite === undefined
@@ -510,6 +556,13 @@ export function applyOutput(
                   proposed.asked_by,
               }),
           };
+          // An updated record must not keep an obsolete reading layer when an
+          // older provider omits it. Pins retain exactly what the owner saw.
+          if (!proposed.summary && !old?.pinned) delete candidate.summary;
+          if (old?.pinned) {
+            if (old.summary) candidate.summary = old.summary;
+            else delete candidate.summary;
+          }
           if (old?.pinned)
             for (const name of [
               "text",
@@ -596,15 +649,16 @@ export function applyOutput(
           return { outcome: "unchanged", errors };
         }
         const write =
-          db.prepare(`INSERT INTO brief_items(id,owner_id,project_id,kind,text,why,status,cites,evidence,decided_by,decided_at,supersedes,asked_by,answered_cite,thread_id,next,blocker,author,pinned,cite_stale,first_version,last_version,owner_rev,created_at,updated_at)
-      VALUES(@id,@owner,@project,@kind,@text,@why,@status,@cites,@evidence,@decided_by,@decided_at,@supersedes,@asked_by,@answered_cite,@thread,@next,@blocker,@author,@pinned,@cite_stale,@first_version,@last_version,@owner_rev,@created_at,@updated_at)
-      ON CONFLICT(id) DO UPDATE SET text=excluded.text,why=excluded.why,status=excluded.status,cites=excluded.cites,evidence=excluded.evidence,decided_by=excluded.decided_by,decided_at=excluded.decided_at,supersedes=excluded.supersedes,asked_by=excluded.asked_by,answered_cite=excluded.answered_cite,thread_id=excluded.thread_id,next=excluded.next,blocker=excluded.blocker,pinned=excluded.pinned,cite_stale=excluded.cite_stale,last_version=excluded.last_version,updated_at=excluded.updated_at`);
+          db.prepare(`INSERT INTO brief_items(id,owner_id,project_id,kind,text,summary,why,status,cites,evidence,decided_by,decided_at,supersedes,asked_by,answered_cite,thread_id,next,blocker,author,pinned,cite_stale,first_version,last_version,owner_rev,created_at,updated_at)
+      VALUES(@id,@owner,@project,@kind,@text,@summary,@why,@status,@cites,@evidence,@decided_by,@decided_at,@supersedes,@asked_by,@answered_cite,@thread,@next,@blocker,@author,@pinned,@cite_stale,@first_version,@last_version,@owner_rev,@created_at,@updated_at)
+      ON CONFLICT(id) DO UPDATE SET text=excluded.text,summary=excluded.summary,why=excluded.why,status=excluded.status,cites=excluded.cites,evidence=excluded.evidence,decided_by=excluded.decided_by,decided_at=excluded.decided_at,supersedes=excluded.supersedes,asked_by=excluded.asked_by,answered_cite=excluded.answered_cite,thread_id=excluded.thread_id,next=excluded.next,blocker=excluded.blocker,pinned=excluded.pinned,cite_stale=excluded.cite_stale,last_version=excluded.last_version,updated_at=excluded.updated_at`);
         for (const item of next.values())
           if (!previous.has(item.id) || item.last_version === version) {
             write.run({
               owner,
               project,
               ...item,
+              summary: item.summary ? JSON.stringify(item.summary) : null,
               why: item.why ?? null,
               evidence: item.evidence ?? null,
               decided_by: item.decided_by ?? null,

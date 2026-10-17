@@ -40,7 +40,7 @@ export async function briefDetailsSmoke(
   const all = (kind) =>
     record
       .getByRole("button", {
-        name: `View full ${kind === "unfinished" ? "unfinished work" : kind} record`,
+        name: `View full ${kind === "unfinished" ? "unfinished work" : kind === "state" ? "update" : kind} record`,
         exact: true,
       })
       .click();
@@ -175,8 +175,12 @@ export async function briefDetailsSmoke(
   await expect(sheet).toHaveCount(0);
   releaseSave();
   await saved;
-  await expect(record).toContainText("Ship the refined brief with verified evidence");
-  await expect(page.getByText("Saving your change…", { exact: true })).toHaveCount(0);
+  await expect(record).toContainText(
+    "Ship the refined brief with verified evidence",
+  );
+  await expect(
+    page.getByText("Saving your change…", { exact: true }),
+  ).toHaveCount(0);
   await expect(sheet).toHaveCount(0);
   await page.unroute("**/brief/items/" + decision);
   assert.equal(
@@ -212,7 +216,7 @@ export async function briefDetailsSmoke(
   );
 
   // Refreshed source availability reaches an open sheet without losing a draft.
-  await select("State");
+  await select("Updates");
   await all("state");
   await expect(sheet.locator(".brief-item-open")).toHaveCount(1);
   await close();
@@ -238,9 +242,11 @@ export async function briefDetailsSmoke(
     sheet.getByRole("button", { name: "Open source", exact: true }),
   ).toBeEnabled();
   // A later generated view can stop citing the selected item altogether.
-  const published = db.prepare(
-    "SELECT id,view FROM project_briefs WHERE project_id=? ORDER BY version DESC LIMIT 1",
-  ).get(project);
+  const published = db
+    .prepare(
+      "SELECT id,view FROM project_briefs WHERE project_id=? ORDER BY version DESC LIMIT 1",
+    )
+    .get(project);
   const view = JSON.parse(published.view);
   db.prepare("UPDATE project_briefs SET view=? WHERE id=?").run(
     JSON.stringify({
@@ -285,7 +291,7 @@ export async function briefDetailsSmoke(
     ids.state[0],
   );
   await refresh();
-  await select("State");
+  await select("Updates");
   await openState();
   await expect(sheet.locator(".brief-source")).toHaveCount(3);
   await expect(
@@ -319,7 +325,9 @@ export async function briefDetailsSmoke(
   db.prepare("UPDATE artifacts SET archived=0 WHERE id=?").run(artifact);
   await refresh();
   await expect(sheet.locator(".brief-source a")).toHaveCount(2);
-  await expect(sheet.getByLabel("Source to open", { exact: true })).toHaveValue("");
+  await expect(sheet.getByLabel("Source to open", { exact: true })).toHaveValue(
+    "",
+  );
   await expect(
     sheet.getByRole("button", { name: "Open source", exact: true }),
   ).toBeDisabled();
@@ -449,7 +457,7 @@ export async function briefDetailsSmoke(
       "answered",
     ],
     ["Next", "unfinished", ids.unfinished[0], "Mark done", "done"],
-    ["State", "state", ids.state[0], "Retire", "retired"],
+    ["Updates", "state", ids.state[0], "Retire", "retired"],
   ]) {
     await select(tab);
     await record.locator(".brief-item-open").first().click();
@@ -510,10 +518,14 @@ export async function briefDetailsSmoke(
   await close();
   const firstPage = await api(root + "/items?kind=decision");
   const remainingPage = await api(
-    root + "/items?kind=decision&before=" + encodeURIComponent(firstPage.before),
+    root +
+      "/items?kind=decision&before=" +
+      encodeURIComponent(firstPage.before),
   );
   await all("decision");
-  await expect(sheet.locator(".brief-item")).toHaveCount(firstPage.items.length);
+  await expect(sheet.locator(".brief-item")).toHaveCount(
+    firstPage.items.length,
+  );
   await briefPaginationSmoke(page, {
     pattern: "**/brief/items?kind=decision&before=*",
     endpoint: root + "/items",

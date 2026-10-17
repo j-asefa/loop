@@ -32,6 +32,7 @@ import {
 } from "../shared/project-status";
 import "./projectStatus.css";
 import { BriefTokenUsage } from "./BriefTokenUsage";
+import { briefStageLabels } from "../shared/brief-reading";
 import {
   createReadableText,
   readableAuthor,
@@ -359,7 +360,15 @@ export function ProjectStatusCard({
         )}
         <div className="project-status-summary">
           {b.headline ? (
-            sourceLink("headline", readable(b.headline))
+            sourceLink(
+              "headline",
+              <>
+                <span>{readable(b.headline)}</span>
+                {b.update && (
+                  <p className="project-status-update">{readable(b.update)}</p>
+                )}
+              </>,
+            )
           ) : (
             <a
               className="project-status-link project-status-surface"
@@ -409,8 +418,15 @@ export function ProjectStatusCard({
                     <ListTodo size={15} aria-hidden="true" /> Next up
                   </h3>
                   <p className="project-status-task-name">
-                    {readable(highlights.task.text)}
+                    {readable(
+                      highlights.task.summary?.title ?? highlights.task.text,
+                    )}
                   </p>
+                  {highlights.task.summary?.update && (
+                    <p className="project-status-work-update">
+                      {readable(highlights.task.summary.update)}
+                    </p>
+                  )}
                   {highlights.task.blocker && (
                     <div className="project-status-blocker">
                       <TriangleAlert size={15} aria-hidden="true" />
@@ -443,14 +459,37 @@ export function ProjectStatusCard({
                         className="project-status-link"
                         href={briefSection("state")}
                       >
-                        Where things stand
+                        Also in this project
                         <ChevronRight size={12} aria-hidden="true" />
                       </a>
                     </h3>
                     <ul role="list">
                       {highlights.progress.map((item) => (
                         <li key={item.id}>
-                          {sourceLink(item.id, readable(item.text))}
+                          {sourceLink(
+                            item.id,
+                            <>
+                              <span
+                                className={
+                                  item.summary
+                                    ? "project-status-work-title"
+                                    : ""
+                                }
+                              >
+                                {readable(item.summary?.title ?? item.text)}
+                              </span>
+                              {item.summary?.update && (
+                                <span className="project-status-work-update">
+                                  {readable(item.summary.update)}
+                                </span>
+                              )}
+                              {item.summary?.stage && (
+                                <small className="project-status-work-stage">
+                                  {briefStageLabels[item.summary.stage]}
+                                </small>
+                              )}
+                            </>,
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -464,7 +503,17 @@ export function ProjectStatusCard({
                         <CircleHelp size={15} aria-hidden="true" /> Open
                         question
                       </h3>
-                      <p>{readable(highlights.question.text)}</p>
+                      <p>
+                        {readable(
+                          highlights.question.summary?.title ??
+                            highlights.question.text,
+                        )}
+                      </p>
+                      {highlights.question.summary?.update && (
+                        <small>
+                          {readable(highlights.question.summary.update)}
+                        </small>
+                      )}
                     </>,
                     "project-status-question",
                   )}

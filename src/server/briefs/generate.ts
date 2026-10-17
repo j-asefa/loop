@@ -301,7 +301,9 @@ export async function runDueBriefs(
           instructions: SYSTEM_INSTRUCTIONS,
           messages,
           signal,
-          maxTokens: 4096,
+          // Leave room for the reading summaries and original-request cites
+          // without cutting off the full, evidence-qualified record.
+          maxTokens: 8192,
           nativeTools: false,
           tools: [
             {

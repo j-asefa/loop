@@ -179,7 +179,7 @@ export async function briefStatesSmoke(
     overflow: { ...normal.overflow, decisions: 123456 },
   };
   await refresh();
-  await page.getByRole("tab", { name: /^State / }).click();
+  await page.getByRole("tab", { name: /^Updates / }).click();
   const heading = page.locator(".project-heading h2");
   const originalName = await heading.textContent();
   await heading.evaluate((el) => {
@@ -238,7 +238,7 @@ export async function briefStatesSmoke(
     "Not generated yet",
   );
   for (const [tab, text] of [
-    ["State", "No current state recorded."],
+    ["Updates", "No current state recorded."],
     ["Decisions", "No active decisions recorded."],
     ["Questions", "No open questions recorded."],
     ["Next", "No unfinished work recorded."],

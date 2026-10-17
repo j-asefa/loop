@@ -187,7 +187,7 @@ it("shows useful brief context before the collapsed technical details", () => {
   });
   const visible = html.slice(0, html.indexOf("<details"));
   for (const text of [
-    "Where things stand",
+    "Also in this project",
     "The tab reset is confirmed.",
     "Next up",
     "Fix tab persistence",
@@ -235,4 +235,43 @@ it("shows the shared brief generation tokens and identifies failed or partial at
     "Token usage unavailable",
   );
   expect(render()).not.toContain("brief-token-usage");
+});
+
+it("keeps compact work labels separate from status and preserves pending rollout caveats", () => {
+  const html = render({
+    brief: {
+      state: "ready",
+      headline: "Shorter briefs, in your words.",
+      update: "Approach agreed. Preview ready.",
+      version: 1,
+      synthesized_at: 1000,
+      pending: 0,
+      unfinished: 0,
+      questions: 0,
+      blockers: 0,
+      highlights: {
+        updated_at: 1000,
+        task: null,
+        question: null,
+        progress: [
+          {
+            id: "state",
+            text: "Detailed audit of the implementation and commands",
+            summary: {
+              title: "Show each agent’s own diff",
+              update: "alder reports the fix on main. App update pending.",
+              stage: "awaiting_update",
+            },
+          },
+        ],
+      },
+    },
+  });
+  expect(html).toContain("Shorter briefs, in your words.");
+  expect(html).toContain("Approach agreed. Preview ready.");
+  expect(html).toContain("Show each agent’s own diff");
+  expect(html).toContain("App update pending.");
+  expect(html).toContain("Waiting for an app update");
+  expect(html).not.toContain("Detailed audit");
+  expect(html).toContain("briefEvidence=state");
 });

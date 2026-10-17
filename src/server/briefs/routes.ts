@@ -14,7 +14,7 @@ import type {
   BriefVersion,
 } from "../../shared/briefs.js";
 import { Cite, type Item } from "./schema.js";
-import { resolveCite } from "./cites.js";
+import { checkQuote, resolveCite } from "./cites.js";
 import {
   addDecision,
   editItem,
@@ -90,7 +90,11 @@ function source(
       message?.created_at ??
       resolved.runCreatedAt ??
       null,
-    excerpt: cite.quote ?? resolved.content.slice(0, 4000),
+    excerpt: resolved.content.slice(0, 4000),
+    owner_message:
+      resolved.kind === "message" &&
+      resolved.role === "user" &&
+      !resolved.automated,
   };
 }
 function sources(owner: string, project: string, cites: Cite[]) {
@@ -100,12 +104,20 @@ function sources(owner: string, project: string, cites: Cite[]) {
       const resolved = source(owner, project, cite);
       if (resolved) result[cite.ref] = resolved;
     }
+  for (const cite of cites) {
+    const record = result[cite.ref];
+    if (!record?.owner_message || !cite.quote?.trim()) continue;
+    const current = resolveCite(owner, project, cite);
+    if (current && checkQuote(current.content, cite.quote))
+      (record.verified_quotes ??= []).push(cite.quote.trim());
+  }
   return result;
 }
 const itemCites = (items: Item[]) =>
   items.flatMap((item) => [
     ...item.cite,
     ...(item.answered_cite ? [item.answered_cite] : []),
+    ...(item.summary?.request ? [item.summary.request] : []),
   ]);
 function readPage(owner: string, project: string): BriefPage {
   return db.transaction(() => {
@@ -174,7 +186,16 @@ briefs.get<{ id: string }>(root + "/evidence", (req, res) => {
     project = req.params.id;
   res.json(
     db.transaction(() => {
-      let item: { text: string; cite: Cite[] } | undefined;
+      let item:
+        | {
+            text: string;
+            cite: Cite[];
+            summary?: Item["summary"];
+            update?: string;
+            next?: string;
+            blocker?: string;
+          }
+        | undefined;
       if (input.item === "headline") {
         const row = db
           .prepare(
@@ -194,7 +215,13 @@ briefs.get<{ id: string }>(root + "/evidence", (req, res) => {
           .get(owner, project, input.item) as Record<string, any> | undefined;
         if (row) {
           const record = publicItem(decodeItem(row));
-          item = { text: record.text, cite: itemCites([record]) };
+          item = {
+            text: record.text,
+            summary: record.summary,
+            next: record.next,
+            blocker: record.blocker,
+            cite: itemCites([record]),
+          };
         }
       }
       if (!item)

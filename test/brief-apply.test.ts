@@ -1282,3 +1282,93 @@ it("checks the complete oversized quote before storing its bounded excerpt", () 
     "quote_not_contained",
   );
 });
+
+it("persists a compact reading layer and an exact owner request alongside the full record", () => {
+  const w = fixture();
+  const summary = {
+    title: "Use the verified design",
+    update: "forest reports the change on main. App update pending.",
+    stage: "awaiting_update",
+    request: { ref: "msg_" + w.messages[0], quote: "Use the verified design." },
+  };
+  expect(w.apply([{ ...w.state(), summary }]).outcome).toBe("published");
+  expect(w.read().state[0]).toMatchObject({ text: w.state().text, summary });
+  const saved = w.items()[0];
+  expect(w.apply([{ ...w.state(), id: saved.id, summary }]).outcome).toBe(
+    "unchanged",
+  );
+  // Older providers must not leave yesterday's short update attached to new facts.
+  w.apply([{ ...w.state("The design needs another review"), id: saved.id }]);
+  expect(w.read().state[0].summary).toBeUndefined();
+});
+
+it.each(["invented", "automated", "assistant", "other-project", "empty"])(
+  "never publishes %s words as the owner's original request",
+  (kind) => {
+    const w = fixture();
+    let ref = "msg_" + w.messages[0];
+    if (kind === "automated")
+      db.prepare("UPDATE messages SET metadata=? WHERE id=?").run(
+        '{"automation":{"kind":"schedule"}}',
+        w.messages[0],
+      );
+    if (kind === "assistant")
+      db.prepare("UPDATE messages SET role='assistant' WHERE id=?").run(
+        w.messages[0],
+      );
+    if (kind === "other-project") ref = "msg_" + fixture(w.owner).messages[0];
+    const quote =
+      kind === "invented"
+        ? "These are not the owner's words."
+        : kind === "empty"
+          ? ""
+          : "Use the verified design.";
+    expect(
+      w.apply([
+        {
+          ...w.state(),
+          summary: { title: "Verified design", request: { ref, quote } },
+        },
+      ]).outcome,
+    ).toBe("failed");
+    expect(w.read().state).toHaveLength(0);
+  },
+);
+
+it("preserves a pinned reading layer and clears it when the owner changes the wording", async () => {
+  const { editItem } = await import("../src/server/briefs/owner");
+  const w = fixture();
+  const summary = {
+    title: "Use the verified design",
+    update: "Ready to review.",
+  };
+  w.apply([{ ...w.state(), summary }]);
+  const item = w.items()[0];
+  editItem(w.owner, w.project, item.id, { pinned: true });
+  w.apply([
+    { ...w.state(), id: item.id, summary: { title: "Different wording" } },
+  ]);
+  expect(w.items()[0].summary).toEqual(summary);
+  editItem(w.owner, w.project, item.id, { text: "My preferred words" });
+  expect(w.items()[0]).toMatchObject({
+    text: "My preferred words",
+    pinned: true,
+  });
+  expect(w.items()[0].summary).toBeUndefined();
+  w.apply([{ ...w.state(), id: item.id, summary }]);
+  expect(w.items()[0].summary).toBeUndefined();
+  expect(w.items()[0].text).toBe("My preferred words");
+});
+
+it("does not truncate a reading update and lose its uncertainty", () => {
+  const w = fixture();
+  const update = "A".repeat(160) + " but the fix is unconfirmed.";
+  const result = w.apply([
+    { ...w.state(), summary: { title: "Review the fix", update } },
+  ]);
+  expect(result).toMatchObject({
+    errors: [expect.objectContaining({ code: "invalid_output" })],
+  });
+  expect(w.read().state[0].summary).toBeUndefined();
+  expect(w.read().state[0].text).toBe(w.state().text);
+});

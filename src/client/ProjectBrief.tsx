@@ -717,6 +717,9 @@ function ProjectBriefSession({
           author={author}
           onNavigate={navigate}
           onItem={openItem}
+          onHeadline={() =>
+            setLinkedEvidence({ item: "headline", version: page.version })
+          }
           onAll={(kind) => void showAll(kind)}
           onGoal={() => {
             if (open("goal")) setGoal(readable(page.goal?.text || ""));

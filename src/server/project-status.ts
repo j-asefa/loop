@@ -109,6 +109,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
               ? "ready"
               : "pending",
         headline: p.view ? (JSON.parse(p.view).headline?.text ?? null) : null,
+        update: p.view ? (JSON.parse(p.view).headline?.update ?? null) : null,
         version: p.current_version,
         synthesized_at: p.synth_at,
         pending: p.pending,
@@ -149,6 +150,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
     id: string;
     kind: "state" | "unfinished" | "question";
     text: string;
+    summary: string | null;
     next: string | null;
     blocker: string | null;
     updated_at: number;
@@ -162,7 +164,7 @@ function build(owner: string, options: Options): ProjectStatusPage {
       FROM brief_items WHERE owner_id=@owner AND cite_stale=0
         AND (@project IS NULL OR project_id=@project)
         AND ((kind='state' AND status='active') OR (kind IN ('unfinished','question') AND status='open'))
-    ) SELECT project_id,id,kind,text,next,blocker,updated_at FROM ranked
+    ) SELECT project_id,id,kind,text,summary,next,blocker,updated_at FROM ranked
       WHERE rank <= CASE WHEN kind='state' THEN 2 ELSE 1 END
       ORDER BY project_id,kind,rank`)) {
     const p = projects.get(row.project_id);
@@ -174,15 +176,17 @@ function build(owner: string, options: Options): ProjectStatusPage {
       question: null,
     });
     highlights.updated_at = Math.max(highlights.updated_at, row.updated_at);
+    const reading = row.summary ? { summary: JSON.parse(row.summary) } : {};
     if (row.kind === "state") {
       if (row.text !== p.brief.headline)
-        highlights.progress.push({ id: row.id, text: row.text });
+        highlights.progress.push({ id: row.id, text: row.text, ...reading });
     } else if (row.kind === "question") {
-      highlights.question = { id: row.id, text: row.text };
+      highlights.question = { id: row.id, text: row.text, ...reading };
     } else {
       highlights.task = {
         id: row.id,
         text: row.text,
+        ...reading,
         next: row.next?.trim() || null,
         blocker: row.blocker?.trim() || null,
       };

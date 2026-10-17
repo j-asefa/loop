@@ -21,9 +21,11 @@ import { relativeTime } from "./threadView";
 import { useReadableAuthor, useReadableText } from "./ReadableText";
 import type { BriefPage, BriefSource, Item } from "../shared/briefs";
 import { BriefTokenUsage } from "./BriefTokenUsage";
+import { briefStageLabels } from "../shared/brief-reading";
+import { itemCitations } from "./BriefItemContent";
 
 export const briefSections = [
-  ["state", "State", "state"],
+  ["state", "Updates", "state"],
   ["decisions", "Decisions", "decision"],
   ["open_questions", "Questions", "question"],
   ["unfinished", "Next", "unfinished"],
@@ -121,16 +123,13 @@ export function BriefCitations({
   workspace,
   onNavigate,
 }: {
-  item: Pick<Item, "cite" | "answered_cite">;
+  item: Pick<Item, "cite" | "answered_cite" | "summary">;
   sources: Record<string, BriefSource>;
   workspace: string;
   onNavigate: (url: string) => void;
 }) {
   const readable = useReadableText();
-  const cites = [
-    ...item.cite,
-    ...(item.answered_cite ? [item.answered_cite] : []),
-  ];
+  const cites = itemCitations(item);
   return (
     <div className="brief-citations">
       {cites.map((cite, index) => {
@@ -183,10 +182,8 @@ export function BriefItemCard({
 }) {
   const readable = useReadableText();
   const Icon = item.pinned ? Pin : itemIcons[item.kind];
-  const sourcesCount = new Set([
-    ...item.cite.map((cite) => cite.ref),
-    ...(item.answered_cite ? [item.answered_cite.ref] : []),
-  ]).size;
+  const sourcesCount = new Set(itemCitations(item).map((cite) => cite.ref))
+    .size;
   return (
     <article className={"brief-item" + (compact ? " brief-item-compact" : "")}>
       <button
@@ -199,8 +196,13 @@ export function BriefItemCard({
           <span
             className={item.status === "superseded" ? "brief-superseded" : ""}
           >
-            {readable(item.text)}
+            {readable(item.summary?.title ?? item.text)}
           </span>
+          {item.summary?.update && (
+            <small className="brief-reading-update">
+              {readable(item.summary.update)}
+            </small>
+          )}
           {!compact && (
             <>
               {item.why && <small>{readable(item.why)}</small>}
@@ -222,10 +224,19 @@ export function BriefItemCard({
             </>
           )}
           <span className="brief-markers">
-            <span>
-              <Link2 size={12} aria-hidden="true" />
-              {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}
-            </span>
+            {(!compact || !item.summary) && (
+              <span>
+                <Link2 size={12} aria-hidden="true" />
+                {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}
+              </span>
+            )}
+            {compact && item.summary && item.decided_by && (
+              <span>
+                {item.decided_by === "you"
+                  ? "Chosen by you"
+                  : `Chosen by ${readable(author(item.decided_by))}`}
+              </span>
+            )}
             {item.pinned && <span>Pinned</span>}
             {item.cite_stale && <span>Source changed</span>}
             {changed && <span className="brief-new">Updated</span>}
@@ -268,6 +279,7 @@ type ViewProps = {
   onSettings: () => void;
   onHistory: () => void;
   onDecision: () => void;
+  onHeadline?: () => void;
 };
 
 export function ProjectBriefView({
@@ -283,12 +295,30 @@ export function ProjectBriefView({
   onSettings,
   onHistory,
   onDecision,
+  onHeadline,
 }: ViewProps) {
   const readable = useReadableText();
   const defaultAuthor = useReadableAuthor();
   const author = authorOverride ?? defaultAuthor;
   const selected = briefSections.find(([key]) => key === section)!;
   const changed = new Set(brief.changes.map((change) => change.id));
+  const reading = brief[section].some((item) => item.summary);
+  const groups = new Map<string, Item[]>();
+  for (const item of brief[section].slice(0, reading ? 5 : 2)) {
+    const label =
+      section === "state" && item.summary?.stage && !item.cite_stale
+        ? briefStageLabels[item.summary.stage]
+        : "";
+    groups.set(label, [...(groups.get(label) ?? []), item]);
+  }
+  const headlineParams = new URLSearchParams({
+    page: "projects",
+    projectView: brief.project,
+    projectTab: "brief",
+    briefEvidence: "headline",
+    briefVersion: String(brief.version),
+  });
+  if (workspace) headlineParams.set("source", workspace);
   const needs = brief.needs_you;
   const pullRequests = brief.artifacts.filter(
     (artifact) => artifact.kind === "pr",
@@ -351,9 +381,39 @@ export function ProjectBriefView({
             <Settings2 size={17} />
           </button>
         </div>
-        <h2>
-          {readable(brief.headline?.text || "Your project, taking shape.")}
-        </h2>
+        <div className={brief.headline ? "brief-focus" : ""}>
+          {brief.headline ? (
+            <a
+              href={"/?" + headlineParams}
+              onClick={(event) => {
+                if (
+                  onHeadline &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey &&
+                  event.button === 0
+                ) {
+                  event.preventDefault();
+                  onHeadline();
+                }
+              }}
+            >
+              <span className="brief-reading-label">In focus</span>
+              <h2>{readable(brief.headline.text)}</h2>
+              {brief.headline.update && (
+                <p>{readable(brief.headline.update)}</p>
+              )}
+              <ArrowUpRight
+                className="brief-focus-arrow"
+                size={17}
+                aria-hidden="true"
+              />
+            </a>
+          ) : (
+            <h2>Your project, taking shape.</h2>
+          )}
+        </div>
         {brief.goal ? (
           <button type="button" className="brief-goal" onClick={onGoal}>
             <span>
@@ -379,86 +439,6 @@ export function ProjectBriefView({
             </button>
           </>
         )}
-        <div className="brief-meta">
-          <details className="brief-provenance">
-            <summary>
-              <Link2 size={13} aria-hidden="true" />
-              {brief.coverage.results}{" "}
-              {brief.coverage.results === 1 ? "result" : "results"} ·{" "}
-              {brief.coverage.threads}{" "}
-              {brief.coverage.threads === 1 ? "thread" : "threads"}
-            </summary>
-            <div className="brief-provenance-detail">
-              <p>
-                {readable(brief.basis.window)} ·{" "}
-                {readable(brief.coverage.model || "No model generation yet")}
-              </p>
-              {brief.headline && (
-                <BriefCitations
-                  item={{ cite: brief.headline.cite }}
-                  sources={brief.sources}
-                  workspace={workspace}
-                  onNavigate={onNavigate}
-                />
-              )}
-              {brief.artifacts
-                .filter((artifact) => artifact.kind !== "pr")
-                .map((artifact) => {
-                  const params = new URLSearchParams({
-                    artifact: artifact.ref,
-                  });
-                  if (workspace) params.set("source", workspace);
-                  const href = "/?" + params;
-                  return (
-                    <a
-                      className="brief-artifact"
-                      key={artifact.kind + artifact.ref}
-                      href={href}
-                      onClick={navigate(href)}
-                    >
-                      {artifact.kind === "chart"
-                        ? "Published chart"
-                        : "Published file"}{" "}
-                      · {readable(artifact.state)}
-                      <ArrowUpRight size={14} aria-hidden="true" />
-                    </a>
-                  );
-                })}
-              {pullRequests.length > 0 && (
-                <div className="brief-linked-pulls">
-                  <p>
-                    {pullRequests.length} linked{" "}
-                    {pullRequests.length === 1
-                      ? "pull request"
-                      : "pull requests"}
-                  </p>
-                  <a
-                    className="brief-artifact"
-                    href={"/?" + pullsParams}
-                    onClick={navigate("/?" + pullsParams)}
-                  >
-                    Browse all pull requests
-                    <ArrowUpRight size={14} aria-hidden="true" />
-                  </a>
-                </div>
-              )}
-            </div>
-          </details>
-          <button
-            type="button"
-            className="text-button brief-changes"
-            onClick={onHistory}
-          >
-            {brief.changes.length
-              ? `${brief.changes.length} ${brief.changes.length === 1 ? "update" : "updates"}`
-              : "History"}
-            <ArrowUpRight size={13} aria-hidden="true" />
-          </button>
-        </div>
-        <BriefTokenUsage
-          usage={brief.generation_usage}
-          recorded={brief.basis.synth_at !== null}
-        />
         {(brief.basis.pending > 0 ||
           brief.basis.unincorporated_before !== null) && (
           <div className="brief-notice">
@@ -552,33 +532,46 @@ export function ProjectBriefView({
             count: brief[key].length + brief.overflow[key],
           }))}
         >
-          <div className="brief-record-items">
-            {brief[section].slice(0, 2).map((item) => (
-              <BriefItemCard
-                key={item.id}
-                item={item}
-                sources={brief.sources}
-                workspace={workspace}
-                onNavigate={onNavigate}
-                onItem={onItem}
-                author={author}
-                changed={changed.has(item.id)}
-                compact
-              />
-            ))}
-            {!brief[section].length && (
-              <p className="brief-empty">
+          {[...groups].map(([label, items]) => (
+            <div
+              className={
+                "brief-update-group" +
+                (label === briefStageLabels.awaiting_update
+                  ? " brief-update-waiting"
+                  : "")
+              }
+              key={label}
+            >
+              {label && <h4>{label}</h4>}
+              <div className="brief-record-items">
+                {items.map((item) => (
+                  <BriefItemCard
+                    key={item.id}
+                    item={item}
+                    sources={brief.sources}
+                    workspace={workspace}
+                    onNavigate={onNavigate}
+                    onItem={onItem}
+                    author={author}
+                    changed={changed.has(item.id)}
+                    compact
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+          {!brief[section].length && (
+            <p className="brief-empty">
+              {
                 {
-                  {
-                    state: "No current state recorded.",
-                    decisions: "No active decisions recorded.",
-                    open_questions: "No open questions recorded.",
-                    unfinished: "No unfinished work recorded.",
-                  }[section]
-                }
-              </p>
-            )}
-          </div>
+                  state: "No current state recorded.",
+                  decisions: "No active decisions recorded.",
+                  open_questions: "No open questions recorded.",
+                  unfinished: "No unfinished work recorded.",
+                }[section]
+              }
+            </p>
+          )}
           <button
             type="button"
             className="text-button brief-all"
@@ -591,12 +584,94 @@ export function ProjectBriefView({
                 ? "question"
                 : section === "decisions"
                   ? "decision"
-                  : "state"}{" "}
+                  : "update"}{" "}
             record
             <ArrowRight size={14} aria-hidden="true" />
           </button>
         </BriefTabs>
       </section>
+      <footer className="brief-record-footer">
+        <div className="brief-meta">
+          <details className="brief-provenance">
+            <summary>
+              <Link2 size={13} aria-hidden="true" />
+              {brief.coverage.results}{" "}
+              {brief.coverage.results === 1 ? "result" : "results"} ·{" "}
+              {brief.coverage.threads}{" "}
+              {brief.coverage.threads === 1 ? "thread" : "threads"}
+            </summary>
+            <div className="brief-provenance-detail">
+              <p>
+                {readable(brief.basis.window)} ·{" "}
+                {readable(brief.coverage.model || "No model generation yet")}
+              </p>
+              {brief.headline && (
+                <BriefCitations
+                  item={{ cite: brief.headline.cite }}
+                  sources={brief.sources}
+                  workspace={workspace}
+                  onNavigate={onNavigate}
+                />
+              )}
+              {brief.artifacts
+                .filter((artifact) => artifact.kind !== "pr")
+                .map((artifact) => {
+                  const params = new URLSearchParams({
+                    artifact: artifact.ref,
+                  });
+                  if (workspace) params.set("source", workspace);
+                  const href = "/?" + params;
+                  return (
+                    <a
+                      className="brief-artifact"
+                      key={artifact.kind + artifact.ref}
+                      href={href}
+                      onClick={navigate(href)}
+                    >
+                      {artifact.kind === "chart"
+                        ? "Published chart"
+                        : "Published file"}{" "}
+                      · {readable(artifact.state)}
+                      <ArrowUpRight size={14} aria-hidden="true" />
+                    </a>
+                  );
+                })}
+              {pullRequests.length > 0 && (
+                <div className="brief-linked-pulls">
+                  <p>
+                    {pullRequests.length} linked{" "}
+                    {pullRequests.length === 1
+                      ? "pull request"
+                      : "pull requests"}
+                  </p>
+                  <a
+                    className="brief-artifact"
+                    href={"/?" + pullsParams}
+                    onClick={navigate("/?" + pullsParams)}
+                  >
+                    Browse all pull requests
+                    <ArrowUpRight size={14} aria-hidden="true" />
+                  </a>
+                </div>
+              )}
+            </div>
+          </details>
+          <button
+            type="button"
+            className="text-button brief-changes"
+            onClick={onHistory}
+          >
+            {brief.changes.length
+              ? `${brief.changes.length} ${brief.changes.length === 1 ? "update" : "updates"}`
+              : "History"}
+            <ArrowUpRight size={13} aria-hidden="true" />
+          </button>
+        </div>
+        <BriefTokenUsage
+          usage={brief.generation_usage}
+          recorded={brief.basis.synth_at !== null}
+        />
+      </footer>
     </div>
   );
 }

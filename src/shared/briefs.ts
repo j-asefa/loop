@@ -18,9 +18,16 @@ export type BriefSource = {
   message: string | null;
   artifact: string | null;
   excerpt: string;
+  owner_message?: boolean;
+  /** Exact excerpts rechecked against the current source, including long messages. */
+  verified_quotes?: string[];
 };
 export type BriefEvidencePage = {
   text: string;
+  summary?: Item["summary"];
+  update?: string;
+  next?: string;
+  blocker?: string;
   cite: Item["cite"];
   sources: Record<string, BriefSource>;
 };

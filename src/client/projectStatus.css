@@ -589,3 +589,30 @@ button.project-status-link {
 .project-status-requests small {
   color: var(--muted);
 }
+
+/* Title, outcome and stage have distinct weights; no line clamps hide caveats. */
+.project-status-summary .project-status-update {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+}
+.project-status-work-title {
+  display: block;
+  font-weight: 550;
+}
+.project-status-work-update {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.project-status-work-stage {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}

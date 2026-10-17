@@ -168,7 +168,7 @@ it("publishes the first brief from three results with one forced tool and the ca
     expect(events(calls[0])).toContain("[res_" + artifact + "]");
   expect(calls[0]).toMatchObject({
     model: "fixture",
-    maxTokens: 4096,
+    maxTokens: 8192,
     toolChoice: "submit_brief",
   });
   expect(calls[0].tools?.map((t) => t.name)).toEqual(["submit_brief"]);
@@ -923,4 +923,116 @@ it("records paid unchanged passes and discarded work separately from published v
   db.prepare("UPDATE brief_state SET enabled=0 WHERE project_id=?").run(
     w.project,
   );
+});
+
+it("keeps the original owner wording after the event cursor advances, without importing other owners or automation", async () => {
+  const w = fixture(1);
+  const prompt = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user',?,0)",
+  ).run(
+    prompt,
+    w.owner,
+    w.thread,
+    "Everything should be clickable and link to the source",
+  );
+  recordChange(w.owner, w.project, "prompt", prompt, w.thread);
+  scripted((input) => ({
+    ...good(input),
+    items: [
+      {
+        kind: "state",
+        text: "forest reports the source links on main.",
+        cite: [{ ref: "res_" + w.artifacts[0] }],
+        summary: {
+          title: "Make everything clickable",
+          update: "forest reports the source links on main.",
+          request: {
+            ref: "msg_" + prompt,
+            quote: "Everything should be clickable and link to the source",
+          },
+        },
+      },
+    ],
+  }));
+  expect(await runDueBriefs()).toBe(1);
+  const other = fixture(0, false);
+  for (const [owner, thread, text, metadata] of [
+    [other.owner, other.thread, "PRIVATE OWNER REQUEST", "{}"],
+    [
+      w.owner,
+      w.thread,
+      "AUTOMATED REQUEST",
+      '{"automation":{"kind":"schedule"}}',
+    ],
+  ]) {
+    const message = id();
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'user',?,?,0)",
+    ).run(message, owner, thread, text, metadata);
+    recordChange(
+      owner,
+      owner === w.owner ? w.project : other.project,
+      "prompt",
+      message,
+      thread,
+    );
+  }
+  w.result("Another source link update");
+  const input = buildInput(w.state());
+  const requests = input.prompt
+    .split("OWNER REQUESTS (")[1]
+    .split("\n\nINDEX")[0];
+  expect(requests).toContain(
+    "Everything should be clickable and link to the source",
+  );
+  expect(requests).toContain("msg_" + prompt);
+  expect(requests).not.toContain("PRIVATE OWNER REQUEST");
+  expect(requests).not.toContain("AUTOMATED REQUEST");
+  expect(input.prompt.split("\n\nEVENTS (")[1]).not.toContain("msg_" + prompt);
+  db.prepare("DELETE FROM messages WHERE id=?").run(prompt);
+  const after = buildInput(w.state())
+    .prompt.split("OWNER REQUESTS (")[1]
+    .split("\n\nINDEX")[0];
+  expect(after).not.toContain("Everything should be clickable");
+});
+
+it("recovers the original run request when upgrading a legacy item in a long thread", async () => {
+  const w = fixture(1);
+  const run = (
+    db
+      .prepare("SELECT run_id FROM artifacts WHERE id=?")
+      .get(w.artifacts[0]) as { run_id: string }
+  ).run_id;
+  const original = id();
+  for (let n = 0; n < 9; n++) {
+    const message = n === 1 ? original : id();
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user',?,?)",
+    ).run(
+      message,
+      w.owner,
+      w.thread,
+      n === 1 ? run : null,
+      n === 1 ? "Show each agent's own diff" : `Unrelated later request ${n}`,
+      n * 100,
+    );
+    recordChange(w.owner, w.project, "prompt", message, w.thread);
+  }
+  scripted((input) => ({
+    ...good(input),
+    items: [
+      {
+        kind: "state",
+        text: "The diff fix is reported on main.",
+        cite: [{ ref: "res_" + w.artifacts[0] }],
+      },
+    ],
+  }));
+  await runDueBriefs();
+  const requests = buildInput(w.state())
+    .prompt.split("OWNER REQUESTS (")[1]
+    .split("\n\nINDEX")[0];
+  expect(requests).toContain("msg_" + original);
+  expect(requests).toContain("Show each agent's own diff");
 });

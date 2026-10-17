@@ -6,6 +6,9 @@ import { briefSourceUrl } from "./briefView";
 import { createReadableText, type DisplayAgent } from "../shared/readable-text";
 import type { BriefEvidencePage } from "../shared/briefs";
 import { viewOwner } from "./viewCache";
+import { ReadableTextProvider } from "./ReadableText";
+import { BriefRequest } from "./BriefRequest";
+import { briefStageLabels } from "../shared/brief-reading";
 import "./briefSources.css";
 
 export type BriefEvidenceTarget = { item: string; version?: number | null };
@@ -46,11 +49,7 @@ export function BriefSourceSheet({
     )
       .then((result) => {
         if (!active || owner !== viewOwner()) return;
-        const refs = [...new Set(result.cite.map((cite) => cite.ref))];
-        const source = refs.length === 1 && result.sources[refs[0]];
-        const href = source && briefSourceUrl(source, sourceId);
-        if (href) location.assign(href);
-        else setPage(result);
+        setPage(result);
       })
       .catch((failure) => {
         if (active && owner === viewOwner()) setError(failure.message);
@@ -62,7 +61,7 @@ export function BriefSourceSheet({
     };
   }, [project, target.item, target.version, sourceId, attempt]);
   return (
-    <Sheet title="Sources" onClose={onClose}>
+    <Sheet title="Request & sources" onClose={onClose}>
       {error ? (
         <div role="alert">
           <p>{readable(error)}</p>
@@ -74,26 +73,65 @@ export function BriefSourceSheet({
           </button>
         </div>
       ) : !page ? (
-        <p role="status">Opening source…</p>
+        <p role="status">Loading sources…</p>
       ) : (
         <div className="status-sources">
-          <p className="status-source-summary">{readable(page.text)}</p>
+          <div className="status-source-summary">
+            <h3>{readable(page.summary?.title ?? page.text)}</h3>
+            {(page.summary?.update || page.update) && (
+              <p>{readable(page.summary?.update ?? page.update ?? "")}</p>
+            )}
+            {page.summary?.stage && (
+              <small>{briefStageLabels[page.summary.stage]}</small>
+            )}
+          </div>
+          <ReadableTextProvider agents={agents}>
+            <BriefRequest
+              summary={page.summary}
+              sources={page.sources}
+              workspace={sourceId}
+            />
+          </ReadableTextProvider>
+          {page.next && (
+            <p className="brief-reading-next">
+              <strong>Next</strong>
+              {readable(page.next)}
+            </p>
+          )}
+          {page.blocker && (
+            <p className="brief-reading-next">
+              <strong>Blocked by</strong>
+              {readable(page.blocker)}
+            </p>
+          )}
+          {page.summary && (
+            <details className="brief-reading-context">
+              <summary>More context</summary>
+              <p>{readable(page.text)}</p>
+            </details>
+          )}
+          <span className="brief-reading-label">Supporting record</span>
           {[...new Set(page.cite.map((cite) => cite.ref))].map((ref) => {
             const source = page.sources[ref],
               href = source && briefSourceUrl(source, sourceId);
             return href ? (
-              <a className="status-source-link" key={ref} href={href}>
-                <strong>
-                  {readable(source.title)}{" "}
-                  <ArrowUpRight size={16} aria-hidden="true" />
-                </strong>
+              <article className="status-source-link" key={ref}>
+                <a href={href}>
+                  <strong>
+                    {readable(source.title)}{" "}
+                    <ArrowUpRight size={16} aria-hidden="true" />
+                  </strong>
+                </a>
                 {source.at !== null && (
                   <time dateTime={new Date(source.at).toISOString()}>
                     {new Date(source.at).toLocaleString()}
                   </time>
                 )}
-                <p>{readable(source.excerpt)}</p>
-                <span>
+                <details className="brief-reading-context">
+                  <summary>Read original text</summary>
+                  <p>{readable(source.excerpt)}</p>
+                </details>
+                <a href={href}>
                   {source.kind === "checkout"
                     ? "Open recorded changes"
                     : source.kind === "verification"
@@ -101,8 +139,8 @@ export function BriefSourceSheet({
                       : source.artifact && !source.message
                         ? "Open published result"
                         : "Open original message"}
-                </span>
-              </a>
+                </a>
+              </article>
             ) : (
               <p key={ref} className="muted">
                 This source is no longer available in this project.
