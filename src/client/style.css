@@ -3062,6 +3062,25 @@ pre {
   border: 0;
   margin: 12px 0;
 }
+.native-decision .native-question-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 4px 0;
+}
+.native-question-option > span {
+  min-width: 0;
+}
+.native-decision .native-question-option input {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+}
 .native-runtime {
   padding: 16px 0;
   border-top: 1px solid var(--line);
@@ -3879,8 +3898,21 @@ fieldset {
   position: relative;
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
+}
+.conversation-sheet .native-decisions {
+  /* Questions share the space above the composer, including with the keyboard
+     open. Scroll the list so every card and response button stays reachable. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.conversation-sheet .native-decision form > .primary:last-child {
+  /* The sheet's sticky submit treatment would cover options in this card. */
+  position: static;
+  box-shadow: none;
 }
 .conversation-sheet .messages {
   max-height: none;

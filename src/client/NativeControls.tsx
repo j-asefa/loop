@@ -140,16 +140,14 @@ export function NativeDecisions({
       window.removeEventListener("loop-workspace-change", load);
     };
   }, [conversation]);
-  return (
-    <>
-      {items.map((item) => (
-        <DecisionCard
-          key={item.id}
-          item={item}
-          onConversation={onConversation}
-        />
-      ))}
-    </>
+  if (!items.length) return null;
+  const cards = items.map((item) => (
+    <DecisionCard key={item.id} item={item} onConversation={onConversation} />
+  ));
+  return conversation ? (
+    <div className="native-decisions">{cards}</div>
+  ) : (
+    <>{cards}</>
   );
 }
 function DecisionCard({
@@ -340,7 +338,7 @@ function DecisionCard({
             <fieldset key={q.id}>
               <legend>{q.title}</legend>
               {q.options?.map((option) => (
-                <label key={option}>
+                <label className="native-question-option" key={option}>
                   <input
                     type={q.multiple ? "checkbox" : "radio"}
                     name={item.id + q.id}
@@ -356,7 +354,7 @@ function DecisionCard({
                       }))
                     }
                   />
-                  {option}
+                  <span>{option}</span>
                 </label>
               ))}
               <input

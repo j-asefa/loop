@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import codexToolApproval from "../test/fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "../test/fixtures/codex-review-approval.json" with { type: "json" };
+import { nativeQuestionLayoutSmoke } from "./helpers/native-question-layout-smoke.mjs";
 
 // Fixture-only: real UI, no native provider or external tool execution.
-const fixture = await designFixture();
-try {
-  for (const engine of selectedEngines()) {
+const screenshots =
+  process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
+  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+if (screenshots) mkdirSync(screenshots, { recursive: true });
+for (const engine of selectedEngines()) {
+  const fixture = await designFixture();
+  try {
     const browser = await engine.launch({
       headless: true,
       executablePath:
@@ -31,6 +38,10 @@ try {
       });
       await page.route("**/api/bootstrap", async (route) => {
         const response = await route.fetch();
+        assert(
+          response.ok(),
+          `Bootstrap failed with HTTP ${response.status()}`,
+        );
         const data = await response.json();
         await route.fulfill({
           json: {
@@ -242,13 +253,19 @@ try {
       await reviewAccept.click();
       await expect(reviewCard).toHaveCount(0);
       assert.equal(decisions.at(-1).answer.choice, "accept");
+      await nativeQuestionLayoutSmoke(page, fixture, async (name) => {
+        if (screenshots)
+          await page.screenshot({
+            path: join(screenshots, `${engine.name()}-${name}.png`),
+          });
+      });
       console.log(
-        `${engine.name()}: approval actions and Pi composer layout passed`,
+        `${engine.name()}: approval actions, native question responses and Pi composer layout passed`,
       );
     } finally {
       await browser.close();
     }
+  } finally {
+    await fixture.close();
   }
-} finally {
-  await fixture.close();
 }
