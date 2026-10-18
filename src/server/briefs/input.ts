@@ -387,6 +387,9 @@ export function buildInput(state: State): BriefInput {
     prompt: [
       `AGENTS (display names for prose; ids only for structured fields)\n${agents.map((agent) => `${agent.id}: ${JSON.stringify(agent.name)}`).join("\n")}`,
       `GOAL\n${state.goal ?? "none set"}`,
+      // No release-to-change observation is collected by this pipeline. Keep
+      // that absence explicit instead of treating old result prose as telemetry.
+      "DEPLOYMENT STATUS\nUpdate status unknown: Loop has no observation comparing this project's running build with the build containing a change. Historical update/restart reminders do not establish the current app version. This is an observation limit, not a blocker or a new task.",
       `PINNED\n${items
         .filter((i) => i.pinned)
         .map((i) => `${i.id}: ${oneLine(i.text)} (${i.kind}, ${i.status})`)

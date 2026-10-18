@@ -559,6 +559,16 @@ export function applyOutput(
           // An updated record must not keep an obsolete reading layer when an
           // older provider omits it. Pins retain exactly what the owner saw.
           if (!proposed.summary && !old?.pinned) delete candidate.summary;
+          // Each submitted unfinished item describes its current obstacle.
+          // Spreading the old record above must not resurrect a blocker that
+          // the new brief deliberately omitted. Omitted items and pins retain
+          // their recorded values.
+          if (
+            proposed.kind === "unfinished" &&
+            proposed.blocker === undefined &&
+            !old?.pinned
+          )
+            delete candidate.blocker;
           if (old?.pinned) {
             if (old.summary) candidate.summary = old.summary;
             else delete candidate.summary;

@@ -589,6 +589,52 @@ it("derives native questions, working, failures and blockers from current state"
   );
   expect(w.read().status).toBe("blocked");
 });
+it.each([undefined, ""])(
+  "clears an updated task's old blocker with %s",
+  (blocker) => {
+    const w = fixture();
+    const task = {
+      kind: "unfinished",
+      thread: w.threads[0],
+      text: "Check Send",
+      next: "Check Send in the app",
+      cite: w.cite,
+    };
+    w.apply([{ ...task, blocker: "App update pending" }]);
+    const item = w.items()[0];
+    // Not submitting an item must not erase its obstacle.
+    w.apply([w.state()]);
+    expect(w.items().find((row) => row.id === item.id)?.blocker).toBe(
+      "App update pending",
+    );
+    expect(
+      w.apply([
+        { ...task, id: item.id, ...(blocker === undefined ? {} : { blocker }) },
+      ]).outcome,
+    ).toBe("published");
+    expect(w.read().unfinished[0].blocker || "").toBe("");
+    expect(w.read().status).toBe("idle");
+  },
+);
+
+it("preserves a pinned task's blocker when a refresh omits it", async () => {
+  const { editItem } = await import("../src/server/briefs/owner");
+  const w = fixture();
+  const task = {
+    kind: "unfinished",
+    thread: w.threads[0],
+    text: "Check Send",
+    next: "Obtain device access",
+    cite: w.cite,
+  };
+  w.apply([{ ...task, blocker: "Device access is unavailable" }]);
+  const item = w.items()[0];
+  editItem(w.owner, w.project, item.id, { pinned: true });
+  w.apply([{ ...task, id: item.id }]);
+  expect(w.read().unfinished[0].blocker).toBe("Device access is unavailable");
+  expect(w.read().status).toBe("blocked");
+});
+
 it("counts synthesis-relevant changes but not creation-only approvals", () => {
   const w = fixture();
   const before = w.read().basis.pending;

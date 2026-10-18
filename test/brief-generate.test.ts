@@ -215,6 +215,125 @@ it("retries cite_unresolved once with code and item id before publishing", async
   expect(w.state().current_version).toBe(1);
 });
 
+it("refreshes a historical update claim without keeping its obsolete blocker in Brief or Status", async () => {
+  const { applyOutput } = await import("../src/server/briefs/apply");
+  const { ledger } = await import("../src/server/briefs/store");
+  const { projectStatuses } = await import("../src/server/project-status");
+  const w = fixture(0);
+  const ref =
+    "res_" +
+    w.result("The Send fix is on main. Update the app, then check Send.");
+  const cite = [{ ref }];
+  // Seed the old published brief, as an installation predating this policy
+  // would have recorded it. The underlying report is historical, not telemetry.
+  expect(
+    applyOutput(
+      w.owner,
+      w.project,
+      {
+        headline: {
+          text: "Send fix on main",
+          update: "App update pending.",
+          cite,
+        },
+        items: [
+          {
+            kind: "state",
+            text: "The running app still needs updating.",
+            cite,
+            summary: {
+              title: "Fix Send",
+              update: "App update pending.",
+              stage: "awaiting_update",
+            },
+          },
+          {
+            kind: "unfinished",
+            text: "Check Send in the app",
+            thread: w.thread,
+            next: "Update the app, then check Send.",
+            blocker: "The running app still needs updating.",
+            cite,
+          },
+        ],
+      },
+      {
+        builtOnVersion: 0,
+        ownerEditRev: 0,
+        basisThrough: buildInput(w.state()).basisThrough,
+      },
+    ).outcome,
+  ).toBe("published");
+  const old = ledger(w.owner, w.project);
+  expect(serveBrief(w.owner, w.project).status).toBe("blocked");
+  w.result(
+    "The requested code change was reported complete; app verification is a separate task.",
+  );
+  const calls = scripted((input) => {
+    expect(input.messages[0].content).toContain(
+      "DEPLOYMENT STATUS\nUpdate status unknown",
+    );
+    expect(input.messages[0].content).toContain(
+      "The running app still needs updating.",
+    );
+    expect(input.instructions).toContain(
+      "Previous briefs and their INDEX are derived summaries",
+    );
+    expect(input.instructions).toContain("not by itself an obstacle");
+    return {
+      headline: {
+        text: "Send fix reported on main",
+        update: "Update status unknown.",
+        cite,
+      },
+      items: old.map((item) =>
+        item.kind === "state"
+          ? {
+              id: item.id,
+              kind: "state",
+              text: "The Send fix is reported on main. Update status unknown.",
+              cite,
+              summary: {
+                title: "Fix Send",
+                update: "Fix reported on main. Update status unknown.",
+                stage: "on_main",
+              },
+            }
+          : {
+              id: item.id,
+              kind: "unfinished",
+              thread: w.thread,
+              text: "Check Send in the app",
+              next: "Check Send in the app.",
+              cite,
+              // Deliberately omit blocker: unknown does not prevent checking Send.
+            },
+      ),
+    };
+  });
+  expect(await runDueBriefs()).toBe(1);
+  expect(calls).toHaveLength(1);
+  const brief = serveBrief(w.owner, w.project);
+  expect(brief.status).toBe("idle");
+  expect(brief.state[0].summary?.stage).toBe("on_main");
+  expect(brief.unfinished[0].blocker).toBeUndefined();
+  expect(
+    ledger(w.owner, w.project)
+      .map((item) => item.id)
+      .sort(),
+  ).toEqual(old.map((item) => item.id).sort());
+  const status = projectStatuses(w.owner, { project: w.project }).items[0];
+  expect(status.status).toBe("idle");
+  expect(status.brief.blockers).toBe(0);
+  expect(status.brief.highlights?.task).toMatchObject({
+    next: "Check Send in the app.",
+    blocker: null,
+  });
+  expect(JSON.stringify(brief)).not.toMatch(
+    /still needs updating|App update pending/,
+  );
+});
+
 it("rolls back a partially valid first attempt before the validation retry", async () => {
   const w = fixture();
   const calls = scripted((input, n) => {
