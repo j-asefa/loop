@@ -154,3 +154,34 @@
   outline: 2px solid var(--brass);
   outline-offset: 3px;
 }
+
+.status-source-group {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--secondary) 24%, var(--surface));
+  overflow-wrap: anywhere;
+}
+.status-source-group h4 {
+  margin: 0;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.status-source-group .status-source-link {
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  gap: 4px;
+}
+.status-source-group .status-source-link > strong {
+  font-size: 13px;
+}
+.status-source-group .status-source-link > a {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.status-source-group > .muted {
+  margin: 16px;
+}

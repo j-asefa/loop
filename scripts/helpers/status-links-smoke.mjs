@@ -323,6 +323,14 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
     stage: "on_main",
     request: { ref: "msg_" + done.message, quote: request },
   };
+  db.prepare("UPDATE brief_items SET cites=? WHERE id=?").run(
+    JSON.stringify([
+      refs[0],
+      { ref: "msg_" + done.message },
+      { ref: "chk_" + checkout },
+    ]),
+    items[0].id,
+  );
   db.prepare(
     "UPDATE brief_items SET text=?,summary=?,updated_at=? WHERE id=?",
   ).run(
@@ -385,6 +393,23 @@ export async function statusLinksSmoke(page, f, _engine, capture) {
   await card.getByRole("link").filter({ hasText: reading.title }).focus();
   await page.keyboard.press("Enter");
   await expect(sources).toContainText("In your words");
+  await expect(sources.locator(".status-source-group")).toHaveCount(1);
+  await expect(
+    sources.getByRole("heading", { name: "Review the evidence", exact: true }),
+  ).toHaveCount(1);
+  await expect(sources.locator(".status-source-link > strong")).toHaveText([
+    "Agent’s response",
+    "Your request",
+    "Recorded changes",
+  ]);
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert.equal(
+      await sources.evaluate((el) => el.scrollWidth <= el.clientWidth),
+      true,
+    );
+    await capture("grouped-sources-" + width);
+  }
   await expect(sources.locator(".brief-request blockquote")).toHaveText(
     request,
   );

@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
 import { apiInWorkspace } from "./api";
 import { Sheet } from "./components";
-import { briefSourceUrl } from "./briefView";
 import { createReadableText, type DisplayAgent } from "../shared/readable-text";
 import type { BriefEvidencePage } from "../shared/briefs";
 import { viewOwner } from "./viewCache";
 import { ReadableTextProvider } from "./ReadableText";
 import { BriefRequest } from "./BriefRequest";
 import { briefStageLabels } from "../shared/brief-reading";
+import { BriefSourceGroups } from "./BriefSourceGroups";
 import "./briefSources.css";
 
 export type BriefEvidenceTarget = { item: string; version?: number | null };
@@ -111,42 +110,12 @@ export function BriefSourceSheet({
             </details>
           )}
           <span className="brief-reading-label">Supporting record</span>
-          {[...new Set(page.cite.map((cite) => cite.ref))].map((ref) => {
-            const source = page.sources[ref],
-              href = source && briefSourceUrl(source, sourceId);
-            return href ? (
-              <article className="status-source-link" key={ref}>
-                <a href={href}>
-                  <strong>
-                    {readable(source.title)}{" "}
-                    <ArrowUpRight size={16} aria-hidden="true" />
-                  </strong>
-                </a>
-                {source.at !== null && (
-                  <time dateTime={new Date(source.at).toISOString()}>
-                    {new Date(source.at).toLocaleString()}
-                  </time>
-                )}
-                <details className="brief-reading-context">
-                  <summary>Read original text</summary>
-                  <p>{readable(source.excerpt)}</p>
-                </details>
-                <a href={href}>
-                  {source.kind === "checkout"
-                    ? "Open recorded changes"
-                    : source.kind === "verification"
-                      ? "Open recorded checks"
-                      : source.artifact && !source.message
-                        ? "Open published result"
-                        : "Open original message"}
-                </a>
-              </article>
-            ) : (
-              <p key={ref} className="muted">
-                This source is no longer available in this project.
-              </p>
-            );
-          })}
+          <BriefSourceGroups
+            cites={page.cite}
+            sources={page.sources}
+            workspace={sourceId}
+            readable={readable}
+          />
           {!page.cite.length && (
             <p className="muted">No sources were recorded for this item.</p>
           )}
