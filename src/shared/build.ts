@@ -70,6 +70,7 @@ export const DeploymentObservation = z.object({
   status: z.enum(["included", "predates", "unknown"]),
   reason: z.string(),
   observedAt: z.number(),
+  checkedAt: z.number(),
   validUntil: z.number(),
   current: z.boolean(),
 });

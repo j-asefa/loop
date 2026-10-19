@@ -20,7 +20,8 @@ for (const version of ["old", "new"]) {
       contents: `
     import React from 'react'; import {createRoot} from 'react-dom/client';
     import {BrowserBuildStatus,DeploymentStatus} from './src/client/BuildStatus';
-    const observations=[{ref:'dep_fixture',checkout:'checkout',run:'run',conversation:'thread',title:'Fix Send',commit:'${"a".repeat(40)}',status:'included',reason:'The API and worker histories include the recorded commit.',observedAt:Date.now(),validUntil:Date.now()+20000,current:true}];
+    import {apiInWorkspace} from './src/client/api';
+    const {deployments:observations}=await apiInWorkspace('/projects/fixture/brief','');
     createRoot(document.getElementById('root')).render(<><BrowserBuildStatus/><textarea aria-label="Draft"/><DeploymentStatus observations={observations}/></>);
   `,
     },
@@ -40,7 +41,33 @@ const css = await readFile("src/client/style.css", "utf8");
 let loaded = "old",
   fail = false;
 const server = createServer((req, res) => {
-  if (req.url === "/api/build") {
+  if (req.url === "/api/projects/fixture/brief") {
+    const checkedAt = Date.now() + (loaded === "old" ? -300000 : 300000);
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    });
+    res.end(
+      JSON.stringify({
+        deployments: [
+          {
+            ref: "dep_fixture",
+            checkout: "checkout",
+            run: "run",
+            conversation: "thread",
+            title: "Fix Send",
+            commit: "a".repeat(40),
+            status: "included",
+            reason: "The API and worker histories include the recorded commit.",
+            observedAt: checkedAt,
+            checkedAt,
+            validUntil: checkedAt + 20000,
+            current: true,
+          },
+        ],
+      }),
+    );
+  } else if (req.url === "/api/build") {
     res.writeHead(fail ? 503 : 200, {
       "content-type": "application/json",
       "cache-control": "no-store",
@@ -119,8 +146,16 @@ try {
       await expect(
         page.getByRole("button", { name: "Reload to update" }),
       ).toHaveCount(0);
+      await page.getByText("Running app · 1 build comparison").click();
+      await expect(
+        page.getByText("Change commit included", { exact: true }),
+      ).toBeVisible();
+      await page.clock.runFor(21000);
+      await expect(
+        page.getByText("Update status unknown", { exact: true }),
+      ).toBeVisible();
       console.log(
-        `${name}: cold stale page, failed refresh, explicit reload, expired evidence and comparison UI passed`,
+        `${name}: cold stale page, failed refresh, explicit reload, expiry with clocks five minutes ahead/behind and comparison UI passed`,
       );
     } finally {
       await browser.close();

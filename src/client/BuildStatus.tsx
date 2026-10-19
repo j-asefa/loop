@@ -9,6 +9,7 @@ import {
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { relativeTime } from "./threadView";
 import { useReadableText } from "./ReadableText";
+import { buildObservationCurrent } from "./buildFreshness";
 
 /** This concerns the origin serving the shell, never a selected linked source. */
 export function BrowserBuildStatus() {
@@ -58,11 +59,10 @@ export function DeploymentStatus({
   fresh?: boolean;
 }) {
   const readable = useReadableText();
-  const [time, setTime] = useState(Date.now);
+  const [, refresh] = useState(0);
   useEffect(() => {
     if (!observations?.length) return;
-    setTime(Date.now());
-    const timer = setInterval(() => setTime(Date.now()), 1000);
+    const timer = setInterval(() => refresh((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, [observations]);
   if (!observations?.length) return null;
@@ -77,7 +77,7 @@ export function DeploymentStatus({
         feature checks are separate.
       </p>
       {observations.map((item) => {
-        const current = fresh && item.current && item.validUntil > time;
+        const current = fresh && buildObservationCurrent(item);
         const params = new URLSearchParams({ conversation: item.conversation });
         if (source) params.set("source", source);
         return (

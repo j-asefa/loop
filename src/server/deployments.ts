@@ -250,6 +250,7 @@ export function deploymentMap(owner: string, project?: string, at = now()) {
         ? row.reason
         : "The deployment observation is no longer current.",
       observedAt: row.observed_at,
+      checkedAt: at,
       validUntil: current ? validUntil : at,
       current,
     });

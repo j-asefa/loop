@@ -155,10 +155,12 @@ it("records a real committed checkout and feeds current evidence into Status, Br
     commit: f.commit,
     run: f.runId,
   });
-  expect(serveBrief(f.owner, f.project).deployments).toEqual(f.read());
+  expect(serveBrief(f.owner, f.project).deployments).toEqual([
+    { ...observation, checkedAt: expect.any(Number) },
+  ]);
   expect(
     projectStatuses(f.owner, { project: f.project }).items[0].deployments,
-  ).toEqual(f.read());
+  ).toEqual([{ ...observation, checkedAt: expect.any(Number) }]);
   expect(buildInput(readState(f.owner, f.project)).prompt).toContain(
     observation.ref,
   );

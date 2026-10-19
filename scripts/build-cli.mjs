@@ -1,6 +1,7 @@
 import { globSync, readdirSync, readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { cp, chmod, rm, writeFile } from "node:fs/promises";
+import { stageRuntimeAssets } from "./build-runtime-assets.mjs";
 // Clear old server code while preserving the freshly built UI.
 for (const entry of readdirSync("dist")) {
   if (entry !== "client") await rm(`dist/${entry}`, { recursive: true, force: true });
@@ -35,6 +36,7 @@ await rm("dist/web", { recursive: true, force: true });
 await cp("dist/client", "dist/web", { recursive: true });
 await chmod("dist/cli.js", 0o755);
 await writeFile("dist/build-id.json", JSON.stringify({id: process.env.LOOP_BUILD_STAMP_FILE ? JSON.parse(readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8")).id : "development"}));
+await stageRuntimeAssets(process.cwd(), "dist");
 
 // Install the CLI with the same dependency graph validated by npm ci.
 await cp("package-lock.json", "npm-shrinkwrap.json");

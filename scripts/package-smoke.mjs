@@ -288,6 +288,7 @@ async function upgradeBehindConnection() {
   const nextVersion = manifest.version + "-upgrade.1";
   manifest.version = nextVersion;
   writeFileSync(join(pkg, "package.json"), JSON.stringify(manifest, null, 2));
+  writeFileSync(join(pkg, "dist", "support", "package.json"), JSON.stringify(manifest, null, 2));
   const index = join(pkg, "dist", "web", "index.html");
   writeFileSync(index, readFileSync(index, "utf8").replace("</head>", "<!-- loop-build-b --></head>"));
   const packed = JSON.parse(
