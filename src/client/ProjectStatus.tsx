@@ -325,7 +325,11 @@ export function ProjectStatusCard({
         )}
       </p>
       <div className="project-status-record">
-        <DeploymentStatus observations={p.deployments} source={sourceId} fresh={fresh} />
+        <DeploymentStatus
+          observations={p.deployments}
+          source={sourceId}
+          fresh={fresh}
+        />
         <div className="project-status-record-heading">
           <a
             className="project-status-eyebrow project-status-link"
@@ -792,7 +796,8 @@ function StatusSession({
   const pagesRef = useRef(pages),
     order = useRef<string[]>([]),
     alive = useRef(true),
-    request = useRef(0);
+    request = useRef(0),
+    reading = useRef<number | null>(null);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState<string | null>(null);
@@ -840,9 +845,13 @@ function StatusSession({
       pending.current = null;
     }
   };
-  const load = async (reorder = false) => {
+  const load = async (reorder = false, polling = false) => {
+    // A slow linked source must be allowed to time out and publish the rest
+    // of its batch before the next periodic read supersedes it.
+    if (polling && reading.current === request.current) return;
     const ticket = ++request.current,
       owner = viewOwner();
+    reading.current = ticket;
     const q = new URLSearchParams();
     if (project) q.set("project", project);
     if (teams) q.set("teams", teams);
@@ -863,6 +872,7 @@ function StatusSession({
         }
       }),
     );
+    if (reading.current === ticket) reading.current = null;
     if (!alive.current || ticket !== request.current || owner !== viewOwner())
       return;
     const next = settled.map((result, index): SourcePage =>
@@ -898,7 +908,7 @@ function StatusSession({
         })),
       );
     };
-    const timer = setInterval(refresh, 15_000);
+    const timer = setInterval(() => void load(false, true), 15_000);
     // A hanging refresh must not leave an indefinitely live-looking snapshot.
     const expiry = setInterval(() => {
       if (

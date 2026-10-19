@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { chromium, webkit, expect } from "@playwright/test";
 import { briefPollingSmoke } from "./helpers/brief-polling-smoke.mjs";
+import { statusPollingSmoke } from "./helpers/status-polling-smoke.mjs";
 
 const identity = (id) => ({
   id,
@@ -113,7 +114,20 @@ try {
         viewport: { width: 390, height: 844 },
       });
       await page.clock.install();
+      let buildRequests = 0,
+        releaseBuild;
+      const slowBuild = new Promise((resolve) => {
+        releaseBuild = resolve;
+      });
+      await page.route("**/api/build", async (route) => {
+        if (++buildRequests === 1) await slowBuild;
+        await route.continue();
+      });
       await page.goto(`http://127.0.0.1:${server.address().port}`);
+      await expect.poll(() => buildRequests).toBe(1);
+      await page.clock.runFor(16000);
+      expect(buildRequests).toBe(1);
+      releaseBuild();
       await expect(
         page.getByText("This page and the running app use different builds."),
       ).toBeVisible();
@@ -159,8 +173,12 @@ try {
         browser,
         `http://127.0.0.1:${server.address().port}`,
       );
+      await statusPollingSmoke(
+        browser,
+        `http://127.0.0.1:${server.address().port}`,
+      );
       console.log(
-        `${name}: cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI and slow Brief polling passed`,
+        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI, slow Brief and hanging Status source polling passed`,
       );
     } finally {
       await browser.close();
