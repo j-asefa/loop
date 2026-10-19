@@ -10,11 +10,12 @@ export async function buildFallbackSmoke(browser, base) {
     builtAt: 0,
     ancestors: [],
   });
-  for (const { loaded, legacy } of [
+  for (const { loaded, legacy, initialMismatch } of [
     { loaded: "development" },
     { loaded: "compiled" },
     { loaded: "compiled", legacy: "missing" },
     { loaded: "compiled", legacy: "malformed" },
+    { loaded: "compiled", legacy: "missing", initialMismatch: true },
   ]) {
     const page = await browser.newPage();
     let socket,
@@ -74,15 +75,22 @@ export async function buildFallbackSmoke(browser, base) {
             buildIdentity: typeof id === "string" ? identity(id) : id,
           }),
         );
-      reset("original-assets", loaded);
       await page.clock.runFor(1000);
       const reload = page.getByRole("button", { name: "Reload to update" });
+      if (initialMismatch) {
+        reset("mismatching-assets", "replacement");
+        await expect(reload).toBeVisible();
+      }
+      reset("original-assets", loaded);
       await expect(reload).toHaveCount(0);
       if (legacy) {
         // Roll back to a server without a usable identity or build endpoint.
         // Its first changed asset hash must still use the original baseline.
         serving = null;
-        reset("legacy-assets", legacy === "missing" ? undefined : {});
+        reset(
+          initialMismatch ? "mismatching-assets" : "legacy-assets",
+          legacy === "missing" ? undefined : {},
+        );
         await expect(reload).toBeVisible();
         const absentRead = page.waitForResponse("**/api/build");
         await page.clock.runFor(15000);

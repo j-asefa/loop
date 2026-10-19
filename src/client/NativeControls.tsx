@@ -44,13 +44,14 @@ export function WorkspaceConnection() {
           epoch = m.epoch;
           cursor = m.cursor;
           if (m.type === "reset" && typeof m.build === "string") {
-            // Retain the initial hash even when identity comparison succeeds:
-            // a later rollback may reconnect to a server without identities.
-            if (!build) build = m.build;
             const identity = BuildIdentity.safeParse(m.buildIdentity);
             const updated = identity.success
               ? browserNeedsReload(runningBuild, identity.data)
               : null;
+            // A known match establishes the page's asset baseline. Unknown
+            // identities can seed the legacy fallback, but a mismatch cannot.
+            if (updated === false || (!build && updated === null))
+              build = m.build;
             if (updated !== null) setConnection({ updated });
             else if (m.build !== build) setConnection({ updated: true });
           }
