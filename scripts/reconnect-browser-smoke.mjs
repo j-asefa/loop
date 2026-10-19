@@ -3,30 +3,49 @@
 // tunnel helper is the deterministic fixture; this is not live-network evidence.
 import { chromium, webkit, expect } from "@playwright/test";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { testEnvironment } from "./test-runner.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer as createNet, connect } from "node:net";
 import { createServer as createTls } from "node:tls";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 const exec = promisify(execFile);
-await mkdir(".tmp", { recursive: true });
-const base = await mkdtemp(resolve(".tmp/reconnect-browser-"));
+const base = await mkdtemp(join(tmpdir(), "loop-reconnect-browser-"));
+// Rebuild a disposable installation without replacing the developer's dist or
+// inheriting the checkout's Git identity. Both builds use the shipped CLI.
+const installation = join(base, "installation");
+for (const file of [
+  "dist", "src", "native", "runtime", "migrations", "deployment", "scripts",
+  "public", "index.html", "package.json", "package-lock.json", "tsconfig.json",
+  "vite.config.ts",
+])
+  await cp(resolve(file), join(installation, file), {
+    recursive: true,
+    filter: (path) => !path.split(sep).includes("node_modules"),
+  });
+await symlink(resolve("node_modules"), join(installation, "node_modules"), "dir");
 const project = join(base, "project");
 await mkdir(project);
+await exec("git", ["init", "-q", project]);
+await exec("git", [
+  "-C", project, "-c", "user.name=Loop fixture", "-c", "user.email=fixture@example.test",
+  "commit", "--allow-empty", "-qm", "Initial fixture",
+]);
 const fixture = join(base, "codex");
 await copyFile("test/harness.mjs", fixture);
 await chmod(fixture, 0o755);
 await chmod("test/fixtures/fake-cloudflared.mjs", 0o755);
 const env = {
-  ...process.env,
+  ...testEnvironment(process.env, "native"),
   LOOP_HOME: join(base, "state"),
   LOOP_TEST_HARNESS: "codex",
   LOOP_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
 };
 const loop = (...args) =>
-  exec(process.execPath, ["dist/cli.js", ...args], { env, timeout: 120000 });
+  exec(process.execPath, ["dist/cli.js", ...args], { cwd: installation, env, timeout: 120000 });
 const status = async () => JSON.parse((await loop("status", "--json")).stdout);
 // Self-signed certificate for the fixture's trycloudflare.com host.
 await exec("openssl", [
@@ -106,7 +125,15 @@ try {
   await page.goto(new URL("/?conversation=" + run.conversation_id, pairUrl).href);
   const reply = page.getByLabel("Reply to agent");
   await expect(reply).toBeVisible({ timeout: 30000 });
-  await expect(page.getByText("Fixture done").first()).toBeVisible({ timeout: 30000 });
+  try {
+    await expect(page.getByText("Fixture done").first()).toBeVisible({ timeout: 30000 });
+  } catch (cause) {
+    const failure = await page.evaluate(async (runId) => {
+      const run = (await (await fetch("/api/runs")).json()).find((item) => item.id === runId);
+      return { state: run?.state, error: run?.error };
+    }, run.id);
+    throw new Error(`Fixture run did not finish: ${JSON.stringify(failure)}`, { cause });
+  }
   await reply.fill("draft typed before the restart");
   await expect(page.getByText(/Connected to desktop/)).toBeVisible({ timeout: 30000 });
   const devices = await page.evaluate(async () => (await (await fetch("/api/workspace/devices")).json()).length);
@@ -136,23 +163,30 @@ try {
   );
   // A checkout rebuilt while Loop runs (git pull && bash install), then
   // `loop restart`: the open page offers the new assets but never reloads itself.
-  const indexPath = resolve("dist/web/index.html");
+  const indexPath = join(installation, "dist/web/index.html");
   const original = await readFile(indexPath, "utf8");
-  try {
-    await writeFile(indexPath, original.replace("</head>", "<!-- reconnect-smoke-rebuild --></head>"));
-    await loop("restart");
-    const update = sheet.getByRole("button", { name: "Reload to update" });
-    await expect(update).toBeVisible({ timeout: 30000 });
-    await expect(reply).toHaveValue("draft typed before the restart");
-    await update.click();
-    await expect(page.getByLabel("Reply to agent")).toHaveValue("draft typed before the restart", { timeout: 30000 });
-    assert.match(
-      await page.evaluate(async () => (await fetch("/", { cache: "no-store" })).text()),
-      /reconnect-smoke-rebuild/,
-    );
-  } finally {
-    await writeFile(indexPath, original);
-  }
+  const servingBuild = () => page.evaluate(async () =>
+    (await (await fetch("/api/build", { cache: "no-store" })).json()).serving.id,
+  );
+  const originalBuild = await servingBuild();
+  await exec(process.execPath, ["scripts/build.mjs"], {
+    cwd: installation, env, timeout: 120000, maxBuffer: 2 * 1024 * 1024,
+  });
+  const replacement = await readFile(indexPath, "utf8");
+  assert.notEqual(replacement, original);
+  await loop("restart");
+  assert.notEqual(await servingBuild(), originalBuild);
+  const update = sheet.getByRole("button", { name: "Reload to update" });
+  await expect(update).toBeVisible({ timeout: 30000 });
+  await expect(reply).toHaveValue("draft typed before the restart");
+  await Promise.all([page.waitForEvent("load"), update.click()]);
+  await expect(page.getByLabel("Reply to agent")).toHaveValue("draft typed before the restart", { timeout: 30000 });
+  await expect(page.getByText(/Connected to desktop/)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByRole("button", { name: "Reload to update" })).toHaveCount(0);
+  assert.equal(
+    await page.evaluate(async () => (await fetch("/", { cache: "no-store" })).text()),
+    replacement,
+  );
   const rebuilt = await status();
   assert.equal(rebuilt.url, before.url);
   assert.equal(rebuilt.connection.service.tunnel.pid, before.connection.service.tunnel.pid);
