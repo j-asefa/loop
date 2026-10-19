@@ -45,7 +45,11 @@ function reviewable(owner: string, folderId: string, path: string) {
         execFileSync(
           "git",
           ["-C", p, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-          { encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "pipe"] },
+          {
+            encoding: "utf8",
+            timeout: 10000,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
         ).trim(),
       );
     } catch {
@@ -53,10 +57,16 @@ function reviewable(owner: string, folderId: string, path: string) {
     }
   };
   if (common(path) !== common(project))
-    throw new Problem(409, "The agent's checkout is not part of this project's repository");
+    throw new Problem(
+      409,
+      "The agent's checkout is not part of this project's repository",
+    );
   return path;
 }
-export function startCodeReview(
+export function startCodeReview(...args: Parameters<typeof ensureCodeReview>) {
+  return reviewStatus(args[0], ensureCodeReview(...args));
+}
+function ensureCodeReview(
   owner: string,
   teamId: string,
   value: unknown,
@@ -78,14 +88,16 @@ export function startCodeReview(
     .digest("hex");
   const receipt = () => {
     const prior = db
-      .prepare("SELECT * FROM code_reviews WHERE owner_id=? AND request_key=?")
+      .prepare(
+        "SELECT id,request_hash FROM code_reviews WHERE owner_id=? AND request_key=?",
+      )
       .get(owner, d.idempotencyKey) as any;
     if (prior && prior.request_hash !== hash)
       throw new Problem(409, "This request key belongs to a different review");
     return prior;
   };
   const prior = receipt();
-  if (prior) return reviewStatus(owner, prior.id);
+  if (prior) return prior.id as string;
   const team = owned<any>("teams", teamId, owner);
   if (team.deleted_at || team.preset_id !== "code-review")
     throw new Problem(409, "Choose a code review team");
@@ -102,7 +114,9 @@ export function startCodeReview(
     if (agent.retired_at)
       throw new Problem(409, "Restore all reviewers before starting a review");
   }
-  const path = requester ? reviewable(owner, d.folderId, requester.path) : directory(owner, d.folderId);
+  const path = requester
+    ? reviewable(owner, d.folderId, requester.path)
+    : directory(owner, d.folderId);
   const snapshot = captureSnapshot(path, d.scope, d.base);
   const fingerprint = snapshotFingerprint(snapshot);
   if (
@@ -115,7 +129,7 @@ export function startCodeReview(
   return db
     .transaction(() => {
       const previous = receipt();
-      if (previous) return reviewStatus(owner, previous.id);
+      if (previous) return previous.id as string;
       const reviewId = id();
       db.prepare(
         "INSERT INTO code_reviews(id,owner_id,team_id,folder_id,request_key,request_hash,snapshot,fingerprint,created_at,source_path) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -164,7 +178,7 @@ export function startCodeReview(
           "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
         ).run(manager.id, `review:${a.role}`, child.id, "{}");
       }
-      return reviewStatus(owner, reviewId);
+      return reviewId;
     })
     .immediate();
 }
@@ -244,7 +258,7 @@ export function requestReview(
   const session = db
     .prepare("SELECT project FROM companion_sessions WHERE conversation_id=?")
     .get(run.conversation_id) as { project: string } | undefined;
-  const status = startCodeReview(
+  const reviewId = ensureCodeReview(
     run.owner_id,
     team.id,
     {
@@ -263,8 +277,17 @@ export function requestReview(
       callId,
     },
   );
-  if (ACTIVE.includes(status.state)) return { pending: callId };
-  const lead = owned<Run>("runs", reviewRecord(run.owner_id, status.id).run_id, run.owner_id);
+  // Waiting calls poll frequently. Keep captured repository contents out of
+  // this path: snapshots can be many megabytes and never change while waiting.
+  const progress = db
+    .prepare(
+      "SELECT r.id,r.state FROM code_reviews c JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?",
+    )
+    .get(reviewId, run.owner_id) as { id: string; state: string } | undefined;
+  if (!progress) throw new Problem(404, "Review not found");
+  if (ACTIVE.includes(progress.state)) return { pending: callId };
+  const status = reviewStatus(run.owner_id, reviewId);
+  const lead = owned<Run>("runs", progress.id, run.owner_id);
   return {
     failed: status.state !== "completed",
     report: {

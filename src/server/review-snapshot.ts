@@ -38,14 +38,15 @@ export function captureSnapshot(
   base = "main",
 ): ReviewSnapshot {
   const root = realpathSync(directory);
-  const git = (args: string[], maxBuffer = 5_000_000) => {
+  const gitBytes = (args: string[], maxBuffer = 5_000_000, input?: string) => {
     try {
       return execFileSync(
         "git",
         ["--literal-pathspecs", "-c", "core.quotePath=false", ...args],
         {
           cwd: root,
-          encoding: "utf8",
+          encoding: null,
+          input,
           timeout: 10000,
           maxBuffer,
           env: {
@@ -54,7 +55,7 @@ export function captureSnapshot(
             GIT_EXTERNAL_DIFF: "",
             GIT_CONFIG_COUNT: "0",
           },
-          stdio: ["ignore", "pipe", "pipe"],
+          stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
         },
       );
     } catch {
@@ -64,6 +65,8 @@ export function captureSnapshot(
       );
     }
   };
+  const git = (args: string[], maxBuffer = 5_000_000, input?: string) =>
+    gitBytes(args, maxBuffer, input).toString("utf8");
   if (realpathSync(git(["rev-parse", "--show-toplevel"]).trim()) !== root)
     throw new Problem(
       422,
@@ -119,6 +122,70 @@ export function captureSnapshot(
       );
     return value;
   };
+  type Entry = { mode: string; hash: string; path: string };
+  // Starting Git once per file blocks the server for large repositories. Read
+  // immutable objects in bounded batches, checking sizes before fetching data.
+  function* blobs(
+    entries: Entry[],
+  ): Generator<{ entry: Entry; value: string }> {
+    const eligible = entries.filter((entry) => {
+      if (excluded(entry.path) || !["100644", "100755"].includes(entry.mode)) {
+        omitted.add(entry.path);
+        return false;
+      }
+      return true;
+    });
+    const invalid = () =>
+      new Problem(422, "Could not read captured Git objects");
+    for (let offset = 0; offset < eligible.length; offset += 64) {
+      const batch = eligible.slice(offset, offset + 64);
+      const checks = git(
+        ["cat-file", "--batch-check"],
+        32_000,
+        batch.map((entry) => entry.hash).join("\n") + "\n",
+      )
+        .trimEnd()
+        .split("\n");
+      if (checks.length !== batch.length) throw invalid();
+      const selected = batch.filter((entry, index) => {
+        const [hash, kind, size] = checks[index].split(" ");
+        if (hash !== entry.hash || kind !== "blob" || !/^\d+$/.test(size))
+          throw invalid();
+        if (Number(size) > MAX_FILE) {
+          omitted.add(entry.path);
+          return false;
+        }
+        return true;
+      });
+      if (!selected.length) continue;
+      const data = gitBytes(
+        ["cat-file", "--batch"],
+        MAX_FILE * selected.length + 32_000,
+        selected.map((entry) => entry.hash).join("\n") + "\n",
+      );
+      let cursor = 0;
+      for (const entry of selected) {
+        const newline = data.indexOf(10, cursor);
+        if (newline < 0) throw invalid();
+        const [hash, kind, bytes] = data
+          .toString("ascii", cursor, newline)
+          .split(" ");
+        const size = Number(bytes);
+        if (
+          hash !== entry.hash ||
+          kind !== "blob" ||
+          !/^\d+$/.test(bytes) ||
+          size > MAX_FILE
+        )
+          throw invalid();
+        const end = newline + 1 + size;
+        if (end >= data.length || data[end] !== 10) throw invalid();
+        yield { entry, value: data.toString("utf8", newline + 1, end) };
+        cursor = end + 1;
+      }
+      if (cursor !== data.length) throw invalid();
+    }
+  }
   // Capture context as well as changed files, so reviewers can inspect callers.
   const entries =
     scope === "staged"
@@ -152,7 +219,15 @@ export function captureSnapshot(
       413,
       "Snapshot reviews currently support repositories with up to 2,000 files",
     );
-  for (const e of entries.sort((a, b) => a.path.localeCompare(b.path))) {
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  const captured =
+    scope === "uncommitted"
+      ? entries.map((entry) => ({
+          entry,
+          value: undefined as string | undefined,
+        }))
+      : blobs(entries);
+  for (const { entry: e, value: blob } of captured) {
     if (excluded(e.path) || !["100644", "100755"].includes(e.mode)) {
       omitted.add(e.path);
       continue;
@@ -178,32 +253,23 @@ export function captureSnapshot(
         throw error;
       }
     } else {
-      if (Number(git(["cat-file", "-s", e.hash])) > MAX_FILE) {
-        omitted.add(e.path);
-        continue;
-      }
-      value = git(["cat-file", "blob", e.hash]);
+      value = blob!;
     }
     const content = text(value, e.path);
     if (content !== undefined) files[e.path] = content;
   }
   const oldEntries = git(["ls-tree", "-r", "-z", baseSha])
     .split("\0")
-    .filter(Boolean);
-  for (const line of oldEntries) {
-    const tab = line.indexOf("\t"),
-      path = line.slice(tab + 1),
-      [mode, , hash] = line.slice(0, tab).split(" ");
-    if (!changes.includes(path) || excluded(path)) continue;
-    if (
-      !["100644", "100755"].includes(mode) ||
-      Number(git(["cat-file", "-s", hash])) > MAX_FILE
-    ) {
-      omitted.add(path);
-      continue;
-    }
-    const content = text(git(["cat-file", "blob", hash]), path);
-    if (content !== undefined) before[path] = content;
+    .filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf("\t"),
+        [mode, , hash] = line.slice(0, tab).split(" ");
+      return { mode, hash, path: line.slice(tab + 1) };
+    })
+    .filter((entry) => changes.includes(entry.path));
+  for (const { entry, value } of blobs(oldEntries)) {
+    const content = text(value, entry.path);
+    if (content !== undefined) before[entry.path] = content;
   }
   const selected = changes.filter((p) => !omitted.has(p));
   let diff = selected.length

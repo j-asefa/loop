@@ -370,7 +370,9 @@ it("lets a working agent request a review of its own worktree, waits for the lea
     db.prepare(
       "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,'claude',?,?)",
     ).run(run.conversation_id, project, now());
-    db.prepare("UPDATE runs SET state='running',worker_id='fixture' WHERE id=?").run(run.id);
+    db.prepare(
+      "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+    ).run(run.id);
     return { ...run, state: "running" } as any;
   };
   const binding = (run: any) =>
@@ -387,16 +389,49 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   expect(await invokeNative(run, binding(run), "ask", request)).toEqual({
     pending: "ask",
   });
-  expect(await invokeNative(run, binding(run), "ask", request)).toEqual({
-    pending: "ask",
+  // An ordinary wait must not read repository contents. A SQLite view makes
+  // payload reads observable while leaving the real receipt/progress queries
+  // and native tool boundary in use.
+  let snapshotReads = 0;
+  db.function("count_review_snapshot_reads", (snapshot: string) => {
+    snapshotReads++;
+    return snapshot;
   });
+  const columns = db.pragma("table_info(code_reviews)") as { name: string }[];
+  db.exec("ALTER TABLE code_reviews RENAME TO stored_code_reviews");
+  db.exec(
+    `CREATE VIEW code_reviews AS SELECT ${columns
+      .map(({ name }) =>
+        name === "snapshot"
+          ? "count_review_snapshot_reads(snapshot) AS snapshot"
+          : `"${name}"`,
+      )
+      .join(",")} FROM stored_code_reviews`,
+  );
+  try {
+    for (let poll = 0; poll < 3; poll++)
+      expect(await invokeNative(run, binding(run), "ask", request)).toEqual({
+        pending: "ask",
+      });
+    expect(snapshotReads).toBe(0);
+  } finally {
+    db.exec(
+      "DROP VIEW code_reviews; ALTER TABLE stored_code_reviews RENAME TO code_reviews",
+    );
+  }
   const review = db
-    .prepare("SELECT * FROM code_reviews WHERE run_id=(SELECT child_run_id FROM delegations WHERE parent_run_id=?)")
+    .prepare(
+      "SELECT * FROM code_reviews WHERE run_id=(SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
+    )
     .get(run.id) as any;
   expect(review.source_path).toBe(worktree);
   expect(JSON.parse(review.snapshot).changed).toEqual(["feature.ts"]);
   expect(
-    (db.prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?").get(run.id) as any).n,
+    (
+      db
+        .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
+        .get(run.id) as any
+    ).n,
   ).toBe(1);
   db.prepare(
     "UPDATE runs SET state='completed' WHERE id IN (SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
@@ -413,7 +448,12 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   const stranger = mkdtempSync(join(dir, "stranger-"));
   execFileSync("git", ["init"], { cwd: stranger });
   const outside = start(stranger);
-  const refused = (await invokeNative(outside, binding(outside), "ask", request)) as any;
+  const refused = (await invokeNative(
+    outside,
+    binding(outside),
+    "ask",
+    request,
+  )) as any;
   expect(refused.result.isError).toBe(true);
   expect(refused.result.content[0].text).toMatch(/not part of this project/);
 
