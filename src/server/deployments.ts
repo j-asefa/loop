@@ -132,6 +132,15 @@ function compare(target: Target, live: Instance[]) {
   };
 }
 
+// Reconciliation and live reads must select the same recent changes. Observation
+// timestamps describe process changes and cannot stand in for checkout recency.
+const TARGETS = `SELECT t.*, f.project_id, c.id conversation_id,
+  row_number() OVER(PARTITION BY t.owner_id,f.project_id ORDER BY k.ended_at DESC,k.id) rank
+  FROM checkout_build_targets t JOIN run_checkouts k ON k.id=t.checkout_id AND k.owner_id=t.owner_id
+  JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
+  JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
+  JOIN project_change_folders f ON f.owner_id=c.owner_id AND f.folder_id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))`;
+
 /** Record only changes in evidence, not heartbeats. All lookups stay in the
  * source's database and join through the run's current owner/project scope. */
 export function refreshDeployments(at = now()) {
@@ -139,12 +148,7 @@ export function refreshDeployments(at = now()) {
     const live = instances(at);
     const targets = db
       .prepare(
-        `WITH targets AS (SELECT t.*, f.project_id, c.id conversation_id,
-      row_number() OVER(PARTITION BY t.owner_id,f.project_id ORDER BY k.ended_at DESC,k.id) rank
-      FROM checkout_build_targets t JOIN run_checkouts k ON k.id=t.checkout_id AND k.owner_id=t.owner_id
-      JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-      JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
-      JOIN project_change_folders f ON f.owner_id=c.owner_id AND f.folder_id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId')))
+        `WITH targets AS (${TARGETS})
       SELECT * FROM targets WHERE rank<=10 ORDER BY rank DESC`,
       )
       .all() as Target[];
@@ -197,14 +201,14 @@ export function refreshDeployments(at = now()) {
 function visible(owner: string, project?: string, ref?: string) {
   return db
     .prepare(
-      `WITH visible AS (SELECT o.*, c.title,
+      `WITH targets AS (${TARGETS}), visible AS (SELECT o.*, c.title,
     row_number() OVER(PARTITION BY o.project_id,o.checkout_id ORDER BY o.rowid DESC) revision
     FROM deployment_observations o
     JOIN conversations c ON c.id=o.conversation_id AND c.owner_id=o.owner_id
     JOIN runs r ON r.id=o.run_id AND r.owner_id=o.owner_id AND r.conversation_id=c.id
     JOIN project_change_folders f ON f.owner_id=c.owner_id AND f.folder_id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId')) AND f.project_id=o.project_id
     WHERE o.owner_id=@owner AND (@project IS NULL OR o.project_id=@project) AND (@ref IS NULL OR o.id=@ref)
-    AND (@ref IS NOT NULL OR EXISTS (SELECT 1 FROM run_checkouts k WHERE k.id=o.checkout_id AND k.owner_id=o.owner_id AND k.run_id=o.run_id))),
+    AND (@ref IS NOT NULL OR EXISTS (SELECT 1 FROM targets t WHERE t.checkout_id=o.checkout_id AND t.owner_id=o.owner_id AND t.project_id=o.project_id AND t.rank<=10))),
     latest AS (SELECT *,row_number() OVER(PARTITION BY project_id ORDER BY observed_at DESC,id) position FROM visible WHERE revision=1)
     SELECT * FROM latest WHERE position<=10 ORDER BY observed_at DESC,id`,
     )

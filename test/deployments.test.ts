@@ -63,10 +63,13 @@ async function fixture(
     dirty?: boolean;
     unchanged?: boolean;
     late?: boolean;
+    indexDirty?: boolean;
+    owner?: string;
+    project?: string;
   } = {},
 ) {
-  const owner = id(),
-    project = id(),
+  const owner = options.owner ?? id(),
+    project = options.project ?? id(),
     agent = id(),
     conversation = id(),
     runId = id();
@@ -85,7 +88,7 @@ async function fixture(
   git(directory, "commit", "-m", "before");
   const before = git(directory, "rev-parse", "HEAD");
   db.prepare(
-    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','App',0)",
+    "INSERT OR IGNORE INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','App',0)",
   ).run(project, owner);
   db.prepare(
     "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'codex','fixture',0)",
@@ -104,6 +107,11 @@ async function fixture(
     git(directory, "commit", "-m", "fix");
   }
   const commit = git(directory, "rev-parse", "HEAD");
+  if (options.indexDirty) {
+    writeFileSync(join(directory, "code.txt"), "unfinished staged edit");
+    git(directory, "add", "code.txt");
+    writeFileSync(join(directory, "code.txt"), "after");
+  }
   if (options.dirty)
     writeFileSync(join(directory, "uncommitted.txt"), "not part of the commit");
   await completeCheckout(runId, { late: options.late });
@@ -232,6 +240,40 @@ it("removes superseded checkout targets from live status while preserving their 
   expect(resolveCite(f.owner, f.project, { ref: old.ref })).toEqual(cite);
 });
 
+it("selects live comparisons by checkout recency when restart observations share a timestamp", async () => {
+  const first = await fixture();
+  const fixtures = [first];
+  const time = now();
+  for (let i = 1; i < 10; i++)
+    fixtures.push(
+      await fixture({ owner: first.owner, project: first.project }),
+    );
+  for (const [i, item] of fixtures.entries())
+    db.prepare("UPDATE run_checkouts SET ended_at=? WHERE run_id=?").run(
+      time + i,
+      item.runId,
+    );
+  first.start();
+  // UUID order is unrelated to change recency. Make the oldest sort first to
+  // deterministically exercise the tie caused by one reconciliation batch.
+  db.prepare(
+    "UPDATE deployment_observations SET id='000-oldest-' || rowid WHERE run_id=?",
+  ).run(first.runId);
+  const historical = first.read().find((item) => item.run === first.runId)!;
+  const newest = await fixture({ owner: first.owner, project: first.project });
+  db.prepare("UPDATE run_checkouts SET ended_at=? WHERE run_id=?").run(
+    time + 10,
+    newest.runId,
+  );
+  refreshDeployments();
+  expect(new Set(first.read().map((item) => item.run))).toEqual(
+    new Set([...fixtures.slice(1), newest].map((item) => item.runId)),
+  );
+  expect(
+    resolveCite(first.owner, first.project, { ref: historical.ref }),
+  ).not.toBeNull();
+});
+
 it("does not let a different owner or moved project read old deployment evidence", async () => {
   const f = await fixture();
   f.start();
@@ -254,6 +296,7 @@ it("does not let a different owner or moved project read old deployment evidence
 
 it.each([
   { dirty: true },
+  { indexDirty: true },
   { unchanged: true },
   { late: true },
   { remote: "https://github.com/example/other.git" },

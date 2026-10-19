@@ -244,6 +244,9 @@ try {
   assert(
     (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
   );
+  // The upgrade fixture installs its own package; release this first install
+  // before npm temporarily keeps both old and new upgrade dependency trees.
+  await rm(target, { recursive: true, force: true });
   await upgradeBehindConnection();
   console.log(
     "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",

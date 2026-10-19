@@ -732,7 +732,7 @@ async function captureClaimed(
         fields.behind = behind;
       }
     }
-    const { untracked } = await status(directory);
+    const { untracked, tracked } = await status(directory);
     const initialUntracked = new Set<string>(JSON.parse(row.start_untracked_paths ?? "[]"));
     fields.untracked = JSON.stringify(untracked.filter((path) => !initialUntracked.has(path)));
     const working = await numstat(directory, [head, "--"]);
@@ -779,7 +779,7 @@ async function captureClaimed(
     // No target is inferred from an agent's prose, dirty/overlapping work,
     // a late capture, or an unchanged checkout.
     if (directory.repository && runScoped && !options.late && !row.start_dirty && !row.start_untracked &&
-      (fields.ahead ?? 0) > 0 && !working.files.length && !untracked.length && fields.overlap === "[]") {
+      (fields.ahead ?? 0) > 0 && !tracked.length && !working.files.length && !untracked.length && fields.overlap === "[]") {
       const history = await maybe(directory, ["rev-list", "--max-count=10000", head]);
       if (history) buildTarget = { repository: directory.repository, commit: head,
         ancestors: history.split("\n").filter(sha => /^[0-9a-f]{40}$/.test(sha)) };

@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   writeFileSync,
+  chmodSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -81,6 +82,87 @@ it("builds from an immutable clean source snapshot, and leaves dirty or gitless 
     snapshot: "committed source",
     dirty: { clean: false, commit: null },
   });
+});
+
+it("uses the captured Dockerfile for image builds and rejects external files", () => {
+  const root = join(dir, "image"),
+    bin = join(dir, "bin");
+  mkdirSync(root);
+  mkdirSync(bin);
+  mkdirSync(join(root, "node_modules"));
+  const dockerfile = join(root, "Dockerfile.companion");
+  writeFileSync(dockerfile, "FROM committed-source\n");
+  writeFileSync(join(root, ".gitignore"), "node_modules\n");
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      [
+        "-C",
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
+      { stdio: "pipe" },
+    );
+  git("init");
+  git("remote", "add", "origin", "https://github.com/j-asefa/loop.git");
+  git("add", ".");
+  git("commit", "-m", "image source");
+  const fake = join(bin, "docker");
+  writeFileSync(
+    fake,
+    `#!/usr/bin/env node
+const fs=require('node:fs'),path=require('node:path');
+const args=process.argv.slice(2);
+fs.writeFileSync(process.env.FIXTURE_DOCKERFILE,'changed after snapshot');
+const option=args.findIndex(x=>x==='-f'||x==='--file');
+const file=option>=0?args[option+1]:args.find(x=>x.startsWith('--file=')).slice(7);
+console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(fs.readFileSync(path.join(args.at(-1),'.loop-build-source.json'),'utf8'))}));
+`,
+  );
+  chmodSync(fake, 0o755);
+  const env = {
+    ...process.env,
+    PATH: bin + ":" + process.env.PATH,
+    FIXTURE_DOCKERFILE: dockerfile,
+  };
+  const wrapper = resolve("scripts/build-image.mjs");
+  for (const args of [
+    ["-f", "Dockerfile.companion"],
+    ["--file=Dockerfile.companion"],
+    ["-fDockerfile.companion"],
+    ["-f=Dockerfile.companion"],
+    ["--file", dockerfile],
+  ]) {
+    writeFileSync(dockerfile, "FROM committed-source\n");
+    const result = JSON.parse(
+      execFileSync(process.execPath, [wrapper, ...args], {
+        cwd: root,
+        env,
+        encoding: "utf8",
+      }),
+    );
+    expect(result).toMatchObject({
+      file: "FROM committed-source\n",
+      stamp: { clean: true, repository: LOOP_REPOSITORY },
+    });
+    expect(readFileSync(dockerfile, "utf8")).toBe("changed after snapshot");
+  }
+  writeFileSync(dockerfile, "FROM committed-source\n");
+  const outside = join(dir, "outside.Dockerfile");
+  writeFileSync(outside, "FROM external-source\n");
+  expect(() =>
+    execFileSync(process.execPath, [wrapper, "--file", outside], {
+      cwd: root,
+      env,
+      stdio: "pipe",
+    }),
+  ).toThrow(/inside the captured repository/);
 });
 
 it("keeps the loaded identity after files are replaced and revokes clean provenance", async () => {
