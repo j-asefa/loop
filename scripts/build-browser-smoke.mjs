@@ -2,6 +2,7 @@ import { build } from "esbuild";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { chromium, webkit, expect } from "@playwright/test";
+import { briefPollingSmoke } from "./helpers/brief-polling-smoke.mjs";
 
 const identity = (id) => ({
   id,
@@ -154,8 +155,12 @@ try {
       await expect(
         page.getByText("Update status unknown", { exact: true }),
       ).toBeVisible();
+      await briefPollingSmoke(
+        browser,
+        `http://127.0.0.1:${server.address().port}`,
+      );
       console.log(
-        `${name}: cold stale page, failed refresh, explicit reload, expiry with clocks five minutes ahead/behind and comparison UI passed`,
+        `${name}: cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI and slow Brief polling passed`,
       );
     } finally {
       await browser.close();

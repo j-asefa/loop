@@ -237,6 +237,7 @@ function ProjectBriefSession({
   const root = `/projects/${encodeURIComponent(projectId)}/brief`,
     formId = useId();
   const request = useRef(0),
+    loading = useRef<number | null>(null),
     itemsRequest = useRef(0),
     historyRequest = useRef(0),
     choicesRequest = useRef(0),
@@ -252,8 +253,10 @@ function ProjectBriefSession({
   const fetch = <T,>(path = "", body?: unknown, method?: string) =>
     apiInWorkspace<T>(root + path, workspace, body, method);
   const load = async () => {
-    if (locked.current || !valid()) return;
+    if (locked.current || !valid() || loading.current === request.current)
+      return;
     const own = ++request.current;
+    loading.current = own;
     try {
       const next = await fetch<BriefPage>();
       if (valid() && own === request.current) {
@@ -286,6 +289,8 @@ function ProjectBriefSession({
     } catch (error) {
       if (valid() && own === request.current)
         setLoadError((error as Error).message);
+    } finally {
+      if (loading.current === own) loading.current = null;
     }
   };
   useEffect(() => {
