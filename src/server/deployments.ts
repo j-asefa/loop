@@ -227,6 +227,15 @@ export function projectDeployments(
   return deploymentMap(owner, project, at).get(project) ?? [];
 }
 
+function comparisonTitle(text: string) {
+  const characters = Array.from(text.slice(0, 200));
+  // Keep a 600-byte JSON content budget as well as the character limit.
+  // Imported controls and lone surrogates expand to six bytes when escaped.
+  while (Buffer.byteLength(JSON.stringify(characters.join("")), "utf8") > 602)
+    characters.pop();
+  return characters.join("");
+}
+
 export function deploymentMap(owner: string, project?: string, at = now()) {
   const processes = instances(at);
   const live = identities(processes);
@@ -243,7 +252,7 @@ export function deploymentMap(owner: string, project?: string, at = now()) {
       checkout: row.checkout_id,
       run: row.run_id,
       conversation: row.conversation_id,
-      title: row.title.slice(0, 200),
+      title: comparisonTitle(row.title),
       commit: row.commit_sha,
       status: current ? row.status : "unknown",
       reason: current
