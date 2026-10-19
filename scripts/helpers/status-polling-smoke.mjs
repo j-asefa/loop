@@ -39,6 +39,22 @@ export async function statusPollingSmoke(browser, base) {
               actions: [],
               evidence: null,
               pulls: [],
+              deployments: [
+                {
+                  ref: "dep_healthy",
+                  checkout: "checkout",
+                  run: "run",
+                  conversation: "thread",
+                  title: "Healthy change",
+                  commit: "a".repeat(40),
+                  status: "included",
+                  reason: "Both running builds include this change.",
+                  observedAt: Date.now(),
+                  checkedAt: Date.now(),
+                  validUntil: Date.now() + 20000,
+                  current: true,
+                },
+              ],
               brief: {
                 state: "never",
                 headline: null,
@@ -83,24 +99,29 @@ export async function statusPollingSmoke(browser, base) {
     await page.addScriptTag({ content: bundle.outputFiles[0].text });
     await expect.poll(() => hanging.length).toBeGreaterThan(0);
     await expect.poll(() => healthyResponses).toBe(healthyReads);
-    await page.clock.runFor(16000);
     const title = page.getByRole("link", { name: /^Healthy update / });
+    // A healthy source must publish before the other source's timeout.
     await expect(title).toHaveCount(1);
     await expect(page.getByText("Loading project status…")).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText(
-      "Hanging workspace: Status unavailable.",
-    );
-    for (let index = 0; index < 2; index++) {
+    await page.getByText("Running app · 1 build comparison").click();
+    const included = page.getByText("Change commit included", { exact: true });
+    await expect(included).toBeVisible();
+    for (let index = 0; index < 4; index++) {
       const previous = await title.textContent();
       const previousReads = healthyReads;
-      await page.clock.runFor(15000);
+      await page.clock.runFor(10000);
+      await expect(included).toBeVisible();
+      await page.clock.runFor(5000);
       await expect.poll(() => healthyReads).toBeGreaterThan(previousReads);
       // Let the real browser transport deliver the healthy response before
       // advancing the fake clock to the hanging source's timeout.
       await expect.poll(() => healthyResponses).toBe(healthyReads);
-      await page.clock.runFor(15000);
       await expect(title).not.toHaveText(previous);
       await expect(page.locator(".status-live")).toHaveCount(1);
+      await expect(included).toBeVisible();
+      await expect(page.getByRole("status")).toContainText(
+        "Hanging workspace: Status unavailable.",
+      );
     }
   } finally {
     for (const route of hanging)

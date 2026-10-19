@@ -797,7 +797,7 @@ function StatusSession({
     order = useRef<string[]>([]),
     alive = useRef(true),
     request = useRef(0),
-    reading = useRef<number | null>(null);
+    reading = useRef(new Map<string, { generation: number }>());
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState<string | null>(null);
@@ -846,53 +846,60 @@ function StatusSession({
     }
   };
   const load = async (reorder = false, polling = false) => {
-    // A slow linked source must be allowed to time out and publish the rest
-    // of its batch before the next periodic read supersedes it.
-    if (polling && reading.current === request.current) return;
-    const ticket = ++request.current,
+    const generation = polling ? request.current : ++request.current,
       owner = viewOwner();
-    reading.current = ticket;
     const q = new URLSearchParams();
     if (project) q.set("project", project);
     if (teams) q.set("teams", teams);
-    const settled = await Promise.allSettled(
+    await Promise.allSettled(
       sources.map(async (s) => {
+        // Poll and publish each workspace independently: one stalled source
+        // must not age a healthy source's short-lived build observations.
+        if (polling && reading.current.get(s.id)?.generation === generation)
+          return;
+        const read = { generation };
+        reading.current.set(s.id, read);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15_000);
+        let page: ProjectStatusPage | undefined;
         try {
-          return await apiInWorkspace<ProjectStatusPage>(
+          page = await apiInWorkspace<ProjectStatusPage>(
             "/projects/status?" + q,
             s.id,
             undefined,
             undefined,
             controller.signal,
           );
+        } catch {
+          // Keep the failed source's previous page explicitly marked stale.
         } finally {
           clearTimeout(timeout);
         }
+        if (reading.current.get(s.id) !== read) return;
+        reading.current.delete(s.id);
+        if (
+          !alive.current ||
+          generation !== request.current ||
+          owner !== viewOwner()
+        )
+          return;
+        const next = pagesRef.current.map((previous): SourcePage =>
+          previous.source.id !== s.id
+            ? previous
+            : page
+              ? { source: s, page, fresh: true, receivedAt: Date.now() }
+              : { ...previous, fresh: false, error: "Status unavailable" },
+        );
+        cacheView(cacheKey, next, owner);
+        commit(next, reorder);
       }),
     );
-    if (reading.current === ticket) reading.current = null;
-    if (!alive.current || ticket !== request.current || owner !== viewOwner())
-      return;
-    const next = settled.map((result, index): SourcePage =>
-      result.status === "fulfilled"
-        ? {
-            source: sources[index],
-            page: result.value,
-            fresh: true,
-            receivedAt: Date.now(),
-          }
-        : {
-            ...pagesRef.current.find((p) => p.source.id === sources[index].id),
-            source: sources[index],
-            fresh: false,
-            error: "Status unavailable",
-          },
-    );
-    cacheView(cacheKey, next, owner);
-    commit(next, reorder);
-    setLoading(false);
+    if (
+      alive.current &&
+      generation === request.current &&
+      owner === viewOwner()
+    )
+      setLoading(reading.current.size > 0);
   };
   useEffect(() => {
     alive.current = true;
