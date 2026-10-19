@@ -39,6 +39,8 @@ Codex async questions appear in **Needs you** with their answer choices while th
 
 Codex resumes request thread metadata without copying all saved turns into the startup response. Codex retains the full model context and attachments; Loop keeps its persisted conversation display. Reconnecting therefore does not require transferring the entire file-heavy transcript through one protocol message.
 
+Native display output uses a bounded recent window. Loop saves pending progress before rotating that window and shortens oversized text previews; reaching the display limit does not interrupt native work. Saved progress and tool traces remain available, and a final reply is published only after the harness confirms completion.
+
 For an explicit executable, existing billing configuration, native session resume or a custom ACP agent:
 
 ```sh

@@ -62,6 +62,7 @@ import {
   type AdapterEvent,
   type Billing,
   type Harness,
+  type Item,
   type Request,
 } from "../protocol.js";
 import type { Snapshot } from "./agent-runtime.js";
@@ -1309,6 +1310,9 @@ export class NativeSessions {
     if (event.type === "item") event.item.text = displayText(event.item.text);
     if (event.type === "delta") event.text = displayText(event.text);
     if (Buffer.byteLength(JSON.stringify(event)) > 256000) {
+      // Item metadata is display data too. Dropping an unrepresentable preview
+      // must not cancel the harness; decisions retain their stricter bounds.
+      if (event.type === "item" || event.type === "delta") return;
       if (live.run)
         void this.interrupt(
           live.run.id,
@@ -1353,13 +1357,7 @@ export class NativeSessions {
       return;
     }
     if (event.type === "item") {
-      if (!live.items.set(event.item.id, event.item)) {
-        void this.interrupt(
-          run.id,
-          "Native turn exceeded the display output limit.",
-        );
-        return;
-      }
+      if (!this.retainItem(live, event.item)) return;
       if (event.item.kind === "tool")
         recordTrace(run, event.item.id, {
           kind: "tool",
@@ -1373,22 +1371,23 @@ export class NativeSessions {
         });
     }
     if (event.type === "delta") {
-      const previous = live.items.get(event.id) || {
-        id: event.id,
-        kind: "assistant" as const,
-        text: "",
-      };
-      const item = {
-        ...previous,
-        text: (previous.text + event.text).slice(-256000),
-      };
-      if (!live.items.set(event.id, item)) {
-        void this.interrupt(
-          run.id,
-          "Native turn exceeded the display output limit.",
-        );
-        return;
+      // An active stream can outlive its in-memory display window. Recover
+      // only this run's saved projection, including the original item phase.
+      let previous = live.items.get(event.id);
+      if (!previous) {
+        const stored = db
+          .prepare(
+            "SELECT item FROM native_items WHERE conversation_id=? AND run_id=? AND native_id=?",
+          )
+          .get(live.binding.conversation_id, run.id, event.id) as
+          { item: string } | undefined;
+        if (stored) previous = JSON.parse(stored.item) as Item;
       }
+      const item = {
+        ...(previous || { id: event.id, kind: "assistant" as const }),
+        text: displayText((previous?.text || "") + event.text),
+      };
+      if (!this.retainItem(live, item)) return;
     }
     if (event.type === "item" || event.type === "delta") {
       if (!live.flush)
@@ -1578,6 +1577,16 @@ export class NativeSessions {
       } catch {}
     }
   }
+  private retainItem(live: Live, item: Item) {
+    if (live.items.set(item.id, item)) return true;
+    // Persist dirty progress before rotating the bounded display window.
+    // Native execution and its full context remain owned by the harness.
+    this.projectOutput(live, true);
+    // Free a whole window so pressure does not force a flush on every event.
+    // Deltas and completion can recover evicted items from the saved projection.
+    live.items.clear();
+    return live.items.set(item.id, item);
+  }
   /** @internal Flush the retained display projection. */
   projectOutput(live: Live, partial: boolean) {
     const run = live.run;
@@ -1588,12 +1597,33 @@ export class NativeSessions {
       .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
       .get(run.id) as any;
     if (!checkpoint) return;
-    const finalItem = !partial
+    let finalItem = !partial
       ? [...live.items.values()].findLast(
           (i) =>
             i.kind === "assistant" && i.phase !== "commentary" && i.text.trim(),
         )
       : undefined;
+    if (!partial && !finalItem) {
+      // Tool bookkeeping can evict a reply after it was saved. Completion
+      // still publishes that run's last non-commentary assistant item.
+      const stored = db
+        .prepare(
+          `SELECT item FROM native_items WHERE conversation_id=? AND run_id=?
+           AND json_extract(item,'$.kind')='assistant'
+           AND json_extract(item,'$.phase') IS NOT 'commentary'
+           ORDER BY rowid DESC`,
+        )
+        .iterate(live.binding.conversation_id, run.id) as Iterable<{ item: string }>;
+      for (const row of stored) {
+        const item = JSON.parse(row.item) as Item;
+        // A pending in-memory replacement may have cleared this saved reply
+        // or reclassified it as commentary; it already failed the check above.
+        if (!live.items.get(item.id) && item.text.trim()) {
+          finalItem = item;
+          break;
+        }
+      }
+    }
     // Progress remains durable in Messages/Traces. Publish only the last reply
     // after the harness confirms that the turn completed successfully.
     const output = finalItem?.text || "";

@@ -16,7 +16,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-it("flushes only dirty native items and interrupts before exceeding the aggregate budget", async () => {
+it("flushes dirty native items and completes after exceeding the display window", async () => {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('conversation','owner','test',0)",
   ).run();
@@ -134,6 +134,13 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
       Buffer.byteLength(JSON.stringify(preview.content)),
     ).toBeLessThanOrEqual(64000);
     expect(preview.content.endsWith('x"}')).toBe(true);
+    event({
+      id: "oversized-display-metadata",
+      kind: "tool",
+      title: "x".repeat(256000),
+      text: "display only",
+    });
+    expect(interrupt).not.toHaveBeenCalled();
     sessions.event(live, {
       type: "request",
       request: {
@@ -149,18 +156,98 @@ it("flushes only dirty native items and interrupts before exceeding the aggregat
     );
     expect(live.requests.size).toBe(0);
     interrupt.mockClear();
+    event({
+      id: "stream",
+      kind: "assistant",
+      phase: "commentary",
+      text: "Reviewing",
+    });
     for (let i = 0; i < 80; i++)
       event({ id: "large-" + i, kind: "assistant", text: "é".repeat(32000) });
-    expect(interrupt).toHaveBeenCalledWith(
-      run.id,
-      "Native turn exceeded the display output limit.",
-    );
+    expect(interrupt).not.toHaveBeenCalled();
     expect(live.items.bytes).toBeLessThanOrEqual(NATIVE_OUTPUT_BYTES);
+    expect(live.items.get("stream")).toBeUndefined();
+    expect(
+      db
+        .prepare(
+          "SELECT content FROM messages WHERE update_key='native-message:stream'",
+        )
+        .get(),
+    ).toEqual({ content: "Reviewing" });
+    // A delta for an evicted item must recover its text and commentary phase.
+    sessions.event(live, { type: "delta", id: "stream", text: " continued" });
+    expect(live.items.get("stream")).toMatchObject({
+      text: "Reviewing continued",
+      phase: "commentary",
+    });
+    event({
+      id: "long-stream",
+      kind: "assistant",
+      phase: "commentary",
+      text: "",
+    });
+    for (let i = 0; i < 10; i++)
+      sessions.event(live, {
+        type: "delta",
+        id: "long-stream",
+        text: "😀".repeat(10000),
+      });
+    expect(
+      Buffer.byteLength(JSON.stringify(live.items.get("long-stream")!.text)),
+    ).toBeLessThanOrEqual(64000);
+    expect(live.items.get("long-stream")!.text).toContain(
+      "Earlier native output omitted",
+    );
     sessions.projectOutput(live, true);
-    const stored = db
-      .prepare("SELECT sum(length(CAST(item AS BLOB))) bytes FROM native_items")
-      .get() as { bytes: number };
-    expect(stored.bytes).toBeLessThanOrEqual(NATIVE_OUTPUT_BYTES);
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) n FROM native_items WHERE native_id LIKE 'large-%'",
+        )
+        .get(),
+    ).toEqual({ n: 81 });
+    event({
+      id: "review-result",
+      kind: "assistant",
+      phase: "final_answer",
+      text: "Review complete.",
+    });
+    event({
+      id: "discarded-reply",
+      kind: "assistant",
+      text: "An obsolete reply.",
+    });
+    event({ id: "blank-reply", kind: "assistant", text: "\n\t" });
+    // The item-count bound must also rotate without cancelling. A final reply
+    // already saved before eviction must survive later tool bookkeeping.
+    for (let i = 0; i < 2005; i++)
+      event({ id: "tool-" + i, kind: "tool", text: "done" });
+    expect(live.items.get("review-result")).toBeUndefined();
+    expect([...live.items.values()].length).toBeLessThanOrEqual(2000);
+    event({
+      id: "discarded-reply",
+      kind: "assistant",
+      phase: "commentary",
+      text: "Progress only.",
+    });
+    const finish = vi.fn();
+    live.finish = finish;
+    sessions.event(live, { type: "status", status: "completed" });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(finish).toHaveBeenCalledWith("completed");
+    expect(
+      db.prepare("SELECT result,error FROM runs WHERE id=?").get(run.id),
+    ).toEqual({ result: "Review complete.", error: null });
+    expect(
+      db.prepare("SELECT content FROM artifacts WHERE id='artifact'").get(),
+    ).toEqual({ content: "Review complete." });
+    expect(
+      db
+        .prepare(
+          "SELECT content FROM messages WHERE update_key='native-message:stream'",
+        )
+        .get(),
+    ).toEqual({ content: "Reviewing continued" });
     interrupt.mockRestore();
     // A resumed session replays more than a turn's budget before run is set.
     live.run = undefined;
