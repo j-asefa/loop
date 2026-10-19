@@ -37,6 +37,7 @@ import {
   type Recorded,
 } from "./daemon.js";
 import { recordOwnedProcesses } from "./processes.js";
+import { preview, publicPreview, designPreview } from "./preview-context.js";
 const PACKAGE = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
@@ -78,9 +79,14 @@ function showPair(pair: Pair) {
   console.log("Anyone holding this link can control this workspace.\n");
 }
 function showReady(ready: Ready, withCode = true) {
-  console.log("Loop workspace ready. " + ready.description);
   console.log(
-    "Create agents in Loop; multiple agents may use the same project. Commands: loop status, loop pair, loop logs, loop stop.",
+    (preview ? `Loop preview ${preview.name} ready. ` : "Loop workspace ready. ") +
+      ready.description,
+  );
+  console.log(
+    preview
+      ? `Commands: loop preview open ${preview.name}, loop preview rebuild ${preview.name}, loop preview stop ${preview.name}.`
+      : "Create agents in Loop; multiple agents may use the same project. Commands: loop status, loop pair, loop logs, loop stop.",
   );
   if (ready.notice) console.log(ready.notice);
   if (withCode && ready.pair) showPair(ready.pair);
@@ -88,7 +94,12 @@ function showReady(ready: Ready, withCode = true) {
     console.log(
       `Same address: ${ready.url}. Paired devices stay signed in; no new pairing is needed.`,
     );
-  else console.log("Run loop pair to show a pairing code.");
+  else
+    console.log(
+      preview
+        ? `Run loop preview open ${preview.name} to show a pairing code.`
+        : "Run loop pair to show a pairing code.",
+    );
 }
 function report(message: Ready | { error: string }) {
   if (!daemonChild || !process.connected) return;
@@ -614,6 +625,10 @@ async function logs(dir: string, follow: boolean) {
   await handle.close();
 }
 async function main() {
+  if (process.argv[2] === "preview") {
+    const { previewCli } = await import("./preview-cli.js");
+    return previewCli(process.argv.slice(3));
+  }
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
@@ -678,6 +693,7 @@ loop logs [--follow] | stop | uninstall
 loop stop               Stop Loop completely, including its tunnel. The next
                         start may get a new Quick Tunnel address.
 loop service install|uninstall  Start automatically at login
+loop preview --help      Create, open, rebuild and discard isolated experiments.
 
 Every project and enabled harness shares one workspace host and tunnel.
 A separate connection service keeps the tunnel and its address while the
@@ -750,6 +766,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
     : positionals[0] === "claude-code"
       ? "claude"
       : positionals[0];
+  if (preview && ["upgrade", "service", "uninstall"].includes(action))
+    throw new Error(
+      "Manage experiments with loop preview. Preview builds cannot replace the global installation or login service.",
+    );
   if (action === "doctor") {
     const harnesses = await Promise.all(
       names
@@ -1285,6 +1305,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     }
     host.statusExtras = () => ({
       release: VERSION,
+      ...(publicPreview ? { preview: publicPreview } : {}),
       supervisor: process.env.LOOP_SERVICE || undefined,
       connection: tunnelMode
         ? {
@@ -1356,7 +1377,9 @@ Uninstall removes the package separately; workspace/native history is retained.`
       neutral
         ? () =>
             onListening(
-              "Discovering installed harnesses; your workspace is ready.",
+              designPreview
+                ? "Design preview ready. Sample data and simulated replies."
+                : "Discovering installed harnesses; your workspace is ready.",
             )
         : undefined,
     );

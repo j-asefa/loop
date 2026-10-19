@@ -9778,6 +9778,12 @@ span.verification-chip { cursor: default; }
 .pull-state-chip.pull-state-failed .lucide { color: var(--diff-removed); }
 .pull-state-chip.pull-state-none { opacity: 0.75; }
 span.pull-state-chip { cursor: default; }
+/* Experiment identity stays visible in both desktop and phone layouts. */
+.preview-banner { padding: 12px 20px; background: #fff3d1; color: #503b0c; border-bottom: 1px solid #dfc990; font-size: 13px; }
+.preview-banner > div { display: flex; gap: 6px 16px; flex-wrap: wrap; align-items: baseline; }
+.preview-banner summary { cursor: pointer; width: fit-content; margin-top: 6px; }
+.preview-banner p { margin: 6px 0 0; overflow-wrap: anywhere; }
+[data-theme="dark"] .preview-banner { background: #352d1b; color: #f3dfa7; border-color: #665431; }
 
 .deployment-status { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
 .deployment-status summary { cursor: pointer; font-weight: 600; }

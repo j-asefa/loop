@@ -50,11 +50,13 @@ import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
+import { publicPreview } from "../preview-context.js";
 export const core = Router();
 core.use(viewportDiagnostics);
 core.get("/bootstrap", (_req, res) => {
   ensureWorkspaceProject(res.locals.owner);
   res.json({
+    ...(publicPreview ? { preview: publicPreview } : {}),
     environmentName: hostEnvironmentName(),
     teams: listTeams(res.locals.owner),
     agents: db

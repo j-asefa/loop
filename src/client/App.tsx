@@ -155,7 +155,10 @@ import type {
   Team,
 } from "../shared/types";
 import "./style.css";
+import { PreviewBanner } from "./PreviewBanner";
+import type { PreviewInfo } from "../shared/preview";
 type Bootstrap = {
+  preview?: PreviewInfo;
   environmentName?: string;
   teams?: Team[];
   agents: Agent[];
@@ -2506,6 +2509,7 @@ export default function App() {
         )}
       </aside>
       <div className="main-column">
+        <PreviewBanner preview={data.preview} />
         <PwaStatus />
         <header className="topbar">
           <div className="wordmark mobile-brand">

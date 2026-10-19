@@ -99,6 +99,8 @@ npm run test:all
 
 See [development and verification](docs/development.md) for browser, packaging and container checks. Automated harness fixtures verify Loop's behavior; they do not establish authenticated provider compatibility or physical-phone acceptance.
 
+Try an experiment before merging with `loop preview create NAME`. It creates a separate branch and paired design workspace with sample data. Use `loop preview rebuild NAME` as you iterate, or `--mode working` for a full runtime preview. See [experiment previews](docs/previews.md).
+
 Use the [documentation index](docs/README.md) for detailed guides and [AGENTS.md](AGENTS.md) for task-specific contributor context.
 
 ## Security

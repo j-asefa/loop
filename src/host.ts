@@ -56,6 +56,8 @@ const Pair = z
 export class Host {
   /** Optional workspace application. The legacy session protocol stays testable. */
   workspace?: {
+    /** Experimental workspaces never discover or proxy the everyday Docker sources. */
+    isolated?: boolean;
     http: (req: IncomingMessage, res: ServerResponse) => void;
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
@@ -328,7 +330,11 @@ export class Host {
     return this.validHost(req) && req.headers.origin === this.origin;
   }
   private get cookieName() {
-    return this.origin.startsWith("https:") ? "__Host-loop" : "loop_local";
+    const name = this.origin.startsWith("https:") ? "__Host-loop" : "loop_local";
+    // Cookies ignore ports. Preview identities stay distinct across local hosts and rebuilds.
+    return this.workspace?.isolated
+      ? `${name}_${hash(resolve(this.dir)).slice(0, 24)}`
+      : name;
   }
   private cookie(token: string, expires: number) {
     const secure = this.origin.startsWith("https:");
@@ -456,6 +462,21 @@ export class Host {
         if (path === "/api/auth/sign-out" && req.method === "POST") {
           this.revoke(device.id);
           return this.json(res, 200, { ok: true });
+        }
+        if (this.workspace.isolated) {
+          if (
+            ["/api/linked-workspaces", "/api/agent-sources", "/api/mcp-sharing"].includes(path) &&
+            req.method === "GET"
+          )
+            return this.json(res, 200, []);
+          if (
+            path.startsWith("/api/agent-sources/") ||
+            path.startsWith("/api/linked/") ||
+            path === "/api/mcp-sharing"
+          )
+            return this.json(res, 403, {
+              error: "Previews do not connect to other Loop workspaces.",
+            });
         }
         if (path === "/api/linked-workspaces" && req.method === "GET") {
           const workspaces = await linkedDockerWorkspaces();

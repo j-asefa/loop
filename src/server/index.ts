@@ -45,6 +45,8 @@ import { mobile } from "./mobile-routes.js";
 import { prWatches } from "./pr-watches.js";
 import { agentMail } from "./agent-mail.js";
 import { githubPulls } from "./github-pulls.js";
+import { designPreview } from "../preview-context.js";
+import { designPreviewBoundary } from "./design-preview.js";
 import { currentBuilds } from "./deployments.js";
 import { publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
@@ -137,7 +139,7 @@ app.get("/api/health", (_req, res) => {
   res.status(ready ? 200 : 503).json({
     ok: ready,
     database: true,
-    worker: ready ? "ready" : "unavailable",
+    worker: ready ? (designPreview ? "simulated" : "ready") : "unavailable",
   });
 });
 app.use("/api", async (req, res, next) => {
@@ -170,6 +172,7 @@ app.use("/api", async (req, res, next) => {
   }
   next();
 });
+if (designPreview) app.use("/api", designPreviewBoundary);
 app.get("/api/build", (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds() }));
 if (!companionMode) {
   // Setup returns private service credentials. Besides arriving locally, it

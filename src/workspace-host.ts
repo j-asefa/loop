@@ -13,6 +13,7 @@ import { WebSocket } from "ws";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DockerMcpSharing } from "./mcp-docker-sharing.js";
+import { preview, designPreview } from "./preview-context.js";
 import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
@@ -70,6 +71,7 @@ export class WorkspaceHost {
       },
     });
     this.gateway.workspace = {
+      isolated: !!preview,
       http: app,
       status: () => ({
         workspace: true,
@@ -82,17 +84,21 @@ export class WorkspaceHost {
           )
           .get(OWNER),
         harnesses: nativeSessions.registrations(),
-        activeRuns: db
-          .prepare(
-            "SELECT count(*) n FROM runs WHERE state IN ('running','awaiting_approval')",
-          )
-          .get(),
+        activeRuns: designPreview
+          ? { n: 0 }
+          : db
+              .prepare(
+                "SELECT count(*) n FROM runs WHERE state IN ('running','pausing','awaiting_approval')",
+              )
+              .get(),
         agents: (db.prepare("SELECT count(*) n FROM agents").get() as any).n,
         build: BUILD,
         buildIdentity: publicBuild(observedBuild()),
         ...this.statusExtras(),
       }),
       admin: async (action, input) => {
+        if (designPreview)
+          throw new Error("Design previews do not enable native harnesses.");
         if (action === "/enable")
           return nativeSessions.enable(registration.parse(input));
         throw new Error("Unknown workspace control command");
@@ -178,6 +184,26 @@ export class WorkspaceHost {
     onListening?: () => Promise<void>,
   ) {
     if (this.closing) throw new Error("Workspace is stopping");
+    if (designPreview) {
+      const { seedDesignPreview, startDesignSimulation } = await import(
+        "./server/design-preview.js"
+      );
+      seedDesignPreview();
+      this.stopWorker = startDesignSimulation();
+      await this.gateway.listen(this.listenOptions);
+      if (this.closing) {
+        await this.gateway.close();
+        throw new Error("Workspace is stopping");
+      }
+      this.stopObservation = observeProcess("api");
+      await onListening?.();
+      return {
+        billing: {
+          description:
+            "Design preview: sample data and simulated replies; no provider execution.",
+        },
+      };
+    }
     nativeSignIns.open();
     await this.tools.start();
     if (this.closing) {
@@ -194,7 +220,7 @@ export class WorkspaceHost {
       throw new Error("Workspace is stopping");
     }
     this.stopObservation = observeProcess("api");
-    this.mcpSharing.start();
+    if (!preview) this.mcpSharing.start();
     // Pairing and the public gateway can be made available before runner startup.
     // Register the project first so a paired client can inspect its workspace.
     nativeSessions.addProject(options.project);
