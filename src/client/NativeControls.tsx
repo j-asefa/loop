@@ -44,12 +44,14 @@ export function WorkspaceConnection() {
           epoch = m.epoch;
           cursor = m.cursor;
           if (m.type === "reset" && typeof m.build === "string") {
+            // Retain the initial hash even when identity comparison succeeds:
+            // a later rollback may reconnect to a server without identities.
+            if (!build) build = m.build;
             const identity = BuildIdentity.safeParse(m.buildIdentity);
             const updated = identity.success
               ? browserNeedsReload(runningBuild, identity.data)
               : null;
             if (updated !== null) setConnection({ updated });
-            else if (!build) build = m.build;
             else if (m.build !== build) setConnection({ updated: true });
           }
           window.dispatchEvent(

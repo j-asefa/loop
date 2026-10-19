@@ -10,7 +10,12 @@ export async function buildFallbackSmoke(browser, base) {
     builtAt: 0,
     ancestors: [],
   });
-  for (const loaded of ["development", "compiled"]) {
+  for (const { loaded, legacy } of [
+    { loaded: "development" },
+    { loaded: "compiled" },
+    { loaded: "compiled", legacy: "missing" },
+    { loaded: "compiled", legacy: "malformed" },
+  ]) {
     const page = await browser.newPage();
     let socket,
       reads = 0,
@@ -25,6 +30,7 @@ export async function buildFallbackSmoke(browser, base) {
       );
       await page.route("**/api/build", (route) => {
         reads++;
+        if (serving === null) return route.fulfill({ status: 404, json: {} });
         return route.fulfill({ json: { serving: identity(serving) } });
       });
       await page.routeWebSocket("**/ws?*", (route) => {
@@ -65,13 +71,26 @@ export async function buildFallbackSmoke(browser, base) {
             cursor: 0,
             epoch: "fixture",
             build: asset,
-            buildIdentity: identity(id),
+            buildIdentity: typeof id === "string" ? identity(id) : id,
           }),
         );
       reset("original-assets", loaded);
       await page.clock.runFor(1000);
       const reload = page.getByRole("button", { name: "Reload to update" });
       await expect(reload).toHaveCount(0);
+      if (legacy) {
+        // Roll back to a server without a usable identity or build endpoint.
+        // Its first changed asset hash must still use the original baseline.
+        serving = null;
+        reset("legacy-assets", legacy === "missing" ? undefined : {});
+        await expect(reload).toBeVisible();
+        const absentRead = page.waitForResponse("**/api/build");
+        await page.clock.runFor(15000);
+        expect((await absentRead).status()).toBe(404);
+        await page.clock.runFor(1000);
+        await expect(reload).toBeVisible();
+        continue;
+      }
       // Source pages detect changed assets by hash; compiled pages can use a
       // known different identity. Neither notice may be erased by uncertainty.
       reset("new-assets", loaded === "development" ? loaded : "replacement");
