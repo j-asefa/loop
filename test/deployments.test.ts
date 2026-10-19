@@ -375,7 +375,6 @@ it("detects a page already stale on its first connection and needs no reload for
   const server = publicBuild(f.stamp());
   expect(browserNeedsReload(loaded, server)).toBe(true);
   expect(browserNeedsReload(server, server)).toBe(false);
-  expect(browserNeedsReload({ ...loaded, id: "development" }, server)).toBe(
-    false,
-  );
+  expect(browserNeedsReload({ ...loaded, id: "development" }, server)).toBeNull();
+  expect(browserNeedsReload(loaded, { ...server, id: "development" })).toBeNull();
 });

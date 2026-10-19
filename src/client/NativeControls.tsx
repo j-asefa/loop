@@ -45,8 +45,10 @@ export function WorkspaceConnection() {
           cursor = m.cursor;
           if (m.type === "reset" && typeof m.build === "string") {
             const identity = BuildIdentity.safeParse(m.buildIdentity);
-            if (identity.success && runningBuild.id !== "development")
-              setConnection({ updated: browserNeedsReload(runningBuild, identity.data) });
+            const updated = identity.success
+              ? browserNeedsReload(runningBuild, identity.data)
+              : null;
+            if (updated !== null) setConnection({ updated });
             else if (!build) build = m.build;
             else if (m.build !== build) setConnection({ updated: true });
           }

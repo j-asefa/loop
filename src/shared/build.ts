@@ -83,10 +83,8 @@ export const buildLabels: Record<BuildComparison, string> = {
 export function browserNeedsReload(
   loaded: BuildIdentity,
   serving: BuildIdentity,
-) {
-  return (
-    loaded.id !== "development" &&
-    serving.id !== "development" &&
-    loaded.id !== serving.id
-  );
+): boolean | null {
+  // Source-mode identity cannot establish either a match or a mismatch.
+  if (loaded.id === "development" || serving.id === "development") return null;
+  return loaded.id !== serving.id;
 }

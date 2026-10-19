@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { chromium, webkit, expect } from "@playwright/test";
 import { briefPollingSmoke } from "./helpers/brief-polling-smoke.mjs";
 import { statusPollingSmoke } from "./helpers/status-polling-smoke.mjs";
+import { buildFallbackSmoke } from "./helpers/build-fallback-smoke.mjs";
 
 const identity = (id) => ({
   id,
@@ -177,8 +178,12 @@ try {
         browser,
         `http://127.0.0.1:${server.address().port}`,
       );
+      await buildFallbackSmoke(
+        browser,
+        `http://127.0.0.1:${server.address().port}`,
+      );
       console.log(
-        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI, Brief polling and hidden-tab acknowledgements, hanging Status source polling passed`,
+        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI, Brief polling and hidden-tab acknowledgements, hanging Status source polling, unknown build identity fallback passed`,
       );
     } finally {
       await browser.close();

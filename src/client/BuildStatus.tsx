@@ -33,10 +33,10 @@ export function BrowserBuildStatus() {
         const serving = BuildIdentity.safeParse(
           (await response.json()).serving,
         );
-        if (!stopped && generation === request && serving.success)
-          setConnection({
-            updated: browserNeedsReload(runningBuild, serving.data),
-          });
+        if (!stopped && generation === request && serving.success) {
+          const updated = browserNeedsReload(runningBuild, serving.data);
+          if (updated !== null) setConnection({ updated });
+        }
       } catch {
         /* A failed read is not evidence that builds match. */
       } finally {
