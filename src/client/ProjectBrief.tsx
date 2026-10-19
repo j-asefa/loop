@@ -250,15 +250,26 @@ function ProjectBriefSession({
     choicesLoading = useRef(false);
   const valid = () =>
     alive.current && owner === viewOwner() && workspace === executionSourceId();
-  const fetch = <T,>(path = "", body?: unknown, method?: string) =>
-    apiInWorkspace<T>(root + path, workspace, body, method);
+  const fetch = <T,>(
+    path = "",
+    body?: unknown,
+    method?: string,
+    signal?: AbortSignal,
+  ) => apiInWorkspace<T>(root + path, workspace, body, method, signal);
   const load = async () => {
     if (locked.current || !valid() || loading.current === request.current)
       return;
     const own = ++request.current;
     loading.current = own;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
-      const next = await fetch<BriefPage>();
+      const next = await fetch<BriefPage>(
+        "",
+        undefined,
+        undefined,
+        controller.signal,
+      );
       if (valid() && own === request.current) {
         setPage(next);
         setSelection((current) => {
@@ -288,8 +299,13 @@ function ProjectBriefSession({
       }
     } catch (error) {
       if (valid() && own === request.current)
-        setLoadError((error as Error).message);
+        setLoadError(
+          controller.signal.aborted
+            ? "Brief refresh timed out. Try again."
+            : (error as Error).message,
+        );
     } finally {
+      clearTimeout(timeout);
       if (loading.current === own) loading.current = null;
     }
   };

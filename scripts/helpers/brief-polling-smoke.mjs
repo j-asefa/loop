@@ -82,6 +82,23 @@ export async function briefPollingSmoke(browser, base) {
       "Polling recovered",
     );
     await expect(page.getByRole("alert")).toHaveCount(0);
+    // A connection that never settles must release the pending read so a
+    // manual retry and subsequent polling can recover.
+    await page.clock.runFor(15000);
+    await expect.poll(() => pending.length).toBe(5);
+    await page.clock.runFor(31000);
+    await expect(page.getByRole("alert")).toContainText(
+      "Brief refresh timed out",
+    );
+    await page
+      .getByRole("button", { name: "Retry brief", exact: true })
+      .click();
+    await expect.poll(() => pending.length).toBe(6);
+    pending[5]({ json: brief("Hanging read recovered") });
+    await expect(page.locator(".brief-headline h2")).toHaveText(
+      "Hanging read recovered",
+    );
+    await expect(page.getByRole("alert")).toHaveCount(0);
   } finally {
     for (const resolve of pending) resolve({ status: 503, json: {} });
     await page.close();
