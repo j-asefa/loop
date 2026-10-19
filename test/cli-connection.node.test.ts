@@ -739,27 +739,26 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
     const w = await workspace();
     const bin = join(w.base, "bin");
     await mkdir(bin);
-    writeFileSync(join(bin, "launchctl"), LAUNCHCTL, { mode: 0o755 });
-    writeFileSync(join(bin, "systemctl"), "#!/bin/sh\nexit 91\n", { mode: 0o755 });
-    // A different installed workspace may share the user's home. The
-    // ordinary restart must neither repoint it nor call its service manager.
+    for (const name of ["launchctl", "systemctl"])
+      writeFileSync(join(bin, name), LAUNCHCTL, { mode: 0o755 });
     const home = join(w.base, "home");
     const mac = process.platform === "darwin";
     const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
     await mkdir(units, { recursive: true });
     const { serviceDefinitions } = await import("../src/service.js");
-    const other = serviceDefinitions(process.platform, process.execPath, "/other/dist/cli.js", join(w.base, "other-state"), w.base, process.env.PATH!, null).app;
-    const otherUnit = join(units, mac ? `${other.name}.plist` : other.name);
-    writeFileSync(otherUnit, other.contents);
+    const supervisor = mac ? "launchd" : "systemd";
+    const installed = serviceDefinitions(process.platform, process.execPath, resolve("src/cli.ts"), w.env.LOOP_HOME, w.base, process.env.PATH!, null, [...w.harness, ...mode]).app;
+    const unit = join(units, mac ? `${installed.name}.plist` : installed.name);
+    writeFileSync(unit, installed.contents);
     const job = join(w.base, "launchd-job.json");
-    Object.assign(w.env, { PATH: `${bin}:${process.env.PATH}`, LOOP_TEST_LAUNCHD_JOB: job, HOME: home });
+    Object.assign(w.env, { PATH: `${bin}:${process.env.PATH}`, LOOP_TEST_LAUNCHD_JOB: job, LOOP_TEST_SUPERVISOR: supervisor, HOME: home });
     try {
       const args = ["--import", "tsx", resolve("src/cli.ts"), ...w.harness, ...mode, "--foreground"];
       const log = join(w.base, "service.log");
       const app = spawn(process.execPath, args, {
         detached: true,
         stdio: ["ignore", openSync(log, "a"), openSync(log, "a")],
-        env: { ...w.env, LOOP_SERVICE: "launchd" },
+        env: { ...w.env, LOOP_SERVICE: supervisor },
       });
       app.unref();
       writeFileSync(job, JSON.stringify({ pid: app.pid, args, log }));
@@ -770,7 +769,7 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
         await new Promise((r) => setTimeout(r, 250));
       }
       w.pids.add(before.pid);
-      assert.equal(before.supervisor, "launchd");
+      assert.equal(before.supervisor, supervisor);
       assert.equal(before.connection.mode, mode[0] === "--local-only" ? "local" : "external-proxy");
 
       const { stdout } = await w.loop(["restart"], 60000);
@@ -778,11 +777,70 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
       const after = await w.status();
       w.pids.add(after.pid);
       assert.notEqual(after.pid, before.pid);
-      assert.equal(after.pid, JSON.parse(readFileSync(job, "utf8")).pid, "launchd ran the new application");
-      assert.equal(after.supervisor, "launchd");
+      assert.equal(after.pid, JSON.parse(readFileSync(job, "utf8")).pid, "the manager ran the new application");
+      assert.equal(after.supervisor, supervisor);
       assert(!alive(before.pid));
       assert.equal(w.tunnelPids().length, 0, "no cloudflared without a managed tunnel");
-      assert.equal(readFileSync(otherUnit, "utf8"), other.contents, "another workspace's service was untouched");
+      assert.equal(readFileSync(unit, "utf8"), installed.contents, "ordinary restart retained the installed entrypoint");
+    } finally {
+      await w.cleanup();
+    }
+  });
+
+
+for (const installation of ["absent", "another workspace"])
+  test(`an inherited supervisor cannot restart a service for ${installation}`, async () => {
+    const supervisor = process.platform === "darwin" ? "launchd" : "systemd";
+    const w = await workspace({ LOOP_SERVICE: supervisor });
+    const home = join(w.base, "home");
+    const bin = join(w.base, "bin");
+    const calls = join(w.base, "manager-calls.log");
+    const saved: { path: string; contents: string }[] = [];
+    try {
+      await mkdir(home);
+      await mkdir(bin);
+      // A broken ownership check fails against a fixture manager. It can
+      // never invoke the host's real service manager, even when run in Loop.
+      for (const name of ["launchctl", "systemctl"])
+        writeFileSync(join(bin, name), `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.LOOP_TEST_MANAGER_LOG, process.argv.join(" ") + "\\n");
+process.exit(91);
+`, { mode: 0o755 });
+      Object.assign(w.env, {
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH}`,
+        LOOP_TEST_MANAGER_LOG: calls,
+      });
+      if (installation === "another workspace") {
+        const mac = process.platform === "darwin";
+        const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+        await mkdir(units, { recursive: true });
+        const { serviceDefinitions } = await import("../src/service.js");
+        const other = serviceDefinitions(process.platform, process.execPath, "/other/dist/cli.js", join(w.base, "other-state"), w.base, process.env.PATH!);
+        for (const definition of [other.app, other.connection]) {
+          if (!definition) continue;
+          const path = join(units, mac ? `${definition.name}.plist` : definition.name);
+          writeFileSync(path, definition.contents);
+          saved.push({ path, contents: definition.contents });
+        }
+      }
+      await w.loop([...w.harness, "--local-only"]);
+      let before = await w.status();
+      w.pids.add(before.pid);
+      assert.equal(before.supervisor, supervisor, "the child inherited its parent's supervisor claim");
+      for (const args of [["restart"], ["restart", "--upgraded-from", "0.0.0-previous"]]) {
+        await w.loop(args);
+        const after = await w.status();
+        w.pids.add(after.pid);
+        assert.equal(after.state, "ready");
+        assert.notEqual(after.pid, before.pid);
+        assert(!alive(before.pid), "only the requested fixture was replaced");
+        assert(!existsSync(calls), "neither service manager was invoked");
+        for (const unit of saved)
+          assert.equal(readFileSync(unit.path, "utf8"), unit.contents);
+        before = after;
+      }
     } finally {
       await w.cleanup();
     }

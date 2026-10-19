@@ -76,3 +76,36 @@ for (const output of ["null\n", "not-json\n", '{"id":1']) {
     }
   });
 }
+for (const explicit of [false, true]) {
+  test(`native children do not inherit service ownership (${explicit ? "explicit" : "default"} environment)`, async () => {
+    const previous = process.env.LOOP_SERVICE;
+    process.env.LOOP_SERVICE = "systemd";
+    const env: NodeJS.ProcessEnv = { ...process.env, LOOP_TEST_NATIVE_SETTING: "fixture-setting" };
+    let native: Native;
+    try {
+      native = new Native(process.execPath, ["-e", `
+        require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+          const request = JSON.parse(line);
+          process.stdout.write(JSON.stringify({id:request.id,result:{
+            supervisor:process.env.LOOP_SERVICE ?? null,
+            setting:process.env.LOOP_TEST_NATIVE_SETTING ?? null,
+            path:process.env.PATH,
+          }}) + '\\n');
+        });
+      `], process.cwd(), explicit ? env : undefined);
+    } finally {
+      if (previous === undefined) delete process.env.LOOP_SERVICE;
+      else process.env.LOOP_SERVICE = previous;
+    }
+    try {
+      assert.deepEqual(await native.request("environment"), {
+        supervisor: null,
+        setting: explicit ? "fixture-setting" : (process.env.LOOP_TEST_NATIVE_SETTING ?? null),
+        path: process.env.PATH,
+      });
+      assert.equal(env.LOOP_SERVICE, "systemd", "the caller's environment remains unchanged");
+    } finally {
+      await native.dispose();
+    }
+  });
+}

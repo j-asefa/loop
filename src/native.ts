@@ -23,9 +23,14 @@ export class Native extends EventEmitter {
     env = process.env,
   ) {
     super();
+    // Supervision belongs to the Loop application, not its harnesses or the
+    // commands they launch. Inheriting it can make a test workspace claim the
+    // live application's service manager.
+    const childEnv = { ...env };
+    delete childEnv.LOOP_SERVICE;
     this.child = spawn(executable, args, {
       cwd,
-      env,
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe", "pipe"],
       shell: false,
       detached: true,

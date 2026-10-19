@@ -240,7 +240,10 @@ async function restartWorkspace(
   // starting a detached application instead leaves the manager relaunching its
   // own copy, which then dies on the workspace lock, over and over.
   const { installedSupervisor } = await import("./service.js");
-  const supervisor = status?.supervisor ?? (await installedSupervisor(root));
+  // LOOP_SERVICE can be inherited by a fixture or a second workspace. Its
+  // status is not proof that the installed unit owns this root: only route
+  // through the manager when that unit's LOOP_HOME matches the request.
+  const supervisor = await installedSupervisor(root);
   if (!status) {
     const recorded = await recordedWorkspace(dir);
     if (recorded?.state === "unknown")
