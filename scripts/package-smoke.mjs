@@ -52,6 +52,11 @@ try {
   await exec(process.execPath, ["--input-type=module", "-e",
     'const { Acp } = await import("loop/dist/adapters/acp.js"); if (typeof Acp !== "function") throw new Error("Missing packaged ACP adapter");',
   ], { cwd: target, timeout: 10000 });
+  const identity = JSON.parse((await exec(process.execPath, ["--input-type=module", "-e",
+    'const { runningBuild, publicBuild } = await import("loop/dist/shared/build.js"); console.log(JSON.stringify(publicBuild(runningBuild)));',
+  ], { cwd: target, timeout: 10000 })).stdout);
+  assert.equal(identity.id, JSON.parse(await readFile("dist/build-id.json", "utf8")).id);
+  assert.notEqual(identity.id, "development");
   bin = join(target, "node_modules", ".bin", "loop");
   env = {
     ...process.env,
@@ -134,6 +139,10 @@ try {
     };
   };
   let { cookie, api } = await pair();
+  const companionBuild = await api("/build");
+  assert.deepEqual(companionBuild.serving, identity);
+  assert.deepEqual(companionBuild.processes.map(p => p.role).sort(), ["api", "worker"]);
+  for (const process of companionBuild.processes) assert.deepEqual(process.build, identity);
   const agent = await api("/agents", {
     name: "packed-agent",
     connectionId: "native-codex",
@@ -170,6 +179,7 @@ try {
   assert.equal(status.workspace, true);
   assert.equal(status.agents, 1);
   assert.equal(status.state, "ready");
+  assert.deepEqual(status.buildIdentity, identity);
   assert(!JSON.stringify(status).includes(cookie.split("=")[1]));
   const repeated = await exec(
     bin,
@@ -221,6 +231,10 @@ try {
   }
   assert.equal((await fetch(serverOrigin + "/api/capabilities").then(r => r.json())).profile, "server");
   assert.equal((await fetch(serverOrigin + "/api/bootstrap")).status, 200);
+  const serverBuild = await fetch(serverOrigin + "/api/build").then(r => r.json());
+  assert.deepEqual(serverBuild.serving, identity);
+  assert.deepEqual(serverBuild.processes.map(p => p.role).sort(), ["api", "worker"]);
+  for (const process of serverBuild.processes) assert.deepEqual(process.build, identity);
   const serverHtml = await fetch(serverOrigin).then(r => r.text());
   assert.match(serverHtml, /<div id="root">/);
   for (const asset of assets) assert.equal((await fetch(serverOrigin + asset)).status, 200);
@@ -230,6 +244,9 @@ try {
   assert(
     (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
   );
+  // The upgrade fixture installs its own package; release this first install
+  // before npm temporarily keeps both old and new upgrade dependency trees.
+  await rm(target, { recursive: true, force: true });
   await upgradeBehindConnection();
   console.log(
     "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
@@ -271,6 +288,7 @@ async function upgradeBehindConnection() {
   const nextVersion = manifest.version + "-upgrade.1";
   manifest.version = nextVersion;
   writeFileSync(join(pkg, "package.json"), JSON.stringify(manifest, null, 2));
+  writeFileSync(join(pkg, "dist", "support", "package.json"), JSON.stringify(manifest, null, 2));
   const index = join(pkg, "dist", "web", "index.html");
   writeFileSync(index, readFileSync(index, "utf8").replace("</head>", "<!-- loop-build-b --></head>"));
   const packed = JSON.parse(

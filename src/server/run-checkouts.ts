@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { db, id, now } from "./db.js";
 import { recordChange } from "./project-changes.js";
 import type { Run } from "./queue.js";
+import { loopRepository } from "../shared/build.js";
 export type {
   CheckoutFile,
   CheckoutStat,
@@ -121,7 +122,7 @@ type GitResult = { ok: boolean; code: number | null; out: string; truncated: boo
  * drivers, attributes, hooks, promisor remotes, transports) is read while a
  * command runs, and nothing is written back to the repository.
  */
-type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void };
+type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void; repository?: string | null };
 // Attributes (.gitattributes, text, eol, filter, diff) are read as usual so
 // line-ending normalisation still applies; the isolated configuration
 // defines no filter or diff driver, so an attribute that names one selects
@@ -254,6 +255,7 @@ async function isolate(directory: string): Promise<Iso> {
   // resolves @{upstream} to a remote-tracking ref (never a URL, transport,
   // credential or promisor setting, so no fetch can happen).
   const carried = new Map<string, string>();
+  let repository: string | null = null;
 
   const tracking = branch
     ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
@@ -267,6 +269,7 @@ async function isolate(directory: string): Promise<Iso> {
     if (split < 0) continue;
     const key = entry.slice(0, split),
       value = entry.slice(split + 1);
+    if (key === "remote.origin.url") repository = loopRepository(value);
     if (key === "extensions.refstorage")
       throw new CheckoutError("Checkout capture does not support reftable repositories");
     if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
@@ -305,6 +308,7 @@ async function isolate(directory: string): Promise<Iso> {
   }
   return {
     directory,
+    repository,
     env: { GIT_DIR: gitDir, GIT_WORK_TREE: top },
     cleanup,
   };
@@ -701,6 +705,7 @@ async function captureClaimed(
     ended_at: time, error: null, captured_late: options.late ? 1 : 0,
     end_head: null, ahead: null, behind: null,
   };
+  let buildTarget: { repository: string; commit: string; ancestors: string[] } | undefined;
   let iso: Iso | undefined;
   try {
     iso = await isolate(row.directory);
@@ -727,7 +732,7 @@ async function captureClaimed(
         fields.behind = behind;
       }
     }
-    const { untracked } = await status(directory);
+    const { untracked, tracked } = await status(directory);
     const initialUntracked = new Set<string>(JSON.parse(row.start_untracked_paths ?? "[]"));
     fields.untracked = JSON.stringify(untracked.filter((path) => !initialUntracked.has(path)));
     const working = await numstat(directory, [head, "--"]);
@@ -755,8 +760,9 @@ async function captureClaimed(
     fields.patch_truncated = p.truncated ? 1 : 0;
     const seen = await remote(directory, branch, head);
     fields.remote = seen ? JSON.stringify(seen) : null;
-    // Any other run on this checkout that was active at some point during
-    // the interval: still active now, or ended after this run started.
+    // Include the source-reading window, not just the capture's start: a
+    // sibling may begin and commit while isolate is copying the refs.
+    // Any sibling still active or ended after this run started is ambiguous.
     fields.overlap = JSON.stringify(
       (
         db
@@ -766,10 +772,19 @@ async function captureClaimed(
                AND (r.updated_at>=? OR r.state IN (${ACTIVE_STATES.map(() => "?").join(",")}))
              ORDER BY r.created_at`,
           )
-          .all(row.owner_id, row.directory, row.run_id, time, row.started_at, ...ACTIVE_STATES) as { id: string }[]
+          .all(row.owner_id, row.directory, row.run_id, now(), row.started_at, ...ACTIVE_STATES) as { id: string }[]
       ).map((r) => r.id),
     );
     fields.state = "captured";
+    // A target describes an observed, committed change in Loop's own repo.
+    // No target is inferred from an agent's prose, dirty/overlapping work,
+    // a late capture, or an unchanged checkout.
+    if (directory.repository && runScoped && !options.late && !row.start_dirty && !row.start_untracked &&
+      (fields.ahead ?? 0) > 0 && !tracked.length && !working.files.length && !untracked.length && fields.overlap === "[]") {
+      const history = await maybe(directory, ["rev-list", "--max-count=10000", head]);
+      if (history) buildTarget = { repository: directory.repository, commit: head,
+        ancestors: history.split("\n").filter(sha => /^[0-9a-f]{40}$/.test(sha)) };
+    }
   } catch (error) {
     for (const field of CAPTURE_FIELDS) fields[field] = null as never;
     fields.base_sha = row.base_sha;
@@ -808,6 +823,8 @@ async function captureClaimed(
       // The lease passed to another capture while this one ran: its result
       // is discarded, and the holder will publish its own.
       if (!written) return "lost";
+      if (buildTarget) db.prepare("INSERT OR REPLACE INTO checkout_build_targets VALUES(?,?,?,?,?,?)")
+        .run(next.id, row.owner_id, row.run_id, buildTarget.repository, buildTarget.commit, JSON.stringify(buildTarget.ancestors));
       const release = db
         .prepare(
           "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",

@@ -8,6 +8,8 @@ function sourceLabel(source: BriefSource) {
       return "Recorded changes";
     case "verification":
       return "Recorded checks";
+    case "deployment":
+      return "Running build observation";
     case "result":
       return "Agent’s response";
     case "approval":

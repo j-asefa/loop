@@ -23,6 +23,7 @@ import type { BriefPage, BriefSource, Item } from "../shared/briefs";
 import { BriefTokenUsage } from "./BriefTokenUsage";
 import { briefStageLabels } from "../shared/brief-reading";
 import { itemCitations } from "./BriefItemContent";
+import { DeploymentStatus } from "./BuildStatus";
 
 export const briefSections = [
   ["state", "Updates", "state"],
@@ -352,6 +353,7 @@ export function ProjectBriefView({
         : Check;
   return (
     <div className="project-brief">
+      <DeploymentStatus observations={brief.deployments} source={workspace} />
       <section className="brief-headline" aria-label="Project brief">
         <div className="brief-heading">
           <span className="brief-eyebrow">Project brief</span>

@@ -1,4 +1,5 @@
 import { db, now } from "./db.js";
+import { deploymentMap } from "./deployments.js";
 import { Problem } from "./domain.js";
 import { feedRunNeeds, feedWorking } from "./feed-predicates.js";
 import { assertProject } from "./briefs/store.js";
@@ -470,7 +471,9 @@ function build(owner: string, options: Options): ProjectStatusPage {
     };
   }
   const titles = new Map(threads.map((thread) => [thread.id, thread.title]));
+  const deployments = deploymentMap(owner, options.project);
   for (const p of projects.values()) {
+    p.deployments = deployments.get(p.id) ?? [];
     for (const action of p.actions) {
       const title = action.conversation && titles.get(action.conversation);
       if (title) action.title = readable(title);

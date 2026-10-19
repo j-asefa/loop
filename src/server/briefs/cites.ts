@@ -4,9 +4,10 @@ import { db } from "../db.js";
 import { READABLE_MAIL_SQL } from "../mail-context.js";
 import type { Cite } from "./schema.js";
 import { watchProject } from "./store.js";
+import { deploymentCite } from "../deployments.js";
 
 export type ResolvedCite = {
-  kind: "result" | "message" | "saved" | "approval" | "pr" | "checkout" | "verification";
+  kind: "result" | "message" | "saved" | "approval" | "pr" | "checkout" | "verification" | "deployment";
   content: string;
   role?: string;
   automated?: boolean;
@@ -63,6 +64,7 @@ export function resolveCite(
   const split = cite.ref.indexOf("_"),
     prefix = cite.ref.slice(0, split),
     id = cite.ref.slice(split + 1);
+  if (prefix === "dep") return deploymentCite(owner, project, id);
   if (prefix === "ver") {
     const verification = verificationById(owner, id);
     if (!verification) return null;

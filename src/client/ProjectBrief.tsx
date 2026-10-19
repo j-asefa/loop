@@ -199,7 +199,10 @@ function ProjectBriefSession({
     [ackError, setAckError] = useState(""),
     [actionError, setActionError] = useState(""),
     [busy, setBusy] = useState(false),
-    [viewRecorded, setViewRecorded] = useState(false);
+    [viewRecorded, setViewRecorded] = useState(false),
+    [pageVisible, setPageVisible] = useState(
+      () => document.visibilityState === "visible",
+    );
   const [sheet, setSheet] = useState<SheetKind | null>(null),
     [section, setSection] = useState<BriefSection>("state"),
     [selection, setSelection] = useState<Selection | null>(null),
@@ -237,6 +240,7 @@ function ProjectBriefSession({
   const root = `/projects/${encodeURIComponent(projectId)}/brief`,
     formId = useId();
   const request = useRef(0),
+    loading = useRef<number | null>(null),
     itemsRequest = useRef(0),
     historyRequest = useRef(0),
     choicesRequest = useRef(0),
@@ -249,13 +253,26 @@ function ProjectBriefSession({
     choicesLoading = useRef(false);
   const valid = () =>
     alive.current && owner === viewOwner() && workspace === executionSourceId();
-  const fetch = <T,>(path = "", body?: unknown, method?: string) =>
-    apiInWorkspace<T>(root + path, workspace, body, method);
+  const fetch = <T,>(
+    path = "",
+    body?: unknown,
+    method?: string,
+    signal?: AbortSignal,
+  ) => apiInWorkspace<T>(root + path, workspace, body, method, signal);
   const load = async () => {
-    if (locked.current || !valid()) return;
+    if (locked.current || !valid() || loading.current === request.current)
+      return;
     const own = ++request.current;
+    loading.current = own;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
-      const next = await fetch<BriefPage>();
+      const next = await fetch<BriefPage>(
+        "",
+        undefined,
+        undefined,
+        controller.signal,
+      );
       if (valid() && own === request.current) {
         setPage(next);
         setSelection((current) => {
@@ -285,18 +302,28 @@ function ProjectBriefSession({
       }
     } catch (error) {
       if (valid() && own === request.current)
-        setLoadError((error as Error).message);
+        setLoadError(
+          controller.signal.aborted
+            ? "Brief refresh timed out. Try again."
+            : (error as Error).message,
+        );
+    } finally {
+      clearTimeout(timeout);
+      if (loading.current === own) loading.current = null;
     }
   };
   useEffect(() => {
     alive.current = true;
     const refresh = () => void load(),
       visible = () => {
+        setPageVisible(document.visibilityState === "visible");
         if (document.visibilityState === "visible") refresh();
       };
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener("online", refresh);
     window.addEventListener("pageshow", refresh);
+    // Refresh deterministic build observations without regenerating the brief.
+    const buildTimer = setInterval(refresh, 15_000);
     document.addEventListener("visibilitychange", visible);
     void load();
     return () => {
@@ -305,11 +332,18 @@ function ProjectBriefSession({
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener("online", refresh);
       window.removeEventListener("pageshow", refresh);
+      clearInterval(buildTimer);
       document.removeEventListener("visibilitychange", visible);
     };
   }, []);
   useEffect(() => {
-    if (!valid() || linkedEvidence || (!page.settings.enabled && !viewRecorded))
+    if (
+      !valid() ||
+      !pageVisible ||
+      document.visibilityState !== "visible" ||
+      linkedEvidence ||
+      (!page.settings.enabled && !viewRecorded)
+    )
       return;
     const own = ++ackRequest.current;
     void acknowledgements
@@ -322,7 +356,7 @@ function ProjectBriefSession({
       .catch((error) => {
         if (valid() && own === ackRequest.current) setAckError(error.message);
       });
-  }, [page, viewRecorded, linkedEvidence]);
+  }, [page, viewRecorded, linkedEvidence, pageVisible]);
   const invalidateDetails = () => {
     itemsRequest.current++;
     historyRequest.current++;

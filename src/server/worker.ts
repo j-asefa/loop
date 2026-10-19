@@ -32,6 +32,7 @@ import { runDueBriefs } from "./briefs/generate.js";
 import { matchWatches } from "./feed-watches.js";
 import { sweepAgentMail } from "./agent-mail.js";
 import { reconcileCheckouts } from "./run-checkouts.js";
+import { observeProcess } from "./deployments.js";
 const workerId = id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -128,6 +129,7 @@ export async function execute(run: Run) {
   else return executeAgent(run);
 }
 export function startWorker() {
+  const stopObservation = observeProcess("worker");
   migrateMcpUrlCredentials();
   if (companionMode) nativeSessions.recover();
   let active = 0;
@@ -250,6 +252,7 @@ export function startWorker() {
   );
   return async () => {
     stopping = true;
+    stopObservation();
     cleanupController.abort();
     briefController.abort();
     maintenanceTimers.forEach(clearInterval);

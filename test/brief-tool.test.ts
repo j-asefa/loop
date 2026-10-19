@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Run } from "../src/server/queue";
+import { LOOP_REPOSITORY, type BuildStamp } from "../src/shared/build";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-brief-tool-"));
 vi.stubEnv("LOOP_DATA_DIR", dir);
@@ -18,6 +19,7 @@ const { applyOutput } = await import("../src/server/briefs/apply");
 const { addDecision, editItem } = await import("../src/server/briefs/owner");
 const { ledger, readState } = await import("../src/server/briefs/store");
 const { serveBrief } = await import("../src/server/briefs/serve");
+const { observeProcess } = await import("../src/server/deployments");
 const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
 const { nativeSessions } = await import("../src/server/native-sessions");
 
@@ -438,6 +440,82 @@ it("bounds oversized indexes and headline citations with explicit omissions", as
   expect(result.brief.decisions.length).toBeGreaterThan(0);
   expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(16 * 1024);
 });
+
+it.each([
+  ["multibyte titles", "界"],
+  ["escaped controls", "\u001b"],
+  ["escaped surrogates", "\ud800"],
+])(
+  "keeps all live deployment comparisons when trimming historical prose (%s)",
+  async (_label, character) => {
+    const w = fixture();
+    for (let n = 0; n < 24; n++)
+      w.decision(`${n}:` + "界".repeat(230), { why: "界".repeat(240) });
+    db.prepare("UPDATE conversations SET title=? WHERE id=?").run(
+      character.repeat(200),
+      w.conversation,
+    );
+    db.prepare(
+      "UPDATE brief_state SET goal=? WHERE owner_id=? AND project_id=?",
+    ).run("\u001b".repeat(200), w.owner, w.project);
+    const commit = "a".repeat(40),
+      at = Date.now();
+    for (let n = 0; n < 10; n++) {
+      const run = id(),
+        checkout = id();
+      db.prepare(
+        "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Build change','completed',?,'{}',?,?)",
+      ).run(run, w.owner, w.agent, w.conversation, run, at + n, at + n);
+      db.prepare(
+        "INSERT INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,directory,source,branch,start_head,start_dirty,start_untracked,started_at,state,end_head,ended_at) VALUES(?,?,?,?,?,'fixture','fixture','main',?,0,0,?,'captured',?,?)",
+      ).run(
+        checkout,
+        w.owner,
+        run,
+        w.agent,
+        w.conversation,
+        commit,
+        at + n,
+        commit,
+        at + n,
+      );
+      db.prepare("INSERT INTO checkout_build_targets VALUES(?,?,?,?,?,?)").run(
+        checkout,
+        w.owner,
+        run,
+        LOOP_REPOSITORY,
+        commit,
+        JSON.stringify([commit]),
+      );
+    }
+    const build: BuildStamp = {
+      id: id(),
+      repository: LOOP_REPOSITORY,
+      commit,
+      clean: true,
+      builtAt: at,
+      ancestors: [commit],
+    };
+    const stopApi = observeProcess("api", build),
+      stopWorker = observeProcess("worker", build);
+    try {
+      const expected = serveBrief(w.owner, w.project).deployments!;
+      expect(expected).toHaveLength(10);
+      expect(
+        expected.every((item) => item.current && item.status === "included"),
+      ).toBe(true);
+      const result = await read(w.run, { includeIndex: true });
+      expect(result.brief.truncated).toBe(true);
+      expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(16 * 1024);
+      expect(result.brief.deployments).toEqual(
+        expected.map((item) => ({ ...item, checkedAt: expect.any(Number) })),
+      );
+    } finally {
+      stopApi();
+      stopWorker();
+    }
+  },
+);
 
 it("rechecks project access before returning a previous tool receipt", async () => {
   const w = fixture(),

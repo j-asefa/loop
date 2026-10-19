@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DeploymentObservation } from "../../shared/build.js";
 
 export const limits = {
   state: 5,
@@ -23,7 +24,7 @@ export const Cite = z
   .object({
     ref: z
       .string()
-      .regex(/^(?:(?:res|msg|saved|approval|chk|ver)_.+|pr_\d+:c_.+)$/),
+      .regex(/^(?:(?:res|msg|saved|approval|chk|ver|dep)_.+|pr_\d+:c_.+)$/),
     quote: z.string().max(300).optional(),
   })
   .strict();
@@ -190,6 +191,7 @@ export const Brief = z
       .strict()
       .nullable(),
     headline: Headline.nullable(),
+    deployments: z.array(DeploymentObservation).max(10).optional(),
     state: z.array(Item).max(limits.state),
     decisions: z.array(Item).max(limits.decisions),
     open_questions: z.array(Item).max(limits.open_questions),

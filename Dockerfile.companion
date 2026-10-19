@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git openssl unz
 COPY package*.json ./
 RUN npm ci && npm cache clean --force
 COPY . .
-RUN npm run build \
+ARG LOOP_BUILD_SOURCE_FILE
+RUN LOOP_BUILD_SOURCE_FILE="$LOOP_BUILD_SOURCE_FILE" npm run build \
     && node --input-type=module -e 'import { helper } from "./dist/tunnel.js"; await helper("/opt/loop-tunnel")' \
     && chmod -R a+rX /opt/loop-tunnel \
     && npm ci --prefix deployment/native --omit=dev \

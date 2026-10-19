@@ -9778,3 +9778,9 @@ span.verification-chip { cursor: default; }
 .pull-state-chip.pull-state-failed .lucide { color: var(--diff-removed); }
 .pull-state-chip.pull-state-none { opacity: 0.75; }
 span.pull-state-chip { cursor: default; }
+
+.deployment-status { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.deployment-status summary { cursor: pointer; font-weight: 600; }
+.deployment-observation { padding: 12px 0; overflow-wrap: anywhere; }
+.deployment-observation + .deployment-observation { border-top: 1px solid var(--line); }
+.deployment-observation p { margin: 4px 0; }

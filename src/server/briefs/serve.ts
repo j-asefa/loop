@@ -1,4 +1,5 @@
 import { db } from "../db.js";
+import { projectDeployments } from "../deployments.js";
 import { briefAttention, listScheduledSends } from "../mobile-return.js";
 import type { PullRequestCard } from "../../shared/github.js";
 import { Brief, synthesisKinds, type Change } from "./schema.js";
@@ -218,6 +219,7 @@ function buildBrief(owner: string, project: string): Brief {
     format: "loop.brief/v1",
     project,
     version: state.current_version,
+    deployments: projectDeployments(owner, project),
     basis: {
       since: state.basis_since ?? version?.basis_since ?? 0,
       through: state.basis_through,

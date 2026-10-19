@@ -24,7 +24,7 @@ export function ConnectionNotice() {
     <p className="connection-notice" role="status">
       {reconnecting
         ? "Loop is reconnecting… Desktop work continues."
-        : "Loop was updated."}
+        : "This page and the running app use different builds."}
       {updated && !reconnecting && (
         // Never automatic: the reader chooses when, and drafts are kept.
         <button className="text-button" onClick={() => location.reload()}>

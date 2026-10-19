@@ -93,6 +93,7 @@ function boundedJson(brief: AgentBrief): string {
   if (fits()) return encode();
   // Keep complete entries (including their evidence and citations). Prefer the
   // authored view and live attention over artifact lists and overflow summaries.
+  // Never discard live deployment comparisons in favor of historical prose.
   for (const key of [
     "artifacts",
     "index",

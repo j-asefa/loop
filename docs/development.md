@@ -12,6 +12,12 @@ npm run build
 
 The root build typechecks, builds the Vite UI/service worker and bundles CLI/server modules. For source development run `npm run dev` and `npm run worker` in separate terminals. Optionally run `npm run ui` for Vite at port 5173 and set `LOOP_URL` consistently for browser-origin checks. `npm start` starts only the API and expects environment configuration already loaded.
 
+## Build provenance
+
+`npm run build` gives the browser and server one build identity. A clean checkout of `github.com/j-asefa/loop` builds from an immutable Git archive, with up to 10,000 ancestor commits embedded only in the server. Runtime helpers, migrations and package metadata are staged in `dist/support`, and compiled module imports and resource URLs point there. Edits made to the source checkout while that build runs do not enter its output. Dirty, Git-less and other-repository builds still work but cannot establish commit inclusion. Production artifacts retain their identity when packed and installed; source-mode processes remain unverified. The running process uses compiled metadata, not the current checkout's HEAD. Replacing a running installation's files invalidates its clean provenance until restart.
+
+For a Docker image with source provenance, use `npm run build:image -- -t loop:local` (server), or `npm run build:image -- -f Dockerfile.companion -t loop-companion:local`. The wrapper gives Docker the same immutable source archive plus its build-time identity. Plain Docker/Compose builds remain supported with unknown Git provenance because `.git` is excluded from their context. The server image starts the compiled API and worker. The authenticated `/api/build` response describes the serving process and fresh API/worker observations without credentials or local paths. [Workspace](workspace.md#project-brief) describes comparison and freshness semantics.
+
 ## Tests by boundary
 
 | Check                      | Purpose                                                                                                         |

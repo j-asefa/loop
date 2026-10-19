@@ -21,6 +21,7 @@ import {
 import { useAgentSources, type EnvironmentAgent } from "./agentSources";
 import { NativeHistory } from "./NativeHistory";
 import { NativeDecisions, WorkspaceConnection } from "./NativeControls";
+import { BrowserBuildStatus } from "./BuildStatus";
 import { HarnessPicker } from "./HarnessPicker";
 import { AgentDirectory } from "./AgentDirectory";
 import { YourAgents } from "./YourAgents";
@@ -2567,6 +2568,7 @@ export default function App() {
             </div>
           )}
           {capabilities.pairedDevices && <WorkspaceConnection />}
+          <BrowserBuildStatus />
           {profile ? (
             <>
               <button

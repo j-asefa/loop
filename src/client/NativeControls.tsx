@@ -8,6 +8,7 @@ import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { codexToolApproval } from "../shared/codex-approval";
+import { BuildIdentity, browserNeedsReload, runningBuild } from "../shared/build";
 
 export function WorkspaceConnection() {
   const [status, setStatus] = useState("Connecting to desktop…");
@@ -43,7 +44,15 @@ export function WorkspaceConnection() {
           epoch = m.epoch;
           cursor = m.cursor;
           if (m.type === "reset" && typeof m.build === "string") {
-            if (!build) build = m.build;
+            const identity = BuildIdentity.safeParse(m.buildIdentity);
+            const updated = identity.success
+              ? browserNeedsReload(runningBuild, identity.data)
+              : null;
+            // A known match establishes the page's asset baseline. Unknown
+            // identities can seed the legacy fallback, but a mismatch cannot.
+            if (updated === false || (!build && updated === null))
+              build = m.build;
+            if (updated !== null) setConnection({ updated });
             else if (m.build !== build) setConnection({ updated: true });
           }
           window.dispatchEvent(
@@ -97,7 +106,6 @@ export function WorkspaceConnection() {
       <p className="workspace-connection" role="status">
         {status}
       </p>
-      <ConnectionNotice />
     </>
   );
 }

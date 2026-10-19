@@ -1,5 +1,6 @@
 import { db } from "../db.js";
 import type { Run } from "../queue.js";
+import { buildLabels } from "../../shared/build.js";
 
 /**
  * The brief's headline, state and decisions, placed in front of an agent
@@ -74,6 +75,11 @@ export async function briefContext(run: Run, options: { firstTurnOnly: boolean }
   ];
   if (brief.goal?.text) lines.push(`Goal (owner's): ${oneLine(brief.goal.text)}`);
   if (brief.headline) lines.push(`Headline: ${oneLine(brief.headline.text)}`);
+  if (brief.deployments?.length) {
+    lines.push("Running build observations (take precedence over historical deployment prose; re-read loop_brief for current status):");
+    for (const observation of brief.deployments.slice(0, 3))
+      lines.push(`- ${oneLine(observation.title)}: ${buildLabels[observation.status]} [${observation.ref}]`);
+  }
   if (brief.state.length) {
     lines.push("State:");
     for (const item of brief.state.slice(0, MAX_STATE)) lines.push(`- ${oneLine(item.text)}`);
