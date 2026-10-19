@@ -199,7 +199,10 @@ function ProjectBriefSession({
     [ackError, setAckError] = useState(""),
     [actionError, setActionError] = useState(""),
     [busy, setBusy] = useState(false),
-    [viewRecorded, setViewRecorded] = useState(false);
+    [viewRecorded, setViewRecorded] = useState(false),
+    [pageVisible, setPageVisible] = useState(
+      () => document.visibilityState === "visible",
+    );
   const [sheet, setSheet] = useState<SheetKind | null>(null),
     [section, setSection] = useState<BriefSection>("state"),
     [selection, setSelection] = useState<Selection | null>(null),
@@ -313,6 +316,7 @@ function ProjectBriefSession({
     alive.current = true;
     const refresh = () => void load(),
       visible = () => {
+        setPageVisible(document.visibilityState === "visible");
         if (document.visibilityState === "visible") refresh();
       };
     window.addEventListener("loop-refresh", refresh);
@@ -333,7 +337,13 @@ function ProjectBriefSession({
     };
   }, []);
   useEffect(() => {
-    if (!valid() || linkedEvidence || (!page.settings.enabled && !viewRecorded))
+    if (
+      !valid() ||
+      !pageVisible ||
+      document.visibilityState !== "visible" ||
+      linkedEvidence ||
+      (!page.settings.enabled && !viewRecorded)
+    )
       return;
     const own = ++ackRequest.current;
     void acknowledgements
@@ -346,7 +356,7 @@ function ProjectBriefSession({
       .catch((error) => {
         if (valid() && own === ackRequest.current) setAckError(error.message);
       });
-  }, [page, viewRecorded, linkedEvidence]);
+  }, [page, viewRecorded, linkedEvidence, pageVisible]);
   const invalidateDetails = () => {
     itemsRequest.current++;
     historyRequest.current++;

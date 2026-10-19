@@ -178,7 +178,7 @@ try {
         `http://127.0.0.1:${server.address().port}`,
       );
       console.log(
-        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI, slow Brief and hanging Status source polling passed`,
+        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI, Brief polling and hidden-tab acknowledgements, hanging Status source polling passed`,
       );
     } finally {
       await browser.close();

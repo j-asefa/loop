@@ -760,8 +760,9 @@ async function captureClaimed(
     fields.patch_truncated = p.truncated ? 1 : 0;
     const seen = await remote(directory, branch, head);
     fields.remote = seen ? JSON.stringify(seen) : null;
-    // Any other run on this checkout that was active at some point during
-    // the interval: still active now, or ended after this run started.
+    // Include the source-reading window, not just the capture's start: a
+    // sibling may begin and commit while isolate is copying the refs.
+    // Any sibling still active or ended after this run started is ambiguous.
     fields.overlap = JSON.stringify(
       (
         db
@@ -771,7 +772,7 @@ async function captureClaimed(
                AND (r.updated_at>=? OR r.state IN (${ACTIVE_STATES.map(() => "?").join(",")}))
              ORDER BY r.created_at`,
           )
-          .all(row.owner_id, row.directory, row.run_id, time, row.started_at, ...ACTIVE_STATES) as { id: string }[]
+          .all(row.owner_id, row.directory, row.run_id, now(), row.started_at, ...ACTIVE_STATES) as { id: string }[]
       ).map((r) => r.id),
     );
     fields.state = "captured";

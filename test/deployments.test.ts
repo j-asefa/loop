@@ -322,6 +322,53 @@ it("leaves dirty builds and missing/divergent history unknown", async () => {
   expect(f.read()[0].status).toBe("unknown");
 });
 
+it("rejects a commit from another run that starts during terminal checkout capture", async () => {
+  const f = await fixture({ unchanged: true });
+  const first = db.prepare("SELECT * FROM runs WHERE id=?").get(f.runId) as Run;
+  // completeCheckout claims synchronously, then yields before isolate copies
+  // refs. Keep the event loop occupied while the later run commits, so the
+  // first capture deterministically observes the later run's clean HEAD.
+  const capture = completeCheckout(f.runId);
+  const { capture_started_at: started } = db
+    .prepare("SELECT capture_started_at FROM run_checkouts WHERE run_id=?")
+    .get(f.runId) as { capture_started_at: number };
+  const conversation = id(),
+    later = id();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Later change',?,?)",
+  ).run(conversation, f.owner, first.agent_id, f.project, started + 1);
+  db.prepare(
+    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Later change','running',?,'{}',?,?)",
+  ).run(
+    later,
+    f.owner,
+    first.agent_id,
+    conversation,
+    later,
+    started + 1,
+    started + 1,
+  );
+  db.prepare(
+    "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,NULL,'',?,'later',?,?)",
+  ).run(conversation, f.directory, started + 1, f.directory, first.agent_id);
+  writeFileSync(join(f.directory, "code.txt"), "Later run's change");
+  git(f.directory, "commit", "-am", "later change");
+  const commit = git(f.directory, "rev-parse", "HEAD");
+  await capture;
+  expect(f.checkout()).toMatchObject({
+    state: "captured",
+    end_head: commit,
+    overlap: [later],
+  });
+  f.start(commit);
+  expect(f.read()).toEqual([]);
+  expect(
+    db
+      .prepare("SELECT * FROM checkout_build_targets WHERE run_id=?")
+      .all(f.runId),
+  ).toEqual([]);
+});
+
 it("detects a page already stale on its first connection and needs no reload for the same build", async () => {
   const f = await fixture();
   const loaded = publicBuild(f.stamp(f.before));

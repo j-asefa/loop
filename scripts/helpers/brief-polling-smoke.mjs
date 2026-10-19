@@ -5,6 +5,7 @@ import { expect } from "@playwright/test";
 export async function briefPollingSmoke(browser, base) {
   const page = await browser.newPage();
   const pending = [];
+  const acknowledged = [];
   const brief = (title) => ({
     format: "loop.brief/v1",
     project: "polling-fixture",
@@ -36,7 +37,12 @@ export async function briefPollingSmoke(browser, base) {
       }),
     );
     await page.route("**/api/**", async (route) => {
-      if (!new URL(route.request().url()).pathname.endsWith("/brief"))
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/brief/ack")) {
+        acknowledged.push(route.request().postDataJSON().version);
+        return route.fulfill({ json: {} });
+      }
+      if (!path.endsWith("/brief"))
         return route.fulfill({ json: { items: [] } });
       const response = await new Promise((resolve) => pending.push(resolve));
       await route.fulfill(response);
@@ -99,6 +105,34 @@ export async function briefPollingSmoke(browser, base) {
       "Hanging read recovered",
     );
     await expect(page.getByRole("alert")).toHaveCount(0);
+    // A background poll can receive a newer Brief, but it is unread until
+    // the user returns to the tab. Returning must acknowledge it even while
+    // the visibility-triggered refresh is still waiting on the network.
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.clock.runFor(15000);
+    await expect.poll(() => pending.length).toBe(7);
+    pending[6]({
+      json: { ...brief("Unseen update"), version: 2 },
+    });
+    await expect(page.locator(".brief-headline h2")).toHaveText(
+      "Unseen update",
+    );
+    await page.clock.runFor(1000);
+    assert.deepEqual(acknowledged, [], "Hidden Brief updates stay unread");
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect.poll(() => acknowledged).toEqual([2]);
   } finally {
     for (const resolve of pending) resolve({ status: 503, json: {} });
     await page.close();
