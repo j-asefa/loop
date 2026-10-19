@@ -45,6 +45,9 @@ import { mobile } from "./mobile-routes.js";
 import { prWatches } from "./pr-watches.js";
 import { agentMail } from "./agent-mail.js";
 import { githubPulls } from "./github-pulls.js";
+import { currentBuilds } from "./deployments.js";
+import { publicBuild } from "../shared/build.js";
+import { observedBuild } from "./build-runtime.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
@@ -167,6 +170,7 @@ app.use("/api", async (req, res, next) => {
   }
   next();
 });
+app.get("/api/build", (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds() }));
 if (!companionMode) {
   // Setup returns private service credentials. Besides arriving locally, it
   // must carry a header that no paired-browser proxy forwards (they use

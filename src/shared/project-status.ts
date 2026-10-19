@@ -4,6 +4,7 @@ import type { PullState } from "./pull-state.js";
 import type { PullRequestRef } from "./github.js";
 import type { BriefGenerationUsage } from "./brief-usage.js";
 import type { ItemSummary } from "../server/briefs/schema.js";
+import type { DeploymentObservation } from "./build.js";
 
 export type ProjectStatusAction = {
   key: string;
@@ -19,6 +20,7 @@ export type ProjectStatusAction = {
 export type ProjectStatus = {
   id: string;
   name: string;
+  deployments?: DeploymentObservation[];
   status: "needs_you" | "blocked" | "working" | "queued" | "idle";
   last_activity_at: number;
   older: boolean;

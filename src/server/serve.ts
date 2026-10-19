@@ -2,15 +2,20 @@ import { pathToFileURL } from "node:url";
 import { realpath } from "node:fs/promises";
 import { config } from "./config.js";
 import { companionMode } from "./profile.js";
+import { observeProcess } from "./deployments.js";
 if (companionMode)
   throw new Error(
     "Start companion mode using loop so device authorization is installed.",
   );
 const { app } = await import("./index.js");
 export function startServer() {
-  return app.listen(config.port, config.listenHost, () =>
-    console.log(`Loop listening on ${config.port}`),
-  );
+  let stop: (() => void) | undefined;
+  const server = app.listen(config.port, config.listenHost, () => {
+    stop = observeProcess("api");
+    console.log(`Loop listening on ${config.port}`);
+  });
+  server.once("close", () => stop?.());
+  return server;
 }
 if (
   process.argv[1] &&

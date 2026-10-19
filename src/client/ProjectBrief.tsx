@@ -297,6 +297,8 @@ function ProjectBriefSession({
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener("online", refresh);
     window.addEventListener("pageshow", refresh);
+    // Refresh deterministic build observations without regenerating the brief.
+    const buildTimer = setInterval(refresh, 15_000);
     document.addEventListener("visibilitychange", visible);
     void load();
     return () => {
@@ -305,6 +307,7 @@ function ProjectBriefSession({
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener("online", refresh);
       window.removeEventListener("pageshow", refresh);
+      clearInterval(buildTimer);
       document.removeEventListener("visibilitychange", visible);
     };
   }, []);

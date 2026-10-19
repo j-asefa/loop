@@ -13,6 +13,9 @@ import { WebSocket } from "ws";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DockerMcpSharing } from "./mcp-docker-sharing.js";
+import { publicBuild } from "./shared/build.js";
+import { observeProcess } from "./server/deployments.js";
+import { observedBuild } from "./server/build-runtime.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
 // compares it to offer a reload without discarding its draft.
@@ -41,6 +44,7 @@ export class WorkspaceHost {
   private tools = new NativeToolBridge();
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
+  private stopObservation?: () => void;
   private closing = false;
   private epoch = randomUUID();
   /** Set before start() to serve the gateway behind the connection service. */
@@ -85,6 +89,7 @@ export class WorkspaceHost {
           .get(),
         agents: (db.prepare("SELECT count(*) n FROM agents").get() as any).n,
         build: BUILD,
+        buildIdentity: publicBuild(observedBuild()),
         ...this.statusExtras(),
       }),
       admin: async (action, input) => {
@@ -133,6 +138,7 @@ export class WorkspaceHost {
             epoch: this.epoch,
             cursor,
             build: BUILD,
+            buildIdentity: publicBuild(observedBuild()),
           });
         }
         const poll = () => {
@@ -183,11 +189,12 @@ export class WorkspaceHost {
     nativeSessions.revokeTools = (conversation, generation) =>
       this.tools.revoke(conversation, generation);
     await this.gateway.listen(this.listenOptions);
-    this.mcpSharing.start();
     if (this.closing) {
       await this.gateway.close();
       throw new Error("Workspace is stopping");
     }
+    this.stopObservation = observeProcess("api");
+    this.mcpSharing.start();
     // Pairing and the public gateway can be made available before runner startup.
     // Register the project first so a paired client can inspect its workspace.
     nativeSessions.addProject(options.project);
@@ -212,6 +219,7 @@ export class WorkspaceHost {
   }
   async close() {
     this.closing = true;
+    this.stopObservation?.();
     this.mcpSharing.close();
     await nativeSignIns.close();
     await this.stopWorker?.();

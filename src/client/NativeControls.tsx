@@ -8,6 +8,7 @@ import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { codexToolApproval } from "../shared/codex-approval";
+import { BuildIdentity, browserNeedsReload, runningBuild } from "../shared/build";
 
 export function WorkspaceConnection() {
   const [status, setStatus] = useState("Connecting to desktop…");
@@ -43,7 +44,10 @@ export function WorkspaceConnection() {
           epoch = m.epoch;
           cursor = m.cursor;
           if (m.type === "reset" && typeof m.build === "string") {
-            if (!build) build = m.build;
+            const identity = BuildIdentity.safeParse(m.buildIdentity);
+            if (identity.success && runningBuild.id !== "development")
+              setConnection({ updated: browserNeedsReload(runningBuild, identity.data) });
+            else if (!build) build = m.build;
             else if (m.build !== build) setConnection({ updated: true });
           }
           window.dispatchEvent(
@@ -97,7 +101,6 @@ export function WorkspaceConnection() {
       <p className="workspace-connection" role="status">
         {status}
       </p>
-      <ConnectionNotice />
     </>
   );
 }

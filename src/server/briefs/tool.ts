@@ -96,6 +96,7 @@ function boundedJson(brief: AgentBrief): string {
   for (const key of [
     "artifacts",
     "index",
+    "deployments",
     "unfinished",
     "open_questions",
     "decisions",

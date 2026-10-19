@@ -10,7 +10,8 @@ export type BriefSource = {
     | "approval"
     | "pr"
     | "checkout"
-    | "verification";
+    | "verification"
+    | "deployment";
   run?: string;
   title: string;
   at: number | null;

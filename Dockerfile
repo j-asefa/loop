@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build && npm prune --omit=dev
+ARG LOOP_BUILD_SOURCE_FILE
+RUN LOOP_BUILD_SOURCE_FILE="$LOOP_BUILD_SOURCE_FILE" npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
 WORKDIR /app
@@ -15,4 +16,4 @@ USER node
 VOLUME /data
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-CMD ["node","scripts/serve.mjs"]
+CMD ["node","dist/cli.js","server"]

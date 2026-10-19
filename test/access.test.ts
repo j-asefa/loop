@@ -130,6 +130,23 @@ async function launch(
 }
 const sessionPath = "/auth/get-session";
 
+it("keeps running build observations behind the workspace authentication boundary", async () => {
+  const personal = await launch(directory());
+  const response = await personal.request("/build");
+  expect(response.status).toBe(200);
+  const data = await response.json();
+  expect(data.serving).toMatchObject({ id: "development", clean: false });
+  expect(data.processes).toEqual([expect.objectContaining({ role: "api" })]);
+  expect(JSON.stringify(data)).not.toMatch(/ancestors|secret|directory|token/i);
+  expect(
+    (await personal.request("/build", undefined, { host: "rebinding.example" })).status,
+  ).toBe(403);
+  await stop(personal.child);
+  const shared = await launch(directory(), { LOOP_AUTH_MODE: "multi-user" });
+  expect((await shared.request("/build")).status).toBe(401);
+  await stop(shared.child);
+}, 30000);
+
 it("opens a persistent personal workspace without accounts or cookies and rejects cross-site access", async () => {
   const dir = directory();
   let server = await launch(dir);

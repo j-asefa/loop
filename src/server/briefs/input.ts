@@ -1,6 +1,7 @@
 import { checkoutContent, checkoutDetail } from "../run-checkouts.js";
 import { verificationLines } from "../run-verifications.js";
 import { db } from "../db.js";
+import { projectDeployments } from "../deployments.js";
 import { resolveCite } from "./cites.js";
 import { synthesisKinds, type Cite, type Item } from "./schema.js";
 import { active, ledger, selectView, type State, type View } from "./store.js";
@@ -164,6 +165,11 @@ function eventText(owner: string, project: string, event: Event): string {
       description = `message from @${mail.sender_agent_id} to @${mail.recipient_agent_id} ${location} (mail ${event.ref})`;
     }
   } else if (event.kind === "brief_edit") {
+    if (event.ref.startsWith("deployment:")) {
+      const ref = "dep_" + event.ref.slice("deployment:".length);
+      const source = resolveCite(owner, project, { ref });
+      return source ? `[${ref}] ${time} deployment observation:\n${quoted(source.content)}` : `[tombstone] ${time} deployment observation unavailable`;
+    }
     const item = ledger(owner, project).find((i) => i.id === event.ref);
     return `[brief_edit] ${time} owner edited ${event.ref}${item ? ": " + oneLine(item.text) : ""}; see current GOAL, PINNED and ledger above.`;
   }
@@ -387,9 +393,10 @@ export function buildInput(state: State): BriefInput {
     prompt: [
       `AGENTS (display names for prose; ids only for structured fields)\n${agents.map((agent) => `${agent.id}: ${JSON.stringify(agent.name)}`).join("\n")}`,
       `GOAL\n${state.goal ?? "none set"}`,
-      // No release-to-change observation is collected by this pipeline. Keep
-      // that absence explicit instead of treating old result prose as telemetry.
-      "DEPLOYMENT STATUS\nUpdate status unknown: Loop has no observation comparing this project's running build with the build containing a change. Historical update/restart reminders do not establish the current app version. This is an observation limit, not a blocker or a new task.",
+      "DEPLOYMENT STATUS\n" + (projectDeployments(owner, project).map(observation =>
+        `[${observation.ref}] ${JSON.stringify(observation)}`).join("\n") ||
+        "Update status unknown: no current comparison is available for a recorded change.") +
+        "\nOnly these deterministic comparisons describe the current deployment. Historical reminders and deployment citations are not live observations. Unknown is not a blocker. Commit inclusion does not prove feature behavior or the code loaded on a device.",
       `PINNED\n${items
         .filter((i) => i.pinned)
         .map((i) => `${i.id}: ${oneLine(i.text)} (${i.kind}, ${i.status})`)

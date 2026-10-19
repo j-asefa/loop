@@ -33,6 +33,7 @@ import {
 import "./projectStatus.css";
 import { BriefTokenUsage } from "./BriefTokenUsage";
 import { briefStageLabels } from "../shared/brief-reading";
+import { DeploymentStatus } from "./BuildStatus";
 import {
   createReadableText,
   readableAuthor,
@@ -324,6 +325,7 @@ export function ProjectStatusCard({
         )}
       </p>
       <div className="project-status-record">
+        <DeploymentStatus observations={p.deployments} source={sourceId} fresh={fresh} />
         <div className="project-status-record-heading">
           <a
             className="project-status-eyebrow project-status-link"
@@ -896,7 +898,7 @@ function StatusSession({
         })),
       );
     };
-    const timer = setInterval(refresh, 30_000);
+    const timer = setInterval(refresh, 15_000);
     // A hanging refresh must not leave an indefinitely live-looking snapshot.
     const expiry = setInterval(() => {
       if (
