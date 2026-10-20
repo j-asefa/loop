@@ -1,4 +1,11 @@
-import { useSourceApi, useSourceId } from "./SourceContext";
+import {
+  SourceProvider,
+  useSourceApi,
+  useSourceCapabilities,
+  useSourceId,
+} from "./SourceContext";
+import { ResultIdentity } from "./ResultIdentity";
+import { createPortal } from "react-dom";
 import {
   useEffect,
   useLayoutEffect,
@@ -219,6 +226,7 @@ function FeedCard({
   onCheckout,
   onVerification,
   onPull,
+  readAsCard,
 }: {
   item: FeedItem;
   agent?: EnvironmentAgent;
@@ -236,8 +244,13 @@ function FeedCard({
   onCheckout?: () => void;
   onVerification?: () => void;
   onPull?: () => void;
+  readAsCard: boolean;
 }) {
   const scopedSource = useSourceId();
+  const capabilities = useSourceCapabilities();
+  const [reading, setReading] = useState(false);
+  const [message, setMessage] = useState<{ id: string; content: string } | null>(null);
+  const [readError, setReadError] = useState("");
   const swipe = useSwipe({ onLeft: onDismiss });
   const press = useLongPress(onMenu);
   const status = runStatus(item.run?.state, item.pending_approvals);
@@ -260,6 +273,37 @@ function FeedCard({
   const showCheckout = checkoutSummary && (checkoutSummary.state !== "captured" ||
     checkoutSummary.files > 0 || checkoutSummary.untracked > 0);
   const showVerification = !!item.run?.verification?.items.length;
+  const awaitingUpdate = item.run &&
+    awaitingStates.includes(item.run.state) &&
+    item.last_message?.role !== "assistant";
+  const messageId = item.last_message?.id;
+  useEffect(() => {
+    if (!reading || !messageId || item.live_preview || awaitingUpdate) return;
+    const controller = new AbortController();
+    setReadError("");
+    void apiInWorkspace<{ id: string; content: string }>(
+      `/messages/${messageId}`,
+      item.sourceId ?? scopedSource,
+      undefined,
+      undefined,
+      controller.signal,
+    ).then((value) => {
+      if (!controller.signal.aborted) setMessage(value);
+    }).catch(() => {
+      if (!controller.signal.aborted)
+        setReadError("Couldn’t load the full message. Open the conversation to read it.");
+    });
+    return () => controller.abort();
+  }, [reading, messageId, item.sourceId, scopedSource, !!item.live_preview, !!awaitingUpdate]);
+  const content = item.live_preview || (awaitingUpdate
+    ? ""
+    : message?.id === messageId ? message?.content ?? ""
+    : item.last_message?.content ?? item.last_message?.preview ?? "");
+  const openReading = () => readAsCard ? setReading(true) : onOpen();
+  const leaveReading = (action: () => void) => {
+    setReading(false);
+    action();
+  };
   return (
     <li
       className={
@@ -338,13 +382,13 @@ function FeedCard({
           aria-label={`${item.title}${status.label ? `, ${status.label}` : ""}`}
           onClick={(e) => {
             if (!(e.target as HTMLElement).closest("a,button,summary,input"))
-              onOpen();
+              openReading();
           }}
           onKeyDown={(e) => {
             if (e.target !== e.currentTarget) return;
             if (["Enter", " "].includes(e.key)) {
               e.preventDefault();
-              onOpen();
+              openReading();
             }
             if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
               e.preventDefault();
@@ -409,8 +453,8 @@ function FeedCard({
             )
           )}
           {!!(item.last_message || item.run) && (
-            <button className="text-button preview-open" onClick={onOpen}>
-              Open thread <ArrowUpRight size={14} />
+            <button className="text-button preview-open" onClick={openReading}>
+              {readAsCard ? "Read update" : "Open thread"} <ArrowUpRight size={14} />
             </button>
           )}
           {draft && (
@@ -424,7 +468,7 @@ function FeedCard({
             <button
               className="next-action"
               data-kind={next.kind}
-              onClick={() => onNext(next)}
+              onClick={() => next.kind === "result" && readAsCard ? openReading() : onNext(next)}
             >
               {nextIcon[next.kind]}
               {next.label}
@@ -459,6 +503,66 @@ function FeedCard({
           </footer>
         )}
       </article>
+      {/* Keep sheet gestures outside the feed card's swipe-to-dismiss region. */}
+      {reading && createPortal(
+        <SourceProvider sourceId={item.sourceId ?? scopedSource} capabilities={capabilities}>
+          <Sheet
+            wide
+            swipeToClose
+            className="result-sheet feed-reading-sheet"
+            title={item.title}
+            onClose={() => setReading(false)}
+            heading={
+              <div className="result-header">
+                <ResultIdentity
+                  name={name || undefined}
+                  model={model}
+                  createdAt={item.last_message?.created_at ?? item.last_activity_at}
+                  onProfile={onAgent ? () => leaveReading(onAgent) : undefined}
+                />
+                <button className="icon-button" aria-label="Thread actions" onClick={onMenu}>
+                  <MoreHorizontal size={20} />
+                </button>
+              </div>
+            }
+          >
+            <div className="result-content">
+              <h3 className="result-title">{item.title}</h3>
+              {status.tone !== "done" && (
+                <p className="field-hint">
+                  {status.label}{detail ? ` · ${detail}` : ""}
+                </p>
+              )}
+              <div className="artifact-body">
+                {content ? <RichText content={content} /> : (
+                  <p className="field-hint">
+                    {status.tone === "working" ? "Waiting for agent update…" : "No agent update yet."}
+                  </p>
+                )}
+              </div>
+              {readError && (
+                <p className="error" role="alert">
+                  {readError}{" "}
+                  <button className="text-button" onClick={() => leaveReading(onOpen)}>
+                    Open conversation
+                  </button>
+                </p>
+              )}
+              {item.live_preview && item.live_preview.length >= 4000 && (
+                <button className="text-button" onClick={() => leaveReading(onOpen)}>
+                  Continue reading in conversation <ArrowUpRight size={14} />
+                </button>
+              )}
+            </div>
+            <div className="result-edit-actions">
+              <button className="primary" onClick={() => leaveReading(onReply)}>
+                <MessageSquare size={18} /> Reply
+              </button>
+            </div>
+          </Sheet>
+        </SourceProvider>,
+        document.body,
+      )}
     </li>
   );
 }
@@ -1488,6 +1592,7 @@ export function Feed({
       <FeedCard
         key={`${source}:${item.conversation_id}`}
         item={item}
+        readAsCard={!inNeeds && ["done", "working", "queued"].includes(filter)}
         agent={agent}
         model={model}
         environment={cardEnvironment(

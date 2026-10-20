@@ -83,8 +83,13 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(fixture.base, { waitUntil: "networkidle" });
 
-    // Feed rows open their thread, by touch/click and by keyboard.
+    // Feed rows open a reading card; Reply opens the conversation.
     await row(target.title).click();
+    const reading = page.locator("dialog.feed-reading-sheet[open]");
+    await expect(reading).toHaveAttribute("aria-label", target.title);
+    await expect(reading.locator(".artifact-body")).toContainText(findings);
+    await capture("inbox-reading-card");
+    await reading.getByRole("button", { name: "Reply", exact: true }).click();
     await expect(thread()).toHaveAttribute("aria-label", target.title);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
@@ -93,6 +98,8 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await closeThread();
     await row(target.title).focus();
     await page.keyboard.press("Enter");
+    await expect(reading).toBeVisible();
+    await reading.getByRole("button", { name: "Reply", exact: true }).click();
     await expect(thread()).toHaveAttribute("aria-label", target.title);
 
     // "Jump to…" lists every prompt and scrolls the thread to the chosen one.

@@ -67,6 +67,11 @@ export async function sourceConversationBrowser(
       }
       return fulfill(route, snapshot(record));
     }
+    if (path === `messages/${record.thread.last_message.id}`)
+      return fulfill(route, {
+        id: record.thread.last_message.id,
+        content: `Full reading view for ${record.agent.name}`,
+      });
     if (path.endsWith("/activities"))
       return fulfill(route, { version: 1, items: [], cursor: 0, more: false });
     if (path.endsWith("/usage")) return fulfill(route, {});
@@ -112,9 +117,9 @@ export async function sourceConversationBrowser(
     const minimize = page.getByRole("button", { name: "Collapse composer", exact: true });
     if (await minimize.isVisible()) await minimize.click();
     await page
-      .locator(".inbox-row")
+      .locator(".inbox-card")
       .filter({ hasText: record.thread.title })
-      .getByRole("button", { name: /Open thread/ })
+      .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
     await expect(dialog().locator(".thread-head")).toContainText(
       "@" + record.agent.name,
@@ -127,6 +132,16 @@ export async function sourceConversationBrowser(
     await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   try {
+    // Reading a linked host's card fetches its message from that same host,
+    // and Reply keeps the source even when conversation ids collide.
+    await page.locator(".inbox-row").filter({ hasText: remote.thread.title }).click();
+    const reading = page.locator("dialog.feed-reading-sheet[open]");
+    await expect(reading.locator(".artifact-body")).toHaveText(
+      `Full reading view for ${remote.agent.name}`,
+    );
+    await reading.getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();
+    await expect(dialog().locator(".thread-head")).toContainText("@" + remote.agent.name);
+    await close();
     await page.evaluate(() => {
       window.__sourceDocument = "retained";
       document.querySelector(".inbox").dataset.sourceRetained = "yes";
@@ -134,7 +149,8 @@ export async function sourceConversationBrowser(
     const waitingForThread = new Promise(started => {
       holdRead = () => new Promise(resolve => { releaseRead = resolve; started(); });
     });
-    await page.locator(".inbox-row").filter({ hasText: local.thread.title }).getByRole("button", { name: /Open thread/ }).click();
+    await page.locator(".inbox-card").filter({ hasText: local.thread.title })
+      .getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();
     await waitingForThread;
     await expect(dialog().locator('button[aria-label="Send reply"]:enabled')).toHaveCount(0);
     releaseRead();
@@ -153,7 +169,7 @@ export async function sourceConversationBrowser(
     await expect(dialog().getByRole("button", { name: "Send reply", exact: true })).toBeEnabled();
     await reply().fill("");
     await close();
-    await page.locator(".inbox-card").filter({ hasText: remote.thread.title }).getByRole("button", { name: "Reply", exact: true }).click();
+    await page.locator(".inbox-card").filter({ hasText: remote.thread.title }).getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();
     await expect(reply()).toBeFocused();
     // Each upload gets its own deadline; two successful requests can together
     // exceed one request's budget. Scale only that timer, not the app clock.
@@ -317,9 +333,9 @@ export async function sourceConversationBrowser(
         });
     });
     await page
-      .locator(".inbox-row")
+      .locator(".inbox-card")
       .filter({ hasText: remote.thread.title })
-      .getByRole("button", { name: /Open thread/ })
+      .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
     await readStarted;
     await close();
@@ -332,9 +348,9 @@ export async function sourceConversationBrowser(
     await close();
     offline = true;
     await page
-      .locator(".inbox-row")
+      .locator(".inbox-card")
       .filter({ hasText: remote.thread.title })
-      .getByRole("button", { name: /Open thread/ })
+      .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
     await expect(dialog().getByRole("alert")).toContainText(
       "Fixture connection interrupted",

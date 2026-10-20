@@ -160,8 +160,8 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await expect(visibleTitle).toBeInViewport();
     const readingPosition = await page.evaluate(() => scrollY);
     await visibleTitle.click();
-    await expect(page.locator("dialog.conversation-sheet[open]")).toBeVisible();
-    await swipe(dialog().locator(".sheet-head h2"));
+    await expect(page.locator("dialog.feed-reading-sheet[open]")).toBeVisible();
+    await swipe(dialog().locator(".sheet-head"));
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(readingPosition);
     await nav("Search").tap();

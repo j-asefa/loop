@@ -11,6 +11,7 @@ const names = [
   "main-composer-keyboard",
   "clear-search",
   "feed-reply-keyboard",
+  "feed-reading",
   "safari-sheet-keyboard",
   "create-agent-layout",
   "core",

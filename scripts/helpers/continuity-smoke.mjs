@@ -243,7 +243,13 @@ export async function continuitySmoke(page, fixture, capture) {
     await card(done.title)
       .getByRole("button", { name: "Review result", exact: true })
       .click();
+    await expect(page.locator("dialog.feed-reading-sheet[open]")).toBeVisible();
+    await page.locator("dialog.feed-reading-sheet[open]")
+      .getByRole("button", { name: "Reply", exact: true }).click();
     await expect(thread()).toHaveAttribute("aria-label", done.title);
+    await closeThread();
+    // Explicit message links still anchor the conversation at the result.
+    await page.goto(`${fixture.base}/?conversation=${done.id}&message=${doneAnswer}`);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("message"))
       .toBe(doneAnswer);

@@ -143,7 +143,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     return discoveryFailed ? unavailable(route) : fulfill(route, sources);
   };
   const visible = (route, thread) =>
-    new URL(route.request().url()).searchParams.get("filter") === "needs"
+    ["needs", "queued"].includes(new URL(route.request().url()).searchParams.get("filter"))
       ? []
       : [thread];
   const localBootstrap = (route) =>
@@ -321,9 +321,9 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       page.getByText(/Some environments could not refresh/),
     ).toHaveCount(0);
 
-    // Empty Needs you is loaded content. Observe every DOM mutation across
+    // Empty Queued is loaded content. Observe every DOM mutation across
     // refreshes so even a brief skeleton flash fails this regression.
-    await page.getByRole("tab", { name: /^Needs you/ }).click();
+    await page.getByRole("tab", { name: /^Queued/ }).click();
     await expect(page.locator(".inbox-row")).toHaveCount(0);
     await expect(page.locator(".feed-loading")).toHaveCount(0);
     await page.evaluate(() => {
@@ -345,7 +345,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     });
     for (let i = 0; i < 3; i++) {
       const updated = page.waitForResponse((r) =>
-        r.url().includes("/api/feed?filter=needs"),
+        r.url().includes("/api/feed?filter=queued"),
       );
       await page.evaluate(() =>
         window.dispatchEvent(new Event("loop-later-change")),
@@ -416,9 +416,9 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .waitFor();
     assert.equal(new URL(page.url()).searchParams.get("source"), sources[0].id);
     await page
-      .locator(".inbox-row")
+      .locator(".inbox-card")
       .filter({ hasText: "Laptop thread" })
-      .getByRole("button", { name: /Open thread/ })
+      .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
