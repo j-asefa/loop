@@ -47,3 +47,53 @@ LOOP_BEHIND_PROXY=1
 ```
 
 Point the hostname at the host, then run `docker compose --profile https up --build -d`. Caddy exposes 80/443; keep Loop's direct port private. `LOOP_BEHIND_PROXY` assumes a trusted proxy replaces client-IP headers; it does not authenticate visitors. Compose's loopback-proxy allowance must remain paired with local-only publication for single-user access.
+
+## Archive deployment backups
+
+Deployments that keep a full `workspace-backup` in each
+`main-YYYYMMDDTHHMMSSZ-COMMIT` release directory can compress older backups with
+the shipped [deployment archiver](../deployment/archive-backups.py). It requires
+Python 3.9+ on Linux or macOS and no third-party Python packages. Run it only
+after the deployment has finished writing its backups; those directories must
+remain immutable while archival runs.
+
+```sh
+python3 deployment/archive-backups.py --releases "$HOME/releases" --dry-run
+python3 deployment/archive-backups.py --releases "$HOME/releases"
+```
+
+The default keeps the newest three expanded backups; `--keep-unpacked N`
+changes that count (minimum one). Older backups become
+`workspace-backup.tar.gz` in the same release directory. Every file's contents,
+permissions and ownership, directory entries, and symlink targets are verified
+before the expanded copy is removed. A partial write can be retried; a corrupt
+or mismatched existing archive fails with the source backup retained. Backup
+directories referenced by another release's symlink stay expanded, and
+symlinked release directories are skipped. An exclusive lock prevents two
+archivers from changing the same release root at once. `--dry-run` writes
+nothing.
+
+Archives are private (`0600`), and each archived release gets
+`BACKUP-RESTORE.txt`. To restore, first ensure no `workspace-backup` directory
+already exists in that release, then run this from the release directory:
+
+```sh
+tar -xzf workspace-backup.tar.gz
+```
+
+This retains all backup history. Compression reduces its size; it does not
+provide a fixed storage cap or prune source checkouts, dependencies, images or
+live workspace data. Keep independent backups as required for host loss.
+
+Add the archiver to the deployment's post-success hook, outside the Loop server
+process. Pass the release root explicitly and use the helper from that deployed
+revision; it is also included in npm packages under `deployment/`. On systemd
+hosts, a user service can run it with `Nice=10`, `CPUQuota=50%`, `IOWeight=10`
+and `UMask=0077`. Set `ExecStart` to the absolute Python and helper paths plus
+`--releases /absolute/release/root`, then start the service with
+`systemctl --user start --no-block loop-archive-backups.service`. The service
+journal records completion or verification failures.
+
+The restoration, retention, corruption, interruption and concurrency fixtures
+run with `node --test test/deployment-backups.node.test.ts` and are included in
+`npm run test:native`. They also require Python 3.9+ and `tar`.
