@@ -84,7 +84,7 @@ Use Pi or OpenCode connected to a local model server, such as Ollama, LM Studio 
 
 4. In Loop, create an agent using that harness's connection. Select your local model from its model catalog, or use `native-default` to follow the harness's default.
 
-Keep the model server running and reachable from the computer or container running the harness. Pi and OpenCode retain their native tools and conversation context; Loop provides the same phone workspace and result feed. Background features such as project briefs have separate provider settings; selecting a local model for an agent does not change those settings.
+Keep the model server running and reachable from the computer or container running the harness. Pi and OpenCode retain their native tools and conversation context; Loop provides the same phone workspace and result feed.
 
 ## Pair your phone
 

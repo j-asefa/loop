@@ -55,7 +55,7 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
   }
   if (
     req.method === "GET" &&
-    (/^\/(build|bootstrap|runs|events|approvals|feed(?:\/away)?|projects\/(?:status|summary)|saved|later|scheduled-sends|snippets|folders|results(?:\/updates)?|messages|artifacts|teams|team-presets|preferences|search(?:\/status)?|me\/(?:profile|prompts|files)|auth\/get-session|auth-options|capabilities)$/.test(
+    (/^\/(build|bootstrap|runs|events|approvals|feed(?:\/away)?|projects\/summary|saved|later|scheduled-sends|snippets|folders|results(?:\/updates)?|messages|artifacts|teams|team-presets|preferences|search(?:\/status)?|me\/(?:profile|prompts|files)|auth\/get-session|auth-options|capabilities)$/.test(
       path,
     ) ||
       /^\/agents\/[^/]+(?:\/(?:messages|traces(?:\/export)?))?$/.test(path) ||
@@ -63,8 +63,7 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
         path,
       ) ||
       /^\/(?:messages|artifacts|objects)\/[^/]+$/.test(path) ||
-      /^\/runs\/[^/]+\/(?:checkout|verifications|files)$/.test(path) ||
-      /^\/projects\/[^/]+\/(?:status-action|brief)$/.test(path))
+      /^\/runs\/[^/]+\/(?:checkout|verifications|files)$/.test(path))
   ) {
     next();
     return;

@@ -133,39 +133,4 @@ export function verificationSummary(owner: string, runId: string): VerificationS
   return rows.length ? summarize(rows.map(toItem)) : null;
 }
 
-export function verificationById(owner: string, verificationId: string) {
-  const row = db
-    .prepare("SELECT * FROM run_verifications WHERE id=? AND owner_id=?")
-    .get(verificationId, owner) as VerificationRow | undefined;
-  return row ? { ...toItem(row), output_tail: row.output_tail, run_id: row.run_id, conversation_id: row.conversation_id } : null;
-}
-
-/** The brief's citable text for one observation. */
-export function verificationContent(item: ReturnType<typeof verificationById> & object) {
-  const lines = [
-    `Verification observed by Loop for run ${item.run_id}: ${item.tools.join(" + ")} ${item.status}` +
-      (item.exit_code !== null ? ` (exit ${item.exit_code})` : " (exit not reported)") + ".",
-    ...(item.status === "unknown" && item.exit_code !== null && item.exit_code !== 0
-      ? ["The command was a chain of several steps and exited nonzero; which step failed, and whether the checks ran at all, is not known."]
-      : []),
-    `Command: ${item.command}`,
-    "The agent chose this command; Loop observed its exit. It does not show which tests exist or that the right ones ran.",
-  ];
-  if (item.truncated) lines.push("The output Loop saw was cut short.");
-  if (item.output_tail) lines.push("Output tail:", item.output_tail);
-  return lines.join("\n");
-}
-
-/** Lines for the brief generator, one per observation, with refs. */
-export function verificationLines(owner: string, runId: string) {
-  const items = runVerifications(owner, runId);
-  if (!items.length) return "";
-  return items
-    .map(
-      (item) =>
-        `[ver_${item.id}] ${item.tools.join(" + ")} ${item.status}${item.exit_code !== null ? ` (exit ${item.exit_code})` : ""}: ${item.command.slice(0, 200)}`,
-    )
-    .join("\n");
-}
-
 export { verificationLine };

@@ -14,7 +14,6 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import {
-  compareBuild,
   LOOP_REPOSITORY,
   type BuildStamp,
 } from "../src/shared/build";
@@ -331,32 +330,4 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
     clean: false,
   });
   expect(result.restored).toMatchObject({ id: "old-build", clean: false });
-});
-
-it("reports positive ancestry only, including descendants and missing history", () => {
-  const commit = "b".repeat(40),
-    before = "a".repeat(40),
-    after = "c".repeat(40);
-  const build: BuildStamp = {
-    id: "build",
-    repository: LOOP_REPOSITORY,
-    commit: after,
-    clean: true,
-    builtAt: 1,
-    ancestors: [after, commit, before],
-  };
-  const target = {
-    repository: LOOP_REPOSITORY,
-    commit,
-    ancestors: [commit, before],
-  };
-  expect(compareBuild(build, target)).toBe("included");
-  expect(
-    compareBuild({ ...build, commit: before, ancestors: [before] }, target),
-  ).toBe("predates");
-  expect(compareBuild({ ...build, ancestors: [] }, target)).toBe("unknown");
-  expect(compareBuild({ ...build, clean: false }, target)).toBe("unknown");
-  expect(compareBuild(build, { ...target, repository: "another repo" })).toBe(
-    "unknown",
-  );
 });

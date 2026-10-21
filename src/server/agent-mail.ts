@@ -1,4 +1,3 @@
-import { recordChange } from "./project-changes.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -598,7 +597,6 @@ function dispatch(
     routed.active = false;
     run = attempt(undefined);
   }
-  recordChange(mail.owner_id, JSON.parse(run.payload).folderId, "mail", mail.id, run.conversation_id);
   const steeringId = "steeringId" in run ? run.steeringId : null;
   const busy = !!db
     .prepare(
@@ -1206,7 +1204,6 @@ function requeue(mail: Mail) {
           automation: JSON.parse(message.metadata).automation,
         }),
       )();
-      recordChange(mail.owner_id, JSON.parse(run.payload).folderId, "mail", mail.id, run.conversation_id);
       note(REQUEUED);
       db.prepare(
         "UPDATE agent_mail SET requeued_run_id=?,delivery='queued',recipient_conversation_id=? WHERE id=?",

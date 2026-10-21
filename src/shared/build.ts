@@ -48,38 +48,6 @@ export function loopRepository(url: string): typeof LOOP_REPOSITORY | null {
     ? LOOP_REPOSITORY
     : null;
 }
-export type BuildComparison = "included" | "predates" | "unknown";
-export function compareBuild(
-  build: BuildStamp,
-  target: { repository: string; commit: string; ancestors: string[] },
-): BuildComparison {
-  if (!build.clean || !build.commit || build.repository !== target.repository)
-    return "unknown";
-  if (build.commit === target.commit || build.ancestors.includes(target.commit))
-    return "included";
-  if (target.ancestors.includes(build.commit)) return "predates";
-  return "unknown";
-}
-export const DeploymentObservation = z.object({
-  ref: z.string(),
-  checkout: z.string(),
-  run: z.string(),
-  conversation: z.string(),
-  title: z.string(),
-  commit: Commit,
-  status: z.enum(["included", "predates", "unknown"]),
-  reason: z.string(),
-  observedAt: z.number(),
-  checkedAt: z.number(),
-  validUntil: z.number(),
-  current: z.boolean(),
-});
-export type DeploymentObservation = z.infer<typeof DeploymentObservation>;
-export const buildLabels: Record<BuildComparison, string> = {
-  included: "Change commit included",
-  predates: "Running build predates change",
-  unknown: "Update status unknown",
-};
 export function browserNeedsReload(
   loaded: BuildIdentity,
   serving: BuildIdentity,

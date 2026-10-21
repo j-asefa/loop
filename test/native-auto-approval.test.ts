@@ -518,3 +518,17 @@ it("does not retry an uncertain automatic answer after abbreviating a large requ
   expect(state()).toBe("awaiting_approval");
   expect(interrupt).not.toHaveBeenCalled();
 });
+
+it("keeps a confirmed answer resolved when the transport subsequently fails", async () => {
+  const { live, answer, request, run, sessions } = session("confirmed-transport-failure", "default");
+  request(approval);
+  const decision = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(run.id) as { id: string };
+  answer.mockImplementation(async () => {
+    sessions.event(live, { type: "resolved", id: approval.id });
+    throw new Error("transport closed after confirmation");
+  });
+  await expect(sessions.answer(decision.id, "confirmed-command", { choice: "allow" })).resolves.toEqual({ state: "resolved" });
+  await expect(sessions.answer(decision.id, "confirmed-command", { choice: "allow" })).resolves.toEqual({ state: "resolved" });
+  expect(answer).toHaveBeenCalledExactlyOnceWith(approval.id, { choice: "allow" });
+  expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "resolved" });
+});

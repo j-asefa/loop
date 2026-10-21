@@ -120,10 +120,7 @@ export class NativeToolBridge {
     if (previous) {
       if (previous.digest !== digest)
         throw new Error("Tool request identity was reused");
-      // Brief reads recheck current project access before replaying their
-      // durable native_calls receipt, including an omitted projectId's target.
-      if (binding.connectionId !== "__loop__" || binding.tool !== "loop_brief")
-        return previous.result;
+      return previous.result;
     }
     if (!previous && t.calls.size >= 2000)
       throw new Error(

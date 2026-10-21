@@ -7,11 +7,6 @@ import { nativeReply } from "../../runtime/native-tools.mjs";
 import { codexCatalog, codexTurn } from "../../runtime/harness.mjs";
 import { resultChunks } from "../../runtime/protocol.mjs";
 import {
-  projectionConfig,
-  projectionRefusal,
-  assertProjectionThread,
-} from "../../runtime/projection.mjs";
-import {
   RuntimeFailure,
   diagnosticText,
   errorFacts,
@@ -275,7 +270,6 @@ export async function* codexStream(
 ): AsyncGenerator<Chunk> {
   const controller = new AbortController();
   const signal = AbortSignal.any([input.signal, controller.signal]);
-  const projection = input.nativeTools === false;
   const rpc = await CodexRpc.connect(endpoint, signal);
   const idle = idleDeadline((error) =>
     controller.abort(new Problem(408, error.message)),
@@ -291,23 +285,19 @@ export async function* codexStream(
         422,
         "Sign in to ChatGPT on the remote Codex machine before running this agent.",
       );
-    // Ordinary turns retain the host's native tools. Background projections
-    // override them for this ephemeral thread and verify the effective sandbox.
     signal.throwIfAborted();
     const started = await rpc.call("thread/start", {
       model: input.model === "native-default" ? undefined : input.model,
       modelProvider: "openai",
-      sandbox: projection ? "read-only" : "danger-full-access",
+      sandbox: "danger-full-access",
       approvalPolicy: "never",
       ephemeral: true,
       config: {
         forced_login_method: "chatgpt",
-        ...(projection ? await projectionConfig(rpc) : {}),
       },
     });
     threadId = started.thread?.id;
     if (typeof threadId !== "string" || !threadId) throw unavailable();
-    if (projection) assertProjectionThread(started);
     if (started.modelProvider !== "openai")
       throw new Problem(
         422,
@@ -318,7 +308,7 @@ export async function* codexStream(
       rpc,
       threadId,
       input,
-      !projection,
+      true,
       undefined,
       signal,
     );
@@ -340,9 +330,7 @@ export async function* codexStream(
       if (message.id != null) {
         rpc.send({
           id: message.id,
-          ...(projection
-            ? projectionRefusal()
-            : nativeReply(message, threadId)),
+          ...nativeReply(message, threadId),
         });
         continue;
       }

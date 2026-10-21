@@ -1,19 +1,8 @@
-import { recordChange } from "./project-changes.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorktree } from "./agent-worktree.js";
 import { completeCheckout, startCheckout } from "./run-checkouts.js";
 import { observeCompletedOutput } from "./run-verifications.js";
-import { briefContext, promptWithBrief, recordBriefDelivery } from "./briefs/context.js";
-
-/** The harness consumed the prompt: it wrote something for this run. */
-function turnProducedOutput(run: Run) {
-  return !!db
-    .prepare(
-      "SELECT 1 FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 LIMIT 1",
-    )
-    .get(run.owner_id, run.id);
-}
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
@@ -192,12 +181,10 @@ function finishDecisions(
   params: unknown[],
 ) {
   db.transaction(() => {
-    const changed = db.prepare(
+    db.prepare(
       `UPDATE native_decisions SET state=? WHERE (${where}) AND state<>?
-       RETURNING id,conversation_id,(SELECT owner_id FROM runs WHERE id=native_decisions.run_id) owner_id`,
-    ).all(state, ...params, state) as { id: string; conversation_id: string; owner_id: string }[];
-    for (const decision of changed)
-      recordChange(decision.owner_id, undefined, "decision_resolved", decision.id, decision.conversation_id);
+`,
+    ).run(state, ...params, state);
   }).immediate();
 }
 
@@ -1091,9 +1078,6 @@ export class NativeSessions {
       db.prepare("DELETE FROM companion_sessions WHERE conversation_id=?").run(
         conversation,
       );
-      // The replacement session is seeded from stored messages, which do
-      // not carry the brief; let its first prompt deliver it again.
-      db.prepare("DELETE FROM brief_deliveries WHERE conversation_id=?").run(conversation);
       previousProject = binding.worktree_source ?? binding.project;
       binding = undefined;
     }
@@ -1457,8 +1441,6 @@ export class NativeSessions {
             JSON.stringify(event.request),
             now(),
           ).changes;
-        if (changed)
-          recordChange(run.owner_id, undefined, "decision_created", decisionId, live.binding.conversation_id);
         return changed;
       }).immediate();
       if (recorded && allow) {
@@ -1800,14 +1782,10 @@ export class NativeSessions {
     const steering = new SteeringInbox(run);
     let stopSteering: (() => Promise<void>) | undefined;
     try {
-      // A harness keeps its context across turns, so the project's brief
-      // is placed behind the first prompt of a conversation only.
-      const brief = await briefContext(run, { firstTurnOnly: true });
-      const prompted = brief ? promptWithBrief(input, brief.text) : null;
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
-          prompted ?? input,
+          input,
           attachedFiles(run.owner_id, snapshot.attachmentIds || []),
         ),
       );
@@ -1831,11 +1809,6 @@ export class NativeSessions {
         );
       });
       const state = await complete;
-      // Delivery is recorded once the harness has consumed the prompt: a turn
-      // that completed, or one that produced output before it was interrupted.
-      // An adapter may reject a prompt asynchronously; a rejected turn leaves
-      // the next one to carry the brief again.
-      if (brief && prompted && (state === "completed" || turnProducedOutput(run))) recordBriefDelivery(run, brief.version);
       const current = owned<Run>("runs", run.id, run.owner_id).state;
       if (current === "cancelled") {
         recaptureAfterStop(run);

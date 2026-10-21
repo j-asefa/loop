@@ -2,8 +2,6 @@ import { build } from "esbuild";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { chromium, webkit, expect } from "@playwright/test";
-import { briefPollingSmoke } from "./helpers/brief-polling-smoke.mjs";
-import { statusPollingSmoke } from "./helpers/status-polling-smoke.mjs";
 import { buildFallbackSmoke } from "./helpers/build-fallback-smoke.mjs";
 
 const identity = (id) => ({
@@ -22,10 +20,8 @@ for (const version of ["old", "new"]) {
       loader: "tsx",
       contents: `
     import React from 'react'; import {createRoot} from 'react-dom/client';
-    import {BrowserBuildStatus,DeploymentStatus} from './src/client/BuildStatus';
-    import {apiInWorkspace} from './src/client/api';
-    const {deployments:observations}=await apiInWorkspace('/projects/fixture/brief','');
-    createRoot(document.getElementById('root')).render(<><BrowserBuildStatus/><textarea aria-label="Draft"/><DeploymentStatus observations={observations}/></>);
+    import {BrowserBuildStatus} from './src/client/BuildStatus';
+    createRoot(document.getElementById('root')).render(<><BrowserBuildStatus/><textarea aria-label="Draft"/></>);
   `,
     },
     bundle: true,
@@ -44,33 +40,7 @@ const css = await readFile("src/client/style.css", "utf8");
 let loaded = "old",
   fail = false;
 const server = createServer((req, res) => {
-  if (req.url === "/api/projects/fixture/brief") {
-    const checkedAt = Date.now() + (loaded === "old" ? -300000 : 300000);
-    res.writeHead(200, {
-      "content-type": "application/json",
-      "cache-control": "no-store",
-    });
-    res.end(
-      JSON.stringify({
-        deployments: [
-          {
-            ref: "dep_fixture",
-            checkout: "checkout",
-            run: "run",
-            conversation: "thread",
-            title: "Fix Send",
-            commit: "a".repeat(40),
-            status: "included",
-            reason: "The API and worker histories include the recorded commit.",
-            observedAt: checkedAt,
-            checkedAt,
-            validUntil: checkedAt + 20000,
-            current: true,
-          },
-        ],
-      }),
-    );
-  } else if (req.url === "/api/build") {
+  if (req.url === "/api/build") {
     res.writeHead(fail ? 503 : 200, {
       "content-type": "application/json",
       "cache-control": "no-store",
@@ -141,49 +111,18 @@ try {
       await expect(page.getByLabel("Draft")).toHaveValue(
         "Keep my unsent draft",
       );
-      await page.getByText("Running app · 1 build comparison").click();
-      await expect(
-        page.getByText("Change commit included", { exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("link", { name: "Fix Send" }),
-      ).toHaveAttribute("href", "/?conversation=thread");
-      await page.screenshot({ path: `/tmp/loop-build-status-${name}.png` });
-      await page.clock.runFor(21000);
-      await expect(
-        page.getByText("Update status unknown", { exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByText("Change commit included", { exact: true }),
-      ).toHaveCount(0);
       fail = false;
       loaded = "new";
       await page.getByRole("button", { name: "Reload to update" }).click();
       await expect(
         page.getByRole("button", { name: "Reload to update" }),
       ).toHaveCount(0);
-      await page.getByText("Running app · 1 build comparison").click();
-      await expect(
-        page.getByText("Change commit included", { exact: true }),
-      ).toBeVisible();
-      await page.clock.runFor(21000);
-      await expect(
-        page.getByText("Update status unknown", { exact: true }),
-      ).toBeVisible();
-      await briefPollingSmoke(
-        browser,
-        `http://127.0.0.1:${server.address().port}`,
-      );
-      await statusPollingSmoke(
-        browser,
-        `http://127.0.0.1:${server.address().port}`,
-      );
       await buildFallbackSmoke(
         browser,
         `http://127.0.0.1:${server.address().port}`,
       );
       console.log(
-        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, clock-independent expiry, comparison UI, Brief polling and hidden-tab acknowledgements, hanging Status source polling, unknown build identity fallback passed`,
+        `${name}: slow build checks, cold stale page, failed refresh, explicit reload, unknown build identity fallback passed`,
       );
     } finally {
       await browser.close();

@@ -1,6 +1,5 @@
 import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
-import { receiveBuildObservations } from "./buildFreshness";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 /**
@@ -75,7 +74,6 @@ export async function apiInWorkspace<T = any>(
   method?: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const requestStarted = performance.now();
   const r = await authorizedFetch(sourceApiPathAt("/api" + path, sourceId), {
     signal,
     method: method || (body ? "POST" : "GET"),
@@ -115,7 +113,6 @@ export async function apiInWorkspace<T = any>(
       { status: parsed ? r.status : undefined },
     );
   }
-  receiveBuildObservations(data, requestStarted);
   return data;
 }
 export const parse = <T = any>(value: string | undefined, fallback: T): T => {

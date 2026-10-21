@@ -2978,7 +2978,7 @@ export default function App() {
                   </button>
                 </p>
               )}
-              {unified.agents.length > 0 && feedFilter !== "status" && (
+              {unified.agents.length > 0 && (
                 <YourAgents
                   agents={
                     projectFilter || teamSelection.length
@@ -3232,12 +3232,6 @@ export default function App() {
             <Projects
               folders={data.folders}
               agents={data.agents}
-              connections={data.connections}
-              onBriefNavigate={(url) =>
-                afterSheetsClose(() =>
-                  openLink.current(new URL(url, location.origin)),
-                )
-              }
               selected={project}
               onSelect={setProject}
               onCreate={() => {

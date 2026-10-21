@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
 import { teamFilter } from "./teams.js";
-import { projectStatuses, projectStatusAction } from "./project-status.js";
 import {
   FEED_FILTERS,
   awaySummary,
@@ -62,17 +61,6 @@ mobile.get("/feed", (req, res) => {
     }),
   );
 });
-mobile.get("/projects/status", (req, res) =>
-  res.json(projectStatuses(res.locals.owner, {
-    project: z.string().min(1).max(150).optional().parse(req.query.project),
-    teams: teamFilter(req.query.teams, res.locals.owner),
-  })),
-);
-mobile.get("/projects/:id/status-action", (req, res) =>
-  res.json(projectStatusAction(res.locals.owner, req.params.id,
-    z.string().min(1).max(500).parse(req.query.key),
-    teamFilter(req.query.teams, res.locals.owner))),
-);
 mobile.patch("/feed/:id", (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
 );

@@ -217,23 +217,6 @@ export async function codexFixture() {
               : null,
         arguments: "{}",
       };
-      if (mode === "brief")
-        Object.assign(answer, {
-          kind: "tool",
-          text: "",
-          tool: "submit_brief",
-          arguments: JSON.stringify({
-            headline: {
-              text: "Remote subscription brief",
-              cite: [
-                {
-                  ref: /\[(res_[^\]]+)\]/.exec(message.params.input[0].text)[1],
-                },
-              ],
-            },
-            items: [],
-          }),
-        });
       send({
         method: "item/agentMessage/delta",
         params: { threadId, turnId, delta: JSON.stringify(answer) },

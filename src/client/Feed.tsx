@@ -75,7 +75,6 @@ import {
 } from "./ThreadTools";
 import { shareLink } from "./Handoff";
 import { threadDraft, sourceDraftId } from "./drafts";
-import { ProjectStatusFeed } from "./ProjectStatus";
 import {
   feedNextAction,
   preview,
@@ -91,8 +90,6 @@ export type FeedFilter =
   | "done"
   | "working"
   | "queued"
-  // Project overview, not a thread filter.
-  | "status"
   // Project history views (no chip of their own).
   | "outcomes"
   | "unfinished";
@@ -180,7 +177,7 @@ type Summary = {
   scheduled_pending?: number;
   social_unread?: number;
 };
-type Brief = {
+type AwayItem = {
   sourceId?: string;
   conversation_id: string;
   title: string;
@@ -196,10 +193,7 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
   { id: "done", label: "Done" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
-  { id: "status", label: "Status" },
 ];
-
-const isStatus = (filter: FeedFilter) => filter === "status";
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -249,7 +243,10 @@ function FeedCard({
   const scopedSource = useSourceId();
   const capabilities = useSourceCapabilities();
   const [reading, setReading] = useState(false);
-  const [message, setMessage] = useState<{ id: string; content: string } | null>(null);
+  const [message, setMessage] = useState<{
+    id: string;
+    content: string;
+  } | null>(null);
   const [readError, setReadError] = useState("");
   const swipe = useSwipe({ onLeft: onDismiss });
   const press = useLongPress(onMenu);
@@ -258,7 +255,9 @@ function FeedCard({
     (swipe.handlers as any)[name]?.(e);
     (press as any)[name]?.(e);
   };
-  const draft = threadDraft(sourceDraftId(item.conversation_id, item.sourceId ?? scopedSource)).text;
+  const draft = threadDraft(
+    sourceDraftId(item.conversation_id, item.sourceId ?? scopedSource),
+  ).text;
   const next = feedNextAction(item.next_action, draft);
   const detail =
     status.tone === "working" && item.run
@@ -270,10 +269,14 @@ function FeedCard({
           : "";
   const name = item.agent_name || agent?.name;
   const checkoutSummary = item.run?.checkout;
-  const showCheckout = checkoutSummary && (checkoutSummary.state !== "captured" ||
-    checkoutSummary.files > 0 || checkoutSummary.untracked > 0);
+  const showCheckout =
+    checkoutSummary &&
+    (checkoutSummary.state !== "captured" ||
+      checkoutSummary.files > 0 ||
+      checkoutSummary.untracked > 0);
   const showVerification = !!item.run?.verification?.items.length;
-  const awaitingUpdate = item.run &&
+  const awaitingUpdate =
+    item.run &&
     awaitingStates.includes(item.run.state) &&
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
@@ -287,19 +290,33 @@ function FeedCard({
       undefined,
       undefined,
       controller.signal,
-    ).then((value) => {
-      if (!controller.signal.aborted) setMessage(value);
-    }).catch(() => {
-      if (!controller.signal.aborted)
-        setReadError("Couldn’t load the full message. Open the conversation to read it.");
-    });
+    )
+      .then((value) => {
+        if (!controller.signal.aborted) setMessage(value);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setReadError(
+            "Couldn’t load the full message. Open the conversation to read it.",
+          );
+      });
     return () => controller.abort();
-  }, [reading, messageId, item.sourceId, scopedSource, !!item.live_preview, !!awaitingUpdate]);
-  const content = item.live_preview || (awaitingUpdate
-    ? ""
-    : message?.id === messageId ? message?.content ?? ""
-    : item.last_message?.content ?? item.last_message?.preview ?? "");
-  const openReading = () => readAsCard ? setReading(true) : onOpen();
+  }, [
+    reading,
+    messageId,
+    item.sourceId,
+    scopedSource,
+    !!item.live_preview,
+    !!awaitingUpdate,
+  ]);
+  const content =
+    item.live_preview ||
+    (awaitingUpdate
+      ? ""
+      : message?.id === messageId
+        ? (message?.content ?? "")
+        : (item.last_message?.content ?? item.last_message?.preview ?? ""));
+  const openReading = () => (readAsCard ? setReading(true) : onOpen());
   const leaveReading = (action: () => void) => {
     setReading(false);
     action();
@@ -454,7 +471,8 @@ function FeedCard({
           )}
           {!!(item.last_message || item.run) && (
             <button className="text-button preview-open" onClick={openReading}>
-              {readAsCard ? "Read update" : "Open thread"} <ArrowUpRight size={14} />
+              {readAsCard ? "Read update" : "Open thread"}{" "}
+              <ArrowUpRight size={14} />
             </button>
           )}
           {draft && (
@@ -468,7 +486,11 @@ function FeedCard({
             <button
               className="next-action"
               data-kind={next.kind}
-              onClick={() => next.kind === "result" && readAsCard ? openReading() : onNext(next)}
+              onClick={() =>
+                next.kind === "result" && readAsCard
+                  ? openReading()
+                  : onNext(next)
+              }
             >
               {nextIcon[next.kind]}
               {next.label}
@@ -486,9 +508,16 @@ function FeedCard({
           </button>
         </div>
         {(showCheckout || showVerification || item.pull) && (
-          <footer className="inbox-card-details" aria-label="Changes and checks">
+          <footer
+            className="inbox-card-details"
+            aria-label="Changes and checks"
+          >
             {showCheckout && onCheckout && (
-              <CheckoutChip summary={checkoutSummary} onOpen={onCheckout} compact />
+              <CheckoutChip
+                summary={checkoutSummary}
+                onOpen={onCheckout}
+                compact
+              />
             )}
             {showVerification && (
               <VerificationChip
@@ -504,65 +533,91 @@ function FeedCard({
         )}
       </article>
       {/* Keep sheet gestures outside the feed card's swipe-to-dismiss region. */}
-      {reading && createPortal(
-        <SourceProvider sourceId={item.sourceId ?? scopedSource} capabilities={capabilities}>
-          <Sheet
-            wide
-            swipeToClose
-            className="result-sheet feed-reading-sheet"
-            title={item.title}
-            onClose={() => setReading(false)}
-            heading={
-              <div className="result-header">
-                <ResultIdentity
-                  name={name || undefined}
-                  model={model}
-                  createdAt={item.last_message?.created_at ?? item.last_activity_at}
-                  onProfile={onAgent ? () => leaveReading(onAgent) : undefined}
-                />
-                <button className="icon-button" aria-label="Thread actions" onClick={onMenu}>
-                  <MoreHorizontal size={20} />
-                </button>
-              </div>
-            }
+      {reading &&
+        createPortal(
+          <SourceProvider
+            sourceId={item.sourceId ?? scopedSource}
+            capabilities={capabilities}
           >
-            <div className="result-content">
-              <h3 className="result-title">{item.title}</h3>
-              {status.tone !== "done" && (
-                <p className="field-hint">
-                  {status.label}{detail ? ` · ${detail}` : ""}
-                </p>
-              )}
-              <div className="artifact-body">
-                {content ? <RichText content={content} /> : (
+            <Sheet
+              wide
+              swipeToClose
+              className="result-sheet feed-reading-sheet"
+              title={item.title}
+              onClose={() => setReading(false)}
+              heading={
+                <div className="result-header">
+                  <ResultIdentity
+                    name={name || undefined}
+                    model={model}
+                    createdAt={
+                      item.last_message?.created_at ?? item.last_activity_at
+                    }
+                    onProfile={
+                      onAgent ? () => leaveReading(onAgent) : undefined
+                    }
+                  />
+                  <button
+                    className="icon-button"
+                    aria-label="Thread actions"
+                    onClick={onMenu}
+                  >
+                    <MoreHorizontal size={20} />
+                  </button>
+                </div>
+              }
+            >
+              <div className="result-content">
+                <h3 className="result-title">{item.title}</h3>
+                {status.tone !== "done" && (
                   <p className="field-hint">
-                    {status.tone === "working" ? "Waiting for agent update…" : "No agent update yet."}
+                    {status.label}
+                    {detail ? ` · ${detail}` : ""}
                   </p>
                 )}
-              </div>
-              {readError && (
-                <p className="error" role="alert">
-                  {readError}{" "}
-                  <button className="text-button" onClick={() => leaveReading(onOpen)}>
-                    Open conversation
+                <div className="artifact-body">
+                  {content ? (
+                    <RichText content={content} />
+                  ) : (
+                    <p className="field-hint">
+                      {status.tone === "working"
+                        ? "Waiting for agent update…"
+                        : "No agent update yet."}
+                    </p>
+                  )}
+                </div>
+                {readError && (
+                  <p className="error" role="alert">
+                    {readError}{" "}
+                    <button
+                      className="text-button"
+                      onClick={() => leaveReading(onOpen)}
+                    >
+                      Open conversation
+                    </button>
+                  </p>
+                )}
+                {item.live_preview && item.live_preview.length >= 4000 && (
+                  <button
+                    className="text-button"
+                    onClick={() => leaveReading(onOpen)}
+                  >
+                    Continue reading in conversation <ArrowUpRight size={14} />
                   </button>
-                </p>
-              )}
-              {item.live_preview && item.live_preview.length >= 4000 && (
-                <button className="text-button" onClick={() => leaveReading(onOpen)}>
-                  Continue reading in conversation <ArrowUpRight size={14} />
+                )}
+              </div>
+              <div className="result-edit-actions">
+                <button
+                  className="primary"
+                  onClick={() => leaveReading(onReply)}
+                >
+                  <MessageSquare size={18} /> Reply
                 </button>
-              )}
-            </div>
-            <div className="result-edit-actions">
-              <button className="primary" onClick={() => leaveReading(onReply)}>
-                <MessageSquare size={18} /> Reply
-              </button>
-            </div>
-          </Sheet>
-        </SourceProvider>,
-        document.body,
-      )}
+              </div>
+            </Sheet>
+          </SourceProvider>,
+          document.body,
+        )}
     </li>
   );
 }
@@ -588,9 +643,9 @@ function AwaySummary({
   sources: AgentSource[];
 }) {
   const [away, setAway] = useState<{
-    completed: Brief[];
-    needs: Brief[];
-    failed: Brief[];
+    completed: AwayItem[];
+    needs: AwayItem[];
+    failed: AwayItem[];
   } | null>(null);
   const previousVisit = useRef<number | null>(null);
   const sourceKey = sources.map((source) => source.id).join(",");
@@ -618,9 +673,9 @@ function AwaySummary({
         sources.map(async (source) => ({
           source,
           result: await apiInWorkspace<{
-            completed: Brief[];
-            needs: Brief[];
-            failed: Brief[];
+            completed: AwayItem[];
+            needs: AwayItem[];
+            failed: AwayItem[];
           }>("/feed/away?since=" + since, source.id),
         })),
       ).then((settled) => {
@@ -1019,8 +1074,7 @@ export function Feed({
     const kind: ExecutionLocation | null = source.startsWith("docker:")
       ? "docker"
       : (recorded?.kind ?? null);
-    const text =
-      kind && !source ? recorded?.label : label || null;
+    const text = kind && !source ? recorded?.label : label || null;
     return text ? { kind, label: text } : null;
   };
   const [items, setItems] = useState<FeedItem[]>(shown?.items || []);
@@ -1055,8 +1109,7 @@ export function Feed({
   const request = useRef(0);
   const query = (before?: string, which: string = filter) => {
     const q = new URLSearchParams({
-      // Status uses its own bulk projection; keep this query thread-only.
-      filter: isStatus(which as FeedFilter) ? "needs" : which,
+      filter: which,
     });
     if (project) q.set("folder", project);
     if (agent) q.set("agent", agent);
@@ -1070,7 +1123,7 @@ export function Feed({
     pages: new Map(),
   });
   async function loadNeeds() {
-    if (hideFilters || isStatus(filter)) return;
+    if (hideFilters) return;
     const ticket = ++needsRequest.current;
     const owner = viewOwner();
     const key = needsKey();
@@ -1102,12 +1155,6 @@ export function Feed({
     setNeeds(loaded);
   }
   async function load(append = false, background = false) {
-    if (isStatus(filter)) {
-      ++request.current;
-      ++needsRequest.current;
-      inFlight.current = false;
-      return;
-    }
     if (!append) void loadNeeds();
     // Background refreshes never overlap; filter changes and actions always load.
     if (background && inFlight.current) return;
@@ -1555,8 +1602,7 @@ export function Feed({
   function card(item: FeedItem, inNeeds = false) {
     const source = item.sourceId ?? scopedSource;
     const dismissFailure =
-      inNeeds && item.run &&
-      ["failed", "interrupted"].includes(item.run.state);
+      inNeeds && item.run && ["failed", "interrupted"].includes(item.run.state);
     const agent = agents.find(
       (a) => a.id === item.agent_id && (a.sourceId || "") === source,
     );
@@ -1639,11 +1685,12 @@ export function Feed({
         onPull={
           // Pull requests use this workspace's GitHub connection.
           item.pull && source === (executionSourceId() || "")
-            ? () => openPull({
-                owner: item.pull!.repo_owner,
-                repo: item.pull!.repo_name,
-                number: item.pull!.number,
-              })
+            ? () =>
+                openPull({
+                  owner: item.pull!.repo_owner,
+                  repo: item.pull!.repo_name,
+                  number: item.pull!.number,
+                })
             : undefined
         }
       />
@@ -1672,7 +1719,7 @@ export function Feed({
   }
   return (
     <section className="inbox" aria-label="Feed">
-      {!hideFilters && !isStatus(filter) && (
+      {!hideFilters && (
         <AwaySummary
           sources={activeSources}
           onFilter={selectFilter}
@@ -1681,7 +1728,7 @@ export function Feed({
         />
       )}
       {header}
-      {!hideFilters && !isStatus(filter) && (
+      {!hideFilters && (
         <NeedsStack open={needsOpen} onOpen={setNeedsOpen}>
           {needsSlot}
           {!!needsThreads.length && (
@@ -1736,7 +1783,7 @@ export function Feed({
           ))}
         </div>
       )}
-      {(!isStatus(filter) || needsOpen) && error && (
+      {error && (
         <div className="error" role="alert">
           {error}
           <button className="text-button" onClick={() => void load()}>
@@ -1744,67 +1791,68 @@ export function Feed({
           </button>
         </div>
       )}
-      {(!isStatus(filter) || needsOpen) && notice && (
+      {notice && (
         <p role="status" className="field-hint">
           {notice}
         </p>
       )}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>
-        {isStatus(filter) ? (
-          <ProjectStatusFeed project={project} teams={teams} sources={sources} revision={revision} onOpen={onOpen} />
-        ) : (
-          <>
-            {loading && !items.length ? (
-              <div
-                className="feed-loading"
-                role="status"
-                aria-label="Loading feed"
-              >
-                <span />
-                <span />
-                <span />
+        <>
+          {loading && !items.length ? (
+            <div
+              className="feed-loading"
+              role="status"
+              aria-label="Loading feed"
+            >
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : items.length ? (
+            <ul className="inbox-list feed">
+              {items.map((item) => card(item))}
+            </ul>
+          ) : (
+            !error && (
+              <div className="inbox-empty">
+                <p>
+                  <strong>
+                    {filter === "all"
+                      ? "Nothing here yet."
+                      : filter === "done"
+                        ? "Nothing finished yet."
+                        : filter === "working"
+                          ? "No agents are working right now."
+                          : filter === "outcomes"
+                            ? "No finished work here yet."
+                            : filter === "unfinished"
+                              ? "Nothing unfinished here."
+                              : "Nothing is queued."}
+                  </strong>
+                </p>
+                {(filter === "all" || filter === "done") && emptyAction}
               </div>
-            ) : items.length ? (
-              <ul className="inbox-list feed">{items.map((item) => card(item))}</ul>
-            ) : (
-              !error && (
-                <div className="inbox-empty">
-                  <p>
-                    <strong>
-                      {filter === "all"
-                        ? "Nothing here yet."
-                        : filter === "done"
-                          ? "Nothing finished yet."
-                          : filter === "working"
-                            ? "No agents are working right now."
-                            : filter === "outcomes"
-                              ? "No finished work here yet."
-                              : filter === "unfinished"
-                                ? "Nothing unfinished here."
-                                : "Nothing is queued."}
-                    </strong>
-                  </p>
-                  {(filter === "all" || filter === "done") && emptyAction}
-                </div>
-              )
-            )}
-            {next && (
-              <button
-                className="secondary load-more"
-                onClick={() => void load(true)}
-              >
-                Load more
-              </button>
-            )}
-          </>
-        )}
+            )
+          )}
+          {next && (
+            <button
+              className="secondary load-more"
+              onClick={() => void load(true)}
+            >
+              Load more
+            </button>
+          )}
+        </>
       </div>
       {verification && (
         <VerificationSheet
           runId={verification.runId}
           load={(runId) =>
-            apiInWorkspace(`/runs/${runId}/verifications`, verification.sourceId)
+            apiInWorkspace(
+              `/runs/${runId}/verifications`,
+              verification.sourceId,
+            )
           }
           onClose={() => setVerification(null)}
         />
@@ -1862,10 +1910,7 @@ export function Feed({
                     }
                   : undefined,
               undo: async () => {
-                await undoReminder(
-                  created,
-                  later.sourceId ?? scopedSource,
-                );
+                await undoReminder(created, later.sourceId ?? scopedSource);
                 void load();
               },
             });
@@ -1892,11 +1937,7 @@ export function Feed({
             onChanged();
             void load();
             if (conversation)
-              onOpen(
-                conversation,
-                undefined,
-                moving.sourceId ?? scopedSource,
-              );
+              onOpen(conversation, undefined, moving.sourceId ?? scopedSource);
           }}
         />
       )}

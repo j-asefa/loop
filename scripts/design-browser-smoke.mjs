@@ -4,9 +4,7 @@ import { spawn } from "node:child_process";
 const names = [
   "gemini",
   "agent-mail",
-  "brief",
   "workspace-project",
-  "status-links",
   "execution-environments",
   "main-composer-keyboard",
   "clear-search",

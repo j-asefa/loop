@@ -8,13 +8,6 @@ import { RuntimeFailure, diagnosticText } from "./diagnostics.mjs";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { workspaceCleanupInstructions } from "./workspace-cleanup.mjs";
 import { redactValues } from "./redaction.mjs";
-import {
-  projectionConfig,
-  projectionDefaultModel,
-  projectionRefusal,
-  assertProjectionThread,
-} from "./projection.mjs";
-
 async function readAccount(rpc, signal) {
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
@@ -75,14 +68,13 @@ class Mailbox {
 export class CodexSession {
   threads = new Map();
   login;
-  constructor(child, { hostMode, home, cwd, briefProject }) {
-    Object.assign(this, { hostMode, home, cwd, briefProject });
+  constructor(child, { hostMode, home, cwd }) {
+    Object.assign(this, { hostMode, home, cwd });
     this.rpc = new Rpc(
       child,
       (message) => {
         const threadId = message.params?.threadId;
         const thread = this.threads.get(threadId);
-        if (thread?.projection) return projectionRefusal();
         return nativeReply(
           message,
           thread &&
@@ -119,13 +111,13 @@ export class CodexSession {
     this.ready.catch(() => {});
   }
   async run(request, emit, signal, setSteering) {
-    if (request.action === "project-brief")
-      request = {
-        ...request,
-        action: "turn",
-        githubToken: undefined,
-        input: { ...request.input, nativeTools: false, controlId: undefined },
-      };
+    if (
+      request.action === "project-brief" ||
+      request.input?.nativeTools === false
+    )
+      throw new RuntimeFailure(
+        "Background projections are no longer supported",
+      );
     await this.ready;
     signal.throwIfAborted();
     const rpc = this.rpc;
@@ -231,8 +223,7 @@ export class CodexSession {
     const clean = (data) => redactValues(data, secret ? [secret] : []);
     const output = (event) => emit(clean(event));
     const input = { ...request.input };
-    const projection = input.nativeTools === false;
-    if (!this.hostMode && !projection)
+    if (!this.hostMode)
       input.instructions =
         (input.instructions || "") +
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${cwd}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +
@@ -247,22 +238,17 @@ export class CodexSession {
     const abort = () => mailbox.fail(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
     try {
-      let model = input.model === "native-default" ? undefined : input.model;
-      // Resolve only the model from the registered project. The brief thread
-      // still starts in its temporary directory with native actions disabled.
-      if (input.model === "native-default" && projection && this.briefProject)
-        model = await projectionDefaultModel(rpc, this.briefProject);
+      const model = input.model === "native-default" ? undefined : input.model;
       const started = await rpc.call("thread/start", {
         model,
         modelProvider: "openai",
         cwd,
-        sandbox: projection ? "read-only" : "danger-full-access",
+        sandbox: "danger-full-access",
         approvalPolicy: "never",
         ephemeral: true,
         config: {
           forced_login_method: "chatgpt",
-          ...(projection ? await projectionConfig(rpc, cwd) : {}),
-          ...(!this.hostMode && !projection
+          ...(!this.hostMode
             ? {
                 "shell_environment_policy.inherit": "all",
                 "shell_environment_policy.ignore_default_excludes": true,
@@ -273,19 +259,11 @@ export class CodexSession {
       });
       threadId = started.thread?.id;
       if (!threadId) throw new RuntimeFailure("Codex did not return a thread");
-      if (projection) assertProjectionThread(started);
       if (started.modelProvider && started.modelProvider !== "openai")
         throw new RuntimeFailure("Codex did not use the ChatGPT provider");
-      this.threads.set(threadId, { mailbox, signal, projection });
+      this.threads.set(threadId, { mailbox, signal });
       signal.throwIfAborted();
-      const turn = await codexTurn(
-        rpc,
-        threadId,
-        input,
-        !projection,
-        cwd,
-        signal,
-      );
+      const turn = await codexTurn(rpc, threadId, input, true, cwd, signal);
       turnId = turn.turn?.id;
       if (!turnId) throw new RuntimeFailure("Codex did not return a turn");
       this.threads.get(threadId).turnId = turnId;
@@ -306,20 +284,6 @@ export class CodexSession {
         if (m.params?.turnId && m.params.turnId !== turnId) continue;
         if (m.method === "turn/completed" && m.params.turn?.id !== turnId)
           continue;
-        // Projection threads are fresh and ephemeral, so their total is this
-        // request's usage, including all structured-output work in the turn.
-        if (projection && m.method === "thread/tokenUsage/updated") {
-          const usage = m.params.tokenUsage?.total;
-          if (usage)
-            output({
-              chunk: {
-                usage: {
-                  input_tokens: usage.inputTokens,
-                  output_tokens: usage.outputTokens,
-                },
-              },
-            });
-        }
         const trace = codexTrace(clean(m), traces);
         if (trace) output({ chunk: { trace } });
         const activity = codexActivity(clean(m));

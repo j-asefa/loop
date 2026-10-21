@@ -107,6 +107,7 @@ function invoke(
   prompt = "Use my subscription",
   history: { role: string; content: string }[] = [],
   workspace: {
+    nativeTools?: false;
     home?: string;
     key?: string;
     githubToken?: string;
@@ -177,6 +178,7 @@ function invoke(
       action,
       githubToken: workspace.githubToken,
       input: {
+        nativeTools: workspace.nativeTools,
         workspaceKey: workspace.key,
         model,
         effort: workspace.effort,
@@ -876,3 +878,13 @@ for (const provider of ["codex", "claude"])
     expect(event.diagnostic).toMatchObject({ phase: "turn" });
     expect(JSON.stringify(failed.events)).not.toContain(secret);
   });
+
+
+it.each(["codex", "claude"])("%s rejects retired projection requests before launching a harness", async provider => {
+  for (const [action, workspace] of [["project-brief", {}], ["turn", { nativeTools: false }]] as const) {
+    const result = await invoke(provider, action, "subscription", "fixture", true, "Do not execute", [], workspace);
+    expect(result.code).not.toBe(0);
+    expect(JSON.stringify(result.events)).toContain("Background projections are no longer supported");
+    expect(result.calls).toEqual([]);
+  }
+});

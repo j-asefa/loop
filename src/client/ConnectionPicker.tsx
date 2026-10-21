@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { ModelOption } from "../shared/models";
 import { modelDisplayName } from "./modelChoices";
 
-/** Shared native selects for agent creation and project brief settings. */
+/** Shared native selects for agent creation. */
 export function ConnectionPicker({
   value,
   onChange,

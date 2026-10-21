@@ -729,6 +729,9 @@ it("keeps saved messages and results in one list, newest save first, per owner",
   const two = message(w.owner, cid, "user", "Second", r);
   const answer = message(w.owner, cid, "assistant", "Final answer", r);
   const result = id();
+  // A result may be published after its source reply has already been saved.
+  await api(w.owner, `/messages/${answer}/saved`, "POST");
+  expect(db.prepare("SELECT 1 FROM message_bookmarks WHERE message_id=?").get(answer)).toBeDefined();
   db.prepare(
     "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','Final answer',?,?,?)",
   ).run(result, w.owner, a.id, cid, r, JSON.stringify({ messageId: answer }), now(), now());

@@ -21,12 +21,6 @@ import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { readRunFile } from "./uploads.js";
 import { agentFeedAccess, feedForAgent } from "./news.js";
-import {
-  agentBriefAccess,
-  assertAgentBriefAccess,
-  briefForAgent,
-  briefToolSchema,
-} from "./briefs/tool.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { applyActivity } from "./activities.js";
 import { requestableReviewTeams, requestReview } from "./code-reviews.js";
@@ -146,7 +140,6 @@ const schemas = {
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
   }),
   loop_diagram: diagram,
-  loop_brief: briefToolSchema,
   loop_feed: z.object({
     feedId: z.string().max(120).optional(),
     query: z.string().max(200).optional(),
@@ -191,10 +184,6 @@ export function nativeBindings(
     ...(agentFeedAccess(run.owner_id) && {
       loop_feed:
         "Read the public feeds the user follows in Loop's Social tab: headlines, excerpts, links and discussion links, newest first. Use it when the user asks what is new, to find a story they half-remember, or to summarize what they have not read. Filter with feedId, query, since or unreadOnly. It reads only the feeds they already follow and only what Loop has already read, so say what it is as of; it fetches nothing, marks nothing read, and needs no approval.",
-    }),
-    ...(agentBriefAccess(run) && {
-      loop_brief:
-        "Read the owner's project brief in Loop: current state, decisions with their evidence, open questions, unfinished work, and what needs the owner right now, each citing the result it came from. Decisions marked with evidence were chosen; open questions include recommendations not yet accepted. What needs the owner (needs_you) is live when you read it; state, decisions, questions and unfinished work were derived at the brief's synthesis time (basis.synth_at) and may lag recent results by up to fifteen minutes (basis.pending counts them). A summary of the brief was placed with your instructions; use this tool for the full record and its evidence. It reads only, triggers nothing and needs no approval.",
     }),
     loop_install_mcp:
       "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
@@ -244,14 +233,6 @@ export function nativeBindings(
     inputSchema: z.toJSONSchema(schemas[name as keyof typeof schemas]),
   }));
 }
-function briefFailure(error: unknown) {
-  if (!(error instanceof Problem) && !(error instanceof z.ZodError))
-    throw error;
-  return {
-    result: { content: [{ type: "text", text: error.message }], isError: true },
-    artifactId: "",
-  };
-}
 export async function invokeNative(
   run: Run,
   binding: ToolBinding,
@@ -262,19 +243,6 @@ export async function invokeNative(
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
   if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
-  if (binding.tool === "loop_brief") {
-    try {
-      const requested = briefToolSchema.parse(input);
-      // Bind omitted projectId to its resolved target in the durable receipt.
-      // A refiled conversation must not authorize replay of the old project.
-      input = {
-        ...requested,
-        projectId: assertAgentBriefAccess(run, requested.projectId),
-      };
-    } catch (error) {
-      return briefFailure(error);
-    }
-  }
   if (!nativeBindings(run, options).some((t) => t.tool === binding.tool))
     throw new Problem(403, "Native tool is unavailable to this agent");
   const args = schemas[binding.tool as keyof typeof schemas].parse(input);
@@ -289,14 +257,7 @@ export async function invokeNative(
     previous &&
     (previous.tool !== binding.tool || previous.arguments !== encoded)
   ) {
-    const error = new Problem(
-      409,
-      binding.tool === "loop_brief"
-        ? "The project or inputs changed for this brief call. Make a new call to read the current brief."
-        : "Tool call identity was reused",
-    );
-    if (binding.tool === "loop_brief") return briefFailure(error);
-    throw error;
+    throw new Problem(409, "Tool call identity was reused");
   }
   if (previous?.result)
     return {
@@ -362,13 +323,6 @@ export async function invokeNative(
     text = JSON.stringify(
       feedForAgent(run.owner_id, schemas.loop_feed.parse(args)),
     );
-  } else if (binding.tool === "loop_brief") {
-    try {
-      text = briefForAgent(run, args);
-    } catch (error) {
-      text = briefFailure(error).result.content[0].text;
-      isError = true;
-    }
   } else if (binding.tool === "loop_read_file") {
     const file = schemas.loop_read_file.parse(args);
     text = JSON.stringify(
