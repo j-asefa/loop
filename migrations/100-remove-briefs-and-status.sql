@@ -1,5 +1,6 @@
 -- Retire generated project records and their producers. Primary messages,
 -- saved results, folders, runs, approvals and card revisions remain intact.
+-- Retiring Briefs includes their owner-edited goals and decision ledger.
 -- Keep project_change_folders: results and Cards API use this owner-scoped view.
 DROP TRIGGER IF EXISTS brief_pr_citation_recorded;
 DROP TRIGGER IF EXISTS project_brief_due;

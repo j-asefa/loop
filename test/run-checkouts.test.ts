@@ -298,6 +298,33 @@ it("records other runs active on the same checkout as overlap, not authorship", 
   expect(checkoutSummary(owner, first.id)!.overlap).toBe(overlap.length);
 });
 
+it("records overlap when another run starts during terminal checkout capture", async () => {
+  const repo = join(dir, "capture-race");
+  mkdirSync(repo);
+  gitProject(repo);
+  const first = runFixture("capture-first");
+  bind(first.conversation_id!, repo);
+  await startCheckout(first, repo, project, "g1");
+  // Capture claims synchronously, then yields before copying refs. The later
+  // run commits while that copy is pending, so its HEAD must carry overlap.
+  const capture = completeCheckout(first.id);
+  const { capture_started_at: started } = db
+    .prepare("SELECT capture_started_at FROM run_checkouts WHERE run_id=?")
+    .get(first.id) as { capture_started_at: number };
+  const later = runFixture("capture-later", "running", started + 1);
+  bind(later.conversation_id!, repo);
+  writeFileSync(join(repo, "tracked.txt"), "Later run's change\n");
+  git(repo, "commit", "-am", "later change");
+  const commit = git(repo, "rev-parse", "HEAD");
+  await capture;
+  expect(checkoutDetail(owner, first.id)).toMatchObject({
+    state: "captured",
+    end_head: commit,
+    overlap: [later.id],
+  });
+  expect(checkoutSummary(owner, first.id)).toMatchObject({ overlap: 1 });
+});
+
 it("keeps filenames that contain tabs and renames intact", async () => {
   const run = runFixture("thread-tabs");
   bind("thread-tabs", checkout);

@@ -48,18 +48,6 @@ export function loopRepository(url: string): typeof LOOP_REPOSITORY | null {
     ? LOOP_REPOSITORY
     : null;
 }
-export type BuildComparison = "included" | "predates" | "unknown";
-export function compareBuild(
-  build: BuildStamp,
-  target: { repository: string; commit: string; ancestors: string[] },
-): BuildComparison {
-  if (!build.clean || !build.commit || build.repository !== target.repository)
-    return "unknown";
-  if (build.commit === target.commit || build.ancestors.includes(target.commit))
-    return "included";
-  if (target.ancestors.includes(build.commit)) return "predates";
-  return "unknown";
-}
 export function browserNeedsReload(
   loaded: BuildIdentity,
   serving: BuildIdentity,
