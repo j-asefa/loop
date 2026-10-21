@@ -23,13 +23,8 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
       SELECT f.id,f.owner_id,p.project_id FROM folders f
       JOIN folder_project p ON f.parent_id=p.id AND f.owner_id=p.owner_id
     )`;
-const PROMPTS_FROM = `    FROM messages m
-    JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
-    JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id AND r.conversation_id=c.id
-    LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=m.owner_id
-    LEFT JOIN folder_project fp ON fp.id=COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) AND fp.owner_id=m.owner_id
-    LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=m.owner_id
-    WHERE m.owner_id=? AND m.role='user'
+export const personalMessageSql = `m.role='user'
+    AND r.id IS NOT NULL AND r.conversation_id=c.id
     AND (c.project_id IS NULL OR EXISTS(SELECT 1 FROM folders p WHERE p.id=c.project_id AND p.owner_id=m.owner_id))
     AND (json_extract(m.metadata,'$.personal')=1 OR (
       json_type(m.metadata,'$.personal') IS NULL
@@ -39,6 +34,13 @@ const PROMPTS_FROM = `    FROM messages m
       AND r.kind='agent'
       AND NOT EXISTS(SELECT 1 FROM delegations d WHERE d.child_run_id=r.id)
     ))`;
+const PROMPTS_FROM = `    FROM messages m
+    JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
+    JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id AND r.conversation_id=c.id
+    LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=m.owner_id
+    LEFT JOIN folder_project fp ON fp.id=COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) AND fp.owner_id=m.owner_id
+    LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=m.owner_id
+    WHERE m.owner_id=? AND ${personalMessageSql}`;
 
 // The owner is supplied by authentication, never by query parameters. Projects
 // and conversations currently use this same ownership boundary (no memberships).

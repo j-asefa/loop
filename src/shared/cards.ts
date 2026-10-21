@@ -1,0 +1,124 @@
+import { z } from "zod";
+
+export const CardViewSchema = z.enum(["results", "saved", "sent"]);
+export const CardIdSchema = z
+  .string()
+  .regex(/^[am]:[^/\\?#\s]+$/)
+  .max(160);
+const nullableText = z.string().nullable();
+const time = z.number().int().nonnegative();
+export const CardAgentSchema = z.object({
+  id: nullableText,
+  name: nullableText,
+  provider: nullableText,
+});
+export const CardAttachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  mime: z.string(),
+  size: z.number().nonnegative(),
+  // Descriptive fields are the message's stored snapshot. Links are relative
+  // to this API source and require ordinary browser authorization to open.
+  href: z.string(),
+  download: nullableText,
+});
+const common = {
+  id: CardIdSchema,
+  source: z.object({
+    artifact_id: nullableText,
+    message_id: nullableText,
+    conversation_id: nullableText,
+    run_id: nullableText,
+  }),
+  author: CardAgentSchema.extend({
+    kind: z.enum(["owner", "agent", "system", "unknown"]),
+  }),
+  recipient: CardAgentSchema.nullable(),
+  context: z.object({
+    conversation_title: nullableText,
+    folder_id: nullableText,
+    project_id: nullableText,
+    project_name: nullableText,
+    team_id: nullableText,
+  }),
+  content: z.string(),
+  format: z.string(),
+  // Lists and detail both contain the complete stored body.
+  created_at: time,
+  updated_at: time.nullable(),
+  saved: z.boolean(),
+  attachments: z.array(CardAttachmentSchema),
+  href: z.string(),
+};
+export const ResultCardSchema = z.object({
+  ...common,
+  type: z.literal("result"),
+  title: z.string(),
+  kind: z.string(),
+  version: z.number().int().positive(),
+  hidden: z.boolean(),
+  display: z.object({
+    model: nullableText,
+    tool: nullableText,
+    partial: z.boolean(),
+    imported: z.boolean(),
+    uploaded: z.boolean(),
+    mime: nullableText,
+    filename: nullableText,
+  }),
+});
+export const MessageCardSchema = z.object({
+  ...common,
+  type: z.literal("message"),
+  role: z.string(),
+});
+export const CardSchema = z.discriminatedUnion("type", [
+  ResultCardSchema,
+  MessageCardSchema,
+]);
+export const CardEntrySchema = z.object({
+  card: CardSchema,
+  order: z.tuple([time, z.string()]),
+  saved: z.object({ at: time, label: nullableText }).nullable(),
+});
+// A watermark binds the revision to its owner, source database and selection.
+// It is a cursor, not a credential or an artifact content version.
+export const CardPageSchema = z.object({
+  revision: z.string(),
+  items: z.array(CardEntrySchema),
+  next: z.string().nullable(),
+});
+export const CardChangesSchema = z.object({
+  revision: z.string(),
+  items: z.array(CardEntrySchema),
+  removed: z.array(CardIdSchema),
+  more: z.boolean(),
+});
+const integer = z.coerce
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+export const CardSelectionSchema = z.object({
+  view: CardViewSchema.default("results"),
+  project: z.string().min(1).max(150).optional(),
+  agent: z.string().min(1).max(150).optional(),
+  teams: z.string().max(2000).optional(),
+  q: z.string().trim().max(500).optional(),
+});
+export const CardListQuerySchema = CardSelectionSchema.extend({
+  before: z.string().min(1).max(1024).optional(),
+  limit: integer.min(1).max(100).default(40),
+}).strict();
+export const CardChangesQuerySchema = CardSelectionSchema.extend({
+  after: z.string().min(1).max(1024),
+  through: integer.optional(),
+}).strict();
+export type Card = z.infer<typeof CardSchema>;
+export type ResultCard = z.infer<typeof ResultCardSchema>;
+export type MessageCard = z.infer<typeof MessageCardSchema>;
+export type CardEntry = z.infer<typeof CardEntrySchema>;
+export type CardPage = z.infer<typeof CardPageSchema>;
+export type CardChanges = z.infer<typeof CardChangesSchema>;
+export type CardSelection = z.infer<typeof CardSelectionSchema>;
+export type CardView = z.infer<typeof CardViewSchema>;

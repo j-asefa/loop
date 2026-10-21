@@ -10,6 +10,7 @@
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels and workspace recovery        |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |
+| [Cards API](cards-api.md)                    | Shared result/message contract, selections and synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
 | [Experiment previews](previews.md)            | Try design and runtime branches with separate builds, state and pairing |
 
