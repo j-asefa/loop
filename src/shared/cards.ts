@@ -116,7 +116,12 @@ export const CardSelectionSchema = z.object({
   project: z.string().min(1).max(150).optional(),
   agent: z.string().min(1).max(150).optional(),
   teams: z.string().max(2000).optional(),
-  q: z.string().trim().max(500).optional(),
+  q: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .describe("Search is supported only for Saved and Sent; omit for Results."),
 });
 export const CardListQuerySchema = CardSelectionSchema.extend({
   before: z.string().min(1).max(1024).optional(),

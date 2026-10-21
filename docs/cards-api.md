@@ -207,14 +207,70 @@ independent membership/display changes still invalidate, and terminal run states
 reconcile final or retained partial content. This revision stream is separate
 from stored content versions and timestamps.
 
-## Typed readers
+## Typed readers and the example
+
+The generated [OpenAPI document](cards-openapi.json) uses the same Zod schemas
+and route definitions as the runtime. Regenerate it with `npm run cards:openapi`;
+`npm run cards:check` fails when the checked-in document differs. GET and HEAD,
+query parameters, result/message variants, token management and authentication
+alternatives are included. The session cookies and trusted standalone access
+boundary vary by deployment; a Cards bearer token always uses the same header.
+The general OpenAPI contract requires authentication. A trusted single-user
+standalone installation can additionally rely on its configured access boundary;
+this deployment exception is not declared as globally optional authentication.
+`OwnerSession` and `PairedDevice` model the complete `Cookie` header value,
+including the names issued by that deployment. Do not rename cookie prefixes or
+isolated-preview suffixes. Browsers attach their existing cookie jar; non-browser
+clients supply the complete header. All management writes require a matching
+`Origin`. Paired writes additionally require the `PairedCsrf` header credential;
+read its value from the authenticated `/session` response. Browser requests
+supply `Origin` automatically.
 
 `src/shared/card-client.ts` provides `createCardClient({ baseUrl, token })` for
 integrations and `cardReader(transport)` for source-bound browser sessions.
-Responses are validated against the shared schemas. The integration reader uses
-one origin without URL credentials, path, query or fragment; remote origins
-require HTTPS. HTTP is accepted only for localhost and loopback development.
-Credentials use the Authorization header, with redirects and cookies disabled.
+Responses are validated against the shared schemas. Tokens are sent only in the
+Authorization header; the integration client refuses redirects and does not
+send browser cookies. Its base URL is one workspace origin, without a path,
+credentials, query or fragment. Remote origins require HTTPS before any request
+is sent; HTTP is accepted only for `localhost`, `127.0.0.1` and `[::1]` fixtures
+or local development. The same URLs work with a standalone server or
+a paired-host companion; no device cookie is needed for the scoped bearer path.
+
+Run the full-collection example from this checkout:
+
+```sh
+export CARDS_BASE_URL='https://your-workspace.example'
+# Set CARDS_TOKEN from your secret store; never commit the value.
+npm run cards:example
+```
+
+Optional environment variables are `CARDS_VIEW` (default `results`),
+`CARDS_PROJECT`, `CARDS_AGENT`, `CARDS_TEAMS` and `CARDS_QUERY`. Search requires
+`CARDS_VIEW=saved` or `CARDS_VIEW=sent`; Results does not support `CARDS_QUERY`.
+The example and `CardCollection` omit empty or whitespace-only queries. The script
+paginates the complete selection, keeps the first watermark, then drains all
+changes and removals before grouping cards by project. Output IDs are qualified
+by source. `CardCollection.sync()` can be called again to reconcile subsequent
+changes without another backfill. It returns deeply frozen, readonly snapshots;
+copy data before making local edits so consumers cannot alter the cached server
+state or each other's concurrent result. The collection copies incoming entries
+before freezing its own snapshot; a custom reader's objects remain untouched.
+For a grouped aggregate, importing
+`syncExample(environment)` from the example returns an async read function;
+call that function again to reconcile the same collection and regroup it.
+Create a new collection when the owner,
+source, credential or selection changes; discard previous results and abort
+pending reads. A 409 clears the collection and requires a fresh sync. A 404 for
+a deleted filter means the selection itself must change; retrying it unchanged
+does not restore that object. Credential failures are surfaced immediately.
+On 429 with a positive `Retry-After`, collection synchronization waits and retries
+that read, retaining its unpublished pages and watermark. Large backfills and
+change backlogs can cross multiple rate windows without restarting. Abort the
+supplied signal to cancel a wait. Concurrent calls share a sync only when they
+use the same signal (or all omit it); a different signal is rejected, so one
+caller's cancellation cannot be silently ignored or control another caller.
+Other failures, including 429 without a retry
+delay, are surfaced. The lower-level client reports errors without retrying.
 
 ## First-party readers and compatibility
 
@@ -245,8 +301,8 @@ serialized and coalesced; a source/owner/filter change invalidates pending
 responses. Committed windows and Saved searches are retained in the bounded
 in-memory view cache for their owner, source and selection. Returning to a tab
 restores that window and reconciles changes; logout/account changes clear it.
-Full-collection integrations omit `through` and follow the synchronization
-protocol above. A still-eligible card below `through` is not a removal.
+Full-collection integrations omit `through` and use `CardCollection` as described
+above. A still-eligible card below `through` is not a removal.
 
 The Files tab retains `/api/results?view=files` and its legacy renderer adapter.
 Remaining `/api/results`, `/api/results/updates`, `/api/saved`, `/api/me/prompts`

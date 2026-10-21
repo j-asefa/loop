@@ -87,3 +87,6 @@ Omitting scenario names runs all scenarios; unknown names fail. Each scenario re
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
 Before a PR, run checks relevant to the change and report exact failures or unavailable dependencies. Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.
+
+`npm run cards:check` checks generated Cards OpenAPI against executable schemas and routes.
+`npm run cards:example` runs the source-bound full-collection sync example; see [Cards API](cards-api.md#typed-readers-and-the-example) for its environment.
