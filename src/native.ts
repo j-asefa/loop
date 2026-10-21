@@ -21,6 +21,7 @@ export class Native extends EventEmitter {
     args: string[],
     cwd: string,
     env = process.env,
+    maxFrameBytes = 8 * 1024 * 1024,
   ) {
     super();
     // Supervision belongs to the Loop application, not its harnesses or the
@@ -54,18 +55,27 @@ export class Native extends EventEmitter {
         }
       }
     });
-    let buf = "";
+    let parts: string[] = [];
+    let frameBytes = 0;
     const decoder = new StringDecoder("utf8");
     this.child.stdout.on("data", (chunk) => {
-      buf += decoder.write(chunk);
-      if (Buffer.byteLength(buf) > 8 * 1024 * 1024) {
-        this.fail(new Error("Native frame exceeds 8 MiB."));
-        return;
-      }
-      let newline;
-      while ((newline = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, newline);
-        buf = buf.slice(newline + 1);
+      // Collect fragments once instead of repeatedly copying/scanning a large
+      // file-bearing frame on every stdout chunk. Decode split UTF-8 first.
+      const segments = decoder.write(chunk).split("\n");
+      for (let index = 0; index < segments.length; index++) {
+        const segment = segments[index];
+        if (segment) {
+          parts.push(segment);
+          frameBytes += Buffer.byteLength(segment);
+        }
+        if (frameBytes > maxFrameBytes) {
+          this.fail(new Error(`Native frame exceeds ${maxFrameBytes / 1024 / 1024} MiB.`));
+          return;
+        }
+        if (index === segments.length - 1) break;
+        const line = parts.join("");
+        parts = [];
+        frameBytes = 0;
         if (!line.trim()) continue;
         let m;
         try {

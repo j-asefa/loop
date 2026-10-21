@@ -353,18 +353,22 @@ function githubTreeApproval(size: number, character = "x") {
 }
 
 it.each([
-  ["bypassPermissions", undefined, 40000, "x"],
-  ["bypassPermissions", undefined, 300000, "x"],
-  ["bypassPermissions", undefined, 10000, "😀"],
-  ["default", "bypassPermissions", 300000, "x"],
-] as const)("large GitHub tool approvals honor %s / %s without changing the native call (%i %s)", async (mode, sessionMode, size, character) => {
+  ["bypassPermissions", undefined, 40000, "x", "accept"],
+  ["bypassPermissions", undefined, 9 * 1024 * 1024, "x", "accept"],
+  ["bypassPermissions", undefined, 10000, "😀", "accept"],
+  ["default", "bypassPermissions", 300000, "x", "accept"],
+  ["default", undefined, 9 * 1024 * 1024, "x", "accept"],
+  ["default", undefined, 300000, "x", "decline"],
+  ["default", undefined, 300000, "x", "cancel"],
+  ["acceptEdits", undefined, 300000, "x", "accept"],
+  ["bypassPermissions", "default", 300000, "x", "accept"],
+] as const)("large GitHub tool approvals honor %s / %s without changing the native call (%i %s / %s)", async (mode, sessionMode, size, character, choice) => {
   const { live, answer, state, run, sessions } = session(
-    `large-tree-${mode}-${sessionMode}-${size}-${character}`, mode, "codex",
+    `large-tree-${mode}-${sessionMode}-${size}-${character}-${choice}`, mode, "codex",
   );
   live.sessionMode = sessionMode;
   const params = githubTreeApproval(size, character);
   const original = structuredClone(params);
-  let originalDetail = "";
   const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
   const decision = () => db.prepare(
     "SELECT id,state,request FROM native_decisions WHERE run_id=?",
@@ -373,36 +377,110 @@ it.each([
   answer.mockImplementation(async (id, reply) => {
     const pending = (live.adapter as any).requests.get(id).params;
     expect(pending).toMatchObject(original);
-    originalDetail = JSON.stringify(pending, null, 2);
     return Codex.prototype.answer.call(live.adapter, id, reply);
   });
   try {
     await live.adapter.start();
-    await live.adapter.prompt("mcp-accept\n" + JSON.stringify(params));
-    await vi.waitFor(() => expect(decision()?.state).toBe("resolved"));
+    await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
+    await vi.waitFor(() => expect(decision()).toBeDefined());
     const stored = decision();
     expect(Buffer.byteLength(stored.request)).toBeLessThanOrEqual(64000);
     const request = JSON.parse(stored.request);
     expect(request.title).toBe("Allow github.create_tree?");
-    expect(request.detail).toContain("Automatically approved by Never ask");
-    expect(request.detail).toContain(`${Buffer.byteLength(originalDetail)} bytes`);
-    expect(request.detail).toContain(createHash("sha256").update(originalDetail).digest("hex"));
-    expect(stored.request).not.toContain(params._meta.tool_params.tree[0].content);
+    const detail = JSON.parse(request.detail);
+    const content = params._meta.tool_params.tree[0].content;
+    expect(detail._meta.tool_params).toMatchObject({ owner: "fixture", repo: "fixture", tree: [{ path: "src/example.ts", type: "blob", mode: "100644" }] });
+    expect(detail._meta.tool_params.tree[0].content).toContain(`${Buffer.byteLength(content)} UTF-8 bytes`);
+    expect(detail._meta.tool_params.tree[0].content).toContain(createHash("sha256").update(content).digest("hex"));
+    expect(stored.request.includes(content)).toBe(false);
     expect(params).toEqual(original);
-    expect(answer).toHaveBeenCalledExactlyOnceWith("102", { choice: "accept" });
+    if ((sessionMode ?? mode) !== "bypassPermissions") {
+      expect(state()).toBe("awaiting_approval");
+      expect(answer).not.toHaveBeenCalled();
+      await sessions.answer(stored.id, "github-decision", { choice });
+      await sessions.answer(stored.id, "github-decision", { choice });
+    }
+    await vi.waitFor(() => expect(decision()?.state).toBe("resolved"));
+    expect(answer).toHaveBeenCalledExactlyOnceWith("102", { choice });
     expect(interrupt).not.toHaveBeenCalled();
     expect(state()).toBe("running");
   } finally {
     await live.adapter.dispose();
   }
+}, 15000);
+
+it.each(["create_blob", "create_or_update_file", "create_or_update_file_contents", "push_files", "create_tree"])(
+  "keeps %s uploads reviewable with all non-content arguments and no duplicate payload",
+  (tool) => {
+    const { live, answer, state, run, sessions } = session(`github-shape-${tool}`, "default", "codex");
+    const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+    const content = "😀".repeat(20000);
+    const file = { path: "src/café.ts", content, mode: "100644", type: "blob" };
+    const args = {
+      owner: "fixture", repo: "destination", branch: "feature/topic", message: "Publish source files",
+      ...(tool === "push_files" ? { files: [file, { path: "small.txt", content: "kept" }] }
+        : tool === "create_tree" ? { base_tree: "existing-tree", tree: [file, { path: "removed.txt", sha: null, type: "blob", mode: "100644" }] }
+          : { ...file, encoding: "utf-8", sha: "existing-file" }),
+    };
+    const params = { ...githubTreeApproval(1), serverName: "github", _meta: {
+      codex_approval_kind: "mcp_tool_call", tool_name: tool, tool_title: `github.${tool}`,
+      tool_params: args,
+      tool_params_display: [{ name: "content", value: content }, { name: "arguments", value: JSON.stringify(args, null, 2) }],
+    } };
+    const original = structuredClone(params);
+    (live.adapter as any).message({ id: 102, method: "mcpServer/elicitation/request", params });
+    const stored = db.prepare("SELECT request FROM native_decisions WHERE run_id=?").get(run.id) as any;
+    expect(stored).toBeDefined();
+    expect(Buffer.byteLength(stored.request)).toBeLessThan(64000);
+    const preview = JSON.parse(JSON.parse(stored.request).detail)._meta.tool_params;
+    const projectedFile = tool === "push_files" ? preview.files[0] : tool === "create_tree" ? preview.tree[0] : preview;
+    expect(projectedFile.content).toContain(createHash("sha256").update(content).digest("hex"));
+    // Replacing only the projected bytes must reconstruct every original
+    // argument, including deletions, destinations and small file contents.
+    projectedFile.content = content;
+    expect(preview).toEqual(args);
+    expect(params).toEqual(original);
+    expect((live.adapter as any).requests.get("102").params).toEqual(original);
+    expect(answer).not.toHaveBeenCalled();
+    expect(state()).toBe("awaiting_approval");
+    expect(interrupt).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["bare-name", "generated-message"])("summarizes a batch of small files with %s tool identification", (identity) => {
+  const { live, answer, state, run, sessions } = session(`github-batch-${identity}`, "default", "codex");
+  const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+  const params: any = githubTreeApproval(1);
+  params._meta.tool_params.tree = Array.from({ length: 40 }, (_, i) => ({
+    path: `src/file-${i}.ts`, mode: "100644", type: "blob", content: "\t\n\"".repeat(400),
+  }));
+  params._meta.tool_params_display = [{ name: "tree", value: JSON.stringify(params._meta.tool_params.tree) }];
+  if (identity === "bare-name") params._meta.tool_name = "create_tree";
+  else {
+    delete params._meta.tool_name;
+    delete params._meta.tool_title;
+  }
+  (live.adapter as any).message({ id: 102, method: "mcpServer/elicitation/request", params });
+  const stored = db.prepare("SELECT request FROM native_decisions WHERE run_id=?").get(run.id) as any;
+  expect(stored).toBeDefined();
+  expect(Buffer.byteLength(stored.request)).toBeLessThan(64000);
+  const tree = JSON.parse(JSON.parse(stored.request).detail)._meta.tool_params.tree;
+  expect(tree).toHaveLength(40);
+  expect(tree.every((file: any, i: number) => file.path === `src/file-${i}.ts` && file.content.includes("SHA-256"))).toBe(true);
+  expect(state()).toBe("awaiting_approval");
+  expect(answer).not.toHaveBeenCalled();
+  expect(interrupt).not.toHaveBeenCalled();
 });
 
-it("does not shorten oversized decisions that still require consent or user input", () => {
+it("does not shorten other oversized decisions or forms requiring user input", () => {
   const original = githubTreeApproval(300000);
   const cases = [
-    { name: "manual-tree", mode: "default" as const, sessionMode: undefined, params: original },
-    { name: "edits-tree", mode: "acceptEdits" as const, sessionMode: undefined, params: original },
-    { name: "session-manual-tree", mode: "bypassPermissions" as const, sessionMode: "default", params: original },
+    { name: "unknown-tool", mode: "default" as const, sessionMode: undefined, params: {
+      ...original, _meta: { ...original._meta, tool_name: "github.some_other_action" },
+    } },
+    { name: "large-commit-message", mode: "default" as const, sessionMode: undefined, params: {
+      ...original, _meta: { ...original._meta, tool_params: { ...original._meta.tool_params, message: "x".repeat(300000) } },
+    } },
     { name: "real-form-tree", mode: "bypassPermissions" as const, sessionMode: undefined, params: {
       ...original, requestedSchema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] },
     } },

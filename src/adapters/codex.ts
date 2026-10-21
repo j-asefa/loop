@@ -145,6 +145,10 @@ export class Codex implements Adapter {
       this.options.executable,
       ["app-server"],
       this.options.project,
+      undefined,
+      // Codex sends whole file uploads in tool confirmations. Transport size
+      // must not veto them before the display-only approval projection runs.
+      Number.POSITIVE_INFINITY,
     );
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", () =>
