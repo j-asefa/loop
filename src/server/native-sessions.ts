@@ -1306,7 +1306,36 @@ export class NativeSessions {
     }
     // Project display text before checking event size. An oversized tool
     // result is not an oversized approval and must not cancel native work.
+    // Apply standing consent before display limits. A tool confirmation can
+    // contain entire files (for example GitHub create_tree). Only a request
+    // already authorized by Never ask may have its audit preview abbreviated;
+    // manual decisions and forms must remain completely reviewable.
+    // A session's own mode takes precedence over the workspace setting.
+    const allow = input.type === "request" && live.run
+      ? autoApproval(
+          live.sessionMode === undefined
+            ? live.permissionMode
+            : live.sessionMode === "bypassPermissions"
+              ? "bypassPermissions"
+              : DEFAULT_PERMISSION_MODE,
+          input.request,
+        )
+      : undefined;
     const event = structuredClone(input);
+    if (event.type === "request" && allow &&
+        Buffer.byteLength(JSON.stringify(event.request)) > 64000) {
+      const detail = event.request.detail;
+      const digest = createHash("sha256").update(detail).digest("hex");
+      event.request.detail = [
+        "[Automatically approved by Never ask; oversized details abbreviated for display.]",
+        `Full detail: ${Buffer.byteLength(detail)} bytes; SHA-256 ${digest}`,
+        detail.slice(0, 2000),
+        "[Details omitted from this preview.]",
+        detail.slice(-1000),
+      ].join("\n");
+      // The adapter retains the original native request. IDs, choices and
+      // durable delivery receipts still use the existing answer path.
+    }
     if (event.type === "item") event.item.text = displayText(event.item.text);
     if (event.type === "delta") event.text = displayText(event.text);
     if (Buffer.byteLength(JSON.stringify(event)) > 256000) {
@@ -1316,7 +1345,9 @@ export class NativeSessions {
       if (live.run)
         void this.interrupt(
           live.run.id,
-          "Native output exceeded safe display bounds.",
+          event.type === "request"
+            ? "Native decision exceeds safe display bounds."
+            : "Native output exceeded safe display bounds.",
         );
       // Oversized replay entries are skipped; native history remains authoritative.
       else if (input.type !== "item" && input.type !== "delta")
@@ -1401,7 +1432,7 @@ export class NativeSessions {
     }
     if (event.type === "request") {
       if (
-        JSON.stringify(event.request).length > 64000 ||
+        Buffer.byteLength(JSON.stringify(event.request)) > 64000 ||
         live.requests.size >= 25
       ) {
         void this.interrupt(
@@ -1430,16 +1461,6 @@ export class NativeSessions {
           recordChange(run.owner_id, undefined, "decision_created", decisionId, live.binding.conversation_id);
         return changed;
       }).immediate();
-      // A mode chosen for this session in Session settings outranks the
-      // workspace level: only its own "never ask" lets Loop answer for you.
-      const allow = autoApproval(
-        live.sessionMode === undefined
-          ? live.permissionMode
-          : live.sessionMode === "bypassPermissions"
-            ? "bypassPermissions"
-            : DEFAULT_PERMISSION_MODE,
-        event.request,
-      );
       if (recorded && allow) {
         // "Never ask" answers routine tool approvals for the user. Questions
         // and forms requiring input have no allow choice and still wait. A failed

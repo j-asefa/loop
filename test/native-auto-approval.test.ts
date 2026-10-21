@@ -332,3 +332,111 @@ it("a session's own permission mode outranks the workspace level", async () => {
     expect(bypass.answer).toHaveBeenCalledWith("bash", { choice: "allow" }),
   );
 });
+
+function githubTreeApproval(size: number, character = "x") {
+  const content = character.repeat(size);
+  return {
+    ...codexToolApproval,
+    serverName: "codex_apps",
+    message: 'Allow the GitHub MCP server to run tool "create_tree"?',
+    _meta: {
+      codex_approval_kind: "mcp_tool_call",
+      tool_name: "github.create_tree",
+      tool_title: "github.create_tree",
+      tool_params: {
+        owner: "fixture", repo: "fixture",
+        tree: [{ path: "src/example.ts", type: "blob", mode: "100644", content }],
+      },
+      tool_params_display: [{ name: "content", value: content }],
+    },
+  };
+}
+
+it.each([
+  ["bypassPermissions", undefined, 40000, "x"],
+  ["bypassPermissions", undefined, 300000, "x"],
+  ["bypassPermissions", undefined, 10000, "😀"],
+  ["default", "bypassPermissions", 300000, "x"],
+] as const)("large GitHub tool approvals honor %s / %s without changing the native call (%i %s)", async (mode, sessionMode, size, character) => {
+  const { live, answer, state, run, sessions } = session(
+    `large-tree-${mode}-${sessionMode}-${size}-${character}`, mode, "codex",
+  );
+  live.sessionMode = sessionMode;
+  const params = githubTreeApproval(size, character);
+  const original = structuredClone(params);
+  let originalDetail = "";
+  const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+  const decision = () => db.prepare(
+    "SELECT id,state,request FROM native_decisions WHERE run_id=?",
+  ).get(run.id) as any;
+  // Exercise the real adapter response, checking its unmodified pending RPC.
+  answer.mockImplementation(async (id, reply) => {
+    const pending = (live.adapter as any).requests.get(id).params;
+    expect(pending).toMatchObject(original);
+    originalDetail = JSON.stringify(pending, null, 2);
+    return Codex.prototype.answer.call(live.adapter, id, reply);
+  });
+  try {
+    await live.adapter.start();
+    await live.adapter.prompt("mcp-accept\n" + JSON.stringify(params));
+    await vi.waitFor(() => expect(decision()?.state).toBe("resolved"));
+    const stored = decision();
+    expect(Buffer.byteLength(stored.request)).toBeLessThanOrEqual(64000);
+    const request = JSON.parse(stored.request);
+    expect(request.title).toBe("Allow github.create_tree?");
+    expect(request.detail).toContain("Automatically approved by Never ask");
+    expect(request.detail).toContain(`${Buffer.byteLength(originalDetail)} bytes`);
+    expect(request.detail).toContain(createHash("sha256").update(originalDetail).digest("hex"));
+    expect(stored.request).not.toContain(params._meta.tool_params.tree[0].content);
+    expect(params).toEqual(original);
+    expect(answer).toHaveBeenCalledExactlyOnceWith("102", { choice: "accept" });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(state()).toBe("running");
+  } finally {
+    await live.adapter.dispose();
+  }
+});
+
+it("does not shorten oversized decisions that still require consent or user input", () => {
+  const original = githubTreeApproval(300000);
+  const cases = [
+    { name: "manual-tree", mode: "default" as const, sessionMode: undefined, params: original },
+    { name: "edits-tree", mode: "acceptEdits" as const, sessionMode: undefined, params: original },
+    { name: "session-manual-tree", mode: "bypassPermissions" as const, sessionMode: "default", params: original },
+    { name: "real-form-tree", mode: "bypassPermissions" as const, sessionMode: undefined, params: {
+      ...original, requestedSchema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] },
+    } },
+  ];
+  for (const item of cases) {
+    const { live, answer, run, sessions } = session(item.name, item.mode, "codex");
+    live.sessionMode = item.sessionMode;
+    const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+    (live.adapter as any).message({ id: 102, method: "mcpServer/elicitation/request", params: item.params });
+    expect(answer).not.toHaveBeenCalled();
+    expect(interrupt).toHaveBeenCalledWith(run.id, "Native decision exceeds safe display bounds.");
+    expect(live.requests.size).toBe(0);
+    expect(db.prepare("SELECT id FROM native_decisions WHERE run_id=?").all(run.id)).toEqual([]);
+  }
+  const question = session("large-question", "bypassPermissions");
+  const interrupt = vi.spyOn(question.sessions, "interrupt").mockResolvedValue();
+  question.request({ id: "question", kind: "question", title: "Choose", detail: "x".repeat(300000), questions: [{ id: "branch", title: "Which branch?" }] });
+  expect(question.answer).not.toHaveBeenCalled();
+  expect(interrupt).toHaveBeenCalledWith(question.run.id, "Native decision exceeds safe display bounds.");
+});
+
+it("does not retry an uncertain automatic answer after abbreviating a large request", async () => {
+  const { answer, request, run, state, sessions } = session("large-uncertain", "bypassPermissions");
+  const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
+  answer.mockRejectedValue(new Error("Fixture transport disconnected after sending"));
+  const oversized = { ...approval, detail: "x".repeat(300000) };
+  const decision = () => db.prepare("SELECT id,state FROM native_decisions WHERE run_id=?").get(run.id) as any;
+  request(oversized);
+  await vi.waitFor(() => expect(decision()?.state).toBe("unknown"));
+  request(oversized);
+  await expect(sessions.answer(decision().id, "auto:" + decision().id, { choice: "allow" })).resolves.toEqual({ state: "unknown" });
+  await expect(sessions.answer(decision().id, "retry", { choice: "allow" })).rejects.toThrow();
+  expect(answer).toHaveBeenCalledExactlyOnceWith("bash", { choice: "allow" });
+  expect(decision().state).toBe("unknown");
+  expect(state()).toBe("awaiting_approval");
+  expect(interrupt).not.toHaveBeenCalled();
+});

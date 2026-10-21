@@ -41,6 +41,8 @@ Codex resumes request thread metadata without copying all saved turns into the s
 
 Native display output uses a bounded recent window. Loop saves pending progress before rotating that window and shortens oversized text previews; reaching the display limit does not interrupt native work. Saved progress and tool traces remain available, and a final reply is published only after the harness confirms completion.
 
+With **Never ask**, authorized tool confirmations may also contain large file contents. Loop abbreviates their saved approval preview, records its full byte count and SHA-256, and answers the original native request through the usual durable decision path. Session-specific permission settings still take precedence. Decisions that need manual consent or form input retain the full-display limit, and an uncertain answer is never automatically retried.
+
 For an explicit executable, existing billing configuration, native session resume or a custom ACP agent:
 
 ```sh
