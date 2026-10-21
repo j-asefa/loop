@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { visibleViewportTop } from "../shared/sheet-viewport";
+import { SHEET_SETTLE_MS, visibleViewportTop } from "../shared/sheet-viewport";
 export function PwaStatus() {
   const [online, setOnline] = useState(navigator.onLine),
     [update, setUpdate] = useState<ServiceWorker | null>(null);
@@ -96,7 +96,6 @@ export function PwaStatus() {
         "--visual-viewport-top",
         (keyboardOpen ? visibleTop : 0) + "px",
       );
-      place(keyboardOpen);
       fold(keyboardOpen);
     };
     // Fixed bars sit on the bottom of Safari's layout viewport, which after
@@ -113,11 +112,21 @@ export function PwaStatus() {
     const place = (
       keyboardOpen = document.documentElement.dataset.keyboard === "open",
     ) => {
+      // Safari can restore the probe's viewport before it restores a fixed
+      // composited bar. Measure the bar that actually needs moving, removing
+      // our previous translation so repeated checks converge without drift.
+      const nav = document.querySelector<HTMLElement>(".mobile-nav");
+      const navStyle = nav && getComputedStyle(nav);
+      const bottom = nav && navStyle?.position === "fixed" &&
+        navStyle.display !== "none"
+        ? nav.getBoundingClientRect().bottom - dropped
+        : probe.getBoundingClientRect().top;
       const drop = viewportDrop(
         window.visualViewport,
-        probe.getBoundingClientRect().top,
+        bottom,
         keyboardOpen,
         window.scrollY,
+        innerHeight,
       );
       if (drop === dropped) return;
       dropped = drop;
@@ -222,13 +231,30 @@ export function watchViewport(
   settleMs = 150,
 ) {
   let settle: unknown;
+  let checks: unknown[] = [];
+  let folds: unknown[] = [];
+  const clear = (timers: unknown[]) => {
+    for (const timer of timers) win.clearTimeout(timer);
+  };
+  const checked = () => {
+    check();
+    clear(checks);
+    // iOS can finish restoring the viewport after its last focus/resize event.
+    // Sample that short transition, then stop; no idle polling loop.
+    checks = SHEET_SETTLE_MS.map((ms) => win.setTimeout(check, ms));
+  };
+  const refolded = () => {
+    refold();
+    clear(folds);
+    folds = SHEET_SETTLE_MS.map((ms) => win.setTimeout(refold, ms));
+  };
   // Scroll events arrive throughout a scroll; fold once it has stopped.
   const scrolled = () => {
     win.clearTimeout(settle);
-    settle = win.setTimeout(refold, settleMs);
+    settle = win.setTimeout(refolded, settleMs);
   };
   const viewport = win.visualViewport;
-  const checks: [Events | null | undefined, string][] = [
+  const checkEvents: [Events | null | undefined, string][] = [
     [viewport, "resize"],
     [viewport, "scroll"],
     [win, "resize"],
@@ -243,15 +269,17 @@ export function watchViewport(
     [win, "touchend"],
     [win, "touchcancel"],
   ];
-  for (const [target, type] of checks) target?.addEventListener(type, check);
-  for (const [target, type] of refolds) target.addEventListener(type, refold);
+  for (const [target, type] of checkEvents) target?.addEventListener(type, checked);
+  for (const [target, type] of refolds) target.addEventListener(type, refolded);
   win.addEventListener("scroll", scrolled, { passive: true });
   return () => {
     win.clearTimeout(settle);
-    for (const [target, type] of checks)
-      target?.removeEventListener(type, check);
+    clear(checks);
+    clear(folds);
+    for (const [target, type] of checkEvents)
+      target?.removeEventListener(type, checked);
     for (const [target, type] of refolds)
-      target.removeEventListener(type, refold);
+      target.removeEventListener(type, refolded);
     win.removeEventListener("scroll", scrolled);
   };
 }
@@ -297,7 +325,8 @@ export function leftoverPan(
  * How far the bottom of what you see sits below the bottom of the layout
  * viewport (where fixed bars rest), once no keyboard is open: the distance
  * to move those bars down. 0 while typing (the keyboard owns the bottom) and
- * while pinch-zoomed.
+ * while pinch-zoomed. Once focus leaves text entry, a stale keyboard-sized
+ * visual viewport must not override the window's restored height.
  */
 export function viewportDrop(
   v:
@@ -308,11 +337,12 @@ export function viewportDrop(
   layoutBottom: number,
   keyboardOpen: boolean,
   scrollY = 0,
+  windowHeight = 0,
 ) {
   if (!v || keyboardOpen || (v.scale || 1) !== 1 || !(layoutBottom > 0))
     return 0;
   const drop = Math.round(
-    visibleViewportTop(v, scrollY) + v.height - layoutBottom,
+    Math.max(visibleViewportTop(v, scrollY) + v.height, windowHeight) - layoutBottom,
   );
   return drop >= 1 ? drop : 0;
 }

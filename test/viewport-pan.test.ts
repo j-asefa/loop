@@ -97,6 +97,38 @@ it("folds once, retries a fold Safari ignored, and never folds mid-touch", async
   expect(foldTarget(240, false, 1200, 740)).toBe(1440);
 });
 
+it("rechecks a late Safari viewport restoration, then stops sampling while idle", async () => {
+  const { watchViewport } = await import("../src/client/Pwa");
+  vi.useFakeTimers();
+  try {
+    const win = Object.assign(new EventTarget(), {
+      visualViewport: new EventTarget(),
+      setTimeout: (run: () => void, ms: number) => setTimeout(run, ms),
+      clearTimeout: (timer: any) => clearTimeout(timer),
+    });
+    const doc = new EventTarget();
+    let height = 494;
+    const seen: number[] = [];
+    const stop = watchViewport(win, doc, () => seen.push(height), () => {});
+    doc.dispatchEvent(new Event("focusout"));
+    expect(seen).toEqual([494]);
+    vi.advanceTimersByTime(200);
+    height = 844; // no accompanying resize event
+    vi.advanceTimersByTime(1400);
+    expect(seen.at(-1)).toBe(844);
+    expect(seen).toHaveLength(6);
+    vi.advanceTimersByTime(10000);
+    expect(seen).toHaveLength(6);
+    win.dispatchEvent(new Event("pageshow"));
+    expect(seen).toHaveLength(7);
+    stop();
+    vi.advanceTimersByTime(2000);
+    expect(seen).toHaveLength(7);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("moves the bottom bars down to what you see when Safari's layout viewport ends above it", async () => {
   const { viewportDrop } = await import("../src/client/Pwa");
   // Panned 372px after the keyboard closed: bars move down 372px.
@@ -107,6 +139,11 @@ it("moves the bottom bars down to what you see when Safari's layout viewport end
   expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 932, false)).toBe(0);
   // A stale keyboard height after blur leaves the bars where they are.
   expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 932, false)).toBe(0);
+  // The window restored its full height, but both the visual viewport and
+  // the actual navigation layer still retain their keyboard measurements.
+  expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 582, false, 0, 932)).toBe(350);
+  expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 582, true, 0, 932)).toBe(0);
+  expect(viewportDrop({ offsetTop: 350, height: 582, scale: 1 }, 932, false, 0, 932)).toBe(0);
   // While typing or pinch-zoomed, never.
   expect(viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, true)).toBe(0);
   expect(viewportDrop({ offsetTop: 372, height: 466, scale: 2 }, 932, false)).toBe(0);

@@ -7,6 +7,7 @@ import { statusLinksSmoke } from "./helpers/status-links-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
 import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
 import { feedReplyKeyboardSmoke } from "./helpers/feed-reply-keyboard-smoke.mjs";
+import { mobileNavViewportSmoke } from "./helpers/mobile-nav-viewport-smoke.mjs";
 import { feedReadingSmoke } from "./helpers/feed-reading-smoke.mjs";
 import { mainComposerKeyboardSmoke } from "./helpers/main-composer-keyboard-smoke.mjs";
 import assert from "node:assert/strict";
@@ -79,6 +80,7 @@ const scenarios = {
   "agent-mail": agentMailSmoke,
   "main-composer-keyboard": (p, f, e, c) => mainComposerKeyboardSmoke(p, f, c),
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
+  "mobile-nav-viewport": (p, f, e, c) => mobileNavViewportSmoke(p, f, c),
   "feed-reading": (p, f, e, c) => feedReadingSmoke(p, f, c),
   "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),
   "create-agent-layout": (p, f, e, c) => createAgentLayoutSmoke(p, f, c),
