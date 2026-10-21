@@ -9,7 +9,7 @@ Loop is a phone-first agent web app. Open Loop in your phone's browser and add i
 - 🗂️ **A feed, not one endless chat.** Run several agents and conversations at once, then follow them through the Feed (what needs you on top, then **Done**, **Working**, **Queued**), Projects and Search. Review and merge your GitHub pull requests in the Pull requests tab. Saved results and messages live under You. See [workspace](docs/workspace.md).
 - ⏱️ **Built for checking in, not sitting in.** Each Feed card offers the one action its thread is waiting for (approve, answer, continue a draft or review a result) and opens at that message. A "while you were away" card sums up what finished, failed or needs you. **Remind me**, **Send later** and **Queue after this task** pick work up when the agent is free, and scheduled sends reuse their idempotency key, so a retry after a crash never sends twice.
 - ↩️ **Reply to any message, or just part of it.** Loop quotes the message you picked, or only the lines you highlight, in front of your reply. Intermediate updates may be missing from the harness's own history, so this puts that exact update back in front of the agent. Long quotes are trimmed to their start and end. Mid-run, API, Codex, Claude Code and Pi agents support live replies; OpenCode and ACP queue replies for the next turn.
-- 🔌 **Your harnesses, your subscriptions.** Codex, Claude Code, OpenCode, Pi and Gemini CLI agents keep their own context, tools and sign-in. `loop` discovers and connects their native adapters in one workspace; Loop adds the phone workspace on top: the Feed, result cards, quoted replies, reminders, scheduled sends and approvals across every harness. Loop verifies the harness billing policy and never switches billing methods after a failure. See [harnesses](docs/harnesses.md).
+- 🔌 **Your harnesses, your models.** Codex, Claude Code, OpenCode, Pi and Gemini CLI agents keep their own context, tools and model configuration. Use cloud providers or [local models through Pi or OpenCode](#use-local-models). `loop` discovers and connects their native adapters in one workspace; Loop adds the phone workspace on top: the Feed, result cards, quoted replies, reminders, scheduled sends and approvals across every harness. Loop verifies the harness billing policy and never switches billing methods after a failure. See [harnesses](docs/harnesses.md).
 - 📶 **Built for flaky phone connections.** Loop records each send before dispatching it, never automatically replays an uncertain one, and catches up on missed updates after a reconnect. See [architecture](docs/architecture.md).
 - 🏠 **Your code stays on your computer.** Agents run on your machine and keep working after your phone disconnects; reopen Loop to check progress, steer a run or approve the next step. Only paired devices can sign in, and you can revoke them. Traffic is HTTPS but not end-to-end encrypted: with the default Quick Tunnel, Cloudflare terminates TLS, so use `--public-url` with your own TLS proxy if that matters to you. See [SECURITY.md](SECURITY.md).
 
@@ -55,7 +55,7 @@ See [server operation](docs/server.md) for accounts, remote access, runtime mach
 
 ## Use a coding harness
 
-Install Codex, Claude Code, Pi, OpenCode or Gemini CLI on your computer, sign in with its CLI, then run `loop` in your project directory. Loop discovers supported installed harnesses and connects their direct native adapters. Each harness uses your existing native account and credential home; you only need to sign in again if that account cannot be verified. Sign-in and runtime status are also available in Settings → Provider connections.
+Install Codex, Claude Code, Pi, OpenCode or Gemini CLI on your computer, configure its model provider (or sign in for a cloud account), then run `loop` in your project directory. Loop discovers supported installed harnesses and connects their direct native adapters. Each harness uses your existing model configuration and credential home; cloud accounts only need a fresh sign-in if they cannot be verified. Sign-in and runtime status are also available in Settings → Provider connections.
 
 ```sh
 loop
@@ -67,6 +67,24 @@ Each harness keeps its native tools and context. Agents owned by the same user o
 The workspace and pairing are available while each harness is verified independently. Missing harnesses are not installed automatically. A failed account check leaves that harness unavailable without blocking the others.
 
 Use `loop start --providers codex,claude,pi` to limit discovery. Explicit `loop codex|claude|pi|opencode|gemini|acp` commands support custom executables and native options. Use the Docker companion or server Compose stack for container execution. See [harnesses](docs/harnesses.md) for billing and connection recovery.
+
+## Use local models
+
+Use Pi or OpenCode connected to a local model server, such as Ollama, LM Studio or llama.cpp. Loop uses the harness's existing model configuration, so a local-model agent does not require a paid model API or subscription.
+
+1. Start your local model server and load a model suitable for tool use and coding.
+2. Configure and select that model in [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md) or [OpenCode](https://opencode.ai/docs/providers/). Confirm it works in the harness's CLI first.
+3. From your project directory, connect that harness to Loop:
+
+   ```sh
+   loop pi
+   # Or, if you use OpenCode:
+   loop opencode
+   ```
+
+4. In Loop, create an agent using that harness's connection. Select your local model from its model catalog, or use `native-default` to follow the harness's default.
+
+Keep the model server running and reachable from the computer or container running the harness. Pi and OpenCode retain their native tools and conversation context; Loop provides the same phone workspace and result feed. Background features such as project briefs have separate provider settings; selecting a local model for an agent does not change those settings.
 
 ## Pair your phone
 
