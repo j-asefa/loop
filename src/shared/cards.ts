@@ -29,6 +29,8 @@ const common = {
     message_id: nullableText,
     conversation_id: nullableText,
     run_id: nullableText,
+    // The source thread's agent target is separate from the message's author.
+    agent_id: nullableText.optional(),
   }),
   author: CardAgentSchema.extend({
     kind: z.enum(["owner", "agent", "system", "unknown"]),
@@ -65,6 +67,16 @@ export const ResultCardSchema = z.object({
     uploaded: z.boolean(),
     mime: nullableText,
     filename: nullableText,
+    size: z.number().nonnegative().nullable().default(null),
+    text: z.boolean().default(false),
+    download: nullableText.default(null),
+    source: z
+      .object({ url: z.string(), title: nullableText, excerpt: nullableText })
+      .nullable()
+      .default(null),
+    refreshable: z.boolean().default(false),
+    app: z.boolean().default(false),
+    workflow_id: nullableText.default(null),
   }),
 });
 export const MessageCardSchema = z.object({
@@ -118,6 +130,10 @@ export type Card = z.infer<typeof CardSchema>;
 export type ResultCard = z.infer<typeof ResultCardSchema>;
 export type MessageCard = z.infer<typeof MessageCardSchema>;
 export type CardEntry = z.infer<typeof CardEntrySchema>;
+export const compareCardOrder = (
+  a: CardEntry["order"],
+  b: CardEntry["order"],
+) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
 export type CardPage = z.infer<typeof CardPageSchema>;
 export type CardChanges = z.infer<typeof CardChangesSchema>;
 export type CardSelection = z.infer<typeof CardSelectionSchema>;

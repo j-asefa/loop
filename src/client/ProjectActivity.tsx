@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
-import { ArtifactCard, Empty } from "./components";
-import { ResultsPager, type ResultsPage, type ResultsUpdates } from "./results";
+import { Empty } from "./components";
+import { ContentCard } from "./ContentCard";
+import { cardArtifact } from "./card-actions";
+import { useCards } from "./useCards";
+import { useSourceId } from "./SourceContext";
 import type { Agent, Artifact, Connection } from "../shared/types";
-
-type ProjectOutput = Artifact & { cursor: number };
 
 type Props = {
   projectId: string;
@@ -35,51 +34,11 @@ function ProjectActivityFeed({
   onAgent,
   onFile,
 }: Props) {
-  const [items, setItems] = useState<Artifact[]>([]),
-    [next, setNext] = useState<number | null>(null),
-    [loading, setLoading] = useState(true),
-    [error, setError] = useState("");
-  const request = useRef(0);
-  const pager = useRef(new ResultsPager<ProjectOutput>());
-  async function load(more = false) {
-    const ticket = ++request.current;
-    setLoading(true);
-    setError("");
-    try {
-      const query = () =>
-        new URLSearchParams({ folder: projectId, view: "all" });
-      const page = await pager.current.load(
-        projectId,
-        more,
-        (before) => {
-          const params = query();
-          if (before !== null) params.set("before", String(before));
-          return api<ResultsPage<ProjectOutput>>(`/results?${params}`);
-        },
-        (after, through) => {
-          const params = query();
-          params.set("after", String(after));
-          params.set("through", String(through));
-          return api<ResultsUpdates<ProjectOutput>>(`/results/updates?${params}`);
-        },
-      );
-      // The pager serializes refreshes with appends and discards stale scopes.
-      // An overlapping no-op refresh must not suppress an appended page.
-      if (!page) return;
-      setItems(page.items);
-      setNext(page.next);
-    } catch (e) {
-      if (ticket === request.current) setError((e as Error).message);
-    } finally {
-      if (ticket === request.current) setLoading(false);
-    }
-  }
-  useEffect(() => {
-    void load();
-    return () => {
-      request.current++;
-    };
-  }, [projectId, revision]);
+  const source = useSourceId();
+  const { items, next, loading, error, load } = useCards(
+    { view: "results", project: projectId },
+    revision,
+  );
   return (
     <div className="feed" aria-label="Project activity">
       {error && (
@@ -97,25 +56,24 @@ function ProjectActivityFeed({
           Running.
         </Empty>
       )}
-      {items.map((item) => (
-        <ArtifactCard
-          key={item.id}
-          item={item}
-          connections={connections}
-          onOpen={() =>
-            item.conversation_id
-              ? onConversation(item.conversation_id)
-              : onOpen(item)
-          }
-          onArtifact={() => onOpen(item)}
-          onReply={() => onReply(item)}
-          onProfile={() => {
-            const agent = agents.find((a) => a.id === item.agent_id);
-            if (agent) onAgent(agent);
-          }}
-          onFile={() => onFile(item)}
-        />
-      ))}
+      {items.map(({ card }) => {
+        if (card.type !== "result") return null;
+        const item = cardArtifact(card, source);
+        return (
+          <ContentCard
+            key={card.id}
+            card={card}
+            onOpen={() => onOpen(item)}
+            onReply={() => onReply(item)}
+            onProfile={
+              agents.some((a) => a.id === card.author.id)
+                ? () => onAgent(agents.find((a) => a.id === card.author.id)!)
+                : undefined
+            }
+            onFile={() => onFile(item)}
+          />
+        );
+      })}
       {next !== null && (
         <button
           className="secondary"

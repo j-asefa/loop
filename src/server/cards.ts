@@ -3,6 +3,8 @@ import { z } from "zod";
 import { db } from "./db.js";
 import { Problem, owned } from "./domain.js";
 import { personalMessageSql } from "./personal-history.js";
+import { runModelName } from "../shared/model-display.js";
+import { artifactRefreshSource } from "../shared/artifact-refresh.js";
 import {
   fileArtifactSql,
   projectFolders,
@@ -21,9 +23,21 @@ import {
   type CardView,
 } from "../shared/cards.js";
 
+// Reuse fixed statement plans across cards; each lookup still reads the current
+// owner-bound row so catalog edits, file deletion and revocation stay visible.
+const modelConnection = db.prepare(
+  "SELECT id,provider,models FROM connections WHERE owner_id=? AND id=?",
+);
+const ownedObject = db.prepare(
+  "SELECT 1 FROM objects WHERE owner_id=? AND id=?",
+);
+const publishedFile = db.prepare(
+  "SELECT 1 FROM artifact_objects WHERE owner_id=? AND artifact_id=?",
+);
+
 // One predicate per view, used by list, detail and delta projection. Saved is
 // deliberately broader than Results: hidden pins and saved uploads still exist.
-export const resultCardSql = `a.archived=0 AND a.feed_hidden=0 AND p.sequence IS NOT NULL AND ${resultOutputSql}`;
+export const resultCardSql = `a.archived=0 AND a.feed_hidden=0 AND p.sequence IS NOT NULL AND COALESCE(json_extract(a.metadata,'$.snippet'),0) IN (0,'') AND ${resultOutputSql}`;
 export const savedResultCardSql = `a.archived=0 AND a.pinned=1 AND b.sequence IS NOT NULL
   AND ${fileArtifactSql} AND json_extract(a.metadata,'$.snippet') IS NULL`;
 export const savedMessageCardSql = `b.message_id IS NOT NULL`;
@@ -308,6 +322,7 @@ function toCard(row: Row): Card {
       message_id: messageId,
       conversation_id: row.conversation_id,
       run_id: row.run_id,
+      agent_id: row.agent_id,
     },
     author:
       artifact || row.role === "assistant"
@@ -354,13 +369,52 @@ function toCard(row: Row): Card {
     version: row.version!,
     hidden: !!row.feed_hidden,
     display: {
-      model: text(meta.resolvedModel) || text(meta.model),
+      model: (() => {
+        const connection =
+          !text(meta.resolvedModel) &&
+          text(meta.model) &&
+          text(meta.connectionId)
+            ? (modelConnection.get(row.owner_id, meta.connectionId) as
+                { id: string; provider: string; models: string } | undefined)
+            : undefined;
+        return runModelName(meta, connection ? [connection] : []) || null;
+      })(),
       tool: text(meta.tool),
       partial: meta.partial === true,
       imported: meta.origin === "import",
       uploaded: meta.uploaded === true || meta.upload === true,
       mime: text(meta.mime),
       filename: text(meta.name),
+      size:
+        typeof meta.size === "number" &&
+        Number.isFinite(meta.size) &&
+        meta.size >= 0
+          ? meta.size
+          : null,
+      text: meta.text === true,
+      download: (() => {
+        for (const id of [text(meta.objectId), text(meta.rawObjectId)])
+          if (id && ownedObject.get(row.owner_id, id))
+            return "/api/objects/" + encodeURIComponent(id);
+        return publishedFile.get(row.owner_id, row.id)
+          ? "/api/artifacts/" + encodeURIComponent(row.id) + "/file"
+          : null;
+      })(),
+      source: (() => {
+        const source = meta.source as Record<string, unknown> | undefined;
+        return source &&
+          typeof source.url === "string" &&
+          /^https?:\/\//.test(source.url)
+          ? {
+              url: source.url,
+              title: text(source.title),
+              excerpt: text(source.excerpt),
+            }
+          : null;
+      })(),
+      refreshable: artifactRefreshSource(row.agent_id, meta) !== null,
+      app: !!meta.appResource,
+      workflow_id: text(meta.workflowId),
     },
   };
 }

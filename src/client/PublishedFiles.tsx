@@ -2,6 +2,7 @@ import { useSourceApi, useSourcePath } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Expand, File } from "lucide-react";
 import { parse } from "./api";
+import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
 import { isHtmlFile } from "../shared/file-preview";
@@ -14,14 +15,71 @@ export function PublishedFile({
   item: Published;
   preview?: boolean;
 }) {
+  const meta = parse<any>(item.metadata, {});
+  return (
+    <PublishedFileView
+      id={item.id}
+      title={item.title}
+      content={item.content}
+      preview={preview}
+      display={{
+        filename: meta.name || item.title,
+        mime: meta.mime,
+        text: meta.text,
+        size: meta.size || 0,
+      }}
+    />
+  );
+}
+export function CardFile({ card }: { card: ResultCard }) {
+  if (!card.display.download)
+    return (
+      <div className="published-file">
+        <strong>{card.display.filename || card.title}</strong>
+        {card.content && (
+          <pre className="file-text-preview">{card.content}</pre>
+        )}
+        <p>File preview is unavailable from this source.</p>
+      </div>
+    );
+  return (
+    <PublishedFileView
+      id={card.source.artifact_id!}
+      title={card.title}
+      content={card.content}
+      display={card.display}
+      download={card.display.download || undefined}
+    />
+  );
+}
+function PublishedFileView({
+  id,
+  title,
+  content,
+  display,
+  download,
+  preview = true,
+}: {
+  id: string;
+  title: string;
+  content?: string;
+  preview?: boolean;
+  download?: string;
+  display: Pick<ResultCard["display"], "filename" | "mime" | "text" | "size">;
+}) {
   const sourceApiPath = useSourcePath();
   const [open, setOpen] = useState(false);
-  const meta = parse<any>(item.metadata, {});
+  const meta = {
+    ...display,
+    name: display.filename,
+    size: display.size || 0,
+    mime: display.mime || "",
+  };
   const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
     meta.mime,
   );
-  const name = meta.name || item.title;
-  const url = sourceApiPath("/api/artifacts/" + item.id + "/file");
+  const name = meta.name || title;
+  const url = sourceApiPath(download || "/api/artifacts/" + id + "/file");
   return (
     <div className="published-file">
       {image && (
@@ -35,7 +93,7 @@ export function PublishedFile({
         </button>
       )}
       {preview && meta.text && !isHtmlFile(name, meta.mime) && (
-        <pre className="file-text-preview">{item.content}</pre>
+        <pre className="file-text-preview">{content}</pre>
       )}
       <button
         type="button"
@@ -102,7 +160,7 @@ export function RunFiles({
       clearInterval(timer);
       window.removeEventListener("loop-workspace-change", refresh);
     };
-  }, [runId, active]);
+  }, [runId, active, api]);
   const visible = files.filter((file) => file.id !== excludeId);
   if (!visible.length && !error) return null;
   return (

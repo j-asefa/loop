@@ -1,5 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
+import {
+  artifactRefreshSource,
+  toolInvocationSchema,
+} from "../../shared/artifact-refresh.js";
 import { db, id, now } from "../db.js";
 import { owned, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
@@ -85,9 +89,11 @@ mcp.post("/mcp/native-candidates/:id/import", async (req, res) => {
       403,
       "Importing installed harness MCP servers is available only on a personal Loop.",
     );
-  res.status(201).json(
-    await importNativeMcpCandidate(res.locals.owner, String(req.params.id)),
-  );
+  res
+    .status(201)
+    .json(
+      await importNativeMcpCandidate(res.locals.owner, String(req.params.id)),
+    );
 });
 mcp.post("/mcp/catalog/:id/install", async (req, res) => {
   const data = z
@@ -322,9 +328,7 @@ export function queueTool(
     payload: { name: a.name, ...data },
   });
 }
-const callSchema = z.object({
-  tool: z.string().min(1).max(200),
-  arguments: z.record(z.string(), z.unknown()),
+const callSchema = toolInvocationSchema.extend({
   idempotencyKey: z.string().min(10).max(200),
 });
 mcp.post("/artifacts/:id/tool-call", (req, res) => {
@@ -345,17 +349,17 @@ mcp.post("/artifacts/:id/tool-call", (req, res) => {
 mcp.post("/artifacts/:id/refresh", (req, res) => {
   const a = owned<any>("artifacts", String(req.params.id), res.locals.owner),
     meta = JSON.parse(a.metadata);
-  if (!a.agent_id || !meta.connectionId || !meta.tool || !meta.arguments)
-    throw new Problem(400, "No refresh source is available");
+  const source = artifactRefreshSource(a.agent_id, meta);
+  if (!source) throw new Problem(400, "No refresh source is available");
   res.json(
     queueTool(res.locals.owner, {
       ...callSchema.parse({
         ...req.body,
-        tool: meta.tool,
-        arguments: meta.arguments,
+        tool: source.tool,
+        arguments: source.arguments,
       }),
-      agentId: a.agent_id,
-      connectionId: meta.connectionId,
+      agentId: source.agentId,
+      connectionId: source.connectionId,
       folderId: a.folder_id || undefined,
     }),
   );

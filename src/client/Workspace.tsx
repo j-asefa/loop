@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { api, parse, authorizedFetch } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { useSourceApi } from "./SourceContext";
 import { Sheet, Empty, Badge } from "./components";
 import {
   SettingsList,
@@ -158,20 +159,32 @@ export function FileSheet({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const api = useSourceApi();
+  const owner = useRef(viewOwner());
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const current = () => alive.current && owner.current === viewOwner();
   const [destination, setDestination] = useState(item.folder_id || ""),
     [command, setCommand] = useState(""),
     [result, setResult] = useState<any>(initialResult || null),
     [error, setError] = useState("");
   async function move(natural = false) {
+    if (!current()) return;
     try {
       const r = await api(
         `/artifacts/${item.id}/move`,
         natural ? { command } : { folderId: destination || null },
       );
+      if (!current()) return;
       setResult(r);
       onChanged();
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     }
   }
   return (
@@ -193,12 +206,14 @@ export function FileSheet({
             </a>
             <button
               onClick={async () => {
+                if (!current()) return;
                 try {
                   await api(`/operations/${result.operation}/undo`, {});
+                  if (!current()) return;
                   setResult(null);
                   onChanged();
                 } catch (e) {
-                  setError((e as Error).message);
+                  if (current()) setError((e as Error).message);
                 }
               }}
             >

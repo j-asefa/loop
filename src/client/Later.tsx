@@ -10,6 +10,11 @@ import {
   Tag,
 } from "lucide-react";
 import { api } from "./api";
+import { useSourceApi, useSourceId } from "./SourceContext";
+import { useCards } from "./useCards";
+import { ContentCard } from "./ContentCard";
+import { cardArtifact, cardMessage } from "./card-actions";
+import type { CardEntry } from "../shared/cards";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import {
   LaterSheet,
@@ -52,6 +57,7 @@ export type SavedMessage = {
   conversation_id: string;
   conversation_title: string;
   role: string;
+  personal?: boolean;
   preview: string;
   content?: string;
   created_at: number;
@@ -62,12 +68,6 @@ export type SavedMessage = {
   /** Where a saved story is, which is outside Loop. */
   url?: string | null;
 };
-// Results and messages share one Saved list, newest save first.
-type SavedItem = { key: string; saved_at: number; label?: string | null } & (
-  | { kind: "message"; message: SavedMessage }
-  | { kind: "result"; result: Artifact }
-);
-type SavedPage = { items: SavedItem[]; next: string | null };
 export type LaterSection = "all" | "saved" | "reminders" | "scheduled";
 
 export type ShowLater = { section: LaterSection; focusId: string | null };
@@ -84,7 +84,8 @@ export function showLater(section: LaterSection, focusId?: string) {
   if (section !== "all") url.searchParams.set("profileTab", section);
   else url.searchParams.delete("profileTab");
   url.searchParams.delete("social");
-  if (url.searchParams.get("filter") === "social") url.searchParams.delete("filter");
+  if (url.searchParams.get("filter") === "social")
+    url.searchParams.delete("filter");
   history.replaceState(history.state, "", url.pathname + url.search);
   window.dispatchEvent(
     new CustomEvent<ShowLater>(SHOW_LATER, {
@@ -179,10 +180,20 @@ function LabelSheet({
   onClose,
   onSaved,
 }: {
-  item: SavedItem;
+  item: { key: string; label: string | null };
   onClose: () => void;
   onSaved: (label: string | null) => void;
 }) {
+  const api = useSourceApi();
+  const owner = useRef(viewOwner());
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const current = () => alive.current && owner.current === viewOwner();
   const [label, setLabel] = useState(item.label || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -191,7 +202,7 @@ function LabelSheet({
       <form
         onSubmit={async (e) => {
           e.preventDefault();
-          if (busy) return;
+          if (busy || !current()) return;
           setBusy(true);
           setError("");
           try {
@@ -200,12 +211,13 @@ function LabelSheet({
               { key: item.key, label },
               "PUT",
             );
+            if (!current()) return;
             onSaved(saved.label);
             onClose();
           } catch (e) {
-            setError((e as Error).message);
+            if (current()) setError((e as Error).message);
           } finally {
-            setBusy(false);
+            if (current()) setBusy(false);
           }
         }}
       >
@@ -242,16 +254,7 @@ function LabelSheet({
  * short label per item. Unsaving waits for its Undo to expire before it is
  * sent, so Undo keeps the item exactly where it was.
  */
-export function SavedList({
-  revision,
-  project,
-  teams,
-  onOpen,
-  onReply,
-  renderResult,
-  onUnsaveResult,
-  searchLabel = "Search Saved",
-}: {
+type SavedListProps = {
   revision: number;
   project?: string;
   teams?: string;
@@ -261,150 +264,118 @@ export function SavedList({
     item: Artifact,
     options: { onUnsave: () => void },
   ) => ReactNode;
-  onUnsaveResult: (item: Artifact) => Promise<void>;
   searchLabel?: string;
-}) {
-  type Shown = { saved: SavedItem[]; next: string | null; query: string };
-  const shownKey = "saved:" + JSON.stringify([project, teams]);
-  const shown = cachedView<Shown>(shownKey);
-  const [saved, setSaved] = useState<SavedItem[] | null>(shown?.saved || null);
-  const [next, setNext] = useState<string | null>(shown?.next || null);
-  const [query, setQuery] = useState(shown?.query || "");
+};
+export function SavedList(props: SavedListProps) {
+  const source = useSourceId();
+  return (
+    <SavedCollection
+      key={JSON.stringify([viewOwner(), source, props.project, props.teams])}
+      {...props}
+    />
+  );
+}
+function SavedCollection({
+  revision,
+  project,
+  teams,
+  onOpen,
+  onReply,
+  renderResult,
+  searchLabel = "Search Saved",
+}: SavedListProps) {
+  const api = useSourceApi();
+  const source = useSourceId();
+  const owner = viewOwner();
+  const queryKey =
+    "saved-query:" + JSON.stringify([owner, source, project, teams]);
+  const [query, setQuery] = useState(() => cachedView<string>(queryKey) || "");
+  const [filter, setFilter] = useState(query.trim());
+  useEffect(() => {
+    const timer = setTimeout(() => setFilter(query.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const {
+    items,
+    next,
+    loading,
+    error: readError,
+    load,
+    key,
+  } = useCards(
+    { view: "saved", project, teams, q: filter || undefined },
+    revision,
+  );
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<Set<string>>(new Set());
-  const [labelling, setLabelling] = useState<SavedItem | null>(null);
-  const request = useRef(0);
-  const scope = (before?: string, text = query) => {
-    const q = new URLSearchParams();
-    if (project) q.set("folder", project);
-    if (teams) q.set("teams", teams);
-    if (text.trim()) q.set("q", text.trim());
-    if (before) q.set("before", before);
-    return q.toString();
-  };
-  async function load(text = query) {
-    const ticket = ++request.current;
-    // The account this request is for; a late answer for another is dropped.
-    const owner = viewOwner();
-    try {
-      const page = await api<SavedPage>("/saved?" + scope(undefined, text));
-      if (ticket !== request.current || owner !== viewOwner()) return;
-      setSaved(page.items);
-      setNext(page.next);
-      cacheView<Shown>(
-        shownKey,
-        { saved: page.items, next: page.next, query: text },
-        owner,
-      );
-      setError("");
-    } catch (e) {
-      if (ticket === request.current) setError((e as Error).message);
-    }
-  }
+  const [labelling, setLabelling] = useState<CardEntry | null>(null);
+  const alive = useRef(true);
+  const pending = useRef(new Set<string>());
+  const currentLoad = useRef(load);
+  currentLoad.current = load;
   useEffect(() => {
-    const timer = setTimeout(
-      () => void load(),
-      query === (shown?.query || "") ? 0 : 250,
-    );
-    return () => clearTimeout(timer);
-  }, [revision, project, teams, query]);
-  useEffect(() => {
-    const update = () => void load();
-    window.addEventListener("loop-later-change", update);
-    window.addEventListener("loop-refresh", update);
+    alive.current = true;
     return () => {
-      window.removeEventListener("loop-later-change", update);
-      window.removeEventListener("loop-refresh", update);
+      alive.current = false;
     };
-  }, [project, teams, query]);
-  function unsave(item: SavedItem) {
-    setRemoving((old) => new Set(old).add(item.key));
-    const restore = () =>
-      setRemoving((old) => {
-        const next = new Set(old);
-        next.delete(item.key);
-        return next;
-      });
+  }, []);
+  useEffect(() => {
+    setLabelling(null);
+    setError("");
+  }, [key]);
+  useEffect(() => {
+    setRemoving(
+      (old) => new Set([...old].filter((id) => pending.current.has(id))),
+    );
+  }, [items]);
+  function unsave(item: CardEntry) {
+    const owner = viewOwner();
+    pending.current.add(item.card.id);
+    setRemoving((old) => new Set(old).add(item.card.id));
+    const restore = () => {
+      pending.current.delete(item.card.id);
+      if (alive.current && viewOwner() === owner)
+        setRemoving((old) => {
+          const next = new Set(old);
+          next.delete(item.card.id);
+          return next;
+        });
+    };
     notify({
       text: "Removed from Saved.",
       undo: restore,
       onExpire: () => {
-        const commit =
-          item.kind === "message"
-            ? api(
-                `/messages/${item.message.message_id}/saved`,
-                undefined,
-                "DELETE",
-              )
-            : onUnsaveResult(item.result);
-        void Promise.resolve(commit)
-          .then(() => {
-            setSaved((old) => old?.filter((o) => o.key !== item.key) || null);
-            restore();
-          })
-          .catch((e) => {
-            restore();
-            setError((e as Error).message);
-          });
+        // The originating source stays captured even if Undo outlives navigation.
+        void (async () => {
+          if (viewOwner() !== owner) return;
+          if (item.card.type === "message")
+            await api(
+              `/messages/${item.card.source.message_id}/saved`,
+              undefined,
+              "DELETE",
+            );
+          else {
+            const current = await api<Artifact>(
+              "/artifacts/" + item.card.source.artifact_id,
+            );
+            if (viewOwner() !== owner) return;
+            await api(
+              "/artifacts/" + current.id,
+              { pinned: false, version: current.version },
+              "PATCH",
+            );
+          }
+          pending.current.delete(item.card.id);
+          if (alive.current) await currentLoad.current();
+          window.dispatchEvent(new Event("loop-later-change"));
+        })().catch((e) => {
+          restore();
+          if (alive.current && viewOwner() === owner) setError(e.message);
+        });
       },
     });
   }
-  const labelRow = (item: SavedItem) => (
-    <div className="saved-label-row">
-      <Tag size={14} aria-hidden="true" />
-      {item.label ? <span className="saved-label">{item.label}</span> : null}
-      <button
-        type="button"
-        className="text-button"
-        aria-label={item.label ? `Edit label ${item.label}` : "Add a label"}
-        onClick={() => setLabelling(item)}
-      >
-        {item.label ? "Edit" : "Add label"}
-      </button>
-      <span className="saved-when">
-        Saved {relativeTime(item.saved_at).toLowerCase()}
-      </span>
-    </div>
-  );
-  // A saved message is laid out like a saved result: same card, same actions.
-  const messageCard = (item: SavedItem & { kind: "message" }) => {
-    const message = item.message;
-    return (
-      <Card
-        agentName={message.role === "user" ? null : message.agent_name}
-        provider={message.role === "user" ? null : message.provider}
-        meta={`${dayLabel(message.created_at)} · ${timeLabel(message.created_at)}`}
-        eyebrow={
-          <>
-            {message.role === "user" ? "Your message" : "Message"}
-            {message.project_name && (
-              <span className="card-project"> · {message.project_name}</span>
-            )}
-          </>
-        }
-        title={message.conversation_title}
-        content={message.content || message.preview}
-        onOpen={() => onOpen(message.conversation_id, message.message_id)}
-        actions={
-          <>
-            <button onClick={() => onReply(message)}>
-              <MessageSquare size={16} />
-              Reply
-            </button>
-            <button
-              aria-label="Remove from Saved"
-              className="active"
-              onClick={() => unsave(item)}
-            >
-              <Bookmark size={16} fill="currentColor" />
-              Saved
-            </button>
-          </>
-        }
-      />
-    );
-  };
-  const visible = (saved || []).filter((item) => !removing.has(item.key));
+  const visible = items.filter((item) => !removing.has(item.card.id));
   return (
     <>
       <form
@@ -422,13 +393,22 @@ export function SavedList({
           aria-label={searchLabel}
           placeholder={searchLabel}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            cacheView(queryKey, e.target.value, owner);
+          }}
         />
       </form>
-      {error && (
+      {(error || readError) && (
         <div className="error" role="alert">
-          {error}
-          <button className="text-button" onClick={() => void load()}>
+          {error || readError}
+          <button
+            className="text-button"
+            onClick={() => {
+              setError("");
+              void load();
+            }}
+          >
             Try again
           </button>
         </div>
@@ -436,54 +416,78 @@ export function SavedList({
       {visible.length ? (
         <div className="feed saved-feed">
           {visible.map((item) => (
-            <div className="saved-item" key={item.key}>
-              {labelRow(item)}
-              {item.kind === "result" ? (
-                <Fragment>
-                  {renderResult(item.result, { onUnsave: () => unsave(item) })}
-                </Fragment>
+            <div className="saved-item" key={item.card.id}>
+              <div className="saved-label-row">
+                <Tag size={14} aria-hidden="true" />
+                {item.saved?.label && (
+                  <span className="saved-label">{item.saved.label}</span>
+                )}
+                <button
+                  className="text-button"
+                  aria-label={
+                    item.saved?.label
+                      ? `Edit label ${item.saved.label}`
+                      : "Add a label"
+                  }
+                  onClick={() => setLabelling(item)}
+                >
+                  {item.saved?.label ? "Edit" : "Add label"}
+                </button>
+                <span className="saved-when">
+                  Saved {relativeTime(item.saved!.at).toLowerCase()}
+                </span>
+              </div>
+              {item.card.type === "result" ? (
+                renderResult(cardArtifact(item.card, source), {
+                  onUnsave: () => unsave(item),
+                })
               ) : (
-                messageCard(item)
+                <ContentCard
+                  card={item.card}
+                  onOpen={() =>
+                    onOpen(
+                      item.card.source.conversation_id!,
+                      item.card.source.message_id!,
+                    )
+                  }
+                  onReply={() => {
+                    if (item.card.type === "message")
+                      onReply(cardMessage(item.card));
+                  }}
+                  onSave={() => unsave(item)}
+                />
               )}
             </div>
           ))}
         </div>
       ) : (
         <p className="section-empty">
-          {!saved
+          {loading
             ? "Loading…"
-            : query.trim()
-              ? `Nothing saved matches “${query.trim()}”.`
+            : filter
+              ? `Nothing saved matches “${filter}”.`
               : "Tap Save on any result or message to keep it here."}
         </p>
       )}
       {next && (
         <button
           className="secondary load-more"
-          onClick={async () => {
-            try {
-              const more = await api<SavedPage>("/saved?" + scope(next));
-              setSaved((old) => [...(old || []), ...more.items]);
-              setNext(more.next);
-            } catch (e) {
-              setError((e as Error).message);
-            }
-          }}
+          disabled={loading}
+          onClick={() => void load(true)}
         >
           More saved
         </button>
       )}
       {labelling && (
         <LabelSheet
-          item={labelling}
+          key={key + labelling.card.id}
+          item={{
+            key: labelling.card.id,
+            label: labelling.saved?.label || null,
+          }}
           onClose={() => setLabelling(null)}
           onSaved={(label) => {
-            setSaved(
-              (old) =>
-                old?.map((o) =>
-                  o.key === labelling.key ? { ...o, label } : o,
-                ) || null,
-            );
+            void load();
             notify({ text: label ? `Labelled “${label}”.` : "Label removed." });
           }}
         />
@@ -499,7 +503,6 @@ export function Later({
   onReply,
   onDraft,
   renderResult,
-  onUnsaveResult,
   project,
   teams,
   only,
@@ -519,7 +522,6 @@ export function Later({
     item: Artifact,
     options: { onUnsave: () => void },
   ) => ReactNode;
-  onUnsaveResult: (item: Artifact) => Promise<void>;
 }) {
   type Reminders = { due: LaterView[]; upcoming: LaterView[] };
   const shown = cachedView<Reminders>("later:reminders");
@@ -533,7 +535,10 @@ export function Later({
     return value === "snoozed" ? "reminders" : (value as LaterSection) || "all";
   });
   const [focus, setFocus] = useState<string | null>(
-    () => new URLSearchParams(location.search).get("scheduledSend") || cachedView<string | null>("later-focus") || null,
+    () =>
+      new URLSearchParams(location.search).get("scheduledSend") ||
+      cachedView<string | null>("later-focus") ||
+      null,
   );
   useEffect(() => cacheView("later-focus", null, viewOwner()), []);
   useEffect(() => {
@@ -779,7 +784,6 @@ export function Later({
             onOpen={onOpen}
             onReply={onReply}
             renderResult={renderResult}
-            onUnsaveResult={onUnsaveResult}
           />
         </>
       )}

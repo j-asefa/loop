@@ -1,11 +1,15 @@
+import type { ResultCard } from "../shared/cards";
+import type { CardArtifact } from "./card-actions";
+import { CardBody } from "./ContentCard";
+import { useSourceApi, useSourcePath } from "./SourceContext";
+import { viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
-import { sourceApiPath } from "./sourceRouting";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 const McpApp = lazy(() =>
   import("./McpApp").then((m) => ({ default: m.McpApp })),
 );
-import { useState, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import {
   Download,
   FolderInput,
@@ -18,7 +22,7 @@ import {
 import { Sheet, RichText } from "./components";
 import { ResultIdentity } from "./ResultIdentity";
 import { runModelName } from "./modelChoices";
-import { PublishedFile, RunFiles } from "./PublishedFiles";
+import { PublishedFile, CardFile, RunFiles } from "./PublishedFiles";
 import { FileLink } from "./FilePreview";
 import { Diagram } from "./Diagram";
 import { api, parse } from "./api";
@@ -26,6 +30,27 @@ import type { Agent, Artifact, Connection } from "../shared/types";
 export function ArtifactContent({ item }: { item: Artifact }) {
   if (parse<any>(item.metadata, {}).uploaded)
     return <PublishedFile item={item} />;
+  return <ResultContent item={item} />;
+}
+export function ResultBody({ card }: { card: ResultCard }) {
+  if (card.display.uploaded) return <CardFile card={card} />;
+  return (
+    <ResultContent
+      item={{
+        id: card.source.artifact_id!,
+        conversation_id: card.source.conversation_id,
+        title: card.title,
+        kind: card.kind,
+        content: card.content,
+      }}
+    />
+  );
+}
+function ResultContent({
+  item,
+}: {
+  item: Pick<Artifact, "id" | "conversation_id" | "kind" | "title" | "content">;
+}) {
   if (item.kind === "image") {
     const value = parse<any>(item.content, null);
     if (
@@ -108,7 +133,7 @@ export function ArtifactViewer({
   onWorkflow,
   onReply,
 }: {
-  item: Artifact;
+  item: CardArtifact;
   connections: Connection[];
   agent?: Agent;
   onProfile: (agent: Agent) => void;
@@ -120,21 +145,52 @@ export function ArtifactViewer({
   onWorkflow: (source: string) => void;
   onReply: () => void;
 }) {
-  const meta = parse<any>(item.metadata, {}),
+  const api = useSourceApi(),
+    sourceApiPath = useSourcePath();
+  const owner = useRef(viewOwner()),
+    alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const current = () => alive.current && owner.current === viewOwner();
+  const card = item.card;
+  const meta = card
+      ? {
+          partial: card.display.partial,
+          origin: card.display.imported ? "import" : undefined,
+          refreshable: card.display.refreshable,
+          source: card.display.source
+            ? {
+                url: card.display.source.url,
+                title: card.display.source.title || undefined,
+                excerpt: card.display.source.excerpt || undefined,
+              }
+            : null,
+          appResource: card.display.app,
+          model: card.display.model,
+          name: card.display.filename,
+          mime: card.display.mime,
+        }
+      : parse<any>(item.metadata, {}),
     [editing, setEditing] = useState(false),
     [text, setText] = useState(item.content),
     [error, setError] = useState("");
   async function save() {
+    if (!current()) return;
     try {
       await api(
         "/artifacts/" + item.id,
         { content: text, version: item.version },
         "PATCH",
       );
+      if (!current()) return;
       onChanged();
       onClose();
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     }
   }
   const author = agent?.name || item.name;
@@ -149,7 +205,9 @@ export function ArtifactViewer({
         <div className="result-header">
           <ResultIdentity
             name={author}
-            model={runModelName(meta, connections)}
+            model={
+              card ? card.display.model || "" : runModelName(meta, connections)
+            }
             createdAt={item.created_at}
             onProfile={agent ? () => onProfile(agent) : undefined}
           />
@@ -170,29 +228,35 @@ export function ArtifactViewer({
                 <button
                   onClick={async () => {
                     try {
-                      await api("/results/" + item.id, { hidden: false }, "PATCH");
+                      await api(
+                        "/results/" + item.id,
+                        { hidden: false },
+                        "PATCH",
+                      );
+                      if (!current()) return;
                       onChanged();
                       onClose();
                     } catch (e) {
-                      setError((e as Error).message);
+                      if (current()) setError((e as Error).message);
                     }
                   }}
                 >
                   Restore to feed
                 </button>
               )}
-              {meta.connectionId && (
+              {(meta.refreshable || meta.connectionId) && (
                 <button
                   onClick={async () => {
                     try {
                       await api("/artifacts/" + item.id + "/refresh", {
                         idempotencyKey: crypto.randomUUID(),
                       });
+                      if (!current()) return;
                       setError(
                         "Refresh queued. Approve the request in Running; this snapshot stays saved.",
                       );
                     } catch (e) {
-                      setError((e as Error).message);
+                      if (current()) setError((e as Error).message);
                     }
                   }}
                 >
@@ -209,10 +273,15 @@ export function ArtifactViewer({
                   Source conversation
                 </button>
               )}
-              {(meta.objectId || meta.rawObjectId) && (
+              {(card?.display.download ||
+                meta.objectId ||
+                meta.rawObjectId) && (
                 <FileLink
                   className="text-button"
-                  url={sourceApiPath("/api/objects/" + (meta.objectId || meta.rawObjectId))}
+                  url={sourceApiPath(
+                    card?.display.download ||
+                      "/api/objects/" + (meta.objectId || meta.rawObjectId),
+                  )}
                   name={meta.name || item.title}
                   mime={meta.mime}
                 >
@@ -266,7 +335,7 @@ export function ArtifactViewer({
         {meta.source && <SourceCard source={meta.source} />}
         {meta.appResource && (
           <Suspense fallback={<p>Loading isolated app…</p>}>
-            <McpApp artifactId={item.id} metadata={meta} />
+            <McpApp artifactId={item.id} metadata={card ? undefined : meta} />
           </Suspense>
         )}
         <div className="artifact-body">
@@ -276,6 +345,8 @@ export function ArtifactViewer({
               onChange={(e) => setText(e.target.value)}
               rows={16}
             />
+          ) : card ? (
+            <CardBody card={card} />
           ) : (
             <ArtifactContent item={item} />
           )}

@@ -129,6 +129,8 @@ invented. A synchronization watermark is not a content version.
 An `owner` author means personal provenance was established. System and unknown
 authors remain explicit; a recipient agent is not the message's author. Missing
 agents have null descriptors. Owner profile names are not copied into cards.
+`source.agent_id`, when available, identifies the source thread's agent target
+for replies; it does not attribute a system or unknown message to that agent.
 
 Attachment name, MIME type and size describe the stored attachment snapshot.
 Descriptors appear only for artifacts owned by the same owner. `href` opens
@@ -166,6 +168,9 @@ before rows are read so unseen later changes remain replayable. Revision history
 is not pruned. Malformed, mismatched or future watermarks return **409** with a
 resynchronization message: discard the selection and restart at its first page.
 Invalid page cursors return 400. Server errors use `{ error: string }`.
+Projection upgrades may rotate the cursor domain so unchanged historical cards
+are backfilled with their current fields and eligibility. Old change watermarks
+then return 409; old page cursors return 400.
 
 Results changes optionally accept `through`, the lowest publication sequence
 loaded by a UI, from `entry.order[0]`. Zero or omission covers the entire
@@ -173,3 +178,80 @@ collection, as external synchronization requires. Saved and Sent reject
 `through`; their clients can reconcile the complete change batches while keeping
 only their loaded timestamp/ID window. These bounds optimize a display window;
 they do not grant additional access.
+
+## Synchronization dependencies
+
+The shared projection in [cards.ts](../src/server/cards.ts) and the triggers in
+[migration 097](../migrations/097-cards.sql) and
+[migration 099](../migrations/099-card-reader-display.sql) use this dependency
+map. A change invalidates the affected public identity; the next read projects
+its current eligible representation or a selection-relative removal.
+
+| Mutable source | Fields, membership or ordering it affects |
+| --- | --- |
+| Artifacts and selected metadata | Body, title, format, version, timestamps, author/context references, visibility, snippet/upload/partial status, model, source, file and interactive-app display capabilities |
+| Messages and selected metadata | Body, role, personal provenance, creation order, source references and stored attachment descriptors |
+| Publication and artifact-bookmark relations | Results publication order, Saved membership/order and canonical save state |
+| Message bookmarks and saved labels | Saved membership, save time, labels and Saved search; old identities remain removable when a relation changes identity |
+| Runs, delegations and checkpoints | Completion eligibility, personal provenance, recipient, `payload.folderId` project context and native checkpoint eligibility |
+| Agents and conversations | Names/providers, conversation title, agent/recipient, team/project filtering and ownership boundaries |
+| Recorded model connections | Alias-only result model labels from the same owner's matching account/provider; catalog and ownership changes invalidate indexed dependents |
+| Folders and Workspace membership | Project names, descendant membership, folder-kind changes, subfolder moves and unfiled/default Workspace selection |
+| Referenced artifacts, objects and artifact-object relations | Attachment existence/authorization and source-relative file availability; indexed reverse references identify dependent cards |
+
+User messages retain the legacy `prompt` revision entity; bookmarked non-user
+messages use `message`. Changes coalesce both into one `m:` identity. Ownership
+and relationship changes retain the old owner's/selection's removal as well as
+the new state. Partial body chunks do not emit a body revision per chunk;
+independent membership/display changes still invalidate, and terminal run states
+reconcile final or retained partial content. This revision stream is separate
+from stored content versions and timestamps.
+
+## Typed readers
+
+`src/shared/card-client.ts` provides `createCardClient({ baseUrl, token })` for
+integrations and `cardReader(transport)` for source-bound browser sessions.
+Responses are validated against the shared schemas. The integration reader uses
+one origin without URL credentials, path, query or fragment; remote origins
+require HTTPS. HTTP is accepted only for localhost and loopback development.
+Credentials use the Authorization header, with redirects and cookies disabled.
+
+## First-party readers and compatibility
+
+Agent Results, project Activity, Saved and personally sent Messages use the
+versioned service and shared typed card bodies. The result reader fetches typed
+detail on open; collection cards already contain full stored content and do not
+fetch each off-screen item. Signed-in actions continue to use their existing
+mutation endpoints. Result file links and interactive-app capability flags are
+explicit display fields; the app's private tool payload is fetched only when a
+signed-in reader opens the interactive app, outside the Cards API.
+`refreshable` requires a complete stored agent/tool/connection/arguments source.
+It is not a permission grant; refresh rechecks current owner and tool access.
+Readers accept the initial v1 result shape from an older linked source: absent
+display additions default to unknown values or unadvertised capabilities, without
+inventing file links or application permissions. Sources predating `/api/v1/cards`
+must be updated to use these views. Update a v1 source to obtain the richer file
+and application display fields; its ordinary content remains readable meanwhile.
+Model labels prefer the recorded execution identity. Historical aliases resolve
+only through their recorded, same-owner connection and matching provider; absent
+catalogs keep the stored alias. The public display field contains the label,
+without exposing the account's configuration or credentials.
+
+UI pagination uses a bounded window. Results changes pass the lowest loaded
+publication sequence as `through`; Saved and Sent apply their `(time, id)`
+ordering boundary locally. A refresh updates existing and newer visible cards,
+advances past irrelevant revisions and retains older loaded pages. Requests are
+serialized and coalesced; a source/owner/filter change invalidates pending
+responses. Committed windows and Saved searches are retained in the bounded
+in-memory view cache for their owner, source and selection. Returning to a tab
+restores that window and reconciles changes; logout/account changes clear it.
+Full-collection integrations omit `through` and follow the synchronization
+protocol above. A still-eligible card below `through` is not a removal.
+
+The Files tab retains `/api/results?view=files` and its legacy renderer adapter.
+Remaining `/api/results`, `/api/results/updates`, `/api/saved`, `/api/me/prompts`
+and artifact-reader callers retain their wire contracts. Shared production
+eligibility/provenance predicates still govern those compatibility reads; the
+new first-party content collections do not interpret their raw rows. The
+conversation Feed, Status, Briefs and working/queued actions keep their own
+identity and behavior. Their eligible result links open the shared typed reader.

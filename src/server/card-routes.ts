@@ -1,4 +1,5 @@
 import { recordCardRead, tokenCardPage } from "./card-tokens.js";
+import { cardApi } from "../shared/card-api.js";
 import { Router } from "express";
 import { cardChanges, cardDetail, listCards } from "./cards.js";
 import { Problem } from "./domain.js";
@@ -22,31 +23,33 @@ cards.use("/v1/cards", (req, res, next) => {
     throw new Problem(403, "This token permits published results only");
   next();
 });
-cards.get("/v1/cards", (req, res) =>
+cards[cardApi.list.method](cardApi.list.path, (req, res) =>
   res.json(
-    tokenCardPage(
-      res.locals.owner,
-      res.locals.cardToken,
-      listCards(res.locals.owner, req.query),
+    cardApi.list.response.parse(
+      tokenCardPage(
+        res.locals.owner,
+        res.locals.cardToken,
+        listCards(res.locals.owner, req.query),
+      ),
     ),
   ),
 );
-cards.get("/v1/cards/changes", (req, res) =>
+cards[cardApi.changes.method](cardApi.changes.path, (req, res) =>
   res.json(
-    tokenCardPage(
-      res.locals.owner,
-      res.locals.cardToken,
-      cardChanges(res.locals.owner, req.query),
+    cardApi.changes.response.parse(
+      tokenCardPage(
+        res.locals.owner,
+        res.locals.cardToken,
+        cardChanges(res.locals.owner, req.query),
+      ),
     ),
   ),
 );
-cards.get("/v1/cards/:id", (req, res) => {
+cards[cardApi.detail.method](cardApi.detail.path, (req, res) => {
   if (Object.keys(req.query).length)
     throw new Problem(400, "Card detail does not accept query parameters");
-  const card = cardDetail(
-    res.locals.owner,
-    req.params.id,
-    res.locals.cardScope,
+  const card = cardApi.detail.response.parse(
+    cardDetail(res.locals.owner, req.params.id, res.locals.cardScope),
   );
   if (res.locals.cardToken)
     recordCardRead(res.locals.owner, res.locals.cardToken, [card.id]);

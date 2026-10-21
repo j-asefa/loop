@@ -9,7 +9,7 @@ export function McpApp({
   metadata,
 }: {
   artifactId: string;
-  metadata: any;
+  metadata?: any;
 }) {
   const api = useSourceApi();
   const sourceApiPath = useSourcePath();
@@ -51,9 +51,13 @@ export function McpApp({
     bridge.oninitialized = () => {
       ready = true;
       setStatus("App connected. Requests still require your approval.");
-      void bridge
-        .sendToolInput({ arguments: metadata.arguments || {} })
-        .then(() => bridge.sendToolResult(metadata.toolResult))
+      // Interactive app payload stays on its signed-in, source-bound route.
+      // The public content contract carries only the capability flag.
+      void (metadata ? Promise.resolve(metadata) : api<{ metadata: string }>("/artifacts/" + artifactId).then(item => JSON.parse(item.metadata)))
+        .then(async payload => {
+          await bridge.sendToolInput({ arguments: payload.arguments || {} });
+          await bridge.sendToolResult(payload.toolResult);
+        })
         .catch(() =>
           setStatus(
             "The app could not display this result. The saved snapshot is available below.",

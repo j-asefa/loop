@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ArtifactCard } from "../src/client/components";
+import { ArtifactCard, ResultPreview } from "../src/client/components";
+import type { ResultCard } from "../src/shared/cards";
+import { ContentCard } from "../src/client/ContentCard";
 import type { Artifact } from "../src/shared/types";
 import {
   structuredPreview,
@@ -125,6 +127,34 @@ it("renders search matches without scores or request metadata and preserves safe
   expect(html).not.toContain("0.98");
   expect(html).not.toContain("javascript:");
 });
+it("preserves title-based web previews for historical typed results without a tool field", () => {
+  const html = renderToStaticMarkup(
+    <ResultPreview
+      card={
+        {
+          source: { artifact_id: "historical" },
+          title: "web_search_exa result",
+          kind: "markdown",
+          content: JSON.stringify({
+            requestId: "private-request",
+            results: [
+              {
+                title: "Historical link",
+                url: "https://example.com/history",
+                text: "Useful historical excerpt.",
+              },
+            ],
+          }),
+          display: { tool: null },
+        } as ResultCard
+      }
+    />,
+  );
+  expect(html).toContain('class="web-result-source"');
+  expect(html).toContain('href="https://example.com/history"');
+  expect(html).toContain("Useful historical excerpt.");
+  expect(html).not.toContain("private-request");
+});
 it("accepts provider highlights as either strings or arrays without crashing the card", () => {
   for (const highlights of [
     "Human excerpt",
@@ -144,3 +174,87 @@ it("accepts provider highlights as either strings or arrays without crashing the
       );
   }
 });
+
+it.each([
+  ["web_search_exa result", "markdown", null, "Web search", "Search results"],
+  ["web_fetch_exa result", "markdown", null, "Webpage", "Example"],
+  [
+    "browser_run_code_unsafe result",
+    "markdown",
+    "browser_run_code_unsafe",
+    "Tool result",
+    "Browser result",
+  ],
+  [
+    "demo_tool result",
+    "markdown",
+    "demo_tool",
+    "Tool result",
+    "demo tool result",
+  ],
+  ["My workflow", "workflow", null, "Workflow", "My workflow"],
+])(
+  "keeps the typed card classification and heading for %s",
+  (title, kind, tool, eyebrow, heading) => {
+    const result: ResultCard = {
+      id: "a:presentation",
+      type: "result",
+      title: title!,
+      kind: kind!,
+      content: JSON.stringify({
+        results: [
+          { title: "Example", url: "https://example.com", text: "An excerpt." },
+        ],
+      }),
+      source: {
+        artifact_id: "presentation",
+        message_id: null,
+        conversation_id: null,
+        run_id: null,
+      },
+      author: {
+        kind: "agent",
+        id: "writer",
+        name: "Writer",
+        provider: "openai",
+      },
+      recipient: null,
+      context: {
+        conversation_title: null,
+        folder_id: null,
+        project_id: null,
+        project_name: null,
+        team_id: null,
+      },
+      format: "markdown",
+      created_at: 1,
+      updated_at: null,
+      saved: false,
+      attachments: [],
+      href: "/?artifact=presentation",
+      version: 1,
+      hidden: false,
+      display: {
+        model: null,
+        tool,
+        partial: false,
+        imported: false,
+        uploaded: false,
+        mime: null,
+        filename: null,
+        size: null,
+        text: false,
+        download: null,
+        source: null,
+        refreshable: false,
+        app: false,
+        workflow_id: null,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <ContentCard card={result} onOpen={() => {}} />,
+    );
+    expect(html).toContain(`<span class="eyebrow">${eyebrow}</span>`);
+    expect(html).toContain(`<h2>${heading}</h2>`);
+  },
+);

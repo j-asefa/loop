@@ -1,3 +1,7 @@
+import { ContentCard } from "./ContentCard";
+import { cardArtifact, type CardArtifact } from "./card-actions";
+import { CardPager, type CardWindow } from "./card-pager";
+import { cardReader } from "../shared/card-client";
 import { StartCodeReview } from "./CodeReview";
 import { SettingsHome } from "./SettingsHome";
 import { CardTokens } from "./CardTokens";
@@ -37,7 +41,7 @@ import { AgentMailThreads } from "./AgentMail";
 import { AgentMessages } from "./AgentMessages";
 import { afterSheetsClose, closeTopSheet } from "./sheetHistory";
 import { restoreScroll, usePageHistory } from "./usePageHistory";
-import { setViewOwner } from "./viewCache";
+import { cacheView, cachedView, setViewOwner } from "./viewCache";
 import {
   planSend,
   settleFailure,
@@ -183,7 +187,8 @@ const legacyPages: Record<string, { tab: string; filter?: FeedFilter }> = {
 };
 function initialPage() {
   const params = new URLSearchParams(location.search);
-  if (params.has("social") || params.get("filter") === "social") return { tab: "profile" };
+  if (params.has("social") || params.get("filter") === "social")
+    return { tab: "profile" };
   const page = params.get("page") || "";
   if (tabs.some((t) => t.id === page)) return { tab: page };
   if (legacyPages[page]) return legacyPages[page];
@@ -254,7 +259,7 @@ export default function App() {
     [profile, setProfile] = useState<Agent | null>(null),
     [view, setView] = useState("all"),
     [items, setItems] = useState<any[]>([]),
-    [next, setNext] = useState<number | null>(null),
+    [next, setNext] = useState<string | number | null>(null),
     [runs, setRuns] = useState<Run[]>([]),
     [selected, setSelected] = useState(
       sessionStorage.getItem("loop-draft-agent") || "",
@@ -267,7 +272,7 @@ export default function App() {
     [conversation, updateConversation] = useState<string | null>(
       new URLSearchParams(location.search).get("conversation"),
     ),
-    [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null),
+    [activeArtifact, setActiveArtifact] = useState<CardArtifact | null>(null),
     [theme, setTheme] = useState(
       localStorage.getItem("loop-theme") || "system",
     ),
@@ -339,14 +344,21 @@ export default function App() {
     agentName: string;
     steering: boolean;
   } | null>(null);
-  const [archivedCard, setArchivedCard] = useState<string | null>(null);
+  const [archivedCard, setArchivedCard] = useState<{
+    id: string;
+    source: string;
+    owner: string | undefined;
+  } | null>(null);
   const composerRef = useRef<HTMLElement>(null);
-  useComposerViewport(composerRef, !!session?.user && !conversation && availableAgents.length > 0);
+  useComposerViewport(
+    composerRef,
+    !!session?.user && !conversation && availableAgents.length > 0,
+  );
   const [sendMenu, setSendMenu] = useState(false);
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [myProfile, setMyProfile] = useState<MyProfileData | null>(null);
-  const [laterCard, setLaterCard] = useState<Artifact | null>(null);
+  const [laterCard, setLaterCard] = useState<CardArtifact | null>(null);
   const [threadNotice, setThreadNotice] = useState("");
   // The open thread's current work, so a send can say what it will do.
   const [threadWork, setThreadWork] = useState<ThreadWork | null>(null);
@@ -522,7 +534,11 @@ export default function App() {
   // message, or a result. Any other link loads normally.
   const openLink = useRef((_url: URL) => {});
   openLink.current = (url: URL) => {
-    if (!session?.user || url.searchParams.has("checkout") || url.searchParams.has("verification")) {
+    if (
+      !session?.user ||
+      url.searchParams.has("checkout") ||
+      url.searchParams.has("verification")
+    ) {
       location.assign(url.href);
       return;
     }
@@ -654,15 +670,23 @@ export default function App() {
     }>(`/runs/${runId}/withdraw`, {
       draftAttachmentIds: attachmentsRef.current.map((file) => file.id),
     });
-    const visible = owner === ownerRef.current && identity === composerIdentityRef.current;
+    const visible =
+      owner === ownerRef.current && identity === composerIdentityRef.current;
     const current = visible
       ? { text: draftRef.current, files: attachmentsRef.current }
       : readThreadDraft(key, owner);
     // Cancellation has already succeeded. Preserve every returned attachment,
     // even if newer edits filled the draft while the response was in flight.
     const next = {
-      text: current.text.trim() ? `${current.text.trimEnd()}\n\n${held.input}` : held.input,
-      files: [...current.files, ...held.attachments.filter(file => !current.files.some(f => f.id === file.id))],
+      text: current.text.trim()
+        ? `${current.text.trimEnd()}\n\n${held.input}`
+        : held.input,
+      files: [
+        ...current.files,
+        ...held.attachments.filter(
+          (file) => !current.files.some((f) => f.id === file.id),
+        ),
+      ],
     };
     writeThreadDraft(key, next.text, next.files, owner);
     if (visible) {
@@ -748,9 +772,24 @@ export default function App() {
     } else if (context.conversationId) focusComposer();
     else afterSheetsClose(focusComposer);
   }
-  async function replyToArtifact(item: Artifact) {
+  const replyRequest = useRef(0);
+  async function replyToArtifact(item: CardArtifact) {
+    const source = item.sourceId ?? executionSourceId(),
+      owner = ownerRef.current,
+      ticket = ++replyRequest.current;
+    if (item.cardOwner && item.cardOwner !== owner) return;
+    const current = () =>
+      owner === ownerRef.current &&
+      source === executionSourceId() &&
+      ticket === replyRequest.current;
     try {
-      const original = await api<Artifact>("/artifacts/" + item.id);
+      const reader = cardReader((path) => apiInWorkspace(path, source));
+      const card = item.card ? await reader.detail(item.card.id) : null;
+      const original =
+        card?.type === "result"
+          ? cardArtifact(card, source, owner)
+          : await apiInWorkspace<Artifact>("/artifacts/" + item.id, source);
+      if (!current()) return;
       if (
         !original.agent_id ||
         !original.conversation_id ||
@@ -766,7 +805,7 @@ export default function App() {
         content: original.content,
       });
     } catch (error) {
-      setError((error as Error).message);
+      if (current()) setError((error as Error).message);
     }
   }
   function openTeamFeed(team: Team) {
@@ -801,14 +840,21 @@ export default function App() {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, []);
-  async function archiveCard(id: string, hidden = true) {
+  async function archiveCard(
+    id: string,
+    hidden = true,
+    source = executionSourceId(),
+  ) {
+    const owner = ownerRef.current;
     try {
-      await api("/results/" + id, { hidden }, "PATCH");
+      await apiInWorkspace("/results/" + id, source, { hidden }, "PATCH");
+      if (source !== executionSourceId() || owner !== ownerRef.current) return;
       setItems((old) => old.filter((item) => item.id !== id));
-      setArchivedCard(hidden ? id : null);
+      setArchivedCard(hidden ? { id, source, owner } : null);
       await loadResults();
     } catch (e) {
-      setError((e as Error).message);
+      if (source === executionSourceId() && owner === ownerRef.current)
+        setError((e as Error).message);
     }
   }
   const [searchAgent, setSearchAgent] = useState("");
@@ -912,7 +958,8 @@ export default function App() {
   }
   useEffect(() => {
     const url = new URL(location.href);
-    if (url.searchParams.get("filter") === "social") url.searchParams.set("profileTab", "social");
+    if (url.searchParams.get("filter") === "social")
+      url.searchParams.set("profileTab", "social");
     for (const [key, value] of Object.entries({
       page: tab === "feed" ? "" : tab,
       filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
@@ -936,7 +983,7 @@ export default function App() {
   const [workflowSource, setWorkflowSource] = useState<string | undefined>(
     undefined,
   );
-  const [filing, setFiling] = useState<Artifact | null>(null),
+  const [filing, setFiling] = useState<CardArtifact | null>(null),
     [revision, setRevision] = useState(0);
   // Your profile and its counts; refreshed while the profile is open.
   const signedIn: string | undefined = session?.user?.id;
@@ -984,19 +1031,29 @@ export default function App() {
   const displayName = myProfile?.display_name || accountName;
   const initials = initialsOf(displayName);
   const receiptStorageKey = `loop-send:${threadIdentity}`;
-  const receiptBox = useRef<{ key: string; box: { current: SendReceipt } } | null>(null);
+  const receiptBox = useRef<{
+    key: string;
+    box: { current: SendReceipt };
+  } | null>(null);
   if (receiptBox.current?.key !== receiptStorageKey) {
-    receiptBox.current = { key: receiptStorageKey, box: { current: parse<SendReceipt>(
-        sessionStorage.getItem(receiptStorageKey) ||
-          (actionSource === executionSourceId()
-            ? sessionStorage.getItem(
-                `loop-draft-receipt:${actionSource || "laptop"}`,
-              )
-            : "") ||
-          (!actionSource ? sessionStorage.getItem("loop-draft-receipt") : "") ||
-          "",
-        { signature: "", key: "" },
-      ) } };
+    receiptBox.current = {
+      key: receiptStorageKey,
+      box: {
+        current: parse<SendReceipt>(
+          sessionStorage.getItem(receiptStorageKey) ||
+            (actionSource === executionSourceId()
+              ? sessionStorage.getItem(
+                  `loop-draft-receipt:${actionSource || "laptop"}`,
+                )
+              : "") ||
+            (!actionSource
+              ? sessionStorage.getItem("loop-draft-receipt")
+              : "") ||
+            "",
+          { signature: "", key: "" },
+        ),
+      },
+    };
   }
   // Each in-flight continuation keeps its originating box after navigation.
   const request = receiptBox.current.box;
@@ -1009,6 +1066,8 @@ export default function App() {
   const stopEventsPoll = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
   const resultsPager = useRef(new ResultsPager<any>());
+  const cardsPager = useRef(new CardPager());
+  const resultsSelection = useRef({ key: "" });
   const resultsVisible = useRef(true);
   // Project activity and files also follow feed changes to refresh in place.
   resultsVisible.current =
@@ -1016,13 +1075,14 @@ export default function App() {
     (!!profile && ["all", "files"].includes(view));
   const lastNavTap = useRef<{ tab: string; at: number } | null>(null);
   const resultsContext = useRef("");
-  resultsContext.current = [
+  resultsContext.current = JSON.stringify([
     session?.user?.id,
+    executionSourceId(),
     profile?.id,
     view,
     teamKey,
     projectFilter,
-  ].join(":");
+  ]);
   const activeAgent =
     selected === "__route__"
       ? composerData.agents.find((a) => a.id === routePreview?.agent?.id)
@@ -1151,7 +1211,7 @@ export default function App() {
   function teamVisibilityChanged(team: Team) {
     setData((old) => ({
       ...old,
-      teams: old.teams?.map((item) => item.id === team.id ? team : item),
+      teams: old.teams?.map((item) => (item.id === team.id ? team : item)),
     }));
     // Supersede any in-flight feed read so a saved preference takes effect now.
     window.dispatchEvent(new Event("loop-source-refresh"));
@@ -1221,9 +1281,42 @@ export default function App() {
   }
   async function loadResults(append = false, notify = true) {
     const owner = ownerRef.current,
-      key = [owner, profile?.id, view, teamKey, projectFilter].join(":");
+      source = executionSourceId(),
+      key = JSON.stringify([
+        owner,
+        source,
+        profile?.id,
+        view,
+        teamKey,
+        projectFilter,
+      ]);
     if (!owner || key !== resultsContext.current) return;
-    if (resultsPager.current.key !== key) {
+    const cacheKey = "app-cards:" + key;
+    if (resultsSelection.current.key !== key) {
+      // Both transports publish into the same list. Restore only this exact
+      // owner/source/selection's committed window before reconciling changes.
+      resultsSelection.current = { key };
+      resultsPager.current = new ResultsPager<any>();
+      cardsPager.current.reset();
+      const saved = view !== "files" && cachedView<CardWindow>(cacheKey);
+      if (saved) {
+        cardsPager.current.restore(key, saved);
+        setItems(
+          saved.page.items.flatMap((entry) =>
+            entry.card.type === "result"
+              ? [cardArtifact(entry.card, source, owner)]
+              : [],
+          ),
+        );
+        setNext(saved.page.next);
+      }
+    }
+    const selectionContext = resultsSelection.current;
+    if (
+      (view === "files" ? resultsPager.current : cardsPager.current).key !==
+        key ||
+      (view !== "files" && !cardsPager.current.snapshot())
+    ) {
       setItems([]);
       setNext(null);
       setResultsLoading(true);
@@ -1239,35 +1332,86 @@ export default function App() {
         if (projectFilter && !profile) q.set("folder", projectFilter);
         return q;
       };
-      const result = await resultsPager.current.load(
-        key,
-        append,
-        async (before) => {
-          const q = query();
-          if (before !== null) q.set("before", String(before));
-          return api("/results?" + q);
-        },
-        async (after, through) => {
-          const q = query();
-          q.set("after", String(after));
-          q.set("through", String(through));
-          return api("/results/updates?" + q);
-        },
+      const reader = cardReader((path, signal) =>
+        apiInWorkspace(path, source, undefined, undefined, signal),
       );
-      if (!result || owner !== ownerRef.current || key !== resultsContext.current)
+      const selection = {
+        view: "results" as const,
+        agent: profile?.id,
+        teams: profile ? undefined : teamKey || undefined,
+        project: !profile && projectFilter ? projectFilter : undefined,
+      };
+      const cardPage =
+        view !== "files"
+          ? await cardsPager.current.load(
+              key,
+              "results",
+              append,
+              (before) =>
+                reader.list({ ...selection, ...(before ? { before } : {}) }),
+              (after, through) =>
+                reader.changes({ ...selection, after, through }),
+            )
+          : null;
+      const result =
+        view !== "files"
+          ? cardPage && {
+              ...cardPage,
+              items: cardPage.items.flatMap((entry) =>
+                entry.card.type === "result"
+                  ? [cardArtifact(entry.card, source, owner)]
+                  : [],
+              ),
+            }
+          : await resultsPager.current.load(
+              key,
+              append,
+              async (before) => {
+                const q = query();
+                if (before !== null) q.set("before", String(before));
+                return apiInWorkspace("/results?" + q, source);
+              },
+              async (after, through) => {
+                const q = query();
+                q.set("after", String(after));
+                q.set("through", String(through));
+                return apiInWorkspace("/results/updates?" + q, source);
+              },
+            );
+      if (
+        selectionContext !== resultsSelection.current ||
+        owner !== ownerRef.current ||
+        key !== resultsContext.current
+      )
         return;
+      if (view !== "files") {
+        const saved = cardsPager.current.snapshot();
+        if (saved) cacheView(cacheKey, saved, owner);
+      }
+      if (!result) return;
       setItems(result.items);
       setNext(result.next);
       if (notify) setRevision((v) => v + 1);
     } catch (e) {
       // While Loop restarts, the status line reports it; keep the feed as is.
       if (
+        selectionContext === resultsSelection.current &&
         key === resultsContext.current &&
         !(e as { reconnecting?: boolean }).reconnecting
-      )
+      ) {
+        if (view !== "files" && (e as { status?: number }).status === 409) {
+          cacheView(cacheKey, undefined, owner);
+          setItems([]);
+          setNext(null);
+        }
         setResultsError((e as Error).message);
+      }
     } finally {
-      if (key === resultsContext.current) setResultsLoading(false);
+      if (
+        selectionContext === resultsSelection.current &&
+        key === resultsContext.current
+      )
+        setResultsLoading(false);
     }
   }
   const refreshGeneration = useRef(0);
@@ -1334,6 +1478,7 @@ export default function App() {
       setReplyContext(null);
       setRoutePreview(null);
       setFiling(null);
+      setLaterCard(null);
       setSettingsParent(false);
       setSheet("");
     };
@@ -1454,9 +1599,11 @@ export default function App() {
     )
       return;
     const currentView = () => viewIdentity === threadIdentityRef.current;
-    const sameComposer = () => threadIdentity === composerIdentityRef.current &&
+    const sameComposer = () =>
+      threadIdentity === composerIdentityRef.current &&
       draftRef.current === draft &&
-      JSON.stringify(attachmentsRef.current.map(file => file.id)) === JSON.stringify(attachments.map(file => file.id));
+      JSON.stringify(attachmentsRef.current.map((file) => file.id)) ===
+        JSON.stringify(attachments.map((file) => file.id));
     if (/^@new\b/i.test(draft.trim())) {
       // "@new …" creates an agent and starts it with the rest of the message.
       setNewAgentPrompt(draft.trim().replace(/^@new\s*/i, ""));
@@ -1690,7 +1837,9 @@ export default function App() {
       if (owner !== ownerRef.current) return;
       const unchanged = sameComposer();
       if (!unchanged)
-        notify({ text: `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}. Your current draft has been kept.${reconciled}` });
+        notify({
+          text: `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}. Your current draft has been kept.${reconciled}`,
+        });
       // Publish the confirmed receipt before any background refresh. Discard
       // older reads so a response started before this send cannot erase it.
       ++runsGeneration.current;
@@ -1779,14 +1928,37 @@ export default function App() {
       );
     } else void open(item);
   }
-  async function open(item: Artifact) {
+  const openRequest = useRef(0);
+  async function open(item: CardArtifact) {
     setFolderChoice(undefined);
+    const owner = ownerRef.current,
+      source = item.sourceId ?? executionSourceId(),
+      ticket = ++openRequest.current;
+    if (item.cardOwner && item.cardOwner !== owner) return;
+    const current = () =>
+      owner === ownerRef.current &&
+      source === executionSourceId() &&
+      ticket === openRequest.current;
+    const reader = cardReader((path, signal) =>
+      apiInWorkspace(path, source, undefined, undefined, signal),
+    );
     try {
-      item = await api<Artifact>("/artifacts/" + item.id);
+      try {
+        const card = await reader.detail("a:" + item.id);
+        if (card.type !== "result") throw new Error("Expected a result card");
+        item = cardArtifact(card, source, owner);
+      } catch (error) {
+        // Files and retained legacy entrypoints can open artifacts outside the
+        // public selections. A card itself must always use its typed detail.
+        if (item.card || (error as { status?: number }).status !== 404)
+          throw error;
+        item = await apiInWorkspace<Artifact>("/artifacts/" + item.id, source);
+      }
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
       return;
     }
+    if (!current()) return;
     setContextArtifact(item);
     if (item.agent_id) setSelected(item.agent_id);
     if (item.kind === "workflow") {
@@ -1968,7 +2140,13 @@ export default function App() {
             : "Send message"
       }
       title={threadMode ? undefined : "Hold for more send options"}
-      disabled={busy || uploading || !draft.trim() || !!activeAgent?.retired_at || !!(conversation && !conversationTarget)}
+      disabled={
+        busy ||
+        uploading ||
+        !draft.trim() ||
+        !!activeAgent?.retired_at ||
+        !!(conversation && !conversationTarget)
+      }
       onClick={() => void send()}
       {...sendPress}
     >
@@ -2335,15 +2513,6 @@ export default function App() {
         </div>
       </section>
     ) : null;
-  async function unsaveResult(item: Artifact) {
-    const current = await api<Artifact>("/artifacts/" + item.id);
-    await api(
-      "/artifacts/" + item.id,
-      { pinned: false, version: current.version },
-      "PATCH",
-    );
-    void changed();
-  }
   const replySaved = (message: SavedMessage) =>
     message.agent_id
       ? beginReply({
@@ -2351,51 +2520,96 @@ export default function App() {
           conversationId: message.conversation_id,
           messageId: message.message_id,
           content: message.content,
-          ...(message.role === "user" ? { mine: true } : {}),
+          ...((message.personal ?? message.role === "user")
+            ? { mine: true }
+            : {}),
         })
       : setConversation(message.conversation_id, message.message_id);
   // Result cards look and act the same in the feed, projects and Saved.
   const resultCard = (
-    item: Artifact & { team_id?: string | null },
+    item: CardArtifact & { team_id?: string | null },
     inSaved = false,
     onUnsave?: () => void,
-  ) => (
-    <ArtifactCard
-      key={item.id}
-      item={item}
-      connections={data.connections}
-      project={[
-        data.teams?.find((t) => t.id === item.team_id)?.name,
-        data.folders.find((f) => f.id === item.folder_id)?.name || "Unfiled",
-      ]
-        .filter(Boolean)
-        .join(" · ")}
-      onOpen={() => openCard(item)}
-      onArtifact={() => void open(item)}
-      onReply={() => void replyToArtifact(item)}
-      onArchive={inSaved ? undefined : () => void archiveCard(item.id)}
-      onLater={() => setLaterCard(item)}
-      onProfile={() =>
-        setProfile(data.agents.find((a) => a.id === item.agent_id) || null)
-      }
-      onFile={() => setFiling(item)}
-      onPin={async () => {
-        // In Saved, unsaving waits for its Undo (see SavedList).
-        if (onUnsave && item.pinned) return onUnsave();
-        try {
-          await api(
-            "/artifacts/" + item.id,
-            { pinned: !item.pinned, version: item.version },
-            "PATCH",
-          );
-          await changed();
-          window.dispatchEvent(new Event("loop-later-change"));
-        } catch (e) {
-          setError((e as Error).message);
+  ) =>
+    item.card ? (
+      <ContentCard
+        key={item.card.id}
+        card={item.card}
+        onOpen={() => void open(item)}
+        onReply={() => void replyToArtifact(item)}
+        onArchive={
+          inSaved
+            ? undefined
+            : () => void archiveCard(item.id, true, item.sourceId)
         }
-      }}
-    />
-  );
+        onLater={() => setLaterCard(item)}
+        onFile={() => setFiling(item)}
+        onProfile={
+          data.agents.some((a) => a.id === item.agent_id)
+            ? () =>
+                setProfile(
+                  data.agents.find((a) => a.id === item.agent_id) || null,
+                )
+            : undefined
+        }
+        onSave={async () => {
+          if (onUnsave && item.pinned) return onUnsave();
+          const source = item.sourceId ?? executionSourceId(),
+            owner = ownerRef.current;
+          if (item.cardOwner && item.cardOwner !== owner) return;
+          try {
+            await apiInWorkspace(
+              "/artifacts/" + item.id,
+              source,
+              { pinned: !item.pinned, version: item.version },
+              "PATCH",
+            );
+            if (source === executionSourceId() && owner === ownerRef.current)
+              await changed();
+            window.dispatchEvent(new Event("loop-later-change"));
+          } catch (error) {
+            if (source === executionSourceId() && owner === ownerRef.current)
+              setError((error as Error).message);
+          }
+        }}
+      />
+    ) : (
+      <ArtifactCard
+        key={item.id}
+        item={item}
+        connections={data.connections}
+        project={[
+          data.teams?.find((t) => t.id === item.team_id)?.name,
+          data.folders.find((f) => f.id === item.folder_id)?.name || "Unfiled",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        onOpen={() => openCard(item)}
+        onArtifact={() => void open(item)}
+        onReply={() => void replyToArtifact(item)}
+        onArchive={inSaved ? undefined : () => void archiveCard(item.id)}
+        onLater={() => setLaterCard(item)}
+        onProfile={() =>
+          setProfile(data.agents.find((a) => a.id === item.agent_id) || null)
+        }
+        onFile={() => setFiling(item)}
+        onPin={async () => {
+          // In Saved, unsaving waits for its Undo (see SavedList).
+          if (onUnsave && item.pinned) return onUnsave();
+          try {
+            await api(
+              "/artifacts/" + item.id,
+              { pinned: !item.pinned, version: item.version },
+              "PATCH",
+            );
+            await changed();
+            window.dispatchEvent(new Event("loop-later-change"));
+          } catch (e) {
+            setError((e as Error).message);
+          }
+        }}
+      />
+    );
   const resultsList = (
     <div className="feed">
       {resultsError && items.length > 0 && (
@@ -2425,10 +2639,12 @@ export default function App() {
         </div>
       ) : items.length ? (
         items
-          // Snippets are reusable prompts, not agent output; they live in the
-          // composer's / menu instead of the results list.
+          // Typed cards already carry public selection membership. Retained
+          // Files/legacy rows keep their existing snippet filter.
           .filter(
-            (item) => !item.role && !parse<any>(item.metadata, {}).snippet,
+            (item) =>
+              item.card ||
+              (!item.role && !parse<any>(item.metadata, {}).snippet),
           )
           .map((item) => resultCard(item))
       ) : (
@@ -2904,7 +3120,12 @@ export default function App() {
           {profile && ["all", "files"].includes(view) && resultsList}
           {tab === "profile" && !profile && (
             <MyProfile
-              social={<Social onAsk={availableAgents.length ? askAboutPull : undefined} agents={unified.agents} />}
+              social={
+                <Social
+                  onAsk={availableAgents.length ? askAboutPull : undefined}
+                  agents={unified.agents}
+                />
+              }
               name={displayName}
               accountName={accountName}
               profile={myProfile}
@@ -2923,7 +3144,9 @@ export default function App() {
                   window.scrollTo({ top: 0, behavior: "instant" }),
                 );
               }}
-              files={<PersonalFiles onConversation={(id) => setConversation(id)} />}
+              files={
+                <PersonalFiles onConversation={(id) => setConversation(id)} />
+              }
               messages={
                 <PersonalProfile
                   embedded
@@ -2966,7 +3189,6 @@ export default function App() {
                     renderResult={(item, options) =>
                       resultCard(item, true, options.onUnsave)
                     }
-                    onUnsaveResult={unsaveResult}
                     onDraft={draftFromScheduled}
                     onReply={replySaved}
                   />
@@ -3011,7 +3233,11 @@ export default function App() {
               folders={data.folders}
               agents={data.agents}
               connections={data.connections}
-              onBriefNavigate={url => afterSheetsClose(() => openLink.current(new URL(url, location.origin)))}
+              onBriefNavigate={(url) =>
+                afterSheetsClose(() =>
+                  openLink.current(new URL(url, location.origin)),
+                )
+              }
               selected={project}
               onSelect={setProject}
               onCreate={() => {
@@ -3117,7 +3343,6 @@ export default function App() {
                     renderResult={(item, options) =>
                       resultCard(item, true, options.onUnsave)
                     }
-                    onUnsaveResult={unsaveResult}
                   />
                 ) : (
                   <Feed
@@ -3213,7 +3438,11 @@ export default function App() {
       {archivedCard && (
         <div className="toast" role="status">
           <span>Archived from feed. Still in history and search.</span>
-          <button onClick={() => void archiveCard(archivedCard, false)}>
+          <button
+            onClick={() =>
+              void archiveCard(archivedCard.id, false, archivedCard.source)
+            }
+          >
             Undo
           </button>
           <button
@@ -3261,7 +3490,12 @@ export default function App() {
                   stopEventsPoll.current();
                   const previous = draftOwner.current;
                   if (previous.owner && draftLoadedFor.current === previous.key)
-                    writeThreadDraft(previous.key, draftRef.current, attachmentsRef.current, previous.owner);
+                    writeThreadDraft(
+                      previous.key,
+                      draftRef.current,
+                      attachmentsRef.current,
+                      previous.owner,
+                    );
                   await api("/auth/sign-out", {});
                   draftLoadedFor.current = null;
                   sessionStorage.clear();
@@ -3280,8 +3514,13 @@ export default function App() {
                   setReplyContext(null);
                   setRoutePreview(null);
                   setFiling(null);
+                  setLaterCard(null);
                   setSheet("");
-                  history.replaceState(history.state, "", sourceUrl(executionSourceId()));
+                  history.replaceState(
+                    history.state,
+                    "",
+                    sourceUrl(executionSourceId()),
+                  );
                   setDraft("");
                   setFolderChoice(undefined);
                   setConversation(null);
@@ -3463,6 +3702,7 @@ export default function App() {
       {laterCard && (
         <LaterSheet
           kind="artifact"
+          sourceId={laterCard.sourceId ?? executionSourceId()}
           targetId={laterCard.id}
           title={laterCard.title}
           onClose={() => setLaterCard(null)}
@@ -3471,9 +3711,20 @@ export default function App() {
               text: `Reminder set: ${label.toLowerCase()}.`,
               link: {
                 label: "View",
-                onSelect: () => openLater("reminders", created.id),
+                onSelect: () =>
+                  openSourceLater(
+                    "reminders",
+                    created.id,
+                    laterCard.sourceId ?? executionSourceId(),
+                  ),
               },
-              undo: () => undoReminder(created),
+              undo: () =>
+                laterCard.cardOwner && laterCard.cardOwner !== ownerRef.current
+                  ? undefined
+                  : undoReminder(
+                      created,
+                      laterCard.sourceId ?? executionSourceId(),
+                    ),
             })
           }
         />
@@ -3485,7 +3736,11 @@ export default function App() {
       )}
       {sheet === "card-tokens" && capabilities.cardTokens === true && (
         <Sheet title="Card API tokens" onClose={closeSheet}>
-          <CardTokens key={session.user.id + ":" + executionSourceId()} owner={session.user.id} sourceId={executionSourceId()} />
+          <CardTokens
+            key={session.user.id + ":" + executionSourceId()}
+            owner={session.user.id}
+            sourceId={executionSourceId()}
+          />
         </Sheet>
       )}
       {sheet === "retire-agent" && profile && (
@@ -3790,8 +4045,16 @@ export default function App() {
             mode={sheet === "pi-active" ? "active" : "library"}
             onClose={closeSheet}
             onUse={(agentId, token) => {
-              if (agentId !== activeAgent?.id && actionSource !== executionSourceId()) {
-                writeThreadDraft(sourceDraftId(GLOBAL_DRAFT, actionSource), token + " ", [], session?.user?.id);
+              if (
+                agentId !== activeAgent?.id &&
+                actionSource !== executionSourceId()
+              ) {
+                writeThreadDraft(
+                  sourceDraftId(GLOBAL_DRAFT, actionSource),
+                  token + " ",
+                  [],
+                  session?.user?.id,
+                );
                 sessionStorage.setItem("loop-draft-agent", agentId);
                 sessionStorage.removeItem("loop-draft-context");
                 location.assign(sourceUrl(actionSource, { agent: agentId }));
@@ -3956,11 +4219,13 @@ export default function App() {
                 defaultValue={profile.folder_id || ""}
               >
                 <option value="">Workspace</option>
-                {data.folders.filter((f) => !f.is_workspace).map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
+                {data.folders
+                  .filter((f) => !f.is_workspace)
+                  .map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
               </select>
             </label>
             {editError && (
@@ -4094,57 +4359,80 @@ export default function App() {
         </SourceProvider>
       )}
       {activeArtifact && (
-        <ArtifactViewer
-          key={activeArtifact.id}
-          item={activeArtifact}
-          connections={data.connections}
-          onProfile={(agent) => {
-            setActiveArtifact(null);
-            setConversation(null);
-            setProfile(agent);
-            afterSheetsClose(() =>
-              window.scrollTo({ top: 0, behavior: "instant" }),
-            );
-          }}
-          agent={data.agents.find(
-            (agent) => agent.id === activeArtifact.agent_id,
-          )}
-          onClose={() => setActiveArtifact(null)}
-          onFile={() => {
-            setFiling(activeArtifact);
-            setActiveArtifact(null);
-          }}
-          onConversation={() => {
-            const message = parse<any>(activeArtifact.metadata, {}).messageId;
-            setConversation(activeArtifact.conversation_id, message);
-            setActiveArtifact(null);
-          }}
-          onChanged={() => void changed()}
-          onReply={() => void replyToArtifact(activeArtifact)}
-          onWorkflow={(source) => {
-            setWorkflowSource(source);
-            setWorkflowId(undefined);
-            setActiveArtifact(null);
-            setSheet("workflows");
-          }}
-          onRun={(text) => {
-            setDraft(text);
-            setActiveArtifact(null);
-            focusComposer();
-          }}
-        />
+        <SourceProvider
+          sourceId={activeArtifact.sourceId ?? executionSourceId()}
+          capabilities={capabilities}
+        >
+          <ArtifactViewer
+            key={JSON.stringify([
+              session.user.id,
+              activeArtifact.sourceId ?? executionSourceId(),
+              activeArtifact.id,
+            ])}
+            item={activeArtifact}
+            connections={data.connections}
+            onProfile={(agent) => {
+              setActiveArtifact(null);
+              setConversation(null);
+              setProfile(agent);
+              afterSheetsClose(() =>
+                window.scrollTo({ top: 0, behavior: "instant" }),
+              );
+            }}
+            agent={data.agents.find(
+              (agent) => agent.id === activeArtifact.agent_id,
+            )}
+            onClose={() => setActiveArtifact(null)}
+            onFile={() => {
+              setFiling(activeArtifact);
+              setActiveArtifact(null);
+            }}
+            onConversation={() => {
+              const message = parse<any>(activeArtifact.metadata, {}).messageId;
+              setConversation(
+                activeArtifact.conversation_id,
+                message,
+                activeArtifact.sourceId ?? executionSourceId(),
+              );
+              setActiveArtifact(null);
+            }}
+            onChanged={() => void changed()}
+            onReply={() => void replyToArtifact(activeArtifact)}
+            onWorkflow={(source) => {
+              setWorkflowSource(source);
+              setWorkflowId(undefined);
+              setActiveArtifact(null);
+              setSheet("workflows");
+            }}
+            onRun={(text) => {
+              setDraft(text);
+              setActiveArtifact(null);
+              focusComposer();
+            }}
+          />
+        </SourceProvider>
       )}
       {filing && (
-        <FileSheet
-          item={filing}
-          initialResult={filingResult}
-          folders={data.folders}
-          onClose={() => {
-            setFiling(null);
-            setFilingResult(null);
-          }}
-          onChanged={() => void changed()}
-        />
+        <SourceProvider
+          sourceId={filing.sourceId ?? executionSourceId()}
+          capabilities={capabilities}
+        >
+          <FileSheet
+            key={JSON.stringify([
+              session.user.id,
+              filing.sourceId ?? executionSourceId(),
+              filing.id,
+            ])}
+            item={filing}
+            initialResult={filingResult}
+            folders={data.folders}
+            onClose={() => {
+              setFiling(null);
+              setFilingResult(null);
+            }}
+            onChanged={() => void changed()}
+          />
+        </SourceProvider>
       )}
       {(sheet === "project" || sheet === "folder-edit") && (
         <FolderForm

@@ -19,7 +19,8 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
 const { listCards, cardDetail, cardChanges } =
   await import("../src/server/cards");
-const { setSaved, setSavedLabel } = await import("../src/server/mobile-return");
+const { setSaved, setSavedLabel, listSaved } =
+  await import("../src/server/mobile-return");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { personalHistory } = await import("../src/server/personal-history");
 const { ensureWorkspaceProject } =
@@ -1014,12 +1015,38 @@ it("migrates existing bookmarks/labels and preserves revision numbers and truthf
   old.exec(`INSERT INTO conversations(id,owner_id,title,created_at) VALUES('old','old','Old',1);
     INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('old-message','old','old','assistant','Old answer',1);
     INSERT INTO message_bookmarks(owner_id,message_id,created_at) VALUES('old','old-message',10);
-    INSERT INTO saved_labels VALUES('old','m:old-message','Old label',11);`);
+    INSERT INTO saved_labels VALUES('old','m:old-message','Old label',11);
+    INSERT INTO artifacts(id,owner_id,title,kind,content,pinned,created_at,updated_at) VALUES('old-result','old','Old result','markdown','Retained output',1,2,3);`);
+  const published = old.prepare("SELECT * FROM artifact_publications").all();
+  const pins = old.prepare("SELECT * FROM artifact_bookmarks").all();
+  let earlierEpoch: unknown;
   old
-    .transaction(() =>
-      old.exec(readFileSync("migrations/097-cards.sql", "utf8")),
-    )
+    .transaction(() => {
+      for (const file of readdirSync("migrations")
+        .filter((f) => f.endsWith(".sql") && Number(f.split("-")[0]) >= 97)
+        .sort()) {
+        if (file.startsWith("099-"))
+          earlierEpoch = old
+            .prepare("SELECT epoch FROM card_revision_domain")
+            .get();
+        old.exec(readFileSync("migrations/" + file, "utf8"));
+      }
+    })
     .immediate();
+  expect(
+    old.prepare("SELECT epoch FROM card_revision_domain").get(),
+  ).not.toEqual(earlierEpoch);
+  expect(old.prepare("SELECT * FROM artifact_publications").all()).toEqual(
+    published,
+  );
+  expect(old.prepare("SELECT * FROM artifact_bookmarks").all()).toEqual(pins);
+  expect(
+    old
+      .prepare(
+        "SELECT created_at,updated_at FROM artifacts WHERE id='old-result'",
+      )
+      .get(),
+  ).toEqual({ created_at: 2, updated_at: 3 });
   expect(
     old
       .prepare("SELECT * FROM feed_revisions WHERE object_id='old-message'")
@@ -1040,4 +1067,289 @@ it("migrates existing bookmarks/labels and preserves revision numbers and truthf
   ).toBeTruthy();
   expect(old.prepare("SELECT * FROM message_bookmarks").all()).toEqual([]);
   old.close();
+});
+
+it("reconciles typed reader file links and display metadata without streaming body revisions", () => {
+  setup("reader");
+  const id = result("reader", {
+    metadata: { uploaded: true, partial: true, rawObjectId: "reader-object" },
+  });
+  db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
+  const cache = all("reader", { view: "saved" });
+  const display = () => {
+    const card = cache.items.get("a:" + id)!.card;
+    expect(card.type).toBe("result");
+    return card.type === "result" ? card.display : null;
+  };
+  expect(display()?.download).toBeNull();
+  db.prepare(
+    "INSERT INTO objects VALUES('reader-object','reader','Original','text/plain',X'01',1)",
+  ).run();
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(display()?.download).toBe("/api/objects/reader-object");
+  db.prepare(
+    "UPDATE objects SET owner_id='other' WHERE id='reader-object'",
+  ).run();
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(display()?.download).toBeNull();
+  db.prepare(
+    "UPDATE objects SET owner_id='reader' WHERE id='reader-object'",
+  ).run();
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(display()?.download).toBe("/api/objects/reader-object");
+  db.prepare("DELETE FROM objects WHERE id='reader-object'").run();
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(display()?.download).toBeNull();
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.size',1024,'$.text',json('true'),'$.source',json(?),'$.connectionId','private','$.appResource',json(?),'$.workflowId','workflow') WHERE id=?",
+  ).run(
+    '{"url":"https://example.com","title":"Reference"}',
+    '{"html":"private app"}',
+    id,
+  );
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(display()).toMatchObject({
+    size: 1024,
+    text: true,
+    source: { url: "https://example.com", title: "Reference" },
+    refreshable: false,
+    app: true,
+    workflow_id: "workflow",
+  });
+  expect(JSON.stringify(display())).not.toContain("private");
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.tool','refresh-tool','$.arguments',json('{}')) WHERE id=?",
+  ).run(id);
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(display()?.refreshable).toBe(true);
+  for (const args of [null, [], "invalid"]) {
+    db.prepare(
+      "UPDATE artifacts SET metadata=json_set(metadata,'$.arguments',json(?)) WHERE id=?",
+    ).run(JSON.stringify(args), id);
+    expectCurrent("reader", { view: "saved" }, cache);
+    expect(display()?.refreshable).toBe(false);
+  }
+  const revision = cache.revision;
+  db.prepare("UPDATE artifacts SET content='A partial chunk' WHERE id=?").run(
+    id,
+  );
+  expect(
+    cardChanges("reader", { view: "saved", after: revision }).items,
+  ).toEqual([]);
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id=?",
+  ).run(id);
+  expectCurrent("reader", { view: "saved" }, cache);
+  expect(cache.items.get("a:" + id)!.card.content).toBe("A partial chunk");
+});
+
+it("keeps reusable prompt snippets out of content collections while exposing their conversion to results", () => {
+  setup("snippets");
+  const id = result("snippets", { metadata: { snippet: true } });
+  db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
+  const resultCache = all("snippets", { view: "results" }),
+    savedCache = all("snippets", { view: "saved" });
+  expect(resultCache.items.size).toBe(0);
+  expect(savedCache.items.size).toBe(0);
+  expect(() => cardDetail("snippets", "a:" + id)).toThrow("Card not found");
+  for (const snippet of [false, 0, "", null]) {
+    db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
+      JSON.stringify({ snippet }),
+      id,
+    );
+    expectCurrent("snippets", { view: "results" }, resultCache);
+    expect(resultCache.items.size).toBe(1);
+    expect(cardDetail("snippets", "a:" + id).id).toBe("a:" + id);
+    expectCurrent("snippets", { view: "saved" }, savedCache);
+    expect([...savedCache.items.keys()]).toEqual(
+      listSaved("snippets").items.map((item) => item.key),
+    );
+    db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
+      '{"snippet":true}',
+      id,
+    );
+    expectCurrent("snippets", { view: "results" }, resultCache);
+    expect(resultCache.items.size).toBe(0);
+  }
+  db.prepare("UPDATE artifacts SET metadata='{}' WHERE id=?").run(id);
+  expectCurrent("snippets", { view: "results" }, resultCache);
+  expectCurrent("snippets", { view: "saved" }, savedCache);
+  expect(resultCache.items.size).toBe(1);
+  expect(savedCache.items.size).toBe(1);
+});
+
+it("keeps legacy model labels owner-scoped and reconciles their catalog dependencies", () => {
+  setup("model-labels");
+  const insert = db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('model-account',?,'anthropic','Private account','never-public','disconnected',?,1)",
+  );
+  const catalog = (version: string) =>
+    JSON.stringify([
+      {
+        id: "default",
+        name: "Default",
+        resolvedModel: "claude-opus-" + version,
+      },
+    ]);
+  insert.run("model-labels", catalog("5-5"));
+  const id = result("model-labels", {
+    metadata: {
+      model: "default",
+      provider: "anthropic",
+      connectionId: "model-account",
+    },
+  });
+  result("model-labels", {
+    metadata: {
+      model: "default",
+      resolvedModel: "claude-opus-4-8",
+      connectionId: "model-account",
+    },
+  });
+  result("model-labels", { metadata: { connectionId: "model-account" } });
+  db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
+  const results = all("model-labels", { view: "results" }),
+    saved = all("model-labels", { view: "saved" });
+  const check = (label: string) => {
+    expectCurrent("model-labels", { view: "results" }, results);
+    expectCurrent("model-labels", { view: "saved" }, saved);
+    const card = cardDetail("model-labels", "a:" + id);
+    expect(card.type === "result" && card.display.model).toBe(label);
+    expect(results.items.get(card.id)?.card).toEqual(card);
+    expect(saved.items.get(card.id)?.card).toEqual(card);
+    expect(JSON.stringify(card)).not.toContain("model-account");
+    expect(JSON.stringify(card)).not.toContain("never-public");
+  };
+  check("Claude Opus 5.5");
+  db.prepare("UPDATE connections SET models=? WHERE id='model-account'").run(
+    catalog("5-6"),
+  );
+  expect(
+    cardChanges("model-labels", {
+      view: "results",
+      after: results.revision,
+    }).items.map((entry) => entry.card.id),
+  ).toEqual(["a:" + id]);
+  check("Claude Opus 5.6");
+  db.prepare(
+    "UPDATE connections SET owner_id='foreign' WHERE id='model-account'",
+  ).run();
+  check("default");
+  db.prepare(
+    "UPDATE connections SET owner_id='model-labels',provider='openai' WHERE id='model-account'",
+  ).run();
+  check("default");
+  db.prepare(
+    "UPDATE connections SET provider='anthropic' WHERE id='model-account'",
+  ).run();
+  check("Claude Opus 5.6");
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.provider','openai') WHERE id=?",
+  ).run(id);
+  check("default");
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.provider','anthropic','$.resolvedModel','claude-opus-4-8') WHERE id=?",
+  ).run(id);
+  check("Claude Opus 4.8");
+  db.prepare("UPDATE connections SET models=? WHERE id='model-account'").run(
+    catalog("5-7"),
+  );
+  expect(
+    cardChanges("model-labels", { view: "results", after: results.revision })
+      .items,
+  ).toEqual([]);
+  check("Claude Opus 4.8");
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_remove(metadata,'$.resolvedModel') WHERE id=?",
+  ).run(id);
+  check("Claude Opus 5.7");
+  db.prepare("DELETE FROM connections WHERE id='model-account'").run();
+  check("default");
+  insert.run("foreign", catalog("5-8"));
+  check("default");
+  db.prepare(
+    "UPDATE connections SET owner_id='model-labels' WHERE id='model-account'",
+  ).run();
+  check("Claude Opus 5.8");
+  const plan = db
+    .prepare(
+      "EXPLAIN QUERY PLAN SELECT a.id FROM artifacts a WHERE a.owner_id=? AND json_extract(a.metadata,'$.connectionId')=?",
+    )
+    .all("model-labels", "model-account");
+  expect(JSON.stringify(plan)).toContain("card_artifact_model_connection");
+});
+
+it("invalidates partial Saved display changes without revising every body chunk", () => {
+  const owner = "partial-display";
+  setup(owner);
+  const id = result(owner, { metadata: { partial: true } });
+  db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
+  let revision = listCards(owner, { view: "saved" }).revision;
+  const metadata: Record<string, unknown> = { partial: true };
+  for (const [key, value] of Object.entries({
+    model: "alias",
+    resolvedModel: "recorded",
+    tool: "browser_open",
+    origin: "import",
+    uploaded: true,
+    upload: true,
+    mime: "text/plain",
+    name: "answer.txt",
+  })) {
+    metadata[key] = value;
+    db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
+      JSON.stringify(metadata),
+      id,
+    );
+    const delta = cardChanges(owner, { view: "saved", after: revision });
+    expect(
+      delta.items.map((entry) => entry.card.id),
+      key,
+    ).toContain("a:" + id);
+    expect(delta.items[0].card).toEqual(cardDetail(owner, "a:" + id));
+    revision = delta.revision;
+    db.prepare("UPDATE artifacts SET content=content||' chunk' WHERE id=?").run(
+      id,
+    );
+    expect(
+      cardChanges(owner, { view: "saved", after: revision }).items,
+    ).toEqual([]);
+  }
+  db.prepare(
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id=?",
+  ).run(id);
+  expect(
+    cardChanges(owner, { view: "saved", after: revision }).items[0].card
+      .content,
+  ).toContain("chunk");
+});
+
+it("requires existing collection and page cursors to reset when the reader projection migrates", () => {
+  const owner = "projection-upgrade";
+  setup(owner);
+  for (let n = 0; n < 2; n++) {
+    const id = result(owner);
+    db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
+  }
+  const before = listCards(owner, { view: "saved", limit: 1 });
+  expect(before.next).not.toBeNull();
+  const migration = readFileSync(
+    "migrations/099-card-reader-display.sql",
+    "utf8",
+  );
+  db.transaction(() => {
+    // Put this isolated fixture's reader DDL back at 098, preserving rows and
+    // real production cursors, then execute the actual upgrade migration.
+    for (const match of migration.matchAll(/CREATE (INDEX|TRIGGER) (\w+)/g))
+      db.exec(`DROP ${match[1]} ${match[2]}`);
+    db.prepare("DELETE FROM schema_version WHERE version=99").run();
+    db.exec(migration);
+  }).immediate();
+  expect(() =>
+    cardChanges(owner, { view: "saved", after: before.revision }),
+  ).toThrowError(expect.objectContaining({ status: 409 }));
+  expect(() =>
+    listCards(owner, { view: "saved", before: before.next! }),
+  ).toThrowError(expect.objectContaining({ status: 400 }));
+  expect(listCards(owner, { view: "saved" }).items).toHaveLength(2);
 });

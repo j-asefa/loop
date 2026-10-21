@@ -1,6 +1,8 @@
 import type { Connection } from "../shared/types";
 import type { ModelOption } from "../shared/models";
 import { parse } from "./api";
+import { modelDisplayName } from "../shared/model-display";
+export { modelDisplayName, runModelName } from "../shared/model-display";
 
 export function harnessName(connection: Connection) {
   const metadata = parse<any>(connection.metadata, {});
@@ -124,47 +126,4 @@ export function connectionEnvironments(connections: Connection[]) {
   return new Map(
     connections.map((c) => [c.id, connectionLocation(c).kind] as const),
   );
-}
-
-export function runModelName(
-  snapshot: {
-    model?: unknown;
-    resolvedModel?: unknown;
-    connectionId?: unknown;
-    provider?: unknown;
-  },
-  connections: Connection[],
-) {
-  // Prefer an execution-time identity when one was recorded. Older runs only
-  // saved an alias, so resolve it using their own connection's model catalog,
-  // never the agent's current model or a different account's default.
-  if (typeof snapshot.resolvedModel === "string" && snapshot.resolvedModel)
-    return modelDisplayName({
-      id: snapshot.resolvedModel,
-      name: snapshot.resolvedModel,
-    });
-  if (typeof snapshot.model !== "string" || !snapshot.model) return "";
-  const connection = connections.find(
-    (c) =>
-      c.id === snapshot.connectionId &&
-      (!snapshot.provider || c.provider === snapshot.provider),
-  );
-  return agentModelName(
-    { connection_id: connection?.id || null, model: snapshot.model },
-    connections,
-  );
-}
-
-export function modelDisplayName(model: ModelOption) {
-  const id = model.resolvedModel || model.id;
-  const claude = id.match(
-    /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/i,
-  );
-  if (claude) {
-    const [, family, major, minor, context] = claude;
-    return `Claude ${family[0].toUpperCase() + family.slice(1)} ${major}${minor ? "." + minor : ""}${context ? " (1M)" : ""}`;
-  }
-  // A catalog may use friendly aliases as names. Only the harness can resolve
-  // those aliases; do not hardcode the model version an alias should select.
-  return model.resolvedModel || model.name || model.id;
 }

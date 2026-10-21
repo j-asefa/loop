@@ -1,9 +1,17 @@
 import { useSourceId, useSourcePath } from "./SourceContext";
+import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
-import { useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 import {
   X,
   Orbit,
@@ -169,7 +177,10 @@ export function Sheet({
       const box = body.getBoundingClientRect(),
         rect = field.getBoundingClientRect();
       if (rect.bottom > box.bottom)
-        body.scrollTop += Math.min(rect.bottom - box.bottom, rect.top - box.top);
+        body.scrollTop += Math.min(
+          rect.bottom - box.bottom,
+          rect.top - box.top,
+        );
       else if (rect.top < box.top) body.scrollTop -= box.top - rect.top;
     };
     const size = new ResizeObserver(reveal);
@@ -420,28 +431,94 @@ function DataPreview({ value }: { value: any }) {
     );
   return <p>{previewValue(value)}</p>;
 }
+export function resultPresentation(
+  item: Pick<ResultCard, "title" | "kind" | "content">,
+  display: Pick<ResultCard["display"], "partial" | "imported" | "tool">,
+) {
+  const tool = display.tool || undefined;
+  const web = webPreview(
+    item.content,
+    tool ||
+      (item.title.endsWith(" result") ? item.title.slice(0, -7) : undefined),
+  );
+  return {
+    web,
+    eyebrow: display.partial
+      ? "Partial output"
+      : display.imported
+        ? "Imported history"
+        : web
+          ? web.search
+            ? "Web search"
+            : "Webpage"
+          : tool
+            ? "Tool result"
+            : item.kind === "workflow"
+              ? "Workflow"
+              : "Result",
+    title: web
+      ? web.title
+      : tool && item.title === `${tool} result`
+        ? tool.startsWith("browser_")
+          ? "Browser result"
+          : tool.replaceAll("_", " ") + " result"
+        : item.title,
+  };
+}
+export function ResultPreview({ card }: { card: ResultCard }) {
+  const item = {
+    id: card.source.artifact_id!,
+    conversation_id: card.source.conversation_id,
+    title: card.title,
+    kind: card.kind,
+    content: card.content,
+  };
+  return (
+    <ArtifactPreview
+      item={item}
+      display={card.display}
+      tool={card.display.tool || undefined}
+      web={resultPresentation(card, card.display).web}
+    />
+  );
+}
 function ArtifactPreview({
   item,
   tool,
   web,
+  display,
 }: {
-  item: Artifact;
+  item: Pick<Artifact, "id" | "conversation_id" | "title" | "kind" | "content">;
+  display: {
+    uploaded?: boolean;
+    mime?: string | null;
+    filename?: string | null;
+    download?: string | null;
+  };
   tool?: string;
   web?: ReturnType<typeof webPreview>;
 }) {
   const sourceApiPath = useSourcePath();
-  const metadata = parse<any>(item.metadata, {});
+  const imageFile =
+    display.download === undefined
+      ? `/api/artifacts/${item.id}/file`
+      : display.download;
   if (
-    metadata.uploaded &&
+    display.uploaded &&
+    imageFile &&
     ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
-      metadata.mime,
+      display.mime || "",
     )
   )
     return (
       <img
         className="preview-image"
-        src={sourceApiPath(`/api/artifacts/${item.id}/file?preview=1`)}
-        alt={metadata.name || item.title}
+        src={sourceApiPath(
+          imageFile.startsWith("/api/artifacts/")
+            ? imageFile + "?preview=1"
+            : imageFile,
+        )}
+        alt={display.filename || item.title}
         loading="lazy"
       />
     );
@@ -570,11 +647,12 @@ export function ArtifactCard({
 }) {
   const meta = parse<any>(item.metadata, {});
   const modelName = model || runModelName(meta, connections);
-  const web = webPreview(
-    item.content,
-    meta.tool ||
-      (item.title.endsWith(" result") ? item.title.slice(0, -7) : undefined),
-  );
+  const presentation = resultPresentation(item, {
+    partial: !!meta.partial,
+    imported: meta.origin === "import",
+    tool: meta.tool || null,
+  });
+  const web = presentation.web;
   const [menu, setMenu] = useState(false);
   const open = onArtifact || onOpen;
   // Swipe left archives (with Undo), swipe right saves; long-press opens the
@@ -667,27 +745,17 @@ export function ArtifactCard({
               open();
           }}
           onKeyDown={(e) => {
-            if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) {
+            if (
+              e.target === e.currentTarget &&
+              ["Enter", " "].includes(e.key)
+            ) {
               e.preventDefault();
               open();
             }
           }}
         >
           <span className="eyebrow">
-            {label ||
-              (meta.partial
-                ? "Partial output"
-                : meta.origin === "import"
-                  ? "Imported history"
-                  : web
-                    ? web.search
-                      ? "Web search"
-                      : "Webpage"
-                    : meta.tool
-                      ? "Tool result"
-                      : item.kind === "workflow"
-                        ? "Workflow"
-                        : "Result")}
+            {label || presentation.eyebrow}
             {project && <span className="card-project"> · {project}</span>}
           </span>
           {className?.includes("run-card") ? (
@@ -695,15 +763,7 @@ export function ArtifactCard({
               <RichText content={item.title} compact />
             </div>
           ) : (
-            <h2>
-              {web
-                ? web.title
-                : meta.tool && item.title === `${meta.tool} result`
-                  ? meta.tool.startsWith("browser_")
-                    ? "Browser result"
-                    : meta.tool.replaceAll("_", " ") + " result"
-                  : item.title}
-            </h2>
+            <h2>{presentation.title}</h2>
           )}
           <RunStatus
             state={item.run_state}
@@ -712,7 +772,16 @@ export function ArtifactCard({
           />
           {detail}
           <div className="preview">
-            <ArtifactPreview item={item} tool={meta.tool} web={web} />
+            <ArtifactPreview
+              item={item}
+              display={{
+                uploaded: meta.uploaded,
+                mime: meta.mime,
+                filename: meta.name,
+              }}
+              tool={meta.tool}
+              web={web}
+            />
           </div>
           {!!item.content && (
             <button className="text-button preview-open" onClick={open}>

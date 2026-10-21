@@ -1,3 +1,4 @@
+import { cardApi } from "../shared/card-api.js";
 import { Router } from "express";
 import {
   createCardToken,
@@ -13,13 +14,19 @@ cardTokens.use("/card-tokens", (req, _res, next) => {
     throw new Problem(403, "Use your Loop session to manage tokens");
   next();
 });
-cardTokens.get("/card-tokens", (_req, res) =>
-  res.json(listCardTokens(res.locals.owner)),
+cardTokens[cardApi.tokens.method](cardApi.tokens.path, (_req, res) =>
+  res.json(cardApi.tokens.response.parse(listCardTokens(res.locals.owner))),
 );
-cardTokens.post("/card-tokens", (req, res) =>
-  res.status(201).json(createCardToken(res.locals.owner, req.body)),
+cardTokens[cardApi.createToken.method](cardApi.createToken.path, (req, res) =>
+  res
+    .status(cardApi.createToken.status)
+    .json(
+      cardApi.createToken.response.parse(
+        createCardToken(res.locals.owner, req.body),
+      ),
+    ),
 );
-cardTokens.delete("/card-tokens/:id", (req, res) => {
+cardTokens[cardApi.revokeToken.method](cardApi.revokeToken.path, (req, res) => {
   revokeCardToken(res.locals.owner, req.params.id);
-  res.json({ ok: true });
+  res.json(cardApi.revokeToken.response.parse({ ok: true }));
 });

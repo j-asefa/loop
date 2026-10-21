@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { apiInWorkspace } from "./api";
+import { viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import { RichText, Sheet } from "./components";
 import type { Agent } from "../shared/types";
@@ -310,6 +311,23 @@ export function LaterSheet({
   onDone: (label: string, created: CreatedReminder) => void;
 }) {
   const scopedSource = useSourceId();
+  const owner = viewOwner();
+  const requestKey = JSON.stringify([
+    owner,
+    sourceId ?? scopedSource,
+    kind,
+    targetId,
+    itemId,
+  ]);
+  const active = useRef(requestKey);
+  active.current = requestKey;
+  const current = () => active.current === requestKey && viewOwner() === owner;
+  useEffect(() => {
+    active.current = requestKey;
+    return () => {
+      if (active.current === requestKey) active.current = "";
+    };
+  }, [requestKey]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [custom, setCustom] = useState(() =>
@@ -321,7 +339,7 @@ export function LaterSheet({
     dueAt: number | undefined,
     label: string,
   ) {
-    if (busy) return;
+    if (busy || !current()) return;
     setBusy(true);
     setError("");
     const trigger = {
@@ -338,13 +356,14 @@ export function LaterSheet({
         sourceId ?? scopedSource,
         itemId ? trigger : { kind, targetId, ...trigger },
       );
+      if (!current()) return;
       window.dispatchEvent(new Event("loop-later-change"));
       onDone(label, { id: row.id, replaced: row.replaced ?? null });
       onClose();
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   }
   return (
@@ -1133,8 +1152,7 @@ export function UsageLine({
 }: {
   usage?: { input_tokens: number; output_tokens: number };
 }) {
-  if (!usage || usage.input_tokens + usage.output_tokens === 0)
-    return null;
+  if (!usage || usage.input_tokens + usage.output_tokens === 0) return null;
   return (
     <p className="usage-line" title="Recorded token usage for this response">
       {compactNumber(usage.input_tokens)} in ·{" "}
