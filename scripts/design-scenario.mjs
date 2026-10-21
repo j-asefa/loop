@@ -1,9 +1,7 @@
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
-import { briefSmoke } from "./helpers/brief-smoke.mjs";
 import { workspaceProjectSmoke } from "./helpers/workspace-project-smoke.mjs";
-import { statusLinksSmoke } from "./helpers/status-links-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
 import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
 import { feedReplyKeyboardSmoke } from "./helpers/feed-reply-keyboard-smoke.mjs";
@@ -44,9 +42,7 @@ import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
   gemini: geminiSmoke,
-  brief: briefSmoke,
   "workspace-project": workspaceProjectSmoke,
-  "status-links": statusLinksSmoke,
   "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {
     await page.goto(fixture.base);

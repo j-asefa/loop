@@ -7,7 +7,6 @@ import {
 import { CodexSession } from "./codex-session.mjs";
 import { receiveSteering } from "./steering.mjs";
 import { ClaudeSteering } from "./claude-steering.mjs";
-import { claudeProjectionArgs } from "./projection.mjs";
 // Official binaries are unmodified. Host mode is chosen by the local launcher,
 // never by an HTTP request; the default remains a per-connection container.
 import { spawn } from "node:child_process";
@@ -103,7 +102,7 @@ const launch = (bin, args) => {
   child.stderr.resume();
   return child;
 };
-async function claudeStatus(projection = false) {
+async function claudeStatus() {
   const p = launch("claude", ["auth", "status"]);
   let text = "";
   p.stdout.on("data", (b) => {
@@ -115,12 +114,7 @@ async function claudeStatus(projection = false) {
     p.once("close", resolve);
   });
   const s = JSON.parse(text);
-  const authenticated =
-    s.loggedIn === true &&
-    s.authMethod === "claude.ai" &&
-    (!projection ||
-      (s.apiProvider === "firstParty" &&
-        (!s.apiKeySource || s.apiKeySource === "none")));
+  const authenticated = s.loggedIn === true && s.authMethod === "claude.ai";
   return {
     authenticated,
     authMode: authenticated ? "subscription" : "none",
@@ -150,7 +144,6 @@ async function codex(request) {
     hostMode,
     home: env.HOME,
     cwd: workdir,
-    briefProject: hostMode ? process.env.LOOP_RUNTIME_BRIEF_PROJECT : undefined,
   });
   let stopSteering;
   try {
@@ -213,7 +206,7 @@ async function claude(request) {
     emit({ result: { authenticated: false } });
     return;
   }
-  const status = await claudeStatus(request.input?.nativeTools === false);
+  const status = await claudeStatus();
   if (request.action !== "turn") {
     emit({
       result: {
@@ -225,10 +218,7 @@ async function claude(request) {
   }
   if (!status.authenticated)
     throw new RuntimeFailure("Claude subscription sign-in required");
-  const projection = request.input.nativeTools === false;
-  if (projection && request.input.model === "native-default")
-    throw new RuntimeFailure("Choose a specific Claude model for briefs");
-  const command = projection ? undefined : slashCommand(request.input);
+  const command = slashCommand(request.input);
   if (command) {
     const catalog = await claudeCatalog(launch);
     const selected = catalog.commands.find((c) => c.name === command);
@@ -247,9 +237,8 @@ async function claude(request) {
       ? []
       : ["--model", request.input.model]),
     ...(request.input.effort ? ["--effort", request.input.effort] : []),
-    ...(projection
-      ? claudeProjectionArgs
-      : ["--permission-mode", "bypassPermissions"]),
+    "--permission-mode",
+    "bypassPermissions",
     "--no-session-persistence",
     ...(command || request.input.controlId
       ? ["--input-format", "stream-json"]
@@ -410,15 +399,11 @@ async function claude(request) {
 }
 try {
   const request = JSON.parse(first.value);
-  if (request.action === "project-brief") {
-    request.action = "turn";
-    request.githubToken = undefined;
-    request.input = {
-      ...request.input,
-      nativeTools: false,
-      controlId: undefined,
-    };
-  }
+  if (
+    request.action === "project-brief" ||
+    request.input?.nativeTools === false
+  )
+    throw new RuntimeFailure("Background projections are no longer supported");
   if (request.action !== "turn") timeout = setTimeout(stop, 30 * 60 * 1000);
   if (!hostMode) {
     if (
@@ -438,11 +423,7 @@ try {
       Object.assign(env, githubEnvironment(request.githubToken));
       githubToken = request.githubToken;
     }
-    if (
-      request.action === "turn" &&
-      request.provider === "claude" &&
-      request.input.nativeTools !== false
-    )
+    if (request.action === "turn" && request.provider === "claude")
       request.input.instructions =
         (request.input.instructions || "") +
         `\nCurrent runtime: native shell, file editing and network tools are enabled. Your writable workspace is ${workdir}; files here persist across messages and runs. Use it for repository checkouts, edits and tests.` +

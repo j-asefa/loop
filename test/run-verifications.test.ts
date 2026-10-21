@@ -13,13 +13,9 @@ const {
   observeCompletedOutput,
   runVerifications,
   verificationSummary,
-  verificationLines,
-  verificationById,
-  verificationContent,
 } = await import("../src/server/run-verifications");
 const { classifyVerification, verificationLine } = await import("../src/shared/verification");
 const { shellWords, createdPullRequest } = await import("../src/shared/pr-command");
-const { resolveCite, checkQuote } = await import("../src/server/briefs/cites");
 import type { Run } from "../src/server/queue";
 import type { OutputData } from "../src/agent-activities";
 
@@ -196,25 +192,7 @@ it("gives a chain one exit shared by its tools, and only trusts a zero exit", ()
     [["npm test"], "unknown", 1],
     [["npm test"], "failed", 1],
   ]);
-  expect(verificationContent(verificationById(owner, items[2].id)!)).toContain("which step failed");
   expect(verificationLine(verificationSummary(owner, run.id))).toBe(
     "Ran npm run typecheck + npm test ✓ · npm run typecheck + npm test ? · npm test ? · npm test ✗",
   );
-});
-
-it("is a brief citation scoped to the run's project, with the command and exit in its content", () => {
-  const run = runFixture("thread-cite");
-  observeCompletedOutput(run, output("npx vitest run test/feed.test.ts", {}, "3 passed\n"));
-  const [item] = runVerifications(owner, run.id);
-  const ref = "ver_" + item.id;
-  const cite = resolveCite(owner, folder, { ref, quote: "vitest passed (exit 0)" });
-  expect(cite).toMatchObject({ kind: "verification", runId: run.id, conversation: "thread-cite" });
-  expect(cite!.content).toBe(verificationContent(verificationById(owner, item.id)!));
-  expect(checkQuote(cite!.content, "vitest passed (exit 0)")).toBe(true);
-  expect(checkQuote(cite!.content, "all tests pass")).toBe(false);
-  expect(cite!.content).toContain("or that the right ones ran");
-  expect(resolveCite(owner, otherFolder, { ref })).toBeNull();
-  expect(resolveCite("someone-else", folder, { ref })).toBeNull();
-  expect(verificationLines(owner, run.id)).toBe(`[${ref}] vitest passed (exit 0): npx vitest run test/feed.test.ts`);
-  expect(verificationLines(owner, runFixture("thread-empty").id)).toBe("");
 });

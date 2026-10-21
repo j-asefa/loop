@@ -1,4 +1,3 @@
-import { recordChange } from "./project-changes.js";
 import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -29,23 +28,6 @@ export function requestApproval(
       createdAt,
       now() + 24 * 60 * 60 * 1000,
     );
-    recordChange(
-      run.owner_id,
-      undefined,
-      "approval_created",
-      approvalId,
-      undefined,
-      createdAt,
-    );
-    if (autoApproved)
-      recordChange(
-        run.owner_id,
-        undefined,
-        "approval_resolved",
-        approvalId,
-        undefined,
-        createdAt,
-      );
   }).immediate();
   emit(
     run.owner_id,
@@ -75,13 +57,6 @@ export function decide(
         decision === "approve" ? "approved" : "rejected",
         approvalId,
         "pending",
-      );
-      recordChange(
-        owner,
-        undefined,
-        "approval_resolved",
-        approvalId,
-        run.conversation_id,
       );
       if (
         db

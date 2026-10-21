@@ -74,7 +74,7 @@ export type CheckoutDetail = {
   error: string | null;
 };
 
-/** The card line. The same text is the brief's citable headline. */
+/** The card line. */
 export function checkoutParts(summary: CheckoutSummary) {
   const parts: (string | { files: number; additions: number; deletions: number })[] = [summary.branch];
   if (summary.ahead != null) {

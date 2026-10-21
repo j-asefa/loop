@@ -95,3 +95,11 @@ it("retries a transient Codex routing discovery failure before starting work", a
   ]);
   expect(emitted[0].result.authenticated).toBe(true);
 });
+
+
+it("rejects retired projection requests before accessing a shared Codex session", async () => {
+  const session = Object.create(CodexSession.prototype);
+  for (const request of [{ action: "project-brief" }, { action: "turn", input: { nativeTools: false } }])
+    await expect(session.run(request, () => {}, new AbortController().signal, () => {}))
+      .rejects.toThrow("Background projections are no longer supported");
+});

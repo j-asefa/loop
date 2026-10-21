@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -13,20 +13,20 @@ import {
   Pencil,
   Users,
   Workflow,
-  SlidersHorizontal,
 } from "lucide-react";
-import { api, apiInWorkspace } from "./api";
-import { executionSourceId } from "./sourceRouting";
+import { api } from "./api";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Chip } from "./ThreadTools";
 import { relativeTime } from "./threadView";
 import { Avatar, Badge, Empty, Sheet } from "./components";
 import { belongsToProject } from "../shared/projects";
-import type { Agent, Connection, Folder as Project } from "../shared/types";
-import type { BriefPage } from "../shared/briefs";
-import { ProjectBrief } from "./ProjectBrief";
-import { BriefAcknowledgements } from "./briefView";
+import type { Agent, Folder as Project } from "../shared/types";
+
+const projectTab = (value: string | null) =>
+  value && ["threads", "agents", "activity", "files"].includes(value)
+    ? value
+    : "threads";
 
 /** Ways into a project's history, alongside its Threads. */
 export type ProjectHistory = "search" | "outcomes" | "saved" | "unfinished";
@@ -66,8 +66,6 @@ export function Projects({
   onTeams,
   onReview,
   revision,
-  connections = [],
-  onBriefNavigate = (url) => location.assign(url),
 }: {
   folders: Project[];
   agents: Agent[];
@@ -87,86 +85,40 @@ export function Projects({
   onTeams: () => void;
   onReview?: (id: string) => void;
   revision: number;
-  connections?: Connection[];
-  onBriefNavigate?: (url: string) => void;
 }) {
   const [adding, setAdding] = useState(false),
-    [page, setPage] = useState(
-      () => sessionStorage.getItem("loop-project-tab") || "threads",
+    [page, setPage] = useState(() =>
+      projectTab(sessionStorage.getItem("loop-project-tab")),
     ),
     [summary, setSummary] = useState<Summary[] | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const toolsId = useId();
   const current = folders.find((f) => f.id === selected);
-  // Keep acknowledgement receipts across tab unmounts, scoped to the owner
-  // workspace and project whose version was rendered.
-  const briefAcks = useRef(new Map<string, BriefAcknowledgements>());
-  const briefOwner = viewOwner(),
-    workspace = executionSourceId();
-  const ackKey = JSON.stringify([briefOwner, workspace, selected]);
-  if (current?.kind === "project" && !briefAcks.current.has(ackKey))
-    briefAcks.current.set(ackKey, new BriefAcknowledgements());
-  const [brief, setBrief] = useState<BriefPage | null>(null),
-    [briefScope, setBriefScope] = useState(""),
-    [briefError, setBriefError] = useState(""),
-    [briefLoad, setBriefLoad] = useState(0);
-  const choseTab = useRef(false);
-  const requestedTab = useRef(new URLSearchParams(location.search).get("projectTab"));
+  const requestedTab = useRef(
+    new URLSearchParams(location.search).get("projectTab"),
+  );
   const consumeRequestedTab = () => {
     requestedTab.current = null;
     const url = new URL(location.href);
     if (!url.searchParams.has("projectTab")) return;
     url.searchParams.delete("projectTab");
-    window.history.replaceState(window.history.state, "", url.pathname + url.search);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      url.pathname + url.search,
+    );
   };
   useEffect(() => {
-    let active = true;
-    choseTab.current = false;
-    setToolsOpen(false);
-    setBrief(null);
-    setBriefScope(ackKey);
-    setBriefError("");
-    if (current?.kind !== "project") {
-      if (page === "brief") setPage("threads");
-      return;
-    }
-    const isCurrent = () =>
-      active && briefOwner === viewOwner() && workspace === executionSourceId();
-    void apiInWorkspace<BriefPage>(
-      `/projects/${encodeURIComponent(selected)}/brief`,
-      workspace,
-    )
-      .then((result) => {
-        if (!isCurrent()) return;
-        setBriefScope(ackKey);
-        setBrief(result);
-        if (!choseTab.current) {
-          const remembered = sessionStorage.getItem(
-            "loop-project-tab:" + selected,
-          );
-          const requested = requestedTab.current;
-          consumeRequestedTab();
-          if (requested === "brief" || requested === "threads")
-            sessionStorage.setItem("loop-project-tab:" + selected, requested);
-          setPage(
-            (requested === "brief" || requested === "threads" ? requested : null) || remembered ||
-              (result.settings.enabled
-                ? "brief"
-                : sessionStorage.getItem("loop-project-tab") === "brief"
-                  ? "threads"
-                  : sessionStorage.getItem("loop-project-tab") || "threads"),
-          );
-        }
-      })
-      .catch((error) => {
-        if (isCurrent()) setBriefError(error.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [selected, current?.kind, briefLoad, briefOwner, workspace]);
+    const requested = requestedTab.current;
+    consumeRequestedTab();
+    setPage(
+      projectTab(
+        requested ||
+          sessionStorage.getItem("loop-project-tab:" + selected) ||
+          sessionStorage.getItem("loop-project-tab"),
+      ),
+    );
+  }, [selected]);
   // A history view replaces the tab content until you go back to Threads.
   // It is kept per project, so returning from a thread keeps it.
   const historyKey = "project-history:" + selected;
@@ -232,24 +184,17 @@ export function Projects({
         item: undefined as Summary | undefined,
         folder,
       }));
-  const briefMode = current?.kind === "project" && page === "brief" && !history;
   return (
-    <section
-      className={"projects-view" + (briefMode ? " projects-brief-view" : "")}
-    >
+    <section className="projects-view">
       {current ? (
         <>
           <div className="project-topbar">
             <button
-              className={
-                briefMode
-                  ? "icon-button project-back"
-                  : "text-button project-back"
-              }
+              className="text-button project-back"
               aria-label="All projects"
               onClick={() => onSelect("")}
             >
-              <ArrowLeft size={17} /> {!briefMode && "All projects"}
+              <ArrowLeft size={17} /> All projects
             </button>
             <div className="project-heading">
               <span className="project-symbol">
@@ -273,20 +218,8 @@ export function Projects({
                 </button>
               )}
             </div>
-            {briefMode && (
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="Project tools"
-                aria-expanded={toolsOpen}
-                aria-controls={toolsId}
-                onClick={() => setToolsOpen(!toolsOpen)}
-              >
-                <SlidersHorizontal size={18} />
-              </button>
-            )}
           </div>
-          <div id={toolsId} hidden={briefMode && !toolsOpen}>
+          <div>
             <div className="project-actions">
               {onReview && (
                 <button
@@ -354,22 +287,14 @@ export function Projects({
             </div>
           </div>
           <div className="segmented project-tabs" aria-label="Project view">
-            {[
-              ...(current.kind === "project" ? ["brief"] : []),
-              "threads",
-              "agents",
-              "activity",
-              "files",
-            ].map((value) => (
+            {["threads", "agents", "activity", "files"].map((value) => (
               <button
                 key={value}
                 className={!history && page === value ? "selected" : ""}
                 aria-pressed={!history && page === value}
                 onClick={() => {
                   setHistory(null);
-                  setToolsOpen(false);
                   setPage(value);
-                  choseTab.current = true;
                   consumeRequestedTab();
                   sessionStorage.setItem("loop-project-tab", value);
                   sessionStorage.setItem("loop-project-tab:" + selected, value);
@@ -397,34 +322,6 @@ export function Projects({
             </div>
           )}
           {history && renderHistory(current.id, history, submitted)}
-          {!history &&
-            page === "brief" &&
-            (brief?.project === current.id && briefScope === ackKey ? (
-              <ProjectBrief
-                key={ackKey}
-                projectId={current.id}
-                initial={brief}
-                acknowledgements={briefAcks.current.get(ackKey)!}
-                connections={connections}
-                agents={agents}
-                onNavigate={onBriefNavigate}
-                onChanged={setBrief}
-              />
-            ) : briefError && briefScope === ackKey ? (
-              <div>
-                <p className="error" role="alert">
-                  {briefError}
-                </p>
-                <button
-                  className="text-button"
-                  onClick={() => setBriefLoad((value) => value + 1)}
-                >
-                  Try again
-                </button>
-              </div>
-            ) : (
-              <p className="muted">Loading brief…</p>
-            ))}
           {!history && page === "threads" && renderThreads(current.id)}
           {!history && page === "activity" && renderActivity(current.id)}
           {!history && page === "files" && renderFiles(current.id)}

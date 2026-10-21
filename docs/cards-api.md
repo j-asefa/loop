@@ -1,7 +1,7 @@
 # Cards API
 
 The versioned card service exposes individual results, saved items and personally
-sent prompts. Conversation Feed summaries, Status and Briefs remain separate.
+sent prompts. Conversation Feed summaries remain separate.
 The Files tab continues to use `/api/results?view=files`.
 
 Use an authenticated Loop browser/paired-device session, or a local integration
@@ -309,5 +309,5 @@ Remaining `/api/results`, `/api/results/updates`, `/api/saved`, `/api/me/prompts
 and artifact-reader callers retain their wire contracts. Shared production
 eligibility/provenance predicates still govern those compatibility reads; the
 new first-party content collections do not interpret their raw rows. The
-conversation Feed, Status, Briefs and working/queued actions keep their own
+conversation Feed and working/queued actions keep their own
 identity and behavior. Their eligible result links open the shared typed reader.

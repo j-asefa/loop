@@ -1,4 +1,3 @@
-import { recordChange } from "./project-changes.js";
 import { createdPullRequest } from "../shared/pr-command.js";
 import { pullStateFromWatch, type PullState, type WatchRow } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
@@ -658,7 +657,6 @@ export async function pollWatch(watchId: string, time = now()) {
       const current = db.prepare("SELECT 1 FROM pr_watches WHERE id=? AND state<>'stopped'").get(watch.id);
       if (!current) return;
       end(watch, reason);
-      recordChange(watch.owner_id, undefined, "pr_update", `${watch.id}:${reason.toLowerCase()}:${watch.number}`, watch.conversation_id, time);
     }).immediate();
     return "ended";
   }
@@ -762,14 +760,6 @@ export async function pollWatch(watchId: string, time = now()) {
         db.prepare(
           "INSERT INTO pr_watch_deliveries(watch_id,run_id,created_at) VALUES(?,?,?)",
         ).run(watch.id, run.id, time);
-        const changes = [
-          ...update.comments.map((item) => `comment:${item.id}`),
-          ...update.reviewComments.map((item) => `review_comment:${item.id}`),
-          ...update.reviews.map((item) => `review:${item.id}`),
-          ...(update.ci ? [`ci_${update.ci.conclusion}:${key.slice(-32)}`] : []),
-        ];
-        for (const change of changes)
-          recordChange(watch.owner_id, JSON.parse(run.payload).folderId, "pr_update", `${watch.id}:${change}`, run.conversation_id, time);
       } catch (error) {
         if (!(error instanceof Problem)) throw error;
         // A missing thread or agent ends the watch. Anything else (a provider

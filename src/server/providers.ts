@@ -32,8 +32,6 @@ export type ChatInput = {
   tools?: { name: string; description: string; inputSchema: any }[];
   /** Force one named tool for structured projections; omitted for ordinary chat. */
   toolChoice?: string;
-  /** Background projections disable the subscription runtime's native actions. */
-  nativeTools?: false;
 };
 export type Chunk = {
   text?: string;

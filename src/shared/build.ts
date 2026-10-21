@@ -60,26 +60,6 @@ export function compareBuild(
   if (target.ancestors.includes(build.commit)) return "predates";
   return "unknown";
 }
-export const DeploymentObservation = z.object({
-  ref: z.string(),
-  checkout: z.string(),
-  run: z.string(),
-  conversation: z.string(),
-  title: z.string(),
-  commit: Commit,
-  status: z.enum(["included", "predates", "unknown"]),
-  reason: z.string(),
-  observedAt: z.number(),
-  checkedAt: z.number(),
-  validUntil: z.number(),
-  current: z.boolean(),
-});
-export type DeploymentObservation = z.infer<typeof DeploymentObservation>;
-export const buildLabels: Record<BuildComparison, string> = {
-  included: "Change commit included",
-  predates: "Running build predates change",
-  unknown: "Update status unknown",
-};
 export function browserNeedsReload(
   loaded: BuildIdentity,
   serving: BuildIdentity,

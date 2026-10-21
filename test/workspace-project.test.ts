@@ -17,18 +17,12 @@ const { seal } = await import("../src/server/secrets");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { mobile } = await import("../src/server/mobile-routes");
-const { briefs } = await import("../src/server/briefs/routes");
-const { recordChange } = await import("../src/server/project-changes");
-const { withTestAdapter } = await import("../src/server/providers");
-const { runDueBriefs } = await import("../src/server/briefs/generate");
-const { briefForAgent, agentBriefAccess } =
-  await import("../src/server/briefs/tool");
 const app = express();
 app.use(express.json(), (req, res, next) => {
   res.locals.owner = req.get("x-owner");
   next();
 });
-app.use("/api", mobile, core, workspace, briefs);
+app.use("/api", mobile, core, workspace);
 app.use((error: any, _req: any, res: any, _next: any) =>
   res
     .status(
@@ -113,7 +107,6 @@ function fixture() {
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user','Review the workspace',?)",
     ).run(message, owner, cid, run, now());
-    recordChange(owner, folder, "prompt", message, cid);
     db.prepare(
       "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,'Workspace result','markdown','Workspace work is ready.',?,?,?)",
     ).run(artifact, owner, agent, cid, run, folder, now(), now());
@@ -144,17 +137,6 @@ it("creates one persistent Workspace per owner and recovers only its existing un
       (p: any) => p.is_workspace,
     ),
   ).toEqual([project]);
-  const changes = db
-    .prepare(
-      "SELECT kind,ref FROM project_changes WHERE owner_id=? AND project_id=?",
-    )
-    .all(f.owner, project.id);
-  for (const run of [a, b]) {
-    expect(changes).toContainEqual({ kind: "result", ref: run.artifact });
-    expect(changes).toContainEqual({ kind: "prompt", ref: run.message });
-  }
-  for (const run of [named, nested, mixed, foreign])
-    expect(JSON.stringify(changes)).not.toContain(run.artifact);
   expect(
     db
       .prepare("SELECT project_id FROM conversations WHERE id=?")
@@ -181,23 +163,10 @@ it("creates one persistent Workspace per owner and recovers only its existing un
   expect(results.map((r: any) => r.id).sort()).toEqual(
     [a.artifact, b.artifact].sort(),
   );
-  expect((await api(other.owner, `/projects/${project.id}/brief`)).status).toBe(
-    404,
-  );
-  expect(
-    (await api(other.owner, `/projects/status?project=${project.id}`)).status,
-  ).toBe(404);
   expect(
     (await api(f.owner, `/folders/${project.id}`, { name: "Changed" }, "PATCH"))
       .status,
   ).toBe(400);
-  expect(
-    db
-      .prepare(
-        "SELECT count(*) n FROM project_changes WHERE owner_id=? AND project_id=?",
-      )
-      .get(f.owner, project.id),
-  ).toEqual({ n: changes.length });
   await api(f.owner, `/messages/${a.message}/saved`, {});
   await api(f.owner, `/messages/${named.message}/saved`, {});
   const saved = (await api(f.owner, `/saved?folder=${project.id}`)).data.items;
@@ -217,54 +186,11 @@ it("creates one persistent Workspace per owner and recovers only its existing un
   ).toBe(false);
 });
 
-it("enables, generates and serves a Workspace brief with live status and agent access", async () => {
+it("keeps live Workspace counts scoped to the current project", async () => {
   const f = fixture();
-  const runs = [f.run(), f.run(), f.run()];
   const project = (await api(f.owner, "/bootstrap")).data.folders.find(
     (p: any) => p.is_workspace,
   ).id;
-  const root = `/projects/${project}/brief`;
-  expect((await api(f.owner, root)).data.settings.enabled).toBe(false);
-  expect(
-    (
-      await api(
-        f.owner,
-        root + "/settings",
-        { enabled: true, connectionId: f.connection, model: "fixture" },
-        "PUT",
-      )
-    ).status,
-  ).toBe(200);
-  const restore = withTestAdapter("openai", {
-    models: async () => [],
-    async *stream(_secret, input) {
-      expect(input.messages[0].content).toContain(runs[0].artifact);
-      yield {
-        toolCall: {
-          id: "fixture",
-          name: "submit_brief",
-          arguments: {
-            headline: {
-              text: "Workspace review is ready",
-              cite: [{ ref: "res_" + runs[0].artifact }],
-            },
-            items: [
-              {
-                kind: "state",
-                text: "The unassigned tasks are reviewed.",
-                cite: [{ ref: "res_" + runs[0].artifact }],
-              },
-            ],
-          },
-        },
-      };
-    },
-  });
-  try {
-    expect(await runDueBriefs()).toBe(1);
-  } finally {
-    restore();
-  }
   const pending = f.run(null, "awaiting_approval"),
     approval = id();
   db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,'pending',NULL,?,?)").run(
@@ -292,100 +218,83 @@ it("enables, generates and serves a Workspace brief with live status and agent a
     working: 2,
     needs: 0,
   });
-  const page = (await api(f.owner, root)).data;
-  expect(page.headline.text).toBe("Workspace review is ready");
-  expect(page.sources["res_" + runs[0].artifact].conversation).toBe(
-    runs[0].conversation,
-  );
-  expect(page.needs_you).toContainEqual({
-    kind: "approval",
-    ref: approval,
-    conversation: pending.conversation,
-  });
-  const status = (await api(f.owner, `/projects/status?project=${project}`))
-    .data.items;
-  expect(status).toHaveLength(1);
-  expect(status[0]).toMatchObject({
-    name: "Workspace",
-    status: "needs_you",
-    counts: { needs: 1, working: 0 },
-    brief: {
-      headline: "Workspace review is ready",
-      highlights: {
-        progress: [{ text: "The unassigned tasks are reviewed." }],
-      },
-    },
-  });
-  expect(
-    (
-      await api(
-        f.owner,
-        `/projects/${project}/status-action?key=approval:${approval}`,
-      )
-    ).data.conversation,
-  ).toBe(pending.conversation);
-  const run = db
-    .prepare("SELECT * FROM runs WHERE id=?")
-    .get(pending.id) as any;
-  expect(agentBriefAccess(run)).toBe(true);
-  expect(JSON.parse(briefForAgent(run)).project).toBe(project);
-  expect(
-    agentBriefAccess(
-      db.prepare("SELECT * FROM runs WHERE id=?").get(named.id) as any,
-    ),
-  ).toBe(false);
-  await api(
-    f.owner,
-    root + "/settings",
-    { enabled: false, connectionId: f.connection, model: "fixture" },
-    "PUT",
-  );
-  expect(
-    (await api(f.owner, `/projects/status?project=${project}`)).data.items[0]
-      .brief.state,
-  ).toBe("off");
-  expect(agentBriefAccess(run)).toBe(false);
 });
 
-it("keeps Workspace history and citations correct when work is filed and moved back", async () => {
+it("keeps results scoped when artifacts and folders move", async () => {
   const f = fixture();
   const project = (await api(f.owner, "/bootstrap")).data.folders.find(
     (p: any) => p.is_workspace,
   ).id;
   const r = f.run();
-  const rows = (ref: string, target: string) =>
-    db
-      .prepare(
-        "SELECT kind FROM project_changes WHERE owner_id=? AND project_id=? AND ref=? ORDER BY seq",
-      )
-      .all(f.owner, target, ref) as { kind: string }[];
-  expect(rows(r.message, project)).toContainEqual({ kind: "prompt" });
-  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(
-    f.named,
-    r.conversation,
-  );
-  expect(rows(r.artifact, project).at(-1)).toEqual({ kind: "tombstone" });
-  expect(rows(r.artifact, f.named).at(-1)).toEqual({ kind: "result" });
-  db.prepare("UPDATE conversations SET project_id=NULL WHERE id=?").run(
-    r.conversation,
-  );
-  expect(rows(r.artifact, f.named).at(-1)).toEqual({ kind: "tombstone" });
-  expect(rows(r.artifact, project).at(-1)).toEqual({ kind: "result" });
-  const loose = f.run(f.loose);
-  db.prepare("UPDATE folders SET parent_id=? WHERE id=?").run(f.named, f.loose);
-  expect(rows(loose.artifact, project).at(-1)).toEqual({ kind: "tombstone" });
-  expect(rows(loose.artifact, f.named).at(-1)).toEqual({ kind: "result" });
-  db.prepare("UPDATE folders SET parent_id=NULL WHERE id=?").run(f.loose);
-  expect(rows(loose.artifact, project).at(-1)).toEqual({ kind: "result" });
-  const standalone = id();
-  db.prepare(
-    "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES(?,?,'Unfiled note','markdown','Keep this note.',?,?)",
-  ).run(standalone, f.owner, now(), now());
+  const results = async (folder: string) =>
+    (await api(f.owner, `/results?folder=${folder}`)).data.items.map(
+      (item: any) => item.id,
+    );
+  expect(await results(project)).toContain(r.artifact);
   db.prepare("UPDATE artifacts SET folder_id=? WHERE id=?").run(
     f.named,
-    standalone,
+    r.artifact,
   );
-  expect(rows(standalone, project).at(-1)).toEqual({ kind: "tombstone" });
-  db.prepare("UPDATE artifacts SET folder_id=NULL WHERE id=?").run(standalone);
-  expect(rows(standalone, project).at(-1)).toEqual({ kind: "result" });
+  expect(await results(project)).not.toContain(r.artifact);
+  expect(await results(f.named)).toContain(r.artifact);
+  db.prepare("UPDATE artifacts SET folder_id=NULL WHERE id=?").run(r.artifact);
+  expect(await results(project)).toContain(r.artifact);
+  const loose = f.run(f.loose);
+  db.prepare("UPDATE folders SET parent_id=? WHERE id=?").run(f.named, f.loose);
+  expect(await results(project)).not.toContain(loose.artifact);
+  expect(await results(f.named)).toContain(loose.artifact);
+  db.prepare("UPDATE folders SET parent_id=NULL WHERE id=?").run(f.loose);
+  expect(await results(project)).toContain(loose.artifact);
+});
+
+it("executes ordinary prompts without a brief and rejects retired tool receipts", async () => {
+  const f = fixture();
+  const { submit, executeAgent } = await import("../src/server/agent-runtime");
+  const { nativeBindings, invokeNative } =
+    await import("../src/server/native-tools");
+  const { withTestAdapter } = await import("../src/server/providers");
+  const submitted = submit(f.owner, {
+    agentId: f.agent,
+    input: "Only the original request",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+  ).run(submitted.id);
+  const run = db
+    .prepare("SELECT * FROM runs WHERE id=?")
+    .get(submitted.id) as any;
+  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop_brief");
+  const oldBinding = {
+    name: "loop_brief",
+    tool: "loop_brief",
+    connectionId: "__loop__",
+    description: "Retired",
+    inputSchema: {},
+  };
+  db.prepare(
+    "INSERT INTO native_calls(run_id,call_id,tool,arguments,result) VALUES(?,?,'loop_brief','{}',?)",
+  ).run(
+    run.id,
+    "old-call",
+    JSON.stringify({ content: [{ type: "text", text: "Old brief" }] }),
+  );
+  await expect(invokeNative(run, oldBinding, "old-call", {})).rejects.toThrow(
+    "Native tool is unavailable",
+  );
+  const prompts: string[] = [];
+  const restore = withTestAdapter("openai", {
+    models: async () => [],
+    async *stream(_secret, input) {
+      prompts.push(input.messages.findLast((m) => m.role === "user")!.content);
+      expect(input.tools?.map((t) => t.name)).not.toContain("loop_brief");
+      yield { text: "Completed normally." };
+    },
+  });
+  try {
+    expect(await executeAgent(run)).toBe(true);
+    expect(prompts).toEqual(["Only the original request"]);
+  } finally {
+    restore();
+  }
 });

@@ -27,11 +27,9 @@ const {
   reconcileCheckouts,
   checkoutDetail,
   checkoutSummary,
-  checkoutContent,
   PATCH_LIMIT,
 } = await import("../src/server/run-checkouts");
 const { checkoutLine, unquoteGitPath, patchByFile } = await import("../src/shared/checkout");
-const { resolveCite, checkQuote } = await import("../src/server/briefs/cites");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
 
@@ -133,26 +131,6 @@ it("records the worktree before and after a run, as Loop observed it", async () 
   expect(git(project, "status", "--porcelain")).toBe("");
 });
 
-it("is a brief citation scoped to the run's project, with checked quotes", () => {
-  const run = db
-    .prepare("SELECT * FROM runs WHERE conversation_id='thread-1'")
-    .get() as Run;
-  const detail = checkoutDetail(owner, run.id)!;
-  const ref = "chk_" + detail.id;
-  const cite = resolveCite(owner, folder, { ref, quote: "tracked.txt +3 −1" });
-  expect(cite).toMatchObject({
-    kind: "checkout",
-    runId: run.id,
-    agent,
-    conversation: "thread-1",
-  });
-  expect(cite!.content).toBe(checkoutContent(detail));
-  expect(checkQuote(cite!.content, "tracked.txt +3 −1")).toBe(true);
-  expect(checkQuote(cite!.content, "tests pass")).toBe(false);
-  expect(resolveCite(owner, otherFolder, { ref })).toBeNull();
-  expect(resolveCite("someone-else", folder, { ref })).toBeNull();
-});
-
 it("counts each run's edits when separate agents start far ahead of the source checkout", async () => {
   const repo = join(dir, "stale-source");
   mkdirSync(repo);
@@ -229,7 +207,7 @@ it("subtracts pre-existing staged, unstaged and binary edits without modifying t
   expect(detail.patch).not.toContain("+existing staged");
 });
 
-it("preserves historical cumulative observations and their citations", async () => {
+it("preserves historical cumulative observations", async () => {
   const run = runFixture("thread-legacy-baseline");
   await startCheckout(run, checkout, project, "g1");
   // The shape left by migration 091: no run snapshot was recorded.
@@ -239,9 +217,8 @@ it("preserves historical cumulative observations and their citations", async () 
   const first = checkoutDetail(owner, run.id)!;
   expect(first.summary!.scope).toBeUndefined();
   expect(first.summary!.additions).toBeGreaterThan(0);
-  const content = checkoutContent(first);
   await completeCheckout(run.id);
-  expect(resolveCite(owner, folder, { ref: "chk_" + first.id })!.content).toBe(content);
+  expect(checkoutDetail(owner, run.id)!.summary!.scope).toBeUndefined();
 });
 
 it("counts restoring a file deleted before the run even when the final checkout is clean", async () => {
@@ -271,16 +248,6 @@ it("fails capture instead of using an incomplete starting snapshot", async () =>
   expect(checkoutDetail(owner, run.id)!.error).toContain("complete run baseline");
   await completeCheckout(run.id);
   expect(checkoutSummary(owner, run.id)!.state).toBe("failed");
-});
-
-it("is not citable while its capture is still in progress", async () => {
-  const run = runFixture("thread-citing");
-  bind("thread-citing", checkout);
-  await startCheckout(run, checkout, project, "g1");
-  const started = checkoutDetail(owner, run.id)!;
-  expect(resolveCite(owner, folder, { ref: "chk_" + started.id })).toBeNull();
-  await completeCheckout(run.id);
-  expect(resolveCite(owner, folder, { ref: "chk_" + started.id })).toMatchObject({ kind: "checkout" });
 });
 
 it("lets one capture at a time own a run, and reruns for a request that arrived meanwhile", async () => {
@@ -395,7 +362,7 @@ it("captures late, and says so, for runs that ended while the host was down", as
   expect(detail.state).toBe("captured");
   expect(detail.captured_late).toBe(true);
   expect(detail.summary!.late).toBe(true);
-  expect(checkoutContent(detail)).toContain("Captured after a restart");
+
   await reconcileCheckouts();
   expect(checkoutDetail(owner, run.id)!.ended_at).toBe(detail.ended_at);
 });
@@ -491,42 +458,6 @@ it("keeps a recapture request durable when the process stops before claiming it"
   const recaptured = checkoutDetail(owner, run.id)!;
   expect(recaptured.id).not.toBe(first.id);
   expect(raw()).toMatchObject({ capture_pending: 0, capture_token: null });
-});
-
-it("keeps an earlier observation reachable under its own id after a recapture", async () => {
-  const run = runFixture("thread-versions");
-  bind("thread-versions", checkout);
-  await startCheckout(run, checkout, project, "g1");
-  await completeCheckout(run.id);
-  const first = checkoutDetail(owner, run.id)!;
-  const firstContent = checkoutContent(first);
-  writeFileSync(join(checkout, "versioned.txt"), "later\n");
-  await completeCheckout(run.id);
-  const second = checkoutDetail(owner, run.id)!;
-  expect(second.id).not.toBe(first.id);
-  expect(second.untracked).toContain("versioned.txt");
-  expect(second.summary!.id).toBe(second.id);
-  const old = resolveCite(owner, folder, { ref: "chk_" + first.id });
-  expect(old).toMatchObject({ kind: "checkout", runId: run.id });
-  expect(old!.content).toBe(firstContent);
-  expect(resolveCite(owner, folder, { ref: "chk_" + second.id })!.content).toBe(checkoutContent(second));
-  rmSync(join(checkout, "versioned.txt"));
-});
-
-it("re-records a run's published results once their checkout evidence exists", async () => {
-  const run = runFixture("thread-rediscover");
-  bind("thread-rediscover", checkout);
-  const artifact = id();
-  db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,'thread-rediscover',?,'Answer','markdown','Done.',1,1)",
-  ).run(artifact, owner, agent, run.id);
-  db.prepare("INSERT INTO artifact_publications(artifact_id) VALUES(?)").run(artifact);
-  const changes = () =>
-    (db.prepare("SELECT count(*) n FROM project_changes WHERE owner_id=? AND kind='result' AND ref=?").get(owner, artifact) as { n: number }).n;
-  const before = changes();
-  await startCheckout(run, checkout, project, "g1");
-  await completeCheckout(run.id);
-  expect(changes()).toBe(before + 1);
 });
 
 it("recovers an abandoned recapture of an already captured run", async () => {
@@ -763,7 +694,7 @@ it("honours line-ending attributes, exclusions and worktree-scoped settings", as
     expect(detail.untracked).not.toContain("build/out.js");
     const blob = detail.working!.files.find((f) => f.path === "blob.bin");
     expect(blob?.filtered).toBe(true);
-    expect(checkoutContent(detail)).toMatch(/blob\.bin \+\d+ −\d+ \(filtered content, compared raw\)/);
+
   } finally {
     git(checkout, "config", "--worktree", "--unset", "core.autocrlf");
     git(project, "config", "--unset", "extensions.worktreeConfig");

@@ -3,9 +3,7 @@ import { copyFile, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db, id, now } from "./db.js";
-import { recordChange } from "./project-changes.js";
 import type { Run } from "./queue.js";
-import { loopRepository } from "../shared/build.js";
 export type {
   CheckoutFile,
   CheckoutStat,
@@ -122,7 +120,7 @@ type GitResult = { ok: boolean; code: number | null; out: string; truncated: boo
  * drivers, attributes, hooks, promisor remotes, transports) is read while a
  * command runs, and nothing is written back to the repository.
  */
-type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void; repository?: string | null };
+type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void };
 // Attributes (.gitattributes, text, eol, filter, diff) are read as usual so
 // line-ending normalisation still applies; the isolated configuration
 // defines no filter or diff driver, so an attribute that names one selects
@@ -255,7 +253,6 @@ async function isolate(directory: string): Promise<Iso> {
   // resolves @{upstream} to a remote-tracking ref (never a URL, transport,
   // credential or promisor setting, so no fetch can happen).
   const carried = new Map<string, string>();
-  let repository: string | null = null;
 
   const tracking = branch
     ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
@@ -269,7 +266,6 @@ async function isolate(directory: string): Promise<Iso> {
     if (split < 0) continue;
     const key = entry.slice(0, split),
       value = entry.slice(split + 1);
-    if (key === "remote.origin.url") repository = loopRepository(value);
     if (key === "extensions.refstorage")
       throw new CheckoutError("Checkout capture does not support reftable repositories");
     if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
@@ -308,7 +304,6 @@ async function isolate(directory: string): Promise<Iso> {
   }
   return {
     directory,
-    repository,
     env: { GIT_DIR: gitDir, GIT_WORK_TREE: top },
     cleanup,
   };
@@ -459,35 +454,6 @@ function summarize(row: CheckoutRow): CheckoutSummary {
   };
 }
 
-/** The brief's citable content: the card line and the file list, as text. */
-export function checkoutContent(detail: CheckoutDetail) {
-  const lines = [
-    `Checkout observed by Loop for run ${detail.run_id}.`,
-    detail.summary ? checkoutLine(detail.summary) : `${detail.branch} · not captured`,
-    `Base ${detail.base_ref ?? "unknown"} at ${detail.base_sha ?? "unknown"}; start HEAD ${detail.start_head || "unknown"}; end HEAD ${detail.end_head ?? "unknown"}.`,
-  ];
-  if (detail.summary?.scope === "run")
-    lines.push("File counts and patch compare tracked content at run start and end; pre-existing tracked edits are excluded. Untracked entries are new paths only.");
-  if (detail.start_dirty || detail.start_untracked)
-    lines.push("The checkout already had changes before this run; this record brackets an interval, not exclusive authorship.");
-  if (detail.overlap.length)
-    lines.push(`Other runs were active on this checkout during this run: ${detail.overlap.join(", ")}.`);
-  if (detail.captured_late)
-    lines.push("Captured after a restart, later than the run ended; the checkout may have changed in between.");
-  for (const f of detail.files)
-    lines.push(
-      (f.binary ? `${f.path} (binary)` : `${f.path} +${f.additions} −${f.deletions}`) +
-        (f.filtered ? " (filtered content, compared raw)" : ""),
-    );
-  for (const path of detail.untracked) lines.push(`${path} (untracked)`);
-  if (detail.patch_truncated) lines.push("The stored patch was shortened.");
-  if (detail.error) lines.push(`Capture error: ${detail.error}`);
-  return lines.join("\n");
-}
-
-const ARCHIVE = () => db.prepare(
-  "INSERT OR IGNORE INTO run_checkout_versions(id,owner_id,run_id,ended_at,record) VALUES(?,?,?,?,?)",
-);
 function select(runId: string, owner?: string) {
   return db
     .prepare(
@@ -525,18 +491,6 @@ export function checkoutSummary(owner: string, runId: string): CheckoutSummary |
     .get(runId, owner) as { summary: string | null } | undefined;
   return row?.summary ? (JSON.parse(row.summary) as CheckoutSummary) : null;
 }
-/** A checkout by citation id: the live record, or an archived observation. */
-export function checkoutById(owner: string, checkoutId: string): CheckoutDetail | null {
-  const row = db
-    .prepare("SELECT * FROM run_checkouts WHERE id=? AND owner_id=?")
-    .get(checkoutId, owner) as CheckoutRow | undefined;
-  if (row) return toDetail(row);
-  const version = db
-    .prepare("SELECT record FROM run_checkout_versions WHERE id=? AND owner_id=?")
-    .get(checkoutId, owner) as { record: string } | undefined;
-  return version ? toDetail(JSON.parse(version.record) as CheckoutRow) : null;
-}
-
 // Prepared on first use: this module is loaded by the queue, which some
 // fixtures import against databases that have not run every migration.
 const INSERT = () => db.prepare(
@@ -705,7 +659,6 @@ async function captureClaimed(
     ended_at: time, error: null, captured_late: options.late ? 1 : 0,
     end_head: null, ahead: null, behind: null,
   };
-  let buildTarget: { repository: string; commit: string; ancestors: string[] } | undefined;
   let iso: Iso | undefined;
   try {
     iso = await isolate(row.directory);
@@ -776,15 +729,6 @@ async function captureClaimed(
       ).map((r) => r.id),
     );
     fields.state = "captured";
-    // A target describes an observed, committed change in Loop's own repo.
-    // No target is inferred from an agent's prose, dirty/overlapping work,
-    // a late capture, or an unchanged checkout.
-    if (directory.repository && runScoped && !options.late && !row.start_dirty && !row.start_untracked &&
-      (fields.ahead ?? 0) > 0 && !tracked.length && !working.files.length && !untracked.length && fields.overlap === "[]") {
-      const history = await maybe(directory, ["rev-list", "--max-count=10000", head]);
-      if (history) buildTarget = { repository: directory.repository, commit: head,
-        ancestors: history.split("\n").filter(sha => /^[0-9a-f]{40}$/.test(sha)) };
-    }
   } catch (error) {
     for (const field of CAPTURE_FIELDS) fields[field] = null as never;
     fields.base_sha = row.base_sha;
@@ -794,14 +738,7 @@ async function captureClaimed(
     iso?.cleanup();
   }
   const next = { ...row, ...fields } as CheckoutRow;
-  // An earlier observation stays reachable under its own id, so a brief
-  // that cited it keeps resolving to what it cited; the live record moves
-  // to a new id.
-  if (row.ended_at !== null) {
-    const archived = { ...row, capture_token: null, capture_started_at: null, capture_pending: 0 };
-    ARCHIVE().run(row.id, row.owner_id, row.run_id, row.ended_at, JSON.stringify(archived));
-    next.id = id();
-  }
+  if (row.ended_at !== null) next.id = id();
   next.summary = JSON.stringify(summarize(next));
   // Write, release and notify together: a process exit leaves either the
   // whole observation with its change events or nothing of it.
@@ -823,23 +760,12 @@ async function captureClaimed(
       // The lease passed to another capture while this one ran: its result
       // is discarded, and the holder will publish its own.
       if (!written) return "lost";
-      if (buildTarget) db.prepare("INSERT OR REPLACE INTO checkout_build_targets VALUES(?,?,?,?,?,?)")
-        .run(next.id, row.owner_id, row.run_id, buildTarget.repository, buildTarget.commit, JSON.stringify(buildTarget.ancestors));
       const release = db
         .prepare(
           "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",
         )
         .get(runId, token) as { capture_pending: number } | undefined;
       if (release?.capture_pending) return "again";
-      // The run's results now carry checkout evidence: record them as
-      // changed so a brief that consumed the result before the capture
-      // ended sees it.
-      for (const { id: artifact } of db
-        .prepare(
-          "SELECT a.id FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0",
-        )
-        .all(row.owner_id, row.run_id) as { id: string }[])
-        recordChange(row.owner_id, null, "result", artifact, row.conversation_id);
       return "done";
     })
     .immediate();
