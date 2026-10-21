@@ -4,12 +4,68 @@ The versioned card service exposes individual results, saved items and personall
 sent prompts. Conversation Feed summaries, Status and Briefs remain separate.
 The Files tab continues to use `/api/results?view=files`.
 
-The current routes use the authenticated Loop browser or paired-device session.
-Authorization is reserved for integration credentials: an unrecognized header,
-including a Basic scheme, is refused instead of falling back to the session.
-An authenticated gateway must consume its own Authorization credentials before
-forwarding browser requests. Reads do not save, acknowledge, mark read, resolve
-decisions or dispatch work.
+Use an authenticated Loop browser/paired-device session, or a local integration
+token in `Authorization: Bearer …`. Reads do not save, acknowledge, mark read,
+resolve decisions or dispatch work.
+
+## Integration tokens
+
+Open **Settings → Card API tokens**, name the token and choose its read access.
+Copy the secret when it appears; Loop only stores its SHA-256 digest and cannot
+display it again. Keep it in a script's environment or secret store. The same
+Settings page lists nonsecret metadata and revokes tokens immediately.
+
+| Scope          | Access                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `results:read` | Eligible visible published Results, their details and changes                          |
+| `cards:read`   | Results, Saved (including messages and files), Sent prompts and their eligible details |
+
+Both grants cover the owner's projects. Query filters narrow a selection, not
+the grant. A token belongs to one source and owner; it cannot reach linked
+sources or proxy requests. Changing a single-user installation's selected owner
+invalidates the previous owner's tokens for that installation. Broader future
+collections require an explicit grant change.
+
+An Authorization header selects token authentication before any browser cookie.
+Malformed schemes (including Basic), invalid/revoked tokens and insufficient
+grants never inherit the session's permissions. Gateways must consume their own
+Authorization credentials before forwarding browser traffic. The integration
+exception admits only the implemented card GET/HEAD routes. Other API paths,
+methods, source proxies, file downloads and token management are unavailable to
+card credentials. Ordinary paired sessions retain their origin/CSRF rules.
+No third-party browser CORS or OAuth flow is provided.
+
+Owner sessions manage tokens with `GET /api/card-tokens`,
+`POST /api/card-tokens` (`{ request_id, secret, name, scope }`) and
+`DELETE /api/card-tokens/:id`. Creation returns `{ token, secret }`; list returns
+only token metadata. At most 50 tokens may be active; recent revoked metadata is
+retained in a bounded history. Nonsecret creation identities and secret digests
+are retained to prevent reviving a pruned revoked credential, including under a
+new creation identity. Secrets are never put in URLs or browser storage. The Settings client generates a
+32-byte random secret and a UUID creation identity before sending the request.
+Retrying the exact request returns the same token; changing its fields or retrying
+a revoked identity returns 409. `cardTokenRequest(name, scope)` supplies this
+request shape for session-authenticated tools. Keep the creation receipt only
+in memory. If a response is lost, Settings reconciles the metadata list and can
+finish the same creation; closing and reopening Settings retains a pending
+receipt for that owner/source. Reloading the page discards secrets: revoke any
+uncopied token using the metadata list and create another.
+
+Requests are limited to 120 per token and 600 per owner per minute. A 429 response
+includes `Retry-After: 60`. The approximate `last_used_at` updates at most once a
+minute; each request still checks revocation. These bookkeeping tables are the
+only state changed by token reads, along with source/owner-bound identifiers of
+cards previously returned to that token. Removal responses expose only those
+previously disclosed IDs; they never reveal IDs of private uploads or other
+ineligible records. This read bookkeeping is discarded on revocation. After
+changing credentials, backfill the selection again before consuming changes;
+revision reuse across different tokens is not a substitute for that backfill.
+GET and HEAD have identical permissions.
+
+Read-disclosure storage grows with distinct cards returned per active token;
+repeated reads do not add duplicate rows. Keep only the integration tokens you
+need and revoke unused ones. These short, indexed bookkeeping writes share the
+database write lock with the worker; the rate limits bound their frequency.
 
 ## Collections and detail
 
@@ -27,11 +83,11 @@ responses contain `{ revision, items, next }`; changes contain
 `{ card, order: [number, id], saved: { at, label } | null }`. Saved relationship
 data is present in Saved entries; it is not a different content variant.
 
-| View | Membership and order | Supported filters |
-| --- | --- | --- |
-| `results` (default) | Visible, unarchived published results of completed runs; no partials, uploads or traces. Newest publication sequence first. | `project`, `agent`, `teams` |
-| `saved` | Unarchived pinned artifacts, including hidden results and files, plus message bookmarks. Newest save time, then ID. | `project`, `agent`, `teams`, `q` |
-| `sent` | Personally submitted user messages under the same provenance rules as [personal history](workspace.md#personal-prompt-history). Newest creation time, then ID. | `project`, `agent`, `teams`, `q` |
+| View                | Membership and order                                                                                                                                           | Supported filters                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `results` (default) | Visible, unarchived published results of completed runs; no partials, uploads or traces. Newest publication sequence first.                                    | `project`, `agent`, `teams`      |
+| `saved`             | Unarchived pinned artifacts, including hidden results and files, plus message bookmarks. Newest save time, then ID.                                            | `project`, `agent`, `teams`, `q` |
+| `sent`              | Personally submitted user messages under the same provenance rules as [personal history](workspace.md#personal-prompt-history). Newest creation time, then ID. | `project`, `agent`, `teams`, `q` |
 
 `teams` is a comma-separated list of at most 30 owned teams. Project filters
 include descendants and the default Workspace's unfiled work. An agent filter

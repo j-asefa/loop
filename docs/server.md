@@ -35,7 +35,13 @@ Direct subscription connections retired by migration 067 become eligible for nat
 
 Changing authentication mode does not merge users' data. A database records its deployment profile; never point server and companion deployments at the same data directory.
 
-For remote single-user access, put an authenticated HTTPS gateway before the private app port. Set `LOOP_URL` and a private `LOOP_GATEWAY_TOKEN` of at least 32 characters. The gateway must authenticate visitors and overwrite `X-Loop-Gateway-Token`; never expose this token to browser code. Forwarding headers alone do not grant access.
+For remote single-user access, put an authenticated HTTPS gateway before the private app port. Set `LOOP_URL` and a private `LOOP_GATEWAY_TOKEN` of at least 32 characters. The gateway must authenticate visitors and overwrite `X-Loop-Gateway-Token`; never expose this token to browser code. Forwarding headers alone do not grant access. The gateway must consume its own
+`Authorization` credentials (for example Basic authentication) before forwarding
+browser traffic. Loop reserves that header for scoped integration credentials:
+requests carrying it do not fall back to browser/device sessions and can only
+reach their designated API routes. Preserve a Cards bearer header only when the
+request is intentionally using the [Cards integration boundary](cards-api.md#integration-tokens);
+never copy a gateway credential into browser code or a forwarded app request.
 
 For Loop-managed sign-in with bundled Caddy, configure `.env`:
 

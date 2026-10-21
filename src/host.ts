@@ -21,6 +21,8 @@ import {
 } from "./protocol.js";
 import type { Adapter } from "./adapters/types.js";
 import { State, secret, hash, atomic } from "./state.js";
+import { cardAuthorization, cardReadRoute, type CardAuthorization } from "./shared/card-access.js";
+import { Problem } from "./shared/problem.js";
 
 type Device = {
   id: string;
@@ -59,6 +61,7 @@ export class Host {
     /** Experimental workspaces never discover or proxy the everyday Docker sources. */
     isolated?: boolean;
     http: (req: IncomingMessage, res: ServerResponse) => void;
+    authorizeCards?: (req: IncomingMessage) => CardAuthorization;
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
     shareTools?: (
@@ -385,6 +388,24 @@ export class Host {
     if (!this.validHost(req))
       return this.json(res, 403, { error: "Unrecognized host." });
     try {
+      // Select bearer authentication before cookies or URL normalization. This
+      // exception can only forward the three implemented card read routes.
+      if (this.workspace && req.headers.authorization !== undefined) {
+        if (!cardReadRoute(req.method, req.url) || !this.workspace.authorizeCards ||
+            req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
+          return this.json(res, 403, { error: "Card credentials permit card reads only." });
+        if ((req.headers.origin && !this.validOrigin(req)) || req.headers["sec-fetch-site"] === "cross-site")
+          return this.json(res, 403, { error: "Origin rejected." });
+        try {
+          (req as IncomingMessage & { [cardAuthorization]?: CardAuthorization })[cardAuthorization] = this.workspace.authorizeCards(req);
+        } catch (error) {
+          const status = error instanceof Problem ? error.status : 500;
+          if (status === 429) res.setHeader("Retry-After", "60");
+          return this.json(res, status, { error: error instanceof Problem ? error.message : "Card authorization unavailable." });
+        }
+        this.workspace.http(req, res);
+        return;
+      }
       const path = new URL(req.url!, this.origin).pathname;
       if (path === "/pair" && req.method === "POST") {
         this.attempts = this.attempts.filter((t) => Date.now() - t < 60000);

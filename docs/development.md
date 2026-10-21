@@ -53,6 +53,7 @@ npm run smoke:history
 npm run smoke:pulls
 npm run smoke:social
 npm run smoke:companion
+npm run smoke:cards
 LOOP_BROWSER=webkit npm run smoke:companion
 npm run smoke:reconnect
 LOOP_BROWSER=webkit npm run smoke:reconnect

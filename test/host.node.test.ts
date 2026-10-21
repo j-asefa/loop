@@ -264,7 +264,7 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
     const auth = { Authorization: "Bearer " + token };
     assert.equal(
       (await fetch(host.origin + "/session", { headers: auth })).status,
-      401,
+      403,
     );
     const write = (headers: Record<string, string>) =>
       fetch(host.origin + "/api/agents", {
@@ -280,7 +280,7 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
           "x-loop-csrf": session.csrf,
         })
       ).status,
-      401,
+      403,
     );
     assert.equal((await write({ cookie, Origin: host.origin })).status, 403);
     assert.equal(

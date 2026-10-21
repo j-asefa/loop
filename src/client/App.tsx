@@ -1,5 +1,6 @@
 import { StartCodeReview } from "./CodeReview";
 import { SettingsHome } from "./SettingsHome";
+import { CardTokens } from "./CardTokens";
 import { PersonalProfile } from "./PersonalProfile";
 import { PersonalFiles } from "./PersonalFiles";
 import { Social } from "./Social";
@@ -3480,6 +3481,11 @@ export default function App() {
       {sheet === "notifications" && (
         <Sheet title="Notifications" onClose={closeSheet}>
           <Notifications />
+        </Sheet>
+      )}
+      {sheet === "card-tokens" && capabilities.cardTokens === true && (
+        <Sheet title="Card API tokens" onClose={closeSheet}>
+          <CardTokens key={session.user.id + ":" + executionSourceId()} owner={session.user.id} sourceId={executionSourceId()} />
         </Sheet>
       )}
       {sheet === "retire-agent" && profile && (

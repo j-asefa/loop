@@ -43,6 +43,9 @@ import { memoryRoutes } from "./memory.js";
 import { notifications } from "./notifications.js";
 import { mobile } from "./mobile-routes.js";
 import { cards } from "./card-routes.js";
+import { cardTokens } from "./card-token-routes.js";
+import { authenticateCardToken, type CardRequest } from "./card-tokens.js";
+import { cardAuthorization, cardReadRoute, CardGrantSchema } from "../shared/card-access.js";
 import { prWatches } from "./pr-watches.js";
 import { agentMail } from "./agent-mail.js";
 import { githubPulls } from "./github-pulls.js";
@@ -86,7 +89,37 @@ app.use((req, _res, next) => {
       : req.socket.remoteAddress;
   next();
 });
-app.get("/api/capabilities", (_req, res) => res.json(capabilities));
+// Keep the existing federation routes and their independent credential checks
+// ahead of the Cards selector. Express owns their case/trailing-slash matching.
+if (!companionMode) {
+  app.all("/api/mcp/federation", express.json({ limit: "12mb" }), (req, res, next) => {
+    void handleFederationMcp(req, res, req.body).catch(next);
+  });
+  app.all("/api/mcp/reverse", express.json({ limit: "12mb" }), (req, res, next) => {
+    void handleReverseMcp(req, res, req.body).catch(next);
+  });
+}
+// Card bearer identities never enter the general session-authorized API.
+app.use("/api", (req, res, next) => {
+  if (req.headers.authorization === undefined) return next();
+  if (!cardReadRoute(req.method, req.originalUrl) || req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
+    throw new Problem(403, "Card credentials permit card reads only");
+  if (!companionMode && ((req.headers.origin && !access!.allowedOrigin(req)) || req.headers["sec-fetch-site"] === "cross-site"))
+    throw new Problem(403, "Origin not allowed");
+  try {
+    const context = companionMode ? (req as CardRequest)[cardAuthorization] : authenticateCardToken(req);
+    if (!context || !CardGrantSchema.safeParse(context.scope).success || (companionMode && context.owner !== OWNER))
+      throw new Problem(401, "Invalid card credential");
+    res.locals.owner = context.owner;
+    res.locals.cardScope = context.scope;
+    res.locals.cardToken = context.tokenId;
+    cards(req, res, next);
+  } catch (error) {
+    if (error instanceof Problem && error.status === 429) res.setHeader("Retry-After", "60");
+    next(error);
+  }
+});
+app.get("/api/capabilities", (_req, res) => res.json({ ...capabilities, cardTokens: !designPreview }));
 if (companionMode) {
   // Host authorizes devices, origins and CSRF before forwarding to this app.
   app.use((_req, res, next) => {
@@ -122,16 +155,6 @@ if (companionMode) {
   );
 }
 app.use(express.json({ limit: "12mb" }));
-// The shared-tool endpoint authenticates a source token, not a browser or
-// device. Its catalog contains no credentials and is excluded from API proxying.
-if (!companionMode) {
-  app.all("/api/mcp/federation", (req, res, next) => {
-    void handleFederationMcp(req, res, req.body).catch(next);
-  });
-  app.all("/api/mcp/reverse", (req, res, next) => {
-    void handleReverseMcp(req, res, req.body).catch(next);
-  });
-}
 app.get("/api/health", (_req, res) => {
   const worker = db
     .prepare("SELECT max(heartbeat) last FROM worker_health")
@@ -305,6 +328,7 @@ app.use("/api", subscriptions);
 app.use("/api", activityRoutes);
 app.use("/api", mobile);
 app.use("/api", cards);
+app.use("/api", cardTokens);
 app.use("/api", prWatches);
 app.use("/api", githubPulls);
 app.use("/api", news);

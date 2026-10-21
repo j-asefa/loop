@@ -17,6 +17,7 @@ import { preview, designPreview } from "./preview-context.js";
 import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
+import { authenticateCardToken } from "./server/card-tokens.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
 // compares it to offer a reload without discarding its draft.
@@ -73,6 +74,7 @@ export class WorkspaceHost {
     this.gateway.workspace = {
       isolated: !!preview,
       http: app,
+      authorizeCards: authenticateCardToken,
       status: () => ({
         workspace: true,
         state: "ready",

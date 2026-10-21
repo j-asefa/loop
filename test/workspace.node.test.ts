@@ -59,6 +59,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         pairedDevices: true,
         runtimeHosts: false,
         localProjects: true,
+        cardTokens: true,
       },
     );
     assert.equal((await fetch(host.origin + "/api/bootstrap")).status, 401);
@@ -147,7 +148,8 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         const runtimeList = await api("/workspace/runtimes");
         assert.equal(runtimeList.computer, bootstrap.environmentName);
         assert.equal(runtimeList.online, true);
-        assert.equal(runtimeList.runtimes.length, 4);
+        assert.deepEqual(runtimeList.runtimes.map((r: any) => r.name).sort(),
+          ["claude", "codex", "gemini", "opencode", "pi"]);
         assert.equal(
           runtimeList.runtimes.find((r: any) => r.name === "codex")
             .authentication,

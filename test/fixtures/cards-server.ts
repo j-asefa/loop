@@ -1,0 +1,50 @@
+// An actual production HTTP entrypoint, with no workers or model providers.
+// Environment and data directory are supplied by the isolated parent fixture.
+import { once } from "node:events";
+const source =
+  process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/";
+const { config } = await import(source + "server/config.js");
+const { db } = await import(source + "server/db.js");
+let close: () => Promise<void>;
+let origin: string, owner: string, pair: string | undefined;
+if (process.env.LOOP_PROFILE === "companion") {
+  const { WorkspaceHost } = await import(source + "workspace-host.js");
+  const { OWNER } = await import(source + "server/native-sessions.js");
+  const host = new WorkspaceHost(config.data, {
+    harness: "codex",
+    version: "fixture",
+    project: process.cwd(),
+    executable: process.execPath,
+    billing: "existing",
+  });
+  await host.gateway.listen();
+  origin = host.gateway.origin;
+  owner = OWNER;
+  pair = host.pair().url;
+  close = () => host.close();
+} else {
+  const { startServer } = await import(source + "server/serve.js");
+  const server = startServer();
+  await once(server, "listening");
+  origin = config.url =
+    "http://127.0.0.1:" + (server.address() as { port: number }).port;
+  owner =
+    (
+      db.prepare("SELECT owner_id FROM installation WHERE id=1").get() as
+        | {
+            owner_id: string;
+          }
+        | undefined
+    )?.owner_id || "";
+  close = async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+}
+process.send?.({ origin, owner, pair });
+for (const signal of ["SIGTERM", "SIGINT"] as const)
+  process.once(signal, async () => {
+    await close();
+    db.close();
+    process.disconnect?.();
+  });

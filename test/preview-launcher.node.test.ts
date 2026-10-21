@@ -264,6 +264,7 @@ test(
       const bootstrap = (await phone.send("GET", "/api/bootstrap")).data;
       assert.equal(bootstrap.preview.build.id, before.preview.build.id);
       assert.equal(bootstrap.agents.length, 5);
+      assert.equal((await phone.send("GET", "/api/capabilities")).data.cardTokens, false);
       assert(!JSON.stringify(bootstrap.preview).includes(f.base));
       const buildStatus = await phone.send("GET", "/api/build");
       assert.equal(buildStatus.status, 200);

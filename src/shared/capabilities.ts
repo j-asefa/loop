@@ -5,6 +5,8 @@ export interface Capabilities {
   pairedDevices: boolean;
   runtimeHosts: boolean;
   localProjects: boolean;
+  /** Absent on older sources; preview sources explicitly disable management. */
+  cardTokens?: boolean;
 }
 export function profileCapabilities(profile: DeploymentProfile): Capabilities {
   const companion = profile === "companion";
@@ -14,5 +16,6 @@ export function profileCapabilities(profile: DeploymentProfile): Capabilities {
     pairedDevices: companion,
     runtimeHosts: !companion,
     localProjects: companion,
+    cardTokens: true,
   };
 }
