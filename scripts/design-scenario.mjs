@@ -20,6 +20,7 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
 import { teamNavigationSmoke } from "./helpers/team-navigation-smoke.mjs";
 import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
+import { teamFeedVisibilitySmoke } from "./helpers/team-feed-visibility-smoke.mjs";
 import { profileNavigationSmoke } from "./helpers/profile-navigation-smoke.mjs";
 import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
 import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
@@ -98,6 +99,7 @@ const scenarios = {
   settings: (p, f, e, c) => settingsReliabilityBrowser(p, f.base, c),
   workspace: workspaceControlsSmoke,
   teams: teamNavigationSmoke,
+  "team-feed-visibility": teamFeedVisibilitySmoke,
   "team-presets": teamPresetsSmoke,
   profile: profileNavigationSmoke,
   models: (p, f, e, c) => modelLabelsSmoke(p, f, c),

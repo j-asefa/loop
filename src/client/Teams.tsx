@@ -17,6 +17,52 @@ import { agentModelName } from "./modelChoices";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Agent, Connection, Team, Folder } from "../shared/types";
 import { AgentMailThreads } from "./AgentMail";
+import { SettingsToggle } from "./SettingsUI";
+import { viewOwner } from "./viewCache";
+import { executionSourceId } from "./sourceRouting";
+
+function TeamFeedVisibility({
+  team,
+  onChanged,
+}: {
+  team: Team;
+  onChanged: (team: Team) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div>
+      <SettingsToggle
+        title="Show results in feed"
+        description="Turn off to hide completed cards from All teams. Select this team to see them; requests and active work stay visible."
+        checked={!team.hide_results_from_feed}
+        disabled={busy}
+        onChange={async (show) => {
+          if (busy) return;
+          const owner = viewOwner(),
+            source = executionSourceId();
+          setBusy(true);
+          setError("");
+          try {
+            const updated = await api<Team>(
+              `/teams/${team.id}/feed-visibility`,
+              { hideResultsFromFeed: !show },
+              "PATCH",
+              AbortSignal.timeout(15000),
+            );
+            if (owner === viewOwner() && source === executionSourceId())
+              onChanged(updated);
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      {error && <p className="error" role="alert">{error}</p>}
+    </div>
+  );
+}
 
 export function TeamDirectory({
   teams,
@@ -26,6 +72,7 @@ export function TeamDirectory({
   onOpen,
   onCreate,
   onChanged,
+  onVisibilityChanged,
   onReview,
 }: {
   teams: Team[];
@@ -35,6 +82,7 @@ export function TeamDirectory({
   onOpen: (team: Team) => void;
   onCreate: () => void;
   onChanged: () => void;
+  onVisibilityChanged: (team: Team) => void;
   onReview?: (team: Team) => void;
 }) {
   const [adding, setAdding] = useState<Team | null>(null);
@@ -152,6 +200,10 @@ export function TeamDirectory({
                   <p className="muted">
                     {workers.map((id) => `@${name(id)}`).join(" · ")}
                   </p>
+                  <TeamFeedVisibility
+                    team={team}
+                    onChanged={onVisibilityChanged}
+                  />
                   {team.preset_id !== "code-review" && (
                     <button
                       className="text-button"
@@ -338,6 +390,7 @@ export function TeamFilter({
   onOpen,
   onMessages,
   onDeleted,
+  onVisibilityChanged,
 }: {
   teams: Team[];
   selected: string[];
@@ -346,6 +399,7 @@ export function TeamFilter({
   onOpen: (team: Team) => void;
   onMessages: (team: Team) => void;
   onDeleted: (id: string) => void;
+  onVisibilityChanged: (team: Team) => void;
 }) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState("");
@@ -407,7 +461,7 @@ export function TeamFilter({
               <Users size={20} />
               <span>
                 <strong>All teams</strong>
-                <small>Every team and your individual agents</small>
+                <small>Your agents and teams, with hidden results excluded</small>
               </span>
               {!selected.length && <Check size={20} />}
             </button>
@@ -433,6 +487,8 @@ export function TeamFilter({
                     <strong>{t.name}</strong>
                     <small>
                       {t.members.length + 1} agents · manager and workers
+                      {!!t.hide_results_from_feed &&
+                        " · Results hidden from All teams"}
                     </small>
                   </span>
                 </label>
@@ -449,6 +505,13 @@ export function TeamFilter({
                 </p>
               )}
           </div>
+          {chosen.length === 1 && (
+            <TeamFeedVisibility
+              key={chosen[0].id}
+              team={chosen[0]}
+              onChanged={onVisibilityChanged}
+            />
+          )}
           {chosen.length === 1 && (
             <div className="actions">
               <button
@@ -496,7 +559,7 @@ export function TeamFilter({
             <span className="muted">
               {chosen.length
                 ? `${chosen.length} selected`
-                : "Showing all activity"}
+                : "Showing All teams"}
             </span>
             <button className="primary" onClick={close}>
               Done

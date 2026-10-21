@@ -26,6 +26,7 @@ const names = [
   "settings",
   "workspace",
   "teams",
+  "team-feed-visibility",
   "team-presets",
   "profile",
   "models",

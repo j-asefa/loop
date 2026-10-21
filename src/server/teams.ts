@@ -256,6 +256,21 @@ export function assertTeamRestoreCapacity(owner: string, agentId: string) {
 }
 
 export const teams = Router();
+export function setTeamFeedVisibility(owner: string, teamId: string, input: unknown) {
+  const { hideResultsFromFeed } = z
+    .object({ hideResultsFromFeed: z.boolean() })
+    .parse(input);
+  return db.transaction(() => {
+    const team = owned<any>("teams", teamId, owner);
+    if (team.deleted_at != null)
+      throw new Problem(404, "Team no longer exists");
+    db.prepare(
+      "UPDATE teams SET hide_results_from_feed=? WHERE id=? AND owner_id=?",
+    ).run(Number(hideResultsFromFeed), teamId, owner);
+    return listTeams(owner).find((item) => item.id === teamId)!;
+  }).immediate();
+}
+
 export function deleteTeam(owner: string, teamId: string) {
   db.transaction(() => {
     owned("teams", teamId, owner);
@@ -299,6 +314,9 @@ teams.post("/teams", (req, res) =>
 );
 teams.post("/teams/:id/members", (req, res) =>
   res.json(addTeamMember(res.locals.owner, req.params.id, req.body)),
+);
+teams.patch("/teams/:id/feed-visibility", (req, res) =>
+  res.json(setTeamFeedVisibility(res.locals.owner, req.params.id, req.body)),
 );
 teams.delete("/teams/:id", (req, res) => {
   deleteTeam(res.locals.owner, req.params.id);

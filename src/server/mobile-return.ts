@@ -350,6 +350,13 @@ export function feed(
     outcomes: "is_done AND NOT snoozed",
     unfinished: "(is_needs OR is_working OR has_queued) AND NOT snoozed",
   }[filter];
+  // This is a result-card preference, not a conversation or agent mute.
+  // Explicit team and agent views retain history; attention and live work
+  // stay visible. Apply before pagination, without changing activity counts.
+  const teamVisibility =
+    !teams && !options.agent && (filter === "done" || filter === "outcomes")
+      ? "AND NOT EXISTS(SELECT 1 FROM teams t WHERE t.id=flagged.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1)"
+      : "";
   // Done lists outputs by when they finished, so a follow-up does not move them.
   const sortAt =
     filter === "done"
@@ -359,7 +366,7 @@ export function feed(
     .prepare(
       `${sql},
 page AS MATERIALIZED (
-  SELECT *,${sortAt} sort_at FROM flagged WHERE ${where}
+  SELECT *,${sortAt} sort_at FROM flagged WHERE ${where} ${teamVisibility}
     AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND conversation_id<@after))
   ORDER BY sort_at DESC,conversation_id DESC LIMIT 41
 ),${cardSql}`,

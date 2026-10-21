@@ -1147,6 +1147,14 @@ export default function App() {
     setRevision((v) => v + 1);
     await refresh();
   }
+  function teamVisibilityChanged(team: Team) {
+    setData((old) => ({
+      ...old,
+      teams: old.teams?.map((item) => item.id === team.id ? team : item),
+    }));
+    // Supersede any in-flight feed read so a saved preference takes effect now.
+    window.dispatchEvent(new Event("loop-source-refresh"));
+  }
   async function check() {
     const r = await fetch(sourceApiPath("/api/auth/get-session"), {
       cache: "no-store",
@@ -2704,6 +2712,7 @@ export default function App() {
             <div className="workspace-scope">
               <TeamFilter
                 teams={data.teams || []}
+                onVisibilityChanged={teamVisibilityChanged}
                 selected={teamSelection}
                 onDeleted={(id) => {
                   setData((old) => ({
@@ -3719,6 +3728,7 @@ export default function App() {
       {sheet === "teamDirectory" && (
         <TeamDirectory
           teams={data.teams || []}
+          onVisibilityChanged={teamVisibilityChanged}
           agents={data.agents}
           connections={data.connections}
           onClose={closeSheet}

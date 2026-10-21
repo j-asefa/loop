@@ -96,6 +96,7 @@ export type Team = {
   preset_id?: string | null;
   preset_version?: number | null;
   folder_id?: string | null;
+  hide_results_from_feed?: number;
   // Message threads between its agents that hit a limit and await Resume.
   paused_threads?: number;
 };

@@ -14,6 +14,7 @@ const { recordConversationUpdate } = await import("../src/server/conversation-up
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
+const { teams } = await import("../src/server/teams");
 const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
@@ -29,7 +30,7 @@ app.use((req, res, next) => {
   res.locals.owner = req.get("x-owner");
   next();
 });
-app.use("/api", mobile, core, workspace);
+app.use("/api", mobile, core, workspace, teams);
 app.use((e: any, _req: any, res: any, _next: any) =>
   res
     .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
@@ -134,6 +135,94 @@ function subscribe(owner: string) {
   );
   return sid;
 }
+
+it("persists team result visibility without hiding attention, history or unrelated agent work", async () => {
+  const w = workspaceFor(), manager = w.agent(), worker = w.agent();
+  const create = async (name: string) => {
+    const response = await api(w.owner, "/teams", "POST", {
+      name, managerId: manager.id, members: [worker.id],
+    });
+    expect(response.status).toBe(201);
+    expect(response.data.hide_results_from_feed).toBe(0);
+    return response.data;
+  };
+  const review = await create("PR review"), council = await create("LLM council");
+  const completed = (cid: string, agentId = manager.id) => {
+    const rid = run(w.owner, agentId, cid);
+    return message(w.owner, cid, "assistant", "Team result", rid);
+  };
+  const reviewMessage = completed(review.conversation_id);
+  completed(council.conversation_id);
+  const delegated = conversation(w.owner, worker.id);
+  db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(review.id, delegated);
+  completed(delegated, worker.id);
+  const solo = conversation(w.owner, worker.id);
+  completed(solo, worker.id);
+  const folder = (await api(w.owner, "/folders", "POST", { name: "Project", kind: "project" })).data.id;
+  db.prepare("UPDATE conversations SET project_id=? WHERE owner_id=?").run(folder, w.owner);
+  await api(w.owner, `/messages/${reviewMessage}/saved`, "POST");
+  const cards = async (query = "filter=done") => (await api(w.owner, `/feed?${query}`)).data;
+  const ids = (page: any) => page.items.map((item: any) => item.conversation_id);
+  const setHidden = (team: string, hidden: boolean, owner: string = w.owner) =>
+    api(owner, `/teams/${team}/feed-visibility`, "PATCH", { hideResultsFromFeed: hidden });
+  expect(ids(await cards())).toEqual(expect.arrayContaining([review.conversation_id, council.conversation_id, delegated, solo]));
+
+  expect((await setHidden(review.id, true, "intruder")).status).toBe(404);
+  expect((await api(w.owner, `/teams/${review.id}/feed-visibility`, "PATCH", { hideResultsFromFeed: "true" })).status).toBe(400);
+  expect((await api(w.owner, `/teams/${review.id}/feed-visibility`, "PATCH", {})).status).toBe(400);
+  expect((await setHidden(review.id, true)).data.hide_results_from_feed).toBe(1);
+  expect((await api(w.owner, "/teams")).data.find((t: any) => t.id === review.id).hide_results_from_feed).toBe(1);
+  expect(ids(await cards()).sort()).toEqual([council.conversation_id, solo].sort());
+  expect(ids(await cards(`filter=done&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
+  expect(ids(await cards(`filter=done&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
+  expect(ids(await cards(`filter=done&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
+  expect(ids(await cards("filter=all"))).toContain(review.conversation_id);
+  expect((await api(w.owner, "/saved")).data.items.some((item: any) => item.message?.message_id === reviewMessage)).toBe(true);
+  expect((await api(w.owner, `/conversations/${review.conversation_id}`)).status).toBe(200);
+
+  // Both teams can be hidden independently, including new results.
+  await setHidden(council.id, true);
+  completed(review.conversation_id);
+  expect(ids(await cards())).toEqual([solo]);
+  expect(ids(await cards("filter=outcomes"))).toEqual([solo]);
+  run(w.owner, manager.id, review.conversation_id, "awaiting_approval");
+  run(w.owner, worker.id, delegated, "running");
+  run(w.owner, manager.id, council.conversation_id, "queued");
+  const before = (await cards()).summary;
+  expect(before).toMatchObject({ needs: 1, working: 1, queued: 1 });
+  expect(ids(await cards("filter=needs"))).toEqual([review.conversation_id]);
+  expect(ids(await cards("filter=working"))).toEqual([delegated]);
+  expect(ids(await cards("filter=queued"))).toEqual([council.conversation_id]);
+  await setHidden(review.id, false);
+  expect((await cards()).summary).toEqual(before);
+  expect(ids(await cards()).sort()).toEqual([review.conversation_id, delegated, solo].sort());
+
+  await api(w.owner, `/teams/${council.id}`, "DELETE");
+  expect((await setHidden(council.id, false)).status).toBe(404);
+  expect(ids(await cards())).toContain(council.conversation_id);
+});
+
+it("filters hidden teams before paging through completed feed cards", async () => {
+  const w = workspaceFor(), manager = w.agent(), worker = w.agent();
+  const team = (await api(w.owner, "/teams", "POST", {
+    name: "Review", managerId: manager.id, members: [worker.id],
+  })).data;
+  await api(w.owner, `/teams/${team.id}/feed-visibility`, "PATCH", { hideResultsFromFeed: true });
+  const visible: string[] = [];
+  for (let i = 0; i < 90; i++) {
+    const cid = conversation(w.owner, worker.id);
+    const rid = run(w.owner, worker.id, cid);
+    message(w.owner, cid, "assistant", "Finished", rid);
+    if (i < 45) visible.unshift(cid);
+    else db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(team.id, cid);
+  }
+  const first = (await api(w.owner, "/feed?filter=done")).data;
+  expect(first.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(0, 40));
+  expect(first.next).toBeTruthy();
+  const second = (await api(w.owner, `/feed?filter=done&before=${encodeURIComponent(first.next)}`)).data;
+  expect(second.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(40));
+  expect(second.next).toBeNull();
+});
 
 it("remembers where you stopped reading a thread, per owner", async () => {
   const w = workspaceFor(),
