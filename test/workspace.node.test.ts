@@ -491,6 +491,29 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         ).id,
         fork.id,
       );
+      const imported = db.prepare("SELECT n.*,c.agent_id FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id WHERE c.id=?").get(fork.id) as any;
+      const commands = await api(`/agents/${imported.agent_id}/harness?conversation=${fork.id}`);
+      assert.equal(commands.runtime, "Codex");
+      assert.equal(imported.worktree_agent_id, imported.agent_id);
+      assert.equal(imported.worktree_source, projectB);
+      assert.notEqual(imported.project, projectB);
+      process.env.LOOP_TEST_REQUIRE_RESUME_CWD = "1";
+      try {
+        const continued = await api("/runs", {
+          agentId: imported.agent_id,
+          conversationId: fork.id,
+          input: "Continue the fork",
+          idempotencyKey: randomUUID(),
+        });
+        await until(() => ["completed", "failed", "interrupted"].includes(state(continued.id)));
+        assert.equal(state(continued.id), "completed");
+        const saved = db.prepare("SELECT native_id,project FROM companion_sessions WHERE conversation_id=?").get(fork.id) as any;
+        assert.equal(saved.native_id, imported.native_id);
+        assert.equal(saved.project, imported.project);
+        assert.equal((db.prepare("SELECT directory FROM run_checkouts WHERE run_id=?").get(continued.id) as any).directory, imported.project);
+      } finally {
+        delete process.env.LOOP_TEST_REQUIRE_RESUME_CWD;
+      }
     });
     await t.test(
       "legacy migration preserves source files and is idempotent",

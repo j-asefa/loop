@@ -207,6 +207,8 @@ if (kind !== "opencode") {
       return result({ config: { model_provider: "openai" } });
     if (type === "thread/start" || type === "thread/resume") {
       mailBridge = m.params?.config?.["mcp_servers.loop_workspace"];
+      if (type === "thread/resume" && process.env.LOOP_TEST_REQUIRE_RESUME_CWD && m.params.cwd !== process.cwd())
+        return out({ id: m.id, error: { code: -32602, message: "Resume must select the bound workspace directory" } });
       if (type === "thread/resume" && process.env.LOOP_TEST_CODEX_WRITER_BUSY)
         return out({
           id: m.id,

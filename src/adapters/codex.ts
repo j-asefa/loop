@@ -254,7 +254,7 @@ export class Codex implements Adapter {
           // Codex retains the full context. Loop already persists its display
           // history; copying every old turn (including file data) into this
           // single response can exceed the transport's bounded frame size.
-          ? { threadId: this.options.resume, excludeTurns: true, ...extras }
+          ? { threadId: this.options.resume, cwd: this.options.project, excludeTurns: true, ...extras }
           : { cwd: this.options.project, ...extras },
       )
       .catch((error) => {

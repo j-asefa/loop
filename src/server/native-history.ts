@@ -4,7 +4,7 @@ import { db, id, now } from "./db.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
 import { Problem } from "./domain.js";
 import { Codex } from "../adapters/codex.js";
-import { importSession } from "./migration.js";
+import { importSession, prepareImportSession } from "./migration.js";
 import type { Item } from "../protocol.js";
 import { codexActivities } from "../adapters/direct-activities.js";
 import { directActivityUpdate } from "../activity-bridge.js";
@@ -163,19 +163,23 @@ nativeHistory.post("/native/history/:id/fork", async (req, res) => {
   }
   const project = nativeSessions.directory(record.project);
   const conversation = await inspect(async (native) => {
+    const options = { ...nativeSessions.registration("codex"), project };
+    const prepared = await prepareImportSession(options, "fork", commandId, JSON.stringify([record.id, record.native_id]));
     db.prepare(
       "INSERT INTO native_history_actions VALUES(?,?,'unknown',NULL,?)",
     ).run(commandId, record.id, now());
     const result = await native.inspect("thread/fork", {
       threadId: record.native_id,
+      cwd: prepared.workspace.directory,
     });
     return db
       .transaction(() => {
         const conversation = importSession(
-          { ...nativeSessions.registration("codex"), project },
+          options,
           result.thread.id,
           projection(result.thread),
           "Fork: " + record.title,
+          prepared,
         );
         // Display history only: replayed records never mark tools as newly run.
         for (const update of historyActivities(result.thread))

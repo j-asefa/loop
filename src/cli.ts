@@ -1364,7 +1364,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       async () => {
         await migrateLegacy(root);
         if (!stopping && values.resume)
-          resumeFromDesktop(options, values.resume);
+          await resumeFromDesktop(options, values.resume);
       },
       neutral
         ? async () => {
