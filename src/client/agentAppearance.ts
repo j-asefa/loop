@@ -1,5 +1,4 @@
-// The first twelve retain their named avatars and backdrop colors.
-// Expanding the roster intentionally refreshes other name-derived assignments.
+// Keep this order stable: it defines existing avatar and backdrop assignments.
 const characters = {
   atlas: "atlas",
   nova: "nova",
@@ -116,6 +115,15 @@ const backdrops = [
   "#c6ad92",
 ];
 
+// Each palette keeps its original cover and adds one scene per character.
+const coverFamilies = new Map<string, string[]>();
+for (const character of names) {
+  const family = characters[character];
+  const variants = coverFamilies.get(family) ?? [family];
+  variants.push(`${character}-scene`);
+  coverFamilies.set(family, variants);
+}
+
 /** One consistent avatar and coordinated cover for a name, in every view. */
 export function agentAppearance(name: string) {
   const normalized = name.toLowerCase();
@@ -124,7 +132,16 @@ export function agentAppearance(name: string) {
     seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
   const named = names.indexOf(normalized as AgentCharacter);
   const character = names[named < 0 ? (seed >>> 8) % names.length : named];
-  const cover = characters[character];
+  const family = characters[character];
+  const variants = coverFamilies.get(family)!;
+  // Named characters have distinct covers; the original twelve keep theirs.
+  // Other names vary within the palette, even when they share an avatar.
+  const cover =
+    named < 0
+      ? variants[seed % variants.length]
+      : character === family
+        ? family
+        : `${character}-scene`;
   return {
     character,
     background: backdrops[(named < 0 ? seed >>> 16 : named) % backdrops.length],
