@@ -272,3 +272,35 @@ it("replays pending Load more after an optimistic action invalidates its respons
     "d:message:old",
   ]);
 });
+
+it("keeps concurrent callers on Cards while an expired revision resets the pager", async () => {
+  const reader = new DoneCardsReader("owner/concurrent-reset");
+  const delta = { revision: "r", items: [], removed: [], more: false };
+  const page = { revision: "r", items: [entry("kept", 100)], next: null };
+  await reader.load(
+    async (path) => (path.includes("/changes?") ? delta : page),
+    selection,
+    false,
+  );
+  let reject!: (error: unknown) => void;
+  let expire = true;
+  const request = async (path: string) => {
+    if (!path.includes("/changes?")) return page;
+    if (expire) {
+      expire = false;
+      return new Promise((_, fail) => {
+        reject = fail;
+      });
+    }
+    return delta;
+  };
+  const first = reader.load(request, selection, false);
+  const second = reader.load(request, selection, true);
+  reject(failure(409));
+  const windows = await Promise.all([first, second]);
+  expect(
+    windows.every(
+      (window) => window?.page.items[0].card.id === "d:message:kept",
+    ),
+  ).toBe(true);
+});

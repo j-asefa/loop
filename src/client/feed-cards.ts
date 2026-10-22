@@ -77,7 +77,17 @@ export class DoneCardsReader {
       );
       if (generation === this.generation && effectiveAppend)
         this.pendingAppend = false;
-      return this.pager.snapshot();
+      const window = this.pager.snapshot();
+      // A concurrent caller can finish against a window replaced by a 409
+      // reset. Only an explicit unsupported probe may return null to Feed.
+      if (!window) {
+        if (allowResync)
+          return this.load(request, selection, effectiveAppend, false);
+        throw new Error(
+          "The Done collection changed while loading; retrying is required",
+        );
+      }
+      return window;
     } catch (error) {
       if (generation !== this.generation) throw error;
       if ((error as { status?: number }).status === 409) this.resetVersion++;

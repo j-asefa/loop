@@ -1657,6 +1657,7 @@ export function Feed({
         onExpire: () =>
           void setSavedOnServer(item, message.id, false).catch((e) => {
             markSaved(item, true);
+            void load();
             setError((e as Error).message);
           }),
       });
@@ -1669,10 +1670,12 @@ export function Feed({
         undo: async () => {
           await setSavedOnServer(item, message.id, false);
           markSaved(item, false);
+          void load();
         },
       });
     } catch (e) {
       markSaved(item, false);
+      void load();
       setError((e as Error).message);
     }
   }

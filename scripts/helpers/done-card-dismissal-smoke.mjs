@@ -325,6 +325,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       if (path.endsWith("/messages/remote-message/saved")) {
         const saved = route.request().method() === "POST";
         remoteActions.push(saved ? "save" : "unsave");
+        if (!saved) remoteWorking = 3;
         remoteEntry.card.saved = remoteEntry.card.display.last_message.saved = saved;
         return route.fulfill({json: {ok:true}});
       }
@@ -359,8 +360,10 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
     await page.getByRole("menuitem", {name:/^Save/}).click();
     await expect.poll(() => remoteActions).toEqual(["dismiss", "undo", "save"]);
+    const beforeSaveUndo = await page.getByRole("tab", {name: /^Working/}).textContent();
     await page.getByRole("status").filter({hasText:"Saved. Find it"}).getByRole("button", {name:"Undo",exact:true}).click();
     await expect.poll(() => remoteActions).toEqual(["dismiss", "undo", "save", "unsave"]);
+    await expect(page.getByRole("tab", {name: /^Working/})).not.toHaveText(beforeSaveUndo);
 
     for (const count of [79, 119, 125]) {
       await page.getByRole("button", { name: "Load more", exact: true }).click();
