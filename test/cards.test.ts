@@ -1532,3 +1532,26 @@ it("Done reconciles Workspace renames for ordinary folders outside its parent su
   expect(card.context.project_name).toBe("Renamed Workspace");
   expect(card.type === "done" && card.display.position_message_id).toBeNull();
 });
+
+it("Done revises eligible partial answers and preserves conversation-agent attribution", async () => {
+  const owner = "done-partial-agent";
+  setup(owner);
+  db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('historical-agent',?,'Historical','historical','openai','fixture',1)").run(owner);
+  message(owner, "partial-run", "assistant", {partial:true});
+  message(owner, "partial-import", "assistant", {partial:true});
+  db.prepare("UPDATE messages SET run_id=NULL WHERE id='partial-import'").run();
+  db.prepare("UPDATE runs SET agent_id='historical-agent' WHERE id='partial-run'").run();
+  const cache = all(owner, {view:"done"});
+  for (const id of ["partial-run", "partial-import"]) {
+    db.prepare("UPDATE messages SET content='Updated partial answer',metadata=json_set(metadata,'$.attachments',json('[]')) WHERE id=?").run(id);
+  }
+  expectCurrent(owner, {view:"done"}, cache);
+  expect(cache.items.get("d:run:partial-run")!.card.content).toBe("Updated partial answer");
+  expect(cache.items.get("d:message:partial-import")!.card.content).toBe("Updated partial answer");
+  const {feed} = await import("../src/server/mobile-return");
+  expect(listCards(owner, {view:"done",agent:"historical-agent"}).items).toHaveLength(0);
+  const cards = listCards(owner, {view:"done",agent:owner}).items;
+  expect(cards.map(e => e.card.source.agent_id)).toEqual(cards.map(() => owner));
+  expect(cards.map(e => e.card.type === "done" && e.card.display.done_card_key))
+    .toEqual(feed(owner, {filter:"done",expand:"results",agent:owner}).items.map(e => e.done_card_key));
+});

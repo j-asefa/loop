@@ -92,7 +92,9 @@ data is present in Saved entries; it is not a different content variant.
 
 `teams` is a comma-separated list of at most 30 owned teams. Project filters
 include descendants and the default Workspace's unfiled work. An agent filter
-selects the result's agent or a personally sent message's recipient; assistant
+selects the result's agent or a personally sent message's recipient. Done preserves
+Feed's conversation-agent filter and attribution, including historical runs whose
+agent differs from the conversation; it does not use the Results agent contract. Assistant
 and system bookmarks have no recipient agent. Saved search matches
 content, result title or message conversation title, and save label. Sent search
 matches prompt content. Search compares literal text after NFC normalization and
