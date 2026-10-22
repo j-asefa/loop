@@ -3016,7 +3016,8 @@ export default function App() {
                 teams={teamKey || undefined}
                 revision={revision}
                 agents={unified.agents}
-                sources={unified.sources}
+                sources={unified.feedSources}
+                sourcesLoading={unified.loading}
                 onOpen={openSourcedConversation}
                 onReply={(c, source) => {
                   openSourcedConversation(c, undefined, source);

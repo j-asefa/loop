@@ -7,6 +7,7 @@ import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.
 import { feedReplyKeyboardSmoke } from "./helpers/feed-reply-keyboard-smoke.mjs";
 import { mobileNavViewportSmoke } from "./helpers/mobile-nav-viewport-smoke.mjs";
 import { feedReadingSmoke } from "./helpers/feed-reading-smoke.mjs";
+import { feedLoadingSmoke } from "./helpers/feed-loading-smoke.mjs";
 import { mainComposerKeyboardSmoke } from "./helpers/main-composer-keyboard-smoke.mjs";
 import { composerTypingSmoke } from "./helpers/composer-typing-smoke.mjs";
 import assert from "node:assert/strict";
@@ -82,6 +83,7 @@ const scenarios = {
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
   "mobile-nav-viewport": (p, f, e, c) => mobileNavViewportSmoke(p, f, c),
   "feed-reading": (p, f, e, c) => feedReadingSmoke(p, f, c),
+  "feed-loading": feedLoadingSmoke,
   "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),
   "create-agent-layout": (p, f, e, c) => createAgentLayoutSmoke(p, f, c),
   "upload-destination": uploadDestinationSmoke,

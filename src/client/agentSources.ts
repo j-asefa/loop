@@ -116,13 +116,19 @@ export function useAgentSources(
     ? current.environmentName || laptop.name
     : laptop.name;
   const local = { ...laptop, name: localName };
+  const initialSources = currentSourceId
+    ? [local, { id: currentSourceId, name: "Connected environment" }]
+    : [local];
   const federated = capabilities.pairedDevices || !!currentSourceId;
   const [state, setState] = useState<SourceState>({
     ...empty,
     currentSourceId,
-    sources: [local],
+    sources: initialSources,
     error: "",
   });
+  const [discovered, setDiscovered] = useState<
+    Pick<SourceState, "owner" | "currentSourceId" | "sources"> & { ready: boolean }
+  >({ currentSourceId, sources: initialSources, ready: false });
 
   useEffect(() => {
     if (!owner || !federated) return;
@@ -130,9 +136,24 @@ export function useAgentSources(
     let busy = false;
     let pending = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    let known: AgentSource[] = [];
+    const previousDiscovery = discovered.owner === owner &&
+      discovered.currentSourceId === currentSourceId ? discovered : null;
+    let confirmed = previousDiscovery?.ready ?? false;
+    let known: AgentSource[] = confirmed
+      ? previousDiscovery!.sources.filter(source => source.id)
+      : [];
     let knownLocal = { ...laptop, name: localName };
     const snapshots = new Map<string, Projection>();
+    if (state.owner === owner && state.currentSourceId === currentSourceId)
+      for (const source of state.sources)
+        snapshots.set(source.id, {
+          agents: state.agents.filter((item) => item.sourceId === source.id),
+          connections: state.connections.filter(
+            (item) => item.sourceId === source.id,
+          ),
+          folders: state.folders.filter((item) => item.sourceId === source.id),
+          runs: state.runs.filter((item) => item.sourceId === source.id),
+        });
     const requests = new Map<AbortController, ReturnType<typeof setTimeout>>();
     // Deadline and teardown cancellation also work on older mobile WebKit.
     const signal = () => {
@@ -175,13 +196,15 @@ export function useAgentSources(
           signal(),
         );
         known = linked;
+        confirmed = true;
       } catch (failure) {
         if (!active) return;
         // A 404 means this workspace has no linked sources: stop showing and
         // polling the ones it listed before.
-        if ((failure as { status?: number }).status === 404)
+        if ((failure as { status?: number }).status === 404) {
           linked = known = [];
-        else
+          confirmed = true;
+        } else
           error = known.length
             ? "Connection check unavailable. Showing your last connected environments."
             : "Couldn’t connect to your execution environments. Check your connection and retry.";
@@ -197,6 +220,28 @@ export function useAgentSources(
         !sources.some((item) => item.id === currentSourceId)
       )
         sources.push({ id: currentSourceId, name: "Connected environment" });
+      const publish = (error: string) => {
+        if (!active) return;
+        const loaded = sources
+          .filter((source) => source.id !== currentSourceId)
+          .flatMap((source) =>
+            snapshots.has(source.id) ? [snapshots.get(source.id)!] : [],
+          );
+        setState({
+          owner,
+          currentSourceId,
+          sources,
+          agents: loaded.flatMap((item) => item.agents),
+          connections: loaded.flatMap((item) => item.connections),
+          folders: loaded.flatMap((item) => item.folders),
+          runs: loaded.flatMap((item) => item.runs),
+          error,
+        });
+      };
+      if (!active) return;
+      // Feed reads only need destinations. Creation choices still need their
+      // connections, and outage warnings stay until the metadata retry settles.
+      setDiscovered({ owner, currentSourceId, sources, ready: confirmed });
       const settled = await Promise.allSettled(
         sources
           .filter((source) => source.id !== currentSourceId)
@@ -227,25 +272,12 @@ export function useAgentSources(
       for (const item of settled)
         if (item.status === "fulfilled")
           snapshots.set(item.value.source.id, item.value.data);
-      const loaded = sources
-        .filter((source) => source.id !== currentSourceId)
-        .flatMap((source) =>
-          snapshots.has(source.id) ? [snapshots.get(source.id)!] : [],
-        );
-      setState({
-        owner,
-        currentSourceId,
-        sources,
-        agents: loaded.flatMap((item) => item.agents),
-        connections: loaded.flatMap((item) => item.connections),
-        folders: loaded.flatMap((item) => item.folders),
-        runs: loaded.flatMap((item) => item.runs),
-        error:
-          error ||
+      publish(
+        error ||
           (settled.some((item) => item.status === "rejected")
             ? "An environment is temporarily unavailable. Its last loaded agents are still shown."
             : ""),
-      });
+      );
     };
     void load();
     const timer = setInterval(() => void load(), 30_000);
@@ -281,15 +313,27 @@ export function useAgentSources(
     ? state.sources.map((source) =>
         !source.id && !currentSourceId ? local : source,
       )
-    : [local];
+    : initialSources;
+  const discoveryReady =
+    federated &&
+    discovered.ready &&
+    discovered.owner === owner &&
+    discovered.currentSourceId === currentSourceId;
+  const feedSources = discoveryReady
+    ? discovered.sources.map((source) =>
+        !source.id && !currentSourceId ? local : source,
+      )
+    : initialSources;
   const currentSource =
-    sources.find((source) => source.id === currentSourceId) ||
+    feedSources.find((source) => source.id === currentSourceId) ||
     (currentSourceId
       ? { id: currentSourceId, name: "Connected environment" }
       : local);
   const currentProjection = owner ? project(currentSource, current) : empty;
   return {
     sources,
+    feedSources,
+    loading: !!owner && federated && !discoveryReady,
     agents: [...currentProjection.agents, ...(ready ? state.agents : [])],
     connections: [
       ...currentProjection.connections,

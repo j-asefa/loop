@@ -13,6 +13,7 @@ const names = [
   "feed-reply-keyboard",
   "mobile-nav-viewport",
   "feed-reading",
+  "feed-loading",
   "safari-sheet-keyboard",
   "create-agent-layout",
   "core",
