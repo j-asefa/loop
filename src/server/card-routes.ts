@@ -21,6 +21,8 @@ cards.use("/v1/cards", (req, res, next) => {
     CardViewSchema.parse(req.query.view ?? "results") !== "results"
   )
     throw new Problem(403, "This token permits published results only");
+  if (route.kind !== "detail" && res.locals.cardScope && req.query.view === "done")
+    throw new Problem(403, "Done requires an owner session");
   next();
 });
 cards[cardApi.list.method](cardApi.list.path, (req, res) =>

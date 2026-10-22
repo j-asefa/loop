@@ -85,7 +85,7 @@ export function CardBody({
 }) {
   return (
     <>
-      {card.type === "message" ? (
+      {card.type !== "result" ? (
         <RichText content={card.content} />
       ) : compact ? (
         <ResultPreview card={card} />

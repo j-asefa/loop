@@ -1,7 +1,7 @@
 # Cards API
 
 The versioned card service exposes individual results, saved items and personally
-sent prompts. Conversation Feed summaries remain separate.
+sent prompts. The session-only `done` collection preserves independent completed answers and idle-thread fallbacks. Conversation Feed summaries remain separate.
 The Files tab continues to use `/api/results?view=files`.
 
 Use an authenticated Loop browser/paired-device session, or a local integration
@@ -85,13 +85,18 @@ data is present in Saved entries; it is not a different content variant.
 
 | View                | Membership and order                                                                                                                                           | Supported filters                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `done` | Session-only completed-run answers, imported answers and idle-thread fallbacks, ordered by completion time, conversation and dismissal key. | `project`, `agent`, `teams` |
 | `results` (default) | Visible, unarchived published results of completed runs; no partials, uploads or traces. Newest publication sequence first.                                    | `project`, `agent`, `teams`      |
 | `saved`             | Unarchived pinned artifacts, including hidden results and files, plus message bookmarks. Newest save time, then ID.                                            | `project`, `agent`, `teams`, `q` |
 | `sent`              | Personally submitted user messages under the same provenance rules as [personal history](workspace.md#personal-prompt-history). Newest creation time, then ID. | `project`, `agent`, `teams`, `q` |
 
 `teams` is a comma-separated list of at most 30 owned teams. Project filters
 include descendants and the default Workspace's unfiled work. An agent filter
-selects the result's agent or a personally sent message's recipient; assistant
+selects the result's agent or a personally sent message's recipient. Done preserves
+Feed's conversation-agent filter and attribution, including historical runs whose
+agent differs from the conversation; it does not use the Results agent contract.
+Imported/runless Done answers have an unknown author: the conversation agent is
+the reply target, not evidence of who wrote copied continuation messages. Assistant
 and system bookmarks have no recipient agent. Saved search matches
 content, result title or message conversation title, and save label. Sent search
 matches prompt content. Search compares literal text after NFC normalization and
@@ -104,6 +109,22 @@ selection; null means history is exhausted. Cursors are opaque and bound to the
 database, owner and normalized selection. Detail has no query parameters and
 only exposes a card currently eligible for at least one supported collection.
 Knowing an artifact/message ID does not grant arbitrary transcript or file access.
+
+Done requires an owner browser/paired session; neither existing token scope grants
+Done list, changes or detail access. It returns `type: "done"` and opaque `d:`
+identities, independent of published artifact identities. Its display fields carry
+exact dismissal keys and existing Feed navigation and footer data. Each completed
+run selects its last nonempty, non-progress assistant answer; runless imported
+answers remain independent. Idle fallbacks have empty content. Continuing or
+snoozing a conversation does not remove its completed answers. Explicit null
+`folderId` snapshots mean Workspace; absent snapshots inherit the conversation.
+Dismissal/Undo and save continue to use the existing mutation routes.
+Done uses timestamp/identity window reconciliation and rejects `through` and
+search. Its delta dependencies include dismissals, reminders, conversation state,
+message saves, checkout/verification observations and pull-watch state, tracked by
+[migration 104](../migrations/104-done-cards.sql). Its opaque watermark also tracks
+clock-driven approval and stopped-pull expiry in bounded batches, so those changes
+reconcile even when no database write occurs.
 
 ## Card representation
 

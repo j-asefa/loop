@@ -1353,3 +1353,213 @@ it("requires existing collection and page cursors to reset when the reader proje
   ).toThrowError(expect.objectContaining({ status: 400 }));
   expect(listCards(owner, { view: "saved" }).items).toHaveLength(2);
 });
+
+it("Done preserves independent completion identities, full bodies and exact dismissal deltas", async () => {
+  const { feed, setDoneCardHidden } = await import("../src/server/mobile-return");
+  setup("done-contract");
+  message("done-contract", "done-first", "assistant", {}, 10);
+  message("done-contract", "done-second", "assistant", {}, 20);
+  db.prepare("UPDATE messages SET content=? WHERE id='done-first'").run("Answer ".repeat(1000));
+  const cache = all("done-contract", {view: "done"}, 1);
+  expect([...cache.items.keys()]).toEqual(["d:run:done-second", "d:run:done-first"]);
+  expect(cache.items.get("d:run:done-first")?.card.content).toHaveLength(7000);
+  const legacy = feed("done-contract", {filter: "done", expand: "results"});
+  expect([...cache.items.values()].map(e => e.card.type === "done" && e.card.display.done_card_key))
+    .toEqual(legacy.items.map(i => i.done_card_key));
+  db.prepare("UPDATE runs SET state='running' WHERE id='done-second'").run();
+  expectCurrent("done-contract", {view: "done"}, cache);
+  expect(cache.items.has("d:run:done-first")).toBe(true);
+  setDoneCardHidden("done-contract", "done-contract", {hidden: true, cardKey: "run:done-first"});
+  expectCurrent("done-contract", {view: "done"}, cache);
+  expect(cache.items.has("d:run:done-first")).toBe(false);
+  setDoneCardHidden("done-contract", "done-contract", {hidden: false, cardKey: "run:done-first"});
+  expectCurrent("done-contract", {view: "done"}, cache);
+  expect(cache.items.has("d:run:done-first")).toBe(true);
+  expect(cardDetail("done-contract", "d:run:done-first").content).toHaveLength(7000);
+  expect(() => cardDetail("done-contract", "d:run:done-first", "cards:read")).toThrow();
+  expect(() => cardDetail("other-owner", "d:run:done-first")).toThrow();
+});
+
+it("Done imports, ties, explicit Workspace and idle fallbacks converge", () => {
+  setup("done-imports");
+  message("done-imports", "done-workspace", "assistant", {}, 10);
+  db.prepare("UPDATE runs SET payload=? WHERE id='done-workspace'").run(JSON.stringify({folderId: null}));
+  const cache = all("done-imports", {view: "done"}, 1);
+  for (const id of ["import-a", "import-b"]) db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-imports','done-imports','assistant','Imported',10)",
+  ).run(id);
+  expectCurrent("done-imports", {view: "done"}, cache);
+  expect(cache.items.size).toBe(3);
+  expect(listCards("done-imports", {view: "done", project: "done-imports"}).items.map(i => i.card.id))
+    .toEqual(["d:message:import-b", "d:message:import-a"]);
+  db.prepare("DELETE FROM messages WHERE owner_id='done-imports'").run();
+  db.prepare("UPDATE runs SET state='cancelled' WHERE id='done-workspace'").run();
+  expectCurrent("done-imports", {view: "done"}, cache);
+  expect(cache.items.size).toBe(1);
+  expect([...cache.items.values()][0].card.content).toBe("");
+});
+
+it("Done reconciles more than eighty newer results without losing loaded history", () => {
+  setup("done-backlog");
+  message("done-backlog", "done-old", "assistant", {}, 1);
+  const cache = all("done-backlog", {view: "done"});
+  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-backlog','done-backlog','assistant','Imported answer',?)");
+  db.transaction(() => {for (let i=0;i<250;i++) insert.run("backlog-"+i, 2+i);})();
+  expectCurrent("done-backlog", {view: "done"}, cache);
+  expect(cache.items.size).toBe(251);
+  expect(cache.items.has("d:run:done-old")).toBe(true);
+  setSaved("done-backlog", "done-old", true);
+  expectCurrent("done-backlog", {view: "done"}, cache);
+  expect(cache.items.get("d:run:done-old")!.card.saved).toBe(true);
+  db.prepare("UPDATE conversations SET title='Renamed' WHERE id='done-backlog'").run();
+  expectCurrent("done-backlog", {view: "done"}, cache);
+  expect(cache.items.get("d:message:backlog-0")!.card.context.conversation_title).toBe("Renamed");
+});
+
+it("Done detail accepts cards visible through explicit hidden-team history", () => {
+  setup("done-team");
+  message("done-team", "team-answer", "assistant", {});
+  db.prepare("INSERT INTO teams(id,owner_id,name,manager_id,hide_results_from_feed,created_at) VALUES('done-hidden','done-team','Hidden','done-team',1,1)").run();
+  db.prepare("UPDATE conversations SET team_id='done-hidden' WHERE id='done-team'").run();
+  expect(listCards("done-team", {view:"done"}).items).toHaveLength(0);
+  expect(listCards("done-team", {view:"done",teams:"done-hidden"}).items).toHaveLength(1);
+  expect(cardDetail("done-team", "d:run:team-answer").content).toBe("Body team-answer");
+});
+
+it("Done reconciles tied approval expiries in bounded batches without database writes", () => {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+  try {
+    const owner = "done-expiry";
+    db.transaction(() => {
+      for(let i=0;i<250;i++) {
+        const id = "expiry-"+i;
+        db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,1)").run(id,owner,id);
+        db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Prompt',1)").run(id,owner,id);
+        db.prepare("UPDATE conversations SET feed_approval_until=200 WHERE id=?").run(id);
+      }
+    })();
+    const cache=all(owner,{view:"done"});
+    expect(cache.items.size).toBe(0);
+    clock.mockReturnValue(300);
+    const first = cardChanges(owner,{view:"done",after:cache.revision});
+    expect(first.items).toHaveLength(200);
+    expect(first.more).toBe(true);
+    expectCurrent(owner,{view:"done"},cache);
+    expect(cache.items.size).toBe(250);
+    expect([...cache.items.values()].every(entry => entry.card.content === "")).toBe(true);
+  } finally {clock.mockRestore();}
+});
+
+it("Done idle fallback reconciles acknowledging a failed run", () => {
+  setup("done-ack");
+  message("done-ack","failed-idle","assistant",{progress:true});
+  db.prepare("UPDATE runs SET state='failed' WHERE id='failed-idle'").run();
+  const cache=all("done-ack",{view:"done"});
+  expect(cache.items.size).toBe(0);
+  db.prepare("UPDATE runs SET attention_dismissed_at=100 WHERE id='failed-idle'").run();
+  expectCurrent("done-ack",{view:"done"},cache);
+  expect(cache.items.size).toBe(1);
+  expect([...cache.items.values()][0].card.content).toBe("");
+});
+
+it("Done removes expired stopped-pull footers through changes without a write", () => {
+  const clock=vi.spyOn(Date,"now").mockReturnValue(100);
+  try {
+    setup("done-pull-expiry");
+    message("done-pull-expiry","pull-answer","assistant",{});
+    db.prepare("INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,created_at,updated_at) VALUES('done-pull-watch','done-pull-expiry','done-pull-expiry','done-pull-expiry','fixture','repo',1,'stopped',1,1)").run();
+    const cache=all("done-pull-expiry",{view:"done"});
+    const card=cache.items.get("d:run:pull-answer")!.card;
+    expect(card.type === "done" && card.display.pull?.number).toBe(1);
+    clock.mockReturnValue(604800002);
+    expectCurrent("done-pull-expiry",{view:"done"},cache);
+    const updated=cache.items.get("d:run:pull-answer")!.card;
+    expect(updated.type === "done" && updated.display.pull).toBeNull();
+  } finally {clock.mockRestore();}
+});
+
+it("Done invalidates only candidate cards for visible pull changes and skips unrelated maintenance", () => {
+  setup("done-cost");
+  message("done-cost","cost-answer","assistant",{});
+  db.transaction(() => {
+    for (let i=0;i<500;i++) db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-cost','done-cost','user','Old prompt',1)").run("cost-prompt-"+i);
+  })();
+  db.prepare("INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,created_at,updated_at) VALUES('cost-watch','done-cost','done-cost','done-cost','fixture','repo',1,'watching',1,1)").run();
+  const cache=all("done-cost",{view:"done"});
+  const revision=()=> (db.prepare("SELECT max(revision) r FROM done_card_revisions WHERE owner_id='done-cost'").get() as {r:number}).r;
+  const before=revision();
+  db.prepare("UPDATE pr_watches SET next_poll_at=10 WHERE id='cost-watch'").run();
+  db.prepare("INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES('done-cost','done-cost','cost-answer',1)").run();
+  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('cost-unrelated','done-cost','project','Other',1)").run();
+  db.prepare("UPDATE folders SET name='Renamed unrelated' WHERE id='cost-unrelated'").run();
+  expect(revision()).toBe(before);
+  db.prepare("UPDATE pr_watches SET read_at=20 WHERE id='cost-watch'").run();
+  const delta=cardChanges("done-cost",{view:"done",after:cache.revision});
+  expect(delta.items.map(item => item.card.id)).toEqual(["d:run:cost-answer"]);
+  expect(delta.removed).toEqual([]);
+  expect(delta.more).toBe(false);
+  expectCurrent("done-cost",{view:"done"},cache);
+});
+
+it("adds Done projection to populated pre-104 databases without rewriting existing history", () => {
+  const fixture=new Database(":memory:");
+  try {
+    fixture.exec("CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)");
+    for (const name of readdirSync("migrations").filter(name => name.endsWith(".sql")).sort()) {
+      if (Number(name.slice(0,3)) >= 104) continue;
+      fixture.exec(readFileSync(join("migrations",name),"utf8"));
+    }
+    fixture.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('before-upgrade','before-upgrade','Existing history',1)").run();
+    fixture.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('before-answer','before-upgrade','before-upgrade','assistant','Preserved answer',1)").run();
+    fixture.exec(readFileSync("migrations/104-done-cards.sql","utf8"));
+    // Upgrade an already-applied 104, preserving its rows and revision domain.
+    fixture.prepare("UPDATE messages SET metadata=json_object('partial',json('true')) WHERE id='before-answer'").run();
+    fixture.exec(readFileSync("migrations/105-done-card-invalidation.sql","utf8"));
+    const revision = fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number};
+    fixture.prepare("UPDATE messages SET content='Partial edit' WHERE id='before-answer'").run();
+    expect((fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number}).revision).toBeGreaterThan(revision.revision);
+    fixture.prepare("UPDATE messages SET content='Preserved answer' WHERE id='before-answer'").run();
+    expect(fixture.prepare("SELECT key FROM done_card_candidates WHERE owner_id='before-upgrade'").all()).toEqual([{key:"d:message:before-answer"}]);
+    expect(fixture.prepare("SELECT content FROM messages WHERE id='before-answer'").get()).toEqual({content:"Preserved answer"});
+    fixture.prepare("UPDATE messages SET content='Updated answer' WHERE id='before-answer'").run();
+    expect(fixture.prepare("SELECT object_id FROM done_card_revisions WHERE owner_id='before-upgrade'").all()).toEqual([{object_id:"d:message:before-answer"}]);
+  } finally {fixture.close();}
+});
+
+it("Done reconciles Workspace renames for ordinary folders outside its parent subtree", () => {
+  setup("done-workspace-name");
+  const workspace=ensureWorkspaceProject("done-workspace-name");
+  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('workspace-loose-folder','done-workspace-name','folder','Loose folder',1)").run();
+  message("done-workspace-name","workspace-name-answer","assistant",{});
+  db.prepare("UPDATE runs SET payload=? WHERE id='workspace-name-answer'").run(JSON.stringify({folderId:"workspace-loose-folder"}));
+  const cache=all("done-workspace-name",{view:"done"});
+  db.prepare("UPDATE folders SET name='Renamed Workspace' WHERE id=?").run(workspace);
+  expectCurrent("done-workspace-name",{view:"done"},cache);
+  const card=cache.items.get("d:run:workspace-name-answer")!.card;
+  expect(card.context.project_name).toBe("Renamed Workspace");
+  expect(card.type === "done" && card.display.position_message_id).toBeNull();
+});
+
+it("Done revises eligible partial answers and preserves conversation-agent attribution", async () => {
+  const owner = "done-partial-agent";
+  setup(owner);
+  db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('historical-agent',?,'Historical','historical','openai','fixture',1)").run(owner);
+  message(owner, "partial-run", "assistant", {partial:true});
+  message(owner, "partial-import", "assistant", {partial:true});
+  db.prepare("UPDATE messages SET run_id=NULL WHERE id='partial-import'").run();
+  db.prepare("UPDATE runs SET agent_id='historical-agent' WHERE id='partial-run'").run();
+  const cache = all(owner, {view:"done"});
+  for (const id of ["partial-run", "partial-import"]) {
+    db.prepare("UPDATE messages SET content='Updated partial answer',metadata=json_set(metadata,'$.attachments',json('[]')) WHERE id=?").run(id);
+  }
+  expectCurrent(owner, {view:"done"}, cache);
+  expect(cache.items.get("d:run:partial-run")!.card.content).toBe("Updated partial answer");
+  expect(cache.items.get("d:message:partial-import")!.card.content).toBe("Updated partial answer");
+  expect(cache.items.get("d:message:partial-import")!.card.author).toEqual({kind:"unknown",id:null,name:null,provider:null});
+  const {feed} = await import("../src/server/mobile-return");
+  expect(listCards(owner, {view:"done",agent:"historical-agent"}).items).toHaveLength(0);
+  const cards = listCards(owner, {view:"done",agent:owner}).items;
+  expect(cards.map(e => e.card.source.agent_id)).toEqual(cards.map(() => owner));
+  expect(cards.map(e => e.card.type === "done" && e.card.display.done_card_key))
+    .toEqual(feed(owner, {filter:"done",expand:"results",agent:owner}).items.map(e => e.done_card_key));
+});
