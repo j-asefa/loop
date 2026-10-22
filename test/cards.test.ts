@@ -1415,3 +1415,65 @@ it("Done reconciles more than eighty newer results without losing loaded history
   expectCurrent("done-backlog", {view: "done"}, cache);
   expect(cache.items.get("d:message:backlog-0")!.card.context.conversation_title).toBe("Renamed");
 });
+
+it("Done detail accepts cards visible through explicit hidden-team history", () => {
+  setup("done-team");
+  message("done-team", "team-answer", "assistant", {});
+  db.prepare("INSERT INTO teams(id,owner_id,name,manager_id,hide_results_from_feed,created_at) VALUES('done-hidden','done-team','Hidden','done-team',1,1)").run();
+  db.prepare("UPDATE conversations SET team_id='done-hidden' WHERE id='done-team'").run();
+  expect(listCards("done-team", {view:"done"}).items).toHaveLength(0);
+  expect(listCards("done-team", {view:"done",teams:"done-hidden"}).items).toHaveLength(1);
+  expect(cardDetail("done-team", "d:run:team-answer").content).toBe("Body team-answer");
+});
+
+it("Done reconciles tied approval expiries in bounded batches without database writes", () => {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+  try {
+    const owner = "done-expiry";
+    db.transaction(() => {
+      for(let i=0;i<250;i++) {
+        const id = "expiry-"+i;
+        db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,1)").run(id,owner,id);
+        db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Prompt',1)").run(id,owner,id);
+        db.prepare("UPDATE conversations SET feed_approval_until=200 WHERE id=?").run(id);
+      }
+    })();
+    const cache=all(owner,{view:"done"});
+    expect(cache.items.size).toBe(0);
+    clock.mockReturnValue(300);
+    const first = cardChanges(owner,{view:"done",after:cache.revision});
+    expect(first.items).toHaveLength(200);
+    expect(first.more).toBe(true);
+    expectCurrent(owner,{view:"done"},cache);
+    expect(cache.items.size).toBe(250);
+    expect([...cache.items.values()].every(entry => entry.card.content === "")).toBe(true);
+  } finally {clock.mockRestore();}
+});
+
+it("Done idle fallback reconciles acknowledging a failed run", () => {
+  setup("done-ack");
+  message("done-ack","failed-idle","assistant",{progress:true});
+  db.prepare("UPDATE runs SET state='failed' WHERE id='failed-idle'").run();
+  const cache=all("done-ack",{view:"done"});
+  expect(cache.items.size).toBe(0);
+  db.prepare("UPDATE runs SET attention_dismissed_at=100 WHERE id='failed-idle'").run();
+  expectCurrent("done-ack",{view:"done"},cache);
+  expect(cache.items.size).toBe(1);
+  expect([...cache.items.values()][0].card.content).toBe("");
+});
+
+it("Done removes expired stopped-pull footers through changes without a write", () => {
+  const clock=vi.spyOn(Date,"now").mockReturnValue(100);
+  try {
+    setup("done-pull-expiry");
+    message("done-pull-expiry","pull-answer","assistant",{});
+    db.prepare("INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,created_at,updated_at) VALUES('done-pull-watch','done-pull-expiry','done-pull-expiry','done-pull-expiry','fixture','repo',1,'stopped',1,1)").run();
+    const cache=all("done-pull-expiry",{view:"done"});
+    const card=cache.items.get("d:run:pull-answer")!.card;
+    expect(card.type === "done" && card.display.pull?.number).toBe(1);
+    clock.mockReturnValue(604800002);
+    expectCurrent("done-pull-expiry",{view:"done"},cache);
+    const updated=cache.items.get("d:run:pull-answer")!.card;
+    expect(updated.type === "done" && updated.display.pull).toBeNull();
+  } finally {clock.mockRestore();}
+});

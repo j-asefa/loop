@@ -118,7 +118,9 @@ Dismissal/Undo and save continue to use the existing mutation routes.
 Done uses timestamp/identity window reconciliation and rejects `through` and
 search. Its delta dependencies include dismissals, reminders, conversation state,
 message saves, checkout/verification observations and pull-watch state, tracked by
-[migration 104](../migrations/104-done-cards.sql).
+[migration 104](../migrations/104-done-cards.sql). Its opaque watermark also tracks
+clock-driven approval and stopped-pull expiry in bounded batches, so those changes
+reconcile even when no database write occurs.
 
 ## Card representation
 

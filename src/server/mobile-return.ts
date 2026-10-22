@@ -268,7 +268,7 @@ flagged AS (
 // selected finished run; others show the current run.
 const assistantAnswer = (run: string) =>
   `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("m.content")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
-const cardSql = `
+const cardSql = (doneOnly = false) => `
 page_run AS MATERIALIZED (
   SELECT p.*,CASE WHEN @mode='done' THEN p.done_run_id ELSE p.run_id END card_run FROM page p
 ),
@@ -278,14 +278,14 @@ picked AS MATERIALIZED (
     r.error card_run_error,r.input card_run_input,
     json_extract(r.payload,'$.connectionId') card_run_connection_id,json_extract(r.payload,'$.model') card_run_model,
     json_extract(r.payload,'$.resolvedModel') card_run_resolved_model,r.created_at card_run_created_at,r.updated_at card_run_updated_at,
-    ${assistantAnswer("k.card_run")} card_answer_id,
-    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.card_run ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) card_any_id,
+    CASE WHEN k.card_run IS NOT NULL THEN ${assistantAnswer("k.card_run")} END card_answer_id,
+    ${doneOnly ? "NULL" : `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.card_run ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`} card_any_id,
     -- Expanded Done selects its answer explicitly. An idle thread without a
     -- result has no preview, rather than showing its prompt or commentary.
     (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
       AND k.expanded_done=0
       ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) thread_latest_id,
-    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) trigger_id,
+    CASE WHEN r.id IS NOT NULL THEN (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) END trigger_id,
     CASE WHEN @mode='done' THEN 0 ELSE (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
       WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND ar.state='awaiting_approval' AND a.state='pending' AND a.expires_at>@now) END pending_approvals,
     CASE WHEN @mode='done' THEN NULL ELSE (SELECT a.id FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
@@ -302,14 +302,14 @@ chosen AS MATERIALIZED (
       WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ('running','pausing','waiting_children'))) THEN k.card_answer_id
       ELSE k.thread_latest_id
     END message_id,
-    COALESCE(
+    ${doneOnly ? "NULL" : `COALESCE(
       (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
       (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)
-    ) approval_message_id
+    )`} approval_message_id
   FROM picked k LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
 )
 SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
-  m.metadata message_metadata,m.role message_role,substr(m.content,1,1000) message_content,m.created_at message_created_at,
+  m.metadata message_metadata,m.role message_role,${doneOnly ? "m.content" : "substr(m.content,1,1000)"} message_content,m.created_at message_created_at,
   json_extract(m.metadata,'$.automation.kind') message_automation,json_extract(m.metadata,'$.automation.fromName') message_automation_from,
   (m.id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id)
     OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=@owner AND sa.pinned=1 AND sa.archived=0 AND json_extract(sa.metadata,'$.messageId')=m.id))) message_saved,
@@ -416,7 +416,7 @@ page AS MATERIALIZED (
   SELECT *,${sortAt} sort_at FROM flagged WHERE ${where} ${teamVisibility}
     AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND (conversation_id<@after OR (conversation_id=@after AND ${afterCard}))))
   ORDER BY sort_at DESC,conversation_id DESC,done_card_key DESC LIMIT 41
-),${cardSql}`,
+),${cardSql()}`,
     )
     .all(params) as FeedRow[];
   const more = rows.length > 40;
@@ -465,8 +465,9 @@ page AS MATERIALIZED (
 /** Shared Done projection: keeps the legacy feed's exact membership and identity. */
 export function doneCardRows(owner: string, options: {
   folders: (string | null)[] | null; teamIds: string[]; agent?: string;
-  before?: [number, string] | null; ids?: string[]; limit: number;
+  before?: [number, string] | null; ids?: string[]; limit: number; detail?: boolean; atTime?: number;
 }) {
+  if (options.ids && !options.ids.length) return [];
   const identity = "'d:'||COALESCE(done_card_key,'idle:'||conversation_id)";
   const order = "conversation_id||char(31)||COALESCE(done_card_key,'')";
   const rows = db.prepare(`${feedSql(!!options.teamIds.length, !!options.folders, !!options.agent, true)},
@@ -476,12 +477,12 @@ export function doneCardRows(owner: string, options: {
         (NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed))
         AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner
           AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)
-        ${!options.teamIds.length && !options.agent ? "AND NOT EXISTS(SELECT 1 FROM teams t WHERE t.id=flagged.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1)" : ""}
+        ${!options.detail && !options.teamIds.length && !options.agent ? "AND NOT EXISTS(SELECT 1 FROM teams t WHERE t.id=flagged.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1)" : ""}
         AND (@ids IS NULL OR ${identity} IN (SELECT value FROM json_each(@ids)))
         AND (@at IS NULL OR (COALESCE(done_at,last_activity_at),${order})<(@at,@key))
       ORDER BY sort_at DESC,conversation_id DESC,done_card_key DESC LIMIT @limit
-    ),${cardSql.replace("substr(m.content,1,1000) message_content", "m.content message_content")}`)
-    .all({owner, now: now(), mode: "done", teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
+    ),${cardSql(true)}`)
+    .all({owner, now: options.atTime ?? now(), mode: "done", teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
       folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
       ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,
       key: options.before?.[1] ?? null, limit: options.limit}) as FeedRow[];
