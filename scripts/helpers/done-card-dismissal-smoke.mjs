@@ -406,7 +406,8 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(row).toHaveCount(1);
     await expect(newResult).toHaveCount(1);
     await expect(page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: /^Working/ })).toHaveText(workingCount);
+    await expect(page.getByRole("tab", { name: /^Working/ }).locator(".chip-count"))
+      .toHaveText(String(workingCount + remoteWorking));
     remoteWorking = 2;
     await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
     await expect(page.getByRole("tab", { name: /^Working/ }).locator(".chip-count"))
