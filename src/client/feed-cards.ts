@@ -6,6 +6,14 @@ import type { CardSelection } from "../shared/cards";
 export class DoneCardsReader {
   readonly pager = new CardPager();
   hasMore = false;
+  resetVersion = 0;
+  private generation = 0;
+  private activeAppends = 0;
+  private pendingAppend = false;
+  invalidateForAction() {
+    this.generation++;
+    this.pendingAppend ||= this.activeAppends > 0;
+  }
   private supported: boolean | null = null;
   constructor(
     readonly key: string,
@@ -31,11 +39,14 @@ export class DoneCardsReader {
       this.pager.reset(this.key);
     }
     const reader = cardReader(request);
+    const generation = this.generation;
+    const effectiveAppend = append || this.pendingAppend;
+    if (effectiveAppend) this.activeAppends++;
     try {
       await this.pager.load(
         this.key,
         "done",
-        append,
+        effectiveAppend,
         async (before) => {
           try {
             const page = await reader.list({
@@ -64,8 +75,12 @@ export class DoneCardsReader {
           return delta;
         },
       );
+      if (generation === this.generation && effectiveAppend)
+        this.pendingAppend = false;
       return this.pager.snapshot();
     } catch (error) {
+      if (generation !== this.generation) throw error;
+      if ((error as { status?: number }).status === 409) this.resetVersion++;
       if (allowResync && (error as { status?: number }).status === 409)
         return this.load(request, selection, false, false);
       if (this.isUnsupported()) return null;
@@ -83,6 +98,8 @@ export class DoneCardsReader {
         }
       }
       throw error;
+    } finally {
+      if (effectiveAppend) this.activeAppends--;
     }
   }
 }

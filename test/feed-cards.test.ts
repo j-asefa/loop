@@ -227,3 +227,48 @@ it("restarts once after a 409 revision reset without misclassifying it as an out
     ),
   ).rejects.toMatchObject({ status: 409 });
 });
+
+it("replays pending Load more after an optimistic action invalidates its response", async () => {
+  const reader = new DoneCardsReader("owner/action");
+  const delta = { revision: "r", items: [], removed: [], more: false };
+  await reader.load(
+    async (path) =>
+      path.includes("/changes?")
+        ? delta
+        : { revision: "r", items: [entry("first", 100)], next: "older" },
+    selection,
+    false,
+  );
+  let release!: (page: unknown) => void;
+  const active = reader.load(
+    async (path) =>
+      path.includes("/changes?")
+        ? delta
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
+    selection,
+    true,
+  );
+  const saved = reader.pager.snapshot()!;
+  reader.invalidateForAction();
+  reader.pager.restore(reader.key, saved);
+  release({ revision: "r", items: [entry("old", 10)], next: null });
+  await active;
+  const paths: string[] = [];
+  const result = await reader.load(
+    async (path) => {
+      paths.push(path);
+      return path.includes("/changes?")
+        ? delta
+        : { revision: "r", items: [entry("old", 10)], next: null };
+    },
+    selection,
+    false,
+  );
+  expect(paths[0]).toContain("before=older");
+  expect(result!.page.items.map((item) => item.card.id)).toEqual([
+    "d:message:first",
+    "d:message:old",
+  ]);
+});

@@ -1223,9 +1223,16 @@ export function Feed({
           const transport = (path: string) => combined ? apiInWorkspace(path, source) : api(path);
           const boundary = reader.pager.snapshot()?.boundary;
           const catchUp = boundary && priorItems.some(item => compareCardOrder(order(item), boundary) < 0);
-          const window = await reader.load(transport, {
-            view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
-          }, append || !!catchUp);
+          const resetVersion = reader.resetVersion;
+          let window: CardWindow | null;
+          try {
+            window = await reader.load(transport, {
+              view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
+            }, append || !!catchUp);
+          } finally {
+            if (reader.resetVersion !== resetVersion && ticket === request.current && owner === viewOwner())
+              cacheView(cardKey, undefined, owner);
+          }
           if (window) {
             followup ||= reader.hasMore || !!(window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0));
             if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
@@ -1528,6 +1535,7 @@ export function Feed({
       if (!hidden) items.push({card: item.card,
         order: item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")], saved: null});
       const changed = {...window, page: {...window.page, items}};
+      reader?.invalidateForAction();
       reader?.pager.restore(cardKey, changed);
       cacheView(cardKey, changed, owner);
     };
@@ -1609,6 +1617,7 @@ export function Feed({
         return {...entry, card: {...card, saved, display: {...card.display,
           last_message: card.display.last_message ? {...card.display.last_message, saved} : null}}};
       })}};
+      reader?.invalidateForAction();
       reader?.pager.restore(cardKey, changed);
       cacheView(cardKey, changed, owner);
       ++request.current;
