@@ -19,10 +19,10 @@ export function doneCards(
         agent_id: row.agent_id,
       },
       author: {
-        kind: row.message_id && row.agent_id ? "agent" : "unknown",
-        id: row.agent_id,
-        name: row.agent_name,
-        provider: row.provider,
+        kind: row.card_run && row.message_id && row.agent_id ? "agent" : "unknown",
+        id: row.card_run ? row.agent_id : null,
+        name: row.card_run ? row.agent_name : null,
+        provider: row.card_run ? row.provider : null,
       },
       recipient: null,
       context: {
