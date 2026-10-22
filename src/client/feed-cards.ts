@@ -7,6 +7,7 @@ export class DoneCardsReader {
   readonly pager = new CardPager();
   hasMore = false;
   resetVersion = 0;
+  discardPrior = false;
   private generation = 0;
   private activeAppends = 0;
   private pendingAppend = false;
@@ -90,7 +91,10 @@ export class DoneCardsReader {
       return window;
     } catch (error) {
       if (generation !== this.generation) throw error;
-      if ((error as { status?: number }).status === 409) this.resetVersion++;
+      if ((error as { status?: number }).status === 409) {
+        this.resetVersion++;
+        this.discardPrior = true;
+      }
       if (allowResync && (error as { status?: number }).status === 409)
         return this.load(request, selection, false, false);
       if (this.isUnsupported()) return null;

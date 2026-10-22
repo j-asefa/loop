@@ -364,6 +364,17 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await page.getByRole("status").filter({hasText:"Saved. Find it"}).getByRole("button", {name:"Undo",exact:true}).click();
     await expect.poll(() => remoteActions).toEqual(["dismiss", "undo", "save", "unsave"]);
     await expect(page.getByRole("tab", {name: /^Working/})).not.toHaveText(beforeSaveUndo);
+    await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
+    await page.getByRole("menuitem", {name:/^Save/}).click();
+    const switchedUndo = page.getByRole("status").filter({hasText:"Saved. Find it"}).getByRole("button", {name:"Undo",exact:true});
+    await expect(switchedUndo).toBeVisible();
+    await page.getByRole("tab", {name:/^Working/}).click();
+    await switchedUndo.click();
+    await page.waitForLoadState("networkidle");
+    await expect(remoteRow).toHaveCount(0);
+    await expect(page.getByRole("tab", {name:/^Working/})).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", {name:"Done",exact:true}).click();
+    await expect(remoteRow).toHaveCount(1);
 
     for (const count of [79, 119, 125]) {
       await page.getByRole("button", { name: "Load more", exact: true }).click();
@@ -453,6 +464,26 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
     await expect(page.locator('.inbox-results .inbox-row[aria-label^="Burst completion "]')).toHaveCount(125);
     await expect(history).toHaveCount(119);
+    // A replacement revision domain invalidates old history, unlike an outage.
+    // The fresh domain has several pages; failing its older pages must never
+    // resurrect rows retained from the invalidated domain.
+    let resetPending = true;
+    await page.route("**/api/v1/cards**", route => {
+      const url = new URL(route.request().url());
+      if (resetPending && url.pathname.endsWith("/changes")) {
+        resetPending = false;
+        return route.fulfill({status:409,json:{error:"Fixture revision domain replaced"}});
+      }
+      if (url.searchParams.has("before"))
+        return route.fulfill({status:503,json:{error:"Fixture old pages unavailable"}});
+      return route.fallback();
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(history).toHaveCount(0);
+    await expect(page.locator('.inbox-results .inbox-row[aria-label^="Burst completion "]')).toHaveCount(40);
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(page.getByText("Couldn’t load the Feed from any environment.")).toBeVisible();
+    await expect(history).toHaveCount(0);
   } finally {
     await client?.detach();
   }

@@ -1067,6 +1067,8 @@ export function Feed({
   );
   const shownKey = () =>
     "feed:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
+  const activeView = useRef<string | null>(null);
+  activeView.current = JSON.stringify([viewOwner(), shownKey()]);
   // Going back shows the list as you left it while it refreshes.
   const shown = cachedView<Shown>(shownKey());
   // Recorded locations, keyed by source and connection id: ids from
@@ -1142,7 +1144,7 @@ export function Feed({
     pages: new Map(),
   });
   const doneCatchup = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => { clearTimeout(doneCatchup.current); ++request.current; }, []);
+  useEffect(() => () => { activeView.current = null; clearTimeout(doneCatchup.current); ++request.current; }, []);
   const doneCards = useRef(new Map<string, DoneCardsReader>());
   const doneRefresh = useRef<{ key: string; sources: Map<string, DoneRefresh> }>({
     key: "", sources: new Map(),
@@ -1209,13 +1211,14 @@ export function Feed({
         before?: string,
       ) => {
         const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
-        const priorItems = cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [];
+        let priorItems = cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [];
         const order = (item: FeedItem): [number, string] => item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")];
         let fallbackTransition = false;
         if (filter === "done") {
           let reader = doneCards.current.get(cardKey);
           if (!reader) {
             reader = new DoneCardsReader(cardKey, cachedView<CardWindow>(cardKey));
+            reader.discardPrior = cachedView<boolean>(cardKey + ":reset") ?? false;
             doneCards.current.set(cardKey, reader);
             if (doneCards.current.size > 40) doneCards.current.delete(doneCards.current.keys().next().value!);
           }
@@ -1230,14 +1233,21 @@ export function Feed({
               view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
             }, append || !!catchUp);
           } finally {
-            if (reader.resetVersion !== resetVersion && ticket === request.current && owner === viewOwner())
+            if (reader.resetVersion !== resetVersion && ticket === request.current && owner === viewOwner()) {
               cacheView(cardKey, undefined, owner);
+              cacheView(cardKey + ":reset", true, owner);
+            }
           }
           if (window) {
+            if (reader.discardPrior) priorItems = [];
             followup ||= reader.hasMore || !!(window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0));
             if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
             // Counters remain conversation-based operational Feed state.
             const operational = await transport(query(undefined, "needs")) as Page;
+            if (ticket === request.current && owner === viewOwner()) {
+              reader.discardPrior = false;
+              cacheView(cardKey + ":reset", undefined, owner);
+            }
             const typedItems = window.page.items.flatMap(({card, order: cardOrder}) => card.type === "done" ? [{
               ...card.display, done_card_key: card.display.done_card_key ?? undefined,
               pending_approvals: 0, position_message_id: null, card, cardOrder,
@@ -1648,35 +1658,43 @@ export function Feed({
   async function toggleSaved(item: FeedItem) {
     const message = item.last_message;
     if (!message) return;
+    const owner = viewOwner(), key = JSON.stringify([owner, shownKey()]);
+    const current = () => owner === viewOwner() && activeView.current === key;
+    const restore = (saved: boolean) => {
+      if (!current()) return;
+      markSaved(item, saved);
+      void load();
+    };
     const saved = !!message.saved;
     markSaved(item, !saved);
     if (saved) {
       notify({
         text: "Removed from Saved.",
-        undo: () => { markSaved(item, true); void load(); },
-        onExpire: () =>
+        undo: () => restore(true),
+        onExpire: () => {
+          if (owner !== viewOwner()) return;
           void setSavedOnServer(item, message.id, false).catch((e) => {
-            markSaved(item, true);
-            void load();
-            setError((e as Error).message);
-          }),
+            restore(true);
+            if (current()) setError((e as Error).message);
+          });
+        },
       });
       return;
     }
     try {
       await setSavedOnServer(item, message.id, true);
+      if (owner !== viewOwner()) return;
       notify({
         text: "Saved. Find it in Later → Saved.",
         undo: async () => {
+          if (owner !== viewOwner()) return;
           await setSavedOnServer(item, message.id, false);
-          markSaved(item, false);
-          void load();
+          restore(false);
         },
       });
     } catch (e) {
-      markSaved(item, false);
-      void load();
-      setError((e as Error).message);
+      restore(false);
+      if (current()) setError((e as Error).message);
     }
   }
   function actionsFor(item: FeedItem): Action[] {
