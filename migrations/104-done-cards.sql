@@ -178,22 +178,22 @@ END;
 CREATE TRIGGER done_folders_insert AFTER INSERT ON folders BEGIN
 INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',key,owner_id,0 FROM (SELECT key,owner_id FROM done_card_candidates WHERE owner_id=new.owner_id AND (folder_id IN (WITH RECURSIVE subtree(id) AS (
       SELECT new.id UNION SELECT f.id FROM folders f JOIN subtree s ON f.parent_id=s.id WHERE f.owner_id=new.owner_id
-    ) SELECT id FROM subtree) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=new.owner_id AND w.project_id=new.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+    ) SELECT id FROM subtree) OR folder_id IN (SELECT folder_id FROM project_change_folders WHERE owner_id=new.owner_id AND project_id=new.id) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=new.owner_id AND w.project_id=new.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
 END;
 
 CREATE TRIGGER done_folders_update AFTER UPDATE ON folders WHEN new.name IS NOT old.name OR new.kind IS NOT old.kind OR new.parent_id IS NOT old.parent_id OR new.owner_id IS NOT old.owner_id BEGIN
 INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',key,owner_id,0 FROM (SELECT key,owner_id FROM done_card_candidates WHERE owner_id=old.owner_id AND (folder_id IN (WITH RECURSIVE subtree(id) AS (
       SELECT old.id UNION SELECT f.id FROM folders f JOIN subtree s ON f.parent_id=s.id WHERE f.owner_id=old.owner_id
-    ) SELECT id FROM subtree) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=old.owner_id AND w.project_id=old.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+    ) SELECT id FROM subtree) OR folder_id IN (SELECT folder_id FROM project_change_folders WHERE owner_id=old.owner_id AND project_id=old.id) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=old.owner_id AND w.project_id=old.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
 INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',key,owner_id,0 FROM (SELECT key,owner_id FROM done_card_candidates WHERE owner_id=new.owner_id AND (folder_id IN (WITH RECURSIVE subtree(id) AS (
       SELECT new.id UNION SELECT f.id FROM folders f JOIN subtree s ON f.parent_id=s.id WHERE f.owner_id=new.owner_id
-    ) SELECT id FROM subtree) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=new.owner_id AND w.project_id=new.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+    ) SELECT id FROM subtree) OR folder_id IN (SELECT folder_id FROM project_change_folders WHERE owner_id=new.owner_id AND project_id=new.id) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=new.owner_id AND w.project_id=new.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
 END;
 
 CREATE TRIGGER done_folders_delete AFTER DELETE ON folders BEGIN
 INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',key,owner_id,0 FROM (SELECT key,owner_id FROM done_card_candidates WHERE owner_id=old.owner_id AND (folder_id IN (WITH RECURSIVE subtree(id) AS (
       SELECT old.id UNION SELECT f.id FROM folders f JOIN subtree s ON f.parent_id=s.id WHERE f.owner_id=old.owner_id
-    ) SELECT id FROM subtree) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=old.owner_id AND w.project_id=old.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+    ) SELECT id FROM subtree) OR folder_id IN (SELECT folder_id FROM project_change_folders WHERE owner_id=old.owner_id AND project_id=old.id) OR (folder_id IS NULL AND EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=old.owner_id AND w.project_id=old.id)))) WHERE key IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
 END;
 
 CREATE TRIGGER done_teams_insert AFTER INSERT ON teams BEGIN

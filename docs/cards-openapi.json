@@ -2532,6 +2532,10 @@
            }
           ]
          },
+         "position_message_id": {
+          "default": null,
+          "type": "null"
+         },
          "later": {
           "anyOf": [
            {
@@ -2627,6 +2631,7 @@
          "last_message",
          "run",
          "pull",
+         "position_message_id",
          "later",
          "next_action"
         ],
@@ -3527,6 +3532,10 @@
            }
           ]
          },
+         "position_message_id": {
+          "default": null,
+          "type": "null"
+         },
          "later": {
           "anyOf": [
            {
@@ -3622,6 +3631,7 @@
          "last_message",
          "run",
          "pull",
+         "position_message_id",
          "later",
          "next_action"
         ],
