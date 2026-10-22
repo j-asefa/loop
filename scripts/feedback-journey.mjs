@@ -76,8 +76,9 @@ export async function feedbackJourney(page, api, base, dir) {
   const openProfile = async (name) => {
     await strip(name).click();
     await page
-      .getByRole("heading", { name: "@" + name, exact: true })
+      .getByRole("heading", { name, exact: true })
       .waitFor();
+    await expect(page.locator(".profile-handle")).toHaveText("@" + name);
     await page.getByRole("tab", { name: "Results", exact: true }).click();
   };
   await openProfile("feedback-manager");

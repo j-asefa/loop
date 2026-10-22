@@ -305,7 +305,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       .textContent();
     await capture("your-agents-scrolled");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".profile-head h1")).toHaveText(lastName);
+    await expect(page.locator(".profile-head h1")).toHaveText(lastName.replace(/^@/, ""));
 
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     await nav("Projects").tap();

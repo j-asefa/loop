@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { parse } from "./api";
-import { Badge, RichText, Sheet } from "./components";
+import { Avatar, Badge, RichText, Sheet } from "./components";
 import type { Provider } from "../shared/types";
 import { Tools } from "./Tools";
 
@@ -216,7 +216,11 @@ export function Approvals({
               }}
             >
               <span className="approval-symbol">
-                <ShieldCheck size={23} />
+                {item.name ? (
+                  <Avatar name={item.name} provider={item.provider} />
+                ) : (
+                  <ShieldCheck size={23} />
+                )}
               </span>
               <span className="approval-summary-text">
                 <span className="eyebrow">Your approval is needed</span>
@@ -338,8 +342,10 @@ export function Approvals({
             </div>
             {detail.request.deliveryUnknown && (
               <p role="alert" className="approval-description">
-                The previous approval may already have reached the agent. Check the native session first.
-                Choosing a decision below explicitly retries it once, only if the session still reports this request pending.
+                The previous approval may already have reached the agent. Check
+                the native session first. Choosing a decision below explicitly
+                retries it once, only if the session still reports this request
+                pending.
               </p>
             )}
             {detail.request.message && (

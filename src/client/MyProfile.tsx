@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
+import { ProfileCover } from "./ProfileCover";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { SHOW_LATER, type LaterSection, type ShowLater } from "./Later";
 
@@ -129,6 +130,7 @@ export function MyProfile({
   return (
     <section className="my-profile" aria-label="Your profile">
       <header className="my-profile-card">
+        <ProfileCover />
         <div className="my-profile-top">
           <span className="my-profile-avatar" aria-hidden="true">
             {initialsOf(name)}

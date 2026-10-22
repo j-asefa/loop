@@ -20,6 +20,7 @@ import {
 } from "react";
 import { automationLabel } from "../shared/agent-mail";
 import {
+  Clock3,
   AlarmClock,
   Archive,
   ArrowDown,
@@ -759,6 +760,7 @@ function AwaySummary({
     <section className="away-card" aria-label="While you were away">
       <div className="away-head">
         <button type="button" className="away-toggle" onClick={show}>
+          <Clock3 size={18} aria-hidden="true" />
           <strong>While you were away</strong>
           <span>{parts.join(" · ")}</span>
           <span className="away-link">
@@ -969,6 +971,11 @@ function NeedsStack({
       aria-label="Needs you"
       hidden={!count && !open}
     >
+      <div className="needs-heading">
+        <span aria-hidden="true" />
+        <h2>Needs you</h2>
+        <span className="needs-count">{count}</span>
+      </div>
       {open && count > 1 && (
         <div className="needs-stack-bar">
           <strong>{count} need you</strong>

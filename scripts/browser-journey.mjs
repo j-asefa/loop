@@ -181,8 +181,9 @@ try {
       .filter({ hasText: "@journey-agent" })
       .click();
     await page
-      .getByRole("heading", { name: "@journey-agent", exact: true })
+      .getByRole("heading", { name: "journey-agent", exact: true })
       .waitFor();
+    await expect(page.locator(".profile-handle")).toHaveText("@journey-agent");
     await page.getByRole("tab", { name: "Results", exact: true }).click();
   };
   await openAgentResults();

@@ -36,12 +36,14 @@ import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
 import { needsStackSmoke } from "./helpers/needs-stack-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
 import { threadLayoutSmoke } from "./helpers/thread-layout-smoke.mjs";
+import { visualLayoutSmoke } from "./helpers/visual-layout-smoke.mjs";
 
 import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 
 const scenarios = {
+  "visual-layout": visualLayoutSmoke,
   gemini: geminiSmoke,
   "workspace-project": workspaceProjectSmoke,
   "execution-environments": executionEnvironmentsSmoke,
@@ -234,12 +236,11 @@ for (const engine of selectedEngines()) {
           "Done",
           /^Working/,
           /^Queued/,
-          "Social",
         ]);
         await expect(
           inboxFilters.getByRole("tab", { name: "Done", exact: true }),
         ).toHaveAttribute("aria-selected", "true");
-        // Every Feed filter fits a small phone, so Social is never off-screen.
+        // Every Feed filter fits a small phone. Social lives on You.
         await page.setViewportSize({ width: 360, height: 780 });
         assert.ok(
           await inboxFilters.evaluate((el) => el.scrollWidth <= el.clientWidth),
@@ -306,7 +307,7 @@ for (const engine of selectedEngines()) {
             .click();
           await expect(
             page.getByRole("heading", {
-              name: "@" + resultsAuthor,
+              name: resultsAuthor,
               exact: true,
             }),
           ).toBeVisible();
@@ -403,8 +404,9 @@ for (const engine of selectedEngines()) {
           .getByRole("button", { name: /^@code-reviewer ·/ })
           .click();
         await expect(
-          page.getByRole("heading", { name: "@code-reviewer", exact: true }),
+          page.getByRole("heading", { name: "code-reviewer", exact: true }),
         ).toBeVisible();
+        await expect(page.locator(".profile-handle")).toHaveText("@code-reviewer");
         await expect(page.locator(".composer-launch")).toHaveAttribute(
           "title",
           /@code-reviewer/,
@@ -432,11 +434,15 @@ for (const engine of selectedEngines()) {
             const avatar = await page
               .locator(".profile-head > .avatar")
               .boundingBox();
+            const cover = await page
+              .locator(".profile-head > .profile-cover")
+              .boundingBox();
             assert(
-              Math.abs(
-                header.x + header.width / 2 - avatar.x - avatar.width / 2,
-              ) < 2,
-              "Profile avatar stays centered",
+              avatar.x >= header.x &&
+                avatar.x + avatar.width <= header.x + header.width / 2 &&
+                avatar.y < cover.y + cover.height &&
+                avatar.y + avatar.height > cover.y + cover.height,
+              "Profile avatar stays on the left and overlaps its cover",
             );
             // The agent menu sits in the header corner without covering the avatar.
             const menu = await page
@@ -886,6 +892,9 @@ for (const engine of selectedEngines()) {
             ),
           );
         })();
+        // Start a fresh paginated collection; an existing cached collection
+        // can receive all newly inserted cards through its changes cursor.
+        await page.reload({ waitUntil: "networkidle" });
         await projectTab("Activity").click();
         const activity = page.getByLabel("Project activity", { exact: true });
         await expect(
@@ -894,6 +903,12 @@ for (const engine of selectedEngines()) {
             exact: true,
           }),
         ).toBeVisible();
+        await expect(
+          activity.getByRole("heading", {
+            name: "Project history 0",
+            exact: true,
+          }),
+        ).toHaveCount(0);
         await activity
           .getByRole("button", { name: "Earlier activity", exact: true })
           .click();
@@ -925,7 +940,7 @@ for (const engine of selectedEngines()) {
         await expect(page.locator(".file-row").first()).toBeVisible();
         await expect(page.locator(".project-heading h2")).toHaveText("Loop");
         // Later lives on your profile: your messages, then Saved, Reminders
-        // and Scheduled as tabs, alongside Files.
+        // and Scheduled as tabs, alongside Files and Social.
         await nav("You");
         const yourProfile = page.getByRole("region", {
           name: "Your profile",
@@ -934,7 +949,7 @@ for (const engine of selectedEngines()) {
         await expect(yourProfile).toBeVisible();
         await expect(
           yourProfile.getByRole("tablist", { name: "Show" }).getByRole("tab"),
-        ).toHaveText(["Messages", "Saved", "Reminders", "Scheduled", "Files"]);
+        ).toHaveText(["Messages", "Saved", "Reminders", "Scheduled", "Files", /^Social/]);
         await expect(
           page.getByRole("button", { name: "Recent", exact: true }),
         ).toHaveCount(0);

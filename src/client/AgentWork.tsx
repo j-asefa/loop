@@ -40,7 +40,7 @@ export function AgentWork({
     })
     .join(" · ");
   const task = (run: Run) => (
-    <li key={run.id}>
+    <li key={run.id} data-state={run.state}>
       <button
         onClick={() =>
           run.conversation_id && onConversation(run.conversation_id)

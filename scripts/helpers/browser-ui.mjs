@@ -68,7 +68,7 @@ export async function openAgentProfile(page, name) {
     .locator(".your-agents")
     .getByRole("button", { name: new RegExp(`^@${escaped} · `) })
     .click();
-  await page.locator(".profile-head h1", { hasText: "@" + name }).waitFor();
+  await page.locator(".profile-head h1", { hasText: name }).waitFor();
   await page.getByRole("tab", { name: "Results", exact: true }).click();
 }
 

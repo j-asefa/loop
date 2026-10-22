@@ -1,6 +1,9 @@
 import { expect } from "@playwright/test";
+import { seedFeeds } from "./social-smoke.mjs";
 
 export async function needsStackSmoke(page, fixture, capture) {
+  seedFeeds(fixture.db, fixture.owner);
+  await page.route("https://pictures.example/**", (route) => route.abort());
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   const feed = page.getByRole("region", { name: "Feed", exact: true });
   const needs = feed.getByRole("region", { name: "Needs you", exact: true });
@@ -11,8 +14,8 @@ export async function needsStackSmoke(page, fixture, capture) {
   const collapse = needs.getByRole("button", { name: "Collapse", exact: true });
   const onlyNeedsCards = async () => {
     await expect(needs).toContainText("3 need you");
-    // No card from the selected filter may remain visible alongside the
-    // expanded attention cards.
+    // No card from the selected Feed filter may remain visible alongside
+    // the expanded attention cards.
     const visibleCards = feed.locator(
       ".approval-card:visible, .native-decision:visible, .scheduled-message:visible, .inbox-card-wrap:visible, .news-card:visible",
     );
@@ -145,4 +148,24 @@ export async function needsStackSmoke(page, fixture, capture) {
   await interrupted.getByRole("button", { name: "Thread actions", exact: true }).click();
   await page.getByRole("menuitem", { name: "Dismiss from Needs you", exact: true }).click();
   await expect(needs).toBeHidden();
+  // Social now lives on You. Its search remains available independently of
+  // the Feed's Needs you stack.
+  await page
+    .locator(".mobile-nav")
+    .getByRole("button", { name: "You", exact: true })
+    .click();
+  const socialTab = page
+    .locator(".my-profile-tabs")
+    .getByRole("tab", { name: /^Social(?:\s*\d+)?$/ });
+  await expect(socialTab.locator(".chip-count")).toHaveText("3");
+  await socialTab.click();
+  await expect(
+    page.locator(".news-card").filter({ hasText: "A faster build system" }),
+  ).toBeVisible();
+  await expect(page.locator(".needs-stack:visible")).toHaveCount(0);
+  await page.locator(".social-options-toggle").click();
+  await page
+    .getByRole("searchbox", { name: "Search your feeds" })
+    .fill("faster");
+  await expect(page.locator(".news-card")).toHaveCount(1);
 }

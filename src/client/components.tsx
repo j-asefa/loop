@@ -1,4 +1,5 @@
 import { useSourceId, useSourcePath } from "./SourceContext";
+import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
@@ -67,54 +68,7 @@ export function Badge({ provider }: { provider?: Provider }) {
     </span>
   );
 }
-export function Avatar({
-  name = "Loop",
-  provider,
-}: {
-  name?: string;
-  provider?: Provider;
-}) {
-  // Local, deterministic avatars remain recognizable without network requests.
-  let seed = 2166136261;
-  for (const c of name.toLowerCase())
-    seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
-  const hue = seed % 360;
-  return (
-    <span className="avatar generated" role="img" aria-label={name + " avatar"}>
-      <svg viewBox="0 0 40 40" aria-hidden="true">
-        <rect
-          width="40"
-          height="40"
-          rx="12"
-          fill={"hsl(" + hue + " 55% 85%)"}
-        />
-        <path
-          d={
-            seed % 2 ? "M5 40V22Q5 6 20 6T35 22V40" : "M4 40V20Q20 -6 36 20V40"
-          }
-          fill={"hsl(" + hue + " 45% 40%)"}
-        />
-        <rect
-          x="9"
-          y="15"
-          width="22"
-          height="15"
-          rx={(seed % 6) + 3}
-          fill={"hsl(" + hue + " 70% 95%)"}
-        />
-        <circle cx="15" cy="21" r="2" fill="#243331" />
-        <circle cx="25" cy="21" r="2" fill="#243331" />
-        <path
-          d={seed % 3 ? "M17 26Q20 29 23 26" : "M17 27H23"}
-          fill="none"
-          stroke="#243331"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    </span>
-  );
-}
+export { Avatar } from "./Avatar";
 export function Empty({
   title,
   children,

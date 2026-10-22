@@ -2,6 +2,7 @@
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
 import { spawn } from "node:child_process";
 const names = [
+  "visual-layout",
   "gemini",
   "agent-mail",
   "workspace-project",

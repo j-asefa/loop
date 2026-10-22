@@ -1,15 +1,21 @@
 import { Plus } from "lucide-react";
-import type { Connection } from "../shared/types";
 import { Avatar } from "./components";
 import { agentModelName } from "./modelChoices";
-import type { EnvironmentAgent, EnvironmentConnection, EnvironmentRun } from "./agentSources";
+import type {
+  EnvironmentAgent,
+  EnvironmentConnection,
+  EnvironmentRun,
+} from "./agentSources";
 
 const WORKING_STATES = ["running", "pausing", "waiting_children"];
 
 // Agents with a run currently in a working state lead the strip, most
 // recently launched first, so the agent someone just kicked off is the
 // one they see without scrolling.
-function orderByActivity(agents: EnvironmentAgent[], runs: EnvironmentRun[]): EnvironmentAgent[] {
+function orderByActivity(
+  agents: EnvironmentAgent[],
+  runs: EnvironmentRun[],
+): EnvironmentAgent[] {
   return agents
     .map((agent, index) => {
       const launchedAt = runs.reduce<number | null>(
@@ -66,11 +72,17 @@ export function YourAgents({
           <span className="agent-shortcut-status">Create</span>
         </button>
         {orderByActivity(agents, runs).map((agent) => {
-          const model = agentModelName(agent, connections.filter((connection) =>
-            (connection.sourceId || "") === (agent.sourceId || "")));
-          const activity = runs.filter((run) =>
-            run.agent_id === agent.id &&
-            (run.sourceId || "") === (agent.sourceId || ""),
+          const model = agentModelName(
+            agent,
+            connections.filter(
+              (connection) =>
+                (connection.sourceId || "") === (agent.sourceId || ""),
+            ),
+          );
+          const activity = runs.filter(
+            (run) =>
+              run.agent_id === agent.id &&
+              (run.sourceId || "") === (agent.sourceId || ""),
           );
           const status = activity.some((run) =>
             ["failed", "interrupted", "awaiting_approval", "paused"].includes(
@@ -102,8 +114,12 @@ export function YourAgents({
                 />
               </span>
               <span className="agent-shortcut-name">@{agent.name}</span>
-              <span className="agent-shortcut-status">{status}</span>
-              <span className="agent-shortcut-environment">{agent.executionEnvironment || "This computer"}</span>
+              <span className="agent-shortcut-status" data-status={status}>
+                {status}
+              </span>
+              <span className="agent-shortcut-environment">
+                {agent.executionEnvironment || "This computer"}
+              </span>
             </button>
           );
         })}

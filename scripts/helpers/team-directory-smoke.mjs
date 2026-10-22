@@ -100,12 +100,16 @@ export async function teamDirectorySmoke(page, fixture, team) {
     const loaded = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/api/results" &&
+        url.pathname === "/api/v1/cards" &&
+        url.searchParams.get("view") === "done" &&
         url.searchParams.get("teams") === team.id
       );
     });
     await open();
-    assert.equal(new URL((await loaded).url()).searchParams.get("view"), "all");
+    assert.equal(
+      new URL((await loaded).url()).searchParams.get("view"),
+      "done",
+    );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
     await expand();
     await expect(composer().getByLabel("Agent recipient")).toHaveValue(

@@ -12,6 +12,7 @@ export async function mobileNavViewportSmoke(page, fixture, capture) {
   const bottom = () => nav.evaluate((el) => el.getBoundingClientRect().bottom);
   const aligned = async () => {
     await expect.poll(bottom).toBeCloseTo(844, 0);
+    await expect(dock).toBeVisible();
     const bars = await page.evaluate(() => {
       const nav = document.querySelector(".mobile-nav").getBoundingClientRect();
       const dock = document.querySelector(".main-column > .composer-dock").getBoundingClientRect();

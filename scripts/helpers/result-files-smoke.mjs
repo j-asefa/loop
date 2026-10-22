@@ -384,7 +384,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
       .getByRole("button", { name: `Open @${agent.name} profile`, exact: true })
       .click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await expect(page.locator(".profile-head h1")).toHaveText("@" + agent.name);
+    await expect(page.locator(".profile-head h1")).toHaveText(agent.name);
     await expect(page.locator(".profile-head h1")).toBeInViewport({ ratio: 1 });
     await page.getByRole("tab", { name: "Files", exact: true }).click();
     const fileCard = page

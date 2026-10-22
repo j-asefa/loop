@@ -30,6 +30,7 @@ import { BrowserBuildStatus } from "./BuildStatus";
 import { HarnessPicker } from "./HarnessPicker";
 import { AgentDirectory } from "./AgentDirectory";
 import { YourAgents } from "./YourAgents";
+import { ProfileCover } from "./ProfileCover";
 import { AgentWork, currentAgentWork } from "./AgentWork";
 import { agentStatusLine } from "./agentStatusLine";
 import { belongsToProject } from "../shared/projects";
@@ -123,6 +124,7 @@ import {
   GitPullRequest,
   Settings,
   LogOut,
+  Monitor,
   MessageSquare,
   ArrowLeft,
   MoreHorizontal,
@@ -160,6 +162,7 @@ import type {
   Team,
 } from "../shared/types";
 import "./style.css";
+import "./design.css";
 import { PreviewBanner } from "./PreviewBanner";
 import type { PreviewInfo } from "../shared/preview";
 type Bootstrap = {
@@ -2677,7 +2680,7 @@ export default function App() {
     </div>
   );
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-page={profile ? "agent" : tab}>
       <aside className="sidebar">
         <button
           className="wordmark"
@@ -2749,6 +2752,7 @@ export default function App() {
               : tabs.find((t) => t.id === tab)?.label}
           </span>
           <div className="topbar-actions">
+            {tab === "feed" && !profile && projectScope}
             <span className="private-indicator">
               <span />
               Private workspace
@@ -2800,18 +2804,33 @@ export default function App() {
           <BrowserBuildStatus />
           {profile ? (
             <>
-              <button
-                className="text-button back-button"
-                onClick={() => {
-                  if (previousPage()) return;
-                  setProfile(null);
-                  setView("all");
-                }}
-              >
-                <ArrowLeft size={16} />
-                Back
-              </button>
+              <div className="profile-backbar">
+                <button
+                  className="text-button back-button"
+                  onClick={() => {
+                    if (previousPage()) return;
+                    setProfile(null);
+                    setView("all");
+                  }}
+                >
+                  <ArrowLeft size={16} />
+                  Back
+                </button>
+                <div>
+                  <strong>{profile.name}</strong>
+                  <span>Agent profile</span>
+                </div>
+                <button
+                  className="settings-button profile-settings"
+                  aria-label="Open settings"
+                  aria-expanded={sheet === "settings"}
+                  onClick={() => setSheet("settings")}
+                >
+                  <Settings size={20} aria-hidden="true" />
+                </button>
+              </div>
               <section className="profile-head">
+                <ProfileCover />
                 <button
                   className="icon-button profile-menu"
                   aria-label="Agent actions"
@@ -2820,19 +2839,13 @@ export default function App() {
                   <MoreHorizontal size={20} />
                 </button>
                 <Avatar name={profile.name} provider={profile.provider} />
-                <h1>@{profile.name}</h1>
-                <Badge provider={profile.provider} />
-                <p className="muted profile-model">
-                  {agentModelName(profile, data.connections)}
-                </p>
-                <p className="muted profile-environment">
-                  Runs on{" "}
-                  {unified.agents.find(
-                    (agent) =>
-                      agent.id === profile.id &&
-                      (agent.sourceId || "") === executionSourceId(),
-                  )?.executionEnvironment || currentSourceName}
-                </p>
+                <div className="profile-identity">
+                  <div className="profile-name">
+                    <h1>{profile.name}</h1>
+                    <span className="agent-label">Agent</span>
+                  </div>
+                  <p className="profile-handle">@{profile.name}</p>
+                </div>
                 <p className="profile-status">
                   {profile.instructions ||
                     (profileWork.some((run) =>
@@ -2856,6 +2869,20 @@ export default function App() {
                           ? "Your work is queued."
                           : agentStatusLine(profile.id))}
                 </p>
+                <div className="profile-meta">
+                  <Badge provider={profile.provider} />
+                  <span className="muted profile-model">
+                    {agentModelName(profile, data.connections)}
+                  </span>
+                  <span className="muted profile-environment">
+                    <Monitor size={14} aria-hidden="true" />
+                    {unified.agents.find(
+                      (agent) =>
+                        agent.id === profile.id &&
+                        (agent.sourceId || "") === executionSourceId(),
+                    )?.executionEnvironment || currentSourceName}
+                  </span>
+                </div>
                 <ProfileTeams
                   agent={profile}
                   teams={data.teams || []}
@@ -2890,7 +2917,11 @@ export default function App() {
                 />
               </section>
 
-              <div className="segmented scroll-tabs" role="tablist">
+              <div
+                className="segmented scroll-tabs profile-tabs"
+                role="tablist"
+                aria-label="Agent activity"
+              >
                 {[
                   ["all", "Results"],
                   ["threads", "Threads"],
@@ -2922,7 +2953,6 @@ export default function App() {
           ) : (tab === "projects" && project) || tab === "profile" ? null : (
             <div className="page-heading compact">
               <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
-              {tab === "feed" && projectScope}
             </div>
           )}
           {tab === "feed" && !profile && !!data.teams?.length && (

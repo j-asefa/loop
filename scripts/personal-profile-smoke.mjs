@@ -100,7 +100,8 @@ try {
     await avatar.click();
     await expect(
       page.locator(".profile-head:not(.personal-profile-head) h1"),
-    ).toHaveText("@" + agentName);
+    ).toHaveText(agentName);
+    await expect(page.locator(".profile-handle")).toHaveText("@" + agentName);
     await expect(page.locator(".personal-history")).toBeHidden();
     await page
       .getByRole("button", { name: "Back to profile", exact: true })

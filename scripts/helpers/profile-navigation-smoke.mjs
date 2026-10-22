@@ -84,7 +84,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     }
     await avatarButton.click();
     await settled();
-    await expect(page.locator(".profile-head h1")).toHaveText(name);
+    await expect(page.locator(".profile-head h1")).toHaveText(name.replace(/^@/, ""));
     await expect(page.locator(".profile-head h1")).toBeInViewport({ ratio: 1 });
     await page.waitForLoadState("networkidle");
     await page.goto(fixture.base + "/?conversation=" + conversation.id, {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 
 // Core Feed journeys: open a thread, reply in place, save a message into
-// Later, jump through the outline and snooze a thread out of the Feed.
+// Later, jump through the outline and set a thread reminder.
 export async function inboxFlowsSmoke(page, fixture, capture) {
   const dialog = () => page.locator("dialog[open]").last();
   const thread = () => page.locator("dialog.conversation-sheet[open]");
@@ -41,7 +41,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       "SELECT a.name FROM agents a JOIN conversations c ON c.agent_id=a.id WHERE c.id=?",
     )
     .get(target.id);
-  // A finished thread, so it is in Done until it is snoozed.
+  // A finished result stays in Done when its thread gets a reminder.
   const snoozed = fixture.conversations[0];
   // Three more prompts with long answers give the outline somewhere to jump.
   const start = fixture.db
@@ -196,7 +196,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(kept).toHaveCount(1);
     await expect(kept).toContainText("Finding 1");
     await capture("later-saved");
-    await kept.getByRole("button", { name: "Open", exact: true }).click();
+    await kept.getByRole("link", { name: "Open conversation", exact: true }).click();
     await expect(thread()).toHaveAttribute("aria-label", target.title);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("message"))
@@ -266,7 +266,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(answer).toBeInViewport();
     await closeThread();
 
-    // Snoozing from the row menu moves a thread from Feed "Done" to Later.
+    // A reminder appears in Later while the completed result stays in Done.
     await nav("Feed").click();
     await expect(
       page.getByRole("tab", { name: "Done", exact: true }),
@@ -294,7 +294,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(page.locator(".action-toast")).toContainText(
       "Reminder set: tomorrow morning.",
     );
-    await expect(row(snoozed.title)).toHaveCount(0);
+    await expect(row(snoozed.title)).toHaveCount(1);
     await expect(row(target.title)).toHaveCount(1);
     await nav("You").click();
     await laterTab("Reminders").click();

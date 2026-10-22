@@ -46,7 +46,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     const loaded = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
-        url.pathname === "/api/results" &&
+        ["/api/results", "/api/v1/cards"].includes(url.pathname) &&
         url.searchParams.get("agent") === agent.id
       );
     });
@@ -54,7 +54,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
       .getByRole("region", { name: "Your agents", exact: true })
       .getByRole("button", { name: new RegExp(`^@${agent.name} ·`) })
       .click();
-    await expect(page.locator(".profile-head h1")).toHaveText("@" + agent.name);
+    await expect(page.locator(".profile-head h1")).toHaveText(agent.name);
     await loaded;
     await expect(
       page.locator(".trace-list [role=status], .feed [role=status]"),

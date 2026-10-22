@@ -50,7 +50,7 @@ export async function profileWorkSmoke(page, capture) {
       .getByRole("region", { name: "Your agents", exact: true })
       .getByRole("button", { name: new RegExp(`^@${agent.name} ·`) })
       .click();
-    await expect(head.locator("h1")).toHaveText("@" + agent.name);
+    await expect(head.locator("h1")).toHaveText(agent.name);
     // The same agent's profile must include personal results and threads.
     await page.getByRole("tab", { name: "Results", exact: true }).click();
     await expect(page.locator(".feed-card")).toContainText(previous.title);
