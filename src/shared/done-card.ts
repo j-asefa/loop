@@ -97,6 +97,8 @@ export const DoneDisplaySchema = z.object({
       checked_at: time.nullable(),
     })
     .nullable(),
+  // Reading position belongs to the operational Feed contract.
+  position_message_id: z.null().default(null),
   later: z
     .object({
       id: z.string(),

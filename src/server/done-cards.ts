@@ -48,7 +48,7 @@ export function doneCards(
         (row.message_id
           ? "&message=" + encodeURIComponent(row.message_id)
           : ""),
-      display: DoneDisplaySchema.parse(display),
+      display: DoneDisplaySchema.parse({ ...display, position_message_id: null }),
     },
     order: [
       row.sort_at,

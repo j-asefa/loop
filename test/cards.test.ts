@@ -1518,3 +1518,17 @@ it("adds Done projection to populated pre-104 databases without rewriting existi
     expect(fixture.prepare("SELECT object_id FROM done_card_revisions WHERE owner_id='before-upgrade'").all()).toEqual([{object_id:"d:message:before-answer"}]);
   } finally {fixture.close();}
 });
+
+it("Done reconciles Workspace renames for ordinary folders outside its parent subtree", () => {
+  setup("done-workspace-name");
+  const workspace=ensureWorkspaceProject("done-workspace-name");
+  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('workspace-loose-folder','done-workspace-name','folder','Loose folder',1)").run();
+  message("done-workspace-name","workspace-name-answer","assistant",{});
+  db.prepare("UPDATE runs SET payload=? WHERE id='workspace-name-answer'").run(JSON.stringify({folderId:"workspace-loose-folder"}));
+  const cache=all("done-workspace-name",{view:"done"});
+  db.prepare("UPDATE folders SET name='Renamed Workspace' WHERE id=?").run(workspace);
+  expectCurrent("done-workspace-name",{view:"done"},cache);
+  const card=cache.items.get("d:run:workspace-name-answer")!.card;
+  expect(card.context.project_name).toBe("Renamed Workspace");
+  expect(card.type === "done" && card.display.position_message_id).toBeNull();
+});
