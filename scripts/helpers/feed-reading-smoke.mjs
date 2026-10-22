@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 
 export async function feedReadingSmoke(page, fixture, capture) {
   const done = fixture.conversations.find((item) => item.state === "completed");
-  const fullMessage = "A detailed result.\n\n" + "Further findings. ".repeat(350) + "\n\nEnd of the full result.";
+  const fullMessage = "A detailed result.\n\n" + "Further findings.\n\n".repeat(350) + "\n\nEnd of the full result.";
   fixture.db.prepare("UPDATE messages SET content=? WHERE run_id=? AND role='assistant'")
     .run(fullMessage, done.run);
   const reader = page.locator("dialog.feed-reading-sheet[open]");
@@ -18,6 +18,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
     const item = fixture.conversations.find((value) => value.state === state);
     await page.goto(`${fixture.base}/?filter=${filter}`, { waitUntil: "networkidle" });
     const card = page.locator(".inbox-results .inbox-card").filter({ hasText: item.title });
+    if (filter === "done") await expect(card.locator(".preview")).not.toContainText("End of the full result.");
     await card.locator(".inbox-row").click();
     await expect(reader).toBeVisible();
     await expect(thread).toHaveCount(0);

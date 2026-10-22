@@ -194,3 +194,36 @@ it("re-probes an upgraded source and distinguishes invalid cursors from lost cap
     (await reader.load(request, selection, false))!.page.items,
   ).toHaveLength(1);
 });
+
+it("restarts once after a 409 revision reset without misclassifying it as an outage", async () => {
+  const reader = new DoneCardsReader("owner/reset");
+  let revisionExpired = false,
+    pageReads = 0;
+  const request = async (path: string) => {
+    if (path.includes("/changes?")) {
+      if (revisionExpired) {
+        revisionExpired = false;
+        throw failure(409);
+      }
+      return { revision: "current", items: [], removed: [], more: false };
+    }
+    pageReads++;
+    return { revision: "first", items: [entry("kept", 100)], next: "older" };
+  };
+  await reader.load(request, selection, false);
+  revisionExpired = true;
+  expect(
+    (await reader.load(request, selection, false))!.page.items[0].card.id,
+  ).toBe("d:message:kept");
+  expect(pageReads).toBe(2);
+  await expect(
+    reader.load(
+      async (path) => {
+        if (path.includes("/changes?")) throw failure(409);
+        return request(path);
+      },
+      selection,
+      false,
+    ),
+  ).rejects.toMatchObject({ status: 409 });
+});

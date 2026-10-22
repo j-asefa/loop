@@ -277,6 +277,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
 
     // Exercise the production combined Feed with two nonempty sources. A
     // failed local refresh must retain all pages loaded before the outage.
+    await page.route("**/session", route => route.fulfill({json: {csrf: "fixture-csrf"}}));
     await page.route("**/api/capabilities", async (route) => {
       const response = await route.fetch();
       await route.fulfill({ response, json: { ...await response.json(), pairedDevices: true } });
@@ -288,6 +289,11 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     let remoteLegacy = false;
     let remoteHidden = false;
     const remoteActions = [];
+    let remoteFiles = 0, localFiles = 0;
+    await page.route("**/api/objects/shared-object", route => {
+      localFiles++;
+      return route.fulfill({contentType:"text/plain",body:"Wrong local attachment"});
+    });
     const remoteEntry = (await (await page.request.get(`${fixture.base}/api/v1/cards?view=done&limit=1`)).json()).items[0];
     remoteEntry.card.id = "d:run:remote-run";
     remoteEntry.card.source.conversation_id = "remote-thread";
@@ -300,9 +306,14 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     remoteEntry.card.display.title = "Remote completed result";
     remoteEntry.card.display.run.id = "remote-run";
     remoteEntry.card.context.conversation_title = "Remote completed result";
+    remoteEntry.card.attachments = [{id:"shared-artifact",name:"remote.txt",mime:"text/plain",size:17,href:"/?artifact=shared-artifact",download:"/api/objects/shared-object"}];
     remoteEntry.order[1] = "remote-thread\u001frun:remote-run";
     await page.route("**/api/agent-sources/*/**", (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/objects/shared-object")) {
+        remoteFiles++;
+        return route.fulfill({contentType:"text/plain",body:"Remote attachment"});
+      }
       if (path.endsWith("/feed/remote-thread")) {
         const body = route.request().postDataJSON();
         assert.equal(route.request().method(), "PATCH");
@@ -333,7 +344,15 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(history).toHaveCount(39); // The newest result occupies one row.
     await expect(page.locator('.inbox-results .inbox-row[aria-label^="Remote completed result"]')).toHaveCount(1);
     const remoteRow = page.locator('.inbox-results .inbox-row[aria-label^="Remote completed result"]');
+    await remoteRow.getByRole("button", {name:"Preview remote.txt",exact:true}).click();
+    const filePreview = page.locator("dialog.file-preview-sheet[open]");
+    await expect(filePreview).toContainText("Remote attachment");
+    assert.equal(remoteFiles, 1);
+    assert.equal(localFiles, 0);
+    await filePreview.locator(":scope > .sheet-inner > .sheet-head").getByRole("button", {name:"Close",exact:true}).click();
+    await expect(filePreview).toHaveCount(0);
     await swipe(remoteRow);
+    await expect.poll(() => remoteActions, "Remote dismissal reaches its source").toEqual(["dismiss"]);
     await expect(remoteRow).toHaveCount(0);
     await toast.getByRole("button", {name: "Undo", exact:true}).click();
     await expect(remoteRow).toHaveCount(1);

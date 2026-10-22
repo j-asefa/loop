@@ -23,7 +23,8 @@ export class DoneCardsReader {
     request: (path: string) => Promise<unknown>,
     selection: CardSelection,
     append: boolean,
-  ) {
+    allowResync = true,
+  ): Promise<CardWindow | null> {
     if (this.supported === false) {
       // Re-probe on refresh: a paired source can upgrade without a page reload.
       this.supported = null;
@@ -65,6 +66,8 @@ export class DoneCardsReader {
       );
       return this.pager.snapshot();
     } catch (error) {
+      if (allowResync && (error as { status?: number }).status === 409)
+        return this.load(request, selection, false, false);
       if (this.isUnsupported()) return null;
       if ([400, 404].includes((error as { status?: number }).status ?? 0)) {
         // A cursor failure alone is not a capability failure. Confirm against
