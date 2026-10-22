@@ -1797,10 +1797,13 @@ export function Feed({
   }
   // Approvals and native decisions from this workspace have their own cards
   // in the stack (needsSlot); other threads waiting on you show as threads.
+  // A stopped run must stay visible even if an older source still reports
+  // a stale approval as its next action. Its approval card cannot be answered.
   const needsThreads = needs.filter(
     (item) =>
       !(
         needsSlot &&
+        item.run?.state === "awaiting_approval" &&
         (item.sourceId ?? scopedSource) === scopedSource &&
         (item.next_action?.kind === "approve" ||
           item.next_action?.kind === "answer")

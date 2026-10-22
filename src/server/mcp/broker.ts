@@ -24,7 +24,6 @@ import {
   createdPullRequest,
   isGithubMcpUrl,
   mergeHeadProblem,
-  requiresExplicitApproval,
 } from "../../shared/github.js";
 export type { ToolBinding } from "./tool-budget.js";
 const options = {
@@ -183,7 +182,6 @@ export async function invokeTool(
       // Permission comes from the owner's saved policy, never server-provided hints.
       const automaticallyAllowed =
         mcpApprovalMode(run.owner_id) === "allow" &&
-        !requiresExplicitApproval(connection.url, binding.tool) &&
         !authorized.alwaysAsk;
       let approval = invocation?.approval_id
         ? owned<any>("approvals", invocation.approval_id, run.owner_id)

@@ -41,6 +41,32 @@ const reference = `SELECT
 FROM conversations c WHERE c.id=?`;
 const stored = `SELECT feed_run_id,feed_run_raw_state,feed_run_state,feed_run_dismissed_at,feed_queued,feed_done_run_id,feed_done_at,feed_last_activity_at,feed_last_message_id,feed_folder_id,feed_visible,feed_approval_until FROM conversations WHERE id=?`;
 
+it("closes obsolete approval requests on upgrade and terminal transitions without changing uncertain receipts", () => {
+  const db = database(102);
+  const w = writer(db);
+  w.conversation("stopped");
+  w.conversation("active");
+  w.run("old", "stopped", "interrupted");
+  w.run("live", "active", "awaiting_approval");
+  const insert = db.prepare("INSERT INTO approvals(id,owner_id,run_id,digest,request,state,result,created_at,expires_at) VALUES(?,'o',?,?,'{}',?,NULL,1,99999)");
+  for (const state of ["pending", "approved", "executing", "completed", "unknown"])
+    insert.run(state, "old", state, state);
+  insert.run("live", "live", "live", "pending");
+  db.exec(readFileSync("migrations/103-terminal-run-approvals.sql", "utf8"));
+  expect(db.prepare("SELECT id,state FROM approvals ORDER BY id").all()).toEqual([
+    { id: "approved", state: "approved" }, { id: "completed", state: "completed" },
+    { id: "executing", state: "executing" }, { id: "live", state: "pending" },
+    { id: "pending", state: "rejected" }, { id: "unknown", state: "unknown" },
+  ]);
+  expect(db.prepare("SELECT feed_approval_until FROM conversations WHERE id='stopped'").get()).toEqual({ feed_approval_until: null });
+  expectState(db, ["stopped", "active"], "upgrade");
+  db.prepare("UPDATE runs SET state='interrupted' WHERE id='live'").run();
+  expect(db.prepare("SELECT state FROM approvals WHERE id='live'").get()).toEqual({ state: "rejected" });
+  expect(db.prepare("SELECT feed_run_state,feed_approval_until FROM conversations WHERE id='active'").get()).toEqual({ feed_run_state: "interrupted", feed_approval_until: null });
+  expectState(db, ["stopped", "active"], "recovery");
+  db.close();
+});
+
 function writer(db: Database.Database) {
   let clock = 1000;
   return {

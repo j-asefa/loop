@@ -196,7 +196,29 @@ it("shares only source-owned tools and never replays a known or uncertain peer c
     fail();
   }
 });
-it("keeps shared GitHub merges pinned and pending when Allow is selected", async () => {
+it("shares GitHub merges under the approval policy while retaining the head requirement", async () => {
+  const sourceOwner = id(), owner = id();
+  const source = insert(sourceOwner, [smallTool("merge_pull_request")]);
+  db.prepare("UPDATE mcp_connections SET url='https://api.githubcopilot.com/mcp/' WHERE id=?").run(source);
+  const catalog = localFederationCatalog(sourceOwner);
+  expect(catalog).toHaveLength(1);
+  expect(catalog[0]._meta.loop).toEqual({ github: true, sourceTool: "merge_pull_request", alwaysAsk: false });
+  const connection = insert(owner, catalog);
+  db.prepare("UPDATE mcp_connections SET metadata=? WHERE id=?").run(
+    JSON.stringify({ transport: "federation", federatedPeer: "docker:" + "d".repeat(64) }), connection,
+  );
+  expect(() => authorizeConnectionTool(owner, connection, catalog[0].name, {})).toThrow(/expectedHeadSha/);
+  const args = { owner: "acme", repo: "api", pullNumber: 42, expectedHeadSha: "a".repeat(40) };
+  expect(() => authorizeConnectionTool(owner, connection, catalog[0].name, args)).not.toThrow();
+  const run = enqueue(owner, "Merge the reviewed PR", id());
+  const approval = requestApproval(run, { type: "mcp_tool", connectionId: connection, tool: catalog[0].name, arguments: args });
+  db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(run.id);
+  const changed = await api(owner, "/mcp/preferences", { approvalMode: "allow" }, "PUT");
+  expect(changed.data.resumed).toBe(1);
+  expect(db.prepare("SELECT state FROM approvals WHERE id=?").get(approval.id)).toEqual({ state: "approved" });
+});
+
+it("honors an older shared source's explicit alwaysAsk restriction even in Allow", async () => {
   const owner = id();
   const tool = "shared_" + "b".repeat(24);
   const connection = insert(owner, [

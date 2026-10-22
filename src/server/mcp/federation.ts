@@ -13,10 +13,7 @@ import { authorizeConnectionTool } from "./broker.js";
 import { connect, discover, readSecret, type MCPConnection } from "./client.js";
 import { redactCredentials } from "./redaction.js";
 import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
-import {
-  isGithubMcpUrl,
-  requiresExplicitApproval,
-} from "../../shared/github.js";
+import { isGithubMcpUrl } from "../../shared/github.js";
 
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -189,7 +186,8 @@ function sourceBindings(owner: string): Binding[] {
       description: `${connection.name}: ${String(tool.description || tool.name).slice(0, 1500)}`,
       inputSchema: tool.inputSchema,
       github: isGithubMcpUrl(connection.url),
-      alwaysAsk: requiresExplicitApproval(connection.url, tool.name),
+      // Shared GitHub merges follow the executing owner's approval policy too.
+      alwaysAsk: false,
     })),
   );
 }

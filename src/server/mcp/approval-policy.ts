@@ -1,7 +1,6 @@
 import { db, emit, now } from "../db.js";
 import { decide } from "../approvals.js";
 import { Problem } from "../domain.js";
-import { requiresExplicitApproval } from "../../shared/github.js";
 import {
   DEFAULT_PERMISSION_MODE,
   isPermissionMode,
@@ -45,11 +44,10 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
       let resumed = 0;
       if (mode === "allow") {
         // Only existing calls on connected MCPs are covered. Installation and
-        // workflow review approvals still require their own explicit decision,
-        // as do GitHub merges.
+        // workflow review approvals still require their own explicit decision.
         const pending = db
           .prepare(
-            `SELECT a.id,a.run_id,c.url,c.tools,json_extract(a.request,'$.tool') AS tool FROM approvals a
+            `SELECT a.id,a.run_id,c.tools,json_extract(a.request,'$.tool') AS tool FROM approvals a
         JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
         JOIN mcp_connections c ON c.id=json_extract(a.request,'$.connectionId') AND c.owner_id=a.owner_id
         WHERE a.owner_id=? AND a.state='pending' AND a.expires_at>?
@@ -59,12 +57,10 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
           .all(owner, now()) as {
           id: string;
           run_id: string;
-          url: string;
           tools: string;
           tool: string;
         }[];
         for (const approval of pending) {
-          if (requiresExplicitApproval(approval.url, approval.tool)) continue;
           let alwaysAsk = true;
           try {
             const tool = JSON.parse(approval.tools).find(

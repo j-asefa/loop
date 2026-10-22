@@ -291,11 +291,11 @@ picked AS MATERIALIZED (
       ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) thread_latest_id,
     (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) trigger_id,
     CASE WHEN @mode='done' THEN 0 ELSE (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
-      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now) END pending_approvals,
+      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND ar.state='awaiting_approval' AND a.state='pending' AND a.expires_at>@now) END pending_approvals,
     CASE WHEN @mode='done' THEN NULL ELSE (SELECT a.id FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
-      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now ORDER BY a.created_at,a.rowid LIMIT 1) END approval_id,
+      WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND ar.state='awaiting_approval' AND a.state='pending' AND a.expires_at>@now ORDER BY a.created_at,a.rowid LIMIT 1) END approval_id,
     CASE WHEN @mode='done' THEN NULL ELSE (SELECT d.id FROM native_decisions d JOIN runs dr ON dr.id=d.run_id AND dr.owner_id=@owner
-      WHERE d.conversation_id=k.conversation_id AND d.state='pending' ORDER BY d.created_at LIMIT 1) END decision_id
+      WHERE d.conversation_id=k.conversation_id AND dr.state='awaiting_approval' AND d.state='pending' ORDER BY d.created_at LIMIT 1) END decision_id
   FROM page_run k LEFT JOIN runs r ON r.id=k.card_run AND r.owner_id=@owner
 ),
 chosen AS MATERIALIZED (

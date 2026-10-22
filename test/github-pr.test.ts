@@ -320,71 +320,76 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-it("reads a PR as a card, refuses an unpinned merge and merges only after explicit approval", async () => {
+it.each(["ask", "allow", "switch-to-allow"])("merges under the %s policy while refusing an unpinned merge", async (policy) => {
+  calls.length = 0;
+  pull = { ...restPull };
+  setMcpApprovalMode("alice", policy === "allow" ? "allow" : "ask");
   const run = submit("alice", {
     agentId: agent.id,
     input: "Squash and merge https://github.com/acme/api/pull/42",
-    idempotencyKey: "github-merge",
+    idempotencyKey: "github-merge-" + policy,
   });
   const approvals = () =>
-    db
-      .prepare("SELECT * FROM approvals WHERE run_id=? ORDER BY created_at")
+    db.prepare("SELECT * FROM approvals WHERE run_id=? ORDER BY created_at,rowid")
       .all(run.id) as any[];
   await tick(execute);
-  expect(seenInstructions[0]).toContain(GITHUB_GUIDANCE);
-  expect(seenInstructions[0]).toContain("acme/api#42");
-  decide("alice", approvals()[0].id, "approve");
-  // Allow mode approves other tool calls automatically, but never merges.
-  setMcpApprovalMode("alice", "allow");
-  await tick(execute);
-  const card = db
-    .prepare("SELECT * FROM artifacts WHERE run_id=? AND kind='github_pr'")
+  expect(seenInstructions.at(-1)).toContain(GITHUB_GUIDANCE);
+  expect(seenInstructions.at(-1)).toContain("acme/api#42");
+  if (policy !== "allow") {
+    decide("alice", approvals()[0].id, "approve");
+    await tick(execute);
+    expect(calls.map((c) => c.tool)).toEqual(["pull_request_read"]);
+    expect(approvals()[1].state).toBe("pending");
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+      state: "awaiting_approval",
+    });
+    if (policy === "switch-to-allow")
+      expect(setMcpApprovalMode("alice", "allow").resumed).toBe(1);
+    else decide("alice", approvals()[1].id, "approve");
+    await tick(execute);
+  }
+  const card = db.prepare("SELECT * FROM artifacts WHERE run_id=? AND kind='github_pr'")
     .get(run.id) as any;
   expect(JSON.parse(card.content).pulls[0]).toMatchObject({
-    number: 42,
-    headSha: HEAD,
-    state: "open",
+    number: 42, headSha: HEAD, state: "open",
   });
-  // The unpinned merge never created an approval or reached GitHub.
+  // The unpinned merge never created an approval or reached GitHub. Allow
+  // dispatches the pinned merge once, without waiting for a separate decision.
   expect(approvals()).toHaveLength(2);
-  expect(calls.map((c) => c.tool)).toEqual(["pull_request_read"]);
-  const merge = approvals()[1];
-  expect(JSON.parse(merge.request)).toMatchObject({
-    tool: "merge_pull_request",
-    arguments: { expectedHeadSha: HEAD },
+  expect(JSON.parse(approvals()[1].request)).toMatchObject({
+    tool: "merge_pull_request", arguments: { expectedHeadSha: HEAD },
   });
-  expect(merge.state).toBe("pending");
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
-    state: "awaiting_approval",
-  });
-  // Switching to Allow resumes waiting tool calls, but not a waiting merge.
-  setMcpApprovalMode("alice", "ask");
-  expect(setMcpApprovalMode("alice", "allow").resumed).toBe(0);
-  expect(approvals()[1].state).toBe("pending");
-  await tick(execute);
-  expect(calls.map((c) => c.tool)).toEqual(["pull_request_read"]);
-  setMcpApprovalMode("alice", "ask");
-  decide("alice", merge.id, "approve");
-  await tick(execute);
-  expect(calls.map((c) => c.tool)).toEqual([
-    "pull_request_read",
-    "merge_pull_request",
-  ]);
+  expect(approvals()[1].state).toBe("completed");
+  expect(calls.map((c) => c.tool)).toEqual(["pull_request_read", "merge_pull_request"]);
   expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
     state: "completed",
   });
-  const history = JSON.parse(
-    (
-      db
-        .prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
-        .get(run.id) as any
-    ).history,
-  );
-  const unpinned = history.find(
-    (m: any) => m.role === "tool" && m.toolCallId === "merge-unpinned",
-  );
+  expect(await tick(execute)).toBe(false);
+  expect(calls.filter((c) => c.tool === "merge_pull_request")).toHaveLength(1);
+  const history = JSON.parse((db.prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
+    .get(run.id) as any).history);
+  const unpinned = history.find((m: any) => m.role === "tool" && m.toolCallId === "merge-unpinned");
   expect(JSON.parse(unpinned.content)).toMatchObject({ isError: true });
   expect(unpinned.content).toContain("expectedHeadSha");
+});
+
+it("does not retry a merge against a changed head even when Allow is selected", async () => {
+  calls.length = 0;
+  pull = { ...restPull, head: { ...restPull.head, sha: "b".repeat(40) } };
+  setMcpApprovalMode("alice", "allow");
+  const run = submit("alice", { agentId: agent.id, input: "Merge the reviewed head", idempotencyKey: "changed-head" });
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+  const binding = {
+    name: "merge_pull_request", connectionId: gh, tool: "merge_pull_request",
+    description: "Merge a pull request", inputSchema: {},
+  };
+  const args = { owner: "acme", repo: "api", pullNumber: 42, expectedHeadSha: HEAD };
+  const first = await invokeTool(run, binding, "merge-changed", args);
+  expect(first).toMatchObject({ result: { isError: true } });
+  expect(await invokeTool(run, binding, "merge-changed", args)).toEqual(first);
+  expect(calls).toEqual([{ tool: "merge_pull_request", args }]);
+  expect(pull.merged).toBe(false);
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
 });
 
 it("starts one watch for a PR created by the official GitHub tool", async () => {

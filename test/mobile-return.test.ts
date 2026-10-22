@@ -15,6 +15,7 @@ const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams } = await import("../src/server/teams");
+const { workflows } = await import("../src/server/workflows/routes");
 const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
@@ -31,7 +32,7 @@ app.use((req, res, next) => {
   res.locals.owner = req.get("x-owner");
   next();
 });
-app.use("/api", mobile, core, workspace, teams);
+app.use("/api", mobile, core, workspace, teams, workflows);
 app.use((e: any, _req: any, res: any, _next: any) =>
   res
     .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
@@ -479,6 +480,54 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     needs: [],
     failed: [],
   });
+});
+
+it("surfaces a native run interrupted while awaiting approval, without replay or a stale approval action", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Merge after review");
+  const rid = run(w.owner, a.id, cid, "awaiting_approval");
+  message(w.owner, cid, "user", "Merge the PR after approval", rid);
+  const pending = requestApproval(owned<any>("runs", rid, w.owner), {
+    type: "mcp_tool", tool: "merge_pull_request", arguments: { expectedHeadSha: "a".repeat(40) },
+  });
+  db.prepare("INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,'stopped-host','digest','accepted',?)").run(rid, now());
+  const page = async () => (await api(w.owner, "/feed?filter=needs")).data;
+  expect((await page()).items[0]).toMatchObject({
+    pending_approvals: 1, next_action: { kind: "approve", run_id: rid },
+  });
+  expect((await api(w.owner, "/approvals")).data).toHaveLength(1);
+
+  const { NativeSessions } = await import("../src/server/native-sessions");
+  new NativeSessions().recover();
+  expect((await page()).items).toMatchObject([{
+    conversation_id: cid, pending_approvals: 0, next_action: null,
+    run: { id: rid, state: "interrupted", error: expect.stringContaining("Host stopped") },
+  }]);
+  expect((await page()).summary.needs).toBe(1);
+  expect((await api(w.owner, "/approvals")).data).toEqual([]);
+  expect(db.prepare("SELECT state FROM approvals WHERE id=?").get(pending.id)).toEqual({ state: "rejected" });
+  expect((await api(w.owner, `/approvals/${pending.id}`, "POST", { decision: "approve" })).status).toBe(409);
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(rid)).toEqual({ state: "interrupted" });
+  expect(db.prepare("SELECT count(*) n FROM runs WHERE conversation_id=?").get(cid)).toEqual({ n: 1 });
+  expect((await api("intruder", "/feed?filter=needs")).data.items).toEqual([]);
+  await api(w.owner, `/runs/${rid}/dismiss`, "POST", {});
+  expect((await page()).items).toEqual([]);
+  expect((await page()).summary.needs).toBe(0);
+});
+
+it.each(["failed", "interrupted"])("ignores legacy pending approvals and native decisions on a %s run", async (state) => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id);
+  const rid = run(w.owner, a.id, cid, state);
+  // Reproduce an older source's stale records, after terminal-state cleanup.
+  requestApproval(owned<any>("runs", rid, w.owner), { type: "mcp_tool", tool: "merge_pull_request" });
+  db.prepare("INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,created_at) VALUES(?,?,?,'old','decision','{}','pending',?)")
+    .run(id(), rid, cid, now());
+  const page = (await api(w.owner, "/feed?filter=needs")).data;
+  expect(page.items).toMatchObject([{
+    conversation_id: cid, run: { id: rid, state }, pending_approvals: 0, next_action: null,
+  }]);
+  expect((await api(w.owner, "/approvals")).data).toEqual([]);
 });
 
 it.each(["delegation", "workflow"])("shows %s work through its Feed lifecycle", async (kind) => {
