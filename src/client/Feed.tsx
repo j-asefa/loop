@@ -2055,6 +2055,7 @@ export function Feed({
               type="button"
               aria-selected={!needsOpen && filter === f.id}
               className="chip"
+              data-filter={f.id}
               onClick={() => selectFilter(f.id)}
             >
               {f.label}
