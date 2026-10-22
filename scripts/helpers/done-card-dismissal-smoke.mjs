@@ -289,6 +289,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     let remoteLegacy = false;
     let remoteHidden = false;
     const remoteActions = [];
+    let rejectSave = false, saveFailureRelease;
     let remoteFiles = 0, localFiles = 0;
     await page.route("**/api/objects/shared-object", route => {
       localFiles++;
@@ -324,6 +325,9 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       }
       if (path.endsWith("/messages/remote-message/saved")) {
         const saved = route.request().method() === "POST";
+        if (saved && rejectSave) return new Promise(resolve => {
+          saveFailureRelease = () => resolve(route.fulfill({status:503,json:{error:"Fixture save failed"}}));
+        });
         remoteActions.push(saved ? "save" : "unsave");
         if (!saved) remoteWorking = 3;
         remoteEntry.card.saved = remoteEntry.card.display.last_message.saved = saved;
@@ -375,6 +379,29 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(page.getByRole("tab", {name:/^Working/})).toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", {name:"Done",exact:true}).click();
     await expect(remoteRow).toHaveCount(1);
+    // A failed mutation has no server delta to repair an optimistic cache.
+    rejectSave = true;
+    await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
+    await page.getByRole("menuitem", {name:/^Save/}).click();
+    await expect.poll(() => !!saveFailureRelease).toBe(true);
+    await page.getByRole("tab", {name:/^Working/}).click();
+    saveFailureRelease();
+    await page.waitForLoadState("networkidle");
+    rejectSave = false;
+    await page.getByRole("tab", {name:"Done",exact:true}).click();
+    await expect(remoteRow).toHaveCount(1);
+    await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
+    await expect(page.getByRole("menuitem", {name:/^Save/})).toBeVisible();
+    await page.getByRole("menuitem", {name:/^Save/}).click();
+    await expect(page.getByRole("status").filter({hasText:"Saved. Find it"})).toBeVisible();
+    await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
+    await page.getByRole("menuitem", {name:"Remove from Saved",exact:true}).click();
+    await page.getByRole("tab", {name:/^Working/}).click();
+    await page.getByRole("status").filter({hasText:"Removed from Saved."}).getByRole("button", {name:"Undo",exact:true}).click();
+    await page.getByRole("tab", {name:"Done",exact:true}).click();
+    await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
+    await expect(page.getByRole("menuitem", {name:"Remove from Saved",exact:true})).toBeVisible();
+    await page.keyboard.press("Escape");
 
     for (const count of [79, 119, 125]) {
       await page.getByRole("button", { name: "Load more", exact: true }).click();
@@ -467,19 +494,24 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // A replacement revision domain invalidates old history, unlike an outage.
     // The fresh domain has several pages; failing its older pages must never
     // resurrect rows retained from the invalidated domain.
-    let resetPending = true;
+    let resetPending = true, freshUnavailable = true;
     await page.route("**/api/v1/cards**", route => {
       const url = new URL(route.request().url());
       if (resetPending && url.pathname.endsWith("/changes")) {
         resetPending = false;
         return route.fulfill({status:409,json:{error:"Fixture revision domain replaced"}});
       }
-      if (url.searchParams.has("before"))
+      if (freshUnavailable || url.searchParams.has("before"))
         return route.fulfill({status:503,json:{error:"Fixture old pages unavailable"}});
       return route.fallback();
     });
     await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
     await expect(history).toHaveCount(0);
+    await expect(page.locator('.inbox-results .inbox-row[aria-label^="Burst completion "]')).toHaveCount(0);
+    await expect(remoteRow).toHaveCount(1);
+    await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
+    freshUnavailable = false;
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
     await expect(page.locator('.inbox-results .inbox-row[aria-label^="Burst completion "]')).toHaveCount(40);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(page.getByText("Couldn’t load the Feed from any environment.")).toBeVisible();

@@ -1197,8 +1197,8 @@ export function Feed({
       type Page = Shown;
       let result: Page;
       let partialError = "";
-      const cached = cachedView<Shown>(shownKey());
-      const previous =
+      let cached = cachedView<Shown>(shownKey());
+      let previous =
         !append && filter === "done"
           ? cached
           : undefined;
@@ -1233,9 +1233,28 @@ export function Feed({
               view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
             }, append || !!catchUp);
           } finally {
-            if (reader.resetVersion !== resetVersion && ticket === request.current && owner === viewOwner()) {
-              cacheView(cardKey, undefined, owner);
+            if (reader.discardPrior && ticket === request.current && owner === viewOwner()) {
+              if (reader.resetVersion !== resetVersion) cacheView(cardKey, undefined, owner);
               cacheView(cardKey + ":reset", true, owner);
+              priorItems = [];
+              // A revision-domain replacement invalidates every retained row
+              // from this source, even if the fresh list/summary then fails.
+              const keep = (item: FeedItem) => (item.sourceId ?? scopedSource) !== source;
+              const saved = cachedView<Shown>(shownKey());
+              if (saved) {
+                const cursors = combined ? JSON.parse(saved.next || "{}") : {};
+                delete cursors[source];
+                cached = {...saved, items: saved.items.filter(keep),
+                  next: combined && Object.keys(cursors).length ? JSON.stringify(cursors) : null};
+                previous = append ? undefined : cached;
+                cacheView(shownKey(), cached, owner);
+                setNext(cached.next);
+              }
+              if (sourcePages.current.key === JSON.stringify([owner, shownKey()])) {
+                const page = sourcePages.current.pages.get(source);
+                if (page) sourcePages.current.pages.set(source, {...page, items: [], next: null});
+              }
+              setItems(items => items.filter(keep));
             }
           }
           if (window) {
@@ -1600,7 +1619,7 @@ export function Feed({
       setError((e as Error).message);
     }
   }
-  function markSaved(item: FeedItem, saved: boolean) {
+  function markSaved(item: FeedItem, saved: boolean, active = true) {
     const change = (old: FeedItem[]) => old.map((row) =>
         row.last_message?.id === item.last_message?.id &&
         (row.sourceId || "") === (item.sourceId || "") &&
@@ -1630,12 +1649,14 @@ export function Feed({
       reader?.invalidateForAction();
       reader?.pager.restore(cardKey, changed);
       cacheView(cardKey, changed, owner);
-      ++request.current;
-      inFlight.current = false;
-      clearTimeout(doneCatchup.current);
-      setLoading(false);
+      if (active) {
+        ++request.current;
+        inFlight.current = false;
+        clearTimeout(doneCatchup.current);
+        setLoading(false);
+      }
     }
-    setItems(change);
+    if (active) setItems(change);
   }
   async function setSavedOnServer(
     item: FeedItem,
@@ -1661,9 +1682,9 @@ export function Feed({
     const owner = viewOwner(), key = JSON.stringify([owner, shownKey()]);
     const current = () => owner === viewOwner() && activeView.current === key;
     const restore = (saved: boolean) => {
-      if (!current()) return;
-      markSaved(item, saved);
-      void load();
+      if (owner !== viewOwner()) return;
+      markSaved(item, saved, current());
+      if (current()) void load();
     };
     const saved = !!message.saved;
     markSaved(item, !saved);
