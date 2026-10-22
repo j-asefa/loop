@@ -6,6 +6,7 @@ import {
 } from "node:http";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
+import { WebSocket } from "ws";
 
 const run = promisify(execFile);
 // `id` is stable across `docker compose up` recreating the container, so
@@ -120,6 +121,41 @@ async function inspect(id: string): Promise<LinkedDockerWorkspace | null> {
     // A removed or unavailable container is not a linked workspace.
     return null;
   }
+}
+
+// Only the discovered local server decides its owner. No browser credential,
+// URL, command or arbitrary header crosses this read-only source connection.
+export async function connectLinkedDockerEvents(
+  socket: WebSocket, sourceId: string, query: URLSearchParams,
+) {
+  const workspace = (await linkedDockerWorkspaces()).find(
+    item => item.id === sourceId || item.containerId === sourceId,
+  );
+  if (socket.readyState !== WebSocket.OPEN) return;
+  if (!workspace) {
+    socket.close(1013, "Execution source unavailable");
+    return;
+  }
+  const origin = `http://127.0.0.1:${workspace.port}`;
+  const url = new URL("/api/events/ws", origin.replace("http:", "ws:"));
+  for (const key of ["epoch", "cursor"])
+    if (query.has(key)) url.searchParams.set(key, query.get(key)!);
+  const upstream = new WebSocket(url, {
+    origin, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024,
+    perMessageDeflate: false, followRedirects: false,
+  });
+  upstream.on("message", (data, binary) => {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    if (binary || socket.bufferedAmount > 2 * 1024 * 1024) {
+      socket.close(4008, "Reconnect for current source state");
+      upstream.terminate();
+    } else socket.send(data.toString());
+  });
+  const unavailable = () => socket.close(1013, "Execution source updates unavailable");
+  upstream.on("error", unavailable);
+  upstream.on("close", unavailable);
+  socket.once("close", () => upstream.terminate());
+  socket.on("message", () => socket.close(1008, "Read-only event connection"));
 }
 
 export async function proxyLinkedDocker(

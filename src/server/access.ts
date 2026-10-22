@@ -8,6 +8,8 @@ import { db, id } from "./db.js";
 import { Problem } from "./domain.js";
 
 const localAuthority = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i;
+type AccessRequest = Pick<Request, "headers" | "socket"> &
+  Partial<Pick<Request, "method" | "originalUrl" | "query">>;
 let personalUser: { id: string; name: string } | undefined;
 
 export function initializeAccess() {
@@ -72,7 +74,7 @@ export function localRequest(req: Pick<Request, "headers" | "socket">) {
   }
 }
 
-export function allowedOrigin(req: Request) {
+export function allowedOrigin(req: Pick<Request, "headers" | "socket">) {
   const origin = req.headers.origin;
   if (config.authMode === "multi-user")
     return origin === new URL(config.url).origin;
@@ -84,12 +86,12 @@ export function allowedOrigin(req: Request) {
   );
 }
 
-function authorizePersonalAccess(req: Request) {
+function authorizePersonalAccess(req: AccessRequest) {
   const callback =
     req.method === "GET" &&
     req.originalUrl?.split("?")[0] === "/api/mcp/oauth/callback" &&
     req.headers["sec-fetch-mode"] === "navigate" &&
-    typeof req.query.state === "string" &&
+    typeof req.query?.state === "string" &&
     !!db
       .prepare(
         "SELECT 1 FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
@@ -105,7 +107,7 @@ function authorizePersonalAccess(req: Request) {
       "Open Loop directly from its local address or authenticated access link.",
     );
   if (localRequest(req)) return;
-  const supplied = req.get("x-loop-gateway-token") || "";
+  const supplied = String(req.headers["x-loop-gateway-token"] || "");
   const expected = config.gatewayToken;
   if (
     !expected ||
@@ -117,7 +119,7 @@ function authorizePersonalAccess(req: Request) {
     throw new Problem(403, "Open Loop through its authenticated access link.");
 }
 
-export async function workspaceSession(req: Request) {
+export async function workspaceSession(req: AccessRequest) {
   if (config.authMode === "single-user") {
     authorizePersonalAccess(req);
     if (!personalUser)

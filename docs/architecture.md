@@ -35,6 +35,12 @@ The private native tool bridge gives ordinary harness runs the same owner-scoped
 
 An earlier release ran harnesses through HAPI; that code is gone. Migration 080 made its leftover records inert once: active HAPI runs were interrupted without replay and their pending approvals rejected, HAPI connections stay disconnected and no longer present as subscriptions, and HAPI conversations keep their memory inclusion as an explicit policy. Their history remains readable. No uncertain external effect is replayed automatically.
 
+## Workspace updates
+
+The signed-in UI subscribes to authenticated WebSockets for each execution source. The server profile exposes `/api/events/ws`; the paired host also retains `/ws` and forwards source event connections through its existing discovery and device authorization boundary. Cards integration tokens cannot open these connections. Run-event cursors and owner-scoped Cards revision watermarks notify Feed, Working and Done when committed data changes, including saves and dismissals without a run event. The API observes the shared SQLite database so updates from a separate worker are included.
+
+Notifications prompt bounded HTTP reads through the existing pagers; they preserve loaded history and per-source cursors. An update arriving during a Feed read schedules a follow-up. Reconnects reconcile missed changes, and a different server epoch resets the event cursor. Oversized event replay batches send a reset at the latest owner watermark, prompting HTTP reconciliation without changing the stored events. Unavailable sockets and older sources fall back to HTTP event polling. Periodic Feed refreshes and phone-wake refreshes also catch time-based changes. Neither transport replays commands or other writes.
+
 ## Activities
 
 Plans, tool lifecycle, diffs, command output, settings and command catalogs share [agent-activities.ts](../src/agent-activities.ts). [server/activities.ts](../src/server/activities.ts) validates and persists trusted owner/conversation/run scope and serves paginated projections. [activity-bridge.ts](../src/activity-bridge.ts) supplies the shared mapping for native activity projections and historical records.

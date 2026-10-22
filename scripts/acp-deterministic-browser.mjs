@@ -73,7 +73,10 @@ async function cut() {
   blocked = true;
   for (const socket of sockets) socket.terminate();
   await expect(
-    page.getByRole("status").filter({ hasText: "Reconnecting" }),
+    page
+      .getByRole("dialog")
+      .getByRole("status")
+      .filter({ hasText: /reconnecting/i }),
   ).toBeVisible();
 }
 async function createAgent(name, provider, connection, prompt, beforeCreate) {
@@ -153,7 +156,7 @@ try {
     await page.goto(host.pair().url);
     await page.getByRole("button", { name: "Pair and open Loop" }).click();
     await expect(
-      page.getByRole("status").filter({ hasText: "Connected to desktop" }),
+      page.getByRole("status").filter({ hasText: "Connected to workspace" }),
     ).toBeVisible();
     // The two connection identities are deliberately present at the same time.
     const direct = await createAgent(
@@ -190,7 +193,7 @@ try {
       "approval fixture",
     );
     await expect(
-      page.getByRole("heading", {
+      page.getByRole("dialog").getByRole("heading", {
         name: "Approve browser fixture",
         exact: true,
       }),
@@ -199,6 +202,17 @@ try {
       .poll(() => binding(run.conversation_id)?.native_id)
       .toMatch(/^browser-fixture-/);
     const before = binding(run.conversation_id);
+    // Output projection is debounced independently of the approval record.
+    // Capture identities after the first public update has been persisted.
+    await expect
+      .poll(
+        () =>
+          rows(
+            "SELECT id FROM messages WHERE conversation_id=? AND update_key LIKE 'native-message:%' AND content='Browser fixture working'",
+            run.conversation_id,
+          ).length,
+      )
+      .toBe(1);
     const messageIds = rows(
       "SELECT id FROM messages WHERE conversation_id=? ORDER BY id",
       run.conversation_id,
@@ -247,7 +261,7 @@ try {
     assert.equal(runFor(`acp-${width}`).state, "awaiting_approval");
     blocked = false;
     await expect(
-      page.getByRole("status").filter({ hasText: "Connected to desktop" }),
+      page.getByRole("status").filter({ hasText: "Connected to workspace" }),
     ).toBeVisible();
     await expect
       .poll(() =>
@@ -269,6 +283,10 @@ try {
     const resume = new URL(requests.at(-1));
     assert.equal(resume.searchParams.get("cursor"), String(cursor));
     assert.equal(resume.searchParams.get("epoch"), epoch);
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
     await expect(
       page.getByRole("region", { name: "Plan", exact: true }),
     ).toHaveCount(1);
@@ -277,10 +295,6 @@ try {
         .getByRole("region", { name: "Plan", exact: true })
         .getByText(missedText, { exact: true }),
     ).toBeVisible();
-    await page.getByLabel("Conversation options").click();
-    await page
-      .getByRole("menuitem", { name: "Tool activity", exact: true })
-      .click();
     await expect(
       page.locator("summary").filter({ hasText: missedText }),
     ).toHaveCount(1);
@@ -289,7 +303,7 @@ try {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect(
-      page.getByRole("heading", {
+      page.getByRole("dialog").getByRole("heading", {
         name: "Approve browser fixture",
         exact: true,
       }),
@@ -326,7 +340,10 @@ try {
         r.url().endsWith(`/native/decisions/${decision.id}`) &&
         r.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "Allow", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Allow", exact: true })
+      .click();
     const response = await responsePromise;
     assert.equal(response.status(), 200);
     const receipt = response.request().postDataJSON();
@@ -346,30 +363,38 @@ try {
     assert.equal(retry.body.state, "resolved");
     await expect.poll(() => runFor(`acp-${width}`).state).toBe("completed");
     await expect(
-      page.getByText("1 of 1 complete", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", {
+      page.getByRole("dialog").getByRole("heading", {
         name: "Approve browser fixture",
         exact: true,
       }),
     ).toHaveCount(0);
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
+    await expect(
+      page.getByText("1 of 1 complete", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("dialog", { name: "Tool activity", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     // A second connection cycle must not resurrect decisions or append records.
     await cut();
     blocked = false;
     await expect(
-      page.getByRole("status").filter({ hasText: "Connected to desktop" }),
+      page.getByRole("status").filter({ hasText: "Connected to workspace" }),
     ).toBeVisible();
+    await page.getByLabel("Conversation options").click();
+    await page
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
     await expect(
       page.getByText("1 of 1 complete", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("region", { name: "Plan", exact: true }),
     ).toHaveCount(1);
-    await page.getByLabel("Conversation options").click();
-    await page
-      .getByRole("menuitem", { name: "Tool activity", exact: true })
-      .click();
     await expect(
       page.locator("summary").filter({ hasText: "Recovered work complete" }),
     ).toHaveCount(1);
@@ -433,7 +458,7 @@ try {
       () => db.prepare("DELETE FROM harnesses WHERE name='acp'").run(),
     );
     await expect(
-      page.getByRole("status").filter({
+      page.getByRole("dialog").getByRole("status").filter({
         hasText: "Run loop acp on the desktop to enable this harness.",
       }),
     ).toBeVisible();
@@ -468,7 +493,10 @@ try {
     const setupError = runFor(`broken-${width}`).error;
     assert.match(setupError, /ENOENT|not found|executable/i);
     await expect(
-      page.getByRole("status").filter({ hasText: setupError }),
+      page
+        .getByRole("dialog")
+        .getByRole("status")
+        .filter({ hasText: setupError }),
     ).toBeVisible();
     await page.screenshot({
       path: `${evidence}/executable-error-${width}.png`,

@@ -9,7 +9,7 @@ import { nativeSessions, OWNER } from "./server/native-sessions.js";
 import { nativeSignIns } from "./server/native-auth.js";
 import { startWorker } from "./server/worker.js";
 import { z } from "zod";
-import { WebSocket } from "ws";
+import { connectWorkspaceEvents } from "./server/workspace-events.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DockerMcpSharing } from "./mcp-docker-sharing.js";
@@ -114,56 +114,8 @@ export class WorkspaceHost {
       originChanged: (origin) => {
         config.url = origin;
       },
-      connect: (socket, url) => {
-        let cursor = Number(url.searchParams.get("cursor"));
-        const bounds = () =>
-          db
-            .prepare(
-              "SELECT min(id) first,max(id) last FROM events WHERE owner_id=?",
-            )
-            .get(OWNER) as { first: number | null; last: number | null };
-        const range = bounds();
-        const send = (data: unknown) => {
-          if (socket.readyState !== WebSocket.OPEN) return;
-          if (socket.bufferedAmount > 2 * 1024 * 1024) {
-            socket.close(4008, "Reconnect for current workspace state");
-            return;
-          }
-          socket.send(JSON.stringify(data));
-        };
-        if (
-          url.searchParams.get("epoch") !== this.epoch ||
-          !Number.isSafeInteger(cursor) ||
-          cursor < (range.first || 1) - 1 ||
-          cursor > (range.last || 0)
-        ) {
-          cursor = range.last || 0;
-          // Cursor captured and subscription installed in one JS turn. Clients refresh
-          // their projections, then continue receiving every newer committed event.
-          send({
-            v: 2,
-            type: "reset",
-            epoch: this.epoch,
-            cursor,
-            build: BUILD,
-            buildIdentity: publicBuild(observedBuild()),
-          });
-        }
-        const poll = () => {
-          const events = db
-            .prepare(
-              "SELECT id,run_id,type,payload FROM events WHERE owner_id=? AND id>? ORDER BY id LIMIT 100",
-            )
-            .all(OWNER, cursor) as { id: number }[];
-          if (events.length) {
-            cursor = events.at(-1)!.id;
-            send({ v: 2, type: "events", epoch: this.epoch, cursor, events });
-          }
-        };
-        poll();
-        const timer = setInterval(poll, 120);
-        return () => clearInterval(timer);
-      },
+      connect: (socket, url) =>
+        connectWorkspaceEvents(socket, url, OWNER, this.epoch, BUILD),
     };
   }
   get port() {

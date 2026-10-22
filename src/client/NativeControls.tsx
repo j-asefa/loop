@@ -1,6 +1,6 @@
 import { useSourceApi, useSourceCapabilities } from "./SourceContext";
-import { useEffect, useRef, useState } from "react";
-import { parse, clearAuthorization } from "./api";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { parse, clearAuthorization, apiInWorkspace } from "./api";
 import { RichText } from "./components";
 import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
@@ -8,105 +8,137 @@ import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { codexToolApproval } from "../shared/codex-approval";
-import { BuildIdentity, browserNeedsReload, runningBuild } from "../shared/build";
+import { watchWorkspaceEvents } from "./workspace-events";
+import { capabilities } from "./capabilities";
+import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
+import {
+  BuildIdentity,
+  browserNeedsReload,
+  runningBuild,
+} from "../shared/build";
 
-export function WorkspaceConnection() {
-  const [status, setStatus] = useState("Connecting to desktop…");
+export function WorkspaceConnection({
+  owner,
+  sources,
+  stopRef,
+}: {
+  owner: string;
+  sources: { id: string }[];
+  stopRef: RefObject<() => void>;
+}) {
+  const [status, setStatus] = useState("Connecting to workspace…");
+  const sourceKey = JSON.stringify(
+    [...new Set(["", executionSourceId(), ...sources.map((s) => s.id)])].sort(),
+  );
+  const reconcileSources = useRef<(sources: string[]) => void>(() => {});
+  // Subscription lifetime and build identity belong to the signed-in owner.
+  // Discovery changes are reconciled below without restarting healthy peers.
   useEffect(() => {
-    let socket: WebSocket,
-      stopped = false,
-      timer: ReturnType<typeof setTimeout>,
-      attempt = 0;
-    let epoch = "",
-      cursor = 0,
-      // Assets this page loaded with; a restarted Loop may serve newer ones.
-      build = "";
-    const connect = () => {
-      const url = new URL("/ws", location.href);
-      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("epoch", epoch);
-      url.searchParams.set("cursor", String(cursor));
-      socket = new WebSocket(url);
-      socket.onopen = () => {
-        attempt = 0;
-        setStatus("Connected to desktop");
-        setConnection({ reconnecting: false });
-      };
-      socket.onmessage = (event) => {
-        try {
-          const m = JSON.parse(event.data);
-          if (
-            m.v !== 2 ||
-            !["reset", "events"].includes(m.type) ||
-            !Number.isSafeInteger(m.cursor)
-          )
-            return;
-          epoch = m.epoch;
-          cursor = m.cursor;
-          if (m.type === "reset" && typeof m.build === "string") {
-            const identity = BuildIdentity.safeParse(m.buildIdentity);
-            const updated = identity.success
-              ? browserNeedsReload(runningBuild, identity.data)
-              : null;
-            // A known match establishes the page's asset baseline. Unknown
-            // identities can seed the legacy fallback, but a mismatch cannot.
-            if (updated === false || (!build && updated === null))
-              build = m.build;
-            if (updated !== null) setConnection({ updated });
-            else if (m.build !== build) setConnection({ updated: true });
-          }
-          window.dispatchEvent(
-            new CustomEvent("loop-workspace-change", { detail: m.type }),
-          );
-        } catch {
-          socket.close();
-        }
-      };
-      socket.onclose = (event) => {
-        if (stopped) return;
-        if (event.code === 4003) {
-          clearAuthorization();
-          window.dispatchEvent(new Event("loop-auth-expired"));
-          return;
-        }
-        setStatus("Loop is reconnecting… Desktop work continues.");
-        setConnection({ reconnecting: true });
-        timer = setTimeout(
-          connect,
-          Math.min(15000, 500 * 2 ** Math.min(attempt++, 5)) +
-            Math.random() * 250,
+    let build = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastRefresh = 0;
+    const pending = new Set<string>();
+    // Streaming tokens can produce many committed events. Reconcile views
+    // immediately after idle, then at most every 1.8 seconds while busy.
+    // Retain every source and the trailing change without flooding HTTP reads.
+    const changed = (source: string) => {
+      pending.add(source);
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        lastRefresh = Date.now();
+        const sources = [...pending];
+        pending.clear();
+        window.dispatchEvent(
+          new CustomEvent("loop-workspace-change", { detail: { sources } }),
         );
-      };
-      socket.onerror = () => socket.close();
+      }, Math.max(0, 1800 - (Date.now() - lastRefresh)));
     };
-    connect();
-    const restarting = () => {
-      if (socket.readyState === WebSocket.OPEN) return;
-      setStatus("Loop is reconnecting… Desktop work continues.");
-      setConnection({ reconnecting: true });
+    const stops = new Map<string, () => void>();
+    const subscribe = (sourceId: string) => {
+      const path =
+        !sourceId && (capabilities.pairedDevices || executionSourceId())
+          ? "/ws"
+          : sourceApiPathAt("/api/events/ws", sourceId);
+      const url = new URL(path, location.href);
+      url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      return watchWorkspaceEvents({
+        url,
+        read: (after, signal) =>
+          apiInWorkspace(
+            "/events?after=" + after,
+            sourceId,
+            undefined,
+            undefined,
+            signal,
+          ),
+        changed: () => changed(sourceId),
+        ...(!sourceId
+          ? {
+              connected: (connected: boolean) => {
+                setStatus(
+                  connected
+                    ? "Connected to workspace"
+                    : "Loop is reconnecting… Work continues.",
+                );
+                setConnection({ reconnecting: !connected });
+              },
+              expired: () => {
+                clearAuthorization();
+                window.dispatchEvent(new Event("loop-auth-expired"));
+              },
+              frame: (m: import("./workspace-events").WorkspaceFrame) => {
+                if (m.type !== "reset" || typeof m.build !== "string") return;
+                const identity = BuildIdentity.safeParse(m.buildIdentity);
+                const updated = identity.success
+                  ? browserNeedsReload(runningBuild, identity.data)
+                  : null;
+                if (updated === false || (!build && updated === null))
+                  build = m.build;
+                if (updated !== null) setConnection({ updated });
+                else if (m.build !== build) setConnection({ updated: true });
+              },
+            }
+          : {}),
+      });
     };
-    window.addEventListener("loop-reconnecting", restarting);
-    const wake = () => {
-      if (socket.readyState === WebSocket.CLOSED) {
+    const reconcile = (sources: string[]) => {
+      const wanted = new Set(sources);
+      for (const [source, stop] of stops) {
+        if (wanted.has(source)) continue;
+        stop();
+        stops.delete(source);
+        pending.delete(source);
+      }
+      for (const source of wanted)
+        if (!stops.has(source)) stops.set(source, subscribe(source));
+      if (!pending.size) {
         clearTimeout(timer);
-        connect();
+        timer = undefined;
       }
     };
-    window.addEventListener("online", wake);
-    return () => {
-      stopped = true;
+    reconcileSources.current = reconcile;
+    const stop = () => {
       clearTimeout(timer);
-      socket.close();
-      window.removeEventListener("online", wake);
-      window.removeEventListener("loop-reconnecting", restarting);
+      stops.forEach((stop) => stop());
+      stops.clear();
+      pending.clear();
+      if (reconcileSources.current === reconcile)
+        reconcileSources.current = () => {};
     };
-  }, []);
+    stopRef.current = stop;
+    return () => {
+      stop();
+      if (stopRef.current === stop) stopRef.current = () => {};
+    };
+  }, [owner]);
+  useEffect(() => {
+    reconcileSources.current(JSON.parse(sourceKey));
+  }, [owner, sourceKey]);
   return (
-    <>
-      <p className="workspace-connection" role="status">
-        {status}
-      </p>
-    </>
+    <p className="workspace-connection" role="status">
+      {status}
+    </p>
   );
 }
 type Decision = {

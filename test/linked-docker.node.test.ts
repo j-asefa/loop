@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Host } from "../src/host.js";
 import { composeSourceId, linkedDockerWorkspaces } from "../src/linked-docker.js";
+import { WebSocket, WebSocketServer } from "ws";
+import { until } from "./helpers.js";
 
 const containerId = "a".repeat(64);
 const options = {
@@ -83,6 +85,13 @@ test("paired gateway distinguishes Docker services and preserves their routing a
         : { owner: "second-docker", conversations: ["second-thread"] }));
   });
   let host: Host | undefined;
+  const live = new WebSocketServer({ server: old });
+  const eventRequests: { url?: string; headers: import("node:http").IncomingHttpHeaders }[] = [];
+  const clients: WebSocket[] = [];
+  live.on("connection", (socket, req) => {
+    eventRequests.push({ url: req.url, headers: req.headers });
+    socket.send(JSON.stringify({ v: 2, type: "reset", epoch: "docker-source", cursor: 7 }));
+  });
   try {
     await new Promise<void>((resolve) => old.listen(0, "127.0.0.1", resolve));
     await new Promise<void>((resolve) => second.listen(0, "127.0.0.1", resolve));
@@ -203,6 +212,33 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       }
     }
     const base = host.origin + `/api/agent-sources/docker%3A${sourceId}/`;
+    const ws = new WebSocket(base.replace("http:", "ws:") + "events/ws?epoch=old&cursor=3&owner=untrusted", {
+      headers: { cookie, origin: host.origin, "x-loop-csrf": csrf },
+    });
+    clients.push(ws);
+    const frames: any[] = [];
+    ws.on("message", data => frames.push(JSON.parse(data.toString())));
+    await until(() => frames.length === 1);
+    assert.equal(frames[0].epoch, "docker-source");
+    assert.equal(eventRequests[0].url, "/api/events/ws?epoch=old&cursor=3");
+    assert.equal(eventRequests[0].headers.origin, `http://127.0.0.1:${port}`);
+    assert.equal(eventRequests[0].headers.cookie, undefined);
+    assert.equal(eventRequests[0].headers.authorization, undefined);
+    assert.equal(eventRequests[0].headers["x-loop-csrf"], undefined);
+    for (const headers of [{ origin: host.origin }, { cookie, origin: "https://elsewhere.example" }, { cookie, origin: host.origin, authorization: "Bearer scoped-card" }]) {
+      const rejected = new WebSocket(base.replace("http:", "ws:") + "events/ws", { headers });
+      clients.push(rejected);
+      rejected.on("error", () => {});
+      await new Promise<void>(resolve => rejected.on("unexpected-response", (_req, res) => {
+        assert.equal(res.statusCode, 403);
+        res.resume();
+        rejected.terminate();
+        resolve();
+      }));
+    }
+    assert.equal(eventRequests.length, 1, "rejected clients never reach the source");
+    ws.send(JSON.stringify({ type: "prompt", text: "not a command transport" }));
+    await until(() => ws.readyState === WebSocket.CLOSED);
     // Root-relative redirects stay on this source, not the paired laptop.
     const redirect = await fetch(base + "artifacts/a1/download", {
       headers: { cookie },
@@ -282,6 +318,9 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     });
   } finally {
     process.env.PATH = priorPath;
+    clients.forEach(socket => socket.terminate());
+    live.clients.forEach(socket => socket.terminate());
+    live.close();
     if (host) await host.close();
     await new Promise<void>((resolve) => old.close(() => resolve()));
     await new Promise<void>((resolve) => second.close(() => resolve()));

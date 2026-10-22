@@ -135,7 +135,7 @@ try {
     throw new Error(`Fixture run did not finish: ${JSON.stringify(failure)}`, { cause });
   }
   await reply.fill("draft typed before the restart");
-  await expect(page.getByText(/Connected to desktop/)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(/Connected to workspace/)).toBeVisible({ timeout: 30000 });
   const devices = await page.evaluate(async () => (await (await fetch("/api/workspace/devices")).json()).length);
   const location = page.url();
 
@@ -146,7 +146,7 @@ try {
   await expect(sheet.getByText(/Loop is reconnecting/)).toBeVisible({ timeout: 30000 });
   const restarted = await restart;
   assert.match(restarted.stdout, /Same address/);
-  await expect(page.getByText(/Connected to desktop/)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(/Connected to workspace/)).toBeVisible({ timeout: 30000 });
   const after = await status();
   assert.notEqual(after.pid, before.pid);
   assert.equal(after.url, before.url);
@@ -181,7 +181,7 @@ try {
   await expect(reply).toHaveValue("draft typed before the restart");
   await Promise.all([page.waitForEvent("load"), update.click()]);
   await expect(page.getByLabel("Reply to agent")).toHaveValue("draft typed before the restart", { timeout: 30000 });
-  await expect(page.getByText(/Connected to desktop/)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(/Connected to workspace/)).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole("button", { name: "Reload to update" })).toHaveCount(0);
   assert.equal(
     await page.evaluate(async () => (await fetch("/", { cache: "no-store" })).text()),

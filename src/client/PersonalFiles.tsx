@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useSourceApi } from "./SourceContext";
+import { useEffect, useRef, useState } from "react";
+import { useSourceApi, useSourceId } from "./SourceContext";
 import { PublishedFile } from "./PublishedFiles";
 import type { PersonalFilesPage } from "../shared/personal-files";
 
@@ -15,6 +15,7 @@ export function PersonalFiles({
   onConversation: (id: string) => void;
 }) {
   const api = useSourceApi();
+  const source = useSourceId();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState({
     q: "",
@@ -22,68 +23,130 @@ export function PersonalFiles({
     project: "",
     type: "all",
   });
-  const [request, setRequest] = useState<{ before?: number }>({});
+  const actions = useRef({ more: () => {}, retry: () => {} });
   const [page, setPage] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => {
-      setQuery((old) => ({ ...old, q: search.trim() }));
-      setRequest({});
+      const q = search.trim();
+      setQuery((old) => (old.q === q ? old : { ...old, q }));
     }, 300);
     return () => clearTimeout(timer);
   }, [search]);
   useEffect(() => {
-    const refresh = () => setRequest({});
+    const controller = new AbortController();
+    const queryParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(query))
+      if (value) queryParams.set(key, value);
+    let current = empty;
+    let busy = false;
+    let pending = false;
+    let urgent = false;
+    let refreshAfter = 0;
+    let retryBefore: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      pending = true;
+      if (busy || timer || controller.signal.aborted) return;
+      // Files can span many pages. Coalesce streaming notifications so a
+      // library refresh does not repeat all those reads for every token.
+      timer = setTimeout(
+        () => void load(),
+        urgent ? 0 : Math.max(0, refreshAfter - Date.now()),
+      );
+    };
+    const load = async (before?: number) => {
+      if (busy || controller.signal.aborted) return;
+      clearTimeout(timer);
+      timer = undefined;
+      busy = true;
+      retryBefore = before;
+      if (!before) {
+        pending = false;
+        urgent = false;
+      }
+      setLoading(true);
+      setError("");
+      const boundary = before ? undefined : current.items.at(-1)?.cursor;
+      let cursor = before;
+      let result: PersonalFilesPage | undefined;
+      const items: PersonalFilesPage["items"] = [];
+      let reads = 0;
+      try {
+        do {
+          const params = new URLSearchParams(queryParams);
+          if (cursor) params.set("before", String(cursor));
+          result = await api<PersonalFilesPage>(
+            "/me/files?" + params,
+            undefined,
+            undefined,
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          reads++;
+          if (cursor && result.next && result.next >= cursor)
+            throw new Error("Files pagination did not advance. Please retry.");
+          items.push(...result.items);
+          cursor = result.next ?? undefined;
+          // Reconcile through the oldest visible cursor, including new files
+          // spanning multiple pages. Commit together to retain rows and scroll
+          // during refresh, with a contiguous Load more boundary afterwards.
+        } while (!before && boundary && cursor && cursor > boundary);
+        current = {
+          ...result,
+          items: [
+            ...new Map(
+              [...(before ? current.items : []), ...items].map((item) => [
+                item.id,
+                item,
+              ]),
+            ).values(),
+          ],
+        };
+        setPage(current);
+      } catch (error) {
+        if (!controller.signal.aborted)
+          setError(error instanceof Error ? error.message : String(error));
+      } finally {
+        busy = false;
+        if (!before) refreshAfter = Date.now() + Math.max(5000, reads * 1800);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          if (pending) schedule();
+        }
+      }
+    };
+    const refresh = (event: Event) => {
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
+        ?.sources;
+      if (sources && !sources.includes(source)) return;
+      if (event.type === "loop-refresh") {
+        urgent = true;
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      schedule();
+    };
+    actions.current = {
+      more: () => {
+        if (current.next) void load(current.next);
+      },
+      retry: () => void load(retryBefore),
+    };
+    setPage(empty);
+    void load();
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener("loop-workspace-change", refresh);
     return () => {
+      controller.abort();
+      clearTimeout(timer);
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener("loop-workspace-change", refresh);
     };
-  }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    if (!request.before) setPage((old) => ({ ...old, items: [], next: null }));
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(query))
-      if (value) params.set(key, value);
-    if (request.before) params.set("before", String(request.before));
-    api<PersonalFilesPage>(
-      "/me/files?" + params,
-      undefined,
-      undefined,
-      controller.signal,
-    )
-      .then((result) => {
-        if (!controller.signal.aborted)
-          setPage((old) => ({
-            ...result,
-            items: request.before
-              ? [
-                  ...new Map(
-                    [...old.items, ...result.items].map((item) => [
-                      item.id,
-                      item,
-                    ]),
-                  ).values(),
-                ]
-              : result.items,
-          }));
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setError(error.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [api, query, request]);
+  }, [api, query, source]);
   function filter(key: "agent" | "project" | "type", value: string) {
     setQuery((old) => ({ ...old, [key]: value }));
-    setRequest({});
   }
   return (
     <section className="personal-files" aria-label="Your files">
@@ -172,7 +235,7 @@ export function PersonalFiles({
       {error && (
         <div role="alert">
           <p>{error}</p>
-          <button onClick={() => setRequest({ ...request })}>Retry</button>
+          <button onClick={() => actions.current.retry()}>Retry</button>
         </div>
       )}
       {!loading && !error && !page.items.length && (
@@ -183,9 +246,7 @@ export function PersonalFiles({
         </p>
       )}
       {!loading && !error && page.next && (
-        <button onClick={() => setRequest({ before: page.next! })}>
-          Load more files
-        </button>
+        <button onClick={() => actions.current.more()}>Load more files</button>
       )}
     </section>
   );

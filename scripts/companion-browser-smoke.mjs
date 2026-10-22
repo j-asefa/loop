@@ -81,7 +81,7 @@ try {
   await page.getByRole("button", { name: "Pair and open Loop" }).click();
   await page
     .getByRole("status")
-    .filter({ hasText: "Connected to desktop" })
+    .filter({ hasText: "Connected to workspace" })
     .waitFor();
   assert(!page.url().includes("#"));
   const workspaceUrl = page.url();

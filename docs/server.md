@@ -15,6 +15,8 @@ This starts the compiled API and worker together in the foreground. The source e
 
 Open http://localhost:3000. `GET /api/health` reports readiness. [src/server/config.ts](../src/server/config.ts) and [.env.example](../.env.example) define configuration. Setup creates/preserves secrets; do not commit `.env`.
 
+Forward WebSocket upgrades for `/api/events/ws` through any reverse proxy, with the same session cookies or trusted gateway header as ordinary requests. See [workspace updates](architecture.md#workspace-updates) for push updates and polling recovery.
+
 ## Docker and harness connections
 
 Use Settings → Provider connections to connect server subscription accounts through the configured runtime broker, or register a native host. See [remote runtimes](remote-runtimes.md). The root Compose stack supplies the server and subscription runtime; the paired Docker companion is a separate deployment.

@@ -1066,7 +1066,7 @@ export default function App() {
   setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
   const personalWorkspace = useRef(false);
-  const stopEventsPoll = useRef<() => void>(() => {});
+  const stopWorkspaceEvents = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
   const resultsPager = useRef(new ResultsPager<any>());
   const cardsPager = useRef(new CardPager());
@@ -1519,67 +1519,45 @@ export default function App() {
   ]);
   useEffect(() => {
     if (!session?.user) return;
-    if (!capabilities.pairedDevices) {
-      let cursor = 0;
-      let cancelled = false;
-      const active = new Set<AbortController>();
-      const stop = () => {
-        cancelled = true;
-        clearInterval(timer);
-        for (const controller of active) controller.abort();
-        active.clear();
-      };
-      stopEventsPoll.current = stop;
-      const timer = setInterval(async () => {
-        if (cancelled) return;
-        const controller = new AbortController();
-        active.add(controller);
-        try {
-          const events = await api<any[]>(
-            "/events?after=" + cursor,
-            undefined,
-            undefined,
-            controller.signal,
-          );
-          if (cancelled) return;
-          if (events.length) {
-            cursor = events.at(-1).id;
-            setRevision((v) => v + 1);
-          }
-          // One bounded changes request also catches edits made in another tab
-          // and drains change batches even after streaming events stop.
-          await Promise.all([
-            // Result cards are only on screen in a project and agent
-            // profiles; skip their poll elsewhere.
-            ...(resultsVisible.current
-              ? [loadResults(false, events.length === 0)]
-              : []),
-            ...(events.length ? [loadRuns()] : []),
-          ]);
-        } catch {
-        } finally {
-          active.delete(controller);
-        }
-      }, 1800);
-      return () => {
-        stop();
-        if (stopEventsPoll.current === stop) stopEventsPoll.current = () => {};
-      };
-    }
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const update = () => {
+    let refreshCurrent = false;
+    let fullRefresh = false;
+    const update = (event: Event) => {
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail?.sources;
+      refreshCurrent ||= !sources || sources.includes(executionSourceId());
+      fullRefresh ||= !sources;
       if (timer) return;
       timer = setTimeout(() => {
         timer = undefined;
         setRevision((v) => v + 1);
-        void refresh().catch(() => {});
-      }, 200);
+        if (refreshCurrent) {
+          if (fullRefresh || capabilities.pairedDevices) void refresh().catch(() => {});
+          else {
+            // Streaming events refresh current work and visible results.
+            // Metadata and hidden collections use the periodic/action refresh,
+            // avoiding redundant reads against the owner's shared HTTP limit.
+            void Promise.allSettled([
+              loadRuns(),
+              ...(resultsVisible.current ? [loadResults(false, false)] : []),
+            ]);
+          }
+        }
+        refreshCurrent = false;
+        fullRefresh = false;
+      }, 250);
     };
     window.addEventListener("loop-workspace-change", update);
-    const fallback = setInterval(update, 15000);
+    const fallback = setInterval(() => update(new Event("refresh")), 15000);
+    // Preserve the existing bounded catch-up cadence for visible result
+    // collections; a single notification can represent more than one page.
+    const resultsRecovery = setInterval(() => {
+      if (!capabilities.pairedDevices && resultsVisible.current)
+        void loadResults(false, true);
+    }, 1800);
     return () => {
       clearTimeout(timer);
       clearInterval(fallback);
+      clearInterval(resultsRecovery);
       window.removeEventListener("loop-workspace-change", update);
     };
   }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
@@ -2800,7 +2778,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {capabilities.pairedDevices && <WorkspaceConnection />}
+          <WorkspaceConnection owner={session.user.id} sources={unified.sources} stopRef={stopWorkspaceEvents} />
           <BrowserBuildStatus />
           {profile ? (
             <>
@@ -3511,7 +3489,7 @@ export default function App() {
               <button
                 className="text-button"
                 onClick={async () => {
-                  stopEventsPoll.current();
+                  stopWorkspaceEvents.current();
                   const previous = draftOwner.current;
                   if (previous.owner && draftLoadedFor.current === previous.key)
                     writeThreadDraft(

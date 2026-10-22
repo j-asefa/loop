@@ -222,6 +222,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   await page.route("**/api/agent-sources/**", detail);
   await page.route("**/api/bootstrap", localBootstrap);
   await page.route("**/api/feed?*", localInbox);
+  // These source fixtures serve the legacy Feed contract. Keep the local
+  // fixture on the same contract instead of mixing it with the real empty DB.
+  const noCards = (route) => route.fulfill({ status: 404, body: "{}" });
+  await page.route("**/api/v1/cards?*", noCards);
   try {
     await page.goto(workspaceUrl);
     const strip = page.getByRole("region", {
@@ -456,5 +460,6 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await page.unroute("**/api/agent-sources/**", detail);
     await page.unroute("**/api/bootstrap", localBootstrap);
     await page.unroute("**/api/feed?*", localInbox);
+    await page.unroute("**/api/v1/cards?*", noCards);
   }
 }

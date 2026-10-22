@@ -1188,10 +1188,21 @@ export function Feed({
     cacheView(key, loaded, owner);
     setNeeds(loaded);
   }
+  const pendingRefresh = useRef<string | null>(null);
   async function load(append = false, background = false) {
-    if (!append) void loadNeeds();
+    const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // Background refreshes never overlap; filter changes and actions always load.
-    if (background && inFlight.current) return;
+    // Remember the final notification during a read, even if no later event
+    // follows it (for example Working -> Done while Load more is pending).
+    if (background && inFlight.current) {
+      pendingRefresh.current = refreshContext;
+      return;
+    }
+    // An append does not reconcile the head. Preserve queued notifications,
+    // including a head read it supersedes, until a fresh head read consumes them.
+    if (append && inFlight.current) pendingRefresh.current = refreshContext;
+    else if (!append || pendingRefresh.current !== refreshContext) pendingRefresh.current = null;
+    if (!append) void loadNeeds();
     clearTimeout(doneCatchup.current);
     inFlight.current = true;
     let followup = false;
@@ -1477,7 +1488,7 @@ export function Feed({
       if (ticket === request.current) {
         inFlight.current = false;
         setLoading(false);
-        if (followup && owner === viewOwner()) doneCatchup.current = setTimeout(() => {
+        if ((followup || pendingRefresh.current === refreshContext) && owner === viewOwner()) doneCatchup.current = setTimeout(() => {
           if (ticket === request.current && owner === viewOwner()) void load(false, true);
         }, 100);
       }

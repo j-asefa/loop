@@ -128,6 +128,8 @@ export function useAgentSources(
     if (!owner || !federated) return;
     let active = true;
     let busy = false;
+    let pending = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     let known: AgentSource[] = [];
     let knownLocal = { ...laptop, name: localName };
     const snapshots = new Map<string, Projection>();
@@ -149,13 +151,16 @@ export function useAgentSources(
       requests.clear();
     };
     const load = async () => {
-      if (busy || !active) return;
+      if (!active) return;
+      if (busy) { pending = true; return; }
+      pending = false;
       busy = true;
       try {
         await pass();
       } finally {
         clearRequests();
         busy = false;
+        if (active && pending) schedule();
       }
     };
     const pass = async () => {
@@ -245,12 +250,26 @@ export function useAgentSources(
     void load();
     const timer = setInterval(() => void load(), 30_000);
     const retry = () => void load();
+    const schedule = () => {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void load();
+      }, 250);
+    };
+    const changed = (event: Event) => {
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail?.sources;
+      if (sources?.some(source => source !== currentSourceId)) schedule();
+    };
     window.addEventListener("loop-source-refresh", retry);
+    window.addEventListener("loop-workspace-change", changed);
     return () => {
       active = false;
       clearRequests();
       clearInterval(timer);
+      clearTimeout(refreshTimer);
       window.removeEventListener("loop-source-refresh", retry);
+      window.removeEventListener("loop-workspace-change", changed);
     };
   }, [owner, currentSourceId, federated, localName]);
 

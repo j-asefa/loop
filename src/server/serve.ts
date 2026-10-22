@@ -8,12 +8,14 @@ if (companionMode)
     "Start companion mode using loop so device authorization is installed.",
   );
 const { app } = await import("./index.js");
+const { installEventSockets } = await import("./event-sockets.js");
 export function startServer() {
   let stop: (() => void) | undefined;
   const server = app.listen(config.port, config.listenHost, () => {
     stop = observeProcess("api");
     console.log(`Loop listening on ${config.port}`);
   });
+  installEventSockets(server);
   server.once("close", () => stop?.());
   return server;
 }

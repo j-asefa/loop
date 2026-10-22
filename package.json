@@ -23,6 +23,7 @@
     "test:browser:acp": "node scripts/acp-deterministic-browser.mjs",
     "smoke:companion": "node scripts/companion-browser-smoke.mjs",
     "smoke:cards": "node --import tsx scripts/cards-browser-smoke.mjs && node --import tsx scripts/cards-content-browser.mjs && node scripts/cards-window-browser.mjs",
+    "smoke:feed-events": "node --import tsx scripts/feed-websocket-smoke.mjs && node --import tsx scripts/personal-files-events-smoke.mjs",
     "smoke:package": "node scripts/package-smoke.mjs",
     "smoke:history": "node scripts/conversation-history-smoke.mjs",
     "smoke:design": "node scripts/design-browser-smoke.mjs && node scripts/approval-layout-browser.mjs",

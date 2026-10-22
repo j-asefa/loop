@@ -9,7 +9,7 @@ import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { linkedDockerWorkspaces, proxyLinkedDocker } from "./linked-docker.js";
-import { agentSources, proxyAgentSource } from "./agent-sources.js";
+import { agentSources, proxyAgentSource, connectAgentSourceEvents } from "./agent-sources.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -185,16 +185,37 @@ export class Host {
       if (
         !this.validOrigin(req) ||
         !device ||
-        new URL(req.url!, this.origin).pathname !== "/ws" ||
-        this.clients.size >= 12
+        req.headers.authorization !== undefined ||
+        req.headers["sec-fetch-site"] === "cross-site" ||
+        this.clients.size >= 256 ||
+        [...this.clients.values()].filter(id => id === device.id).length >= 32
       ) {
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      let url: URL;
+      try {
+        url = new URL(req.url || "", this.origin);
+      } catch {
+        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      const source = /^\/api\/agent-sources\/([^/]+)\/events\/ws$/.exec(url.pathname);
+      const local = url.pathname === "/ws" ||
+        (!!this.workspace && url.pathname === "/api/events/ws");
+      if (!local && !(source && this.workspace && !this.workspace.isolated)) {
         socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;
       }
       this.ws.handleUpgrade(req, socket, head, (ws) => {
         this.clients.set(ws, device.id);
-        const url = new URL(req.url!, this.origin);
-        const cleanup = this.workspace?.connect(ws, url);
+        const cleanup = local ? this.workspace?.connect(ws, url) : undefined;
+        if (source) {
+          try {
+            void connectAgentSourceEvents(ws, decodeURIComponent(source[1]), url.searchParams)
+              .catch(() => ws.close(1013, "Execution source updates unavailable"));
+          } catch { ws.close(1008, "Invalid execution source"); }
+        }
         const cursor = Number(url.searchParams.get("cursor"));
         const events = Number.isSafeInteger(cursor)
           ? this.state.replay(url.searchParams.get("epoch") ?? "", cursor)
