@@ -510,7 +510,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await later.getByLabel("Search Saved").fill("chosen");
     await expect(later.locator(".saved-item")).toHaveCount(1);
     await capture("continuity-saved-search");
-    await savedCard.getByRole("button", { name: "Open", exact: true }).click();
+    await savedCard.getByRole("link", { name: "Open conversation", exact: true }).click();
     await expect(messageIn(longIds[30])).toBeInViewport();
     await closeThread();
     await expect(later.getByLabel("Search Saved")).toHaveValue("chosen");

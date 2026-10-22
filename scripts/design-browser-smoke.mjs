@@ -7,6 +7,7 @@ const names = [
   "workspace-project",
   "execution-environments",
   "main-composer-keyboard",
+  "composer-typing",
   "clear-search",
   "feed-reply-keyboard",
   "mobile-nav-viewport",

@@ -5,6 +5,7 @@ import { Diagram } from "./Diagram";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -269,7 +270,10 @@ export function Sheet({
     </dialog>
   );
 }
-export function RichText({
+// Draft edits rerender the surrounding Feed and conversation. Reuse unchanged
+// Markdown so typing never reparses every visible answer. Source context still
+// invalidates the render, keeping file links bound to the right workspace.
+export const RichText = memo(function RichText({
   content,
   diagrams = true,
   compact = false,
@@ -346,7 +350,7 @@ export function RichText({
       </Markdown>
     </div>
   );
-}
+});
 const previewValue = (v: unknown) =>
   typeof v === "object" && v !== null ? JSON.stringify(v) : String(v ?? "—");
 function DataPreview({ value }: { value: any }) {
