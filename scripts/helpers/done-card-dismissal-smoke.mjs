@@ -369,7 +369,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       await page.getByRole("button", { name: "Load more", exact: true }).click();
       await expect(history).toHaveCount(count);
     }
-    const workingCount = await page.getByRole("tab", { name: /^Working/ }).textContent();
+    const workingCount = Number((await page.getByRole("tab", { name: /^Working/ }).textContent()).replace("Working", "")) - remoteWorking;
     let localUnavailable = false;
     let localLegacy = false;
     await page.route("**/api/v1/cards**", (route) =>
@@ -410,7 +410,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     remoteWorking = 2;
     await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
     await expect(page.getByRole("tab", { name: /^Working/ }).locator(".chip-count"))
-      .toHaveText(String(Number(workingCount.replace("Working", "")) + remoteWorking));
+      .toHaveText(String(workingCount + remoteWorking));
     await expect(history).toHaveCount(125);
 
     // A brief reconnect may append a page before the next outage. It must
