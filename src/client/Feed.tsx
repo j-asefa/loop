@@ -1,3 +1,7 @@
+import { DoneCardsReader } from "./feed-cards";
+import type { CardWindow } from "./card-pager";
+import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
+import { CardBody } from "./ContentCard";
 import {
   SourceProvider,
   useSourceApi,
@@ -96,6 +100,8 @@ export type FeedFilter =
   | "unfinished";
 
 export type FeedItem = {
+  card?: Card;
+  cardOrder?: CardEntry["order"];
   sourceId?: string;
   executionEnvironment?: string;
   conversation_id: string;
@@ -287,7 +293,7 @@ function FeedCard({
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
   useEffect(() => {
-    if (!reading || !messageId || item.live_preview || awaitingUpdate) return;
+    if (!reading || !messageId || item.card || item.live_preview || awaitingUpdate) return;
     const controller = new AbortController();
     setReadError("");
     void apiInWorkspace<{ id: string; content: string }>(
@@ -309,6 +315,7 @@ function FeedCard({
     return () => controller.abort();
   }, [
     reading,
+    item.card,
     messageId,
     item.sourceId,
     scopedSource,
@@ -466,12 +473,12 @@ function FeedCard({
                     )}
                   </span>
                 )}
-                <RichText
-                  content={
-                    item.last_message!.content ?? item.last_message!.preview
-                  }
+                {item.card ? <SourceProvider sourceId={item.sourceId ?? scopedSource} capabilities={capabilities}>
+                  <CardBody card={item.card} compact />
+                </SourceProvider> : <RichText
+                  content={item.last_message!.content ?? item.last_message!.preview}
                   compact
-                />
+                />}
               </div>
             )
           )}
@@ -583,7 +590,7 @@ function FeedCard({
                 )}
                 <div className="artifact-body">
                   {content ? (
-                    <RichText content={content} />
+                    item.card ? <CardBody card={item.card} /> : <RichText content={content} />
                   ) : (
                     <p className="field-hint">
                       {status.tone === "working"
@@ -1060,6 +1067,8 @@ export function Feed({
   );
   const shownKey = () =>
     "feed:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
+  const activeView = useRef<string | null>(null);
+  activeView.current = JSON.stringify([viewOwner(), shownKey()]);
   // Going back shows the list as you left it while it refreshes.
   const shown = cachedView<Shown>(shownKey());
   // Recorded locations, keyed by source and connection id: ids from
@@ -1134,6 +1143,9 @@ export function Feed({
     key: "",
     pages: new Map(),
   });
+  const doneCatchup = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => { activeView.current = null; clearTimeout(doneCatchup.current); ++request.current; }, []);
+  const doneCards = useRef(new Map<string, DoneCardsReader>());
   const doneRefresh = useRef<{ key: string; sources: Map<string, DoneRefresh> }>({
     key: "", sources: new Map(),
   });
@@ -1173,7 +1185,9 @@ export function Feed({
     if (!append) void loadNeeds();
     // Background refreshes never overlap; filter changes and actions always load.
     if (background && inFlight.current) return;
+    clearTimeout(doneCatchup.current);
     inFlight.current = true;
+    let followup = false;
     const ticket = ++request.current;
     // The account this request is for; a late answer for another is dropped.
     const owner = viewOwner();
@@ -1183,8 +1197,8 @@ export function Feed({
       type Page = Shown;
       let result: Page;
       let partialError = "";
-      const cached = cachedView<Shown>(shownKey());
-      const previous =
+      let cached = cachedView<Shown>(shownKey());
+      let previous =
         !append && filter === "done"
           ? cached
           : undefined;
@@ -1196,14 +1210,103 @@ export function Feed({
         source: string,
         before?: string,
       ) => {
-        if (!previous) return read(before);
+        const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
+        let priorItems = cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [];
+        const order = (item: FeedItem): [number, string] => item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")];
+        let fallbackTransition = false;
+        if (filter === "done") {
+          let reader = doneCards.current.get(cardKey);
+          if (!reader) {
+            reader = new DoneCardsReader(cardKey, cachedView<CardWindow>(cardKey));
+            reader.discardPrior = cachedView<boolean>(cardKey + ":reset") ?? false;
+            doneCards.current.set(cardKey, reader);
+            if (doneCards.current.size > 40) doneCards.current.delete(doneCards.current.keys().next().value!);
+          }
+          const combined = sources && !project && !teams && !agent;
+          const transport = (path: string) => combined ? apiInWorkspace(path, source) : api(path);
+          const boundary = reader.pager.snapshot()?.boundary;
+          const catchUp = boundary && priorItems.some(item => compareCardOrder(order(item), boundary) < 0);
+          const resetVersion = reader.resetVersion;
+          let window: CardWindow | null;
+          try {
+            window = await reader.load(transport, {
+              view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
+            }, append || !!catchUp);
+          } finally {
+            if (reader.discardPrior && ticket === request.current && owner === viewOwner()) {
+              if (reader.resetVersion !== resetVersion) cacheView(cardKey, undefined, owner);
+              cacheView(cardKey + ":reset", true, owner);
+              priorItems = [];
+              // A revision-domain replacement invalidates every retained row
+              // from this source, even if the fresh list/summary then fails.
+              const keep = (item: FeedItem) => (item.sourceId ?? scopedSource) !== source;
+              const saved = cachedView<Shown>(shownKey());
+              if (saved) {
+                const cursors = combined ? JSON.parse(saved.next || "{}") : {};
+                delete cursors[source];
+                cached = {...saved, items: saved.items.filter(keep),
+                  next: combined && Object.keys(cursors).length ? JSON.stringify(cursors) : null};
+                previous = append ? undefined : cached;
+                cacheView(shownKey(), cached, owner);
+                setNext(cached.next);
+              }
+              if (sourcePages.current.key === JSON.stringify([owner, shownKey()])) {
+                const page = sourcePages.current.pages.get(source);
+                if (page) sourcePages.current.pages.set(source, {...page, items: [], next: null});
+              }
+              setItems(items => items.filter(keep));
+            }
+          }
+          if (window) {
+            if (reader.discardPrior) priorItems = [];
+            followup ||= reader.hasMore || !!(window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0));
+            if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
+            // Counters remain conversation-based operational Feed state.
+            const operational = await transport(query(undefined, "needs")) as Page;
+            if (ticket === request.current && owner === viewOwner()) {
+              reader.discardPrior = false;
+              cacheView(cardKey + ":reset", undefined, owner);
+            }
+            const typedItems = window.page.items.flatMap(({card, order: cardOrder}) => card.type === "done" ? [{
+              ...card.display, done_card_key: card.display.done_card_key ?? undefined,
+              pending_approvals: 0, position_message_id: null, card, cardOrder,
+            }] : []);
+            const known = new Set(typedItems.map(item => feedItemKey(item, source)));
+            return {
+              items: [
+                ...priorItems.filter(item => !known.has(feedItemKey(item, source)) && window.boundary && compareCardOrder(order(item), window.boundary) < 0),
+                ...typedItems,
+              ].sort(feedItemOrder),
+              next: window.page.next, summary: operational.summary,
+            };
+          }
+          fallbackTransition = !!cachedView<CardWindow>(cardKey);
+          if (fallbackTransition) doneRefresh.current.sources.delete(source);
+        }
+        if (!previous) {
+          const page = await read(fallbackTransition ? undefined : before);
+          if (fallbackTransition && ticket === request.current) cacheView(cardKey, undefined, owner);
+          if (append && filter === "done" && cached) {
+            const earlier = cached.items.filter(item => (item.sourceId ?? scopedSource) === source);
+            const incoming = new Set(page.items.map(item => feedItemKey(item, source)));
+            return {...page, items: [...earlier.filter(item => !incoming.has(feedItemKey(item, source))), ...page.items].sort(feedItemOrder)};
+          }
+          return page;
+        }
         const combined = sources && !project && !teams && !agent;
         const current = () => ticket === request.current && owner === viewOwner();
-        const result = await refreshDonePage<FeedItem, Page>(read, {
+        let firstNext: string | null = null;
+        const result = await refreshDonePage<FeedItem, Page>(async cursor => {
+          const page = await read(cursor);
+          if (cursor === undefined) firstNext = page.next;
+          return page;
+        }, {
           items: previous.items.filter((item) => (item.sourceId ?? scopedSource) === source),
-          next: combined ? (JSON.parse(previous.next || "{}")[source] ?? null) : previous.next,
+          next: fallbackTransition ? null : combined ? (JSON.parse(previous.next || "{}")[source] ?? null) : previous.next,
         }, doneRefresh.current.sources.get(source), current);
+        if (fallbackTransition && result.progress) result.page.next = firstNext;
         if (current()) {
+          if (fallbackTransition) cacheView(cardKey, undefined, owner);
           if (result.progress) doneRefresh.current.sources.set(source, result.progress);
           else doneRefresh.current.sources.delete(source);
         }
@@ -1251,7 +1354,7 @@ export function Feed({
         }
         for (const { source, page } of loaded) {
           // The outage fallback must include pages appended by Load more.
-          const earlier = append ? sourcePages.current.pages.get(source.id)?.items : undefined;
+          const earlier = append && filter !== "done" ? sourcePages.current.pages.get(source.id)?.items : undefined;
           const known = new Set(earlier?.map((item) => feedItemKey(item, source.id)));
           sourcePages.current.pages.set(source.id, {
             ...page,
@@ -1260,13 +1363,20 @@ export function Feed({
               : page.items,
           });
         }
-        if (!append) {
+        if (!append || filter === "done") {
           settled.forEach((entry, index) => {
             const source = pending[index];
             if (entry.status !== "rejected") return;
             const page = sourcePages.current.pages.get(source.id);
             if (page) loaded.push({ source, page });
           });
+        }
+        if (append && filter === "done") {
+          for (const source of activeSources) {
+            if (loaded.some(item => item.source.id === source.id)) continue;
+            const page = sourcePages.current.pages.get(source.id);
+            if (page) loaded.push({source, page});
+          }
         }
         const nextCursors: Record<string, string> = append
           ? { ...cursors }
@@ -1321,7 +1431,7 @@ export function Feed({
       if (ticket !== request.current || owner !== viewOwner()) return;
       const key = shownKey();
       setItems((old) => {
-        const merged = append
+        const merged = append && filter !== "done"
           ? [
               ...old,
               ...result.items.filter(
@@ -1360,6 +1470,9 @@ export function Feed({
       if (ticket === request.current) {
         inFlight.current = false;
         setLoading(false);
+        if (followup && owner === viewOwner()) doneCatchup.current = setTimeout(() => {
+          if (ticket === request.current && owner === viewOwner()) void load(false, true);
+        }, 100);
       }
     }
   }
@@ -1399,6 +1512,7 @@ export function Feed({
       window.removeEventListener("loop-social-read", update);
       window.removeEventListener("loop-source-refresh", update);
       clearInterval(timer);
+      clearTimeout(doneCatchup.current);
     };
     // Re-arm with every input `load` reads, so the fallback refresh never
     // replaces the Feed using a stale filter or source list.
@@ -1440,6 +1554,20 @@ export function Feed({
     const source = item.sourceId ?? scopedSource;
     const current = () => owner === viewOwner() &&
       doneRefresh.current.key === JSON.stringify([owner, key]);
+    const updateCard = (hidden: boolean) => {
+      if (!item.card) return;
+      const cardKey = "feed-cards:" + JSON.stringify([owner, key, source]);
+      const reader = doneCards.current.get(cardKey);
+      const window = reader?.pager.snapshot() ?? cachedView<CardWindow>(cardKey);
+      if (!window) return;
+      const items = window.page.items.filter(entry => entry.card.id !== item.card!.id);
+      if (!hidden) items.push({card: item.card,
+        order: item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")], saved: null});
+      const changed = {...window, page: {...window.page, items}};
+      reader?.invalidateForAction();
+      reader?.pager.restore(cardKey, changed);
+      cacheView(cardKey, changed, owner);
+    };
     const update = (change: (items: FeedItem[]) => FeedItem[]) => {
       if (owner !== viewOwner()) return;
       const cached = cachedView<Shown>(key);
@@ -1462,6 +1590,7 @@ export function Feed({
         "PATCH",
       );
       if (owner !== viewOwner()) return;
+      updateCard(true);
       update((old) =>
         old.filter(
           (row) =>
@@ -1480,6 +1609,7 @@ export function Feed({
             { hidden: false, cardKey: item.done_card_key },
             "PATCH",
           );
+          updateCard(false);
           update((old) => [...old.filter((row) => feedItemKey(row) !== feedItemKey(item)), item].sort(feedItemOrder));
           if (current()) await load();
         },
@@ -1489,7 +1619,7 @@ export function Feed({
       setError((e as Error).message);
     }
   }
-  function markSaved(item: FeedItem, saved: boolean) {
+  function markSaved(item: FeedItem, saved: boolean, active = true) {
     const change = (old: FeedItem[]) => old.map((row) =>
         row.last_message?.id === item.last_message?.id &&
         (row.sourceId || "") === (item.sourceId || "") &&
@@ -1505,7 +1635,28 @@ export function Feed({
     if (page) sourcePages.current.pages.set(source, {
       ...page, items: change(page.items.map((row) => ({ ...row, sourceId: source }))),
     });
-    setItems(change);
+    const owner = viewOwner();
+    const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
+    const reader = doneCards.current.get(cardKey);
+    const window = reader?.pager.snapshot() ?? cachedView<CardWindow>(cardKey);
+    if (window) {
+      const changed = {...window, page: {...window.page, items: window.page.items.map(entry => {
+        const card = entry.card;
+        if (card.type !== "done" || card.source.message_id !== item.last_message?.id) return entry;
+        return {...entry, card: {...card, saved, display: {...card.display,
+          last_message: card.display.last_message ? {...card.display.last_message, saved} : null}}};
+      })}};
+      reader?.invalidateForAction();
+      reader?.pager.restore(cardKey, changed);
+      cacheView(cardKey, changed, owner);
+      if (active) {
+        ++request.current;
+        inFlight.current = false;
+        clearTimeout(doneCatchup.current);
+        setLoading(false);
+      }
+    }
+    if (active) setItems(change);
   }
   async function setSavedOnServer(
     item: FeedItem,
@@ -1528,32 +1679,43 @@ export function Feed({
   async function toggleSaved(item: FeedItem) {
     const message = item.last_message;
     if (!message) return;
+    const owner = viewOwner(), key = JSON.stringify([owner, shownKey()]);
+    const current = () => owner === viewOwner() && activeView.current === key;
+    const restore = (saved: boolean) => {
+      if (owner !== viewOwner()) return;
+      markSaved(item, saved, current());
+      if (current()) void load();
+    };
     const saved = !!message.saved;
     markSaved(item, !saved);
     if (saved) {
       notify({
         text: "Removed from Saved.",
-        undo: () => markSaved(item, true),
-        onExpire: () =>
+        undo: () => restore(true),
+        onExpire: () => {
+          if (owner !== viewOwner()) return;
           void setSavedOnServer(item, message.id, false).catch((e) => {
-            markSaved(item, true);
-            setError((e as Error).message);
-          }),
+            restore(true);
+            if (current()) setError((e as Error).message);
+          });
+        },
       });
       return;
     }
     try {
       await setSavedOnServer(item, message.id, true);
+      if (owner !== viewOwner()) return;
       notify({
         text: "Saved. Find it in Later → Saved.",
         undo: async () => {
+          if (owner !== viewOwner()) return;
           await setSavedOnServer(item, message.id, false);
-          markSaved(item, false);
+          restore(false);
         },
       });
     } catch (e) {
-      markSaved(item, false);
-      setError((e as Error).message);
+      restore(false);
+      if (current()) setError((e as Error).message);
     }
   }
   function actionsFor(item: FeedItem): Action[] {
