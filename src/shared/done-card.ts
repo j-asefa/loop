@@ -97,7 +97,6 @@ export const DoneDisplaySchema = z.object({
       checked_at: time.nullable(),
     })
     .nullable(),
-  position_message_id: text,
   later: z
     .object({
       id: z.string(),

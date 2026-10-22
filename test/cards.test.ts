@@ -1477,3 +1477,44 @@ it("Done removes expired stopped-pull footers through changes without a write", 
     expect(updated.type === "done" && updated.display.pull).toBeNull();
   } finally {clock.mockRestore();}
 });
+
+it("Done invalidates only candidate cards for visible pull changes and skips unrelated maintenance", () => {
+  setup("done-cost");
+  message("done-cost","cost-answer","assistant",{});
+  db.transaction(() => {
+    for (let i=0;i<500;i++) db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-cost','done-cost','user','Old prompt',1)").run("cost-prompt-"+i);
+  })();
+  db.prepare("INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,created_at,updated_at) VALUES('cost-watch','done-cost','done-cost','done-cost','fixture','repo',1,'watching',1,1)").run();
+  const cache=all("done-cost",{view:"done"});
+  const revision=()=> (db.prepare("SELECT max(revision) r FROM done_card_revisions WHERE owner_id='done-cost'").get() as {r:number}).r;
+  const before=revision();
+  db.prepare("UPDATE pr_watches SET next_poll_at=10 WHERE id='cost-watch'").run();
+  db.prepare("INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES('done-cost','done-cost','cost-answer',1)").run();
+  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('cost-unrelated','done-cost','project','Other',1)").run();
+  db.prepare("UPDATE folders SET name='Renamed unrelated' WHERE id='cost-unrelated'").run();
+  expect(revision()).toBe(before);
+  db.prepare("UPDATE pr_watches SET read_at=20 WHERE id='cost-watch'").run();
+  const delta=cardChanges("done-cost",{view:"done",after:cache.revision});
+  expect(delta.items.map(item => item.card.id)).toEqual(["d:run:cost-answer"]);
+  expect(delta.removed).toEqual([]);
+  expect(delta.more).toBe(false);
+  expectCurrent("done-cost",{view:"done"},cache);
+});
+
+it("adds Done projection to populated pre-104 databases without rewriting existing history", () => {
+  const fixture=new Database(":memory:");
+  try {
+    fixture.exec("CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)");
+    for (const name of readdirSync("migrations").filter(name => name.endsWith(".sql")).sort()) {
+      if (Number(name.slice(0,3)) >= 104) continue;
+      fixture.exec(readFileSync(join("migrations",name),"utf8"));
+    }
+    fixture.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('before-upgrade','before-upgrade','Existing history',1)").run();
+    fixture.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('before-answer','before-upgrade','before-upgrade','assistant','Preserved answer',1)").run();
+    fixture.exec(readFileSync("migrations/104-done-cards.sql","utf8"));
+    expect(fixture.prepare("SELECT key FROM done_card_candidates WHERE owner_id='before-upgrade'").all()).toEqual([{key:"d:message:before-answer"}]);
+    expect(fixture.prepare("SELECT content FROM messages WHERE id='before-answer'").get()).toEqual({content:"Preserved answer"});
+    fixture.prepare("UPDATE messages SET content='Updated answer' WHERE id='before-answer'").run();
+    expect(fixture.prepare("SELECT object_id FROM done_card_revisions WHERE owner_id='before-upgrade'").all()).toEqual([{object_id:"d:message:before-answer"}]);
+  } finally {fixture.close();}
+});

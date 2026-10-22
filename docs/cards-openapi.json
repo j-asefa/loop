@@ -2532,12 +2532,6 @@
            }
           ]
          },
-         "position_message_id": {
-          "type": [
-           "string",
-           "null"
-          ]
-         },
          "later": {
           "anyOf": [
            {
@@ -2633,7 +2627,6 @@
          "last_message",
          "run",
          "pull",
-         "position_message_id",
          "later",
          "next_action"
         ],
@@ -3534,12 +3527,6 @@
            }
           ]
          },
-         "position_message_id": {
-          "type": [
-           "string",
-           "null"
-          ]
-         },
          "later": {
           "anyOf": [
            {
@@ -3635,7 +3622,6 @@
          "last_message",
          "run",
          "pull",
-         "position_message_id",
          "later",
          "next_action"
         ],
