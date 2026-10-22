@@ -47,9 +47,7 @@ WHEN new.owner_id IS NOT old.owner_id OR new.conversation_id IS NOT old.conversa
   OR json_extract(new.metadata,'$.progress') IS NOT json_extract(old.metadata,'$.progress')
   OR json_extract(new.metadata,'$.partial') IS NOT json_extract(old.metadata,'$.partial')
   OR ((new.content IS NOT old.content OR new.metadata IS NOT old.metadata)
-    AND (json_extract(new.metadata,'$.partial') IS NOT 1 OR json_extract(old.metadata,'$.partial') IS NOT 1
-      OR new.run_id IS NULL OR old.run_id IS NULL
-      OR EXISTS(SELECT 1 FROM runs WHERE id IN (old.run_id,new.run_id) AND state='completed')))
+    AND (json_extract(new.metadata,'$.partial') IS NOT 1 OR json_extract(old.metadata,'$.partial') IS NOT 1))
 BEGIN
 INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||old.id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
 INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;

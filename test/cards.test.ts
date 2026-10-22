@@ -1512,6 +1512,13 @@ it("adds Done projection to populated pre-104 databases without rewriting existi
     fixture.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('before-upgrade','before-upgrade','Existing history',1)").run();
     fixture.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('before-answer','before-upgrade','before-upgrade','assistant','Preserved answer',1)").run();
     fixture.exec(readFileSync("migrations/104-done-cards.sql","utf8"));
+    // Upgrade an already-applied 104, preserving its rows and revision domain.
+    fixture.prepare("UPDATE messages SET metadata=json_object('partial',json('true')) WHERE id='before-answer'").run();
+    const revision = fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number};
+    fixture.exec(readFileSync("migrations/105-done-card-invalidation.sql","utf8"));
+    fixture.prepare("UPDATE messages SET content='Partial edit' WHERE id='before-answer'").run();
+    expect((fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number}).revision).toBeGreaterThan(revision.revision);
+    fixture.prepare("UPDATE messages SET content='Preserved answer' WHERE id='before-answer'").run();
     expect(fixture.prepare("SELECT key FROM done_card_candidates WHERE owner_id='before-upgrade'").all()).toEqual([{key:"d:message:before-answer"}]);
     expect(fixture.prepare("SELECT content FROM messages WHERE id='before-answer'").get()).toEqual({content:"Preserved answer"});
     fixture.prepare("UPDATE messages SET content='Updated answer' WHERE id='before-answer'").run();
