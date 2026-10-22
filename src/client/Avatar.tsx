@@ -1,7 +1,20 @@
 import type { CSSProperties } from "react";
 import type { Provider } from "../shared/types";
 
-const characters = ["atlas", "nova", "sage", "echo"] as const;
+const characters = [
+  "atlas",
+  "nova",
+  "sage",
+  "echo",
+  "orbit",
+  "moss",
+  "ember",
+  "cobalt",
+  "owl",
+  "prism",
+  "pebble",
+  "flint",
+] as const;
 const backdrops = [
   "#d8b544",
   "#a6b39c",
@@ -22,7 +35,7 @@ export function avatarIdentity(name: string) {
   const named = characters.findIndex((character) => character === normalized);
   return {
     character: characters[named < 0 ? (seed >>> 8) % characters.length : named],
-    background: backdrops[named < 0 ? (seed >>> 16) % backdrops.length : named],
+    background: backdrops[(named < 0 ? seed >>> 16 : named) % backdrops.length],
   };
 }
 
