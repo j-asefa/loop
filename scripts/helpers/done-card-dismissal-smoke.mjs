@@ -255,7 +255,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     let refreshRequests = 0;
     const countRefresh = (request) => {
       const url = new URL(request.url());
-      if (url.pathname === "/api/feed" && url.searchParams.get("filter") === "done") refreshRequests++;
+      if (url.pathname.startsWith("/api/v1/cards") && url.searchParams.get("view") === "done") refreshRequests++;
     };
     page.on("request", countRefresh);
     await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
@@ -275,7 +275,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(row).toHaveCount(1);
     await expect(history).toHaveCount(125);
 
-    // Exercise the production combined Feed with an empty remote source. A
+    // Exercise the production combined Feed with two nonempty sources. A
     // failed local refresh must retain all pages loaded before the outage.
     await page.route("**/api/capabilities", async (route) => {
       const response = await route.fetch();
@@ -285,28 +285,89 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       json: [{ id: "docker:feed-fixture", name: "Fixture remote" }],
     }));
     let remoteWorking = 0;
+    let remoteLegacy = false;
+    let remoteHidden = false;
+    const remoteActions = [];
+    const remoteEntry = (await (await page.request.get(`${fixture.base}/api/v1/cards?view=done&limit=1`)).json()).items[0];
+    remoteEntry.card.id = "d:run:remote-run";
+    remoteEntry.card.source.conversation_id = "remote-thread";
+    remoteEntry.card.source.run_id = "remote-run";
+    remoteEntry.card.source.message_id = "remote-message";
+    remoteEntry.card.display.last_message.id = "remote-message";
+    remoteEntry.card.saved = remoteEntry.card.display.last_message.saved = false;
+    remoteEntry.card.display.conversation_id = "remote-thread";
+    remoteEntry.card.display.done_card_key = "run:remote-run";
+    remoteEntry.card.display.title = "Remote completed result";
+    remoteEntry.card.display.run.id = "remote-run";
+    remoteEntry.card.context.conversation_title = "Remote completed result";
+    remoteEntry.order[1] = "remote-thread\u001frun:remote-run";
     await page.route("**/api/agent-sources/*/**", (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/feed/remote-thread")) {
+        const body = route.request().postDataJSON();
+        assert.equal(route.request().method(), "PATCH");
+        assert.equal(body.cardKey, "run:remote-run");
+        remoteActions.push(body.hidden ? "dismiss" : "undo");
+        remoteHidden = body.hidden;
+        return route.fulfill({json: {ok:true}});
+      }
+      if (path.endsWith("/messages/remote-message/saved")) {
+        const saved = route.request().method() === "POST";
+        remoteActions.push(saved ? "save" : "unsave");
+        remoteEntry.card.saved = remoteEntry.card.display.last_message.saved = saved;
+        return route.fulfill({json: {ok:true}});
+      }
+      if (path.includes("/v1/cards")) return route.fulfill(remoteLegacy
+        ? {status: 400, json: {error: "Unsupported view"}}
+        : {json: path.endsWith("/changes")
+          ? {revision: "remote-revision", items: remoteHidden ? [] : [remoteEntry], removed: remoteHidden ? [remoteEntry.card.id] : [], more: false}
+          : {revision: "remote-revision", items: remoteHidden ? [] : [remoteEntry], next: null}});
       const json = path.endsWith("/bootstrap")
         ? { agents: [], connections: [], folders: [] }
         : path.endsWith("/feed")
-          ? { items: [], next: null, summary: { needs: 0, working: remoteWorking, queued: 0, later_due: 0 } }
+          ? { items: new URL(route.request().url()).searchParams.get("filter") === "done" ? [{...remoteEntry.card.display, pending_approvals: 0}] : [], next: null, summary: { needs: 0, working: remoteWorking, queued: 0, later_due: 0 } }
           : [];
       return route.fulfill({ json });
     });
     await page.reload({ waitUntil: "networkidle" });
     await expect(history).toHaveCount(39); // The newest result occupies one row.
+    await expect(page.locator('.inbox-results .inbox-row[aria-label^="Remote completed result"]')).toHaveCount(1);
+    const remoteRow = page.locator('.inbox-results .inbox-row[aria-label^="Remote completed result"]');
+    await swipe(remoteRow);
+    await expect(remoteRow).toHaveCount(0);
+    await toast.getByRole("button", {name: "Undo", exact:true}).click();
+    await expect(remoteRow).toHaveCount(1);
+    await remoteRow.locator("xpath=..").getByRole("button", {name:"Thread actions",exact:true}).click();
+    await page.getByRole("menuitem", {name:/^Save/}).click();
+    await expect.poll(() => remoteActions).toEqual(["dismiss", "undo", "save"]);
+    await page.getByRole("status").filter({hasText:"Saved. Find it"}).getByRole("button", {name:"Undo",exact:true}).click();
+    await expect.poll(() => remoteActions).toEqual(["dismiss", "undo", "save", "unsave"]);
+
     for (const count of [79, 119, 125]) {
       await page.getByRole("button", { name: "Load more", exact: true }).click();
       await expect(history).toHaveCount(count);
     }
     const workingCount = await page.getByRole("tab", { name: /^Working/ }).textContent();
-    let localUnavailable = true;
-    await page.route("**/api/feed?**", (route) =>
-      localUnavailable && new URL(route.request().url()).searchParams.get("filter") === "done"
+    let localUnavailable = false;
+    let localLegacy = false;
+    await page.route("**/api/v1/cards**", (route) =>
+      localLegacy ? route.fulfill({status: 400, json: {error: "Unsupported Done view"}}) : localUnavailable && new URL(route.request().url()).searchParams.get("view") === "done"
         ? route.fulfill({ status: 503, json: { error: "Fixture source unavailable" } })
         : route.continue(),
     );
+    // Replace a source with an older server, then upgrade it again without
+    // reloading the SPA. Contract transitions must retain all loaded history.
+    localLegacy = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await page.waitForLoadState("networkidle");
+    await expect(history).toHaveCount(125);
+    localLegacy = false;
+    for (let i=0;i<4;i++) {
+      await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+      await page.waitForLoadState("networkidle");
+      await expect(history).toHaveCount(125);
+    }
+    localUnavailable = true;
     await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
     await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
     await expect(history).toHaveCount(125);
@@ -333,6 +394,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // A brief reconnect may append a page before the next outage. It must
     // extend the restored source cache instead of replacing its earlier pages.
     localUnavailable = false;
+    remoteLegacy = true;
     await page.reload({ waitUntil: "networkidle" });
     await expect(history).toHaveCount(39);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
@@ -351,6 +413,23 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
     await expect(history).toHaveCount(119);
     await expect(page.getByRole("button", { name: "Load more", exact: true })).toBeVisible();
+    // A burst larger than two legacy pages must reconcile automatically while
+    // retaining the already-loaded older window.
+    localUnavailable = false;
+    const burstAt = Date.now() + 1000;
+    fixture.db.transaction(() => {
+      for (let i=0;i<125;i++) {
+        const run = randomUUID();
+        fixture.db.prepare(`INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at)
+          SELECT ?,owner_id,agent_id,conversation_id,?,'completed',?,payload,?,? FROM runs WHERE id=?`)
+          .run(run, `Burst completion ${i}`, run, burstAt, burstAt, target.run);
+        fixture.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Burst answer',?)")
+          .run(randomUUID(), fixture.owner, target.id, run, burstAt);
+      }
+    })();
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(page.locator('.inbox-results .inbox-row[aria-label^="Burst completion "]')).toHaveCount(125);
+    await expect(history).toHaveCount(119);
   } finally {
     await client?.detach();
   }

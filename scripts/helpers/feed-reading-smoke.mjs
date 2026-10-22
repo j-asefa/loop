@@ -47,8 +47,10 @@ export async function feedReadingSmoke(page, fixture, capture) {
     route.fulfill({ status: 503, json: { error: "Fixture message unavailable" } }),
   );
   await page.locator(".inbox-results .inbox-row").filter({ hasText: done.title }).click();
-  await expect(reader.getByRole("alert")).toContainText("Couldn’t load the full message");
-  await reader.getByRole("button", { name: "Open conversation", exact: true }).click();
+  // Cards already contains the full body; opening it needs no per-message read.
+  await expect(reader.getByRole("alert")).toHaveCount(0);
+  await expect(reader.locator(".artifact-body")).toContainText("End of the full result.");
+  await reader.getByRole("button", { name: "Reply", exact: true }).click();
   await expect(thread).toBeVisible();
   await expect(reader).toHaveCount(0);
 }

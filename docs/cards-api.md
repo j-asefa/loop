@@ -291,7 +291,7 @@ delay, are surfaced. The lower-level client reports errors without retrying.
 
 ## First-party readers and compatibility
 
-Agent Results, project Activity, Saved and personally sent Messages use the
+Feed Done, Agent Results, project Activity, Saved and personally sent Messages use the
 versioned service and shared typed card bodies. The result reader fetches typed
 detail on open; collection cards already contain full stored content and do not
 fetch each off-screen item. Signed-in actions continue to use their existing
@@ -326,5 +326,12 @@ Remaining `/api/results`, `/api/results/updates`, `/api/saved`, `/api/me/prompts
 and artifact-reader callers retain their wire contracts. Shared production
 eligibility/provenance predicates still govern those compatibility reads; the
 new first-party content collections do not interpret their raw rows. The
-conversation Feed and working/queued actions keep their own
-identity and behavior. Their eligible result links open the shared typed reader.
+operational Feed summaries and Needs you/Working/Queued actions keep their own
+identity and behavior. Done uses the typed Cards reader and a bounded per-source
+pager; it retains loaded windows and reconciles further 200-revision batches in
+scheduled refreshes. Opening a Done answer uses its full card body without a
+per-message fetch. Sources that reject the Done view retain expanded legacy Feed
+reads, and refresh rechecks capabilities after a source upgrade or replacement.
+Contract transitions retain loaded history while the new pager catches up; opaque
+cursors are never sent to the other endpoint. Dismissal/Undo and save update the
+source-bound visible and pager caches together.
