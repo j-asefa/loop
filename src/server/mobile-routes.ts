@@ -49,6 +49,7 @@ mobile.get("/feed", (req, res) => {
   const q = z
     .object({
       filter: z.enum(FEED_FILTERS).default("all"),
+      expand: z.literal("results").optional(),
       folder: z.string().min(1).max(150).optional(),
       agent: z.string().min(1).max(150).optional(),
       before: z.string().min(1).max(512).optional(),

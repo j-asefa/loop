@@ -86,10 +86,10 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       )
       .run(followUp, followUp, started, started, target.run);
     await page.reload({ waitUntil: "networkidle" });
-    const before = (await fixture.api("/feed?filter=done")).summary;
+    const before = (await fixture.api("/feed?filter=done&expand=results")).summary;
     await swipe(row);
     await expect(row).toHaveCount(0);
-    assert.deepEqual((await fixture.api("/feed?filter=done")).summary, before);
+    assert.deepEqual((await fixture.api("/feed?filter=done&expand=results")).summary, before);
     let dismissRequests = 0;
     const countDismiss = (request) => {
       if (
@@ -143,6 +143,26 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(newResult).toHaveCount(1);
     await expect(newResult).toContainText("The follow-up result is visible.");
 
+    // Restoring an earlier result alongside the new one must preserve both
+    // cards, their reading sheets, and their independent swipe/Undo controls.
+    await fixture.api(`/feed/${target.id}`, { hidden: false, cardKey }, "PATCH");
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(row).toHaveCount(1);
+    await expect(newResult).toHaveCount(1);
+    await row.click();
+    const reader = page.locator("dialog.feed-reading-sheet[open]");
+    await expect(reader.locator(".result-title")).toHaveText(target.title);
+    await expect(reader.locator(".artifact-body")).not.toContainText("The follow-up result is visible.");
+    await reader.locator(":scope > .sheet-inner > .sheet-head")
+      .getByRole("button", { name: "Close", exact: true }).click();
+    await expect(reader).toHaveCount(0);
+    await swipe(newResult);
+    await expect(newResult).toHaveCount(0);
+    await expect(row).toHaveCount(1);
+    await toast.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(newResult).toHaveCount(1);
+    await expect(row).toHaveCount(1);
+
     // Old failures in Needs you can be swiped away, without removing their
     // conversation's Done result, changing execution or hiding other work.
     for (const state of ["failed", "interrupted"]) {
@@ -157,7 +177,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       `,
         )
         .run(failed, state, failed, time, time, followUp);
-      const doneBefore = (await fixture.api("/feed?filter=done")).items;
+      const doneBefore = (await fixture.api("/feed?filter=done&expand=results")).items;
       const runsBefore = fixture.db
         .prepare("SELECT id,state FROM runs ORDER BY id")
         .all();
@@ -192,13 +212,145 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         runsBefore,
       );
       assert.deepEqual(
-        (await fixture.api("/feed?filter=done")).items,
+        (await fixture.api("/feed?filter=done&expand=results")).items,
         doneBefore,
       );
       await page.reload({ waitUntil: "networkidle" });
       await expect(failedRow).toHaveCount(0);
       await expect(newResult).toContainText("The follow-up result is visible.");
     }
+
+    // Several pages can belong to the same thread. Load more must retain
+    // every result rather than deduplicating the page by conversation.
+    const finishedAt = Date.now();
+    for (let i = 0; i < 125; i++) {
+      const run = randomUUID();
+      fixture.db.prepare(`
+        INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at)
+        SELECT ?,owner_id,agent_id,conversation_id,?,'completed',?,payload,?,?
+        FROM runs WHERE id=?
+      `).run(run, `Historical result ${i}`, run, finishedAt, finishedAt, target.run);
+      fixture.db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant',?,?)",
+      ).run(randomUUID(), fixture.owner, target.id, run, `Completed output ${i}`, finishedAt);
+    }
+    await page.reload({ waitUntil: "networkidle" });
+    const history = page.locator('.inbox-results .inbox-row[aria-label^="Historical result "]');
+    await expect(history).toHaveCount(40);
+    for (const count of [80, 120, 125]) {
+      await page.getByRole("button", { name: "Load more", exact: true }).click();
+      await expect(history).toHaveCount(count);
+    }
+    await expect(row).toHaveCount(1);
+    await expect(newResult).toHaveCount(1);
+    const newest = randomUUID();
+    fixture.db.prepare(`
+      INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at)
+      SELECT ?,owner_id,agent_id,conversation_id,'New result while reading','completed',?,payload,?,?
+      FROM runs WHERE id=?
+    `).run(newest, newest, finishedAt + 1, finishedAt + 1, target.run);
+    fixture.db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Just finished',?)",
+    ).run(randomUUID(), fixture.owner, target.id, newest, finishedAt + 1);
+    let refreshRequests = 0;
+    const countRefresh = (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/feed" && url.searchParams.get("filter") === "done") refreshRequests++;
+    };
+    page.on("request", countRefresh);
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(page.locator('.inbox-results .inbox-row[aria-label^="New result while reading"]')).toHaveCount(1);
+    await expect(history).toHaveCount(125);
+    await expect(row).toHaveCount(1);
+    await expect(newResult).toHaveCount(1);
+    page.off("request", countRefresh);
+    assert(refreshRequests <= 2, "Refreshing loaded history must use at most two Done requests per source");
+    // An action below the pages refreshed this time updates the cached window
+    // immediately, so refresh cannot resurrect a swipe or lose its Undo.
+    await swipe(row);
+    await expect(row).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(row).toHaveCount(0);
+    await toast.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect(row).toHaveCount(1);
+    await expect(history).toHaveCount(125);
+
+    // Exercise the production combined Feed with an empty remote source. A
+    // failed local refresh must retain all pages loaded before the outage.
+    await page.route("**/api/capabilities", async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), pairedDevices: true } });
+    });
+    await page.route("**/api/agent-sources", (route) => route.fulfill({
+      json: [{ id: "docker:feed-fixture", name: "Fixture remote" }],
+    }));
+    let remoteWorking = 0;
+    await page.route("**/api/agent-sources/*/**", (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const json = path.endsWith("/bootstrap")
+        ? { agents: [], connections: [], folders: [] }
+        : path.endsWith("/feed")
+          ? { items: [], next: null, summary: { needs: 0, working: remoteWorking, queued: 0, later_due: 0 } }
+          : [];
+      return route.fulfill({ json });
+    });
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(history).toHaveCount(39); // The newest result occupies one row.
+    for (const count of [79, 119, 125]) {
+      await page.getByRole("button", { name: "Load more", exact: true }).click();
+      await expect(history).toHaveCount(count);
+    }
+    const workingCount = await page.getByRole("tab", { name: /^Working/ }).textContent();
+    let localUnavailable = true;
+    await page.route("**/api/feed?**", (route) =>
+      localUnavailable && new URL(route.request().url()).searchParams.get("filter") === "done"
+        ? route.fulfill({ status: 503, json: { error: "Fixture source unavailable" } })
+        : route.continue(),
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
+    await expect(history).toHaveCount(125);
+    await expect(row).toHaveCount(1);
+    await expect(newResult).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+    // Returning to Done must recover the same window from the view cache,
+    // even though another filter has replaced the component's source cache.
+    await page.getByRole("tab", { name: /^Working/ }).click();
+    await expect(history).toHaveCount(0);
+    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
+    await expect(history).toHaveCount(125);
+    await expect(row).toHaveCount(1);
+    await expect(newResult).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /^Working/ })).toHaveText(workingCount);
+    remoteWorking = 2;
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(page.getByRole("tab", { name: /^Working/ }).locator(".chip-count"))
+      .toHaveText(String(Number(workingCount.replace("Working", "")) + remoteWorking));
+    await expect(history).toHaveCount(125);
+
+    // A brief reconnect may append a page before the next outage. It must
+    // extend the restored source cache instead of replacing its earlier pages.
+    localUnavailable = false;
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(history).toHaveCount(39);
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(history).toHaveCount(79);
+    localUnavailable = true;
+    await page.getByRole("tab", { name: /^Working/ }).click();
+    await expect(history).toHaveCount(0);
+    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
+    await expect(history).toHaveCount(79);
+    localUnavailable = false;
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(history).toHaveCount(119);
+    localUnavailable = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect(page.getByText("Some environments could not refresh. Showing their last loaded threads.")).toBeVisible();
+    await expect(history).toHaveCount(119);
+    await expect(page.getByRole("button", { name: "Load more", exact: true })).toBeVisible();
   } finally {
     await client?.detach();
   }

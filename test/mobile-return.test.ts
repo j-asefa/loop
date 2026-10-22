@@ -18,6 +18,7 @@ const { teams } = await import("../src/server/teams");
 const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
+const { ensureWorkspaceProject } = await import("../src/server/workspace-project");
 const { deliverNotifications } = await import("../src/server/notifications");
 const { surfaceLater, deliverScheduledSends } = await import(
   "../src/server/mobile-return"
@@ -161,7 +162,7 @@ it("persists team result visibility without hiding attention, history or unrelat
   const folder = (await api(w.owner, "/folders", "POST", { name: "Project", kind: "project" })).data.id;
   db.prepare("UPDATE conversations SET project_id=? WHERE owner_id=?").run(folder, w.owner);
   await api(w.owner, `/messages/${reviewMessage}/saved`, "POST");
-  const cards = async (query = "filter=done") => (await api(w.owner, `/feed?${query}`)).data;
+  const cards = async (query = "filter=done&expand=results") => (await api(w.owner, `/feed?${query}`)).data;
   const ids = (page: any) => page.items.map((item: any) => item.conversation_id);
   const setHidden = (team: string, hidden: boolean, owner: string = w.owner) =>
     api(owner, `/teams/${team}/feed-visibility`, "PATCH", { hideResultsFromFeed: hidden });
@@ -173,9 +174,9 @@ it("persists team result visibility without hiding attention, history or unrelat
   expect((await setHidden(review.id, true)).data.hide_results_from_feed).toBe(1);
   expect((await api(w.owner, "/teams")).data.find((t: any) => t.id === review.id).hide_results_from_feed).toBe(1);
   expect(ids(await cards()).sort()).toEqual([council.conversation_id, solo].sort());
-  expect(ids(await cards(`filter=done&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
-  expect(ids(await cards(`filter=done&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
-  expect(ids(await cards(`filter=done&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
+  expect(ids(await cards(`filter=done&expand=results&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
+  expect(ids(await cards(`filter=done&expand=results&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
+  expect(ids(await cards(`filter=done&expand=results&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
   expect(ids(await cards("filter=all"))).toContain(review.conversation_id);
   expect((await api(w.owner, "/saved")).data.items.some((item: any) => item.message?.message_id === reviewMessage)).toBe(true);
   expect((await api(w.owner, `/conversations/${review.conversation_id}`)).status).toBe(200);
@@ -195,7 +196,7 @@ it("persists team result visibility without hiding attention, history or unrelat
   expect(ids(await cards("filter=queued"))).toEqual([council.conversation_id]);
   await setHidden(review.id, false);
   expect((await cards()).summary).toEqual(before);
-  expect(ids(await cards()).sort()).toEqual([review.conversation_id, delegated, solo].sort());
+  expect(ids(await cards()).sort()).toEqual([review.conversation_id, review.conversation_id, delegated, solo].sort());
 
   await api(w.owner, `/teams/${council.id}`, "DELETE");
   expect((await setHidden(council.id, false)).status).toBe(404);
@@ -216,10 +217,10 @@ it("filters hidden teams before paging through completed feed cards", async () =
     if (i < 45) visible.unshift(cid);
     else db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(team.id, cid);
   }
-  const first = (await api(w.owner, "/feed?filter=done")).data;
+  const first = (await api(w.owner, "/feed?filter=done&expand=results")).data;
   expect(first.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(0, 40));
   expect(first.next).toBeTruthy();
-  const second = (await api(w.owner, `/feed?filter=done&before=${encodeURIComponent(first.next)}`)).data;
+  const second = (await api(w.owner, `/feed?filter=done&expand=results&before=${encodeURIComponent(first.next)}`)).data;
   expect(second.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(40));
   expect(second.next).toBeNull();
 });
@@ -299,10 +300,13 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   message(w.owner, done, "user", "Hello", dr);
   message(w.owner, done, "assistant", "  Hi\n\n there  ", dr);
   const snoozed = conversation(w.owner, a.id, "Snoozed");
-  message(w.owner, snoozed, "user", "Later please", run(w.owner, a.id, snoozed));
+  const snoozedRun = run(w.owner, a.id, snoozed);
+  message(w.owner, snoozed, "user", "Later please", snoozedRun);
+  message(w.owner, snoozed, "assistant", "The completed result", snoozedRun);
   // Delegated work has its own visible Feed card.
   const child = conversation(w.owner, a.id, "Child");
   const cr = run(w.owner, a.id, child, "completed");
+  message(w.owner, child, "assistant", "Delegated result", cr);
   db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(nr, "call", cr);
   expect(
     (
@@ -341,16 +345,16 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   );
   expect(workingItem.run).toMatchObject({ id: wr, state: "running" });
   const filter = async (name: string) =>
-    (await api(w.owner, "/feed?filter=" + name)).data.items.map(
+    (await api(w.owner, "/feed?filter=" + name + (name === "done" ? "&expand=results" : ""))).data.items.map(
       (i: any) => i.conversation_id,
     );
   expect(await filter("needs")).toEqual([needs]);
   expect(await filter("working")).toEqual([working]);
   expect(await filter("queued")).toEqual([working]);
   expect(await filter("later")).toEqual([snoozed]);
-  // Done leaves out open work with no finished output: needs you, working,
-  // queued or snoozed.
-  expect(await filter("done")).toEqual([child, done]);
+  // Done keeps completed results, including snoozed conversations, and
+  // leaves out open work with no finished output.
+  expect(await filter("done")).toEqual([child, snoozed, done]);
   // A finished output stays in Done when a follow-up is queued.
   const followUp = conversation(w.owner, a.id, "Follow-up");
   const first = run(w.owner, a.id, followUp, "completed");
@@ -364,7 +368,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   // only what the new run has produced.
   db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(second);
   const items = async (name: string) =>
-    (await api(w.owner, "/feed?filter=" + name)).data.items;
+    (await api(w.owner, "/feed?filter=" + name + (name === "done" ? "&expand=results" : ""))).data.items;
   const doneCard = (await items("done")).find(
     (i: any) => i.conversation_id === followUp,
   );
@@ -418,7 +422,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect(await filter("done")).toEqual(
     expect.arrayContaining([child, done, followUp, imported]),
   );
-  expect(await filter("done")).toHaveLength(4);
+  expect(await filter("done")).toHaveLength(6);
   // An agent profile lists only that agent's threads; foreign agents are rejected.
   const b = w.agent();
   const other = conversation(w.owner, b.id, "Other agent");
@@ -456,11 +460,11 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     new Set([...page.data.items, ...rest.data.items].map((i: any) => i.conversation_id)).size,
   ).toBe(45);
   // Done pages by when each output finished.
-  const donePage = await api(p.owner, "/feed?filter=done");
+  const donePage = await api(p.owner, "/feed?filter=done&expand=results");
   expect(donePage.data.items).toHaveLength(40);
   const doneRest = await api(
     p.owner,
-    "/feed?filter=done&before=" + donePage.data.next,
+    "/feed?filter=done&expand=results&before=" + donePage.data.next,
   );
   expect(doneRest.data.items).toHaveLength(5);
   expect((await api("intruder", "/feed")).data.items).toEqual([]);
@@ -489,7 +493,7 @@ it.each(["delegation", "workflow"])("shows %s work through its Feed lifecycle", 
   }
   message(w.owner, cid, "user", "Investigate the failure", child);
   const cards = async (filter: string, owner: string = w.owner) =>
-    (await api(owner, `/feed?filter=${filter}`)).data.items.filter((item: any) => item.conversation_id === cid);
+    (await api(owner, `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`)).data.items.filter((item: any) => item.conversation_id === cid);
   expect(await cards("queued")).toMatchObject([{ agent_id: worker.id, run: { id: child, state: "queued" } }]);
   expect(await cards("done")).toEqual([]);
 
@@ -516,13 +520,238 @@ it.each(["delegation", "workflow"])("shows %s work through its Feed lifecycle", 
   expect((await api(w.owner, "/feed/away?since=0")).data.completed.map((item: any) => item.run_id)).toContain(child);
 });
 
+it("keeps every completed result in Done through later work until that result is dismissed", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Ongoing thread");
+  const first = run(w.owner, a.id, cid, "completed", { input: "First task" });
+  const firstAnswer = message(w.owner, cid, "assistant", "First result", first);
+  const page = async (filter = "done") => (await api(w.owner, `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`)).data;
+  const original = (await page()).items[0];
+  const second = run(w.owner, a.id, cid, "queued", { input: "Second task" });
+  message(w.owner, cid, "user", "Second task", second);
+  for (const state of ["queued", "running", "awaiting_approval", "failed", "interrupted"]) {
+    db.prepare("UPDATE runs SET state=?,worker_id='worker',updated_at=? WHERE id=?").run(state, clock++, second);
+    expect((await page()).items).toEqual([original]);
+  }
+  const secondAnswer = message(w.owner, cid, "assistant", "Second result", second);
+  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(clock++, second);
+  const completed = await page();
+  expect(completed.items).toMatchObject([
+    { done_card_key: `run:${second}`, title: "Second task", last_message: { id: secondAnswer, content: "Second result" } },
+    original,
+  ]);
+  expect(completed.items).toHaveLength(2);
+  expect(completed.items[1].next_action).toMatchObject({ run_id: first, message_id: firstAnswer });
+  // A new run changes activity counts once, even with several Done cards.
+  const third = run(w.owner, a.id, cid, "running");
+  db.prepare("UPDATE runs SET worker_id='worker' WHERE id=?").run(third);
+  message(w.owner, cid, "assistant", "Working on the third task", third);
+  expect((await page()).items).toEqual(completed.items);
+  expect((await page()).summary).toMatchObject({ working: 1, queued: 0, needs: 0 });
+  expect((await page("working")).items).toMatchObject([{ run: { id: third } }]);
+  // Reminding yourself about the conversation does not remove its results.
+  await api(w.owner, "/later", "POST", { kind: "conversation", targetId: cid, condition: "time", dueAt: now() + 3600000 });
+  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([`run:${second}`, `run:${first}`]);
+  const dismiss = (hidden: boolean) => api(w.owner, `/feed/${cid}`, "PATCH", { hidden, cardKey: `run:${first}` });
+  expect((await dismiss(true)).status).toBe(200);
+  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([`run:${second}`]);
+  expect((await dismiss(false)).status).toBe(200);
+  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([`run:${second}`, `run:${first}`]);
+  expect((await api(w.owner, `/messages/${firstAnswer}`)).data.content).toBe("First result");
+  expect((await page("all")).items).toEqual([]); // The reminder still snoozes the thread view.
+  expect((await api("intruder", "/feed?filter=done&expand=results")).data.items).toEqual([]);
+});
+
+it("expands only completed runs with final answers, excluding historical prompts, commentary and empty output", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id);
+  const promptOnly = run(w.owner, a.id, cid);
+  message(w.owner, cid, "user", "Do this work", promptOnly);
+  const commentaryOnly = run(w.owner, a.id, cid);
+  recordConversationUpdate({ id: commentaryOnly, owner_id: w.owner }, "commentary", { content: "Still investigating" });
+  for (const content of ["   ", "\n", "\t", " \r\n\t ", "\u00a0\u2003\ufeff"]) {
+    const empty = run(w.owner, a.id, cid);
+    message(w.owner, cid, "assistant", content, empty);
+    message(w.owner, cid, "assistant", content);
+  }
+  run(w.owner, a.id, cid); // A completed turn with no recorded message.
+  const finished = run(w.owner, a.id, cid);
+  const answer = message(w.owner, cid, "assistant", "The final answer", finished);
+  message(w.owner, cid, "assistant", "\n\t ", finished);
+  const page = (await api(w.owner, "/feed?filter=done&expand=results")).data;
+  expect(page.items).toHaveLength(1);
+  expect(page.items[0]).toMatchObject({ done_card_key: `run:${finished}`, last_message: { id: answer } });
+  expect((await api(w.owner, `/messages/${answer}/saved`, "POST")).status).toBe(200);
+});
+
+it.each(["prompt", "commentary", "whitespace", "empty"])("keeps an idle %s-only thread without a result preview", async (kind) => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id);
+  const rid = run(w.owner, a.id, cid);
+  if (kind !== "empty") message(w.owner, cid, "user", "Do this work", rid);
+  if (kind === "commentary")
+    recordConversationUpdate({ id: rid, owner_id: w.owner }, "commentary", { content: "Still investigating" });
+  if (kind === "whitespace") message(w.owner, cid, "assistant", "\n\t ", rid);
+  const page = async () => (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
+  const items = await page();
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({ done_card_key: `run:${rid}`, last_message: null });
+  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: `run:${rid}` });
+  expect(await page()).toEqual([]);
+  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: false, cardKey: `run:${rid}` });
+  expect(await page()).toEqual(items);
+});
+
+it("reads historical answer eligibility through the partial index in the production Done query", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id);
+  message(w.owner, cid, "assistant", "Run answer", run(w.owner, a.id, cid));
+  message(w.owner, cid, "assistant", "Imported answer");
+  const prepare = db.prepare.bind(db);
+  let plan: { detail: string }[] = [];
+  const spy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
+    const statement = prepare(sql);
+    if (sql.includes("completed_results AS")) {
+      const all = statement.all.bind(statement);
+      statement.all = (...args: unknown[]) => {
+        plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as { detail: string }[];
+        return all(...args);
+      };
+    }
+    return statement;
+  });
+  try {
+    const response = await api(w.owner, "/feed?filter=done&expand=results");
+    expect(response.status).toBe(200);
+    expect(response.data.items).toHaveLength(2);
+  } finally {
+    spy.mockRestore();
+  }
+  // Page-level answer lookups may choose this index too; require both
+  // historical paths without forbidding additional indexed lookups.
+  expect(plan.filter((row) => /USING (?:COVERING )?INDEX messages_feed_answers/.test(row.detail)).length).toBeGreaterThanOrEqual(2);
+});
+
+it.each(["run", "imported"])("updates indexed %s answer eligibility when message content or progress changes", async (kind) => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id);
+  message(w.owner, cid, "assistant", "Existing answer", run(w.owner, a.id, cid));
+  const rid = kind === "run" ? run(w.owner, a.id, cid) : undefined;
+  const mid = message(w.owner, cid, "assistant", "\n\t", rid);
+  const page = async () => (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
+  expect(await page()).toHaveLength(1);
+  db.prepare("UPDATE messages SET content='New answer' WHERE id=?").run(mid);
+  expect(await page()).toHaveLength(2);
+  db.prepare("UPDATE messages SET metadata=? WHERE id=?").run('{"progress":true}', mid);
+  expect(await page()).toHaveLength(1);
+  db.prepare("UPDATE messages SET metadata='{}' WHERE id=?").run(mid);
+  expect(await page()).toHaveLength(2);
+  db.prepare("UPDATE messages SET content=? WHERE id=?").run("\n\t", mid);
+  expect(await page()).toHaveLength(1);
+});
+
+it("filters and labels each completed result by its run's project", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const project = async (name: string) => (await api(w.owner, "/folders", "POST", { name, kind: "project" })).data.id;
+  const firstProject = await project("First project"), secondProject = await project("Second project");
+  const cid = conversation(w.owner, a.id);
+  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(firstProject, cid);
+  const completed: string[] = [];
+  for (const folderId of [firstProject, secondProject, firstProject]) {
+    const rid = run(w.owner, a.id, cid, "completed", { payload: { folderId } });
+    message(w.owner, cid, "assistant", "Result for " + folderId, rid);
+    completed.push(rid);
+  }
+  const cards = async (folder?: string) => (await api(w.owner,
+    "/feed?filter=done&expand=results" + (folder ? "&folder=" + folder : ""))).data.items;
+  expect((await cards()).map((item: any) => [item.run.id, item.project_id, item.project_name])).toEqual([
+    [completed[2], firstProject, "First project"],
+    [completed[1], secondProject, "Second project"],
+    [completed[0], firstProject, "First project"],
+  ]);
+  expect((await cards(firstProject)).map((item: any) => item.run.id)).toEqual([completed[2], completed[0]]);
+  expect((await cards(secondProject)).map((item: any) => item.run.id)).toEqual([completed[1]]);
+});
+
+it.each(["before", "after"])("keeps explicit Workspace results when the conversation project is assigned %s completion", async (assignment) => {
+  const w = workspaceFor(), a = w.agent();
+  const folder = (await api(w.owner, "/folders", "POST", { name: "Named project", kind: "project" })).data.id;
+  const defaultWorkspace = ensureWorkspaceProject(w.owner);
+  const cid = conversation(w.owner, a.id);
+  const assign = () => db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(folder, cid);
+  if (assignment === "before") assign();
+  const unfiled = run(w.owner, a.id, cid, "completed", { payload: { folderId: null } });
+  message(w.owner, cid, "assistant", "Workspace result", unfiled);
+  if (assignment === "after") assign();
+  const filed = run(w.owner, a.id, cid, "completed", { payload: { folderId: folder } });
+  message(w.owner, cid, "assistant", "Named project result", filed);
+  const cards = async (project?: string) => (await api(w.owner,
+    "/feed?filter=done&expand=results" + (project ? "&folder=" + project : ""))).data.items;
+  expect((await cards()).find((item: any) => item.run.id === unfiled)).toMatchObject({ project_id: null, project_name: null });
+  expect((await cards(folder)).map((item: any) => item.run.id)).toEqual([filed]);
+  expect((await cards(defaultWorkspace)).map((item: any) => item.run.id)).toEqual([unfiled]);
+});
+
+it("keeps unexpanded Done compatible with clients that identify rows by conversation", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const latest = new Set<string>();
+  for (let i = 0; i < 45; i++) {
+    const cid = conversation(w.owner, a.id);
+    for (let j = 0; j < 2; j++) {
+      const rid = run(w.owner, a.id, cid);
+      message(w.owner, cid, "assistant", `Result ${j}`, rid);
+      if (j === 1) latest.add(`run:${rid}`);
+    }
+  }
+  const first = (await api(w.owner, "/feed?filter=done")).data;
+  expect(first.items).toHaveLength(40);
+  expect(JSON.parse(Buffer.from(first.next, "base64url").toString())).toHaveLength(2);
+  const second = (await api(w.owner, `/feed?filter=done&before=${first.next}`)).data;
+  expect(second.items).toHaveLength(5);
+  const rows = [...first.items, ...second.items];
+  expect(new Set(rows.map((row: any) => row.conversation_id)).size).toBe(45);
+  expect(new Set(rows.map((row: any) => row.done_card_key))).toEqual(latest);
+  expect(second.next).toBeNull();
+});
+
+it.each(["current", "legacy"])("pages every completed result with a %s cursor, including equal completion times and dismissed cards", async (cursorKind) => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id);
+  const results: string[] = [];
+  for (let i = 0; i < 85; i++) {
+    const rid = run(w.owner, a.id, cid);
+    message(w.owner, cid, "assistant", `Result ${i}`, rid);
+    results.push(`run:${rid}`);
+  }
+  const completedAt = clock++;
+  db.prepare("UPDATE runs SET updated_at=? WHERE conversation_id=?").run(completedAt, cid);
+  results.sort().reverse();
+  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: results[12] });
+  results.splice(12, 1);
+  const received: string[] = [];
+  // Legacy cursors identify only a timestamp and conversation. Revisit that
+  // boundary to recover every tied result, then continue with exact-card cursors.
+  let cursor = cursorKind === "legacy"
+    ? Buffer.from(JSON.stringify([completedAt, cid])).toString("base64url")
+    : "";
+  for (const size of [40, 40, 4]) {
+    const response = await api(w.owner, `/feed?filter=done&expand=results${cursor ? `&before=${encodeURIComponent(cursor)}` : ""}`);
+    expect(response.status).toBe(200);
+    expect(response.data.items).toHaveLength(size);
+    received.push(...response.data.items.map((item: any) => item.done_card_key));
+    cursor = response.data.next;
+  }
+  expect(cursor).toBeNull();
+  expect(received).toEqual(results);
+});
+
 it("dismisses only the selected Done card, with exact-card retry and Undo", async () => {
   const w = workspaceFor(), a = w.agent();
   const cid = conversation(w.owner, a.id, "Several results");
   const first = run(w.owner, a.id, cid, "completed");
   const answer = message(w.owner, cid, "assistant", "First result", first);
   await api(w.owner, `/messages/${answer}/saved`, "POST");
-  const page = async (filter: string) => (await api(w.owner, "/feed?filter=" + filter)).data;
+  const page = async (filter: string) => (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data;
   const card = (await page("done")).items[0];
   expect(card.done_card_key).toBe("run:" + first);
   const dismiss = (hidden: boolean, cardKey = card.done_card_key, owner: string = w.owner, conversationId = cid) =>
@@ -552,9 +781,9 @@ it("dismisses only the selected Done card, with exact-card retry and Undo", asyn
   expect(nextCard.last_message.content).toBe("Second result");
   expect((await dismiss(true, nextCard.done_card_key)).status).toBe(200);
   expect((await dismiss(false)).status).toBe(200);
-  expect((await page("done")).items).toEqual([]);
+  expect((await page("done")).items.map((item: any) => item.done_card_key)).toEqual([card.done_card_key]);
   expect((await dismiss(false, nextCard.done_card_key)).status).toBe(200);
-  expect((await page("done")).items[0].done_card_key).toBe(nextCard.done_card_key);
+  expect((await page("done")).items.map((item: any) => item.done_card_key)).toEqual([nextCard.done_card_key, card.done_card_key]);
   expect(db.prepare("SELECT feed_hidden FROM conversations WHERE id=?").get(cid)).toEqual({ feed_hidden: 0 });
 });
 
@@ -571,8 +800,8 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
     db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
     const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
     const before = await Promise.all(filters.map(async (filter) =>
-      (await api(w.owner, "/feed?filter=" + filter)).data));
-    const done = (await api(w.owner, "/feed?filter=done")).data;
+      (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data));
+    const done = (await api(w.owner, "/feed?filter=done&expand=results")).data;
     expect(done.items[0].done_card_key).toBe("run:" + first);
     const working = ["running", "pausing", "waiting_children"].includes(state);
     expect(done.summary).toMatchObject({
@@ -581,15 +810,15 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
       needs: ["paused", "awaiting_approval", "failed", "interrupted"].includes(state) ? 1 : 0,
     });
     expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
-    expect((await api(w.owner, "/feed?filter=done")).data).toMatchObject({ items: [], summary: done.summary });
+    expect((await api(w.owner, "/feed?filter=done&expand=results")).data).toMatchObject({ items: [], summary: done.summary });
     for (const [index, filter] of filters.entries()) {
-      expect((await api(w.owner, "/feed?filter=" + filter)).data).toEqual(before[index]);
+      expect((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data).toEqual(before[index]);
     }
     expect((await api("intruder", "/feed?filter=working")).data.items).toEqual([]);
     expect(db.prepare("SELECT state FROM runs WHERE id=?").get(active)).toEqual({ state: state === "waiting_children" ? "running" : state });
     db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(active);
     message(w.owner, cid, "assistant", "New result", active);
-    expect((await api(w.owner, "/feed?filter=done")).data.items[0].done_card_key).toBe("run:" + active);
+    expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items[0].done_card_key).toBe("run:" + active);
   },
 );
 
@@ -597,13 +826,23 @@ it("dismisses a message-only Done card without suppressing later imported messag
   const w = workspaceFor(), a = w.agent();
   const cid = conversation(w.owner, a.id, "Imported history");
   const first = message(w.owner, cid, "assistant", "Imported answer");
-  const key = (await api(w.owner, "/feed?filter=done")).data.items[0].done_card_key;
+  const key = (await api(w.owner, "/feed?filter=done&expand=results")).data.items[0].done_card_key;
   expect(key).toBe("message:" + first);
   expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: key })).status).toBe(200);
-  expect((await api(w.owner, "/feed?filter=done")).data.items).toEqual([]);
+  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items).toEqual([]);
   expect((await api(w.owner, "/feed")).data.items[0].last_message.id).toBe(first);
   const second = message(w.owner, cid, "assistant", "Next imported answer");
-  expect((await api(w.owner, "/feed?filter=done")).data.items[0].done_card_key).toBe("message:" + second);
+  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items[0].done_card_key).toBe("message:" + second);
+  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: false, cardKey: key });
+  const imported = (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
+  expect(imported.map((item: any) => item.last_message.id)).toEqual([second, first]);
+  const followUp = run(w.owner, a.id, cid, "running");
+  message(w.owner, cid, "user", "Continue this imported thread", followUp);
+  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items).toEqual(imported);
+  message(w.owner, cid, "assistant", "The new result", followUp);
+  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(clock++, followUp);
+  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items.map((item: any) => item.done_card_key))
+    .toEqual([`run:${followUp}`, `message:${second}`, `message:${first}`]);
 });
 
 it("heads Working cards with the active task's prompt instead of the thread's first prompt or newer queued input", async () => {
@@ -625,7 +864,7 @@ it("heads Working cards with the active task's prompt instead of the thread's fi
   // Steering belongs to this run, but did not start it.
   message(w.owner, cid, "user", "Mention the reproduction in the PR", active);
   const card = async (filter: string) =>
-    (await api(w.owner, "/feed?filter=" + filter)).data.items.find(
+    (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data.items.find(
       (i: any) => i.conversation_id === cid,
     );
   for (const state of ["running", "pausing", "waiting_children"]) {
@@ -669,7 +908,7 @@ it("heads a Done card with the prompt its answer replies to, not the thread's fi
   message(w.owner, cid, "user", " Yes, push\nto main ", latest);
   message(w.owner, cid, "assistant", "Pushed.", latest);
   const card = async (filter: string) =>
-    (await api(w.owner, "/feed?filter=" + filter)).data.items.find(
+    (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data.items.find(
       (i: any) => i.conversation_id === cid,
     );
   for (const filter of ["done", "all"])

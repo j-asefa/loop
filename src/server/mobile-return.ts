@@ -150,8 +150,7 @@ export function savePosition(
 // 2. Inbox
 export const FEED_FILTERS = [
   "all",
-  // The Feed's default: threads with nothing open (not needing you,
-  // working or queued), so open work only shows under its own filter.
+  // The Feed's default: every completed result, plus threads with nothing open.
   "done",
   "needs",
   "working",
@@ -215,33 +214,64 @@ type FeedRow = {
   queued: number;
 };
 
+// Match String.trim() for answer eligibility; SQLite's default trim only
+// removes spaces, leaving newline/tab-only output visible as blank cards.
+// Migration 102 indexes this predicate; changing it requires an index migration.
+const nonemptyAnswer = (column: string) =>
+  `length(trim(${column},char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))>0`;
+
 // The state each filter reads, for every visible conversation in scope.
-function feedSql(teams: boolean, folders: boolean, agent = false) {
+function feedSql(teams: boolean, folders: boolean, agent = false, results = false) {
+  // Done expands a thread into final answers and imported answers. A native
+  // run can finish with only commentary; that is not a completed result.
+  // Threads without results retain their idle fallback. Other views and counts
+  // still read one row per conversation.
+  const doneRun = results ? "completed.run_id" : "c.feed_done_run_id";
+  const doneAt = results ? "completed.done_at" : "c.feed_done_at";
+  // Explicit null means Workspace. Only old snapshots without a folder key
+  // inherit the conversation's project.
+  const folder = results
+    ? "CASE WHEN completed.card_key IS NOT NULL THEN CASE WHEN completed.has_folder THEN completed.folder_id ELSE c.project_id END ELSE c.feed_folder_id END"
+    : "c.feed_folder_id";
   return `WITH RECURSIVE ${FOLDER_PROJECT},
+${results ? `completed_results AS (
+  SELECT r.conversation_id,r.id run_id,NULL message_id,r.updated_at done_at,'run:'||r.id card_key,
+    json_extract(r.payload,'$.folderId') folder_id,json_type(r.payload,'$.folderId') IS NOT NULL has_folder
+  FROM runs r WHERE r.owner_id=@owner AND r.state='completed'
+    AND EXISTS(SELECT 1 FROM messages m INDEXED BY messages_feed_answers WHERE m.owner_id=r.owner_id AND m.conversation_id=r.conversation_id
+      AND m.run_id=r.id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("m.content")})
+  UNION ALL
+  SELECT conversation_id,NULL,id,created_at,'message:'||id,NULL,0
+  FROM messages INDEXED BY messages_feed_answers WHERE owner_id=@owner AND run_id IS NULL AND role='assistant'
+    AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("content")}
+),` : ""}
 flagged AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
-    c.feed_folder_id folder_id,c.feed_run_id run_id,c.feed_run_state run_state,c.feed_done_run_id done_run_id,c.feed_done_at done_at,
+    ${folder} folder_id,c.feed_run_id run_id,c.feed_run_state run_state,${doneRun} done_run_id,${doneAt} done_at,
+    ${results ? "completed.message_id" : "NULL"} done_message_id,
+    ${results ? 1 : 0} expanded_done,
     c.feed_last_activity_at last_activity_at,c.feed_queued queued,cp.position_message_id,
     (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
     EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
     c.feed_queued>0 has_queued,
-    COALESCE('run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
+    COALESCE(${results ? "completed.card_key," : ""}'run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
     ${feedNeeds} is_needs,
     (${feedWorking}) is_working,
     (c.feed_run_raw_state='completed') is_done
   FROM conversations c
+  ${results ? "LEFT JOIN completed_results completed ON completed.conversation_id=c.id" : ""}
   LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id
   WHERE c.owner_id=@owner AND c.feed_visible=1
     ${teams ? "AND c.team_id IN (SELECT value FROM json_each(@teams))" : ""}
     ${agent ? "AND c.agent_id=@agent" : ""}
-    ${folders ? "AND EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS c.feed_folder_id)" : ""}
+    ${folders ? `AND EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS (${folder}))` : ""}
 )`;
 }
 
 // What a card shows, for the page's conversations only. "done" cards show the
-// latest finished run; others show the current run.
+// selected finished run; others show the current run.
 const assistantAnswer = (run: string) =>
-  `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND length(trim(m.content))>0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
+  `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("m.content")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
 const cardSql = `
 page_run AS MATERIALIZED (
   SELECT p.*,CASE WHEN @mode='done' THEN p.done_run_id ELSE p.run_id END card_run FROM page p
@@ -254,7 +284,11 @@ picked AS MATERIALIZED (
     json_extract(r.payload,'$.resolvedModel') card_run_resolved_model,r.created_at card_run_created_at,r.updated_at card_run_updated_at,
     ${assistantAnswer("k.card_run")} card_answer_id,
     (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.card_run ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) card_any_id,
-    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) thread_latest_id,
+    -- Expanded Done selects its answer explicitly. An idle thread without a
+    -- result has no preview, rather than showing its prompt or commentary.
+    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id
+      AND k.expanded_done=0
+      ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) thread_latest_id,
     (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=r.id AND m.role='user' AND json_extract(m.metadata,'$.automation.kind') IS NOT NULL ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1) trigger_id,
     CASE WHEN @mode='done' THEN 0 ELSE (SELECT count(*) FROM approvals a JOIN runs ar ON ar.id=a.run_id AND ar.owner_id=a.owner_id
       WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND a.state='pending' AND a.expires_at>@now) END pending_approvals,
@@ -267,6 +301,7 @@ picked AS MATERIALIZED (
 chosen AS MATERIALIZED (
   SELECT k.*,ap.run_id approval_run_id,
     CASE
+      WHEN @mode='done' AND k.done_message_id IS NOT NULL THEN k.done_message_id
       WHEN @mode='done' AND k.card_run IS NOT NULL THEN COALESCE(k.card_answer_id,k.card_any_id)
       WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ('running','pausing','waiting_children'))) THEN k.card_answer_id
       ELSE k.thread_latest_id
@@ -293,12 +328,13 @@ LEFT JOIN messages m ON m.id=k.message_id
 LEFT JOIN messages t ON t.id=k.trigger_id
 LEFT JOIN native_decisions d ON d.id=k.decision_id
 LEFT JOIN later_items l ON l.id=k.later_id AND l.owner_id=@owner
-ORDER BY k.sort_at DESC,k.conversation_id DESC`;
+ORDER BY k.sort_at DESC,k.conversation_id DESC,k.done_card_key DESC`;
 
 export function feed(
   owner: string,
   options: {
     filter?: (typeof FEED_FILTERS)[number];
+    expand?: "results";
     folder?: string;
     teams?: string[];
     agent?: string;
@@ -307,6 +343,9 @@ export function feed(
 ) {
   if (options.agent) owned("agents", options.agent, owner);
   const filter = options.filter || "all";
+  // Older open tabs key and paginate by conversation. Only clients that
+  // understand independent result identities opt into the expanded collection.
+  const results = filter === "done" && options.expand === "results";
   const teams = options.teams?.length ? options.teams : undefined;
   let folders: (string | null)[] | undefined;
   if (options.folder) {
@@ -319,6 +358,9 @@ export function feed(
         z.tuple([
           z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
           z.string().min(1).max(150),
+          // Older cursors contain only a time and conversation. New Done
+          // cursors also distinguish results that finished at the same time.
+          z.string().min(1).max(200).optional(),
         ]),
         "feed",
       )
@@ -334,14 +376,18 @@ export function feed(
     agent: options.agent ?? null,
     at: cursor?.[0] ?? null,
     after: cursor?.[1] ?? null,
+    afterCard: cursor?.[2] ?? null,
   };
   const sql = feedSql(!!teams, !!folders, !!options.agent);
   const where = {
     all: "NOT snoozed",
-    // Every finished output stays done, even while a follow-up works, queues
-    // or needs you; so does a thread with nothing open (imported history has
-    // no runs, so NULL flags).
-    done: "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)",
+    // Completed results remain until individually dismissed, including when
+    // newer work finishes or the conversation is snoozed. Threads without a
+    // result keep their existing idle/snoozed behavior.
+    done: `${results
+      ? "(done_run_id IS NOT NULL OR done_message_id IS NOT NULL OR (NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed))"
+      : "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed"}
+      AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)`,
     needs: "is_needs",
     working: "is_working",
     queued: "has_queued",
@@ -361,13 +407,19 @@ export function feed(
     filter === "done"
       ? "COALESCE(done_at,last_activity_at)"
       : "last_activity_at";
+  // A legacy Done cursor cannot identify the result at its boundary. Replay
+  // that conversation's tied results once; clients deduplicate by card key and
+  // every continuation now carries the exact result. Other views stay exclusive.
+  const afterCard = results
+    ? "(@afterCard IS NULL OR done_card_key<@afterCard)"
+    : "done_card_key<@afterCard";
   const rows = db
     .prepare(
-      `${sql},
+      `${results ? feedSql(!!teams, !!folders, !!options.agent, true) : sql},
 page AS MATERIALIZED (
   SELECT *,${sortAt} sort_at FROM flagged WHERE ${where} ${teamVisibility}
-    AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND conversation_id<@after))
-  ORDER BY sort_at DESC,conversation_id DESC LIMIT 41
+    AND (@at IS NULL OR ${sortAt}<@at OR (${sortAt}=@at AND (conversation_id<@after OR (conversation_id=@after AND ${afterCard}))))
+  ORDER BY sort_at DESC,conversation_id DESC,done_card_key DESC LIMIT 41
 ),${cardSql}`,
     )
     .all(params) as FeedRow[];
@@ -394,7 +446,14 @@ page AS MATERIALIZED (
   const last = rows.at(-1);
   return {
     items: rows.map((row) => feedItem(owner, row, mode)),
-    next: more && last ? encode([last.sort_at, last.conversation_id]) : null,
+    next:
+      more && last
+        ? encode(
+            results
+              ? [last.sort_at, last.conversation_id, last.done_card_key]
+              : [last.sort_at, last.conversation_id],
+          )
+        : null,
     summary: {
       needs: summary.needs,
       working: summary.working,
@@ -522,7 +581,7 @@ function queueMoves(owner: string, runId: string) {
 }
 
 /**
- * "done" shows the thread's latest finished output, not the work after it;
+ * "done" shows one completed result, independently of the work after it;
  * "working" shows only what the current run has produced; "thread" shows
  * the thread as it is now. Everything but live previews and queue positions
  * arrives with the page.

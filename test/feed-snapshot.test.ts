@@ -55,7 +55,7 @@ const cases: [string, string][] = [
     Object.entries(scopes).map(
       ([scope, query]): [string, string] => [
         `feed-${filter}-${scope}`,
-        `${feedPath}?filter=${filter}${query}`,
+        `${feedPath}?filter=${filter}${filter === "done" ? "&expand=results" : ""}${query}`,
       ],
     ),
   ),

@@ -84,6 +84,7 @@ import {
   type FeedNextAction,
 } from "./threadView";
 import { notify } from "./toast";
+import { feedItemOrder, refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
 
 export type FeedFilter =
   | "all"
@@ -188,12 +189,17 @@ type AwayItem = {
 };
 
 export const feedFilters: { id: FeedFilter; label: string }[] = [
-  // Done holds only threads with nothing open; open work has its own chip.
+  // Done keeps each completed result; open work has its own chip.
   // What needs you has no chip: it stacks above the row (NeedsStack).
   { id: "done", label: "Done" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
 ];
+
+// A thread can have several Done cards; source and result identity must both
+// survive pagination, refreshes and React reconciliation.
+const feedItemKey = (item: FeedItem, source = item.sourceId || "") =>
+  JSON.stringify([source, item.conversation_id, item.done_card_key ?? null]);
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -1039,7 +1045,12 @@ export function Feed({
 }) {
   const api = useSourceApi();
   const scopedSource = useSourceId();
-  type Shown = { items: FeedItem[]; next: string | null; summary: Summary };
+  type Shown = {
+    items: FeedItem[];
+    next: string | null;
+    summary: Summary;
+    sourceSummaries?: Record<string, Summary>;
+  };
   const activeSources =
     sources && !project && !teams && !agent
       ? sources
@@ -1111,6 +1122,7 @@ export function Feed({
     const q = new URLSearchParams({
       filter: which,
     });
+    if (which === "done") q.set("expand", "results");
     if (project) q.set("folder", project);
     if (agent) q.set("agent", agent);
     if (teams) q.set("teams", teams);
@@ -1121,6 +1133,9 @@ export function Feed({
   const sourcePages = useRef<{ key: string; pages: Map<string, Shown> }>({
     key: "",
     pages: new Map(),
+  });
+  const doneRefresh = useRef<{ key: string; sources: Map<string, DoneRefresh> }>({
+    key: "", sources: new Map(),
   });
   async function loadNeeds() {
     if (hideFilters) return;
@@ -1165,9 +1180,35 @@ export function Feed({
     // Loading placeholders belong to the first read of a filter. An empty
     // result is loaded content too; polling must keep its empty state visible.
     try {
-      type Page = { items: FeedItem[]; next: string | null; summary: Summary };
+      type Page = Shown;
       let result: Page;
       let partialError = "";
+      const cached = cachedView<Shown>(shownKey());
+      const previous =
+        !append && filter === "done"
+          ? cached
+          : undefined;
+      const refreshKey = JSON.stringify([owner, shownKey()]);
+      if (doneRefresh.current.key !== refreshKey)
+        doneRefresh.current = { key: refreshKey, sources: new Map() };
+      const readPage = async (
+        read: (before?: string) => Promise<Page>,
+        source: string,
+        before?: string,
+      ) => {
+        if (!previous) return read(before);
+        const combined = sources && !project && !teams && !agent;
+        const current = () => ticket === request.current && owner === viewOwner();
+        const result = await refreshDonePage<FeedItem, Page>(read, {
+          items: previous.items.filter((item) => (item.sourceId ?? scopedSource) === source),
+          next: combined ? (JSON.parse(previous.next || "{}")[source] ?? null) : previous.next,
+        }, doneRefresh.current.sources.get(source), current);
+        if (current()) {
+          if (result.progress) doneRefresh.current.sources.set(source, result.progress);
+          else doneRefresh.current.sources.delete(source);
+        }
+        return result.page;
+      };
       if (sources && !project && !teams && !agent) {
         const cursors: Record<string, string> =
           append && next ? JSON.parse(next) : {};
@@ -1177,9 +1218,10 @@ export function Feed({
         const settled = await Promise.allSettled(
           pending.map(async (source) => ({
             source,
-            page: await apiInWorkspace<Page>(
-              query(append ? cursors[source.id] : undefined),
+            page: await readPage(
+              (before) => apiInWorkspace<Page>(query(before), source.id),
               source.id,
+              append ? cursors[source.id] : undefined,
             ),
           })),
         );
@@ -1192,17 +1234,38 @@ export function Feed({
         partialError = settled.some((entry) => entry.status === "rejected")
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
+        const key = JSON.stringify([owner, shownKey()]);
+        if (sourcePages.current.key !== key) {
+          sourcePages.current = { key, pages: new Map() };
+          // Restore complete per-source pages before refresh or append. Keep
+          // each source's counters so healthy sources can still update them.
+          for (const source of activeSources) {
+            const summary = cached?.sourceSummaries?.[source.id];
+            if (!cached || !summary) continue;
+            sourcePages.current.pages.set(source.id, {
+              items: cached.items.filter((item) => (item.sourceId ?? scopedSource) === source.id),
+              next: JSON.parse(cached.next || "{}")[source.id] ?? null,
+              summary,
+            });
+          }
+        }
+        for (const { source, page } of loaded) {
+          // The outage fallback must include pages appended by Load more.
+          const earlier = append ? sourcePages.current.pages.get(source.id)?.items : undefined;
+          const known = new Set(earlier?.map((item) => feedItemKey(item, source.id)));
+          sourcePages.current.pages.set(source.id, {
+            ...page,
+            items: earlier
+              ? [...earlier, ...page.items.filter((item) => !known.has(feedItemKey(item, source.id)))]
+              : page.items,
+          });
+        }
         if (!append) {
-          const key = JSON.stringify([owner, shownKey()]);
-          if (sourcePages.current.key !== key)
-            sourcePages.current = { key, pages: new Map() };
-          for (const { source, page } of loaded)
-            sourcePages.current.pages.set(source.id, page);
           settled.forEach((entry, index) => {
             const source = pending[index];
-            const previous = sourcePages.current.pages.get(source.id);
-            if (entry.status === "rejected" && previous)
-              loaded.push({ source, page: previous });
+            if (entry.status !== "rejected") return;
+            const page = sourcePages.current.pages.get(source.id);
+            if (page) loaded.push({ source, page });
           });
         }
         const nextCursors: Record<string, string> = append
@@ -1223,8 +1286,11 @@ export function Feed({
           next: Object.keys(nextCursors).length
             ? JSON.stringify(nextCursors)
             : null,
-          summary: loaded.reduce(
-            (sum, { page }) => ({
+          sourceSummaries: Object.fromEntries(
+            [...sourcePages.current.pages].map(([id, page]) => [id, page.summary]),
+          ),
+          summary: [...sourcePages.current.pages.values()].reduce(
+            (sum, page) => ({
               needs: sum.needs + page.summary.needs,
               working: sum.working + page.summary.working,
               queued: sum.queued + page.summary.queued,
@@ -1246,7 +1312,11 @@ export function Feed({
           ),
         };
       } else {
-        result = await api<Page>(query(append ? next || undefined : undefined));
+        result = await readPage(
+          (before) => api<Page>(query(before)),
+          scopedSource,
+          append ? next || undefined : undefined,
+        );
       }
       if (ticket !== request.current || owner !== viewOwner()) return;
       const key = shownKey();
@@ -1257,9 +1327,7 @@ export function Feed({
               ...result.items.filter(
                 (item) =>
                   !old.some(
-                    (o) =>
-                      o.conversation_id === item.conversation_id &&
-                      (o.sourceId || "") === (item.sourceId || ""),
+                    (o) => feedItemKey(o) === feedItemKey(item),
                   ),
               ),
             ]
@@ -1268,13 +1336,17 @@ export function Feed({
           merged.sort(
             (a, b) =>
               b.last_activity_at - a.last_activity_at ||
-              `${a.sourceId}:${a.conversation_id}`.localeCompare(
-                `${b.sourceId}:${b.conversation_id}`,
-              ),
+              (a.sourceId || "").localeCompare(b.sourceId || "") ||
+              feedItemOrder(a, b),
           );
         cacheView<Shown>(
           key,
-          { items: merged, next: result.next, summary: result.summary },
+          {
+            items: merged,
+            next: result.next,
+            summary: result.summary,
+            sourceSummaries: result.sourceSummaries,
+          },
           owner,
         );
         return merged;
@@ -1364,15 +1436,33 @@ export function Feed({
   }
   async function dismissDoneCard(item: FeedItem) {
     if (filter !== "done" || !item.done_card_key) return;
+    const owner = viewOwner(), key = shownKey();
+    const source = item.sourceId ?? scopedSource;
+    const current = () => owner === viewOwner() &&
+      doneRefresh.current.key === JSON.stringify([owner, key]);
+    const update = (change: (items: FeedItem[]) => FeedItem[]) => {
+      if (owner !== viewOwner()) return;
+      const cached = cachedView<Shown>(key);
+      if (cached) cacheView(key, { ...cached, items: change(cached.items) }, owner);
+      const page = sourcePages.current.key === JSON.stringify([owner, key])
+        ? sourcePages.current.pages.get(source) : undefined;
+      if (page) sourcePages.current.pages.set(source, {
+        ...page, items: change(page.items.map((row) => ({ ...row, sourceId: source }))),
+      });
+      if (current()) {
+        ++request.current; // A read started before the action cannot restore it.
+        setItems(change);
+      }
+    };
     try {
-      const source = item.sourceId ?? scopedSource;
       await apiInWorkspace(
         `/feed/${item.conversation_id}`,
         source,
         { hidden: true, cardKey: item.done_card_key },
         "PATCH",
       );
-      setItems((old) =>
+      if (owner !== viewOwner()) return;
+      update((old) =>
         old.filter(
           (row) =>
             row.conversation_id !== item.conversation_id ||
@@ -1383,30 +1473,39 @@ export function Feed({
       notify({
         text: "Removed from Done.",
         undo: async () => {
+          if (owner !== viewOwner()) return;
           await apiInWorkspace(
             `/feed/${item.conversation_id}`,
             source,
             { hidden: false, cardKey: item.done_card_key },
             "PATCH",
           );
-          await load();
+          update((old) => [...old.filter((row) => feedItemKey(row) !== feedItemKey(item)), item].sort(feedItemOrder));
+          if (current()) await load();
         },
       });
-      void load();
+      if (current()) void load();
     } catch (e) {
       setError((e as Error).message);
     }
   }
   function markSaved(item: FeedItem, saved: boolean) {
-    setItems((old) =>
-      old.map((row) =>
-        row.conversation_id === item.conversation_id &&
+    const change = (old: FeedItem[]) => old.map((row) =>
+        row.last_message?.id === item.last_message?.id &&
         (row.sourceId || "") === (item.sourceId || "") &&
         row.last_message
           ? { ...row, last_message: { ...row.last_message, saved } }
           : row,
-      ),
-    );
+      );
+    const cached = cachedView<Shown>(shownKey());
+    if (cached) cacheView(shownKey(), { ...cached, items: change(cached.items) }, viewOwner());
+    const source = item.sourceId ?? scopedSource;
+    const page = sourcePages.current.key === JSON.stringify([viewOwner(), shownKey()])
+      ? sourcePages.current.pages.get(source) : undefined;
+    if (page) sourcePages.current.pages.set(source, {
+      ...page, items: change(page.items.map((row) => ({ ...row, sourceId: source }))),
+    });
+    setItems(change);
   }
   async function setSavedOnServer(
     item: FeedItem,
@@ -1636,7 +1735,7 @@ export function Feed({
           : undefined;
     return (
       <FeedCard
-        key={`${source}:${item.conversation_id}`}
+        key={feedItemKey(item, source)}
         item={item}
         readAsCard={!inNeeds && ["done", "working", "queued"].includes(filter)}
         agent={agent}
