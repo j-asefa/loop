@@ -1514,8 +1514,8 @@ it("adds Done projection to populated pre-104 databases without rewriting existi
     fixture.exec(readFileSync("migrations/104-done-cards.sql","utf8"));
     // Upgrade an already-applied 104, preserving its rows and revision domain.
     fixture.prepare("UPDATE messages SET metadata=json_object('partial',json('true')) WHERE id='before-answer'").run();
-    const revision = fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number};
     fixture.exec(readFileSync("migrations/105-done-card-invalidation.sql","utf8"));
+    const revision = fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number};
     fixture.prepare("UPDATE messages SET content='Partial edit' WHERE id='before-answer'").run();
     expect((fixture.prepare("SELECT MAX(revision) revision FROM done_card_revisions").get() as {revision:number}).revision).toBeGreaterThan(revision.revision);
     fixture.prepare("UPDATE messages SET content='Preserved answer' WHERE id='before-answer'").run();
@@ -1555,6 +1555,7 @@ it("Done revises eligible partial answers and preserves conversation-agent attri
   expectCurrent(owner, {view:"done"}, cache);
   expect(cache.items.get("d:run:partial-run")!.card.content).toBe("Updated partial answer");
   expect(cache.items.get("d:message:partial-import")!.card.content).toBe("Updated partial answer");
+  expect(cache.items.get("d:message:partial-import")!.card.author).toEqual({kind:"unknown",id:null,name:null,provider:null});
   const {feed} = await import("../src/server/mobile-return");
   expect(listCards(owner, {view:"done",agent:"historical-agent"}).items).toHaveLength(0);
   const cards = listCards(owner, {view:"done",agent:owner}).items;
