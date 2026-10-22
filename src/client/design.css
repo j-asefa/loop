@@ -80,7 +80,8 @@ a:focus-visible {
   object-fit: contain;
   object-position: center bottom;
 }
-.avatar-3d img[hidden] {
+.avatar-3d img[hidden],
+.profile-cover img[hidden] {
   display: none;
 }
 .avatar-fallback {

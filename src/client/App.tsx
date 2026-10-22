@@ -2808,7 +2808,7 @@ export default function App() {
                 </button>
               </div>
               <section className="profile-head">
-                <ProfileCover />
+                <ProfileCover name={profile.name} />
                 <button
                   className="icon-button profile-menu"
                   aria-label="Agent actions"

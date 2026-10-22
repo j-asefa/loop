@@ -1,43 +1,9 @@
 import type { CSSProperties } from "react";
 import type { Provider } from "../shared/types";
 
-const characters = [
-  "atlas",
-  "nova",
-  "sage",
-  "echo",
-  "orbit",
-  "moss",
-  "ember",
-  "cobalt",
-  "owl",
-  "prism",
-  "pebble",
-  "flint",
-] as const;
-const backdrops = [
-  "#d8b544",
-  "#a6b39c",
-  "#bac2a6",
-  "#c6b17f",
-  "#a6b9b8",
-  "#b8adb7",
-  "#b8b4a7",
-  "#c6ad92",
-];
+import { agentAppearance } from "./agentAppearance";
 
-/** Names keep the same character everywhere, independent of provider or theme. */
-export function avatarIdentity(name: string) {
-  const normalized = name.toLowerCase();
-  let seed = 2166136261;
-  for (const c of normalized)
-    seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
-  const named = characters.findIndex((character) => character === normalized);
-  return {
-    character: characters[named < 0 ? (seed >>> 8) % characters.length : named],
-    background: backdrops[(named < 0 ? seed >>> 16 : named) % backdrops.length],
-  };
-}
+export { agentAppearance as avatarIdentity } from "./agentAppearance";
 
 export function Avatar({
   name = "Loop",
@@ -45,7 +11,7 @@ export function Avatar({
   name?: string;
   provider?: Provider;
 }) {
-  const { character, background } = avatarIdentity(name);
+  const { character, background } = agentAppearance(name);
   return (
     <span
       className="avatar avatar-3d"

@@ -1,14 +1,22 @@
-/** Shared decorative cover; fixed dimensions avoid shifting the profile as it loads. */
-export function ProfileCover() {
+import { agentAppearance } from "./agentAppearance";
+
+/** Agent covers coordinate with their avatar; personal profiles keep the Loop cover. */
+export function ProfileCover({ name }: { name?: string }) {
+  const src =
+    name === undefined ? "/profile-cover.webp" : agentAppearance(name).cover;
   return (
     <div className="profile-cover" aria-hidden="true">
       <img
-        src="/profile-cover.webp"
+        key={src}
+        src={src}
         alt=""
         width="1600"
         height="533"
         decoding="async"
         draggable={false}
+        onError={(event) => {
+          event.currentTarget.hidden = true;
+        }}
       />
     </div>
   );

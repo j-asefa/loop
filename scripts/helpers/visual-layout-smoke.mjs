@@ -26,6 +26,33 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       )
       .toBe(true);
   };
+  const covers = new Set();
+  for (const candidate of fixture.agents.slice(0, 6)) {
+    await page.goto(fixture.base, { waitUntil: "networkidle" });
+    await page
+      .locator(".agent-strip button")
+      .filter({ hasText: candidate.name })
+      .click();
+    const cover = page.locator(".profile-head .profile-cover img");
+    await expect
+      .poll(() =>
+        cover.evaluate((image) => image.complete && image.naturalWidth > 0),
+      )
+      .toBe(true);
+    const source = await cover.getAttribute("src");
+    covers.add(source);
+    await page.reload({ waitUntil: "networkidle" });
+    await page
+      .locator(".agent-strip button")
+      .filter({ hasText: candidate.name })
+      .click();
+    await expect(cover).toHaveAttribute("src", source);
+    await capture(`agent-cover-${candidate.name}`);
+  }
+  assert(
+    covers.size > 1,
+    "Different agents receive varied, stable profile covers",
+  );
   for (const width of [320, 390, 768, 1280, 1440, 1600, 1920]) {
     // These independent layout cases share one fixture owner and run much
     // faster than manual navigation; keep its API request budget per case.
@@ -166,6 +193,9 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       await expect(
         page.getByRole("region", { name: "Your profile", exact: true }),
       ).toBeVisible();
+      await expect(
+        page.locator(".my-profile .profile-cover img"),
+      ).toHaveAttribute("src", "/profile-cover.webp");
       await fits();
       await capture(`personal-profile-${theme}-${width}`);
     }
@@ -211,5 +241,19 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await expect(
     page.locator(".your-agents .avatar-fallback").first(),
   ).not.toBeEmpty();
+  await page.route(/\/profile-cover(?:s\/[^/]+)?\.webp$/, (route) =>
+    route.abort(),
+  );
+  await page
+    .locator(".agent-strip button")
+    .filter({ hasText: agent.name })
+    .click();
+  const profile = page.locator(".profile-head");
+  await expect(profile.locator(".profile-cover img")).toBeHidden();
+  await expect(profile.locator(".profile-cover")).toBeVisible();
+  await expect(
+    profile.getByRole("button", { name: "Message", exact: true }),
+  ).toBeVisible();
+  await capture("profile-cover-fallback");
   await fits();
 }
