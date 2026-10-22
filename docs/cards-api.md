@@ -1,7 +1,7 @@
 # Cards API
 
 The versioned card service exposes individual results, saved items and personally
-sent prompts. Conversation Feed summaries remain separate.
+sent prompts. The session-only `done` collection preserves independent completed answers and idle-thread fallbacks. Conversation Feed summaries remain separate.
 The Files tab continues to use `/api/results?view=files`.
 
 Use an authenticated Loop browser/paired-device session, or a local integration
@@ -85,6 +85,7 @@ data is present in Saved entries; it is not a different content variant.
 
 | View                | Membership and order                                                                                                                                           | Supported filters                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `done` | Session-only completed-run answers, imported answers and idle-thread fallbacks, ordered by completion time, conversation and dismissal key. | `project`, `agent`, `teams` |
 | `results` (default) | Visible, unarchived published results of completed runs; no partials, uploads or traces. Newest publication sequence first.                                    | `project`, `agent`, `teams`      |
 | `saved`             | Unarchived pinned artifacts, including hidden results and files, plus message bookmarks. Newest save time, then ID.                                            | `project`, `agent`, `teams`, `q` |
 | `sent`              | Personally submitted user messages under the same provenance rules as [personal history](workspace.md#personal-prompt-history). Newest creation time, then ID. | `project`, `agent`, `teams`, `q` |
@@ -104,6 +105,20 @@ selection; null means history is exhausted. Cursors are opaque and bound to the
 database, owner and normalized selection. Detail has no query parameters and
 only exposes a card currently eligible for at least one supported collection.
 Knowing an artifact/message ID does not grant arbitrary transcript or file access.
+
+Done requires an owner browser/paired session; neither existing token scope grants
+Done list, changes or detail access. It returns `type: "done"` and opaque `d:`
+identities, independent of published artifact identities. Its display fields carry
+exact dismissal keys and existing Feed navigation and footer data. Each completed
+run selects its last nonempty, non-progress assistant answer; runless imported
+answers remain independent. Idle fallbacks have empty content. Continuing or
+snoozing a conversation does not remove its completed answers. Explicit null
+`folderId` snapshots mean Workspace; absent snapshots inherit the conversation.
+Dismissal/Undo and save continue to use the existing mutation routes.
+Done uses timestamp/identity window reconciliation and rejects `through` and
+search. Its delta dependencies include dismissals, reminders, conversation state,
+message saves, checkout/verification observations and pull-watch state, tracked by
+[migration 104](../migrations/104-done-cards.sql).
 
 ## Card representation
 

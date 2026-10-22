@@ -1,3 +1,4 @@
+import { nonemptyAnswer } from "./feed-answers.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { feedNeeds, feedWorking } from "./feed-predicates.js";
 import { checkoutSummary } from "./run-checkouts.js";
@@ -195,6 +196,7 @@ type FeedRow = {
   message_id: string | null;
   message_role: string | null;
   message_content: string | null;
+  message_metadata: string | null;
   message_created_at: number | null;
   message_automation: string | null;
   message_automation_from: string | null;
@@ -213,12 +215,6 @@ type FeedRow = {
   later_surfaced_at: number | null;
   queued: number;
 };
-
-// Match String.trim() for answer eligibility; SQLite's default trim only
-// removes spaces, leaving newline/tab-only output visible as blank cards.
-// Migration 102 indexes this predicate; changing it requires an index migration.
-const nonemptyAnswer = (column: string) =>
-  `length(trim(${column},char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))>0`;
 
 // The state each filter reads, for every visible conversation in scope.
 function feedSql(teams: boolean, folders: boolean, agent = false, results = false) {
@@ -313,7 +309,7 @@ chosen AS MATERIALIZED (
   FROM picked k LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
 )
 SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
-  m.role message_role,substr(m.content,1,1000) message_content,m.created_at message_created_at,
+  m.metadata message_metadata,m.role message_role,substr(m.content,1,1000) message_content,m.created_at message_created_at,
   json_extract(m.metadata,'$.automation.kind') message_automation,json_extract(m.metadata,'$.automation.fromName') message_automation_from,
   (m.id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id)
     OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=@owner AND sa.pinned=1 AND sa.archived=0 AND json_extract(sa.metadata,'$.messageId')=m.id))) message_saved,
@@ -464,6 +460,36 @@ page AS MATERIALIZED (
       scheduled_pending: scheduled.pending,
     },
   };
+}
+
+/** Shared Done projection: keeps the legacy feed's exact membership and identity. */
+export function doneCardRows(owner: string, options: {
+  folders: (string | null)[] | null; teamIds: string[]; agent?: string;
+  before?: [number, string] | null; ids?: string[]; limit: number;
+}) {
+  const identity = "'d:'||COALESCE(done_card_key,'idle:'||conversation_id)";
+  const order = "conversation_id||char(31)||COALESCE(done_card_key,'')";
+  const rows = db.prepare(`${feedSql(!!options.teamIds.length, !!options.folders, !!options.agent, true)},
+    page AS MATERIALIZED (
+      SELECT *,COALESCE(done_at,last_activity_at) sort_at FROM flagged
+      WHERE (done_run_id IS NOT NULL OR done_message_id IS NOT NULL OR
+        (NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed))
+        AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner
+          AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)
+        ${!options.teamIds.length && !options.agent ? "AND NOT EXISTS(SELECT 1 FROM teams t WHERE t.id=flagged.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1)" : ""}
+        AND (@ids IS NULL OR ${identity} IN (SELECT value FROM json_each(@ids)))
+        AND (@at IS NULL OR (COALESCE(done_at,last_activity_at),${order})<(@at,@key))
+      ORDER BY sort_at DESC,conversation_id DESC,done_card_key DESC LIMIT @limit
+    ),${cardSql.replace("substr(m.content,1,1000) message_content", "m.content message_content")}`)
+    .all({owner, now: now(), mode: "done", teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
+      folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
+      ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,
+      key: options.before?.[1] ?? null, limit: options.limit}) as FeedRow[];
+  return rows.map(row => {
+    const display = feedItem(owner, row, "done");
+    if (display.last_message) display.last_message.content = row.message_content!;
+    return { row, display };
+  });
 }
 
 export function setDoneCardHidden(

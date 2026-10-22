@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { DoneDisplaySchema } from "./done-card.js";
 
-export const CardViewSchema = z.enum(["results", "saved", "sent"]);
+export const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
 export const CardIdSchema = z
   .string()
-  .regex(/^[am]:[^/\\?#\s]+$/)
+  .regex(/^[amd]:[^/\\?#\s]+$/)
   .max(160);
 const nullableText = z.string().nullable();
 const time = z.number().int().nonnegative();
@@ -84,9 +85,15 @@ export const MessageCardSchema = z.object({
   type: z.literal("message"),
   role: z.string(),
 });
+export const DoneCardSchema = z.object({
+  ...common,
+  type: z.literal("done"),
+  display: DoneDisplaySchema,
+});
 export const CardSchema = z.discriminatedUnion("type", [
   ResultCardSchema,
   MessageCardSchema,
+  DoneCardSchema,
 ]);
 export const CardEntrySchema = z.object({
   card: CardSchema,

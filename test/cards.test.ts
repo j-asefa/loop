@@ -1353,3 +1353,65 @@ it("requires existing collection and page cursors to reset when the reader proje
   ).toThrowError(expect.objectContaining({ status: 400 }));
   expect(listCards(owner, { view: "saved" }).items).toHaveLength(2);
 });
+
+it("Done preserves independent completion identities, full bodies and exact dismissal deltas", async () => {
+  const { feed, setDoneCardHidden } = await import("../src/server/mobile-return");
+  setup("done-contract");
+  message("done-contract", "done-first", "assistant", {}, 10);
+  message("done-contract", "done-second", "assistant", {}, 20);
+  db.prepare("UPDATE messages SET content=? WHERE id='done-first'").run("Answer ".repeat(1000));
+  const cache = all("done-contract", {view: "done"}, 1);
+  expect([...cache.items.keys()]).toEqual(["d:run:done-second", "d:run:done-first"]);
+  expect(cache.items.get("d:run:done-first")?.card.content).toHaveLength(7000);
+  const legacy = feed("done-contract", {filter: "done", expand: "results"});
+  expect([...cache.items.values()].map(e => e.card.type === "done" && e.card.display.done_card_key))
+    .toEqual(legacy.items.map(i => i.done_card_key));
+  db.prepare("UPDATE runs SET state='running' WHERE id='done-second'").run();
+  expectCurrent("done-contract", {view: "done"}, cache);
+  expect(cache.items.has("d:run:done-first")).toBe(true);
+  setDoneCardHidden("done-contract", "done-contract", {hidden: true, cardKey: "run:done-first"});
+  expectCurrent("done-contract", {view: "done"}, cache);
+  expect(cache.items.has("d:run:done-first")).toBe(false);
+  setDoneCardHidden("done-contract", "done-contract", {hidden: false, cardKey: "run:done-first"});
+  expectCurrent("done-contract", {view: "done"}, cache);
+  expect(cache.items.has("d:run:done-first")).toBe(true);
+  expect(cardDetail("done-contract", "d:run:done-first").content).toHaveLength(7000);
+  expect(() => cardDetail("done-contract", "d:run:done-first", "cards:read")).toThrow();
+  expect(() => cardDetail("other-owner", "d:run:done-first")).toThrow();
+});
+
+it("Done imports, ties, explicit Workspace and idle fallbacks converge", () => {
+  setup("done-imports");
+  message("done-imports", "done-workspace", "assistant", {}, 10);
+  db.prepare("UPDATE runs SET payload=? WHERE id='done-workspace'").run(JSON.stringify({folderId: null}));
+  const cache = all("done-imports", {view: "done"}, 1);
+  for (const id of ["import-a", "import-b"]) db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-imports','done-imports','assistant','Imported',10)",
+  ).run(id);
+  expectCurrent("done-imports", {view: "done"}, cache);
+  expect(cache.items.size).toBe(3);
+  expect(listCards("done-imports", {view: "done", project: "done-imports"}).items.map(i => i.card.id))
+    .toEqual(["d:message:import-b", "d:message:import-a"]);
+  db.prepare("DELETE FROM messages WHERE owner_id='done-imports'").run();
+  db.prepare("UPDATE runs SET state='cancelled' WHERE id='done-workspace'").run();
+  expectCurrent("done-imports", {view: "done"}, cache);
+  expect(cache.items.size).toBe(1);
+  expect([...cache.items.values()][0].card.content).toBe("");
+});
+
+it("Done reconciles more than eighty newer results without losing loaded history", () => {
+  setup("done-backlog");
+  message("done-backlog", "done-old", "assistant", {}, 1);
+  const cache = all("done-backlog", {view: "done"});
+  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-backlog','done-backlog','assistant','Imported answer',?)");
+  db.transaction(() => {for (let i=0;i<250;i++) insert.run("backlog-"+i, 2+i);})();
+  expectCurrent("done-backlog", {view: "done"}, cache);
+  expect(cache.items.size).toBe(251);
+  expect(cache.items.has("d:run:done-old")).toBe(true);
+  setSaved("done-backlog", "done-old", true);
+  expectCurrent("done-backlog", {view: "done"}, cache);
+  expect(cache.items.get("d:run:done-old")!.card.saved).toBe(true);
+  db.prepare("UPDATE conversations SET title='Renamed' WHERE id='done-backlog'").run();
+  expectCurrent("done-backlog", {view: "done"}, cache);
+  expect(cache.items.get("d:message:backlog-0")!.card.context.conversation_title).toBe("Renamed");
+});

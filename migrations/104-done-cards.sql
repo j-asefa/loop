@@ -1,0 +1,265 @@
+CREATE TABLE done_card_revisions(
+  revision INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL,
+  object_id TEXT NOT NULL, owner_id TEXT NOT NULL, cursor INTEGER NOT NULL,
+  UNIQUE(owner_id,entity,object_id)
+);
+CREATE INDEX done_card_revisions_owner ON done_card_revisions(owner_id,revision);
+
+-- Done identities have their own invalidations. Existing token grants are unchanged.
+-- The projection includes run answers, imported messages and legacy idle cards.
+
+CREATE TRIGGER done_runs_insert AFTER INSERT ON runs BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_runs_update AFTER UPDATE ON runs BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_runs_delete AFTER DELETE ON runs BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_messages_insert AFTER INSERT ON messages BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||new.id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.run_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_messages_update AFTER UPDATE ON messages
+WHEN new.owner_id IS NOT old.owner_id OR new.conversation_id IS NOT old.conversation_id
+  OR new.run_id IS NOT old.run_id OR new.role IS NOT old.role OR new.created_at IS NOT old.created_at
+  OR json_extract(new.metadata,'$.progress') IS NOT json_extract(old.metadata,'$.progress')
+  OR json_extract(new.metadata,'$.partial') IS NOT json_extract(old.metadata,'$.partial')
+  OR ((new.content IS NOT old.content OR new.metadata IS NOT old.metadata)
+    AND (json_extract(new.metadata,'$.partial') IS NOT 1 OR json_extract(old.metadata,'$.partial') IS NOT 1))
+BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||old.id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||new.id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.run_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_messages_delete AFTER DELETE ON messages BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||old.id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_conversation_context AFTER UPDATE ON conversations WHEN new.title IS NOT old.title OR new.project_id IS NOT old.project_id OR new.team_id IS NOT old.team_id OR new.agent_id IS NOT old.agent_id OR new.execution_connection_id IS NOT old.execution_connection_id OR new.origin IS NOT old.origin OR new.owner_id IS NOT old.owner_id OR new.feed_visible IS NOT old.feed_visible BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.id UNION SELECT 'd:idle:'||old.id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.id UNION SELECT 'd:idle:'||new.id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_conversation_delete AFTER DELETE ON conversations BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.id UNION SELECT 'd:idle:'||old.id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_conversation_idle AFTER UPDATE ON conversations WHEN new.feed_done_run_id IS NOT old.feed_done_run_id OR new.feed_last_message_id IS NOT old.feed_last_message_id OR new.feed_run_id IS NOT old.feed_run_id OR new.feed_last_activity_at IS NOT old.feed_last_activity_at OR new.feed_run_raw_state IS NOT old.feed_run_raw_state OR new.feed_queued IS NOT old.feed_queued OR new.feed_run_state IS NOT old.feed_run_state BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:'||COALESCE('run:'||old.feed_done_run_id,'message:'||old.feed_last_message_id,'run:'||old.feed_run_id,'idle:'||old.id) id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:'||COALESCE('run:'||new.feed_done_run_id,'message:'||new.feed_last_message_id,'run:'||new.feed_run_id,'idle:'||new.id) id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_done_card_dismissals_insert AFTER INSERT ON done_card_dismissals BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:'||new.card_key id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_done_card_dismissals_update AFTER UPDATE ON done_card_dismissals BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:'||old.card_key id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:'||new.card_key id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_done_card_dismissals_delete AFTER DELETE ON done_card_dismissals BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:'||old.card_key id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_conversation_positions_insert AFTER INSERT ON conversation_positions BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:idle:'||new.conversation_id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_conversation_positions_update AFTER UPDATE ON conversation_positions BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:idle:'||old.conversation_id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:idle:'||new.conversation_id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_conversation_positions_delete AFTER DELETE ON conversation_positions BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:idle:'||old.conversation_id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_later_items_insert AFTER INSERT ON later_items BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.target_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.target_id UNION SELECT 'd:idle:'||new.target_id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_later_items_update AFTER UPDATE ON later_items BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.target_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.target_id UNION SELECT 'd:idle:'||old.target_id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.target_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.target_id UNION SELECT 'd:idle:'||new.target_id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_later_items_delete AFTER DELETE ON later_items BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.target_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.target_id UNION SELECT 'd:idle:'||old.target_id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_pr_watches_insert AFTER INSERT ON pr_watches BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:idle:'||new.conversation_id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_pr_watches_update AFTER UPDATE ON pr_watches BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:idle:'||old.conversation_id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id AND conversation_id=new.conversation_id UNION SELECT 'd:idle:'||new.conversation_id,new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_pr_watches_delete AFTER DELETE ON pr_watches BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id AND conversation_id=old.conversation_id UNION SELECT 'd:idle:'||old.conversation_id,old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_run_checkouts_insert AFTER INSERT ON run_checkouts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.run_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_run_checkouts_update AFTER UPDATE ON run_checkouts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.run_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_run_checkouts_delete AFTER DELETE ON run_checkouts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_run_verifications_insert AFTER INSERT ON run_verifications BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.run_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_run_verifications_update AFTER UPDATE ON run_verifications BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||new.run_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_run_verifications_delete AFTER DELETE ON run_verifications BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||old.run_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_message_bookmarks_insert AFTER INSERT ON message_bookmarks BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||new.message_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||run_id id,owner_id owner FROM messages WHERE id=new.message_id AND owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_message_bookmarks_update AFTER UPDATE ON message_bookmarks BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||old.message_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||run_id id,owner_id owner FROM messages WHERE id=old.message_id AND owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||new.message_id id,new.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||run_id id,owner_id owner FROM messages WHERE id=new.message_id AND owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_message_bookmarks_delete AFTER DELETE ON message_bookmarks BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||old.message_id id,old.owner_id owner) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||run_id id,owner_id owner FROM messages WHERE id=old.message_id AND owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_agents_insert AFTER INSERT ON agents BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_agents_update AFTER UPDATE ON agents BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_agents_delete AFTER DELETE ON agents BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_folders_insert AFTER INSERT ON folders BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_folders_update AFTER UPDATE ON folders BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_folders_delete AFTER DELETE ON folders BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_teams_insert AFTER INSERT ON teams BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_teams_update AFTER UPDATE ON teams BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_teams_delete AFTER DELETE ON teams BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_workspace_projects_insert AFTER INSERT ON workspace_projects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_workspace_projects_update AFTER UPDATE ON workspace_projects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=new.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=new.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=new.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_workspace_projects_delete AFTER DELETE ON workspace_projects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:run:'||id id,owner_id owner FROM runs WHERE owner_id=old.owner_id UNION SELECT 'd:message:'||id,owner_id FROM messages WHERE owner_id=old.owner_id UNION SELECT 'd:idle:'||id,owner_id FROM conversations WHERE owner_id=old.owner_id) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_artifacts_insert AFTER INSERT ON artifacts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||m.id id,m.owner_id owner FROM messages m WHERE m.owner_id=new.owner_id AND m.id=json_extract(new.metadata,'$.messageId') UNION SELECT 'd:run:'||m.run_id,m.owner_id FROM messages m WHERE m.owner_id=new.owner_id AND m.id=json_extract(new.metadata,'$.messageId')) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_artifacts_update AFTER UPDATE ON artifacts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||m.id id,m.owner_id owner FROM messages m WHERE m.owner_id=old.owner_id AND m.id=json_extract(old.metadata,'$.messageId') UNION SELECT 'd:run:'||m.run_id,m.owner_id FROM messages m WHERE m.owner_id=old.owner_id AND m.id=json_extract(old.metadata,'$.messageId')) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||m.id id,m.owner_id owner FROM messages m WHERE m.owner_id=new.owner_id AND m.id=json_extract(new.metadata,'$.messageId') UNION SELECT 'd:run:'||m.run_id,m.owner_id FROM messages m WHERE m.owner_id=new.owner_id AND m.id=json_extract(new.metadata,'$.messageId')) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+CREATE TRIGGER done_artifacts_delete AFTER DELETE ON artifacts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done',id,owner,0 FROM (SELECT 'd:message:'||m.id id,m.owner_id owner FROM messages m WHERE m.owner_id=old.owner_id AND m.id=json_extract(old.metadata,'$.messageId') UNION SELECT 'd:run:'||m.run_id,m.owner_id FROM messages m WHERE m.owner_id=old.owner_id AND m.id=json_extract(old.metadata,'$.messageId')) WHERE id IS NOT NULL AND owner IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+
+
+CREATE TRIGGER done_attachment_artifacts_insert AFTER INSERT ON artifacts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_artifacts_update AFTER UPDATE ON artifacts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_artifacts_delete AFTER DELETE ON artifacts BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_objects_insert AFTER INSERT ON objects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=new.owner_id AND json_extract(metadata,'$.objectId')=new.id) AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=new.owner_id AND json_extract(metadata,'$.objectId')=new.id) AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_objects_update AFTER UPDATE ON objects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=old.owner_id AND json_extract(metadata,'$.objectId')=old.id) AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=old.owner_id AND json_extract(metadata,'$.objectId')=old.id) AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=new.owner_id AND json_extract(metadata,'$.objectId')=new.id) AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=new.owner_id AND json_extract(metadata,'$.objectId')=new.id) AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_objects_delete AFTER DELETE ON objects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=old.owner_id AND json_extract(metadata,'$.objectId')=old.id) AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id IN (SELECT id FROM artifacts WHERE owner_id=old.owner_id AND json_extract(metadata,'$.objectId')=old.id) AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_artifact_objects_insert AFTER INSERT ON artifact_objects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.artifact_id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.artifact_id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_artifact_objects_update AFTER UPDATE ON artifact_objects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.artifact_id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.artifact_id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.artifact_id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=new.owner_id AND refs.target_id=new.artifact_id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER done_attachment_artifact_objects_delete AFTER DELETE ON artifact_objects BEGIN
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:message:'||m.id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.artifact_id AND 'd:message:'||m.id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+INSERT INTO done_card_revisions(entity,object_id,owner_id,cursor) SELECT 'done','d:run:'||m.run_id,m.owner_id,0 FROM card_attachment_refs refs JOIN messages m ON m.id=refs.object_id AND m.owner_id=refs.owner_id WHERE refs.entity='message' AND refs.owner_id=old.owner_id AND refs.target_id=old.artifact_id AND 'd:run:'||m.run_id IS NOT NULL ON CONFLICT(owner_id,entity,object_id) DO UPDATE SET revision=excluded.revision;
+END;
+INSERT INTO schema_version VALUES(104,unixepoch()*1000);

@@ -62,6 +62,15 @@ it.each(["server", "companion"] as const)(
       const headers = (secret = results.secret) => ({
         authorization: "Bearer " + secret,
       });
+      for (const method of ["GET", "HEAD"]) {
+        expect((await request("/api/v1/cards?view=done", {headers: browser, method})).status).toBe(200);
+        expect((await request("/api/v1/cards/d%3Arun%3Arun", {headers: browser, method})).status).toBe(200);
+        for (const secret of [results.secret, all.secret]) {
+          expect((await request("/api/v1/cards?view=done", {headers: headers(secret), method})).status).toBe(403);
+          expect((await request("/api/v1/cards/changes?view=done&after=unused", {headers: headers(secret), method})).status).toBe(403);
+          expect((await request("/api/v1/cards/d%3Arun%3Arun", {headers: headers(secret), method})).status).toBe(404);
+        }
+      }
       const list = await request("/api/card-tokens", { headers: browser });
       const metadata = await list.json();
       expect(metadata).toHaveLength(2);

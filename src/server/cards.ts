@@ -1,3 +1,5 @@
+import { cardAttachments } from "./card-attachments.js";
+import { doneCards } from "./done-cards.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db } from "./db.js";
@@ -84,7 +86,7 @@ function decode(value: string): unknown {
   return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 }
 function selection(owner: string, input: CardSelection): Selection {
-  if (input.view === "results" && input.q !== undefined)
+  if (["results", "done"].includes(input.view) && input.q !== undefined)
     throw new Problem(400, "Search is supported for Saved and Sent");
   if (input.project) owned("folders", input.project, owner);
   if (input.agent) owned("agents", input.agent, owner);
@@ -118,7 +120,7 @@ const revisionTuple = z.tuple([
 ]);
 const orderTuple = z.tuple([
   z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  z.string().max(160),
+  z.string().max(400),
 ]);
 function readRevision(value: string, scope: string, current: number) {
   try {
@@ -263,49 +265,6 @@ function query(
     }) as Row[];
 }
 
-function attachments(
-  owner: string,
-  meta: Record<string, unknown>,
-): Card["attachments"] {
-  if (!Array.isArray(meta.attachments)) return [];
-  return meta.attachments.flatMap((file: unknown) => {
-    if (!file || typeof file !== "object") return [];
-    const f = file as Record<string, unknown>;
-    if (
-      typeof f.id !== "string" ||
-      typeof f.name !== "string" ||
-      typeof f.mime !== "string" ||
-      typeof f.size !== "number" ||
-      !Number.isFinite(f.size) ||
-      f.size < 0
-    )
-      return [];
-    const target = db
-      .prepare(
-        `SELECT a.id,
-      (SELECT o.id FROM objects o WHERE o.owner_id=a.owner_id AND o.id=json_extract(a.metadata,'$.objectId')) object_id,
-      EXISTS(SELECT 1 FROM artifact_objects ao WHERE ao.artifact_id=a.id AND ao.owner_id=a.owner_id) published
-      FROM artifacts a WHERE a.id=? AND a.owner_id=?`,
-      )
-      .get(f.id, owner) as
-      { id: string; object_id: string | null; published: number } | undefined;
-    if (!target) return [];
-    return [
-      {
-        id: f.id,
-        name: f.name,
-        mime: f.mime,
-        size: f.size,
-        href: "/?artifact=" + encodeURIComponent(f.id),
-        download: target.object_id
-          ? "/api/objects/" + encodeURIComponent(target.object_id)
-          : target.published
-            ? "/api/artifacts/" + encodeURIComponent(target.id) + "/file"
-            : null,
-      },
-    ];
-  });
-}
 function toCard(row: Row): Card {
   const artifact = row.key.startsWith("a:");
   const meta = JSON.parse(row.metadata) as Record<string, unknown>;
@@ -353,7 +312,7 @@ function toCard(row: Row): Card {
     created_at: row.created_at,
     updated_at: row.updated_at,
     saved: !!row.saved,
-    attachments: attachments(row.owner_id, meta),
+    attachments: cardAttachments(row.owner_id, meta),
     href: resultUrl({
       id: row.id,
       conversation_id: row.conversation_id,
@@ -442,10 +401,18 @@ export function listCards(owner: string, input: unknown) {
   const options = CardListQuerySchema.parse(input);
   // Folder closure and team membership are mutable selection state too. Read
   // the watermark before resolving them so a concurrent move is replayed.
-  const revision = resultsRevision(owner);
+  const revision = options.view === "done"
+    ? (db.prepare("SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?").get(owner) as {revision: number}).revision
+    : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
   const before = readBefore(options.before, scope);
+  if (options.view === "done") {
+    const found = doneCards(owner, {...selected, before, limit: options.limit + 1});
+    const items = found.slice(0, options.limit);
+    return {revision: encode([scope, revision]), items,
+      next: found.length > options.limit ? encode([scope, items.at(-1)!.order]) : null};
+  }
   const found = rows(owner, selected, { before, limit: options.limit + 1 });
   const items = found
     .slice(0, options.limit)
@@ -462,10 +429,16 @@ export function listCards(owner: string, input: unknown) {
 export function cardDetail(
   owner: string,
   id: string,
-  scope: "results:read" | "cards:read" = "cards:read",
+  scope?: "results:read" | "cards:read",
 ): Card {
   if (!CardIdSchema.safeParse(id).success)
     throw new Problem(404, "Card not found");
+  if (id.startsWith("d:")) {
+    if (scope) throw new Problem(404, "Card not found");
+    const found = doneCards(owner, {folders: null, teamIds: [], ids: [id], limit: 1});
+    if (!found.length) throw new Problem(404, "Card not found");
+    return found[0].card;
+  }
   const type = id.startsWith("a:") ? "artifact" : "message";
   const views: CardView[] =
     scope === "results:read" ? ["results"] : ["results", "saved", "sent"];
@@ -481,7 +454,9 @@ export function cardChanges(owner: string, input: unknown) {
   const options = CardChangesQuerySchema.parse(input);
   if (options.through !== undefined && options.view !== "results")
     throw new Problem(400, "through is a Results publication bound only");
-  const revision = resultsRevision(owner);
+  const revision = options.view === "done"
+    ? (db.prepare("SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?").get(owner) as {revision: number}).revision
+    : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
   const after = readRevision(options.after, scope, revision);
@@ -489,7 +464,7 @@ export function cardChanges(owner: string, input: unknown) {
   // progress through removals. Both prompt/message entities map to one identity.
   const changed = db
     .prepare(
-      `SELECT revision,entity,object_id FROM feed_revisions
+      `SELECT revision,entity,object_id FROM ${options.view === "done" ? "done_card_revisions" : "feed_revisions"}
     WHERE owner_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 200`,
     )
     .all(owner, after, revision) as {
@@ -497,6 +472,13 @@ export function cardChanges(owner: string, input: unknown) {
     entity: string;
     object_id: string;
   }[];
+  if (options.view === "done") {
+    const ids = [...new Set(changed.filter(row => row.entity === "done").map(row => row.object_id))];
+    const items = doneCards(owner, {...selected, ids, limit: 200});
+    const present = new Set(items.map(item => item.card.id));
+    return {revision: encode([scope, changed.length === 200 ? changed.at(-1)!.revision : revision]),
+      items, removed: ids.filter(id => !present.has(id)), more: changed.length === 200};
+  }
   const artifacts = new Set(
     changed.filter((r) => r.entity === "artifact").map((r) => r.object_id),
   );
