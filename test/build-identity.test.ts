@@ -165,8 +165,8 @@ console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(f
   ).toThrow(/inside the captured repository/);
 });
 
-it("runs staged helpers, migrations and metadata from captured source after checkout edits", async () => {
-  const root = join(dir, "staged-assets");
+it.each(["mjs", "ts"])("runs staged %s helpers, migrations and metadata from captured source after checkout edits", async (extension) => {
+  const root = join(dir, `staged-assets-${extension}`);
   for (const folder of [
     "src/server",
     "runtime",
@@ -182,8 +182,12 @@ it("runs staged helpers, migrations and metadata from captured source after chec
     '{"type":"module","version":"captured-version"}',
   );
   writeFileSync(
-    join(root, "runtime/helper.mjs"),
-    'export const value="captured-runtime";',
+    join(root, `runtime/helper.${extension}`),
+    `export {value} from './sibling.${extension}';`,
+  );
+  writeFileSync(
+    join(root, `runtime/sibling.${extension}`),
+    `export const value${extension === "ts" ? ": string" : ""}="captured-runtime";`,
   );
   writeFileSync(
     join(root, "native/helper.js"),
@@ -195,13 +199,13 @@ it("runs staged helpers, migrations and metadata from captured source after chec
     join(root, "src/server/probe.ts"),
     `
 import {readFileSync} from 'node:fs';
-import {value} from '../../runtime/helper.mjs';
+import {value} from '../../runtime/helper.${extension}';
 export {value as native} from '../../native/helper.js';
 export {value};
 const migration='001.sql';
 export const sql=readFileSync(new URL('../../migrations/'+migration,import.meta.url),'utf8');
 export const version=JSON.parse(readFileSync(new URL('../../package.json',import.meta.url),'utf8')).version;
-export const dynamic=(await import('../../runtime/helper.mjs')).value;
+export const dynamic=(await import('../../runtime/helper.${extension}')).value;
 `,
   );
   const git = (...args: string[]) =>
@@ -234,7 +238,7 @@ export const dynamic=(await import('../../runtime/helper.mjs')).value;
   try {
     expect(source.stamp.clean).toBe(true);
     writeFileSync(
-      join(root, "runtime/helper.mjs"),
+      join(root, `runtime/helper.${extension}`),
       'throw new Error("mutable runtime loaded");',
     );
     writeFileSync(

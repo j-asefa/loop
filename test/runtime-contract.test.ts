@@ -10,6 +10,7 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 const root = mkdtempSync(join(tmpdir(), "loop-runtime-contract-"));
 const bin = join(root, "bin");
 mkdirSync(bin);
@@ -116,6 +117,7 @@ function invoke(
     effort?: string;
     catalogMode?: string;
     steering?: string;
+    entry?: string;
   } = {},
 ) {
   const home = workspace.home || mkdtempSync(join(root, "account-"));
@@ -132,7 +134,7 @@ function invoke(
       ...(workspace.fastDiscovery
         ? ["--import", resolve("test/helpers/fast-discovery-clock.mjs")]
         : []),
-      "runtime/entry.mjs",
+      workspace.entry || "runtime/entry.mjs",
     ],
     {
       cwd: process.cwd(),
@@ -226,6 +228,27 @@ function invoke(
   });
 }
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+it.each(["codex", "claude"])(
+  "%s executes the compiled standalone runtime graph without a source loader",
+  async (provider) => {
+    const { compileRuntime } = await import(
+      pathToFileURL(resolve("scripts/compile-runtime.mjs")).href
+    );
+    const output = join(root, `compiled-${provider}`);
+    await compileRuntime(process.cwd(), output);
+    const result = await invoke(
+      provider, "turn", "subscription", "steering", false,
+      "Wait for a follow-up", [],
+      { entry: join(output, "entry.mjs"), steering: "Use the compiled runtime" },
+    );
+    expect(result.code).toBe(0);
+    expect(result.events).toContainEqual({
+      steeringResult: { id: "followup-fixture", accepted: true },
+    });
+    expect(result.events).toContainEqual({ chunk: { text: "Use the compiled runtime" } });
+    expect(result.events.filter((event) => event.done)).toHaveLength(1);
+  },
+);
 it.each(["codex", "claude"])(
   "%s delivers live input before the initial turn finishes",
   async (provider) => {

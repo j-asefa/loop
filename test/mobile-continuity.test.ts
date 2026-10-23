@@ -157,7 +157,7 @@ it("names the one next action on a feed card and links to its exact message", as
   ).toBeNull();
   // A native harness question is answered at the end of its thread.
   const native = conversation(w.owner, a.id, "Native");
-  const r4 = run(w.owner, a.id, native, "running");
+  const r4 = run(w.owner, a.id, native, "awaiting_approval");
   message(w.owner, native, "user", "Pick one", r4);
   db.prepare(
     "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?)",
@@ -166,6 +166,12 @@ it("names the one next action on a feed card and links to its exact message", as
     (await api(w.owner, "/feed")).data.items.find((i: any) => i.conversation_id === native)
       .next_action,
   ).toEqual({ kind: "answer", run_id: r4, message_id: null });
+  // A stored decision must not offer an action after its run resumes.
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(r4);
+  expect(
+    (await api(w.owner, "/feed")).data.items.find((i: any) => i.conversation_id === native)
+      .next_action,
+  ).toBeNull();
   // Another owner sees none of it.
   expect((await api("intruder", "/feed")).data.items).toEqual([]);
 });

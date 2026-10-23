@@ -1,9 +1,17 @@
+FROM node:24-bookworm-slim AS runtime-build
+WORKDIR /build
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY scripts/compile-runtime.mjs scripts/compile-runtime.mjs
+COPY runtime/ runtime/
+RUN node scripts/compile-runtime.mjs /compiled-runtime
+
 FROM node:24-bookworm-slim
 ARG CODEX_VERSION=0.160.0
 ARG CLAUDE_CODE_VERSION=2.1.280
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git gh curl ripgrep python3 make g++ openssh-client && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @openai/codex@${CODEX_VERSION} @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
-COPY runtime/ /runtime/
+COPY --from=runtime-build /compiled-runtime/ /runtime/
 RUN chmod 700 /home/node
 USER node
 WORKDIR /home/node

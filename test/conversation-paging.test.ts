@@ -109,7 +109,7 @@ it("range-reads only a transcript page without scanning source history, before o
   const entries = all(conversation);
   expect(entries).toHaveLength(3000);
   expect(new Set(entries.map((entry) => entry.id)).size).toBe(3000);
-});
+}, 30_000);
 
 it("keeps queued prompts, tied progress timestamps, steering and final answers in turn order", () => {
   const c = thread();

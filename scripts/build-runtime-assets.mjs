@@ -2,6 +2,7 @@ import { parseSync, Visitor } from "vite";
 import { globSync } from "node:fs";
 import { cp, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { compileRuntime } from "./compile-runtime.mjs";
 
 const assets = [
   "runtime",
@@ -17,7 +18,7 @@ export async function stageRuntimeAssets(root, output) {
   root = resolve(root);
   output = resolve(output);
   const support = join(output, "support");
-  for (const asset of assets)
+  for (const asset of assets.filter((asset) => asset !== "runtime"))
     await cp(join(root, asset), join(support, asset), {
       recursive: true,
       filter: (path) =>
@@ -25,6 +26,7 @@ export async function stageRuntimeAssets(root, output) {
           .split(sep)
           .some((part) => part === "node_modules" || part === ".git"),
     });
+  await compileRuntime(root, join(support, "runtime"));
   for (const file of globSync("**/*.{js,mjs}", { cwd: output })) {
     if (/^(?:support|client|web)\//.test(file)) continue;
     const path = join(output, file);
@@ -47,7 +49,10 @@ export async function stageRuntimeAssets(root, output) {
         )
       )
         return;
-      let replacement = relative(dirname(path), join(support, target))
+      const stagedTarget = target.startsWith("runtime" + sep)
+        ? target.replace(/\.ts$/, ".mjs")
+        : target;
+      let replacement = relative(dirname(path), join(support, stagedTarget))
         .split(sep)
         .join("/");
       if (!replacement.startsWith(".")) replacement = "./" + replacement;
