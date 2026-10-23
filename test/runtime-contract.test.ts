@@ -134,7 +134,7 @@ function invoke(
       ...(workspace.fastDiscovery
         ? ["--import", resolve("test/helpers/fast-discovery-clock.mjs")]
         : []),
-      workspace.entry || "runtime/entry.mjs",
+      workspace.entry || "runtime/entry.ts",
     ],
     {
       cwd: process.cwd(),
@@ -725,7 +725,7 @@ it.each(["codex", "claude"])(
   },
 );
 it("creates isolated containers without host credentials, sockets or privileged execution", async () => {
-  const path = resolve("runtime/container.mjs");
+  const path = resolve("runtime/container.ts");
   const { containerArgs } = await import(path);
   const args = containerArgs(
     "loop-test",

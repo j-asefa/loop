@@ -5,11 +5,11 @@ export class LoginTimeoutError extends Error {}
 
 // Starting the CLI must be quick; allow the full browser/code window only once
 // the user has a link. Never extend that window for repeated output events.
-export function loginDeadline(onTimeout) {
+export function loginDeadline(onTimeout: (error: Error) => void) {
   let phase = "starting",
-    timer,
-    expiresAt;
-  const arm = (ms) => {
+    timer: ReturnType<typeof setTimeout> | undefined,
+    expiresAt!: number;
+  const arm = (ms: number) => {
     expiresAt = Date.now() + ms;
     timer = setTimeout(() => {
       const message =

@@ -8,7 +8,11 @@ import {
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-export function managedWorkspace(home, key, recordUse = false) {
+export function managedWorkspace(
+  home: string,
+  key?: string,
+  recordUse = false,
+): string {
   if (
     key !== undefined &&
     (typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key))
@@ -40,7 +44,7 @@ export function managedWorkspace(home, key, recordUse = false) {
   return cwd;
 }
 
-export function githubEnvironment(token) {
+export function githubEnvironment(token: unknown) {
   if (
     typeof token !== "string" ||
     !token ||

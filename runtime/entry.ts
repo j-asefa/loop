@@ -1,10 +1,12 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { SessionRequest } from "./types.ts";
 import {
   RuntimeFailure,
   diagnosticText,
   errorSummary,
   runtimeFailureFacts,
 } from "./diagnostics.ts";
-import { CodexSession } from "./codex-session.mjs";
+import { CodexSession } from "./codex-session.ts";
 import { receiveSteering } from "./steering.ts";
 import { ClaudeSteering } from "./claude-steering.ts";
 // Official binaries are unmodified. Host mode is chosen by the local launcher,
@@ -15,12 +17,12 @@ import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { FileRejected, readPublishedChunk } from "./published-files.ts";
 import { writeUploadChunk } from "./uploads.ts";
-import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
-import { cleanupStorage } from "./storage-cleanup.mjs";
+import { managedWorkspace, githubEnvironment } from "./workspace.ts";
+import { cleanupStorage } from "./storage-cleanup.ts";
 import {
   cleanupWorkspaces,
   workspaceCleanupInstructions,
-} from "./workspace-cleanup.mjs";
+} from "./workspace-cleanup.ts";
 import { join } from "node:path";
 import { redactValues } from "./redaction.ts";
 import { claudeTraces, claudeActivities } from "./traces.ts";
@@ -40,22 +42,24 @@ import {
 } from "./protocol.ts";
 const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
 let workdir = process.env.LOOP_RUNTIME_WORKDIR || process.cwd();
-let githubToken;
-const clean = (data) => redactValues(data, githubToken ? [githubToken] : []);
-const emit = (data) => process.stdout.write(JSON.stringify(clean(data)) + "\n");
+let githubToken: unknown;
+const clean = (data: unknown) =>
+  redactValues(data, githubToken ? [githubToken] : []);
+const emit = (data: unknown) =>
+  process.stdout.write(JSON.stringify(clean(data)) + "\n");
 const input = createInterface({ input: process.stdin });
 const iterator = input[Symbol.asyncIterator]();
 const first = await iterator.next();
-let child;
+let child: ChildProcessWithoutNullStreams | undefined;
 const stop = () => {
   child?.kill("SIGTERM");
   process.exit(1);
 };
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
-let timeout;
+let timeout: ReturnType<typeof setTimeout> | undefined;
 // Never inherit an API key, alternate endpoint, cloud billing or parent credentials.
-const env = hostMode
+const env: NodeJS.ProcessEnv = hostMode
   ? { ...process.env }
   : {
       PATH: process.env.PATH,
@@ -86,10 +90,10 @@ for (const key of [
 // Leave native defaults unset: a runtime may use the presence of a config-dir
 // override to select a different keychain profile, even for the default path.
 if (!hostMode) {
-  mkdirSync(env.CODEX_HOME, { recursive: true, mode: 0o700 });
-  mkdirSync(env.CLAUDE_CONFIG_DIR, { recursive: true, mode: 0o700 });
+  mkdirSync(env.CODEX_HOME!, { recursive: true, mode: 0o700 });
+  mkdirSync(env.CLAUDE_CONFIG_DIR!, { recursive: true, mode: 0o700 });
 }
-const launch = (bin, args) => {
+const launch = (bin: string, args: string[]) => {
   child = spawn(
     (hostMode && process.env.LOOP_RUNTIME_EXECUTABLE) || bin,
     args,
@@ -121,7 +125,7 @@ async function claudeStatus() {
     plan: s.subscriptionType || null,
   };
 }
-async function codex(request) {
+async function codex(request: SessionRequest) {
   const p = launch("codex", [
     "app-server",
     "--stdio",
@@ -142,10 +146,10 @@ async function codex(request) {
   ]);
   const session = new CodexSession(p, {
     hostMode,
-    home: env.HOME,
+    home: env.HOME!,
     cwd: workdir,
   });
-  let stopSteering;
+  let stopSteering: (() => void) | undefined;
   try {
     await session.run(
       request,
@@ -163,7 +167,7 @@ async function codex(request) {
   }
 }
 
-async function claude(request) {
+async function claude(request: SessionRequest) {
   if (request.action === "capabilities") {
     emit({ result: await claudeCatalog(launch) });
     return;
@@ -171,7 +175,7 @@ async function claude(request) {
   if (request.action === "login") {
     const p = launch("claude", ["auth", "login", "--claudeai"]);
     let sent = false;
-    const capture = (line) => {
+    const capture = (line: string) => {
       const url = authorizationUrl(line, "claude");
       if (url && !sent) {
         sent = true;
@@ -246,12 +250,15 @@ async function claude(request) {
     "--json-schema",
     JSON.stringify(nativeResponseSchema(request.input)),
   ]);
-  let result,
-    failure,
+  let result: any,
+    failure: unknown,
     initialized = false;
-  let stopSteering, interruptReceipt;
+  let stopSteering: (() => void) | undefined,
+    interruptReceipt:
+      | { id: string; resolve: () => void; reject: (error: unknown) => void }
+      | undefined;
   const steering = new ClaudeSteering();
-  const user = (text) =>
+  const user = (text: string) =>
     p.stdin.write(
       JSON.stringify({
         type: "user",
@@ -270,7 +277,7 @@ async function claude(request) {
         await steering.steer(
           text,
           () =>
-            new Promise((resolve, reject) => {
+            new Promise<void>((resolve, reject) => {
               interruptReceipt = { id, resolve, reject };
               p.stdin.write(
                 JSON.stringify({
@@ -295,8 +302,8 @@ async function claude(request) {
     });
     emit({ steeringReady: true });
   };
-  const internalToolIds = new Set();
-  const structuredTools = new Set();
+  const internalToolIds = new Set<string>();
+  const structuredTools = new Set<string>();
   const initializationTimer = command
     ? setTimeout(() => {
         failure = new Error("Command initialization timed out");
@@ -330,7 +337,9 @@ async function claude(request) {
         !initialized
       ) {
         initialized = true;
-        clearTimeout(initializationTimer);
+        clearTimeout(
+          initializationTimer as ReturnType<typeof setTimeout> | undefined,
+        );
         if (m.response.subtype !== "success") {
           failure = new Error("Command initialization failed");
           p.kill();
@@ -371,11 +380,16 @@ async function claude(request) {
     user(turnPrompt(request.input, true));
     ready();
   } else p.stdin.end(turnPrompt(request.input, true));
-  const { code, signal } = await new Promise((resolve, reject) => {
+  const { code, signal } = await new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
     p.once("error", reject);
     p.once("close", (code, signal) => resolve({ code, signal }));
   }).finally(() => {
-    clearTimeout(initializationTimer);
+    clearTimeout(
+      initializationTimer as ReturnType<typeof setTimeout> | undefined,
+    );
     stopSteering?.();
   });
   if (
@@ -385,7 +399,7 @@ async function claude(request) {
     result?.subtype !== "success"
   )
     throw new RuntimeFailure(
-      `Claude Code stopped (${signal ? `signal ${signal}` : `exit code ${code}`}${result?.subtype ? `, ${diagnosticText(clean(result.subtype))}` : ""}): ${diagnosticText(clean(failure?.message || (Array.isArray(result?.errors) ? result.errors.join("; ") : "") || (result?.is_error && typeof result.result === "string" ? result.result : ""))) || "No error details were returned."}`,
+      `Claude Code stopped (${signal ? `signal ${signal}` : `exit code ${code}`}${result?.subtype ? `, ${diagnosticText(clean(result.subtype))}` : ""}): ${diagnosticText(clean((failure as Error | undefined)?.message || (Array.isArray(result?.errors) ? result.errors.join("; ") : "") || (result?.is_error && typeof result.result === "string" ? result.result : ""))) || "No error details were returned."}`,
       { phase: "turn", exitCode: code, signal, subtype: result?.subtype },
     );
   for (const chunk of command &&
@@ -398,7 +412,7 @@ async function claude(request) {
   emit({ done: true });
 }
 try {
-  const request = JSON.parse(first.value);
+  const request = JSON.parse(first.value as string);
   if (
     request.action === "project-brief" ||
     request.input?.nativeTools === false
@@ -412,7 +426,7 @@ try {
       )
     )
       workdir = managedWorkspace(
-        env.HOME,
+        env.HOME!,
         request.input?.workspaceKey ?? request.workspaceKey,
         request.action === "turn",
       );
@@ -441,26 +455,33 @@ try {
       !Array.isArray(request.workspaceKeys) ||
       request.workspaceKeys.length > 100 ||
       request.workspaceKeys.some(
-        (key) => typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key),
+        (key: unknown) =>
+          typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key),
       )
     )
       throw new RuntimeFailure("Invalid cleanup workspaces");
     let storage;
     try {
       storage = cleanupStorage({
-        home: env.HOME,
+        home: env.HOME!,
         workspaceKeys: request.workspaceKeys,
         dryRun: request.dryRun === true,
         recordProgress: request.dryRun === true,
       });
     } catch (error) {
       storage = [
-        { kind: "maintenance", removed: false, reason: error.message },
+        {
+          kind: "maintenance",
+          removed: false,
+          reason: (error as Error).message,
+        },
       ];
     }
     const results = request.githubToken
       ? await cleanupWorkspaces(
-          request.workspaceKeys.map((key) => join(env.HOME, "workspaces", key)),
+          request.workspaceKeys.map((key: string) =>
+            join(env.HOME!, "workspaces", key),
+          ),
           env,
           request.dryRun === true,
         )
@@ -501,7 +522,7 @@ try {
         : error instanceof FileRejected
           ? "file_rejected"
           : "runtime_failure",
-    diagnostic: runtimeFailureFacts(error.details),
+    diagnostic: runtimeFailureFacts((error as RuntimeFailure).details),
     error: diagnosticText(
       clean(
         error instanceof HarnessError ||

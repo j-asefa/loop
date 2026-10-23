@@ -1,3 +1,14 @@
+type RegisteredJob = {
+  root: string;
+  path: string;
+  file: string;
+  record: {
+    checkout: string;
+    pr: string;
+    checkedAt?: unknown;
+    [key: string]: unknown;
+  };
+};
 import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
@@ -11,16 +22,16 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanupWorktree } from "./cleanup-worktree.mjs";
+import { cleanupWorktree } from "./cleanup-worktree.ts";
 
 const registryName = ".loop-cleanup";
-const inside = (root, path) => {
+const inside = (root: string, path: string) => {
   const rel = relative(root, path);
   return (
     !!rel && rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel)
   );
 };
-async function registry(workspace, create = false) {
+async function registry(workspace: string, create = false) {
   const root = await realpath(workspace);
   const path = join(root, registryName);
   if (create) await mkdir(path, { mode: 0o700, recursive: true });
@@ -31,7 +42,11 @@ async function registry(workspace, create = false) {
   return { root, path };
 }
 
-export async function trackPullRequest(workspace, checkout, pr) {
+export async function trackPullRequest(
+  workspace: string,
+  checkout: string,
+  pr: string,
+) {
   if (
     !/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[1-9][0-9]*\/?$/.test(pr)
   )
@@ -51,12 +66,12 @@ export async function trackPullRequest(workspace, checkout, pr) {
   return { tracked: true, checkout: relative(root, repo), pr };
 }
 
-async function registeredJobs(workspace) {
+async function registeredJobs(workspace: string) {
   let location;
   try {
     location = await registry(workspace);
   } catch (error) {
-    if (error.code === "ENOENT") return [];
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
   const { root, path } = location;
@@ -65,7 +80,7 @@ async function registeredJobs(workspace) {
   );
   // Oldest checks first so one blocked job cannot starve newer jobs. A bounded
   // batch keeps idle maintenance from holding a connection for too long.
-  const records = [];
+  const records: RegisteredJob[] = [];
   for (const name of files) {
     const file = join(path, name),
       stat = await lstat(file);
@@ -86,15 +101,15 @@ async function registeredJobs(workspace) {
   return records;
 }
 
-export const cleanupRegistered = (workspace, env = process.env) =>
+export const cleanupRegistered = (workspace: string, env = process.env) =>
   cleanupWorkspaces([workspace], env);
 
 export async function cleanupWorkspaces(
-  workspaces,
+  workspaces: string[],
   env = process.env,
   dryRun = false,
 ) {
-  const records = [];
+  const records: RegisteredJob[] = [];
   for (const workspace of workspaces) {
     try {
       records.push(...(await registeredJobs(workspace)));
@@ -125,9 +140,9 @@ export async function cleanupWorkspaces(
       results.push({
         pr: record.pr,
         retired: false,
-        reason: error.cmd
+        reason: (error as { cmd?: string }).cmd
           ? "Could not verify the pull request or checkout."
-          : error.message,
+          : (error as Error).message,
       });
     }
     if (dryRun) continue;
@@ -147,7 +162,7 @@ export async function cleanupWorkspaces(
   return results;
 }
 
-export function workspaceCleanupInstructions(workspace) {
+export function workspaceCleanupInstructions(workspace: string): string {
   return `\nRepository workspace lifecycle: reuse one clone per repository; use a separate linked Git worktree and branch for each job. Do not accumulate full clones. When you create or take ownership of a PR, register its checkout for automatic post-merge cleanup with: node /runtime/workspace-cleanup.mjs track ${JSON.stringify(workspace)} <checkout-path> <https://github.com/owner/repo/pull/number>. Keep the worktree while the PR is open. Loop reclaims verified npm dependencies after 24 hours without use, and npm downloads and verified Playwright browsers after seven days; run npm ci or npx playwright install again when needed. This does not delete source or Git history and does not require a PR. Separately, Loop checks registered jobs when the connection is idle and retires them after merge once no ignored files remain; populated build/output folders need your review. Only the exact merged PR head with no uncommitted or untracked work is eligible; never bypass this with force, git reset --hard, or blanket git clean. Upload user deliverables to Loop before retiring a job. You may remove your own unused dependencies and reproducible build outputs during work, but preserve source, local changes, uploads, credentials and other agents' files. Run node /runtime/workspace-cleanup.mjs sweep ${JSON.stringify(workspace)} to request cleanup yourself. GitHub's automatic head-branch deletion handles remote branches separately.`;
 }
 
@@ -169,7 +184,9 @@ if (
       );
   } catch (error) {
     console.error(
-      error.cmd ? "Workspace cleanup could not be completed." : error.message,
+      (error as { cmd?: string }).cmd
+        ? "Workspace cleanup could not be completed."
+        : (error as Error).message,
     );
     process.exitCode = 1;
   }

@@ -79,7 +79,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" \
   node runtime/host.mjs
 ```
 
-The runner listens on `127.0.0.1:3101`. Keep it running, or supervise it as that user. It retains the user's HOME, runtime configuration, PATH, project instructions, skills and MCP configuration. The chosen working directory is a real host directory; Loop's Project selection controls where results are filed in Loop. You can run a separate runner/port per host project. `PORT` changes the listener port; `LOOP_RUNTIME_BIND` explicitly changes its bind address.
+The stable `runtime/host.mjs` checkout launcher loads the TypeScript implementation; existing supervised commands remain valid after updates. Package and container builds compile that implementation to JavaScript. The runner listens on `127.0.0.1:3101`. Keep it running, or supervise it as that user. It retains the user's HOME, runtime configuration, PATH, project instructions, skills and MCP configuration. The chosen working directory is a real host directory; Loop's Project selection controls where results are filed in Loop. You can run a separate runner/port per host project. `PORT` changes the listener port; `LOOP_RUNTIME_BIND` explicitly changes its bind address.
 
 For a direct Node deployment, open the tunnel from Loop's server:
 

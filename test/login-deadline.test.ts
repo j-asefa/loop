@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { resolve } from "node:path";
 const { loginDeadline, LoginTimeoutError, LOGIN_START_MS, LOGIN_COMPLETE_MS } =
-  await import(resolve("runtime/login-deadline.mjs"));
+  await import(resolve("runtime/login-deadline.ts"));
 
 afterEach(() => vi.useRealTimers());
 

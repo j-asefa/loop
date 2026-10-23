@@ -288,7 +288,7 @@ it("stores uploads through a native-host broker outside the project directory", 
   const port = (socket.address() as { port: number }).port;
   await new Promise<void>((r) => socket.close(() => r()));
   const token = "broker-upload-test-token-at-least-32-characters";
-  const broker = spawn(process.execPath, ["runtime/broker.mjs"], {
+  const broker = spawn(process.execPath, ["runtime/broker.ts"], {
     cwd: process.cwd(),
     env: {
       ...process.env,

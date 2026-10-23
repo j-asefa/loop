@@ -17,7 +17,7 @@ Server.prototype.listen = function () { this.once('listening', () => process.sen
 `,
   );
   writeFileSync(
-    join(dir, "entry.mjs"),
+    join(dir, "entry.ts"),
     `
 import { createInterface } from 'node:readline';
 let started = false;
@@ -34,7 +34,7 @@ for await (const line of input) {
   const token = "test-broker-steering-token-at-least-32-characters";
   const broker = spawn(
     process.execPath,
-    ["--import", join(dir, "listen.mjs"), join(dir, "broker.mjs")],
+    ["--import", join(dir, "listen.mjs"), join(dir, "broker.ts")],
     {
       env: {
         ...process.env,

@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
+import { pathToFileURL } from "node:url";
 
 const root = mkdtempSync(join(tmpdir(), "loop-native-host-"));
 const home = join(root, "home"),
@@ -62,7 +63,10 @@ if(args[0]==='auth') {
 );
 let service: ChildProcess, origin: string;
 let diagnostics = "";
-async function startHost(fastClock = false) {
+async function startHost(
+  fastClock = false,
+  entry = resolve("runtime/host.ts"),
+) {
   const reservation = createServer();
   reservation.listen(0, "127.0.0.1");
   await new Promise<void>((r) => reservation.once("listening", r));
@@ -75,7 +79,7 @@ async function startHost(fastClock = false) {
       ...(fastClock
         ? ["--import", resolve("test/helpers/fast-runtime-clock.mjs")]
         : []),
-      resolve("runtime/host.mjs"),
+      entry,
     ],
     {
       cwd: workdir,
@@ -115,8 +119,13 @@ afterAll(async () => {
     await new Promise<void>((r) => service.once("exit", () => r()));
   rmSync(root, { recursive: true, force: true });
 });
-function request(action: string, extra: object = {}, signal?: AbortSignal) {
-  return fetch(origin + "/runtime", {
+function request(
+  action: string,
+  extra: object = {},
+  signal?: AbortSignal,
+  hostOrigin = origin,
+) {
+  return fetch(hostOrigin + "/runtime", {
     method: "POST",
     headers: {
       authorization: "Bearer " + token,
@@ -135,6 +144,52 @@ const input = (model = "fixture") => ({
   model,
   messages: [{ role: "user", content: "Use the project's tools" }],
 });
+it.each(["compatibility", "compiled"])(
+  "runs native tools through the %s host launcher",
+  async (mode) => {
+    let entry = resolve("runtime/host.mjs");
+    if (mode === "compiled") {
+      const { compileRuntime } = await import(
+        pathToFileURL(resolve("scripts/compile-runtime.mjs")).href
+      );
+      const output = join(root, "compiled-runtime");
+      await compileRuntime(process.cwd(), output);
+      entry = join(output, "host.mjs");
+    }
+    const host = await startHost(false, entry);
+    try {
+      expect((await fetch(host.origin + "/health")).status).toBe(401);
+      expect(
+        await (
+          await fetch(host.origin + "/health", {
+            headers: { authorization: "Bearer " + token },
+          })
+        ).json(),
+      ).toMatchObject({ kind: "native-host", nativeTools: true });
+      const response = await request(
+        "turn",
+        { input: input() },
+        undefined,
+        host.origin,
+      );
+      const events = (await response.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(events, diagnostics).toContainEqual({
+        chunk: { text: "Native host file tool executed" },
+      });
+      expect(events).toContainEqual({ done: true });
+      expect(existsSync(join(root, "docker-was-used"))).toBe(false);
+    } finally {
+      host.service.kill();
+      if (host.service.exitCode === null)
+        await new Promise<void>((resolve) =>
+          host.service.once("exit", () => resolve()),
+        );
+    }
+  },
+);
 it("pairs a native host, runs tools in its project with its configuration, and unpairs without touching its login", async () => {
   expect((await fetch(origin + "/health")).status).toBe(401);
   expect(

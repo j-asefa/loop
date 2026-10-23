@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { containerArgs } from "../runtime/container.mjs";
+import { containerArgs } from "../runtime/container.ts";
 const prefix = "loop-workspace-smoke-" + randomBytes(5).toString("hex");
 const key = randomBytes(32).toString("hex");
 const image = process.env.LOOP_RUNTIME_IMAGE || "loop-runtime:0.2";

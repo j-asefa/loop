@@ -1,7 +1,8 @@
+import type { Steering } from "./types.ts";
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { CodexSession } from "./codex-session.mjs";
+import { CodexSession } from "./codex-session.ts";
 import {
   RuntimeFailure,
   diagnosticText,
@@ -11,7 +12,7 @@ import { HarnessError } from "./harness.ts";
 import { redactValues } from "./redaction.ts";
 
 const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
-const env = hostMode
+const env: NodeJS.ProcessEnv = hostMode
   ? { ...process.env }
   : {
       PATH: process.env.PATH,
@@ -28,7 +29,7 @@ for (const key of [
   "LOOP_RUNTIME_TOKEN_FILE",
 ])
   delete env[key];
-if (!hostMode) mkdirSync(env.CODEX_HOME, { recursive: true, mode: 0o700 });
+if (!hostMode) mkdirSync(env.CODEX_HOME!, { recursive: true, mode: 0o700 });
 const child = spawn(
   "codex",
   [
@@ -55,12 +56,15 @@ child.once("error", () => process.exit(1));
 child.once("close", () => process.exit(1));
 const session = new CodexSession(child, {
   hostMode,
-  home: env.HOME,
+  home: env.HOME!,
   cwd: process.env.LOOP_RUNTIME_WORKDIR || process.cwd(),
 });
 session.ready.catch(stop);
-const operations = new Map();
-const send = (id, event) =>
+const operations = new Map<
+  string,
+  { controller: AbortController; steer?: Steering }
+>();
+const send = (id: string, event: unknown) =>
   process.stdout.write(JSON.stringify({ id, event }) + "\n");
 const input = createInterface({ input: process.stdin });
 for await (const line of input) {
@@ -92,9 +96,12 @@ for await (const line of input) {
   if (typeof message.id !== "string" || operations.has(message.id))
     throw new Error("Invalid operation");
   const request = message.request;
-  const operation = { controller: new AbortController(), steer: undefined };
+  const operation: { controller: AbortController; steer?: Steering } = {
+    controller: new AbortController(),
+    steer: undefined,
+  };
   operations.set(message.id, operation);
-  const clean = (value) =>
+  const clean = (value: unknown) =>
     redactValues(value, request.githubToken ? [request.githubToken] : []);
   void session
     .run(

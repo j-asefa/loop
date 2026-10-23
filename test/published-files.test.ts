@@ -457,7 +457,7 @@ it("reads files through the real runtime entry without launching a provider", ()
   for (const offset of [0, FILE_CHUNK_BYTES]) {
     const stdout = execFileSync(
       process.execPath,
-      [resolve("runtime/entry.mjs")],
+      [resolve("runtime/entry.ts")],
       {
         env: {
           PATH: process.env.PATH,

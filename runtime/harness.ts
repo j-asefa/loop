@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { ChatInput } from "../src/server/providers.js";
+import type { RuntimeInput } from "./types.ts";
 export type HarnessCommand = {
   name: string;
   token: string;
@@ -29,9 +29,7 @@ export class HarnessError extends Error {}
 
 const validName = (name: unknown): name is string =>
   typeof name === "string" && /^[\w.:-]{1,200}$/.test(name);
-export function codexSkills(
-  result: any,
-): {
+export function codexSkills(result: any): {
   name: string;
   path: string;
   enabled?: boolean;
@@ -73,18 +71,18 @@ export function codexCatalog(result: unknown): HarnessCatalog {
     ],
   };
 }
-export function latestPrompt(input: ChatInput): string {
+export function latestPrompt(input: RuntimeInput): string {
   const last = input.messages.at(-1);
   return last?.role === "user" ? last.content.trim() : "";
 }
-export function slashCommand(input: ChatInput): string | undefined {
+export function slashCommand(input: RuntimeInput): string | undefined {
   const match = latestPrompt(input).match(/^\/([\w.:-]+)(?:\s|$)/);
   return match?.[1];
 }
 export async function codexTurn(
   rpc: { call(method: string, params?: object): Promise<any> },
   threadId: string,
-  input: ChatInput,
+  input: RuntimeInput,
   nativeTools: boolean,
   cwd?: string,
   signal?: AbortSignal,

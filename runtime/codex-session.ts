@@ -1,3 +1,5 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { SessionRequest, Steering } from "./types.ts";
 import { Rpc, authorizationUrl, resultChunks } from "./protocol.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { nativeReply } from "./native-tools.ts";
@@ -5,10 +7,10 @@ import { codexCatalog, codexTurn } from "./harness.ts";
 import { codexTrace, codexActivity } from "./traces.ts";
 import { modelOptions } from "./model-options.ts";
 import { RuntimeFailure, diagnosticText } from "./diagnostics.ts";
-import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
-import { workspaceCleanupInstructions } from "./workspace-cleanup.mjs";
+import { managedWorkspace, githubEnvironment } from "./workspace.ts";
+import { workspaceCleanupInstructions } from "./workspace-cleanup.ts";
 import { redactValues } from "./redaction.ts";
-async function readAccount(rpc, signal) {
+async function readAccount(rpc: Rpc, signal: AbortSignal): Promise<any> {
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
     try {
@@ -35,10 +37,10 @@ async function readAccount(rpc, signal) {
 
 // A mailbox belongs to one thread. Never let another consumer drain its events.
 class Mailbox {
-  events = [];
-  waiter;
-  error;
-  push(event) {
+  events: any[] = [];
+  waiter?: { resolve: (event: any) => void; reject: (error: unknown) => void };
+  error: unknown;
+  push(event: any) {
     if (this.error) return;
     if (this.waiter) {
       const waiter = this.waiter;
@@ -47,7 +49,7 @@ class Mailbox {
     } else if (this.events.length < 5000) this.events.push(event);
     else this.fail(new RuntimeFailure("Too many runtime events"));
   }
-  next(signal) {
+  next(signal: AbortSignal): Promise<any> {
     signal.throwIfAborted();
     if (this.error) return Promise.reject(this.error);
     if (this.events.length) return Promise.resolve(this.events.shift());
@@ -55,7 +57,7 @@ class Mailbox {
       this.waiter = { resolve, reject };
     });
   }
-  fail(error) {
+  fail(error: unknown) {
     this.error = error;
     this.events = [];
     this.waiter?.reject(error);
@@ -66,9 +68,20 @@ class Mailbox {
 // One official process per saved connection. Threads, credentials and controls
 // are scoped to the operation; process-wide environment/config never mutates.
 export class CodexSession {
-  threads = new Map();
-  login;
-  constructor(child, { hostMode, home, cwd }) {
+  threads = new Map<
+    string,
+    { mailbox: Mailbox; signal: AbortSignal; turnId?: string }
+  >();
+  login?: Mailbox;
+  declare rpc: Rpc;
+  declare ready: Promise<void>;
+  declare hostMode: boolean;
+  declare home: string;
+  declare cwd: string;
+  constructor(
+    child: ChildProcessWithoutNullStreams,
+    { hostMode, home, cwd }: { hostMode: boolean; home: string; cwd: string },
+  ) {
     Object.assign(this, { hostMode, home, cwd });
     this.rpc = new Rpc(
       child,
@@ -110,7 +123,12 @@ export class CodexSession {
     // Startup can fail before the first command arrives.
     this.ready.catch(() => {});
   }
-  async run(request, emit, signal, setSteering) {
+  async run(
+    request: SessionRequest,
+    emit: (event: unknown) => void,
+    signal: AbortSignal,
+    setSteering: (steer: Steering | undefined) => void,
+  ): Promise<void> {
     if (
       request.action === "project-brief" ||
       request.input?.nativeTools === false
@@ -183,7 +201,7 @@ export class CodexSession {
       return;
     }
     if (request.action !== "turn") {
-      let cursor;
+      let cursor: string | undefined;
       const models = [];
       do {
         const page = await rpc.call("model/list", {
@@ -192,7 +210,7 @@ export class CodexSession {
           ...(cursor ? { cursor } : {}),
         });
         models.push(
-          ...page.data.map((m) => ({
+          ...page.data.map((m: any) => ({
             id: m.model || m.id,
             name: m.displayName || m.id,
             capabilities: "ChatGPT subscription · account catalog",
@@ -220,8 +238,8 @@ export class CodexSession {
         ? request.githubToken
         : undefined;
     const shellEnv = secret === undefined ? {} : githubEnvironment(secret);
-    const clean = (data) => redactValues(data, secret ? [secret] : []);
-    const output = (event) => emit(clean(event));
+    const clean = (data: unknown) => redactValues(data, secret ? [secret] : []);
+    const output = (event: unknown) => emit(clean(event));
     const input = { ...request.input };
     if (!this.hostMode)
       input.instructions =
@@ -231,8 +249,8 @@ export class CodexSession {
           ? " Git and gh are authenticated with the workspace's connected GitHub account. Use them for the user's authorized repository work; never print or store authentication tokens."
           : "") +
         workspaceCleanupInstructions(cwd);
-    let threadId,
-      turnId,
+    let threadId: string | undefined,
+      turnId: string | undefined,
       completed = false;
     const mailbox = new Mailbox();
     const abort = () => mailbox.fail(signal.reason);
@@ -266,7 +284,7 @@ export class CodexSession {
       const turn = await codexTurn(rpc, threadId, input, true, cwd, signal);
       turnId = turn.turn?.id;
       if (!turnId) throw new RuntimeFailure("Codex did not return a turn");
-      this.threads.get(threadId).turnId = turnId;
+      this.threads.get(threadId)!.turnId = turnId;
       signal.throwIfAborted();
       setSteering(async (text) => {
         signal.throwIfAborted();
@@ -331,7 +349,7 @@ export class CodexSession {
     } finally {
       setSteering(undefined);
       signal.removeEventListener("abort", abort);
-      turnId ||= this.threads.get(threadId)?.turnId;
+      turnId ||= this.threads.get(threadId!)?.turnId;
       // A stop or disconnected HTTP stream belongs only to this turn.
       if (threadId && turnId && !completed)
         await rpc.call("turn/interrupt", { threadId, turnId }).catch(() => {});

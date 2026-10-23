@@ -41,7 +41,7 @@ test("every deployment/shared/unknown input fails open to full coverage", () => 
     "src/shared/news.ts",
     "src/native-auth/drivers.ts",
     "src/service.ts",
-    "runtime/broker.mjs",
+    "runtime/broker.ts",
     "migrations/064.sql",
     "package-lock.json",
     "package.json",

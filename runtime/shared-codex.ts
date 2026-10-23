@@ -1,3 +1,25 @@
+import type { EventEmitter } from "node:events";
+import type { Readable, Writable } from "node:stream";
+type ProcessPipe = EventEmitter & {
+  stdin: Writable;
+  stdout: Readable;
+  stderr: Readable;
+};
+type Operation = {
+  controlId?: string;
+  action: string;
+  onEvent: (event: any) => void;
+  ready: boolean;
+  done: boolean;
+  error?: unknown;
+  result?: any;
+  cancel: (error?: unknown) => void;
+  finish: (error?: unknown) => void;
+  controls: SteeringControls;
+  idle?: ReturnType<typeof idleDeadline>;
+  login?: ReturnType<typeof loginDeadline>;
+  timer?: ReturnType<typeof setTimeout>;
+};
 import { randomUUID } from "node:crypto";
 import { lines } from "./protocol.ts";
 import {
@@ -6,15 +28,19 @@ import {
   runtimeFailureFacts,
 } from "./diagnostics.ts";
 import { idleDeadline } from "./idle-deadline.ts";
-import { loginDeadline } from "./login-deadline.mjs";
+import { loginDeadline } from "./login-deadline.ts";
 import { SteeringControls } from "./steering.ts";
 
 // Multiplex the private broker/worker pipe. Only the broker holds the Docker
 // socket. Cancelling an operation never terminates the shared process.
 export class SharedCodex {
-  operations = new Map();
+  operations = new Map<string, Operation>();
+  declare process: ProcessPipe;
+  declare stop: () => void;
+  declare onClose: () => void;
+  declare containerName?: string;
   closed = false;
-  constructor(process, stop, onClose) {
+  constructor(process: ProcessPipe, stop: () => void, onClose: () => void) {
     Object.assign(this, { process, stop, onClose });
     process.stderr.resume();
     process.stdin.on("error", () => this.close());
@@ -72,12 +98,20 @@ export class SharedCodex {
       (error) => this.close(error),
     );
   }
-  write(message) {
+  write(message: unknown) {
     if (this.closed || this.process.stdin.destroyed)
       throw new RuntimeFailure("Shared Codex runtime is closed");
     this.process.stdin.write(JSON.stringify(message) + "\n");
   }
-  run(request, onEvent, signal) {
+  run(
+    request: {
+      action: string;
+      input?: { controlId?: string };
+      [key: string]: unknown;
+    },
+    onEvent: (event: any) => void,
+    signal?: AbortSignal,
+  ): Promise<any> {
     if (this.closed)
       return Promise.reject(
         new RuntimeFailure("Shared Codex runtime is closed"),
@@ -96,7 +130,7 @@ export class SharedCodex {
         onEvent,
         ready: false,
         done: false,
-      };
+      } as Operation;
       const cancel = (error = signal?.reason || new Error("Cancelled")) => {
         op.error ||= error;
         op.ready = false;
@@ -145,7 +179,7 @@ export class SharedCodex {
       }
     });
   }
-  steer(controlId, id, text) {
+  steer(controlId: string, id: string, text: string) {
     const op = [...this.operations.values()].find(
       (op) => op.ready && op.controlId === controlId,
     );
@@ -155,7 +189,7 @@ export class SharedCodex {
     for (const op of this.operations.values())
       if (op.action === "login") op.cancel(new Error("Sign-in cancelled"));
   }
-  close(error = new RuntimeFailure("Shared Codex runtime closed")) {
+  close(error: unknown = new RuntimeFailure("Shared Codex runtime closed")) {
     if (this.closed) return;
     this.closed = true;
     for (const op of this.operations.values()) op.finish(error);

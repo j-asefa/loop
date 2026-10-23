@@ -17,7 +17,7 @@ const { runtimeWorkspaceKey, subscriptionStream } =
   await import("../src/server/subscriptions");
 const { cleanupMergedWorkspaces } =
   await import("../src/server/workspace-cleanup");
-const { githubEnvironment } = await import(resolve("runtime/workspace.mjs"));
+const { githubEnvironment } = await import(resolve("runtime/workspace.ts"));
 const token = "fixture-github-secret";
 function preference(owner = "alice", mode = "allow") {
   db.prepare(
@@ -203,7 +203,7 @@ it("forwards auth outside model context only to managed runtimes and redacts all
 });
 it("Git credentials are per-process and only returned to HTTPS github.com", () => {
   const env = { ...process.env, ...githubEnvironment(token) };
-  const helper = resolve("runtime/git-credential.mjs");
+  const helper = resolve("runtime/git-credential.ts");
   const read = (host: string, protocol = "https", action = "get") =>
     execFileSync(process.execPath, [helper, action], {
       input: `protocol=${protocol}\nhost=${host}\n\n`,

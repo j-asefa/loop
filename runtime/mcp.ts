@@ -1,8 +1,21 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+type McpConfig = {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  session?: string;
+};
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lines } from "./protocol.ts";
 
-export function mcpContainerArgs(prefix, image, name, config) {
+export function mcpContainerArgs(
+  prefix: string,
+  image: string,
+  name: string,
+  config: McpConfig,
+): string[] {
   if (
     !/^[A-Za-z0-9_./-]{1,200}$/.test(config.command) ||
     !Array.isArray(config.args) ||
@@ -53,9 +66,18 @@ export function mcpContainerArgs(prefix, image, name, config) {
     ...config.args,
   ];
 }
-export function mcpHandler(prefix, image, readBody, json, remove) {
-  const sessions = new Map();
-  return async (req, res) => {
+export function mcpHandler(
+  prefix: string,
+  image: string,
+  readBody: (req: IncomingMessage) => Promise<any>,
+  json: (res: ServerResponse, data: unknown, code?: number) => void,
+  remove: (name: string) => Promise<boolean>,
+) {
+  const sessions = new Map<
+    string,
+    { p: ChildProcessWithoutNullStreams; close: () => void }
+  >();
+  return async (req: IncomingMessage, res: ServerResponse) => {
     if (!req.url?.startsWith("/mcp")) return false;
     const session = req.url.split("/")[2];
     if (req.url === "/mcp" && req.method === "POST") {

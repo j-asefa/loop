@@ -1,8 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-// @ts-expect-error Plain JavaScript runtime module.
-import { SharedCodex } from "../runtime/shared-codex.mjs";
+import { SharedCodex } from "../runtime/shared-codex.ts";
 
 function fixture() {
   const child = Object.assign(new EventEmitter(), {

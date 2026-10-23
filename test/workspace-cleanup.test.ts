@@ -16,10 +16,10 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 const exec = promisify(execFile);
 const { cleanupWorktree } = await import(
-  resolve("runtime/cleanup-worktree.mjs")
+  resolve("runtime/cleanup-worktree.ts")
 );
 const { trackPullRequest, cleanupRegistered } = await import(
-  resolve("runtime/workspace-cleanup.mjs")
+  resolve("runtime/workspace-cleanup.ts")
 );
 let root: string, repo: string, job: string, env: NodeJS.ProcessEnv, pr: any;
 const url = "https://github.com/acme/project/pull/42";
@@ -259,7 +259,7 @@ it("refuses out-of-workspace paths and symlinked cleanup registries", async () =
 
 it("preflights an eligible registered checkout without deleting it or updating its registry", async () => {
   const { cleanupWorkspaces } = await import(
-    resolve("runtime/workspace-cleanup.mjs")
+    resolve("runtime/workspace-cleanup.ts")
   );
   for (const path of [
     "node_modules",

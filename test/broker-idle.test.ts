@@ -32,7 +32,7 @@ Server.prototype.listen = function () {
 `,
   );
   writeFileSync(
-    join(dir, "entry.mjs"),
+    join(dir, "entry.ts"),
     `
 import { spawn } from 'node:child_process';
 let raw = '';
@@ -52,7 +52,7 @@ if (request.input.model === 'stall') {
   const token = "test-broker-token-with-at-least-32-characters";
   const broker = spawn(
     process.execPath,
-    ["--import", join(dir, "clock.mjs"), join(dir, "broker.mjs")],
+    ["--import", join(dir, "clock.mjs"), join(dir, "broker.ts")],
     {
       env: {
         ...process.env,

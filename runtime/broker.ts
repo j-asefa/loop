@@ -1,11 +1,28 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { IncomingMessage, ServerResponse } from "node:http";
+type ActiveRuntime = {
+  process: ChildProcessWithoutNullStreams;
+  cancel: (force?: boolean | Event) => void;
+  controls: SteeringControls;
+  provider: string;
+  controlId?: string;
+  ready: boolean;
+};
+type Login = {
+  state: string;
+  expiresAt: number;
+  login?: { acceptsCode?: boolean; [key: string]: unknown };
+  result?: Record<string, unknown>;
+  error?: string;
+};
 import {
   RuntimeFailure,
   diagnosticText,
   runtimeFailureFacts,
 } from "./diagnostics.ts";
 import { idleDeadline, IdleTimeoutError } from "./idle-deadline.ts";
-import { containerArgs } from "./container.mjs";
-import { mcpHandler } from "./mcp.mjs";
+import { containerArgs } from "./container.ts";
+import { mcpHandler } from "./mcp.ts";
 // Private control plane. Only this service has the Docker socket, never model containers.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -14,14 +31,14 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { lines } from "./protocol.ts";
 import { SteeringControls } from "./steering.ts";
-import { SharedCodex } from "./shared-codex.mjs";
+import { SharedCodex } from "./shared-codex.ts";
 import { MAX_CONCURRENT_RUNS } from "./concurrency.ts";
 import { FileRejected } from "./published-files.ts";
 import {
   loginDeadline,
   LoginTimeoutError,
   LOGIN_START_MS,
-} from "./login-deadline.mjs";
+} from "./login-deadline.ts";
 const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
 const workdir = hostMode
   ? realpathSync(process.env.LOOP_RUNTIME_WORKDIR || process.cwd())
@@ -34,32 +51,32 @@ if (!token || token.length < 32)
 const prefix =
   "loop-sub-" + createHash("sha256").update(token).digest("hex").slice(0, 12);
 const image = process.env.LOOP_RUNTIME_IMAGE || "loop-runtime:0.2";
-const pending = new Map(),
-  active = new Map(),
-  logins = new Map(),
-  generations = new Map();
+const pending = new Map<string, Promise<unknown>>(),
+  active = new Map<string, ActiveRuntime>(),
+  logins = new Map<string, Login>(),
+  generations = new Map<string, number>();
 const MAX_ACTIVE = MAX_CONCURRENT_RUNS;
-const codexWorkers = new Map();
-const codexMaintenance = new Map();
-const workspaceCleanups = new Set();
-const workspaceCleanupDone = new Map();
+const codexWorkers = new Map<string, SharedCodex>();
+const codexMaintenance = new Map<string, object | symbol>();
+const workspaceCleanups = new Set<string>();
+const workspaceCleanupDone = new Map<string, Promise<any>>();
 const activeCount = () =>
   active.size +
   [...codexWorkers.values()].reduce(
     (n, worker) => n + worker.operations.size,
     0,
   );
-const codexBusy = (key) => !!codexWorkers.get(key)?.operations.size;
-function authorized(header) {
+const codexBusy = (key: string) => !!codexWorkers.get(key)?.operations.size;
+function authorized(header: string | undefined) {
   const a = Buffer.from(header || ""),
     b = Buffer.from("Bearer " + token);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function docker(args) {
+function docker(args: string[]) {
   return spawn("docker", args, { stdio: ["pipe", "pipe", "pipe"] });
 }
-async function remove(name) {
+async function remove(name: string): Promise<boolean> {
   const p = docker(["rm", "-f", name]);
   p.stdout.resume();
   p.stderr.resume();
@@ -71,12 +88,25 @@ async function remove(name) {
     p.once("close", (code) => resolve(code === 0));
   });
 }
-function spawnRuntime(key, entry) {
+function spawnRuntime(key: string, entry: string) {
   const name = `${prefix}-${randomUUID()}`;
+  // Source checkouts launch TypeScript siblings; compiled distributions and
+  // containers retain the JavaScript entrypoint names.
   const p = hostMode
     ? spawn(
         process.execPath,
-        [fileURLToPath(new URL("./" + entry, import.meta.url))],
+        [
+          fileURLToPath(
+            new URL(
+              "./" +
+                entry.replace(
+                  /\.mjs$/,
+                  import.meta.url.endsWith(".ts") ? ".ts" : ".mjs",
+                ),
+              import.meta.url,
+            ),
+          ),
+        ],
         {
           cwd: workdir,
           env: { ...process.env, LOOP_RUNTIME_WORKDIR: workdir },
@@ -99,7 +129,7 @@ function spawnRuntime(key, entry) {
   };
   return { p, name, stop };
 }
-function codexWorker(key) {
+function codexWorker(key: string) {
   let worker = codexWorkers.get(key);
   if (worker) return worker;
   // Bound persistent homes without evicting any active operation.
@@ -116,17 +146,22 @@ function codexWorker(key) {
   codexWorkers.set(key, worker);
   return worker;
 }
-async function execute(key, request, onEvent, signal) {
+async function execute(
+  key: string,
+  request: { action: string; [key: string]: any },
+  onEvent: (event: any) => void,
+  signal?: AbortSignal,
+): Promise<any> {
   if (activeCount() >= MAX_ACTIVE)
     throw new Error("Runtime capacity reached. Retry later.");
   if (request.provider === "codex")
     return codexWorker(key).run(request, onEvent, signal);
   const { p, name } = spawnRuntime(key, "entry.mjs");
-  let result,
-    error,
-    exitSignal,
+  let result: any,
+    error: unknown,
+    exitSignal: NodeJS.Signals | null | undefined,
     closed = false;
-  const cancel = (force = false) => {
+  const cancel = (force: boolean | Event = false) => {
     const killSignal = force === true ? "SIGKILL" : "SIGTERM";
     if (hostMode && process.platform !== "win32" && p.pid) {
       try {
@@ -237,7 +272,7 @@ async function execute(key, request, onEvent, signal) {
     return result;
   } finally {
     controls.close();
-    clearTimeout(timer);
+    clearTimeout(timer as ReturnType<typeof setTimeout> | undefined);
     idle?.clear();
     deadline?.clear();
     signal?.removeEventListener("abort", cancel);
@@ -246,7 +281,7 @@ async function execute(key, request, onEvent, signal) {
     if (!hostMode) await remove(name);
   }
 }
-function serial(key, fn) {
+function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const generation = generations.get(key) || 0;
   const previous = pending.get(key) || Promise.resolve();
   const task = previous
@@ -263,7 +298,7 @@ function serial(key, fn) {
   });
   return task;
 }
-async function body(req) {
+async function body(req: IncomingMessage): Promise<any> {
   let data = "";
   for await (const b of req) {
     data += b;
@@ -271,7 +306,7 @@ async function body(req) {
   }
   return JSON.parse(data);
 }
-const json = (res, data, code = 200) => {
+const json = (res: ServerResponse, data: unknown, code = 200) => {
   res.writeHead(code, {
     "content-type": "application/json",
     "cache-control": "no-store",
@@ -328,7 +363,8 @@ const server = createServer(async (req, res) => {
         !Array.isArray(data.workspaceKeys) ||
         data.workspaceKeys.length > 100 ||
         data.workspaceKeys.some(
-          (value) => typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value),
+          (value: unknown) =>
+            typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value),
         )
       )
         throw new Error("Invalid cleanup workspaces");
@@ -381,7 +417,7 @@ const server = createServer(async (req, res) => {
               return preview;
             // Wait for Docker to confirm the container is gone, not just for
             // its attached CLI to exit; background tools could still write.
-            const removed = await remove(idleWorker.containerName);
+            const removed = await remove(idleWorker.containerName!);
             idleWorker.close();
             if (!removed)
               throw new Error("Could not stop the idle runtime for cleanup");
@@ -498,7 +534,7 @@ const server = createServer(async (req, res) => {
         );
         return;
       }
-      const login = {
+      const login: Login = {
         state: "starting",
         expiresAt: Date.now() + LOGIN_START_MS,
       };

@@ -9,6 +9,9 @@ export async function compileRuntime(root, output) {
   const directory = resolve(root, "runtime");
   const entryPoints = {};
   for (const file of await readdir(directory)) {
+    // The checkout compatibility launcher delegates to host.ts; compiled hosts
+    // use the TypeScript implementation directly, without a source dependency.
+    if (file === "host.mjs") continue;
     if (!/\.(?:mjs|ts)$/.test(file) || /\.d\.ts$/.test(file)) continue;
     const name = file.replace(/\.(?:mjs|ts)$/, "");
     if (entryPoints[name]) throw new Error(`Duplicate runtime module: ${name}`);

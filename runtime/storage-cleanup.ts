@@ -1,3 +1,33 @@
+type NpmEntry = {
+  integrity: string;
+  resolved?: string;
+  link?: unknown;
+  [key: string]: unknown;
+};
+type Contents = {
+  files: Map<string, { size: number; hash: string }>;
+  directories: Set<string>;
+  bins: Map<string, Set<string>>;
+};
+type Receipt = {
+  packages: Set<string>;
+  entries: [string, NpmEntry][];
+  head: string;
+  top: string;
+  contents?: Contents;
+};
+type Candidate =
+  | { path: string; kind: "dependencies"; workspace: string }
+  | { path: string; kind: "browser-cache" }
+  | { path: string; kind: "npm-cache"; hash: string };
+export type Outcome = {
+  path?: string;
+  kind: string;
+  removed: boolean;
+  reason?: string;
+  bytes?: number;
+  eligible?: boolean;
+};
 import {
   constants,
   openSync,
@@ -24,31 +54,31 @@ const checkBudget = () => {
     throw new Error("Storage maintenance time budget exhausted");
 };
 const DAY = 24 * 60 * 60 * 1000;
-const inside = (root, path) => {
+const inside = (root: string, path: string) => {
   const rel = relative(root, path);
   return (
     !!rel && !isAbsolute(rel) && rel !== ".." && !rel.startsWith(".." + sep)
   );
 };
-const stat = (path) => {
+const stat = (path: string) => {
   try {
     return lstatSync(path);
   } catch (error) {
-    if (error.code === "ENOENT") return null;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
 };
-function regularJson(path) {
+function regularJson(path: string): any {
   const s = stat(path);
   if (!s?.isFile() || s.size > 8 * 1024 * 1024)
     throw new Error("Missing or invalid install metadata");
   return JSON.parse(readFileSync(path, "utf8"));
 }
-function contained(root, path) {
+function contained(root: string, path: string) {
   if (!inside(root, path) || realpathSync(path) !== path)
     throw new Error("Path leaves the managed home or traverses a symlink");
 }
-function git(repo, ...args) {
+function git(repo: string, ...args: string[]) {
   checkBudget();
   return execFileSync("git", ["-C", repo, ...args], {
     encoding: "utf8",
@@ -69,7 +99,7 @@ function git(repo, ...args) {
 // File names alone are not deletion authority. An npm receipt must agree with
 // the project's lockfile. Contents are checked separately against cached payloads.
 // Unknown layouts (including Bun/pnpm and editable/file dependencies) are kept.
-function npmReceipt(home, path) {
+function npmReceipt(home: string, path: string): Receipt {
   const project = dirname(path);
   const receiptPath = join(path, ".package-lock.json");
   const receipt = regularJson(receiptPath);
@@ -81,8 +111,8 @@ function npmReceipt(home, path) {
     !receipt.packages
   )
     throw new Error("Unsupported npm install receipt");
-  const packages = new Set();
-  for (const [name, entry] of Object.entries(receipt.packages)) {
+  const packages = new Set<string>();
+  for (const [name, entry] of Object.entries<NpmEntry>(receipt.packages)) {
     const expected = lock.packages[name];
     if (
       !name.startsWith("node_modules/") ||
@@ -134,10 +164,12 @@ function npmReceipt(home, path) {
     throw new Error("Worktree is locked");
   return {
     packages,
-    entries: Object.entries(receipt.packages).map(([name, entry]) => [
-      name.slice("node_modules/".length),
-      entry,
-    ]),
+    entries: Object.entries<NpmEntry>(receipt.packages).map(
+      ([name, entry]): [string, NpmEntry] => [
+        name.slice("node_modules/".length),
+        entry,
+      ],
+    ),
     head: git(top, "rev-parse", "HEAD"),
     top,
   };
@@ -146,7 +178,7 @@ function npmReceipt(home, path) {
 // npm may refresh its hidden receipt without replacing modified package files.
 // Only integrity-verified registry payloads can establish the expected contents.
 // Unsupported archives, missing downloads and generated/extra files are kept.
-function hashFile(path, algorithm = "sha256") {
+function hashFile(path: string, algorithm = "sha256"): string {
   checkBudget();
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOATIME || 0));
   try {
@@ -163,12 +195,12 @@ function hashFile(path, algorithm = "sha256") {
   }
 }
 
-function npmContents(home, receipt) {
-  const files = new Map();
+function npmContents(home: string, receipt: Receipt): Contents {
+  const files = new Map<string, { size: number; hash: string }>();
   const directories = new Set(["", ".bin"]);
-  const bins = new Map();
+  const bins = new Map<string, Set<string>>();
   let total = 0;
-  function parents(path) {
+  function parents(path: string) {
     for (
       let at = path.lastIndexOf("/");
       at >= 0;
@@ -214,14 +246,14 @@ function npmContents(home, receipt) {
     total += archive.length;
     if (total > 512 * 1024 * 1024)
       throw new Error("Package payloads exceed the maintenance scan limit");
-    let packageJson, longPath;
-    let globalPax = {},
-      localPax = {};
+    let packageJson: any, longPath: string | undefined;
+    let globalPax: Record<string, string> = {},
+      localPax: Record<string, string> = {};
     for (let at = 0; at + 512 <= archive.length;) {
       checkBudget();
       const header = archive.subarray(at, at + 512);
       if (header.every((byte) => byte === 0)) break;
-      const field = (start, end) =>
+      const field = (start: number, end: number) =>
         header.subarray(start, end).toString("utf8").replace(/\0.*$/s, "");
       // GNU headers use this area for timestamps, not a POSIX path prefix.
       const prefix = field(257, 263) === "ustar" ? field(345, 500) : "";
@@ -247,7 +279,7 @@ function npmContents(home, receipt) {
         if (kind === "L")
           longPath = contents.toString("utf8").replace(/\0.*$/s, "");
         else {
-          const fields = {};
+          const fields: Record<string, string> = {};
           for (let offset = 0; offset < contents.length;) {
             const space = contents.indexOf(32, offset);
             const lengthText = contents
@@ -333,14 +365,18 @@ function npmContents(home, receipt) {
   return { files, directories, bins };
 }
 
-function inspectTree(path, receipt, browserInstalledAt) {
+function inspectTree(
+  path: string,
+  receipt?: Receipt,
+  browserInstalledAt?: number,
+) {
   const root = lstatSync(path);
   let newest = 0,
     bytes = 0,
     entries = 0;
   const digest = createHash("sha256");
   const seen = new Set();
-  function walk(file, rel) {
+  function walk(file: string, rel: string): void {
     checkBudget();
     if (++entries > 250000)
       throw new Error("Dependency tree exceeds the maintenance scan limit");
@@ -368,7 +404,7 @@ function inspectTree(path, receipt, browserInstalledAt) {
       seen.add(inode);
     }
     if (rel) {
-      const name = rel.split("/").at(-1);
+      const name = rel.split("/").at(-1)!;
       if (
         /^(?:\.git|\.ssh)$/.test(name) ||
         (!s.isDirectory() &&
@@ -381,7 +417,7 @@ function inspectTree(path, receipt, browserInstalledAt) {
           `Potential user credentials or repository inside dependency tree: ${rel}`,
         );
       if (receipt) {
-        const manifest = receipt.contents;
+        const manifest = receipt.contents!;
         if (rel !== ".package-lock.json") {
           if (s.isDirectory()) {
             if (!manifest.directories.has(rel))
@@ -396,8 +432,8 @@ function inspectTree(path, receipt, browserInstalledAt) {
           } else if (
             !s.isFile() ||
             !manifest.files.has(rel) ||
-            s.size !== manifest.files.get(rel).size ||
-            hashFile(file) !== manifest.files.get(rel).hash
+            s.size !== manifest.files.get(rel)!.size ||
+            hashFile(file) !== manifest.files.get(rel)!.hash
           ) {
             throw new Error(`Dependency differs from package payload: ${rel}`);
           }
@@ -425,19 +461,28 @@ function inspectTree(path, receipt, browserInstalledAt) {
   return { newest, bytes, fingerprint: digest.digest("hex") };
 }
 
-function discover(home, workspaceKeys, report, cursors, scanCache) {
-  const candidates = [];
-  const visited = new Map();
+function discover(
+  home: string,
+  workspaceKeys: string[],
+  report: (path: string, error: unknown) => void,
+  cursors: Record<string, string>,
+  scanCache: boolean,
+): Candidate[] {
+  const candidates: Candidate[] = [];
+  const visited = new Map<string, number>();
   // Leave most of the pass for verifying the candidates already found.
   const workspaceDeadline =
     Date.now() + Math.max(1, Math.min(2000, (deadline - Date.now()) / 3));
-  const queues = new Map(
+  const queues = new Map<
+    string,
+    { items: [string, string, number][]; at: number }
+  >(
     workspaceKeys.map((key) => {
       const workspace = join(home, "workspaces", key);
       return [workspace, { items: [[workspace, workspace, 0]], at: 0 }];
     }),
   );
-  function walk(path, workspace, depth = 0) {
+  function walk(path: string, workspace: string, depth = 0): void {
     checkBudget();
     const count = (visited.get(workspace) || 0) + 1;
     visited.set(workspace, count);
@@ -462,8 +507,8 @@ function discover(home, workspaceKeys, report, cursors, scanCache) {
       const child = join(path, entry.name);
       if (entry.name === "node_modules")
         candidates.push({ path: child, kind: "dependencies", workspace });
-      else if (queues.get(workspace).items.length < 20000)
-        queues.get(workspace).items.push([child, workspace, depth + 1]);
+      else if (queues.get(workspace)!.items.length < 20000)
+        queues.get(workspace)!.items.push([child, workspace, depth + 1]);
     }
   }
   // Round-robin breadth-first discovery gives every workspace a turn at each
@@ -486,7 +531,7 @@ function discover(home, workspaceKeys, report, cursors, scanCache) {
   }
   const cacheDeadline =
     Date.now() + Math.max(1, Math.min(1000, (deadline - Date.now()) / 3));
-  const entries = (path, index = false) => {
+  const entries = (path: string, index = false): string[] => {
     try {
       checkBudget();
       if (!index && Date.now() >= cacheDeadline) return [];
@@ -546,11 +591,11 @@ function discover(home, workspaceKeys, report, cursors, scanCache) {
 
 // Protect verification inputs for every remaining installation, including
 // workspaces outside this pass. Incomplete discovery never authorizes deletion.
-function neededPayloads(home) {
-  const hashes = new Set();
+function neededPayloads(home: string): Set<string> {
+  const hashes = new Set<string>();
   const until = Math.min(deadline, Date.now() + 2000);
   let count = 0;
-  function walk(path, depth = 0) {
+  function walk(path: string, depth = 0): void {
     if (Date.now() >= until || ++count > 20000 || depth > 14)
       throw new Error("Incomplete dependency reference scan");
     const s = stat(path);
@@ -583,7 +628,7 @@ function neededPayloads(home) {
         continue;
       }
       if (!receipt.packages) continue;
-      for (const item of Object.values(receipt.packages)) {
+      for (const item of Object.values<NpmEntry>(receipt.packages)) {
         if (typeof item.integrity !== "string") continue;
         const match = /^sha512-([A-Za-z0-9+/]+=*)$/.exec(item.integrity);
         if (match) hashes.add(Buffer.from(match[1], "base64").toString("hex"));
@@ -608,7 +653,19 @@ export function cleanupStorage({
   maxDependencies = 4,
   maxCacheFiles = 256,
   maxBrowsers = 1,
-}) {
+}: {
+  home: string;
+  workspaceKeys: string[];
+  dryRun?: boolean;
+  recordProgress?: boolean;
+  timeBudgetMs?: number;
+  now?: number;
+  dependencyAgeMs?: number;
+  cacheAgeMs?: number;
+  maxDependencies?: number;
+  maxCacheFiles?: number;
+  maxBrowsers?: number;
+}): Outcome[] {
   deadline = Date.now() + Math.min(30_000, Math.max(1, timeBudgetMs));
   home = realpathSync(home);
   if (
@@ -620,10 +677,10 @@ export function cleanupStorage({
   const stateDir = join(home, ".loop-storage");
   if (
     stat(stateDir) &&
-    (!stat(stateDir).isDirectory() || realpathSync(stateDir) !== stateDir)
+    (!stat(stateDir)!.isDirectory() || realpathSync(stateDir) !== stateDir)
   )
     throw new Error("Invalid storage maintenance directory");
-  let state = {};
+  let state: Record<string, any> = {};
   try {
     state = regularJson(join(stateDir, "checked.json"));
   } catch {}
@@ -646,11 +703,11 @@ export function cleanupStorage({
   )
     state.caches = {};
   const previous = state.batches[batch];
-  const cursors = {
+  const cursors: Record<string, string> = {
     ...state.caches,
     dependencies: typeof previous?.cursor === "string" ? previous.cursor : "",
   };
-  const results = [];
+  const results: Outcome[] = [];
   const candidates = discover(
     home,
     workspaceKeys,
@@ -660,7 +717,7 @@ export function cleanupStorage({
           path: relative(home, path),
           kind: "discovery",
           removed: false,
-          reason: error.message,
+          reason: (error as Error).message,
         });
     },
     cursors,
@@ -681,7 +738,7 @@ export function cleanupStorage({
   let dependencies = 0,
     caches = 0,
     browsers = 0;
-  let needed, referenceError;
+  let needed: Set<string> | undefined, referenceError: unknown;
   for (const candidate of candidates) {
     if (Date.now() >= deadline) {
       results.push({
@@ -700,7 +757,11 @@ export function cleanupStorage({
     )
       continue;
     const rel = relative(home, candidate.path);
-    const outcome = { path: rel, kind: candidate.kind, removed: false };
+    const outcome: Outcome = {
+      path: rel,
+      kind: candidate.kind,
+      removed: false,
+    };
     try {
       contained(home, candidate.path);
       const s = lstatSync(candidate.path);
@@ -766,7 +827,7 @@ export function cleanupStorage({
           }
         }
         if (referenceError) throw referenceError;
-        if (needed.has(candidate.hash))
+        if (needed!.has(candidate.hash))
           throw new Error("Payload is needed by retained dependencies");
         if (!s.isFile()) throw new Error("Cache entry is not a regular file");
         if (Math.max(s.atimeMs, s.mtimeMs, s.ctimeMs) > now - cacheAgeMs)
@@ -796,9 +857,10 @@ export function cleanupStorage({
       outcome.reason =
         Date.now() >= deadline
           ? "Storage maintenance time budget exhausted"
-          : error.cmd || error.status !== undefined
+          : (error as { cmd?: string }).cmd ||
+              (error as { status?: unknown }).status !== undefined
             ? "Could not verify the checkout"
-            : error.message;
+            : (error as Error).message;
     }
     cursors[candidate.kind] = rel;
     results.push(outcome);
@@ -811,7 +873,7 @@ export function cleanupStorage({
     state = {
       version: 2,
       batches: Object.fromEntries(
-        Object.entries({
+        Object.entries<{ cursor: string; checkedAt: number }>({
           ...state.batches,
           [batch]: { cursor: cursors.dependencies || "", checkedAt: now },
         })

@@ -1,3 +1,11 @@
+export type CleanupResult = {
+  removed: string[];
+  retired: boolean;
+  reason?: string;
+  eligible?: boolean;
+  worktreeRemoved?: boolean;
+  branch?: string;
+};
 import { execFile } from "node:child_process";
 import { readdir, realpath, rmdir } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -18,7 +26,7 @@ const generated = new Set([
   "target",
   "__pycache__",
 ]);
-const inside = (root, path) => {
+const inside = (root: string, path: string) => {
   const rel = relative(root, path);
   return (
     rel !== "" &&
@@ -27,7 +35,7 @@ const inside = (root, path) => {
     !isAbsolute(rel)
   );
 };
-const githubRepo = (remote) => {
+const githubRepo = (remote: string) => {
   const match =
     /^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(
       remote,
@@ -39,13 +47,13 @@ const githubRepo = (remote) => {
 // a sandbox or a garbage collector for arbitrary directories. Never git-clean
 // all ignored files: those can include .env files, uploads and local source.
 export async function cleanupWorktree(
-  workspacePath,
-  repoPath,
-  prUrl,
+  workspacePath: string,
+  repoPath: string,
+  prUrl: string,
   env = process.env,
   dryRun = false,
-) {
-  const run = async (command, args) =>
+): Promise<CleanupResult> {
+  const run = async (command: string, args: string[]) =>
     (
       await exec(command, args, {
         env,
@@ -64,7 +72,7 @@ export async function cleanupWorktree(
     throw new Error(
       "The checkout must be inside this agent's workspace, not the workspace itself.",
     );
-  const git = (...args) => run("git", ["-C", repo, ...args]);
+  const git = (...args: string[]) => run("git", ["-C", repo, ...args]);
   const top = await realpath(
     (await git("rev-parse", "--show-toplevel")).trim(),
   );
@@ -160,9 +168,9 @@ export async function cleanupWorktree(
       "Another worktree is nested here or uses this branch. Preserve both jobs.",
     );
 
-  const candidates = [];
+  const candidates: string[] = [];
   let visited = 0;
-  async function scan(path) {
+  async function scan(path: string): Promise<void> {
     if (++visited > 50000)
       throw new Error(
         "Checkout is too large to inspect safely in one cleanup. Review it manually.",
@@ -179,7 +187,7 @@ export async function cleanupWorktree(
           await git("check-ignore", "--quiet", "--", rel + "/");
           ignored = true;
         } catch (error) {
-          if (error.code !== 1) throw error;
+          if ((error as { code?: number | string }).code !== 1) throw error;
         }
         if (ignored && !(await git("ls-files", "--cached", "--", rel)).trim())
           candidates.push(child);
@@ -206,7 +214,7 @@ export async function cleanupWorktree(
     throw new Error(
       "The checkout changed during inspection. Nothing was removed.",
     );
-  const removed = [];
+  const removed: string[] = [];
   // An ignored directory name does not prove that its contents are generated.
   // A build tree can also contain local credentials, uploads or source files.
   // Inspect every candidate before removing anything, and only delete empty
@@ -255,7 +263,10 @@ export async function cleanupWorktree(
     try {
       await rmdir(path);
     } catch (error) {
-      if (error.code === "ENOTEMPTY" || error.code === "EEXIST")
+      if (
+        (error as NodeJS.ErrnoException).code === "ENOTEMPTY" ||
+        (error as NodeJS.ErrnoException).code === "EEXIST"
+      )
         return {
           removed,
           retired: false,
@@ -317,14 +328,18 @@ if (
         "Usage: node /runtime/cleanup-worktree.mjs <agent-workspace> <checkout> <merged-pr-url>",
       );
     console.log(
-      JSON.stringify(await cleanupWorktree(...process.argv.slice(2))),
+      JSON.stringify(
+        await cleanupWorktree(
+          ...(process.argv.slice(2) as [string, string, string]),
+        ),
+      ),
     );
   } catch (error) {
     // Child-process errors can include credentials from remote URLs or stderr.
     console.error(
-      error.cmd
+      (error as { cmd?: string }).cmd
         ? "Cleanup could not verify the repository or pull request. No unchecked deletion was attempted."
-        : error.message,
+        : (error as Error).message,
     );
     process.exitCode = 1;
   }

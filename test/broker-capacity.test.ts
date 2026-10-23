@@ -29,7 +29,7 @@ Server.prototype.listen = function () {
   );
   // Real broker and child processes; no model requests, Docker or accounts.
   writeFileSync(
-    join(dir, "entry.mjs"),
+    join(dir, "entry.ts"),
     `
 for await (const chunk of process.stdin) {}
 console.log(JSON.stringify({ chunk: { text: 'holding' } }));
@@ -39,7 +39,7 @@ setInterval(() => {}, 1000);
   const token = "fixture-broker-capacity-token-at-least-32-characters";
   const broker = spawn(
     process.execPath,
-    ["--import", join(dir, "port.mjs"), join(dir, "broker.mjs")],
+    ["--import", join(dir, "port.mjs"), join(dir, "broker.ts")],
     {
       env: {
         ...process.env,

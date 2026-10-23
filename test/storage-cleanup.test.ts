@@ -17,8 +17,8 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
-const { cleanupStorage } = await import(resolve("runtime/storage-cleanup.mjs"));
-const { managedWorkspace } = await import(resolve("runtime/workspace.mjs"));
+const { cleanupStorage } = await import(resolve("runtime/storage-cleanup.ts"));
+const { managedWorkspace } = await import(resolve("runtime/workspace.ts"));
 const DAY = 86400000;
 const key = "a".repeat(64);
 let home: string, workspace: string, repo: string, modules: string, now: number;
@@ -191,7 +191,7 @@ it("previews and then removes a populated stale npm installation without a PR or
 });
 
 it("runs storage inspection through the shipped cleanup entrypoint without GitHub", () => {
-  const text = execFileSync(process.execPath, [resolve("runtime/entry.mjs")], {
+  const text = execFileSync(process.execPath, [resolve("runtime/entry.ts")], {
     input:
       JSON.stringify({
         provider: "file",
@@ -571,7 +571,7 @@ it("runs registered checkout inspection even when storage metadata is invalid", 
   const bin = join(home, "bin");
   put(join(bin, "gh"), "#!/bin/sh\nprintf '%s' '{\"merged\":false}'\n");
   chmodSync(join(bin, "gh"), 0o755);
-  const text = execFileSync(process.execPath, [resolve("runtime/entry.mjs")], {
+  const text = execFileSync(process.execPath, [resolve("runtime/entry.ts")], {
     input:
       JSON.stringify({
         provider: "file",

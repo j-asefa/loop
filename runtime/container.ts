@@ -1,4 +1,9 @@
-export function containerArgs(prefix, key, image, name) {
+export function containerArgs(
+  prefix: string,
+  key: string,
+  image: string,
+  name: string,
+): string[] {
   if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid runtime key");
   return [
     "run",

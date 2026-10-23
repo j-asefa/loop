@@ -74,7 +74,7 @@ input.on('line', line => {
     const token = "test-cleanup-broker-token-with-32-characters";
     const broker = spawn(
       process.execPath,
-      ["--import", join(dir, "port.mjs"), join(dir, "runtime", "broker.mjs")],
+      ["--import", join(dir, "port.mjs"), join(dir, "runtime", "broker.ts")],
       {
         env: {
           ...process.env,

@@ -15,7 +15,7 @@ it("reads a Codex workspace file through the broker, and says why it refuses one
   const port = (socket.address() as { port: number }).port;
   await new Promise<void>((resolve) => socket.close(() => resolve()));
   const token = "broker-file-test-token-at-least-32-characters";
-  const broker = spawn(process.execPath, ["runtime/broker.mjs"], {
+  const broker = spawn(process.execPath, ["runtime/broker.ts"], {
     cwd: process.cwd(),
     env: {
       ...process.env,

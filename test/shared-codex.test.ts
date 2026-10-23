@@ -11,16 +11,23 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { pathToFileURL } from "node:url";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
-async function fixture({ managed = false, fastIdle = false } = {}) {
+async function fixture({ managed = false, fastIdle = false, compiled = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "loop-shared-codex-"));
   const bin = join(dir, "bin");
   mkdirSync(bin);
-  cpSync(resolve("runtime"), join(dir, "runtime"), { recursive: true });
+  if (compiled) {
+    const { compileRuntime } = await import(
+      pathToFileURL(resolve("scripts/compile-runtime.mjs")).href
+    );
+    await compileRuntime(process.cwd(), join(dir, "runtime"));
+  } else cpSync(resolve("runtime"), join(dir, "runtime"), { recursive: true });
+  const extension = compiled ? "mjs" : "ts";
   cpSync(resolve("test/helpers/shared-codex-fixture.mjs"), join(bin, "codex"));
   // cp preserves the executable mode of the checked-in fixture.
   writeFileSync(
@@ -40,7 +47,7 @@ ${fastIdle ? "const timeout = globalThis.setTimeout; globalThis.setTimeout = (fn
       `#!/usr/bin/env node
 const {spawn}=require('node:child_process');
 if(process.argv[2]!=='run')process.exit(0);
-const p=spawn(process.execPath,[${JSON.stringify(join(dir, "runtime/codex-worker.mjs"))}],{env:{PATH:process.env.PATH,HOME:${JSON.stringify(dir)}},stdio:'inherit'});
+const p=spawn(process.execPath,[${JSON.stringify(join(dir, `runtime/codex-worker.${extension}`))}],{env:{PATH:process.env.PATH,HOME:${JSON.stringify(dir)}},stdio:'inherit'});
 process.on('SIGTERM',()=>p.kill('SIGTERM'));p.on('exit',code=>process.exit(code||0));
 `,
       { mode: 0o755 },
@@ -48,7 +55,7 @@ process.on('SIGTERM',()=>p.kill('SIGTERM'));p.on('exit',code=>process.exit(code|
   const token = "shared-codex-fixture-token-at-least-32-characters";
   const broker = spawn(
     process.execPath,
-    ["--import", join(dir, "clock.mjs"), join(dir, "runtime/broker.mjs")],
+    ["--import", join(dir, "clock.mjs"), join(dir, `runtime/broker.${extension}`)],
     {
       env: {
         ...process.env,
@@ -126,8 +133,8 @@ process.on('SIGTERM',()=>p.kill('SIGTERM'));p.on('exit',code=>process.exit(code|
   return { dir, post, calls, run };
 }
 
-it("runs three threads in one process, isolates events and approvals, and interrupts only the disconnected run", async () => {
-  const { post, calls, run } = await fixture();
+it.each([false, true])("runs three threads in one process, isolates events and approvals, and interrupts only the disconnected run (compiled: %s)", async (compiled) => {
+  const { post, calls, run } = await fixture({ compiled });
   const a = await run("archer");
   const b = await run("plum");
   const c = await run("elder");

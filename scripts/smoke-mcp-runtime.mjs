@@ -17,7 +17,7 @@ const data = mkdtempSync(join(tmpdir(), "loop-mcp-smoke-"));
 process.env.LOOP_DATA_DIR = data;
 process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:" + port;
 process.env.LOOP_RUNTIME_TOKEN = crypto.randomUUID() + crypto.randomUUID();
-const broker = spawn(process.execPath, ["runtime/broker.mjs"], {
+const broker = spawn(process.execPath, ["runtime/broker.ts"], {
   env: { ...process.env, PORT: String(port) },
   stdio: ["ignore", "pipe", "pipe"],
 });
