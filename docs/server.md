@@ -105,3 +105,99 @@ journal records completion or verification failures.
 The restoration, retention, corruption, interruption and concurrency fixtures
 run with `node --test test/deployment-backups.node.test.ts` and are included in
 `npm run test:native`. They also require Python 3.9+ and `tar`.
+
+
+## Protect live data from build disk pressure
+
+On a shared development host, builds, package fixtures and deployment copies can
+fill the same filesystem used by SQLite. Reserve a separate filesystem for the
+**whole `LOOP_HOME`**, including its workspace, configuration and helpers. A real
+volume is preferable; a fully allocated ext4 image also reserves space on a
+single-disk host. A sparse image does not reserve capacity. This separates space
+budgets, not privileges: a process with access to Loop data or root can still
+modify it, and the data filesystem itself needs free-space monitoring.
+
+The Linux [reserved-volume helper](../deployment/reserved-volume.py) mounts an
+already formatted image using a root-owned JSON configuration with `image`,
+`mountpoint`, `bytes` and its filesystem `uuid`. It verifies the backing file is
+private, fully allocated and has the expected UUID, refuses to hide an existing
+data directory, and disables loop-device discard so inner filesystem trimming
+cannot release the reserved blocks. It never formats or migrates data. Configure
+a root oneshot systemd service with `RemainAfterExit=yes`, run its `mount` action
+before the user manager starts, and use `verify` for checks. Add
+`ExecStartPre=/usr/bin/mountpoint -q /absolute/LOOP_HOME` to Loop's service so a
+failed mount cannot silently start a new workspace on the root disk. Copy data
+only after all runs finish and Loop stops; verify contents and SQLite integrity
+before restarting and removing the old copy.
+
+### Storage budgets and bounded retention
+
+[storage-policy.py](../deployment/storage-policy.py) supplies host-side guards
+and retention, independently of the Loop process. Copy and adapt
+[the example configuration](../deployment/storage-policy.example.json). All
+paths must identify the intended user's deployment and backup directories.
+
+```sh
+python3 deployment/storage-policy.py guard --config /absolute/storage-policy.json
+python3 deployment/storage-policy.py maintain --config /absolute/storage-policy.json --dry-run
+python3 deployment/storage-policy.py maintain --config /absolute/storage-policy.json
+```
+
+The example requires 20 GiB free on the build filesystem and 4 GiB inside the
+reserved data filesystem. Call `guard` before starting a deployment and again
+before copying its workspace backup; `--extra-bytes N` adds the estimated staging
+space to the build budget. A rejected deployment must leave the running server
+alone. Optional PATH wrappers [storage-command.py](../deployment/storage-command.py)
+can apply the same check to npm, npx and Docker commands that create data. Set the
+underlying absolute executable paths in configuration, install the wrapper as
+`npm`, `npx` and `docker` under `~/.local/bin`, and put that directory first in the
+service's PATH. Read-only and cleanup commands remain available. These checks
+reject new work; they are not quotas and cannot constrain a running process or
+commands that bypass the wrappers. Docker builder GC should have its own small
+cache budget (for example `defaultKeepStorage: "2GB"`).
+
+Maintenance keeps the newest two local deployment recovery points (one expanded,
+one compressed, plus a compressed copy of the newest). On a separate private
+backup host it retains the newest two plus the latest deployment on seven distinct
+days and four distinct ISO weeks, at most thirteen copies. These are deployment
+recovery points, not a continuous backup of changes made between deployments.
+Each transfer is verified by SHA-256 and atomically accepted before local history
+expires; every retained remote copy is checked again before remote pruning. A
+transfer or verification failure preserves local history. Never use this policy
+on mutable backup trees. It only selects completed releases with a successful
+`after.json`; incomplete and linked backup directories stay untouched.
+
+Install the same storage-policy helper on the backup host, owned by root and
+executable by a dedicated unprivileged backup user. Give that user a private
+store directory, no sudo access, and a scoped SSH key. Use a dedicated SSH config
+with `BatchMode yes`, `IdentitiesOnly yes`, `ForwardAgent no`, and a verified host
+key with `StrictHostKeyChecking yes`. The source host can write and expire its
+own backups; this is not immutable ransomware protection. Capacity planning must
+include retained archives and room for the next transfer. To restore, copy a
+retained archive back, verify its SHA-256 against `receipt.json`, then use the
+[archive restoration procedure](#archive-deployment-backups).
+
+Maintenance also removes generated package/dependency artifacts from old,
+unmodified, inactive deployment worktrees, retaining at least two recent builds
+and the deployed source. Source code and agent worktrees remain intact. An
+unreadable process prevents cleanup; on Linux hosts with restricted `/proc`, an
+optional root-owned `process_inspector` helper runs only the read-only inspection
+through `sudo -n`, while deletion stays under the ordinary user's identity. This
+does not grant sudo access: omit that option if the deployment account does not
+already have authority to run the helper. Packaging smoke fixtures explicitly
+mark their temporary directories; only expired, idle, identity-matching marked
+fixtures are cleaned after seven days. Arbitrary temporary files and user data
+are never selected by age or filename alone.
+
+After a successful deployment, run
+[refresh-storage-tools.sh](../deployment/refresh-storage-tools.sh) from that
+checkout to copy the operational helpers into an immutable commit directory,
+then start `loop-storage-maintenance.service` without blocking. Install the
+[service](../deployment/loop-storage-maintenance.service) and
+[timer](../deployment/loop-storage-maintenance.timer) under the deployment user's
+`~/.config/systemd/user/`, reload systemd and enable the timer. The service shares
+the deployment lock and skips overlapping work. Inspect its journal for failed
+transfers or low-space guards; do not interpret skipped maintenance as a verified
+backup. Keep the earlier compression-only service disabled when this policy owns
+retention. Tests run with `node --test test/storage-policy.node.test.ts` alongside
+the archive tests.

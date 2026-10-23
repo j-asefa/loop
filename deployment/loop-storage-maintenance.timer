@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly Loop storage maintenance
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify off-host Loop backups and enforce storage retention
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/setup/storage-tools/current/storage-policy.py maintain --config %h/setup/storage-policy.json
+Nice=10
+CPUQuota=50%
+IOWeight=10
+UMask=0077
+TimeoutStartSec=2h

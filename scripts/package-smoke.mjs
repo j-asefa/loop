@@ -16,8 +16,10 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import { existsSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
 import { WebSocket } from "ws";
+import { markDisposableFixture } from "./helpers/disposable-fixture.mjs";
 const exec = promisify(execFile),
   base = await mkdtemp(join(tmpdir(), "loop-package-"));
+markDisposableFixture(base);
 let child, ws, tarball, bin, env;
 try {
   await exec("npm", ["run", "build"], { maxBuffer: 4_000_000 });

@@ -105,7 +105,7 @@ def sync_directory(path):
         os.close(fd)
 
 
-def archive_backup(backup):
+def archive_backup(backup, retain_source=False):
     expected = snapshot(backup)
     archive = backup.parent / ARCHIVE
     partial = backup.parent / (ARCHIVE + ".partial")
@@ -149,7 +149,8 @@ def archive_backup(backup):
         Path(temporary).unlink(missing_ok=True)
     if snapshot(backup) != expected:
         raise RuntimeError("Backup changed before removal; original retained")
-    shutil.rmtree(backup)
+    if not retain_source:
+        shutil.rmtree(backup)
 
 
 @contextmanager
