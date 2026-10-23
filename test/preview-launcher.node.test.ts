@@ -766,9 +766,20 @@ syncBuiltinESMExports();`,
       }
       assert.equal(resumed.state, "completed");
       assert.match(resumed.result, /Simulated reply/);
-      const completions = (
-        await samplePhone.send("GET", "/api/events")
-      ).data.filter((e: any) => e.type === "completed");
+      // The complete change log includes projection invalidations from seeding.
+      // Follow the production endpoint's 200-event pages to the completions.
+      const completions: any[] = [];
+      let eventCursor = 0;
+      for (let page = 0; ; page++) {
+        assert(page < 100, "preview replay must reach its current tip");
+        const events = (
+          await samplePhone.send("GET", "/api/events?after=" + eventCursor)
+        ).data;
+        completions.push(...events.filter((e: any) => e.type === "completed"));
+        if (events.length < 200) break;
+        assert(events.at(-1).id > eventCursor, "event replay must advance");
+        eventCursor = events.at(-1).id;
+      }
       const resumedIndex = completions.findIndex(
         (e: any) => e.run_id === active.id,
       );

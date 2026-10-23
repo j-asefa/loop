@@ -23,6 +23,11 @@ beforeEach(async () => {
         "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'fixture','running',?,1,1)",
       )
       .run(owner, owner, owner);
+  // Test bus ordering after the fixture snapshot, independent of the expiry
+  // scheduler's own subscription and the newly covered run-insert events.
+  local.deadlines.close();
+  local.changes.wake();
+  await new Promise<void>((resolve) => setImmediate(resolve));
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -131,7 +136,7 @@ it("publishes nothing when SQLite rejects the outer commit", async () => {
       .transaction(() => {
         local.db.pragma("defer_foreign_keys = ON");
         local.emit("one", "one", "queued", {});
-        local.emit("one", "missing-run", "running", {});
+        local.db.prepare("INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES('one','missing-run','running','{}',1)").run();
       })
       .immediate(),
   ).toThrow(/FOREIGN KEY/);

@@ -1,71 +1,16 @@
 import { WebSocket } from "ws";
-import { db, changes } from "./db.js";
+import { db, changes, ensureWorkspaceOwner, workspaceClock } from "./db.js";
 import { publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
 import {
   historicalEvent,
   invalidate,
-  PARTIAL_WORKSPACE_CAPABILITIES,
-  WORKSPACE_COLLECTIONS,
+  COMPLETE_WORKSPACE_CAPABILITIES,
   type WorkspaceEvent,
 } from "../shared/workspace-events.js";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_REPLAY_BYTES = 512 * 1024;
-
-type RevisionListener = (failed: boolean) => void;
-const revisions = new Map<
-  string,
-  { value: string; listeners: Set<RevisionListener> }
->();
-let revisionTimer: ReturnType<typeof setInterval> | undefined;
-function readRevision(owner: string) {
-  return JSON.stringify(
-    db
-      .prepare(
-        `SELECT
-    (SELECT epoch FROM card_revision_domain WHERE singleton=1) domain,
-    (SELECT COALESCE(max(revision),0) FROM feed_revisions WHERE owner_id=?) cards,
-    (SELECT COALESCE(max(revision),0) FROM done_card_revisions WHERE owner_id=?) done
-  `,
-      )
-      .get(owner, owner),
-  );
-}
-// Save/dismiss revisions do not all have events yet. One process timer checks
-// each subscribed owner once and shares the result across that owner's sockets.
-function watchRevisions(owner: string, listener: RevisionListener) {
-  let record = revisions.get(owner);
-  if (!record) {
-    record = { value: readRevision(owner), listeners: new Set() };
-    revisions.set(owner, record);
-  }
-  record.listeners.add(listener);
-  if (!revisionTimer) {
-    revisionTimer = setInterval(() => {
-      for (const [owner, record] of revisions) {
-        let failed = false;
-        try {
-          const next = readRevision(owner);
-          if (next === record.value) continue;
-          record.value = next;
-        } catch {
-          failed = true;
-        }
-        for (const notify of [...record.listeners]) notify(failed);
-      }
-    }, 5000);
-    revisionTimer.unref();
-  }
-  return () => {
-    if (!record.listeners.delete(listener)) return;
-    if (!record.listeners.size) revisions.delete(owner);
-    if (!revisions.size && revisionTimer) {
-      clearInterval(revisionTimer);
-      revisionTimer = undefined;
-    }
-  };
-}
 
 // Publications wake reconciliation; each socket retains its own replay cursor.
 export function connectWorkspaceEvents(
@@ -76,8 +21,10 @@ export function connectWorkspaceEvents(
   build?: string,
 ) {
   const v3 = url.searchParams.get("v") === "3";
+  // Already-loaded v3 clients strictly reject new reset keys. Advertise the
+  // clock extension only when this client (and any proxy) negotiates it.
+  const clockV3 = v3 && url.searchParams.get("clock") === "1";
   let cursor = Number(url.searchParams.get("cursor"));
-  let revisionChanged = false;
   let initial = true;
   let stopped = false;
   let scheduled: ReturnType<typeof setImmediate> | undefined;
@@ -86,29 +33,33 @@ export function connectWorkspaceEvents(
       .prepare(
         `SELECT
       (SELECT id FROM events WHERE owner_id=? ORDER BY id LIMIT 1) first,
-      COALESCE((SELECT id FROM events WHERE owner_id=? ORDER BY id DESC LIMIT 1),0) last
+      last_event_id last, epoch FROM change_watermark WHERE owner_id=?
     `,
       )
-      .get(owner, owner) as { first: number | null; last: number };
+      .get(owner, owner) as { first: number | null; last: number; epoch: string };
+    const currentEpoch = v3 ? bounds.epoch : epoch;
     let reset =
+      (v3 && !initial && currentEpoch !== epoch) ||
       (initial &&
-        (url.searchParams.get("epoch") !== epoch ||
+        (url.searchParams.get("epoch") !== currentEpoch ||
           cursor < (bounds.first || 1) - 1)) ||
       !Number.isSafeInteger(cursor) ||
       cursor < 0 ||
       cursor > bounds.last;
+    epoch = currentEpoch;
     if (reset) cursor = bounds.last;
     let events = reset
       ? []
       : (db
           .prepare(
-            `SELECT id,run_id,subject_id,type,
+            `SELECT id,run_id,subject_kind,subject_id,type,
               CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload END payload
              FROM events WHERE owner_id=? AND id>? ORDER BY id LIMIT 100`,
           )
           .all(MAX_EVENT_BYTES, owner, cursor) as {
           id: number;
           run_id: string | null;
+          subject_kind: string;
           subject_id: string;
           type: string;
           payload: string | null;
@@ -128,7 +79,7 @@ export function connectWorkspaceEvents(
     }
     const typed: { id: number; event: WorkspaceEvent }[] = [];
     if (v3) {
-      // Reserve space for every revision hint and the frame envelope. A full
+      // Reserve space for the frame envelope. A full
       // page yields to another read instead of resetting past unread rows.
       let bytes = 4096;
       for (const row of events) {
@@ -141,19 +92,20 @@ export function connectWorkspaceEvents(
         bytes += size;
       }
       if (typed.length) cursor = typed.at(-1)!.id;
-      if (!reset && revisionChanged)
-        for (const collection of WORKSPACE_COLLECTIONS)
-          typed.push({
-            id: cursor,
-            event: invalidate({ kind: "collection", id: collection }),
-          });
       // A healthy reconnect at the current tip still carries an actionable
       // reconciliation signal; synthetic entries intentionally reuse the cursor.
       if (!reset && initial && !typed.length)
         typed.push({ id: cursor, event: invalidate() });
     } else if (events.length) cursor = events.at(-1)!.id;
-    const changed = initial || reset || events.length > 0 || revisionChanged;
-    revisionChanged = false;
+    // A cascade can remove the log tip, but never its durable watermark. Once
+    // all surviving rows are consumed, advance over the hole without spinning
+    // or sending an empty events frame. Tombstones make deletion actionable.
+    if (!reset && events.length < 100 && (!v3 || typed.length >= events.length) && cursor < bounds.last) {
+      cursor = bounds.last;
+      if (!events.length) reset = true;
+    }
+    if (!v3 && initial && !events.length) reset = true;
+    const changed = initial || reset || events.length > 0;
     initial = false;
     const frame = changed
       ? v3
@@ -161,11 +113,10 @@ export function connectWorkspaceEvents(
           ? {
               v: 3,
               type: "reset",
-              epoch,
-              cursor,
               build: build || observedBuild().id,
               buildIdentity: publicBuild(observedBuild()),
-              capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+              capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, deadlines: clockV3 },
+              ...(clockV3 ? workspaceClock(owner) : { epoch, cursor }),
             }
           : { v: 3, type: "events", epoch, cursor, events: typed }
         : {
@@ -173,7 +124,7 @@ export function connectWorkspaceEvents(
             type: reset ? "reset" : "events",
             epoch,
             cursor,
-            events: events.map(({ subject_id: _subject, ...event }) => event),
+            events: events.map(({ subject_id: _subject, subject_kind: _kind, ...event }) => event),
             ...(reset
               ? {
                   build: build || observedBuild().id,
@@ -205,24 +156,16 @@ export function connectWorkspaceEvents(
   };
   // Subscribe before the initial read so catch-up and live wakeups have no gap.
   const unsubscribe = changes.subscribe(owner, schedule);
-  let unwatch = () => {};
   const stop = () => {
     if (stopped) return;
     stopped = true;
     unsubscribe();
-    unwatch();
     if (scheduled) clearImmediate(scheduled);
     socket.off("close", stop);
   };
   socket.once("close", stop);
   try {
-    unwatch = watchRevisions(owner, (failed) => {
-      if (failed) socket.close(1011, "Workspace updates unavailable");
-      else {
-        revisionChanged = true;
-        schedule();
-      }
-    });
+    ensureWorkspaceOwner(owner);
     pump();
   } catch {
     stop();

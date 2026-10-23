@@ -176,6 +176,11 @@ export async function cardsFixture(
     db: database,
     request,
     browser,
+    async setBusyTimeout(ms: number): Promise<void> {
+      const reply = once(child, "message");
+      child.send({ type: "busy-timeout", ms });
+      await reply;
+    },
     async eventSubscriberCount(): Promise<number> {
       const reply = once(child, "message");
       child.send({ type: "change-subscriber-count" });

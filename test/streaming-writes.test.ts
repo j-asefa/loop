@@ -106,8 +106,9 @@ it("keeps the result live while deferring its indexes until completion", async (
     text += chunks[index];
     expect(step.preview).toBe(text);
     expect(step.artifact).toBe(text);
-    // Application statements stay at six; the savings are inside SQL triggers.
-    expect(step.statements).toBe(6);
+    // Six persistence statements plus one producer ownership check. Derived
+    // indexes remain deferred; identity-only log writes happen in SQL triggers.
+    expect(step.statements).toBe(7);
   }
 
   const answer = chunks.join("");

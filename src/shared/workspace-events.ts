@@ -10,6 +10,10 @@ export const WORKSPACE_COLLECTIONS = [
   "saved",
   "later",
   "scheduled",
+  "metadata",
+  "mail",
+  "social",
+  "pulls",
 ] as const;
 export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
 const Id = z.string().min(1).max(1000);
@@ -25,6 +29,19 @@ export const WorkspaceScope = z.discriminatedUnion("kind", [
   }),
 ]);
 export type WorkspaceScope = z.infer<typeof WorkspaceScope>;
+
+export const WORKSPACE_SUBJECTS = [
+  "run", "conversation", "message", "artifact", "approval", "decision",
+  "later", "scheduled_send", "mail_thread", "connection", "agent", "folder",
+  "team", "social", "collection",
+] as const;
+export const WorkspaceSubject = z.strictObject({ kind: z.enum(WORKSPACE_SUBJECTS), id: Id });
+export type WorkspaceSubject = z.infer<typeof WorkspaceSubject>;
+const Scopes = z.array(WorkspaceScope).min(1).max(32);
+const Invalidation = z.strictObject({ scope: WorkspaceScope, scopes: Scopes.optional() });
+const Tombstone = Invalidation.extend({ removed: WorkspaceSubject });
+const Deadline = z.strictObject({ serverNow: Count, nextDeadline: Count.nullable() });
+
 
 // Provider receipts and execution snapshots have provider-specific JSON fields.
 // Bound their serialized size and depth without treating them as projection data.
@@ -259,6 +276,8 @@ function variant<K extends keyof typeof Payloads>(type: K) {
     type: z.literal(type),
     payload: Payloads[type],
     scope: WorkspaceScope,
+    subject: WorkspaceSubject.optional(),
+    scopes: Scopes.optional(),
   });
 }
 export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
@@ -307,15 +326,21 @@ export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
 type EmittedWorkspaceEvent = z.infer<typeof EmittedWorkspaceEvent>;
 // A discriminated tuple keeps existing durable v2 payloads unchanged while
 // correlating each emitted type with exactly its own payload at compile time.
-export type WorkspaceEmission = {
+type LegacyEmission = {
   [K in Exclude<EmittedWorkspaceEvent["type"], "connection.status">]: [
     type: K,
     payload: Extract<EmittedWorkspaceEvent, { type: K }>["payload"],
   ];
 }[Exclude<EmittedWorkspaceEvent["type"], "connection.status">];
+export type WorkspaceEmission = LegacyEmission
+  | [type: "invalidate", payload: z.infer<typeof Invalidation>]
+  | [type: "tombstone", payload: z.infer<typeof Tombstone>]
+  | [type: "deadline", payload: z.infer<typeof Deadline>];
 export const WorkspaceEvent = z.discriminatedUnion("type", [
   ...EmittedWorkspaceEvent.options,
-  z.strictObject({ type: z.literal("invalidate"), scope: WorkspaceScope }),
+  z.strictObject({ type: z.literal("invalidate"), scope: WorkspaceScope, subject: WorkspaceSubject.optional(), scopes: Scopes.optional() }),
+  z.strictObject({ type: z.literal("tombstone"), scope: WorkspaceScope, subject: WorkspaceSubject, scopes: Scopes.optional(), removed: WorkspaceSubject }),
+  z.strictObject({ type: z.literal("deadline"), scope: WorkspaceScope, subject: WorkspaceSubject, ...Deadline.shape }),
 ]);
 export type WorkspaceEvent = z.infer<typeof WorkspaceEvent>;
 export function invalidate(
@@ -323,40 +348,50 @@ export function invalidate(
 ): WorkspaceEvent {
   return { type: "invalidate", scope };
 }
-export function eventScope(type: string, run: string | null, subject?: string): WorkspaceScope {
-  // Legacy events describe changes to a run, not authoritative projection
-  // rows. Collection invalidations are explicit (including revision hints).
-  return type === "connection.status" && subject
+export function eventScopes(event: WorkspaceEvent): WorkspaceScope[] {
+  return [event.scope, ...("scopes" in event ? event.scopes ?? [] : [])];
+}
+export function eventScope(type: string, run: string | null, subject?: string | WorkspaceSubject): WorkspaceScope {
+  if (typeof subject === "object") {
+    if (["run", "conversation", "connection"].includes(subject.kind))
+      return { kind: subject.kind as "run" | "conversation" | "connection", id: subject.id };
+    if (subject.kind === "collection") {
+      const parsed = WorkspaceScope.safeParse(subject);
+      if (parsed.success) return parsed.data;
+    }
+  }
+  return type === "connection.status" && typeof subject === "string"
     ? { kind: "connection", id: subject }
     : run ? { kind: "run", id: run } : { kind: "collection", id: "all" };
 }
-export function parseEmission(run: string | null, type: string, payload: unknown, subject?: string) {
-  if (type === "connection.status" && (run !== null || !subject))
+export function parseEmission(run: string | null, type: string, payload: unknown, input?: string | WorkspaceSubject): WorkspaceEvent {
+  const subject = typeof input === "object" ? WorkspaceSubject.parse(input)
+    : { kind: type === "connection.status" ? "connection" as const : "run" as const, id: input ?? run ?? "" };
+  if (type === "connection.status" && (run !== null || subject.kind !== "connection" || !subject.id))
     throw new Error("Connection status requires a connection subject without a run");
-  const event = EmittedWorkspaceEvent.parse({
-    type,
-    payload,
-    scope: eventScope(type, run, subject),
-  });
+  if (type === "invalidate") return { type, subject, ...Invalidation.parse(payload) };
+  if (type === "tombstone") return { type, subject, ...Tombstone.parse(payload) };
+  if (type === "deadline") return { type, subject, scope: { kind: "collection", id: "all" }, ...Deadline.parse(payload) };
+  const event = EmittedWorkspaceEvent.parse({ type, payload, subject, scope: eventScope(type, run, input) });
   if (new TextEncoder().encode(JSON.stringify(event)).length > 16 * 1024 * 1024)
     throw new Error("Workspace event exceeds its durable size bound");
   return event;
 }
 export function historicalEvent(row: {
   run_id: string | null;
+  subject_kind?: string;
   subject_id?: string;
   type: string;
   payload: string | null;
 }): WorkspaceEvent {
+  const parsed = WorkspaceSubject.safeParse({ kind: row.subject_kind ?? (row.type === "connection.status" ? "connection" : "run"), id: row.subject_id ?? row.run_id });
+  const subject = parsed.success ? parsed.data : undefined;
   if (row.payload === null) {
-    // Payload was bounded in SQL before materialization. Preserve its run scope.
-    const scope = WorkspaceScope.safeParse(eventScope(row.type, row.run_id, row.subject_id));
-    return Object.hasOwn(Payloads, row.type) && scope.success
-      ? invalidate(scope.data)
-      : invalidate();
+    const scope = WorkspaceScope.safeParse(eventScope(row.type, row.run_id, subject));
+    return Object.hasOwn(Payloads, row.type) && scope.success ? invalidate(scope.data) : invalidate();
   }
   try {
-    return parseEmission(row.run_id, row.type, JSON.parse(row.payload), row.subject_id);
+    return parseEmission(row.run_id, row.type, JSON.parse(row.payload), subject);
   } catch {
     return invalidate();
   }
@@ -380,6 +415,14 @@ export const PARTIAL_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
   feed: "snapshot",
   results: "snapshot",
 };
+export const COMPLETE_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
+  ...PARTIAL_WORKSPACE_CAPABILITIES, invalidations: "complete", deadlines: true,
+};
+export const WorkspaceClock = z.strictObject({
+  epoch: z.string().min(1).max(200),
+  serverNow: Count, nextDeadline: Count.nullable(), cursor: Count,
+});
+export type WorkspaceClock = z.infer<typeof WorkspaceClock>;
 export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
   z.strictObject({
     v: z.literal(3),
@@ -389,6 +432,9 @@ export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
     build: z.string().max(1000),
     buildIdentity: z.unknown(),
     capabilities: WorkspaceCapabilities,
+    // Optional while talking to older v3 sources with partial coverage.
+    serverNow: Count.optional(),
+    nextDeadline: Count.nullable().optional(),
   }),
   z.strictObject({
     v: z.literal(3),

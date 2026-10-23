@@ -28,6 +28,7 @@ it.each(["companion", "server"])(
       return new Promise<void>((resolve) => releases.push(resolve));
     });
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const subscriptions = changes.subscriberCount;
     const stop = startWorker();
     try {
       for (let n = 0; n < 33; n++)
@@ -58,7 +59,7 @@ it.each(["companion", "server"])(
     } finally {
       releases.forEach((release) => release());
       await stop();
-      expect(changes.subscriberCount).toBe(0);
+      expect(changes.subscriberCount).toBe(subscriptions);
       changes.close();
       vi.useRealTimers();
       vi.unstubAllEnvs();

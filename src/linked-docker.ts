@@ -138,7 +138,7 @@ export async function connectLinkedDockerEvents(
   }
   const origin = `http://127.0.0.1:${workspace.port}`;
   const url = new URL("/api/events/ws", origin.replace("http:", "ws:"));
-  for (const key of ["epoch", "cursor", "v"])
+  for (const key of ["epoch", "cursor", "v", "clock"])
     if (query.has(key)) url.searchParams.set(key, query.get(key)!);
   const upstream = new WebSocket(url, {
     origin, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024,
@@ -227,6 +227,10 @@ export async function proxyLinkedDocker(
         "accept-ranges",
         "content-range",
         "retry-after",
+        "x-loop-change-epoch",
+        "x-loop-change-cursor",
+        "x-loop-server-now",
+        "x-loop-next-deadline",
         // The Docker server's own policy (sandbox, frame-ancestors) must
         // replace the Host page policy on proxied app and preview content.
         "content-security-policy",

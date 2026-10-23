@@ -118,6 +118,7 @@ it("publishes only committed, owner-scoped connection status without credentials
     expect(historicalEvent(row)).toEqual({
       type: "connection.status",
       scope: { kind: "connection", id: "alice" },
+      subject: { kind: "connection", id: "alice" },
       payload: { status: "disconnected" },
     });
     expect(JSON.stringify(row)).not.toContain("private credential");

@@ -27,7 +27,7 @@ import express from "express";
 import { toNodeHandler } from "better-auth/node";
 
 import { config } from "./config.js";
-import { db } from "./db.js";
+import { db, workspaceClock } from "./db.js";
 import { enqueue } from "./queue.js";
 import { workflows } from "./workflows/routes.js";
 import { workspace } from "./workspace-routes.js";
@@ -62,6 +62,26 @@ if (authentication) await authentication.migrateAuth();
 access?.initializeAccess();
 export const app = express();
 app.disable("x-powered-by");
+// HTTP metadata preserves array and Cards response contracts. Each successful
+// owner-session snapshot, including fallback reads, carries the source clock.
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET") {
+    const json = res.json.bind(res);
+    res.json = (body) => {
+      // Cards grants authorize only their projection, not private workspace
+      // activity or approval/watch expiry metadata, even with an owner cookie.
+      if (res.locals.owner && res.locals.cardScope === undefined && res.statusCode < 400) {
+        const clock = workspaceClock(res.locals.owner);
+        res.setHeader("X-Loop-Change-Epoch", clock.epoch);
+        res.setHeader("X-Loop-Change-Cursor", String(clock.cursor));
+        res.setHeader("X-Loop-Server-Now", String(clock.serverNow));
+        res.setHeader("X-Loop-Next-Deadline", String(clock.nextDeadline));
+      }
+      return json(body);
+    };
+  }
+  next();
+});
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "same-origin");

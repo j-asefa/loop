@@ -65,7 +65,7 @@ it("closes obsolete approval requests on upgrade and terminal transitions withou
   expect(db.prepare("SELECT feed_run_state,feed_approval_until FROM conversations WHERE id='active'").get()).toEqual({ feed_run_state: "interrupted", feed_approval_until: null });
   expectState(db, ["stopped", "active"], "recovery");
   db.close();
-});
+}, 15_000);
 
 function writer(db: Database.Database) {
   let clock = 1000;

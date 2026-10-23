@@ -45,6 +45,11 @@ if (process.env.LOOP_PROFILE === "companion") {
 process.send?.({ origin, owner, pair });
 // IPC-only fixture observation; no production route or browser-visible state.
 process.on("message", (message) => {
+  if (message && typeof message === "object" && "type" in message && message.type === "busy-timeout" &&
+    "ms" in message && typeof message.ms === "number" && Number.isInteger(message.ms) && message.ms >= 0 && message.ms <= 5000) {
+    db.pragma(`busy_timeout = ${message.ms}`);
+    process.send?.({ type: "busy-timeout", ms: message.ms });
+  }
   if (
     message &&
     typeof message === "object" &&

@@ -129,8 +129,8 @@ it.each([
     expect(db.prepare("SELECT state FROM native_decisions WHERE run_id=?").get(f.run.id)).toEqual({ state: "resolved" });
     const rows = db.prepare("SELECT run_id,type,payload FROM events WHERE run_id=? AND type='native.event' ORDER BY id").all(f.run.id) as { run_id: string; type: string; payload: string }[];
     expect(rows.map(historicalEvent)).toEqual([
-      { type: "native.event", scope: { kind: "run", id: f.run.id }, payload: { conversationId: f.live.binding.conversation_id, generation: "test", event: { type: "request", request } } },
-      { type: "native.event", scope: { kind: "run", id: f.run.id }, payload: { conversationId: f.live.binding.conversation_id, generation: "test", event: { type: "resolved", id: request.id } } },
+      { type: "native.event", scope: { kind: "run", id: f.run.id }, subject: { kind: "run", id: f.run.id }, payload: { conversationId: f.live.binding.conversation_id, generation: "test", event: { type: "request", request } } },
+      { type: "native.event", scope: { kind: "run", id: f.run.id }, subject: { kind: "run", id: f.run.id }, payload: { conversationId: f.live.binding.conversation_id, generation: "test", event: { type: "resolved", id: request.id } } },
     ]);
   },
 );

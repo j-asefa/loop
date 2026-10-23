@@ -25,9 +25,6 @@ export type ActivityScope = {
   // The producer's current process generation. Updates stamped with another
   // generation are stale and quarantined unless they are replayed history.
   generation?: string;
-  // Run that carries the refresh signal for session records written between
-  // turns (the run that started the native session). Never stored as owner.
-  signal?: string;
 };
 export type ActivityResult =
   | { applied: true; key: string; sequence: number; record: ActivityRecord }
@@ -88,9 +85,9 @@ function write(
   // Content-free refresh signal. Every client, including cached ones that do
   // not know activities, treats an unknown event as "refresh projections";
   // the record itself is only served by GET /conversations/:id/activities.
-  const signal = scope.run || scope.signal;
-  if (signal)
-    emit(scope.owner, signal, "activity.updated", { key, kind, sequence });
+  emit(scope.owner, scope.run
+    ? { kind: "run", id: scope.run }
+    : { kind: "conversation", id: scope.conversation! }, "activity.updated", { key, kind, sequence });
   return sequence;
 }
 
@@ -198,7 +195,6 @@ export function ingestNativeActivity(
       conversation: live.binding.conversation_id,
       run: live.run?.id,
       generation: live.generation,
-      signal: live.bootstrapRun?.id,
     },
     update,
   );
@@ -235,8 +231,8 @@ export function ingestNativeCapabilities(
     {
       owner,
       conversation: live.binding.conversation_id,
+      run: live.run?.id,
       generation: live.generation,
-      signal: live.run?.id || live.bootstrapRun?.id,
     },
     { transport, harness: live.binding.harness },
     parsed.data as Partial<ActivityCapabilities>,

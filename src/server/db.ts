@@ -3,8 +3,10 @@ import Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
+import { changeClock, createDeadlineScheduler } from "./change-deadlines.js";
 import { createChangeBus } from "./changes.js";
-import { parseEmission, type WorkspaceEmission } from "../shared/workspace-events.js";
+import { eventSubjects } from "./event-subjects.js";
+import { parseEmission, type WorkspaceEmission, type WorkspaceSubject } from "../shared/workspace-events.js";
 export const db: Database.Database = new Database(join(config.data, "loop.db"));
 db.pragma("busy_timeout = 5000");
 // Simultaneous API/worker startup can hit SQLITE_BUSY while switching a fresh
@@ -188,17 +190,40 @@ db.pragma("busy_timeout = 5000");
 export const now = () => Date.now();
 export const id = () => crypto.randomUUID();
 export const changes = createChangeBus(db, { pollMs: config.changePollMs });
+export const deadlines = createDeadlineScheduler(db, changes);
+export function workspaceClock(owner: string) {
+  const identity = db.prepare(`SELECT COALESCE(w.epoch,c.epoch) epoch,COALESCE(w.last_event_id,0) cursor
+    FROM change_log_identity c LEFT JOIN change_watermark w ON w.owner_id=? WHERE c.singleton=1`)
+    .get(owner) as { epoch: string; cursor: number };
+  return { ...changeClock(db, owner), ...identity };
+}
+export function ensureWorkspaceOwner(owner: string): string {
+  const existing = db.prepare("SELECT epoch FROM change_watermark WHERE owner_id=?").get(owner) as { epoch: string } | undefined;
+  if (existing) return existing.epoch;
+  return db.transaction(() => {
+    db.prepare("INSERT OR IGNORE INTO change_watermark(owner_id,last_event_id,epoch) SELECT ?,0,epoch FROM change_log_identity WHERE singleton=1").run(owner);
+    return (db.prepare("SELECT epoch FROM change_watermark WHERE owner_id=?").get(owner) as { epoch: string }).epoch;
+  }).immediate();
+}
+const subjects = eventSubjects(db);
+// Capture before deleting a subject, inside the deletion transaction.
+export const ownedEventSubject = subjects.prove;
 export function emit(
   owner: string,
-  run: string,
+  input: string | WorkspaceSubject,
   ...[type, payload]: WorkspaceEmission
 ) {
-  parseEmission(run, type, payload);
-  const row = db
-    .prepare(
-      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,?,?,?)",
-    )
-    .run(owner, run, type, JSON.stringify(payload), now()).lastInsertRowid;
-  changes.wake();
-  return row;
+  return db.transaction(() => {
+    const subject = subjects.resolve(owner, input);
+    const run = subject.kind === "run" ? subject.id : null;
+    if (type === "tombstone") subjects.resolve(owner, payload.removed);
+    parseEmission(run, type, payload, subject);
+    const row = db
+      .prepare(
+        "INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES(?,?,?,?,?,?,?)",
+      )
+      .run(owner, run, type, JSON.stringify(payload), now(), subject.kind, subject.id).lastInsertRowid;
+    changes.wake();
+    return row;
+  }).immediate();
 }

@@ -97,8 +97,10 @@ function start(sessions: InstanceType<typeof NativeSessions>, generation: string
   return { live, controls, emit: (e: AdapterEvent) => sessions.event(live, e) };
 }
 const events = () =>
-  db.prepare("SELECT run_id,type,payload FROM events ORDER BY id").all() as {
-    run_id: string;
+  db.prepare("SELECT run_id,subject_kind,subject_id,type,payload FROM events ORDER BY id").all() as {
+    run_id: string | null;
+    subject_kind: string;
+    subject_id: string;
     type: string;
     payload: string;
   }[];
@@ -249,11 +251,11 @@ it("persists native activity events through restarts and serves them to reloads 
     capabilities: { plans: { state: "supported" }, settings: { state: "supported" } },
   });
 
-  // Refresh signals are content-free and attributed to the bootstrap run;
+  // Session-only refresh signals are content-free conversation subjects;
   // the raw adapter payload never reaches the events stream.
-  const signals = events().slice(before);
+  const signals = events().slice(before).filter(e => e.type === "activity.updated");
   expect(signals.length).toBeGreaterThan(0);
-  expect(signals.every((e) => e.type === "activity.updated" && e.run_id === bootstrap.id)).toBe(true);
+  expect(signals.every((e) => e.run_id === null && e.subject_kind === "conversation" && e.subject_id === "conv")).toBe(true);
   for (const e of signals) {
     expect(Object.keys(JSON.parse(e.payload)).sort()).toEqual(["key", "kind", "sequence"]);
     expect(e.payload).not.toContain("gpt-a");

@@ -88,4 +88,7 @@ it("keys replayed history outside a turn so reloads de-duplicate", () => {
   expect(items).toHaveLength(1);
   expect(items[0].key).toBe("tool:native:codex:item:history:native-7");
   expect(items[0].record).toMatchObject({ replayed: true, data: { status: "completed" } });
+  expect(db.prepare("SELECT run_id,subject_kind,subject_id FROM events WHERE type='activity.updated' AND subject_id='c2'").all()).toEqual([
+    { run_id: null, subject_kind: "conversation", subject_id: "c2" },
+  ]);
 });

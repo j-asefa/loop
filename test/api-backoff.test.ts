@@ -123,3 +123,23 @@ it.each(["0", "0.01", "Tue, 14 Nov 2023 22:13:19 GMT"])("bounds repeated 429 rea
   await read();
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
+
+
+it("delivers snapshot clocks for the actual source and drops responses from a previous owner", async () => {
+  const target = new EventTarget(); vi.stubGlobal("window", target);
+  const received: any[] = [];
+  target.addEventListener("loop-workspace-clock", event => received.push((event as CustomEvent).detail));
+  const response = (epoch: string) => Response.json([], { headers: {
+    "x-loop-change-epoch": epoch, "x-loop-change-cursor": "19", "x-loop-server-now": "1000", "x-loop-next-deadline": "2000",
+  } });
+  fetcher.mockImplementation(async () => response("epoch"));
+  await read("docker:one");
+  await read("docker:one", "/social");
+  expect(received.map(value => value.source)).toEqual(["docker:one", ""]);
+  expect(received[0].clock).toEqual({ epoch: "epoch", cursor: 19, serverNow: 1000, nextDeadline: 2000 });
+  let finish!: (response: Response) => void;
+  fetcher.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const old = read("docker:one");
+  setViewOwner("bob"); finish(response("obsolete")); await old;
+  expect(received).toHaveLength(2);
+});

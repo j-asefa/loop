@@ -1,3 +1,4 @@
+import type { WorkspaceSubject } from "../shared/workspace-events.js";
 import type Database from "better-sqlite3";
 
 // Publications identify durable rows. Payloads stay in SQLite so a large event
@@ -6,7 +7,7 @@ export type CommittedEvent = Readonly<{
   id: number;
   owner_id: string;
   run_id: string | null;
-  subject_kind: "run" | "connection";
+  subject_kind: WorkspaceSubject["kind"];
   subject_id: string;
   type: string;
 }>;
@@ -23,6 +24,8 @@ export function createChangeBus(
   const select = db.prepare(
     "SELECT id,owner_id,run_id,subject_kind,subject_id,type FROM events WHERE id>? ORDER BY id LIMIT ?",
   );
+  const localChanges = db.prepare("SELECT total_changes() n");
+  let localVersion = (localChanges.get() as { n: number }).n;
   let version = db.pragma("data_version", { simple: true });
   // Existing history belongs to consumer snapshots/replay. Establish the live
   // starting cursor from a committed row, after the version sample so a foreign
@@ -84,6 +87,7 @@ export function createChangeBus(
       // this page or still changes data_version for the next poll. Never set the
       // baseline after reading and accidentally absorb an unread foreign row.
       version = db.pragma("data_version", { simple: true });
+      localVersion = (localChanges.get() as { n: number }).n;
       const rows = select.all(cursor, limit) as CommittedEvent[];
       const through = rows.at(-1)?.id;
       const byOwner = new Map<string | null, CommittedEvent[]>();
@@ -135,7 +139,9 @@ export function createChangeBus(
     if (db.inTransaction) return;
     try {
       const next = db.pragma("data_version", { simple: true });
-      if (next !== version || dirty) {
+      const local = (localChanges.get() as { n: number }).n;
+      if (next !== version || local !== localVersion || dirty) {
+        localVersion = local;
         version = next;
         wake();
       }

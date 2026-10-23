@@ -5,7 +5,7 @@ import { cardsFixture } from "./helpers/cards-fixture";
 import { compiledServerFixture } from "./helpers/compiled-server";
 import {
   WorkspaceFrameV3,
-  PARTIAL_WORKSPACE_CAPABILITIES,
+  COMPLETE_WORKSPACE_CAPABILITIES,
 } from "../src/shared/workspace-events";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -143,7 +143,8 @@ for (const mode of ["server", "companion"] as const) {
     seed(f);
     const { socket, frames } = connect(f);
     await expect.poll(() => frames.length, { timeout: 7000 }).toBe(1);
-    expect(frames[0]).toMatchObject({ v: 2, type: "reset", cursor: 0 });
+    expect(frames[0]).toMatchObject({ v: 2, type: "reset" });
+    expect(frames[0].cursor).toBeGreaterThan(0);
     const { epoch } = frames[0];
     f.db
       .transaction(() => {
@@ -162,12 +163,10 @@ for (const mode of ["server", "companion"] as const) {
     await expect
       .poll(() => frames.length, { timeout: 7000 })
       .toBeGreaterThan(1);
-    // There is no run event: revision changes alone must wake the browser.
-    expect(frames.at(-1)).toMatchObject({
-      type: "events",
-      cursor: 0,
-      events: [],
-    });
+    // Source-row producers publish the mutation without a synthetic revision frame.
+    expect(frames.at(-1).type).toBe("events");
+    expect(frames.at(-1).cursor).toBeGreaterThan(frames[0].cursor);
+    expect(frames.at(-1).events.length).toBeGreaterThan(0);
     f.db
       .prepare(
         "INSERT INTO artifacts(id,owner_id,kind,title,content,created_at,updated_at) VALUES('note',?,'markdown','A saved note','Body',1,1)",
@@ -216,7 +215,7 @@ for (const mode of ["server", "companion"] as const) {
     seed(f);
     const first = connect(f);
     await expect.poll(() => first.frames.length).toBe(1);
-    const { epoch } = first.frames[0];
+    const { epoch, cursor: baseline } = first.frames[0];
     first.socket.close();
     await expect.poll(() => first.socket.readyState).toBe(WebSocket.CLOSED);
     // Durable results need not fit a transport frame. This batch exceeds the
@@ -228,17 +227,17 @@ for (const mode of ["server", "companion"] as const) {
     f.db.transaction(() => {
       for (let n = 0; n < 100; n++) insert.run(f.owner, payload);
     })();
-    const replay = connect(f, `?epoch=${epoch}&cursor=0`);
+    const replay = connect(f, `?epoch=${epoch}&cursor=${baseline}`);
     await expect.poll(() => replay.frames.length).toBeGreaterThan(0);
     expect(replay.frames[0].type).toBe("reset");
-    expect(replay.frames[0].cursor).toBe(100);
+    expect(replay.frames[0].cursor).toBe(baseline + 100);
     expect(replay.frames[0].events).toEqual([]);
     expect(Buffer.byteLength(JSON.stringify(replay.frames[0]))).toBeLessThan(
       1024 * 1024,
     );
     expect(
       f.db
-        .prepare("SELECT payload FROM events WHERE owner_id=? LIMIT 1")
+        .prepare("SELECT payload FROM events WHERE owner_id=? AND type='workflow.completed' LIMIT 1")
         .get(f.owner),
     ).toEqual({ payload });
     const next = emit(f, "after-large-replay");
@@ -252,7 +251,7 @@ for (const mode of ["server", "companion"] as const) {
       for (let n = 0; n < 40; n++)
         insert.run(f.owner, JSON.stringify({ text: "x".repeat(48 * 1024) }));
     })();
-    await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(141);
+    await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(baseline + 141);
     expect(replay.frames.at(-1).type).toBe("reset");
     expect(replay.frames.at(-1).events).toEqual([]);
     expect(replay.socket.readyState).toBe(WebSocket.OPEN);
@@ -348,16 +347,16 @@ it("broadcasts to both owner sockets, isolates another owner, and releases subsc
   expect(second.frames.at(-1).events.map((event: any) => event.type)).toEqual([
     "both-owner-sockets",
   ]);
-  await expect.poll(() => f.eventSubscriberCount()).toBe(3);
+  await expect.poll(() => f.eventSubscriberCount()).toBe(4);
   for (let n = 0; n < 24; n++) {
     const transient = connect(f);
     await expect.poll(() => transient.frames.length).toBe(1);
     transient.socket.close();
     await expect.poll(() => transient.socket.readyState).toBe(WebSocket.CLOSED);
-    await expect.poll(() => f.eventSubscriberCount()).toBe(3);
+    await expect.poll(() => f.eventSubscriberCount()).toBe(4);
   }
   for (const connected of [first, second, other]) connected.socket.close();
-  await expect.poll(() => f.eventSubscriberCount()).toBe(0);
+  await expect.poll(() => f.eventSubscriberCount()).toBe(1);
 }, 30_000);
 
 it("catches up every replay page without a later write even after the process cursor advanced", async () => {
@@ -365,9 +364,9 @@ it("catches up every replay page without a later write even after the process cu
   seed(f);
   const initial = connect(f);
   await expect.poll(() => initial.frames.length).toBe(1);
-  const { epoch } = initial.frames[0];
+  const { epoch, cursor: baseline } = initial.frames[0];
   initial.socket.close();
-  await expect.poll(() => f.eventSubscriberCount()).toBe(0);
+  await expect.poll(() => f.eventSubscriberCount()).toBe(1);
   const ids: number[] = [];
   f.db
     .transaction(() => {
@@ -378,7 +377,7 @@ it("catches up every replay page without a later write even after the process cu
   // backlog. The reconnect below must still replay from its own cursor.
   const live = connect(f);
   await expect.poll(() => live.frames.at(-1)?.cursor).toBe(ids.at(-1));
-  const replay = connect(f, `?epoch=${epoch}&cursor=0`);
+  const replay = connect(f, `?epoch=${epoch}&cursor=${baseline}`);
   await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(ids.at(-1));
   expect(replay.frames.length).toBeGreaterThan(1);
   expect(
@@ -390,13 +389,13 @@ for (const mode of ["server", "companion"] as const) {
   it(`${mode} serves typed v3, preserves v2, bounds replay and makes revision-only changes actionable`, async () => {
     const f = await fixture(mode);
     seed(f);
-    const live = connect(f, "?v=3"),
+    const live = connect(f, "?v=3&clock=1"),
       legacy = connect(f);
     await expect.poll(() => live.frames.length).toBe(1);
     await expect.poll(() => legacy.frames.length).toBe(1);
     expect(WorkspaceFrameV3.parse(live.frames[0])).toMatchObject({
       type: "reset",
-      capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+      capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
     });
     expect(legacy.frames[0]).toMatchObject({ v: 2, type: "reset" });
     const insert = f.db.prepare(
@@ -415,6 +414,7 @@ for (const mode of ["server", "companion"] as const) {
       event: {
         type: "message.completed",
         scope: { kind: "run", id: "run" },
+        subject: { kind: "run", id: "run" },
         payload: { messageId: "message" },
       },
     });
@@ -464,7 +464,7 @@ for (const mode of ["server", "companion"] as const) {
     })();
     const replay = connect(
       f,
-      `?v=3&epoch=${live.frames[0].epoch}&cursor=${large}`,
+      `?v=3&clock=1&epoch=${live.frames[0].epoch}&cursor=${large}`,
     );
     await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(last);
     expect(replay.frames.length).toBeGreaterThan(1);
@@ -488,18 +488,11 @@ for (const mode of ["server", "companion"] as const) {
     await expect
       .poll(() => replay.frames.length, { timeout: 7000 })
       .toBeGreaterThan(before);
-    const watermark = WorkspaceFrameV3.parse(replay.frames.at(-1));
-    expect(watermark).toMatchObject({ type: "events", cursor: last });
-    if (watermark.type === "events") {
-      expect(watermark.events.length).toBeGreaterThan(0);
-      expect(
-        watermark.events.every(
-          ({ id, event }) =>
-            id === last &&
-            event.type === "invalidate" &&
-            event.scope.kind === "collection",
-        ),
-      ).toBe(true);
+    const mutation = WorkspaceFrameV3.parse(replay.frames.at(-1));
+    expect(mutation.type).toBe("events");
+    expect(mutation.cursor).toBeGreaterThan(last);
+    if (mutation.type === "events") {
+      expect(mutation.events.some(({ id, event }) => id > last && event.type === "invalidate" && event.subject?.kind === "artifact" && event.subject.id === "revision-only")).toBe(true);
     }
   }, 30_000);
 }
@@ -552,18 +545,24 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
     expect(sources).toHaveLength(1);
     const linked = connect(
       paired,
-      "?v=3&owner=untrusted",
+      "?v=3&clock=1&owner=untrusted",
       paired.browser,
       `/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/events/ws`,
     );
-    const direct = connect(remote, "?v=3");
+    const direct = connect(remote, "?v=3&clock=1");
     await expect.poll(() => linked.frames.length).toBe(1);
     await expect.poll(() => direct.frames.length).toBe(1);
-    expect(WorkspaceFrameV3.parse(linked.frames[0])).toEqual(
-      WorkspaceFrameV3.parse(direct.frames[0]),
+    const { serverNow: _linkedNow, ...linkedReset } = linked.frames[0];
+    const { serverNow: _directNow, ...directReset } = direct.frames[0];
+    expect(WorkspaceFrameV3.parse({ ...linkedReset, serverNow: 0 })).toEqual(
+      WorkspaceFrameV3.parse({ ...directReset, serverNow: 0 }),
     );
+    const snapshot = await paired.request(`/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/feed`, { headers: paired.browser });
+    expect(snapshot.headers.get("x-loop-change-epoch")).toBe(linked.frames[0].epoch);
+    expect(snapshot.headers.get("x-loop-next-deadline")).toBe("null");
+    expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(Date.now() - 5000);
     expect(linked.frames[0].capabilities).toEqual(
-      PARTIAL_WORKSPACE_CAPABILITIES,
+      COMPLETE_WORKSPACE_CAPABILITIES,
     );
     const insert =
       "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','progress',?,1)";
@@ -596,7 +595,7 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
 
 it("streams a connection disconnection without a run through the compiled v3 endpoint", async () => {
   const f = await fixture("server");
-  const socket = connect(f, "?v=3");
+  const socket = connect(f, "?v=3&clock=1");
   await expect.poll(() => socket.frames.length).toBe(1);
   f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES('status-connection',?,'openai','Fixture','must stay secret','connected',1)").run(f.owner);
   const response = await f.request("/api/connections/status-connection", { method: "DELETE", headers: f.browser });

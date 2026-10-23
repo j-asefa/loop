@@ -1,5 +1,6 @@
 import {
   invalidate,
+  eventScopes,
   type WorkspaceCollection,
   type WorkspaceEvent,
   type WorkspaceCapabilities,
@@ -38,7 +39,8 @@ export class WorkspaceChangeQueue {
     const scopes =
       this.pending.get(source) || new Map<string, WorkspaceEvent>();
     for (const event of events)
-      scopes.set(JSON.stringify(event.scope), invalidate(event.scope));
+      for (const scope of eventScopes(event))
+        scopes.set(JSON.stringify(scope), invalidate(scope));
     if (scopes.size > 256) {
       scopes.clear();
       scopes.set("all", invalidate());
@@ -86,7 +88,7 @@ export function workspaceChangeAffects(
   return detail.changes.some(
     (change) =>
       (source === undefined || change.source === source) &&
-      change.events.some(({ scope }) => {
+      change.events.some((event) => eventScopes(event).some((scope) => {
         if (scope.kind === "collection")
           return scope.id === "all" || scope.id === surface;
         if (scope.kind === "conversation" && conversation)
@@ -94,6 +96,6 @@ export function workspaceChangeAffects(
         // Run events do not contain authoritative projection rows or a complete
         // dependency map yet. Preserve their broad reconciliation semantics.
         return true;
-      }),
+      })),
   );
 }

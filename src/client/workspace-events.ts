@@ -1,8 +1,10 @@
 import {
   WorkspaceFrameV3,
+  WorkspaceClock,
   invalidate,
   type WorkspaceEvent,
 } from "../shared/workspace-events";
+import { viewGeneration } from "./viewCache";
 import { retryAfter } from "./api";
 
 export type WorkspaceFrame =
@@ -19,6 +21,7 @@ export type WorkspaceFrame =
 /** One source and owner per subscription. Only reads may be retried. */
 export function watchWorkspaceEvents(options: {
   url: URL;
+  source?: string;
   read: (after: number, signal: AbortSignal) => Promise<{ id: number }[]>;
   changed: (events?: readonly WorkspaceEvent[]) => void;
   frame?: (frame: WorkspaceFrame) => void;
@@ -38,6 +41,41 @@ export function watchWorkspaceEvents(options: {
   let socket: WebSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
+  const ownerGeneration = viewGeneration();
+  let deadlineGeneration = 0;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let deadlineClock: WorkspaceClock | undefined;
+  let lastClockRequest = 0;
+  function armDeadline(clock: WorkspaceClock, reset = false) {
+    if (stopped || viewGeneration() !== ownerGeneration) return;
+    if (!reset && deadlineClock?.epoch === clock.epoch &&
+      (clock.cursor < deadlineClock.cursor || (clock.cursor === deadlineClock.cursor && clock.serverNow < deadlineClock.serverNow))) return;
+    clearTimeout(deadlineTimer);
+    const generation = ++deadlineGeneration;
+    deadlineClock = clock;
+    if (clock.nextDeadline === null) return;
+    const due = performance.now() + Math.max(0, clock.nextDeadline - clock.serverNow);
+    const fire = () => {
+      if (stopped || generation !== deadlineGeneration || viewGeneration() !== ownerGeneration || deadlineClock?.epoch !== clock.epoch) return;
+      const remaining = due - performance.now();
+      if (remaining > 0) deadlineTimer = setTimeout(fire, Math.min(2_147_483_647, remaining));
+      else options.changed(["feed", "results", "approvals", "pulls"].map((id) =>
+        invalidate({ kind: "collection", id: id as "feed" | "results" | "approvals" | "pulls" })));
+    };
+    deadlineTimer = setTimeout(fire, Math.min(2_147_483_647, Math.max(0, due - performance.now())));
+  }
+  const snapshotClock = (event: Event) => {
+    const detail = (event as CustomEvent<{ source: string; generation: number; requestId?: number; clock: WorkspaceClock }>).detail;
+    if (!detail || detail.generation !== ownerGeneration || detail.source !== (options.source ?? "")) return;
+    const parsed = WorkspaceClock.safeParse(detail.clock);
+    if (!parsed.success) return;
+    // A healthy socket owns the epoch. During an outage, a newer HTTP request
+    // can discover a replacement database; an earlier response cannot undo it.
+    if (ready && epoch && parsed.data.epoch !== epoch) return;
+    if (deadlineClock?.epoch !== parsed.data.epoch && detail.requestId !== undefined && detail.requestId < lastClockRequest) return;
+    lastClockRequest = Math.max(lastClockRequest, detail.requestId ?? 0);
+    armDeadline(parsed.data);
+  };
   const connect = () => {
     if (stopped) return;
     clearTimeout(retry);
@@ -49,6 +87,7 @@ export function watchWorkspaceEvents(options: {
     url.searchParams.set("epoch", epoch);
     url.searchParams.set("cursor", String(cursor));
     url.searchParams.set("v", "3");
+    url.searchParams.set("clock", "1");
     const current = (socket = new WebSocket(url));
     current.onmessage = (event) => {
       if (stopped || current !== socket) return;
@@ -86,6 +125,16 @@ export function watchWorkspaceEvents(options: {
           m.type === "reset" || m.epoch !== epoch
             ? m.cursor
             : Math.max(pollCursor, m.cursor);
+        if (m.v === 3 && m.type === "reset" && m.serverNow !== undefined && m.nextDeadline !== undefined)
+          armDeadline({ epoch: m.epoch, cursor: m.cursor, serverNow: m.serverNow, nextDeadline: m.nextDeadline }, true);
+        else if (m.type === "reset" || m.epoch !== epoch) {
+          clearTimeout(deadlineTimer);
+          deadlineGeneration++;
+          deadlineClock = undefined;
+        }
+        if (m.v === 3 && m.type === "events")
+          for (const entry of m.events)
+            if (entry.event.type === "deadline") armDeadline({ ...entry.event, epoch: m.epoch, cursor: entry.id });
         epoch = m.epoch;
         cursor = m.cursor;
         attempt = 0;
@@ -96,11 +145,10 @@ export function watchWorkspaceEvents(options: {
         pollHealthy = false;
         request?.abort();
         options.frame?.(m);
-        options.changed(
-          m.v === 3 && m.type === "events"
-            ? m.events.map((entry) => entry.event)
-            : [invalidate()],
-        );
+        const notifications = m.v === 3 && m.type === "events"
+          ? m.events.map((entry) => entry.event).filter((event) => event.type !== "deadline")
+          : [invalidate()];
+        if (notifications.length) options.changed(notifications);
       } catch {
         current.close();
       }
@@ -172,6 +220,7 @@ export function watchWorkspaceEvents(options: {
     options.connected?.(false);
   };
   const fallback = setInterval(() => void poll(), 1800);
+  window.addEventListener("loop-workspace-clock", snapshotClock);
   window.addEventListener("online", wake);
   window.addEventListener("pageshow", wake);
   if (options.connected)
@@ -180,9 +229,12 @@ export function watchWorkspaceEvents(options: {
   function stop() {
     stopped = true;
     clearTimeout(retry);
+    clearTimeout(deadlineTimer);
+    deadlineGeneration++;
     clearInterval(fallback);
     request?.abort();
     socket?.close();
+    window.removeEventListener("loop-workspace-clock", snapshotClock);
     window.removeEventListener("online", wake);
     window.removeEventListener("pageshow", wake);
     window.removeEventListener("loop-reconnecting", restarting);

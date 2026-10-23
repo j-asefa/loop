@@ -1,9 +1,11 @@
+import { WorkspaceClock } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import { viewGeneration } from "./viewCache";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 let backoffGeneration = -1;
+let clockRequestId = 0;
 const readBackoff = new Map<string, number>();
 export const RATE_LIMITED = "Updates are paused briefly. Retrying automatically…";
 
@@ -102,6 +104,7 @@ export async function apiInWorkspace<T = any>(
   signal?: AbortSignal,
 ): Promise<T> {
   const generation = viewGeneration();
+  const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
     readBackoff.clear();
     backoffGeneration = generation;
@@ -165,6 +168,18 @@ export async function apiInWorkspace<T = any>(
         ...(deadline !== undefined ? { retryAt: deadline, retryAfterMs: Math.max(0, deadline - Date.now()) } : {}),
       },
     );
+  }
+  if (generation === viewGeneration() && verb.toUpperCase() === "GET" && r.headers.has("x-loop-next-deadline")) {
+    const next = r.headers.get("x-loop-next-deadline");
+    const clock = WorkspaceClock.safeParse({
+      epoch: r.headers.get("x-loop-change-epoch"),
+      cursor: Number(r.headers.get("x-loop-change-cursor")),
+      serverNow: Number(r.headers.get("x-loop-server-now")),
+      nextDeadline: next === "null" ? null : Number(next),
+    });
+    if (clock.success) window.dispatchEvent(new CustomEvent("loop-workspace-clock", {
+      detail: { source: decodeURIComponent(destination), generation, requestId, clock: clock.data },
+    }));
   }
   return data;
 }

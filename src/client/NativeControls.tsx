@@ -63,7 +63,7 @@ export function WorkspaceConnection({
       const url = new URL(path, location.href);
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       return watchWorkspaceEvents({
-        url,
+        url, source: sourceId,
         read: (after, signal) =>
           apiInWorkspace(
             "/events?after=" + after,

@@ -58,10 +58,11 @@ it("upgrades run events without reusing deleted IDs and admits connection subjec
     expect(Number(id)).toBe(90001);
     expect(db.prepare("SELECT subject_kind,subject_id FROM events WHERE id=?").get(id)).toEqual({ subject_kind: "run", subject_id: "one" });
     db.exec("DELETE FROM runs");
-    expect(snapshot()).toEqual([]);
+    expect(db.prepare("SELECT id FROM events WHERE run_id IS NOT NULL").all()).toEqual([]);
+    expect(db.prepare("SELECT id FROM events WHERE type='tombstone'").all()).toHaveLength(2);
     const connectionId = db.prepare("INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES('owner-one',NULL,'connection.status','{\"status\":\"disconnected\"}',15,'connection','connection-one')").run().lastInsertRowid;
-    expect(Number(connectionId)).toBe(90002);
-    expect(db.prepare("SELECT run_id,subject_kind,subject_id FROM events").get()).toEqual({ run_id: null, subject_kind: "connection", subject_id: "connection-one" });
+    expect(Number(connectionId)).toBeGreaterThan(90001);
+    expect(db.prepare("SELECT run_id,subject_kind,subject_id FROM events WHERE id=?").get(connectionId)).toEqual({ run_id: null, subject_kind: "connection", subject_id: "connection-one" });
     expect(() => db.exec("INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES('owner','missing','queued','{}',1)")).toThrow(/FOREIGN KEY/);
     expect(() => db.exec("INSERT INTO events(owner_id,type,payload,created_at,subject_kind) VALUES('owner','connection.status','{}',1,'connection')")).toThrow(/CHECK/);
     expect(() => db.exec("INSERT INTO events(owner_id,type,payload,created_at,subject_kind,subject_id) VALUES('owner','queued','{}',1,'unknown','subject')")).toThrow(/CHECK/);

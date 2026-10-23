@@ -110,6 +110,7 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
         type: emission[0],
         payload: emission[1],
         scope: { kind: "run", id: "run" },
+        subject: { kind: "run", id: "run" },
       });
       expect(WorkspaceEvent.parse(JSON.parse(JSON.stringify(event)))).toEqual(
         event,
@@ -183,4 +184,25 @@ it("reconciles malformed historical rows and unknown future events without inven
   expect(() =>
     parseEmission("run", "provider.receipt", { usage: { tokens: NaN } }),
   ).toThrow();
+});
+
+it("checks producer ownership and accepts deletion evidence only for its original owner", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-event-ownership-"));
+  vi.resetModules(); vi.stubEnv("LOOP_DATA_DIR", dir);
+  const { db, changes, deadlines, emit, ownedEventSubject } = await import("../src/server/db");
+  try {
+    db.exec("INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','Body',1,1)");
+    const count = () => db.prepare("SELECT count(*) n FROM events").get();
+    const before = count();
+    expect(() => emit("bob", { kind: "artifact", id: "artifact" }, "invalidate", { scope: { kind: "collection", id: "saved" } })).toThrow(/not owned/);
+    expect(count()).toEqual(before);
+    const proof = ownedEventSubject("alice", { kind: "artifact", id: "artifact" });
+    db.transaction(() => {
+      db.exec("DELETE FROM artifacts WHERE id='artifact'");
+      emit("alice", { kind: "collection", id: "saved" }, "tombstone", { scope: { kind: "collection", id: "saved" }, removed: proof });
+    }).immediate();
+    expect(() => emit("bob", { kind: "collection", id: "saved" }, "tombstone", { scope: { kind: "collection", id: "saved" }, removed: proof })).toThrow(/another owner/);
+    expect(() => emit("alice", { kind: "collection", id: "saved" }, "tombstone", { scope: { kind: "collection", id: "saved" }, removed: { ...proof } })).toThrow(/not owned/);
+    expect(db.prepare("SELECT run_id FROM events WHERE type='tombstone'").all()).toEqual([{ run_id: null }, { run_id: null }]);
+  } finally { deadlines.close(); changes.close(); db.close(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); }
 });

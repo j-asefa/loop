@@ -1108,3 +1108,43 @@ it("retired catalog subscriptions cannot consume the worker refresh batch", asyn
   expect(await refreshDueFeeds()).toBe(8);
   expect(asked).toHaveLength(8);
 });
+
+it("publishes story and health changes without logging healthy refresh bookkeeping", async () => {
+  db.exec("DELETE FROM feed_subscriptions; DELETE FROM feed_sources");
+  let mode: "same" | "not-modified" | "changed" | "failure" = "same";
+  let calls = 0;
+  restore = withNewsFixture(async () => {
+    calls++;
+    if (mode === "failure") throw new Error("Fixture feed unavailable");
+    if (mode === "not-modified") return new Response(null, { status: 304 });
+    return new Response(mode === "changed" ? officialRss.replace("125B model at", "126B model at") : officialRss,
+      { headers: { etag: '"fixture"' } });
+  });
+  for (const owner of ["refresh-a", "refresh-b"])
+    await call("/social/feeds/hackernews", "PUT", owner);
+  let at = Date.now();
+  expect(await refreshDueFeeds(at)).toBe(1);
+  const events = () => db.prepare("SELECT owner_id,payload FROM events WHERE owner_id IN ('refresh-a','refresh-b') ORDER BY id").all() as { owner_id: string; payload: string }[];
+  let before = events().length;
+  for (let repeat = 0; repeat < 8; repeat++) {
+    at += 6 * 60_000;
+    expect(await refreshDueFeeds(at)).toBe(1);
+    expect(events()).toHaveLength(before);
+  }
+  mode = "not-modified";
+  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
+  expect(events()).toHaveLength(before);
+  mode = "changed";
+  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
+  expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
+  expect(storedFeedStories("hackernews").some(row => row.title.includes("126B"))).toBe(true);
+  before = events().length;
+  mode = "failure";
+  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
+  expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
+  before = events().length;
+  mode = "not-modified";
+  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
+  expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
+  expect(calls).toBe(13);
+});
