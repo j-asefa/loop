@@ -1,6 +1,8 @@
 # 🔁 Loop
 
-Loop is a phone-first agent web app. Open Loop in your phone's browser and add it to your home screen, then pair it with a workspace running on your computer. Start conversations, run coding harnesses, and manage projects, files, search, teams and workflows from your phone. The same workspace UI also runs on desktop, and agents run through provider API connections or native coding harnesses.
+**Supervise all your coding agents from your phone.**
+
+Loop puts the Codex, Claude Code, OpenCode, Pi and Gemini CLI agents on your computer into one phone workspace. Start runs, approve steps, answer questions and review results from your home screen; the agents keep running on your machine while your phone is away. Pair by scanning a QR code: no app store, no account. The same workspace runs on desktop, and agents can also use provider API connections.
 
 ## Why Loop
 
@@ -141,3 +143,7 @@ Run `bash install` from the checkout to build and create the `loop` command. For
 ## Run with Docker and pair your phone
 
 Use `docker compose -f compose.companion.yaml up --build -d`, then `docker compose -f compose.companion.yaml exec loop-companion loop pair`. No host Node installation or server `.env` is needed. See [Docker companion pairing](docs/pairing.md#docker-companion) for persistent state, runtime scope and management commands.
+
+## License
+
+Loop is licensed under the [Apache License 2.0](LICENSE). Dependencies retain their upstream licenses.
