@@ -1,18 +1,18 @@
-import { modelOptions } from "../../runtime/model-options.mjs";
-import { idleDeadline } from "../../runtime/idle-deadline.mjs";
+import { modelOptions } from "../../runtime/model-options.ts";
+import { idleDeadline } from "../../runtime/idle-deadline.ts";
 import { WebSocket, type Dispatcher } from "undici";
 import { Problem } from "./domain.js";
 import type { ChatInput, Chunk } from "./providers.js";
-import { nativeReply } from "../../runtime/native-tools.mjs";
-import { codexCatalog, codexTurn } from "../../runtime/harness.mjs";
-import { resultChunks } from "../../runtime/protocol.mjs";
+import { nativeReply } from "../../runtime/native-tools.ts";
+import { codexCatalog, codexTurn } from "../../runtime/harness.ts";
+import { resultChunks } from "../../runtime/protocol.ts";
 import {
   RuntimeFailure,
   diagnosticText,
   errorFacts,
   errorSummary,
   runtimeFailureFacts,
-} from "../../runtime/diagnostics.mjs";
+} from "../../runtime/diagnostics.ts";
 
 export type CodexEndpoint = {
   url: string;
@@ -405,4 +405,4 @@ export async function* codexStream(
     rpc.close();
   }
 }
-import { codexActivity, codexTrace } from "../../runtime/traces.mjs";
+import { codexActivity, codexTrace } from "../../runtime/traces.ts";

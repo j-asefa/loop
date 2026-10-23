@@ -22,7 +22,7 @@ import {
   safeUploadName,
   uploadName,
   writeUploadChunk,
-} from "../runtime/uploads.mjs";
+} from "../runtime/uploads.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-uploads-"));
 process.env.LOOP_DATA_DIR = join(dir, "data");

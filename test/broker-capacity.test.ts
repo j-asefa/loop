@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.mjs";
+import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.ts";
 
 it("the broker enforces capacity and releases it on disconnect", async () => {
   expect(MAX_CONCURRENT_RUNS).toBe(32);
@@ -13,7 +13,7 @@ it("the broker enforces capacity and releases it on disconnect", async () => {
   cpSync(resolve("runtime"), dir, { recursive: true });
   // Keep the production broker path, but bound this process-heavy fixture.
   writeFileSync(
-    join(dir, "concurrency.mjs"),
+    join(dir, "concurrency.ts"),
     `export const MAX_CONCURRENT_RUNS = ${fixtureCapacity};\n`,
   );
   writeFileSync(

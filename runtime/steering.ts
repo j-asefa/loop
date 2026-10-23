@@ -1,19 +1,32 @@
 // A control request belongs to one runtime invocation, never just an account.
 // Keep receipts until that invocation exits so retries cannot inject twice.
 export class SteeringControls {
-  pending = new Map();
-  constructor(write) {
+  pending = new Map<
+    string,
+    {
+      text: string;
+      promise: Promise<{ accepted: boolean }>;
+      resolve: (value: { accepted: boolean }) => void;
+      reject: (error: unknown) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  declare write: (message: { action: string; id: string; text: string }) => void;
+  constructor(
+    write: (message: { action: string; id: string; text: string }) => void,
+  ) {
     this.write = write;
   }
-  send(id, text) {
+  send(id: string, text: string): Promise<{ accepted: boolean }> {
     const prior = this.pending.get(id);
     if (prior) {
       if (prior.text !== text)
         return Promise.reject(new Error("Input ID reused"));
       return prior.promise;
     }
-    let resolve, reject;
-    const promise = new Promise((yes, no) => {
+    let resolve!: (value: { accepted: boolean }) => void,
+      reject!: (error: unknown) => void;
+    const promise = new Promise<{ accepted: boolean }>((yes, no) => {
       resolve = yes;
       reject = no;
     });
@@ -31,7 +44,7 @@ export class SteeringControls {
     }
     return promise;
   }
-  receive(receipt) {
+  receive(receipt: { id: string; accepted: boolean }) {
     const pending = this.pending.get(receipt?.id);
     if (!pending) return;
     clearTimeout(pending.timer);
@@ -47,7 +60,13 @@ export class SteeringControls {
   }
 }
 
-export function receiveSteering(iterator, emit, deliver) {
+export function receiveSteering(
+  iterator: AsyncIterator<string>,
+  emit: (message: {
+    steeringResult: { id: unknown; accepted: boolean };
+  }) => void,
+  deliver: (text: string, id: string) => Promise<unknown>,
+): () => void {
   let open = true;
   void (async () => {
     while (open) {

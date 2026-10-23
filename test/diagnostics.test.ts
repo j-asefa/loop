@@ -3,7 +3,7 @@ import {
   diagnosticText,
   errorFacts,
   errorSummary,
-} from "../runtime/diagnostics.mjs";
+} from "../runtime/diagnostics.ts";
 
 it("redacts credentials before truncating diagnostic messages", () => {
   const secret = 'a-secret-with-specials-+/ &"';

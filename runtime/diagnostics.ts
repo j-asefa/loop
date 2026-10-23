@@ -1,8 +1,11 @@
-import { redactValues } from "./redaction.mjs";
+import { redactValues } from "./redaction.ts";
 
 // Only error summaries cross this boundary, never stderr, stacks, request bodies,
 // or environment dumps. Redact before clipping so token prefixes cannot escape.
-export function diagnosticText(value, secrets = []) {
+export function diagnosticText(
+  value: unknown,
+  secrets: unknown[] = [],
+): string {
   if (typeof value !== "string") return "";
   return redactValues(value, secrets)
     .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
@@ -33,14 +36,27 @@ export function diagnosticText(value, secrets = []) {
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
     .slice(0, 1200);
 }
-export function errorFacts(error) {
-  const safe = (value) =>
+type ErrorDetails = {
+  name?: unknown;
+  code?: unknown;
+  status?: unknown;
+  message?: unknown;
+  cause?: ErrorDetails;
+};
+export function errorFacts(value: unknown): {
+  type: string;
+  code?: string | number;
+  causes?: (string | number)[];
+  status?: number;
+} {
+  const error = value as ErrorDetails | null | undefined;
+  const safe = (value: unknown) =>
     typeof value === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(value)
       ? value
       : undefined;
-  const number = (value) =>
+  const number = (value: unknown) =>
     typeof value === "number" && Number.isFinite(value) ? value : undefined;
-  const causes = [];
+  const causes: (string | number)[] = [];
   for (
     let current = error, i = 0;
     current && i < 4;
@@ -52,26 +68,40 @@ export function errorFacts(error) {
   return {
     type: safe(error?.name) || "Error",
     ...(causes.length ? { code: causes[0], causes } : {}),
-    ...(number(error?.status) !== undefined ? { status: error.status } : {}),
+    ...(number(error?.status) !== undefined
+      ? { status: error!.status as number }
+      : {}),
   };
 }
-export function errorSummary(error, secrets = [], includeMessage = true) {
+export function errorSummary(
+  error: unknown,
+  secrets: unknown[] = [],
+  includeMessage = true,
+): string {
   const facts = errorFacts(error);
   const label = [facts.type, facts.code, facts.status && `HTTP ${facts.status}`]
-    .filter((value) => value !== undefined && value !== false)
+    .filter((value: unknown) => value !== undefined && value !== false)
     .join(" · ");
-  const message = includeMessage ? diagnosticText(error?.message, secrets) : "";
+  const message = includeMessage
+    ? diagnosticText(
+        (error as ErrorDetails | null | undefined)?.message,
+        secrets,
+      )
+    : "";
   return message ? `${label}: ${message}` : label;
 }
 export class RuntimeFailure extends Error {
-  constructor(message, details = {}) {
+  declare details: Record<string, unknown>;
+  constructor(message: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = "RuntimeFailure";
     this.details = details;
   }
 }
 
-export function runtimeFailureFacts(details) {
+export function runtimeFailureFacts(
+  details: unknown,
+): Record<string, string | number> {
   if (!details || typeof details !== "object") return {};
   return Object.fromEntries(
     Object.entries(details).filter(
@@ -81,5 +111,5 @@ export function runtimeFailureFacts(details) {
           /^[A-Za-z0-9_.:/-]{1,80}$/.test(value)) ||
           (typeof value === "number" && Number.isFinite(value))),
     ),
-  );
+  ) as Record<string, string | number>;
 }

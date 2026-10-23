@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Rpc } from "../runtime/protocol.mjs";
+import { Rpc } from "../runtime/protocol.ts";
 const home = mkdtempSync(join(tmpdir(), "loop-shared-codex-smoke-"));
 mkdirSync(join(home, ".codex"));
 const child = spawn(

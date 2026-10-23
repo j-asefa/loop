@@ -5,7 +5,7 @@ import { harnessUpgrades as upgrades } from "./harness-upgrades.js";
 import { discover } from "../host-control.js";
 import { hostEnvironmentName } from "./execution-location.js";
 import { nativeHistory } from "./native-history.js";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import express from "express";
 import { z } from "zod";
 import { db } from "./db.js";

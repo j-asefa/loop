@@ -3,19 +3,19 @@ import {
   errorSummary,
   errorFacts,
   runtimeFailureFacts,
-} from "../../runtime/diagnostics.mjs";
-import { IDLE_TIMEOUT_MESSAGE } from "../../runtime/idle-deadline.mjs";
+} from "../../runtime/diagnostics.ts";
+import { IDLE_TIMEOUT_MESSAGE } from "../../runtime/idle-deadline.ts";
 import { isNativeConnection } from "./native-connections.js";
 import {
   inlineAttachments,
   localPathsPrompt,
   uploadedFile,
 } from "./uploads.js";
-import { UPLOAD_CHUNK_BYTES, safeUploadName } from "../../runtime/uploads.mjs";
+import { UPLOAD_CHUNK_BYTES, safeUploadName } from "../../runtime/uploads.ts";
 import { nativeSessions } from "./native-sessions.js";
 import { companionMode } from "./profile.js";
 import { createHash, randomBytes } from "node:crypto";
-import { HarnessError } from "../../runtime/harness.mjs";
+import { HarnessError } from "../../runtime/harness.ts";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";

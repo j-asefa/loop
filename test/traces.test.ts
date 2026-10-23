@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import express from "express";
-import { codexTrace, claudeTraces } from "../runtime/traces.mjs";
+import { codexTrace, claudeTraces } from "../runtime/traces.ts";
 const dir = mkdtempSync(join(tmpdir(), "loop-traces-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");

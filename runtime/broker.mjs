@@ -2,8 +2,8 @@ import {
   RuntimeFailure,
   diagnosticText,
   runtimeFailureFacts,
-} from "./diagnostics.mjs";
-import { idleDeadline, IdleTimeoutError } from "./idle-deadline.mjs";
+} from "./diagnostics.ts";
+import { idleDeadline, IdleTimeoutError } from "./idle-deadline.ts";
 import { containerArgs } from "./container.mjs";
 import { mcpHandler } from "./mcp.mjs";
 // Private control plane. Only this service has the Docker socket, never model containers.
@@ -12,11 +12,11 @@ import { spawn } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { lines } from "./protocol.mjs";
-import { SteeringControls } from "./steering.mjs";
+import { lines } from "./protocol.ts";
+import { SteeringControls } from "./steering.ts";
 import { SharedCodex } from "./shared-codex.mjs";
-import { MAX_CONCURRENT_RUNS } from "./concurrency.mjs";
-import { FileRejected } from "./published-files.mjs";
+import { MAX_CONCURRENT_RUNS } from "./concurrency.ts";
+import { FileRejected } from "./published-files.ts";
 import {
   loginDeadline,
   LoginTimeoutError,

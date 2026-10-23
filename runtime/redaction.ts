@@ -1,8 +1,12 @@
-export function redactValues(value, values) {
+export function redactValues(value: string, values: unknown[]): string;
+export function redactValues(value: unknown, values: unknown[]): unknown;
+export function redactValues(value: unknown, values: unknown[]): unknown {
   const sensitive = [
     ...new Set(
       values
-        .filter((item) => typeof item === "string" && item.length > 0)
+        .filter(
+          (item): item is string => typeof item === "string" && item.length > 0,
+        )
         .flatMap((item) => [
           item,
           encodeURIComponent(item),
@@ -11,12 +15,12 @@ export function redactValues(value, values) {
     ),
   ].sort((a, b) => b.length - a.length);
   if (!sensitive.length) return value;
-  const text = (input) =>
+  const text = (input: string) =>
     sensitive.reduce(
       (result, item) => result.split(item).join("[redacted]"),
       input,
     );
-  function redact(input) {
+  function redact(input: unknown): unknown {
     if (typeof input === "string") return text(input);
     if (Array.isArray(input)) return input.map(redact);
     if (input && typeof input === "object")

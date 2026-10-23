@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { CodexSession } from "../runtime/codex-session.mjs";
-import { RuntimeFailure } from "../runtime/diagnostics.mjs";
+import { RuntimeFailure } from "../runtime/diagnostics.ts";
 
 it("does not start inference when cancelled during skill discovery", async () => {
   const controller = new AbortController();

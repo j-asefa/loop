@@ -3,7 +3,7 @@ import {
   idleDeadline,
   TURN_IDLE_MS,
   IdleTimeoutError,
-} from "../runtime/idle-deadline.mjs";
+} from "../runtime/idle-deadline.ts";
 afterEach(() => vi.useRealTimers());
 it("stops a silent turn once and cannot restart after expiry", () => {
   vi.useFakeTimers();

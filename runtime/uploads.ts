@@ -25,7 +25,7 @@ export const UPLOAD_CHUNK_BYTES = 512 * 1024;
 // hosts also reject some characters, trailing dots or spaces and device names.
 const UNSAFE_NAME = /[/\\\0-\x1f\x7f:*?"<>|]/;
 const DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/i;
-export const uploadName = (name) =>
+export const uploadName = (name: unknown): name is string =>
   typeof name === "string" &&
   name.length > 0 &&
   Buffer.byteLength(name) <= 255 &&
@@ -36,7 +36,7 @@ export const uploadName = (name) =>
 
 // A usable name for any upload: unsafe characters replaced, and long names
 // shortened to fit while keeping the extension.
-export function safeUploadName(name) {
+export function safeUploadName(name: unknown): string {
   let clean = String(name ?? "")
     .replace(new RegExp(UNSAFE_NAME.source, "g"), "_")
     .replace(/[. ]+$/, "");
@@ -55,9 +55,27 @@ export function safeUploadName(name) {
 // (a runtime restart or a recreated workspace removes it) and writes nothing.
 // Chunks append to a transfer-private partial file that is renamed into place
 // only after its size and SHA-256 match, so a reader never sees a torn file.
-export function writeUploadChunk(root, request) {
+export function writeUploadChunk(
+  root: string,
+  request: {
+    fileId: string;
+    transferId: string;
+    name: string;
+    size: number;
+    sha256: string;
+    offset?: number;
+    data?: string;
+    check?: boolean;
+  },
+): {
+  path: string;
+  size: number;
+  complete: boolean;
+  nextOffset: number | null;
+} {
   const { fileId, transferId, name, size, sha256, check } = request;
-  const offset = check === true ? 0 : request.offset;
+  // Number.isSafeInteger below rejects missing offsets at the wire boundary.
+  const offset = (check === true ? 0 : request.offset) as number;
   const data = check === true ? "" : request.data;
   if (
     typeof fileId !== "string" ||
@@ -96,7 +114,7 @@ export function writeUploadChunk(root, request) {
   )
     throw new Error("Upload directory escaped the workspace");
   const path = join(real, name);
-  const digest = (file) =>
+  const digest = (file: string) =>
     createHash("sha256").update(readFileSync(file)).digest("hex");
   const complete = { path, size, complete: true, nextOffset: null };
   // Uploads are immutable, so a retried or later turn reuses the copy.

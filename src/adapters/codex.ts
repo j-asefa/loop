@@ -2,7 +2,7 @@ import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
 import type { Setting, SettingValue } from "../agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
-import { modelOptions } from "../../runtime/model-options.mjs";
+import { modelOptions } from "../../runtime/model-options.ts";
 import { Native } from "../native.js";
 import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";

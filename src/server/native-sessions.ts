@@ -20,7 +20,7 @@ import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
 import { NativeOutput } from "./native-output.js";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import { SteeringInbox } from "./steering.js";
 import { realpathSync, statSync, readFileSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";

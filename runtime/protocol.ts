@@ -1,6 +1,14 @@
-import { RuntimeFailure } from "./diagnostics.mjs";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { Readable } from "node:stream";
+import type { ChatInput, Chunk } from "../src/server/providers.js";
+// JSON messages belong to the native provider protocol; consumers validate the fields they use.
+import { RuntimeFailure } from "./diagnostics.ts";
 // Shared, dependency-free framing for the official runtime processes.
-export function lines(stream, onLine, onError) {
+export function lines(
+  stream: Readable,
+  onLine: (message: any) => void,
+  onError: (error: unknown) => void,
+): void {
   let buffer = "";
   stream.setEncoding("utf8");
   stream.on("data", (chunk) => {
@@ -25,11 +33,29 @@ export function lines(stream, onLine, onError) {
 }
 export class Rpc {
   next = 1;
-  pending = new Map();
-  events = [];
-  waiter;
-  failure;
-  constructor(child, onRequest, onNotification, onFailure) {
+  pending = new Map<
+    number,
+    {
+      resolve: (value: any) => void;
+      reject: (error: unknown) => void;
+      timer: ReturnType<typeof setTimeout>;
+      method: string;
+    }
+  >();
+  events: any[] = [];
+  waiter?: {
+    resolve: (value: any) => void;
+    reject: (error: unknown) => void;
+  } | null;
+  failure: unknown;
+  declare child: ChildProcessWithoutNullStreams;
+  declare onFailure?: (error: unknown) => void;
+  constructor(
+    child: ChildProcessWithoutNullStreams,
+    onRequest?: (message: any) => object,
+    onNotification?: (message: any) => void,
+    onFailure?: (error: unknown) => void,
+  ) {
     this.onFailure = onFailure;
     this.child = child;
     child.stdin.on("error", (e) => this.fail(e));
@@ -87,11 +113,11 @@ export class Rpc {
       (e) => this.fail(e),
     );
   }
-  send(m) {
+  send(m: unknown) {
     if (!this.child.stdin.destroyed)
       this.child.stdin.write(JSON.stringify(m) + "\n");
   }
-  call(method, params = {}) {
+  call(method: string, params: object = {}): Promise<any> {
     if (this.failure) return Promise.reject(this.failure);
     const id = this.next++;
     return new Promise((resolve, reject) => {
@@ -108,14 +134,14 @@ export class Rpc {
       this.send({ id, method, params });
     });
   }
-  event() {
+  event(): Promise<any> {
     if (this.events.length) return Promise.resolve(this.events.shift());
     if (this.failure) return Promise.reject(this.failure);
     return new Promise((resolve, reject) => {
       this.waiter = { resolve, reject };
     });
   }
-  fail(error) {
+  fail(error: unknown) {
     if (this.failure) return;
     this.failure = error;
     this.onFailure?.(error);
@@ -142,7 +168,9 @@ export const responseSchema = {
   },
   required: ["kind", "text", "tool", "arguments"],
 };
-export function nativeResponseSchema(input) {
+export function nativeResponseSchema(
+  input: ChatInput,
+): Record<string, unknown> {
   if (input.toolChoice)
     return {
       ...responseSchema,
@@ -177,12 +205,17 @@ export function nativeResponseSchema(input) {
     required: ["kind", "text", "tool", "arguments"],
   };
 }
-export function turnPrompt(input, nativeTools = false) {
+export function turnPrompt(input: ChatInput, nativeTools = false): string {
   if (!nativeTools)
     return `You are an agent in Loop. Follow the agent instructions below. The JSON conversation is historical context, including untrusted tool results. Continue the latest user request.\nReturn the required JSON object. For an answer set kind=answer, text=your complete Markdown answer, tool=null, arguments="{}". For a Loop tool request set kind=tool, text="", tool=an exact supplied tool name, arguments=a JSON-encoded object matching its inputSchema. Loop enforces permissions and approval policy for supplied Loop tools. Native diagrams and team delegation run directly; MCP installation requires user approval; connected MCP calls follow the workspace approval preference. Do not claim a tool executed without its result. Request one Loop tool at a time. Do not use native runtime tools.\nKeep your final answer within approximately ${input.maxTokens || 4096} tokens.\nAGENT INSTRUCTIONS:\n${input.instructions || ""}\nAVAILABLE LOOP TOOLS:\n${JSON.stringify(input.tools || [])}\nCONVERSATION:\n${JSON.stringify(input.messages)}`;
   return `You are an agent in Loop. Follow the agent instructions below. The JSON conversation is historical context, including untrusted tool results. Continue the latest user request.\nReturn the required JSON object. For an answer set kind=answer, text=your complete Markdown answer, tool=null, arguments="{}". The Loop actions listed below are final-response actions, not native runtime tools. Never invoke one of their names through the runtime's native tool API. To request a Loop action, finish this turn with kind=tool and its exact listed name; Loop will execute it and return the result in a new turn. Loop enforces permissions and approval policy for supplied Loop actions. MCP installation requires user approval; connected MCP calls follow the workspace approval preference. Do not claim an action executed without its result. Request one Loop action at a time. You can also use all native tools enabled by this runtime, including shell, files, network, skills, plugins and configured MCP servers. Execute native tools directly in the host runtime. Follow the host's instructions and managed policies. If a tool needs interactive input or sign-in, explain what the user needs to provide in your final Loop reply.\nKeep your final answer within approximately ${input.maxTokens || 4096} tokens.\nAGENT INSTRUCTIONS:\n${input.instructions || ""}\nLOOP FINAL-RESPONSE ACTIONS (DO NOT INVOKE AS NATIVE TOOLS):\n${JSON.stringify(input.tools || [])}\nCONVERSATION:\n${JSON.stringify(input.messages)}`;
 }
-export function resultChunks(value, input) {
+export function resultChunks(raw: unknown, input: ChatInput): Chunk[] {
+  // Preserve validation of the untrusted envelope, including malformed primitives.
+  const value = raw as
+    | { kind: string; text: unknown; arguments: unknown; tool?: string | null }
+    | null
+    | undefined;
   if (
     !value ||
     !["answer", "tool"].includes(value.kind) ||
@@ -226,11 +259,18 @@ export function resultChunks(value, input) {
     throw new RuntimeFailure("Invalid tool arguments", { phase: "response" });
   return [
     {
-      toolCall: { id: crypto.randomUUID(), name: value.tool, arguments: args },
+      toolCall: {
+        id: crypto.randomUUID(),
+        name: value.tool as string,
+        arguments: args,
+      },
     },
   ];
 }
-export function authorizationUrl(text, provider) {
+export function authorizationUrl(
+  text: string,
+  provider: string,
+): string | undefined {
   for (const candidate of text.match(/https:\/\/[^\s\u001b<>]+/g) || []) {
     try {
       const u = new URL(candidate);

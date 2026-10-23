@@ -159,7 +159,7 @@ it("treats a legacy zero budget as the default instead of aborting immediately",
 });
 
 it("persists a typed broker idle timeout through the subscription client and worker", async () => {
-  const { IDLE_TIMEOUT_MESSAGE } = await import("../runtime/idle-deadline.mjs");
+  const { IDLE_TIMEOUT_MESSAGE } = await import("../runtime/idle-deadline.ts");
   const { tick } = await import("../src/server/worker");
   const running = await start(undefined, {
     code: "idle_timeout",

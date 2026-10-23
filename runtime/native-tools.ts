@@ -1,6 +1,12 @@
 // Loop enables native tools in managed containers and paired hosts. Only
 // answer approvals for the thread created by this Loop operation.
-export function nativeReply(message, threadId) {
+export function nativeReply(
+  message: { method?: string; params?: any },
+  threadId?: string,
+): {
+  result?: unknown;
+  error?: { code: number; message: string };
+} {
   if (!threadId || message.params?.threadId !== threadId)
     return {
       error: {
@@ -12,7 +18,7 @@ export function nativeReply(message, threadId) {
     [
       "item/commandExecution/requestApproval",
       "item/fileChange/requestApproval",
-    ].includes(message.method)
+    ].includes(message.method as string)
   )
     return { result: { decision: "accept" } };
   if (message.method === "item/permissions/requestApproval")

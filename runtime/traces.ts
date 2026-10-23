@@ -1,8 +1,13 @@
+import type { Chunk } from "../src/server/providers.js";
+// Provider JSON is intentionally open; only the validated public projection leaves this module.
 // Only public activity/transcript fields are exposed. Reasoning/thinking and
 // provider control messages are deliberately not part of the user trace.
-const text = (value) =>
+const text = (value: unknown) =>
   typeof value === "string" ? value.slice(0, 12000) : "";
-export function codexTrace(message, messages = new Map()) {
+export function codexTrace(
+  message: any,
+  messages = new Map<string, any>(),
+): Chunk["trace"] {
   if (message.method === "item/agentMessage/delta") {
     const id = message.params?.itemId;
     if (!id || typeof message.params?.delta !== "string") return;
@@ -18,7 +23,7 @@ export function codexTrace(message, messages = new Map()) {
     messages.set(item.id, { ...item, text: item.text || "" });
     return publicMessage(item);
   }
-  const titles = {
+  const titles: Record<string, string> = {
     commandExecution: "Run command",
     fileChange: "Change files",
     mcpToolCall: "Use tool",
@@ -41,7 +46,7 @@ export function codexTrace(message, messages = new Map()) {
  * Loop's structured reply ({"kind":"answer"|"tool","text",...}): the answer
  * text, "" for a tool request, or undefined when the text isn't one.
  */
-export function loopEnvelope(value) {
+export function loopEnvelope(value: unknown): string | undefined {
   const raw = String(value ?? "").trim();
   if (!raw.startsWith("{")) return undefined;
   try {
@@ -56,13 +61,16 @@ export function loopEnvelope(value) {
   } catch {}
   return undefined;
 }
-function publicMessage(item, streaming = false) {
+function publicMessage(item: any, streaming = false): Chunk["trace"] {
   const raw = String(item.text || "");
   // The final answer arrives separately. Some older hosts omit phase; there
   // Loop's JSON envelope is the final answer, never progress.
   if (item.phase === "final_answer") return;
   const envelope = loopEnvelope(raw);
-  if (!item.phase && (envelope !== undefined || raw.trimStart().startsWith("{")))
+  if (
+    !item.phase &&
+    (envelope !== undefined || raw.trimStart().startsWith("{"))
+  )
     return;
   // Codex can wrap commentary in the same envelope: show only its text. One
   // still streaming waits until it is complete; a tool request has none.
@@ -77,11 +85,14 @@ function publicMessage(item, streaming = false) {
     content: content.slice(0, 200000),
   };
 }
-export function claudeTraces(message, internalToolIds = new Set()) {
+export function claudeTraces(
+  message: any,
+  internalToolIds = new Set<string>(),
+): NonNullable<Chunk["trace"]>[] {
   if (!["assistant", "user"].includes(message.type)) return [];
   return (
     Array.isArray(message.message?.content) ? message.message.content : []
-  ).flatMap((block, index) => {
+  ).flatMap((block: any, index: number) => {
     // --json-schema uses this internal tool to deliver Loop's envelope. Its
     // acknowledgement is not an agent update or a successful external action.
     if (block.type === "tool_use" && block.name === "StructuredOutput") {
@@ -140,13 +151,13 @@ export function claudeTraces(message, internalToolIds = new Set()) {
 // Text keeps one character beyond the server's 48,000-character retention so
 // the server can still mark the result as truncated.
 const KEEP = 48_001;
-const head = (value, n = KEEP) =>
+const head = (value: unknown, n = KEEP) =>
   typeof value === "string" ? value.slice(0, n) : undefined;
-const tail = (value, n = KEEP) =>
+const tail = (value: unknown, n = KEEP) =>
   typeof value === "string" ? value.slice(-n) : undefined;
 // Whole-event budget, well inside the 2 MB NDJSON line limit.
 const DIFF_BUDGET = 1_000_000;
-export function codexActivity(message) {
+export function codexActivity(message: any): Chunk["activity"] {
   const params = message?.params;
   if (message?.method === "turn/plan/updated") {
     if (typeof params?.turnId !== "string" || !Array.isArray(params.plan))
@@ -157,7 +168,7 @@ export function codexActivity(message) {
       params: {
         turnId: params.turnId,
         explanation: head(params.explanation, 4000),
-        plan: params.plan.slice(0, 100).map((step) => ({
+        plan: params.plan.slice(0, 100).map((step: any) => ({
           step: head(step?.step, 2000),
           status: step?.status,
         })),
@@ -193,7 +204,7 @@ export function codexActivity(message) {
           id: item.id,
           type: item.type,
           status: item.status,
-          changes: item.changes.slice(0, 100).map((change) => {
+          changes: item.changes.slice(0, 100).map((change: any) => {
             const diff = head(change?.diff);
             // Over budget, the diff is omitted and shown as unavailable.
             const keep = diff !== undefined && diff.length <= budget;
@@ -220,19 +231,23 @@ export function codexActivity(message) {
 // tool_result with its tool_use; unrelated tools and their results are not
 // forwarded. `pending` holds forwarded Bash/Write/Edit ids awaiting a result.
 const CLAUDE_TOOLS = new Set(["Bash", "Write", "Edit", "TodoWrite"]);
-export function claudeActivities(message, pending = new Set()) {
+export function claudeActivities(
+  message: any,
+  pending = new Set<string>(),
+): NonNullable<Chunk["activity"]>[] {
   if (!["assistant", "user"].includes(message?.type)) return [];
   const blocks = Array.isArray(message.message?.content)
     ? message.message.content
     : [];
-  return blocks.flatMap((block) => {
+  return blocks.flatMap((block: any) => {
     if (
       block?.type === "tool_use" &&
       typeof block.id === "string" &&
       CLAUDE_TOOLS.has(block.name)
     ) {
       const input = block.input || {};
-      if (block.name !== "TodoWrite" && pending.size < 1000) pending.add(block.id);
+      if (block.name !== "TodoWrite" && pending.size < 1000)
+        pending.add(block.id);
       return [
         {
           harness: "claude",
@@ -247,7 +262,7 @@ export function claudeActivities(message, pending = new Set()) {
               old_string: head(input.old_string),
               new_string: head(input.new_string),
               todos: Array.isArray(input.todos)
-                ? input.todos.slice(0, 100).map((todo) => ({
+                ? input.todos.slice(0, 100).map((todo: any) => ({
                     id: head(todo?.id, 300),
                     content: head(todo?.content, 2000),
                     status: todo?.status,
@@ -268,8 +283,8 @@ export function claudeActivities(message, pending = new Set()) {
           ? block.content
           : Array.isArray(block.content)
             ? block.content
-                .filter((part) => part?.type === "text")
-                .map((part) => String(part.text ?? ""))
+                .filter((part: any) => part?.type === "text")
+                .map((part: any) => String(part.text ?? ""))
                 .join("\n")
             : "";
       return [

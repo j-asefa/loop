@@ -2,15 +2,19 @@
 // generation, wait for its terminal result, then resume the same native session.
 // No tool call or original prompt is replayed by Loop.
 export class ClaudeSteering {
-  waiting;
-  async steer(text, interrupt, prompt) {
+  waiting?: { resolve: () => void };
+  async steer(
+    text: string,
+    interrupt: () => Promise<unknown>,
+    prompt: (text: string) => Promise<unknown>,
+  ): Promise<void> {
     if (this.waiting) throw new Error("A follow-up is already being delivered");
-    let resolve;
-    const stopped = new Promise((yes) => {
+    let resolve!: () => void;
+    const stopped = new Promise<void>((yes) => {
       resolve = yes;
     });
     this.waiting = { resolve };
-    let timer;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         (async () => {

@@ -1,13 +1,13 @@
-import { Rpc, authorizationUrl, resultChunks } from "./protocol.mjs";
+import { Rpc, authorizationUrl, resultChunks } from "./protocol.ts";
 import { setTimeout as delay } from "node:timers/promises";
-import { nativeReply } from "./native-tools.mjs";
-import { codexCatalog, codexTurn } from "./harness.mjs";
-import { codexTrace, codexActivity } from "./traces.mjs";
-import { modelOptions } from "./model-options.mjs";
-import { RuntimeFailure, diagnosticText } from "./diagnostics.mjs";
+import { nativeReply } from "./native-tools.ts";
+import { codexCatalog, codexTurn } from "./harness.ts";
+import { codexTrace, codexActivity } from "./traces.ts";
+import { modelOptions } from "./model-options.ts";
+import { RuntimeFailure, diagnosticText } from "./diagnostics.ts";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { workspaceCleanupInstructions } from "./workspace-cleanup.mjs";
-import { redactValues } from "./redaction.mjs";
+import { redactValues } from "./redaction.ts";
 async function readAccount(rpc, signal) {
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();

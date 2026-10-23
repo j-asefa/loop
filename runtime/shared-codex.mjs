@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { lines } from "./protocol.mjs";
+import { lines } from "./protocol.ts";
 import {
   RuntimeFailure,
   diagnosticText,
   runtimeFailureFacts,
-} from "./diagnostics.mjs";
-import { idleDeadline } from "./idle-deadline.mjs";
+} from "./diagnostics.ts";
+import { idleDeadline } from "./idle-deadline.ts";
 import { loginDeadline } from "./login-deadline.mjs";
-import { SteeringControls } from "./steering.mjs";
+import { SteeringControls } from "./steering.ts";
 
 // Multiplex the private broker/worker pipe. Only the broker holds the Docker
 // socket. Cancelling an operation never terminates the shared process.

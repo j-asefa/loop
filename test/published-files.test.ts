@@ -20,7 +20,7 @@ import {
   FileRejected,
   FILE_CHUNK_BYTES,
   MAX_PUBLISHED_BYTES,
-} from "../runtime/published-files.mjs";
+} from "../runtime/published-files.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-published-"));
 const workspace = join(directory, "workspace");

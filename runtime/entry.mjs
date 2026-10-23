@@ -3,18 +3,18 @@ import {
   diagnosticText,
   errorSummary,
   runtimeFailureFacts,
-} from "./diagnostics.mjs";
+} from "./diagnostics.ts";
 import { CodexSession } from "./codex-session.mjs";
-import { receiveSteering } from "./steering.mjs";
-import { ClaudeSteering } from "./claude-steering.mjs";
+import { receiveSteering } from "./steering.ts";
+import { ClaudeSteering } from "./claude-steering.ts";
 // Official binaries are unmodified. Host mode is chosen by the local launcher,
 // never by an HTTP request; the default remains a per-connection container.
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { FileRejected, readPublishedChunk } from "./published-files.mjs";
-import { writeUploadChunk } from "./uploads.mjs";
+import { FileRejected, readPublishedChunk } from "./published-files.ts";
+import { writeUploadChunk } from "./uploads.ts";
 import { managedWorkspace, githubEnvironment } from "./workspace.mjs";
 import { cleanupStorage } from "./storage-cleanup.mjs";
 import {
@@ -22,22 +22,22 @@ import {
   workspaceCleanupInstructions,
 } from "./workspace-cleanup.mjs";
 import { join } from "node:path";
-import { redactValues } from "./redaction.mjs";
-import { claudeTraces, claudeActivities } from "./traces.mjs";
+import { redactValues } from "./redaction.ts";
+import { claudeTraces, claudeActivities } from "./traces.ts";
 import {
   claudeCatalog,
   claudeModels,
   slashCommand,
   latestPrompt,
   HarnessError,
-} from "./harness.mjs";
+} from "./harness.ts";
 import {
   lines,
   nativeResponseSchema,
   turnPrompt,
   resultChunks,
   authorizationUrl,
-} from "./protocol.mjs";
+} from "./protocol.ts";
 const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
 let workdir = process.env.LOOP_RUNTIME_WORKDIR || process.cwd();
 let githubToken;

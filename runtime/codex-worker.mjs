@@ -6,9 +6,9 @@ import {
   RuntimeFailure,
   diagnosticText,
   runtimeFailureFacts,
-} from "./diagnostics.mjs";
-import { HarnessError } from "./harness.mjs";
-import { redactValues } from "./redaction.mjs";
+} from "./diagnostics.ts";
+import { HarnessError } from "./harness.ts";
+import { redactValues } from "./redaction.ts";
 
 const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
 const env = hostMode

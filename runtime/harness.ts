@@ -1,27 +1,55 @@
-import { modelOptions } from "./model-options.mjs";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChatInput } from "../src/server/providers.js";
+export type HarnessCommand = {
+  name: string;
+  token: string;
+  kind: string;
+  description: string;
+  argumentHint?: string;
+  disabledReason?: string;
+};
+export type HarnessCatalog = {
+  available: boolean;
+  runtime?: string;
+  commands: HarnessCommand[];
+  message?: string;
+};
+type Launch = (
+  command: string,
+  args: string[],
+) => ChildProcessWithoutNullStreams;
+import { modelOptions } from "./model-options.ts";
 import {
   lines,
   turnPrompt,
   responseSchema,
   nativeResponseSchema,
-} from "./protocol.mjs";
+} from "./protocol.ts";
 export class HarnessError extends Error {}
 
-const validName = (name) =>
+const validName = (name: unknown): name is string =>
   typeof name === "string" && /^[\w.:-]{1,200}$/.test(name);
-export function codexSkills(result) {
+export function codexSkills(
+  result: any,
+): {
+  name: string;
+  path: string;
+  enabled?: boolean;
+  description?: string;
+  interface?: { shortDescription?: string };
+}[] {
   if (!Array.isArray(result?.data))
     throw new Error("Skill discovery is unavailable");
   return result.data
-    .flatMap((page) => page.skills || [])
+    .flatMap((page: any) => page.skills || [])
     .filter(
-      (skill) =>
+      (skill: any) =>
         skill.enabled !== false &&
         validName(skill.name) &&
         typeof skill.path === "string",
     );
 }
-export function codexCatalog(result) {
+export function codexCatalog(result: unknown): HarnessCatalog {
   return {
     available: true,
     runtime: "Codex",
@@ -45,22 +73,22 @@ export function codexCatalog(result) {
     ],
   };
 }
-export function latestPrompt(input) {
+export function latestPrompt(input: ChatInput): string {
   const last = input.messages.at(-1);
   return last?.role === "user" ? last.content.trim() : "";
 }
-export function slashCommand(input) {
+export function slashCommand(input: ChatInput): string | undefined {
   const match = latestPrompt(input).match(/^\/([\w.:-]+)(?:\s|$)/);
   return match?.[1];
 }
 export async function codexTurn(
-  rpc,
-  threadId,
-  input,
-  nativeTools,
-  cwd,
-  signal,
-) {
+  rpc: { call(method: string, params?: object): Promise<any> },
+  threadId: string,
+  input: ChatInput,
+  nativeTools: boolean,
+  cwd?: string,
+  signal?: AbortSignal,
+): Promise<{ turn: { id: string }; review?: boolean }> {
   signal?.throwIfAborted();
   const command = slashCommand(input);
   if (nativeTools && command) {
@@ -119,7 +147,7 @@ export async function codexTurn(
 
 // The official SDK's initialize control message lists commands without sending
 // a user prompt or spending a model turn. Do not read arbitrary host files.
-async function claudeInitialize(launch) {
+async function claudeInitialize(launch: Launch): Promise<Record<string, any>> {
   const p = launch("claude", [
     "-p",
     "--input-format",
@@ -130,55 +158,57 @@ async function claudeInitialize(launch) {
     "--no-session-persistence",
   ]);
   try {
-    const initialized = await new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("Command discovery timed out")),
-        20000,
-      );
-      const finish = (error, value) => {
-        clearTimeout(timer);
-        error ? reject(error) : resolve(value);
-      };
-      p.once("error", (e) => finish(e));
-      p.once("exit", () => finish(new Error("Command discovery stopped")));
-      p.stdin.on("error", (e) => finish(e));
-      lines(
-        p.stdout,
-        (m) => {
-          if (
-            m.type !== "control_response" ||
-            m.response?.request_id !== "loop-catalog"
-          )
-            return;
-          if (
-            m.response.subtype !== "success" ||
-            !m.response.response ||
-            typeof m.response.response !== "object"
-          )
-            finish(new Error("Command discovery is unavailable"));
-          else finish(null, m.response.response);
-        },
-        (e) => finish(e),
-      );
-      p.stdin.write(
-        JSON.stringify({
-          type: "control_request",
-          request_id: "loop-catalog",
-          request: { subtype: "initialize" },
-        }) + "\n",
-      );
-    });
+    const initialized = await new Promise<Record<string, any>>(
+      (resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("Command discovery timed out")),
+          20000,
+        );
+        const finish = (error: unknown, value?: Record<string, any>) => {
+          clearTimeout(timer);
+          error ? reject(error) : resolve(value!);
+        };
+        p.once("error", (e) => finish(e));
+        p.once("exit", () => finish(new Error("Command discovery stopped")));
+        p.stdin.on("error", (e) => finish(e));
+        lines(
+          p.stdout,
+          (m) => {
+            if (
+              m.type !== "control_response" ||
+              m.response?.request_id !== "loop-catalog"
+            )
+              return;
+            if (
+              m.response.subtype !== "success" ||
+              !m.response.response ||
+              typeof m.response.response !== "object"
+            )
+              finish(new Error("Command discovery is unavailable"));
+            else finish(null, m.response.response);
+          },
+          (e) => finish(e),
+        );
+        p.stdin.write(
+          JSON.stringify({
+            type: "control_request",
+            request_id: "loop-catalog",
+            request: { subtype: "initialize" },
+          }) + "\n",
+        );
+      },
+    );
     return initialized;
   } finally {
     p.kill("SIGTERM");
   }
 }
 
-function claudeModelOptions(initialized) {
+function claudeModelOptions(initialized: Record<string, any> | null) {
   const models = Array.isArray(initialized?.models)
     ? initialized.models
-        .filter((model) => typeof (model?.value || model?.id) === "string")
-        .map((model) => ({
+        .filter((model: any) => typeof (model?.value || model?.id) === "string")
+        .map((model: any) => ({
           id: model.value || model.id,
           name: model.displayName || model.name || model.value || model.id,
           capabilities: "Claude Code · runtime model catalog",
@@ -196,7 +226,7 @@ function claudeModelOptions(initialized) {
   }));
 }
 
-export async function claudeModels(launch) {
+export async function claudeModels(launch: Launch) {
   try {
     return claudeModelOptions(await claudeInitialize(launch));
   } catch {
@@ -206,7 +236,7 @@ export async function claudeModels(launch) {
   }
 }
 
-export async function claudeCatalog(launch) {
+export async function claudeCatalog(launch: Launch) {
   const initialized = await claudeInitialize(launch);
   if (!Array.isArray(initialized.commands))
     throw new Error("Command discovery is unavailable");
@@ -215,8 +245,8 @@ export async function claudeCatalog(launch) {
     runtime: "Claude Code",
     models: claudeModelOptions(initialized),
     commands: initialized.commands
-      .filter((c) => validName(c?.name))
-      .map((c) => ({
+      .filter((c: any) => validName(c?.name))
+      .map((c: any) => ({
         name: c.name,
         token: "/" + c.name,
         kind: "command",

@@ -1,4 +1,4 @@
-import { modelOptions } from "../../runtime/model-options.mjs";
+import { modelOptions } from "../../runtime/model-options.ts";
 import { Problem } from "./domain.js";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
@@ -46,7 +46,7 @@ export type Chunk = {
     state?: string;
   };
   // Structured result from a subscription runtime's own executor (Codex
-  // items/plans, Claude Code tool blocks); see runtime/traces.mjs. Display
+  // items/plans, Claude Code tool blocks); see runtime/traces.ts. Display
   // only: mapped to shared activities, never executed or applied.
   activity?:
     | { harness: "codex"; method: string; params: any }

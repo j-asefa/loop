@@ -11,7 +11,7 @@ import { basename, extname, isAbsolute, join, relative } from "node:path";
 import { createHash } from "node:crypto";
 export const MAX_PUBLISHED_BYTES = 25 * 1024 * 1024;
 export const FILE_CHUNK_BYTES = 512 * 1024;
-const types = {
+const types: Record<string, string> = {
   ".txt": "text/plain",
   ".md": "text/markdown",
   ".json": "application/json",
@@ -43,13 +43,18 @@ const types = {
 export class FileRejected extends Error {
   name = "FileRejected";
 }
-const megabytes = (bytes) => (bytes / 1024 / 1024).toFixed(1) + " MB";
-export const fileMime = (name) =>
+const megabytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(1) + " MB";
+export const fileMime = (name: string): string =>
   types[extname(name).toLowerCase()] || "application/octet-stream";
-const privatePath = (path) =>
+const privatePath = (path: string) =>
   path.split("/").some((p) => p.startsWith(".")) ||
   /(?:^|\/)(?:auth|credentials?|secrets?|tokens?)(?:[._-]|$)/i.test(path);
-export function readPublishedChunk(directory, path, offset = 0, version) {
+export function readPublishedChunk(
+  directory: string,
+  path: string,
+  offset = 0,
+  version?: string,
+) {
   if (
     typeof path !== "string" ||
     !path ||
@@ -65,7 +70,7 @@ export function readPublishedChunk(directory, path, offset = 0, version) {
   if (!Number.isSafeInteger(offset) || offset < 0)
     throw new FileRejected("Invalid file offset");
   const root = realpathSync(directory);
-  const within = (value) => {
+  const within = (value: string) => {
     const rel = relative(root, value);
     return rel && !privatePath(rel) && !isAbsolute(rel);
   };
@@ -73,7 +78,10 @@ export function readPublishedChunk(directory, path, offset = 0, version) {
   try {
     target = realpathSync(join(root, path));
   } catch (error) {
-    if (error.code === "ENOENT" || error.code === "ENOTDIR")
+    if (
+      (error as NodeJS.ErrnoException).code === "ENOENT" ||
+      (error as NodeJS.ErrnoException).code === "ENOTDIR"
+    )
       throw new FileRejected(`No file at ${path} in the workspace`);
     throw error;
   }
@@ -95,9 +103,7 @@ export function readPublishedChunk(directory, path, offset = 0, version) {
       st.ino !== expected.ino ||
       st.nlink !== 1
     )
-      throw new FileRejected(
-        "File changed or is not a regular workspace file",
-      );
+      throw new FileRejected("File changed or is not a regular workspace file");
     if (st.size > MAX_PUBLISHED_BYTES)
       throw new FileRejected(
         `This file is ${megabytes(st.size)}; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.`,

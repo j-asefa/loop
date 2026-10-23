@@ -1,6 +1,11 @@
+// Native provider model records are versioned outside Loop; validate each capability before exposing it.
 // Preserve model capabilities reported by the provider; never infer effort
 // levels from a model name or silently substitute a different level.
-export function modelOptions(model) {
+export function modelOptions(model: Record<string, any>): {
+  resolvedModel?: string;
+  effortLevels?: { value: string; description?: string }[];
+  defaultEffort?: string;
+} {
   const reported =
     model.supportedReasoningEfforts ?? model.supportedEffortLevels;
   const capability = model.capabilities?.effort;
@@ -11,7 +16,7 @@ export function modelOptions(model) {
           : { value: level.reasoningEffort, description: level.description },
       )
     : capability
-      ? Object.entries(capability)
+      ? Object.entries<{ supported?: boolean } | null | undefined>(capability)
           .filter(
             ([key, value]) => key !== "supported" && value?.supported === true,
           )

@@ -1,4 +1,4 @@
-import { TURN_IDLE_MS } from "../runtime/idle-deadline.mjs";
+import { TURN_IDLE_MS } from "../runtime/idle-deadline.ts";
 import { expect, it } from "vitest";
 import {
   cpSync,

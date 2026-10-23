@@ -19,7 +19,7 @@ import {
   MAX_PUBLISHED_BYTES,
   fileMime,
   readPublishedChunk,
-} from "../../runtime/published-files.mjs";
+} from "../../runtime/published-files.ts";
 import type { Run } from "./queue.js";
 import type { Connection } from "../shared/types.js";
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 export function PairedDevices({ onClose }: { onClose: () => void }) {
   const [workspace, setWorkspace] = useState<any>(),
     [devices, setDevices] = useState<any[]>([]),

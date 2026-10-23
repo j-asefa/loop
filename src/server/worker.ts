@@ -1,5 +1,5 @@
-import { errorFacts, errorSummary } from "../../runtime/diagnostics.mjs";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.mjs";
+import { errorFacts, errorSummary } from "../../runtime/diagnostics.ts";
+import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import { recordTrace } from "./traces.js";
 import { companionMode } from "./profile.js";
 import { executeMcp } from "./mcp/routes.js";

@@ -247,6 +247,26 @@ it.each(["codex", "claude"])(
     });
     expect(result.events).toContainEqual({ chunk: { text: "Use the compiled runtime" } });
     expect(result.events.filter((event) => event.done)).toHaveLength(1);
+
+    // Exercise the typed helpers through the shipped entrypoint: preserve the
+    // tool envelope and sanitized failure facts, not just successful answers.
+    const tool = await invoke(
+      provider, "turn", "subscription", "tool", false, "Look it up", [],
+      { entry: join(output, "entry.mjs") },
+    );
+    expect(tool.code).toBe(0);
+    expect(tool.events).toContainEqual({ chunk: { toolCall: {
+      id: expect.any(String), name: "lookup", arguments: { query: "fixture" },
+    } } });
+    const secret = "compiled-failure-credential";
+    const failed = await invoke(
+      provider, "turn", "subscription", "quota", false, "Inspect", [],
+      { entry: join(output, "entry.mjs"), githubToken: secret },
+    );
+    const failure = failed.events.find((event) => event.code === "runtime_failure");
+    expect(failure.error).toContain("[redacted]");
+    expect(failure.diagnostic).toMatchObject({ phase: "turn" });
+    expect(JSON.stringify(failed.events)).not.toContain(secret);
   },
 );
 it.each(["codex", "claude"])(
@@ -624,7 +644,7 @@ for (const provider of ["codex", "claude"]) {
   });
 }
 it("rejects off-provider sign-in URLs and unauthorized tool names", async () => {
-  const path = resolve("runtime/protocol.mjs");
+  const path = resolve("runtime/protocol.ts");
   const { authorizationUrl, nativeResponseSchema, resultChunks, turnPrompt } =
     await import(path);
   expect(

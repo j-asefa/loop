@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { lines } from "./protocol.mjs";
+import { lines } from "./protocol.ts";
 
 export function mcpContainerArgs(prefix, image, name, config) {
   if (

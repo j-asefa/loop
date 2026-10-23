@@ -8,11 +8,11 @@ import {
   claudeTraces,
   codexActivity,
   codexTrace,
-} from "../runtime/traces.mjs";
+} from "../runtime/traces.ts";
 
 // Subscription runs execute in a Codex or Claude Code runtime whose own
 // executor reports structured command/file results. These tests drive the
-// real runtime serializers (runtime/traces.mjs, as used by runtime/entry.mjs)
+// real runtime serializers (runtime/traces.ts, as used by runtime/entry.mjs)
 // through the runtime NDJSON transport into executeAgent and the shared
 // activity store. No model or network call is made.
 const dir = mkdtempSync(join(tmpdir(), "loop-runtime-activities-"));

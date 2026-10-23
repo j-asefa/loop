@@ -1,5 +1,5 @@
 import type { AuthSecret } from "./client.js";
-import { redactValues } from "../../../runtime/redaction.mjs";
+import { redactValues } from "../../../runtime/redaction.ts";
 
 export function redactCredentials(value: unknown, secrets: AuthSecret[]): any {
   const values = secrets

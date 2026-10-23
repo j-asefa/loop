@@ -3,7 +3,7 @@ import {
   diagnosticText,
   errorFacts,
   errorSummary,
-} from "../../../runtime/diagnostics.mjs";
+} from "../../../runtime/diagnostics.ts";
 import Ajv from "ajv";
 import Ajv2019 from "ajv/dist/2019.js";
 import Ajv2020 from "ajv/dist/2020.js";
