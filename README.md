@@ -2,12 +2,32 @@
 
 Loop puts the agents on your computer into one phone workspace. Start runs, approve steps, answer questions and review results from your home screen; the agents keep running on your machine while your phone is away. Pair by scanning a QR code: no app store, no account and no server to set up, even when your computer sits behind a home router.
 
+<table>
+  <tr>
+    <th>Needs you: approve, answer or continue</th>
+    <th>Feed: finished work as results</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/needs-you.png" alt="The top of the Loop Feed: agent shortcuts and a Needs you card asking to approve @orion's pull request review on acme/storefront #42" width="300"></td>
+    <td><img src="docs/screenshots/feed.png" alt="The Feed's Done tab: result cards from @orion, a review of pull request #42, and @bug-hunter, the root cause of order totals off by a cent" width="300"></td>
+  </tr>
+  <tr>
+    <th>Agent profile: one agent's work</th>
+    <th>Your profile: a history of your prompts</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/agent-profile.png" alt="The @orion agent profile: instructions, model, computer, team and current work awaiting approval, above its results" width="300"></td>
+    <td><img src="docs/screenshots/your-profile.png" alt="Your profile: name, handle, bio and counts, above the Messages tab listing the prompts you sent to @orion and @bug-hunter" width="300"></td>
+  </tr>
+</table>
+
 ## Why Loop
 
 - 📲 **No app to install.** Scan a QR code, pair in your phone's browser and add Loop to your home screen. The same flow works on iPhone and Android, with no app store or account signup. On iPhone, notifications work once Loop is on your home screen. See [pairing](docs/pairing.md).
-- 🌐 **No infrastructure to set up.** `loop start` launches a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/), so your phone can reach the agents on your home computer from anywhere, behind your router, without port forwarding, a domain, a VPN or a Cloudflare account. Loop downloads a pinned, hash-verified `cloudflared` itself. Restarts and upgrades keep the tunnel address and your paired phone; if it does change (after `loop stop` or a reboot), run `loop pair` and scan again. To use your own domain or proxy instead, see [pairing](docs/pairing.md).
+- 🌐 **No infrastructure to set up.** `loop start` launches a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/), so your phone can reach the agents on your home computer from anywhere, behind your router, without port forwarding, a domain, a VPN or a Cloudflare account. Loop runs a pinned, hash-verified `cloudflared` daemon to hold an outbound-only connection to Cloudflare, which gives your computer a public HTTPS address (`*.trycloudflare.com`) without opening any inbound ports. Restarts and upgrades keep the tunnel address and your paired phone; if it does change (after `loop stop` or a reboot), run `loop pair` and scan again. To use your own domain or proxy instead, see [pairing](docs/pairing.md).
 - 🎯 **Results, not logs.** Final answers appear as cards; plans, diffs, command output and traces stay one tap away. Search an agent's traces for a command or tool, and download a whole run as JSON. Phone notifications arrive when a result is ready, not for every tool call. See [notifications](docs/feedback/SAVED-NOTIFICATIONS.md).
-- 🗂️ **A feed, not one endless chat.** Run several agents and conversations at once, then follow them through the Feed (what needs you on top, then **Done**, **Working**, **Queued**), Projects and Search. Review and merge your GitHub pull requests in the Pull requests tab. Saved results and messages live under You. See [workspace](docs/workspace.md).
+- 🗂️ **A feed, not one endless chat.** Run several agents and conversations at once, then follow them through the Feed (what needs you on top, then **Done**, **Working**, **Queued**), Projects and Search. Review and merge your GitHub pull requests in the Pull requests tab. See [workspace](docs/workspace.md).
+- 🔖 **Save what matters.** Save any result or message from its Feed card or inside its thread; saving a reply keeps the result card it produced with it. Saved, under Your profile, is one searchable list, newest first, with optional short labels such as "Chosen approach". Reply to a saved item to quote it back into its thread: its exact text goes into your next message, so it is the latest thing the agent reads, even if the harness's own history no longer has it. See [Saved](docs/workspace.md#your-profile-later-and-deferred-work).
 - ⏱️ **Built for checking in, not sitting in.** Each Feed card offers the one action its thread is waiting for (approve, answer, continue a draft or review a result) and opens at that message. A "while you were away" card sums up what finished, failed or needs you. **Remind me**, **Send later** and **Queue after this task** pick work up when the agent is free, and scheduled sends reuse their idempotency key, so a retry after a crash never sends twice.
 - ↩️ **Reply to any message, or just part of it.** Loop quotes the message you picked, or only the lines you highlight, in front of your reply. Intermediate updates may be missing from the harness's own history, so this puts that exact update back in front of the agent. Long quotes are trimmed to their start and end. Mid-run, API, Codex, Claude Code and Pi agents support live replies; OpenCode and ACP queue replies for the next turn.
 - 🔌 **Your harnesses, your models.** Codex, Claude Code, OpenCode, Pi and Gemini CLI agents keep their own context, tools and model configuration. Use cloud providers or [local models through Pi or OpenCode](#use-local-models). `loop` discovers and connects their native adapters in one workspace; Loop adds the phone workspace on top: the Feed, result cards, quoted replies, reminders, scheduled sends and approvals across every harness. Loop verifies the harness billing policy and never switches billing methods after a failure. See [harnesses](docs/harnesses.md).
