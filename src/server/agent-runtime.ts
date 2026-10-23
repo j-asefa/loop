@@ -670,6 +670,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
           maxSeconds * 1000,
         );
   try {
+    // A provider may pause a server-side loop (tool search) and ask to be
+    // called again with its content replayed. The cap counts the paused turns
+    // recorded in the checkpoint, so approvals, recovery and resumes that
+    // re-enter this function cannot reset it.
+    let pauses = history.filter(
+      (m) => m.role === "assistant" && m.paused,
+    ).length;
     for (;;) {
       signal.throwIfAborted();
       const boundary = (
@@ -878,6 +885,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
             ...nativeBindings(run, { plans: true }),
           ];
       const calls: ToolCall[] = [];
+      let providerContent: unknown[] | undefined,
+        paused = false;
       db.transaction(() => {
         steering.appendPending(history);
         db.prepare("UPDATE agent_checkpoints SET history=? WHERE run_id=?").run(
@@ -922,7 +931,15 @@ export async function executeAgent(run: Run): Promise<boolean> {
           signal: AbortSignal.any([signal, generation.signal]),
           steering,
           maxTokens: snapshot.maxTokens,
-          tools: bindings.length ? bindings : undefined,
+          // Bindings keep naming the underlying MCP tool. Connected MCP
+          // tools load on demand through the provider's tool search; Loop's
+          // own tools stay in context.
+          tools: bindings.length
+            ? bindings.map((b) => ({
+                ...b,
+                deferLoading: b.connectionId !== "__loop__",
+              }))
+            : undefined,
         })) {
           if (chunk.trace) {
             const trace = chunk.trace;
@@ -965,6 +982,18 @@ export async function executeAgent(run: Run): Promise<boolean> {
               );
             calls.push(chunk.toolCall);
           }
+          if (chunk.providerContent) {
+            if (
+              Buffer.byteLength(JSON.stringify(chunk.providerContent)) >
+              262144
+            )
+              throw new Problem(
+                422,
+                "Provider tool-search content exceeded the per-turn limit",
+              );
+            providerContent = chunk.providerContent;
+          }
+          if (chunk.pauseTurn) paused = true;
           if (chunk.usage || chunk.externalId)
             emit(run.owner_id, run.id, "provider.receipt", {
               usage: chunk.usage,
@@ -996,6 +1025,24 @@ export async function executeAgent(run: Run): Promise<boolean> {
         persist(true);
         return false;
       }
+      if (paused && !calls.length) {
+        if (++pauses > 8)
+          throw new Problem(
+            422,
+            "The provider paused its turn too many times without an answer. Retry this task to request a response.",
+          );
+        round++;
+        history.push({
+          role: "assistant",
+          content: turnText,
+          providerContent,
+          paused: true,
+        });
+        db.prepare(
+          "UPDATE agent_checkpoints SET round=?,history=? WHERE run_id=?",
+        ).run(round, JSON.stringify(history), run.id);
+        continue;
+      }
       if (!calls.length && !turnText.trim())
         throw new Problem(
           422,
@@ -1006,6 +1053,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         role: "assistant",
         content: turnText,
         toolCalls: calls.length ? calls : undefined,
+        providerContent,
       });
       if (!calls.length) {
         // Serialize the final boundary with submit(): input arriving before

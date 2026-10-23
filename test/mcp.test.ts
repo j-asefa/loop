@@ -660,3 +660,241 @@ it("negotiates production connections without interactive app capabilities", asy
     withTestMcp(fixtureMcp);
   }
 });
+
+it("marks connected tools deferred for the provider and replays its ordered tool search content after an approval pause", async () => {
+  const seen: any[] = [];
+  // The documented interleaved shape, kept as one ordered sequence.
+  const providerContent: any[] = [
+    { type: "text", text: "Searching. " },
+    {
+      type: "server_tool_use",
+      id: "srvtoolu_1",
+      name: "tool_search_tool_bm25",
+      input: { query: "latency" },
+      caller: { type: "direct" },
+    },
+    {
+      type: "tool_search_tool_result",
+      tool_use_id: "srvtoolu_1",
+      content: { type: "tool_search_tool_search_result", tool_references: [] },
+    },
+    { type: "text", text: "Found it." },
+    { type: "tool_use", id: "call-search-1", name: "pending", input: {} },
+  ];
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      seen.push(input);
+      if (!input.messages.some((m) => m.role === "tool")) {
+        const name = input.tools!.find((t) => t.deferLoading)!.name;
+        providerContent[4] = { ...providerContent[4], name };
+        yield { text: "Searching. " };
+        yield { text: "Found it." };
+        yield {
+          toolCall: {
+            id: "call-search-1",
+            name,
+            arguments: { query: "fixture latency" },
+          },
+        };
+        yield { providerContent };
+      } else yield { text: "Latency from a discovered tool." };
+    },
+  });
+  try {
+    const run = submit("alice", {
+      agentId: agent.id,
+      input: "Latency through search",
+      idempotencyKey: id(),
+    });
+    await tick(execute);
+    const state = () =>
+      (db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as any)
+        .state;
+    if (state() === "awaiting_approval") {
+      const approval = db
+        .prepare("SELECT id FROM approvals WHERE run_id=? AND state='pending'")
+        .get(run.id) as any;
+      decide("alice", approval.id, "approve");
+      await tick(execute);
+    }
+    expect(state()).toBe("completed");
+    expect(seen).toHaveLength(2);
+    // Loop's own tools stay loaded; every connected MCP tool is deferred.
+    const flags = new Map(
+      seen[0].tools.map((t: any) => [t.name, t.deferLoading]),
+    );
+    expect(flags.get("loop_plan")).toBe(false);
+    expect(flags.get("loop_publish_file")).toBe(false);
+    expect(
+      seen[0].tools
+        .filter((t: any) => t.deferLoading)
+        .map((t: any) => t.description),
+    ).toEqual(["Fixture MCP metrics: Fixture metrics. No real Datadog data."]);
+    // The checkpoint carried the ordered content across the approval pause,
+    // alongside Loop's own text and tool-call record of the same turn.
+    const assistant = seen[1].messages.find(
+      (m: any) => m.role === "assistant" && m.toolCalls?.length,
+    );
+    expect(assistant).toEqual({
+      role: "assistant",
+      content: "Searching. Found it.",
+      toolCalls: [
+        {
+          id: "call-search-1",
+          name: providerContent[4].name,
+          arguments: { query: "fixture latency" },
+        },
+      ],
+      providerContent,
+    });
+    expect(seen[1].messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolCallId: "call-search-1",
+    });
+  } finally {
+    restore();
+  }
+});
+
+it("continues a paused provider turn with its content replayed, and fails after repeated pauses", async () => {
+  const seen: any[] = [];
+  const pausedContent = [
+    { type: "thinking", thinking: "", signature: "sig" },
+    {
+      type: "server_tool_use",
+      id: "srvtoolu_1",
+      name: "tool_search_tool_bm25",
+      input: { query: "latency" },
+    },
+    {
+      type: "tool_search_tool_result",
+      tool_use_id: "srvtoolu_1",
+      content: { type: "tool_search_tool_search_result", tool_references: [] },
+    },
+  ];
+  let pauseForever = false;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      seen.push(input);
+      const paused = input.messages.filter(
+        (m) => m.role === "assistant" && m.providerContent,
+      ).length;
+      if (pauseForever || paused === 0)
+        yield { providerContent: pausedContent, pauseTurn: true };
+      else yield { text: "Latency after the provider resumed." };
+    },
+  });
+  try {
+    const run = submit("alice", {
+      agentId: agent.id,
+      input: "Latency with a paused search",
+      idempotencyKey: id(),
+    });
+    await tick(execute);
+    expect(
+      db.prepare("SELECT state,result FROM runs WHERE id=?").get(run.id),
+    ).toEqual({
+      state: "completed",
+      result: "Latency after the provider resumed.",
+    });
+    expect(seen).toHaveLength(2);
+    // No tool result is invented: the paused turn is simply the last message.
+    expect(seen[1].messages.at(-1)).toEqual({
+      role: "assistant",
+      content: "",
+      providerContent: pausedContent,
+      paused: true,
+    });
+    pauseForever = true;
+    const stuck = submit("alice", {
+      agentId: agent.id,
+      input: "Never answers",
+      idempotencyKey: id(),
+    });
+    await tick(execute);
+    expect(
+      db.prepare("SELECT state,error FROM runs WHERE id=?").get(stuck.id),
+    ).toMatchObject({
+      state: "failed",
+      error: expect.stringContaining("paused its turn too many times"),
+    });
+    expect(seen.length - 2).toBe(9);
+  } finally {
+    restore();
+  }
+});
+
+it("keeps the pause cap across an approval pause that re-enters the run", async () => {
+  const pausedContent = [
+    {
+      type: "server_tool_use",
+      id: "srvtoolu_1",
+      name: "tool_search_tool_bm25",
+      input: { query: "latency" },
+    },
+    {
+      type: "tool_search_tool_result",
+      tool_use_id: "srvtoolu_1",
+      content: { type: "tool_search_tool_search_result", tool_references: [] },
+    },
+  ];
+  let requests = 0;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      requests++;
+      const paused = input.messages.filter((m) => m.paused).length;
+      const answered = input.messages.some((m) => m.role === "tool");
+      // Eight pauses, then a client tool call that needs approval, then a
+      // ninth pause after the run re-enters: the cap must still apply.
+      if (paused < 8) yield { providerContent: pausedContent, pauseTurn: true };
+      else if (!answered)
+        yield {
+          toolCall: {
+            id: "call-cap-1",
+            name: input.tools!.find((t) => t.deferLoading)!.name,
+            arguments: { query: "fixture latency" },
+          },
+        };
+      else yield { providerContent: pausedContent, pauseTurn: true };
+    },
+  });
+  const previousMode = approvalPolicy.mcpApprovalMode("alice");
+  approvalPolicy.setMcpApprovalMode("alice", "ask");
+  try {
+    const run = submit("alice", {
+      agentId: agent.id,
+      input: "Pause cap across approval",
+      idempotencyKey: id(),
+    });
+    await tick(execute);
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual(
+      {
+        state: "awaiting_approval",
+      },
+    );
+    const approval = db
+      .prepare("SELECT id FROM approvals WHERE run_id=? AND state='pending'")
+      .get(run.id) as any;
+    decide("alice", approval.id, "approve");
+    await tick(execute);
+    expect(
+      db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
+    ).toMatchObject({
+      state: "failed",
+      error: expect.stringContaining("paused its turn too many times"),
+    });
+    expect(requests).toBe(10);
+  } finally {
+    approvalPolicy.setMcpApprovalMode("alice", previousMode);
+    restore();
+  }
+});

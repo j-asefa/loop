@@ -51,7 +51,9 @@ export function workspaceToolBindings(
             .slice(0, 24),
         connectionId: row.id,
         tool: tool.name,
-        description: `${row.name}: ${String(tool.description || tool.name).slice(0, 1500)}`,
+        // The published name is a hash, so the server and original tool
+        // names ride in the description where tool search can match them.
+        description: `${row.name} ${tool.name}: ${String(tool.description || tool.name).slice(0, 1500)}`,
         inputSchema: tool.inputSchema,
       });
     }
