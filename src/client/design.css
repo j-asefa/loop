@@ -861,7 +861,7 @@ a:focus-visible {
 .my-profile-card {
   --cover-height: 160px;
   position: relative;
-  margin: -4px -32px 0;
+  margin: 0 -32px;
   padding: calc(var(--cover-height) - 40px) 32px 20px;
   border: 0;
   border-radius: 0;
@@ -1313,7 +1313,7 @@ label.catalog-search {
   }
   .my-profile-card {
     --cover-height: 140px;
-    margin: -18px -16px 0;
+    margin-inline: -16px;
     padding-inline: 16px;
   }
   .my-profile-avatar {

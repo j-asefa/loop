@@ -19,6 +19,7 @@ const names = [
   "core",
   "withdraw-draft",
   "upload-destination",
+  "attachment-picker",
   "inbox",
   "needs-stack",
   "continuity-320",

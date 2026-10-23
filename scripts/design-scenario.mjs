@@ -42,6 +42,7 @@ import { visualLayoutSmoke } from "./helpers/visual-layout-smoke.mjs";
 import { withdrawDraftSmoke } from "./helpers/withdraw-draft-smoke.mjs";
 
 import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
+import { attachmentPickerSmoke } from "./helpers/attachment-picker-smoke.mjs";
 
 const scenarios = {
   "visual-layout": visualLayoutSmoke,
@@ -87,6 +88,7 @@ const scenarios = {
   "safari-sheet-keyboard": (p, f, e, c) => safariSheetKeyboardSmoke(p, f, c),
   "create-agent-layout": (p, f, e, c) => createAgentLayoutSmoke(p, f, c),
   "upload-destination": uploadDestinationSmoke,
+  "attachment-picker": attachmentPickerSmoke,
   "withdraw-draft": withdrawDraftSmoke,
   inbox: (p, f, e, c) => inboxFlowsSmoke(p, f, c),
   "needs-stack": (p, f, e, c) => needsStackSmoke(p, f, c),

@@ -101,6 +101,15 @@ export function UploadButton({
   const scopedSource = useSourceId();
   const sourceId = requestedSource ?? scopedSource;
   const destination = JSON.stringify([sourceId, agentId ?? null, folderId ?? null]);
+  // iOS already offers Photo Library, Camera and Files in its native picker.
+  // It cannot bypass that menu for an image input, so skip our duplicate sheet.
+  // iPadOS can identify as a Mac when requesting desktop websites.
+  const sourceMenu =
+    menu &&
+    !(
+      /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    );
   const destinationRef = useRef(destination);
   destinationRef.current = destination;
   const mounted = useRef(true);
@@ -216,7 +225,7 @@ export function UploadButton({
         disabled={busy || disabled}
         onChange={(event) => void upload(event.currentTarget)}
       />
-      {menu && (
+      {sourceMenu && (
         <>
           <input
             ref={photos}
@@ -246,8 +255,8 @@ export function UploadButton({
         aria-label={
           menu ? (busy ? "Uploading files" : "Add attachments") : undefined
         }
-        aria-haspopup={menu ? "dialog" : undefined}
-        aria-expanded={menu ? open : undefined}
+        aria-haspopup={sourceMenu ? "dialog" : undefined}
+        aria-expanded={sourceMenu ? open : undefined}
         disabled={busy || disabled || remaining === 0}
         onPointerDown={(event) => {
           // Keep the focused prompt (and keyboard layout) until the click is
@@ -257,7 +266,7 @@ export function UploadButton({
           if (event.pointerType === "mouse" && event.button === 0)
             event.preventDefault();
         }}
-        onClick={() => (menu ? setOpen(true) : input.current?.click())}
+        onClick={() => (sourceMenu ? setOpen(true) : input.current?.click())}
       >
         {menu ? (
           <Plus size={22} />

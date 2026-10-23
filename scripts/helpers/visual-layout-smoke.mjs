@@ -196,6 +196,16 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       await expect(
         page.locator(".my-profile .profile-cover img"),
       ).toHaveAttribute("src", "/profile-cover.webp");
+      const status = page.locator(".workspace-connection");
+      await expect(status).toHaveText("Connected to workspace");
+      const connectionBox = await status.boundingBox();
+      const personalCover = await page
+        .locator(".my-profile .profile-cover")
+        .boundingBox();
+      assert(
+        connectionBox.y + connectionBox.height <= personalCover.y,
+        "The profile cover must stay below the entire connection status",
+      );
       await fits();
       await capture(`personal-profile-${theme}-${width}`);
     }
