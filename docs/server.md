@@ -133,7 +133,8 @@ before restarting and removing the old copy.
 ### Storage budgets and bounded retention
 
 [storage-policy.py](../deployment/storage-policy.py) supplies host-side guards
-and retention, independently of the Loop process. Copy and adapt
+and retention, independently of the Loop process. It requires Linux, Python 3.9+,
+OpenSSH and rsync. Copy and adapt
 [the example configuration](../deployment/storage-policy.example.json). All
 paths must identify the intended user's deployment and backup directories.
 
