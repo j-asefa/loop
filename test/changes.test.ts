@@ -50,8 +50,8 @@ it("reads a lower foreign id before a local commit and partitions owner delivery
   local.changes.subscribe("one", (rows) => one.push(...rows));
   local.changes.subscribe("two", (rows) => two.push(...rows));
   const first = insertForeign("one", "foreign");
-  const second = Number(local.emit("two", "two", "local", {}));
-  const third = Number(local.emit("one", "one", "local-again", {}));
+  const second = Number(local.emit("two", "two", "queued", {}));
+  const third = Number(local.emit("one", "one", "running", {}));
   await expect.poll(() => all.length).toBe(3);
   expect(all.map((row) => row.id)).toEqual([first, second, third]);
   expect(one.map((row) => row.id)).toEqual([first, third]);
@@ -72,24 +72,24 @@ it.each(["default", "deferred", "immediate", "exclusive"] as const)(
       return mode === "default" ? transaction() : transaction[mode]();
     };
     invoke(() => {
-      local.emit("one", "one", "outer-first", {});
+      local.emit("one", "one", "queued", {});
       try {
         invoke(() => {
-          local.emit("one", "one", "rolled-back-inner", {});
+          local.emit("one", "one", "failed", {});
           throw new Error("savepoint rollback");
         });
       } catch {}
-      local.emit("one", "one", "outer-last", {});
+      local.emit("one", "one", "running", {});
       expect(seen).toEqual([]);
     });
     expect(() =>
       invoke(() => {
-        local.emit("one", "one", "rolled-back-outer", {});
+        local.emit("one", "one", "cancelled", {});
         throw new Error("outer rollback");
       }),
     ).toThrow("outer rollback");
     await expect.poll(() => seen.length).toBe(2);
-    expect(seen).toEqual(["outer-first", "outer-last"]);
+    expect(seen).toEqual(["queued", "running"]);
     expect(inTransaction).toEqual([false]);
   },
 );
@@ -103,8 +103,8 @@ it("isolates throwing and reentrant subscribers without overtaking committed row
     throw new Error("async subscriber failed");
   });
   local.changes.subscribe("one", (rows) => {
-    if (rows.some((row) => row.type === "first"))
-      local.emit("one", "one", "reentrant", {});
+    if (rows.some((row) => row.type === "queued"))
+      local.emit("one", "one", "completed", {});
   });
   local.changes.subscribe("one", (rows) =>
     seen.push(...rows.map((row) => row.type)),
@@ -112,13 +112,13 @@ it("isolates throwing and reentrant subscribers without overtaking committed row
   expect(() =>
     local.db
       .transaction(() => {
-        local.emit("one", "one", "first", {});
-        local.emit("one", "one", "second", {});
+        local.emit("one", "one", "queued", {});
+        local.emit("one", "one", "running", {});
       })
       .immediate(),
   ).not.toThrow();
   await expect.poll(() => seen.length).toBe(3);
-  expect(seen).toEqual(["first", "second", "reentrant"]);
+  expect(seen).toEqual(["queued", "running", "completed"]);
 });
 
 it("publishes nothing when SQLite rejects the outer commit", async () => {
@@ -130,15 +130,15 @@ it("publishes nothing when SQLite rejects the outer commit", async () => {
     local.db
       .transaction(() => {
         local.db.pragma("defer_foreign_keys = ON");
-        local.emit("one", "one", "must-roll-back", {});
-        local.emit("one", "missing-run", "invalid-foreign-key", {});
+        local.emit("one", "one", "queued", {});
+        local.emit("one", "missing-run", "running", {});
       })
       .immediate(),
   ).toThrow(/FOREIGN KEY/);
   await turn();
   expect(seen).toEqual([]);
-  local.emit("one", "one", "after-failed-commit", {});
-  await expect.poll(() => seen).toEqual(["after-failed-commit"]);
+  local.emit("one", "one", "completed", {});
+  await expect.poll(() => seen).toEqual(["completed"]);
 });
 
 it("drains all bounded pages without another write and accepts subscriptions during catch-up", async () => {
@@ -158,7 +158,7 @@ it("drains all bounded pages without another write and accepts subscriptions dur
   local.db
     .transaction(() => {
       for (let n = 0; n < 700; n++)
-        ids.push(Number(local.emit("one", "one", "page", {})));
+        ids.push(Number(local.emit("one", "one", "queued", {})));
     })
     .immediate();
   await expect.poll(() => seen.length).toBe(700);
@@ -210,13 +210,13 @@ it("keeps a replacement subscription when an old unsubscribe is called again", a
     seen.push(...rows.map((row) => row.type)),
   );
   stopOld();
-  local.emit("one", "one", "replacement", {});
-  await expect.poll(() => seen).toEqual(["replacement"]);
+  local.emit("one", "one", "completed", {});
+  await expect.poll(() => seen).toEqual(["completed"]);
   stopNew();
   expect(local.changes.subscriberCount).toBe(0);
 });
 
-it.each(["sample", "page"])(
+it.each(["sample", "queued"])(
   "retries a failed %s read without waiting for a slow foreign poll",
   async (failure) => {
     local.changes.close();
@@ -225,7 +225,7 @@ it.each(["sample", "page"])(
     const prepare = local.db.prepare.bind(local.db);
     vi.spyOn(local.db, "prepare").mockImplementation((sql: string) => {
       const statement = prepare(sql);
-      if (failure === "page" && sql.includes("FROM events WHERE id>")) {
+      if (failure === "queued" && sql.includes("FROM events WHERE id>")) {
         const all = statement.all.bind(statement);
         vi.spyOn(statement, "all").mockImplementation((...args: unknown[]) => {
           if (armed) {
@@ -257,10 +257,10 @@ it.each(["sample", "page"])(
     try {
       armed = true;
       // No Cards/Done revision changes can supply another wake for this event.
-      local.emit("one", "one", "retry-local-event", {});
+      local.emit("one", "one", "attention.dismissed", {});
       await expect
         .poll(() => seen, { timeout: 1000 })
-        .toEqual(["retry-local-event"]);
+        .toEqual(["attention.dismissed"]);
       expect(failures).toBe(1);
     } finally {
       bus.close();

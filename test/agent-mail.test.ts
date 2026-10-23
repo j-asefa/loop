@@ -182,7 +182,7 @@ it("tracks teammate-triggered work in delegated conversations", async () => {
   expect(feed(owner, { filter: "done" }).items.some((item) => item.conversation_id === child.conversation_id)).toBe(true);
 });
 
-it.each(["refused", "cancelled", "failed", "interrupted"])(
+it.each(["refused", "cancelled", "failed", "interrupted"] as const)(
   "keeps %s mail out of later API context, memory and file access",
   async (outcome) => {
     const owner = "mail-context-" + outcome;
@@ -1225,7 +1225,7 @@ it.each([
   "failed",
   "interrupted",
   "completed",
-])(
+] as const)(
   "keeps unread %s mail out of recipient status tools while retaining sender and owner history",
   async (state) => {
     const owner = "status-content-" + state,
@@ -1655,7 +1655,7 @@ it("serializes mail across native conversations at atomic claims while preservin
   expect(claimOwn("after-cancel")).toBeUndefined();
 });
 
-it.each(["paused", "awaiting_approval"])(
+it.each(["paused", "awaiting_approval"] as const)(
   "lets unrelated native work pass mail waiting behind %s work",
   (state) => {
     const owner = "mail-lane-" + state;

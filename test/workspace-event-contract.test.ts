@@ -1,0 +1,184 @@
+import { expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  EmittedWorkspaceEvent,
+  WorkspaceEvent,
+  historicalEvent,
+  invalidate,
+  parseEmission,
+  type WorkspaceEmission,
+} from "../src/shared/workspace-events";
+
+const examples = [
+  ["queued", {}],
+  ["running", { resumed: true }],
+  ["pausing", {}],
+  ["paused", { message: "Paused" }],
+  ["awaiting_approval", { approvalId: "approval", stepId: "step" }],
+  ["completed", { preview: true }],
+  ["failed", { reason: "Rejected" }],
+  ["cancelled", {}],
+  ["interrupted", { native: true }],
+  ["waiting_children", {}],
+  ["progress", { message: "Working" }],
+  ["run.failed", { message: "Failed", phase: "provider response" }],
+  [
+    "agent_mail.sent",
+    { mailId: "mail", threadId: "thread", delivery: "new_turn" },
+  ],
+  ["agent_mail.held", { mailId: "mail", threadId: "thread" }],
+  ["import.progress", { completed: 1, total: 2 }],
+  [
+    "workflow.step.started",
+    {
+      stepId: "step",
+      childRunId: "child",
+      conversationId: "thread",
+      agent: "Agent",
+    },
+  ],
+  [
+    "workflow.step.completed",
+    { stepId: "step", childRunId: "child", conversationId: null },
+  ],
+  ["workflow.completed", { outputs: { answer: "Done" } }],
+  ["feed.changed", { artifactId: "artifact", hidden: true }],
+  ["approval.auto_approved", { approvalId: "approval" }],
+  [
+    "approval.requested",
+    { approvalId: "approval", request: { title: "Run?" } },
+  ],
+  [
+    "approval.decided",
+    { approvalId: "approval", decision: "approve", origin: "loop" },
+  ],
+  ["tool.failed", { tool: "read", artifactId: "artifact" }],
+  ["tool.completed", { tool: "read", artifactId: "" }],
+  ["artifact.published", { artifactId: "artifact" }],
+  ["activity.updated", { key: "plan:native:1", kind: "plan", sequence: 1 }],
+  ["steering.pending", { messageId: "message", steeringId: "steer" }],
+  ["steering.delivered", { messageId: "message" }],
+  ["steering.failed", { messageId: "message" }],
+  [
+    "message.started",
+    { messageId: "message", round: 0, snapshot: { model: "fixture" } },
+  ],
+  ["message.delta", { messageId: "message", text: "Hello" }],
+  ["message.completed", { messageId: "message" }],
+  ["trace.updated", { round: 0 }],
+  ["provider.receipt", { externalId: "provider", usage: { input_tokens: 1 } }],
+  ["attention.dismissed", {}],
+  ["queue.reordered", { direction: "up" }],
+  ["queue.edited", {}],
+  ["native.usage", { usage: { input_tokens: 1, output_tokens: 2 } }],
+  [
+    "native.event",
+    {
+      conversationId: "thread",
+      generation: "generation",
+      event: { type: "delta", id: "message", text: "Hello" },
+    },
+  ],
+] satisfies WorkspaceEmission[];
+
+it("round-trips every declared producer type through emit, durable v2 rows and the v3 union", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-event-contract-"));
+  vi.resetModules();
+  vi.stubEnv("LOOP_DATA_DIR", dir);
+  const { db, changes, emit } = await import("../src/server/db");
+  try {
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('run','owner','fixture','running','key',1,1)",
+    ).run();
+    expect(examples.map(([type]) => type).sort()).toEqual(
+      EmittedWorkspaceEvent.options
+        .map((option) => option.shape.type.value)
+        .sort(),
+    );
+    for (const emission of examples) {
+      const id = emit("owner", "run", ...emission);
+      const row = db
+        .prepare("SELECT run_id,type,payload FROM events WHERE id=?")
+        .get(id) as { run_id: string; type: string; payload: string };
+      expect(row.payload).toBe(JSON.stringify(emission[1]));
+      const event = historicalEvent(row);
+      expect(event).toEqual({
+        type: emission[0],
+        payload: emission[1],
+        scope: { kind: "run", id: "run" },
+      });
+      expect(WorkspaceEvent.parse(JSON.parse(JSON.stringify(event)))).toEqual(
+        event,
+      );
+    }
+    const before = db.prepare("SELECT count(*) n FROM events").get();
+    expect(() => {
+      // @ts-expect-error unknown producer names cannot enter the durable log
+      emit("owner", "run", "future.unknown", {});
+    }).toThrow();
+    expect(() => {
+      // @ts-expect-error payloads are correlated with the discriminant
+      emit("owner", "run", "message.delta", { text: "missing identity" });
+    }).toThrow();
+    expect(() => {
+      // @ts-expect-error strict variants reject undeclared payload keys
+      emit("owner", "run", "queued", { unexpected: true });
+    }).toThrow();
+    expect(() =>
+      emit("owner", "run", "progress", {
+        message: "x".repeat(8 * 1024 * 1024 + 1),
+      }),
+    ).toThrow();
+    expect(() =>
+      emit("owner", "run", "native.event", {
+        conversationId: "thread", generation: "generation",
+        event: {
+          type: "request",
+          request: { id: "request", kind: "question", title: "Choose", detail: "é".repeat(32000) },
+        },
+      }),
+    ).toThrow("Native request exceeds its ingress byte budget");
+    expect(() =>
+      emit("owner", "run", "native.event", {
+        conversationId: "thread", generation: "generation",
+        event: { type: "status", status: "running", detail: "é".repeat(128000) },
+      }),
+    ).toThrow("Native event exceeds its ingress byte budget");
+    expect(db.prepare("SELECT count(*) n FROM events").get()).toEqual(before);
+  } finally {
+    changes.close();
+    db.close();
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("reconciles malformed historical rows and unknown future events without inventing projection data", () => {
+  for (const [type, payload] of [
+    ["old.unknown", "{}"],
+    ["message.delta", "{bad json"],
+    ["message.delta", '{"text":"no id"}'],
+    ["queued", '{"extra":true}'],
+    ["native.usage", '{"usage":{"input_tokens":-1,"output_tokens":2}}'],
+  ])
+    expect(historicalEvent({ run_id: "run", type, payload })).toEqual(
+      invalidate(),
+    );
+  expect(
+    parseEmission("run", "approval.auto_approved", {
+      decisionId: "decision",
+      title: "Approved",
+    }).type,
+  ).toBe("approval.auto_approved");
+  expect(
+    parseEmission("run", "message.delta", {
+      messageId: "message",
+      native: true,
+    }).type,
+  ).toBe("message.delta");
+  expect(() =>
+    parseEmission("run", "provider.receipt", { usage: { tokens: NaN } }),
+  ).toThrow();
+});

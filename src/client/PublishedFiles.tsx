@@ -1,4 +1,5 @@
-import { useSourceApi, useSourcePath } from "./SourceContext";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { useSourceId, useSourceApi, useSourcePath } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Expand, File } from "lucide-react";
 import { parse } from "./api";
@@ -133,6 +134,7 @@ export function RunFiles({
   active?: boolean;
 }) {
   const api = useSourceApi();
+  const sourceId = useSourceId();
   const [files, setFiles] = useState<Published[]>([]),
     [error, setError] = useState("");
   useEffect(() => {
@@ -154,13 +156,13 @@ export function RunFiles({
     };
     refresh();
     const timer = active ? setInterval(refresh, 5000) : undefined;
-    window.addEventListener("loop-workspace-change", refresh);
+    const stopChanges = listenWorkspaceChanges("results", refresh, sourceId);
     return () => {
       live = false;
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", refresh);
+      stopChanges();
     };
-  }, [runId, active, api]);
+  }, [runId, active, api, sourceId]);
   const visible = files.filter((file) => file.id !== excludeId);
   if (!visible.length && !error) return null;
   return (

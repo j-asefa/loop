@@ -6,6 +6,10 @@ import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
+// Revision-only writes use the shared 5s watermark check, then up to 1.8s of
+// source coalescing and 250ms of App coalescing. Stay below fallback refreshes.
+const revisionTimeout = 8000;
+
 function seed({ db, owner }, label, history = 55, activeHistory = 45) {
   const now = Date.now();
   db.transaction(() => {
@@ -157,7 +161,7 @@ for (const engine of engines) {
               window.__eventSockets.push(this);
               this.addEventListener("message", (event) => {
                 const frame = JSON.parse(event.data);
-                if (frame.v === 2) this.__eventCursor = frame.cursor;
+                if (frame.v === 3) this.__eventCursor = frame.cursor;
               });
             }
           };
@@ -283,7 +287,10 @@ for (const engine of engines) {
           await working.evaluate(() =>
             window.dispatchEvent(
               new CustomEvent("loop-workspace-change", {
-                detail: { sources: [""] },
+                detail: {
+                  sources: [""],
+                  changes: [{ source: "", events: [{ type: "invalidate", scope: { kind: "collection", id: "feed" } }] }],
+                },
               }),
             ),
           );
@@ -293,7 +300,7 @@ for (const engine of engines) {
           );
           complete(fixture, "Local");
           await expect
-            .poll(() => working.evaluate(() => window.__workspaceUpdates))
+            .poll(() => working.evaluate(() => window.__workspaceUpdates), { timeout: revisionTimeout })
             .toBeGreaterThan(updates);
           await working.waitForTimeout(400);
           const appended = working.waitForResponse((response) => {
@@ -328,10 +335,10 @@ for (const engine of engines) {
           await expect(row(working, "Remote task")).toHaveCount(1);
           complete(remote, "Remote");
           await expect(row(working, "Remote task")).toHaveCount(0, {
-            timeout: 5000,
+            timeout: revisionTimeout,
           });
           await expect(row(done, "Remote live final answer")).toHaveCount(1, {
-            timeout: 5000,
+            timeout: revisionTimeout,
           });
         }
         // Retain the final notification when it arrives during a slower read.
@@ -356,7 +363,7 @@ for (const engine of engines) {
             "UPDATE messages SET content='First edit' WHERE id='live-answer'",
           )
           .run();
-        await expect.poll(() => held, { timeout: 5000 }).toBe(true);
+        await expect.poll(() => held, { timeout: revisionTimeout }).toBe(true);
         const updates = await done.evaluate(() => window.__workspaceUpdates);
         fixture.db
           .prepare(
@@ -365,7 +372,7 @@ for (const engine of engines) {
           .run();
         await expect
           .poll(() => done.evaluate(() => window.__workspaceUpdates), {
-            timeout: 5000,
+            timeout: revisionTimeout,
           })
           .toBeGreaterThan(updates);
         await done.waitForTimeout(400); // App coalesces the notification before Feed sees it.

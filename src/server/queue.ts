@@ -3,6 +3,7 @@ import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
 import { completeCheckout, TERMINAL_STATES } from "./run-checkouts.js";
+import type { RunEventState, RunEventPayload } from "../shared/workspace-events.js";
 export type Run = {
   id: string;
   owner_id: string;
@@ -147,7 +148,7 @@ export function deferUndispatched(run: Run, worker: string) {
   if (changed) emit(run.owner_id, run.id, "queued", { maintenance: true });
   return !!changed;
 }
-export function transition(run: Run, state: string, payload: unknown = {}) {
+export function transition(run: Run, state: RunEventState, payload: RunEventPayload = {}) {
   const changed = transitionState(run, state, payload);
   // A run that ended gets its checkout captured off the transition path:
   // read-only Git on a worktree can take a moment and must not hold the
@@ -156,7 +157,7 @@ export function transition(run: Run, state: string, payload: unknown = {}) {
     void completeCheckout(run.id).catch(() => {});
   return changed;
 }
-function transitionState(run: Run, state: string, payload: unknown) {
+function transitionState(run: Run, state: RunEventState, payload: RunEventPayload) {
   return db
     .transaction(() => {
       const current = db

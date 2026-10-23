@@ -1,4 +1,5 @@
-import { useSourceApi } from "./SourceContext";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { useSourceId, useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
 // Type-only: the client bundle does not ship the zod schemas.
@@ -82,6 +83,7 @@ export function useConversationActivities(
   tools = true,
 ) {
   const api = useSourceApi();
+  const sourceId = useSourceId();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [history, setHistory] = useState<ActivityHistoryState>({
     loading: true,
@@ -113,14 +115,14 @@ export function useConversationActivities(
       void current.refresh();
     };
     const timer = setInterval(update, 5000);
-    window.addEventListener("loop-workspace-change", update);
+    const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversation);
     return () => {
       current.stop();
       if (loader.current === current) loader.current = null;
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", update);
+      stopChanges();
     };
-  }, [conversation, tools]);
+  }, [conversation, tools, sourceId]);
   useEffect(() => {
     void loader.current?.setRuns(runKey ? runKey.split(",") : []);
   }, [conversation, runKey, tools]);

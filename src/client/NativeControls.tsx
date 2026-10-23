@@ -1,4 +1,4 @@
-import { useSourceApi, useSourceCapabilities } from "./SourceContext";
+import { useSourceId, useSourceApi, useSourceCapabilities } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization, apiInWorkspace } from "./api";
 import { RichText } from "./components";
@@ -9,6 +9,8 @@ import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { codexToolApproval } from "../shared/codex-approval";
 import { watchWorkspaceEvents } from "./workspace-events";
+import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
+import { PARTIAL_WORKSPACE_CAPABILITIES, type WorkspaceEvent } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import {
@@ -37,20 +39,18 @@ export function WorkspaceConnection({
     let build = "";
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastRefresh = 0;
-    const pending = new Set<string>();
+    const pending = new WorkspaceChangeQueue();
     // Streaming tokens can produce many committed events. Reconcile views
     // immediately after idle, then at most every 1.8 seconds while busy.
     // Retain every source and the trailing change without flooding HTTP reads.
-    const changed = (source: string) => {
-      pending.add(source);
+    const changed = (source: string, events?: readonly WorkspaceEvent[]) => {
+      pending.add(source, events);
       if (timer) return;
       timer = setTimeout(() => {
         timer = undefined;
         lastRefresh = Date.now();
-        const sources = [...pending];
-        pending.clear();
         window.dispatchEvent(
-          new CustomEvent("loop-workspace-change", { detail: { sources } }),
+          new CustomEvent("loop-workspace-change", { detail: pending.drain() }),
         );
       }, Math.max(0, 1800 - (Date.now() - lastRefresh)));
     };
@@ -72,7 +72,17 @@ export function WorkspaceConnection({
             undefined,
             signal,
           ),
-        changed: () => changed(sourceId),
+        changed: (events) => changed(sourceId, events),
+        frame: (m) => {
+          if (m.type !== "reset") return;
+          pending.capabilities.set(sourceId, m.v === 3 ? m.capabilities : PARTIAL_WORKSPACE_CAPABILITIES);
+          if (sourceId || typeof m.build !== "string") return;
+          const identity = BuildIdentity.safeParse(m.buildIdentity);
+          const updated = identity.success ? browserNeedsReload(runningBuild, identity.data) : null;
+          if (updated === false || (!build && updated === null)) build = m.build;
+          if (updated !== null) setConnection({ updated });
+          else if (m.build !== build) setConnection({ updated: true });
+        },
         ...(!sourceId
           ? {
               connected: (connected: boolean) => {
@@ -86,17 +96,6 @@ export function WorkspaceConnection({
               expired: () => {
                 clearAuthorization();
                 window.dispatchEvent(new Event("loop-auth-expired"));
-              },
-              frame: (m: import("./workspace-events").WorkspaceFrame) => {
-                if (m.type !== "reset" || typeof m.build !== "string") return;
-                const identity = BuildIdentity.safeParse(m.buildIdentity);
-                const updated = identity.success
-                  ? browserNeedsReload(runningBuild, identity.data)
-                  : null;
-                if (updated === false || (!build && updated === null))
-                  build = m.build;
-                if (updated !== null) setConnection({ updated });
-                else if (m.build !== build) setConnection({ updated: true });
               },
             }
           : {}),
@@ -156,6 +155,7 @@ export function NativeDecisions({
   onConversation?: (id: string) => void;
 }) {
   const api = useSourceApi();
+  const sourceId = useSourceId();
   const capabilities = useSourceCapabilities();
   const [items, setItems] = useState<Decision[]>([]);
   useEffect(() => {
@@ -173,13 +173,13 @@ export function NativeDecisions({
     };
     load();
     const timer = setInterval(load, 3000);
-    window.addEventListener("loop-workspace-change", load);
+    const stopChanges = listenWorkspaceChanges("decisions", load, sourceId, conversation);
     return () => {
       stopped = true;
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", load);
+      stopChanges();
     };
-  }, [conversation]);
+  }, [conversation, sourceId]);
   if (!items.length) return null;
   const cards = items.map((item) => (
     <DecisionCard key={item.id} item={item} onConversation={onConversation} />

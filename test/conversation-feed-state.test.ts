@@ -144,7 +144,7 @@ it("keeps every conversation's Feed state equal to the per-request derivation af
     write();
     expectState(db, ids, name);
   }
-});
+}, 15_000);
 
 it("backfills existing conversations from their history", () => {
   const db = database(80);

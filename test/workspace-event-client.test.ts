@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { watchWorkspaceEvents } from "../src/client/workspace-events";
+import { PARTIAL_WORKSPACE_CAPABILITIES } from "../src/shared/workspace-events";
+import {
+  WorkspaceChangeQueue,
+  listenWorkspaceChanges,
+} from "../src/client/workspace-changes";
 
 class Socket {
   static OPEN = 1;
@@ -44,7 +49,8 @@ function subscribe(
 ) {
   const changed = vi.fn(),
     expired = vi.fn(),
-    connected = vi.fn();
+    connected = vi.fn(),
+    frame = vi.fn();
   stops.push(
     watchWorkspaceEvents({
       url: new URL("ws://loop/api/events/ws"),
@@ -52,6 +58,7 @@ function subscribe(
       changed,
       expired,
       connected,
+      frame,
     }),
   );
   return {
@@ -59,6 +66,7 @@ function subscribe(
     changed,
     expired,
     connected,
+    frame,
     socket: Socket.instances.at(-1)!,
   };
 }
@@ -76,6 +84,104 @@ it("uses push while connected and catches up with the source cursor after reconn
   const before = s.changed.mock.calls.length;
   next.frame(42, "source-epoch");
   expect(s.changed).toHaveBeenCalledTimes(before + 1);
+});
+
+it("requests v3 and routes a collection invalidation only to that source's pager", () => {
+  const s = subscribe();
+  expect(s.socket.url.searchParams.get("v")).toBe("3");
+  const queue = new WorkspaceChangeQueue();
+  const feed = vi.fn(),
+    thread = vi.fn(),
+    results = vi.fn(),
+    runs = vi.fn(),
+    otherFeed = vi.fn();
+  stops.push(listenWorkspaceChanges("feed", feed, "one"));
+  stops.push(listenWorkspaceChanges("thread", thread, "one", "thread"));
+  stops.push(listenWorkspaceChanges("results", results, "one"));
+  stops.push(listenWorkspaceChanges("runs", runs, "one"));
+  stops.push(listenWorkspaceChanges("feed", otherFeed, "two"));
+  s.changed.mockImplementation((events) => {
+    queue.add("one", events);
+    window.dispatchEvent(
+      new CustomEvent("loop-workspace-change", { detail: queue.drain() }),
+    );
+  });
+  const send = (event: unknown, id: number) =>
+    s.socket.onmessage?.({
+      data: JSON.stringify({
+        v: 3,
+        type: "events",
+        epoch: "one",
+        cursor: id,
+        events: [{ id, event }],
+      }),
+    });
+  send({ type: "invalidate", scope: { kind: "collection", id: "feed" } }, 1);
+  expect(feed).toHaveBeenCalledTimes(1);
+  expect(thread).not.toHaveBeenCalled();
+  expect(results).not.toHaveBeenCalled();
+  expect(runs).not.toHaveBeenCalled();
+  expect(otherFeed).not.toHaveBeenCalled();
+  // Watermark-only notifications reuse the cursor but still carry new work.
+  send({ type: "invalidate", scope: { kind: "collection", id: "saved" } }, 1);
+  expect(feed).toHaveBeenCalledTimes(1);
+  send({ type: "invalidate", scope: { kind: "collection", id: "runs" } }, 1);
+  expect(runs).toHaveBeenCalledTimes(1);
+  expect(feed).toHaveBeenCalledTimes(1);
+  expect(thread).not.toHaveBeenCalled();
+  send(
+    { type: "a.future.event", scope: { kind: "collection", id: "feed" } },
+    2,
+  );
+  expect(feed).toHaveBeenCalledTimes(2);
+  expect(thread).toHaveBeenCalledTimes(1);
+  expect(results).toHaveBeenCalledTimes(1);
+  expect(runs).toHaveBeenCalledTimes(2);
+  expect(otherFeed).not.toHaveBeenCalled();
+});
+
+it("exposes reset capabilities separately for each source and clears removed sources", () => {
+  const one = subscribe(),
+    two = subscribe();
+  const queue = new WorkspaceChangeQueue();
+  const complete = {
+    ...PARTIAL_WORKSPACE_CAPABILITIES,
+    invalidations: "complete",
+    deadlines: true,
+    transcript: "delta",
+  };
+  for (const [source, s, capabilities] of [
+    ["one", one, complete],
+    ["two", two, PARTIAL_WORKSPACE_CAPABILITIES],
+  ] as const) {
+    s.frame.mockImplementation((frame) =>
+      queue.capabilities.set(source, frame.capabilities),
+    );
+    s.changed.mockImplementation((events) => queue.add(source, events));
+    s.socket.onmessage?.({
+      data: JSON.stringify({
+        v: 3,
+        type: "reset",
+        epoch: source,
+        cursor: 0,
+        build: source,
+        buildIdentity: null,
+        capabilities,
+      }),
+    });
+  }
+  expect(queue.drain().changes).toEqual([
+    expect.objectContaining({ source: "one", capabilities: complete }),
+    expect.objectContaining({
+      source: "two",
+      capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+    }),
+  ]);
+  queue.delete("one");
+  expect(queue.capabilities.has("one")).toBe(false);
+  expect(queue.capabilities.get("two")).toEqual(PARTIAL_WORKSPACE_CAPABILITIES);
+  queue.clear();
+  expect(queue.capabilities.size).toBe(0);
 });
 it("falls back for old servers and cancels a pending read when push recovers", async () => {
   let finish!: (value: { id: number }[]) => void;

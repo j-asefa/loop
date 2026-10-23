@@ -1,4 +1,5 @@
-import { useSourceApi } from "./SourceContext";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { useSourceId, useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import type {
   ActivityCapabilities,
@@ -26,6 +27,7 @@ export function SessionActivityControls({
   };
 }) {
   const api = useSourceApi();
+  const sourceId = useSourceId();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Controls>();
   const [pending, setPending] = useState<{ id: string; value: SettingValue }>();
@@ -108,13 +110,13 @@ export function SessionActivityControls({
     void refresh();
     const update = () => void refresh();
     const timer = setInterval(update, 3000);
-    window.addEventListener("loop-workspace-change", update);
+    const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversationId);
     return () => {
       epoch.current++;
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", update);
+      stopChanges();
     };
-  }, [open, conversationId]);
+  }, [open, conversationId, sourceId]);
   async function change(id: string, value: SettingValue) {
     if (!data || data.readOnly || !data.generation || writing.current) return;
     const own = epoch.current;

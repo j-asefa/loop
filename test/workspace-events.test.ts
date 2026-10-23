@@ -3,6 +3,13 @@ import { WebSocket } from "ws";
 import { createConnection } from "node:net";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { compiledServerFixture } from "./helpers/compiled-server";
+import {
+  WorkspaceFrameV3,
+  PARTIAL_WORKSPACE_CAPABILITIES,
+} from "../src/shared/workspace-events";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;
 beforeAll(async () => {
@@ -25,9 +32,10 @@ function connect(
   f: Awaited<ReturnType<typeof fixture>>,
   query = "",
   headers = f.browser,
+  path = "/api/events/ws",
 ) {
   const socket = new WebSocket(
-    f.origin.replace("http:", "ws:") + "/api/events/ws" + query,
+    f.origin.replace("http:", "ws:") + path + query,
     { headers },
   );
   sockets.push(socket);
@@ -377,3 +385,208 @@ it("catches up every replay page without a later write even after the process cu
     replay.frames.flatMap((frame) => frame.events).map((event) => event.id),
   ).toEqual(ids);
 }, 15_000);
+
+for (const mode of ["server", "companion"] as const) {
+  it(`${mode} serves typed v3, preserves v2, bounds replay and makes revision-only changes actionable`, async () => {
+    const f = await fixture(mode);
+    seed(f);
+    const live = connect(f, "?v=3"),
+      legacy = connect(f);
+    await expect.poll(() => live.frames.length).toBe(1);
+    await expect.poll(() => legacy.frames.length).toBe(1);
+    expect(WorkspaceFrameV3.parse(live.frames[0])).toMatchObject({
+      type: "reset",
+      capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+    });
+    expect(legacy.frames[0]).toMatchObject({ v: 2, type: "reset" });
+    const insert = f.db.prepare(
+      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run',?,?,1)",
+    );
+    const valid = Number(
+      insert.run(
+        f.owner,
+        "message.completed",
+        JSON.stringify({ messageId: "message" }),
+      ).lastInsertRowid,
+    );
+    await expect.poll(() => live.frames.at(-1)?.cursor).toBe(valid);
+    expect(live.frames.at(-1).events[0]).toEqual({
+      id: valid,
+      event: {
+        type: "message.completed",
+        scope: { kind: "run", id: "run" },
+        payload: { messageId: "message" },
+      },
+    });
+    const historical = Number(
+      insert.run(f.owner, "historical.unknown", "not json").lastInsertRowid,
+    );
+    await expect.poll(() => live.frames.at(-1)?.cursor).toBe(historical);
+    expect(live.frames.at(-1).events[0].event).toEqual({
+      type: "invalidate",
+      scope: { kind: "collection", id: "all" },
+    });
+    await expect.poll(() => legacy.frames.at(-1)?.cursor).toBe(historical);
+    expect(legacy.frames.at(-1).events[0]).toMatchObject({
+      type: "historical.unknown",
+      payload: "not json",
+    });
+    const oversized = JSON.stringify({
+      messageId: "message",
+      text: "x".repeat(100_000),
+    });
+    const large = Number(
+      insert.run(f.owner, "message.delta", oversized).lastInsertRowid,
+    );
+    await expect.poll(() => live.frames.at(-1)?.cursor).toBe(large);
+    expect(live.frames.at(-1).events[0].event).toEqual({
+      type: "invalidate",
+      scope: { kind: "run", id: "run" },
+    });
+    expect(
+      f.db.prepare("SELECT payload FROM events WHERE id=?").get(large),
+    ).toEqual({ payload: oversized });
+    // Multiple bounded pages must finish without any later write or reset.
+    live.socket.close();
+    await expect.poll(() => live.socket.readyState).toBe(WebSocket.CLOSED);
+    const payload = JSON.stringify({
+      messageId: "message",
+      text: "x".repeat(60_000),
+    });
+    let last = large;
+    f.db.transaction(() => {
+      for (let i = 0; i < 24; i++)
+        last = Number(
+          insert.run(f.owner, "message.delta", payload).lastInsertRowid,
+        );
+    })();
+    const replay = connect(
+      f,
+      `?v=3&epoch=${live.frames[0].epoch}&cursor=${large}`,
+    );
+    await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(last);
+    expect(replay.frames.length).toBeGreaterThan(1);
+    expect(
+      replay.frames
+        .flatMap((frame) => frame.events)
+        .filter((entry) => entry.event.type === "message.delta"),
+    ).toHaveLength(24);
+    for (const frame of replay.frames) {
+      expect(WorkspaceFrameV3.parse(frame).type).toBe("events");
+      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(
+        512 * 1024,
+      );
+    }
+    const before = replay.frames.length;
+    f.db
+      .prepare(
+        "INSERT INTO artifacts(id,owner_id,kind,title,content,created_at,updated_at) VALUES('revision-only',?,'markdown','Saved note','Body',1,1)",
+      )
+      .run(f.owner);
+    await expect
+      .poll(() => replay.frames.length, { timeout: 7000 })
+      .toBeGreaterThan(before);
+    const watermark = WorkspaceFrameV3.parse(replay.frames.at(-1));
+    expect(watermark).toMatchObject({ type: "events", cursor: last });
+    if (watermark.type === "events") {
+      expect(watermark.events.length).toBeGreaterThan(0);
+      expect(
+        watermark.events.every(
+          ({ id, event }) =>
+            id === last &&
+            event.type === "invalidate" &&
+            event.scope.kind === "collection",
+        ),
+      ).toBe(true);
+    }
+  }, 30_000);
+}
+
+it("negotiates v3 through the paired Docker proxy into a compiled source server", async () => {
+  const remote = await fixture("server");
+  seed(remote);
+  const directory = mkdtempSync(join(tmpdir(), "loop-v3-docker-"));
+  const priorPath = process.env.PATH;
+  const container = "a".repeat(64);
+  try {
+    writeFileSync(
+      join(directory, "inspect.json"),
+      JSON.stringify([
+        {
+          Id: container,
+          Config: {
+            Labels: {
+              "com.docker.compose.project": "typed-events",
+              "com.docker.compose.service": "app",
+            },
+          },
+          State: { Running: true },
+          NetworkSettings: {
+            Ports: {
+              "3000/tcp": [
+                { HostIp: "127.0.0.1", HostPort: new URL(remote.origin).port },
+              ],
+            },
+          },
+        },
+      ]),
+    );
+    writeFileSync(
+      join(directory, "docker"),
+      '#!/bin/sh\nif [ "$1" = ps ]; then printf "%s\\n" "' +
+        container +
+        '"; else cat "$(dirname "$0")/inspect.json"; fi\n',
+      { mode: 0o755 },
+    );
+    process.env.PATH = directory + ":" + priorPath;
+    const paired = await fixture("companion");
+    process.env.PATH = priorPath;
+    seed(paired);
+    const sources = await (
+      await paired.request("/api/linked-workspaces", {
+        headers: paired.browser,
+      })
+    ).json();
+    expect(sources).toHaveLength(1);
+    const linked = connect(
+      paired,
+      "?v=3&owner=untrusted",
+      paired.browser,
+      `/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/events/ws`,
+    );
+    const direct = connect(remote, "?v=3");
+    await expect.poll(() => linked.frames.length).toBe(1);
+    await expect.poll(() => direct.frames.length).toBe(1);
+    expect(WorkspaceFrameV3.parse(linked.frames[0])).toEqual(
+      WorkspaceFrameV3.parse(direct.frames[0]),
+    );
+    expect(linked.frames[0].capabilities).toEqual(
+      PARTIAL_WORKSPACE_CAPABILITIES,
+    );
+    const insert =
+      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','progress',?,1)";
+    paired.db
+      .prepare(insert)
+      .run(paired.owner, JSON.stringify({ message: "Local only" }));
+    const id = Number(
+      remote.db
+        .prepare(insert)
+        .run(remote.owner, JSON.stringify({ message: "Remote only" }))
+        .lastInsertRowid,
+    );
+    await expect.poll(() => linked.frames.at(-1)?.cursor).toBe(id);
+    const frame = WorkspaceFrameV3.parse(linked.frames.at(-1));
+    expect(frame).toMatchObject({
+      type: "events",
+      events: [
+        {
+          id,
+          event: { type: "progress", payload: { message: "Remote only" } },
+        },
+      ],
+    });
+  } finally {
+    process.env.PATH = priorPath;
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 30_000);

@@ -64,7 +64,7 @@ function nextSequence(owner: string) {
 function write(
   scope: ActivityScope,
   key: string,
-  kind: string,
+  kind: ActivityUpdate["kind"] | "capabilities",
   record: unknown,
   session: boolean,
 ) {

@@ -1,17 +1,25 @@
-export type WorkspaceFrame = {
-  v: 2;
-  type: "reset" | "events";
-  epoch: string;
-  cursor: number;
-  build?: string;
-  buildIdentity?: unknown;
-};
+import {
+  WorkspaceFrameV3,
+  invalidate,
+  type WorkspaceEvent,
+} from "../shared/workspace-events";
+
+export type WorkspaceFrame =
+  | WorkspaceFrameV3
+  | {
+      v: 2;
+      type: "reset" | "events";
+      epoch: string;
+      cursor: number;
+      build?: string;
+      buildIdentity?: unknown;
+    };
 
 /** One source and owner per subscription. Only reads may be retried. */
 export function watchWorkspaceEvents(options: {
   url: URL;
   read: (after: number, signal: AbortSignal) => Promise<{ id: number }[]>;
-  changed: () => void;
+  changed: (events?: readonly WorkspaceEvent[]) => void;
   frame?: (frame: WorkspaceFrame) => void;
   connected?: (connected: boolean) => void;
   expired?: () => void;
@@ -34,13 +42,17 @@ export function watchWorkspaceEvents(options: {
     const url = new URL(options.url);
     url.searchParams.set("epoch", epoch);
     url.searchParams.set("cursor", String(cursor));
+    url.searchParams.set("v", "3");
     const current = (socket = new WebSocket(url));
     current.onmessage = (event) => {
       if (stopped || current !== socket) return;
       try {
-        const m = JSON.parse(event.data) as WorkspaceFrame;
+        const value = JSON.parse(event.data);
+        const m: WorkspaceFrame =
+          value?.v === 3 ? WorkspaceFrameV3.parse(value) : value;
         if (
-          m.v !== 2 ||
+          !m ||
+          (m.v !== 2 && m.v !== 3) ||
           !["reset", "events"].includes(m.type) ||
           typeof m.epoch !== "string" ||
           !m.epoch ||
@@ -50,6 +62,16 @@ export function watchWorkspaceEvents(options: {
           (m.type === "events" && m.epoch === epoch && m.cursor < cursor)
         )
           throw new Error("Invalid workspace event");
+        if (
+          m.v === 3 &&
+          m.type === "events" &&
+          m.events.some(
+            (entry, index) =>
+              entry.id > m.cursor ||
+              (index > 0 && entry.id < m.events[index - 1].id),
+          )
+        )
+          throw new Error("Invalid workspace event order");
         // Both transports read the same durable event IDs. A reset replaces
         // both cursors so fallback neither replays old history nor keeps a
         // cursor from a database the socket has already replaced. Within an
@@ -68,7 +90,11 @@ export function watchWorkspaceEvents(options: {
         pollHealthy = false;
         request?.abort();
         options.frame?.(m);
-        options.changed();
+        options.changed(
+          m.v === 3 && m.type === "events"
+            ? m.events.map((entry) => entry.event)
+            : [invalidate()],
+        );
       } catch {
         current.close();
       }

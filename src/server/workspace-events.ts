@@ -2,6 +2,13 @@ import { WebSocket } from "ws";
 import { db, changes } from "./db.js";
 import { publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
+import {
+  historicalEvent,
+  invalidate,
+  PARTIAL_WORKSPACE_CAPABILITIES,
+  WORKSPACE_COLLECTIONS,
+  type WorkspaceEvent,
+} from "../shared/workspace-events.js";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_REPLAY_BYTES = 512 * 1024;
@@ -68,6 +75,7 @@ export function connectWorkspaceEvents(
   epoch: string,
   build?: string,
 ) {
+  const v3 = url.searchParams.get("v") === "3";
   let cursor = Number(url.searchParams.get("cursor"));
   let revisionChanged = false;
   let initial = true;
@@ -100,6 +108,8 @@ export function connectWorkspaceEvents(
           )
           .all(MAX_EVENT_BYTES, owner, cursor) as {
           id: number;
+          run_id: string;
+          type: string;
           payload: string | null;
         }[]);
     // These frames prompt HTTP reconciliation. Keep ordinary v2 replay, but
@@ -107,31 +117,69 @@ export function connectWorkspaceEvents(
     // Bound each selected payload before materializing it in JS; the durable
     // event stays intact for HTTP readers. This also fits the linked gateway.
     if (
-      events.some((event) => event.payload === null) ||
-      Buffer.byteLength(JSON.stringify(events)) > MAX_REPLAY_BYTES
+      !v3 &&
+      (events.some((event) => event.payload === null) ||
+        Buffer.byteLength(JSON.stringify(events)) > MAX_REPLAY_BYTES)
     ) {
       reset = true;
       cursor = bounds.last;
       events = [];
     }
-    if (events.length) cursor = events.at(-1)!.id;
+    const typed: { id: number; event: WorkspaceEvent }[] = [];
+    if (v3) {
+      // Reserve space for every revision hint and the frame envelope. A full
+      // page yields to another read instead of resetting past unread rows.
+      let bytes = 4096;
+      for (const row of events) {
+        let entry = { id: row.id, event: historicalEvent(row) };
+        if (Buffer.byteLength(JSON.stringify(entry)) > MAX_EVENT_BYTES)
+          entry = { id: row.id, event: invalidate(entry.event.scope) };
+        const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
+        if (bytes + size > MAX_REPLAY_BYTES) break;
+        typed.push(entry);
+        bytes += size;
+      }
+      if (typed.length) cursor = typed.at(-1)!.id;
+      if (!reset && revisionChanged)
+        for (const collection of WORKSPACE_COLLECTIONS)
+          typed.push({
+            id: cursor,
+            event: invalidate({ kind: "collection", id: collection }),
+          });
+      // A healthy reconnect at the current tip still carries an actionable
+      // reconciliation signal; synthetic entries intentionally reuse the cursor.
+      if (!reset && initial && !typed.length)
+        typed.push({ id: cursor, event: invalidate() });
+    } else if (events.length) cursor = events.at(-1)!.id;
     const changed = initial || reset || events.length > 0 || revisionChanged;
     revisionChanged = false;
     initial = false;
     const frame = changed
-      ? {
-          v: 2,
-          type: reset ? "reset" : "events",
-          epoch,
-          cursor,
-          events,
-          ...(reset
-            ? {
-                build: build || observedBuild().id,
-                buildIdentity: publicBuild(observedBuild()),
-              }
-            : {}),
-        }
+      ? v3
+        ? reset
+          ? {
+              v: 3,
+              type: "reset",
+              epoch,
+              cursor,
+              build: build || observedBuild().id,
+              buildIdentity: publicBuild(observedBuild()),
+              capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+            }
+          : { v: 3, type: "events", epoch, cursor, events: typed }
+        : {
+            v: 2,
+            type: reset ? "reset" : "events",
+            epoch,
+            cursor,
+            events,
+            ...(reset
+              ? {
+                  build: build || observedBuild().id,
+                  buildIdentity: publicBuild(observedBuild()),
+                }
+              : {}),
+          }
       : null;
     return { frame, more: !reset && cursor < bounds.last };
   });

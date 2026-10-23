@@ -1,4 +1,5 @@
-import { useSourceApi } from "./SourceContext";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { useSourceId, useSourceApi } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "./components";
 
@@ -47,6 +48,7 @@ export function HarnessPicker({
   compact?: boolean;
 }) {
   const api = useSourceApi();
+  const sourceId = useSourceId();
   const [snippets, setSnippets] = useState<Snippet[] | null>(null),
     [allSnippets, setAllSnippets] = useState(false);
   const [open, setOpen] = useState(false),
@@ -116,13 +118,13 @@ export function HarnessPicker({
     void refresh();
     const timer = setInterval(() => void refresh(), 3000);
     const update = () => void refresh();
-    window.addEventListener("loop-workspace-change", update);
+    const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversationId);
     return () => {
       generation.current++;
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", update);
+      stopChanges();
     };
-  }, [open, agentId, conversationId, revision]);
+  }, [open, agentId, conversationId, revision, sourceId]);
   function close() {
     setOpen(false);
     requestAnimationFrame(focusInput);

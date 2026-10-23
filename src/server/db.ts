@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { createChangeBus } from "./changes.js";
+import { parseEmission, type WorkspaceEmission } from "../shared/workspace-events.js";
 export const db: Database.Database = new Database(join(config.data, "loop.db"));
 db.pragma("busy_timeout = 5000");
 // Simultaneous API/worker startup can hit SQLITE_BUSY while switching a fresh
@@ -190,9 +191,9 @@ export const changes = createChangeBus(db, { pollMs: config.changePollMs });
 export function emit(
   owner: string,
   run: string,
-  type: string,
-  payload: unknown,
+  ...[type, payload]: WorkspaceEmission
 ) {
+  parseEmission(run, type, payload);
   const row = db
     .prepare(
       "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,?,?,?)",

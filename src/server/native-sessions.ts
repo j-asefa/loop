@@ -56,6 +56,10 @@ import {
 } from "../protocol.js";
 import type { Snapshot } from "./agent-runtime.js";
 import { replyPrompt } from "../shared/replies.js";
+import {
+  MAX_NATIVE_REQUEST_BYTES,
+  MAX_NATIVE_EVENT_BYTES,
+} from "../shared/workspace-events.js";
 import { reviewContext } from "./review-access.js";
 import {
   autoApproval,
@@ -1377,7 +1381,7 @@ export class NativeSessions {
       : undefined;
     const event = structuredClone(input);
     if (event.type === "request" && allow &&
-        Buffer.byteLength(JSON.stringify(event.request)) > 64000) {
+        Buffer.byteLength(JSON.stringify(event.request)) > MAX_NATIVE_REQUEST_BYTES) {
       const detail = event.request.detail;
       const digest = createHash("sha256").update(detail).digest("hex");
       event.request.detail = [
@@ -1392,7 +1396,7 @@ export class NativeSessions {
     }
     if (event.type === "item") event.item.text = displayText(event.item.text);
     if (event.type === "delta") event.text = displayText(event.text);
-    if (Buffer.byteLength(JSON.stringify(event)) > 256000) {
+    if (Buffer.byteLength(JSON.stringify(event)) > MAX_NATIVE_EVENT_BYTES) {
       // Item metadata is display data too. Dropping an unrepresentable preview
       // must not cancel the harness; decisions retain their stricter bounds.
       if (event.type === "item" || event.type === "delta") return;
@@ -1486,7 +1490,7 @@ export class NativeSessions {
     }
     if (event.type === "request") {
       if (
-        Buffer.byteLength(JSON.stringify(event.request)) > 64000 ||
+        Buffer.byteLength(JSON.stringify(event.request)) > MAX_NATIVE_REQUEST_BYTES ||
         live.requests.size >= 25
       ) {
         void this.interrupt(

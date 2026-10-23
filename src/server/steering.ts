@@ -103,11 +103,11 @@ export class SteeringInbox {
       )
       .all(this.run.id) as Input[];
   }
-  private receipt(input: Input, state: string, error?: string) {
+  private receipt(input: Input, state: "delivered" | "failed", error?: string) {
     db.prepare(
       "UPDATE run_steering SET state=?,error=? WHERE id=? AND state IN ('pending','sending')",
     ).run(state, error || null, input.id);
-    emit(this.run.owner_id, this.run.id, "steering." + state, {
+    emit(this.run.owner_id, this.run.id, `steering.${state}`, {
       messageId: input.message_id,
     });
   }

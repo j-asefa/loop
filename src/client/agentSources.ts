@@ -1,3 +1,4 @@
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import type { Agent, Connection, Folder, Run } from "../shared/types";
 import { apiInWorkspace, parse } from "./api";
@@ -294,14 +295,15 @@ export function useAgentSources(
       if (sources?.some(source => source !== currentSourceId)) schedule();
     };
     window.addEventListener("loop-source-refresh", retry);
-    window.addEventListener("loop-workspace-change", changed);
+    // This projection includes active runs as well as source metadata.
+    const stopChanges = listenWorkspaceChanges("runs", changed);
     return () => {
       active = false;
       clearRequests();
       clearInterval(timer);
       clearTimeout(refreshTimer);
       window.removeEventListener("loop-source-refresh", retry);
-      window.removeEventListener("loop-workspace-change", changed);
+      stopChanges();
     };
   }, [owner, currentSourceId, federated, localName]);
 

@@ -1,3 +1,4 @@
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
 import { useSourceApi, useSourceId } from "./SourceContext";
 import { PublishedFile } from "./PublishedFiles";
@@ -137,12 +138,12 @@ export function PersonalFiles({
     setPage(empty);
     void load();
     window.addEventListener("loop-refresh", refresh);
-    window.addEventListener("loop-workspace-change", refresh);
+    const stopChanges = listenWorkspaceChanges("results", refresh, source);
     return () => {
       controller.abort();
       clearTimeout(timer);
       window.removeEventListener("loop-refresh", refresh);
-      window.removeEventListener("loop-workspace-change", refresh);
+      stopChanges();
     };
   }, [api, query, source]);
   function filter(key: "agent" | "project" | "type", value: string) {

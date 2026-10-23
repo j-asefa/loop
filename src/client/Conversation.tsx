@@ -1,3 +1,4 @@
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
 import { useSourceApi, useSourceId } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
@@ -492,14 +493,14 @@ export function Conversation({
       void load(true);
     const update = () => void load();
     const timer = setInterval(update, 5000);
-    window.addEventListener("loop-workspace-change", update);
+    const stopChanges = listenWorkspaceChanges("thread", update, sourceId, id);
     return () => {
       generation.current++;
       readController.current?.abort();
       clearInterval(timer);
-      window.removeEventListener("loop-workspace-change", update);
+      stopChanges();
     };
-  }, [id, anchor]);
+  }, [id, anchor, sourceId]);
   useEffect(() => {
     if (seenRevision.current === revision) return;
     seenRevision.current = revision;

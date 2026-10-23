@@ -47,8 +47,8 @@ it("starts a worker on a populated database without replaying history into claim
     delivered.push(...events.map((event) => event.type)),
   );
   try {
-    emit("owner", "history", "startup-marker", {});
-    await expect.poll(() => delivered).toEqual(["startup-marker"]);
+    emit("owner", "history", "attention.dismissed", {});
+    await expect.poll(() => delivered).toEqual(["attention.dismissed"]);
     await new Promise<void>((resolve) => setImmediate(resolve));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(claims).toBe(1);

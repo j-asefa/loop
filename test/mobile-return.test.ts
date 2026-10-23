@@ -1814,7 +1814,7 @@ it("sums provider receipts per run without double counting cumulative deltas", a
   emit(w.owner, anthropic, "provider.receipt", { externalId: "msg_1", usage: { input_tokens: 50, output_tokens: 1 } });
   emit(w.owner, anthropic, "provider.receipt", { usage: { output_tokens: 40 } });
   emit(w.owner, chat, "provider.receipt", { usage: { prompt_tokens: 7, completion_tokens: 3 } });
-  emit(w.owner, none, "progress", {});
+  emit(w.owner, none, "progress", { message: "fixture" });
   // Only runs with a memory receipt are listed, so "Memory used" is not shown
   // on every reply.
   db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(

@@ -1,3 +1,5 @@
+import { workspaceChangeAffects } from "./workspace-changes";
+import { WORKSPACE_COLLECTIONS, type WorkspaceCollection } from "../shared/workspace-events";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact, type CardArtifact } from "./card-actions";
 import { CardPager, type CardWindow } from "./card-pager";
@@ -988,6 +990,8 @@ export default function App() {
   );
   const [filing, setFiling] = useState<CardArtifact | null>(null),
     [revision, setRevision] = useState(0);
+  const [collectionRevisions, setCollectionRevisions] = useState<Partial<Record<WorkspaceCollection, number>>>({});
+  const revisionFor = (collection: WorkspaceCollection) => revision + (collectionRevisions[collection] || 0);
   // Your profile and its counts; refreshed while the profile is open.
   const signedIn: string | undefined = session?.user?.id;
   const unified = useAgentSources(signedIn, { ...data, runs });
@@ -1522,28 +1526,46 @@ export default function App() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let refreshCurrent = false;
     let fullRefresh = false;
+    let broad = false, refreshRuns = false, refreshResults = false;
+    const collections = new Set<WorkspaceCollection>();
     const update = (event: Event) => {
       const sources = (event as CustomEvent<{ sources?: string[] }>).detail?.sources;
       refreshCurrent ||= !sources || sources.includes(executionSourceId());
       fullRefresh ||= !sources;
+      broad ||= workspaceChangeAffects(event, "metadata");
+      refreshRuns ||= workspaceChangeAffects(event, "runs", executionSourceId());
+      refreshResults ||= workspaceChangeAffects(event, "results", executionSourceId());
+      for (const collection of WORKSPACE_COLLECTIONS)
+        if (workspaceChangeAffects(event, collection)) collections.add(collection);
+      if (!broad && !collections.size) return;
       if (timer) return;
       timer = setTimeout(() => {
         timer = undefined;
-        setRevision((v) => v + 1);
+        if (broad) setRevision((v) => v + 1);
+        else {
+          const changed = [...collections];
+          setCollectionRevisions((old) => {
+            const next = { ...old };
+            for (const collection of changed) next[collection] = (next[collection] || 0) + 1;
+            return next;
+          });
+        }
         if (refreshCurrent) {
-          if (fullRefresh || capabilities.pairedDevices) void refresh().catch(() => {});
+          if (fullRefresh || (broad && capabilities.pairedDevices)) void refresh().catch(() => {});
           else {
             // Streaming events refresh current work and visible results.
             // Metadata and hidden collections use the periodic/action refresh,
             // avoiding redundant reads against the owner's shared HTTP limit.
             void Promise.allSettled([
-              loadRuns(),
-              ...(resultsVisible.current ? [loadResults(false, false)] : []),
+              ...(refreshRuns ? [loadRuns()] : []),
+              ...(refreshResults && resultsVisible.current ? [loadResults(false, false)] : []),
             ]);
           }
         }
         refreshCurrent = false;
         fullRefresh = false;
+        broad = refreshRuns = refreshResults = false;
+        collections.clear();
       }, 250);
     };
     window.addEventListener("loop-workspace-change", update);
@@ -3014,7 +3036,7 @@ export default function App() {
                 onFilter={setFeedFilter}
                 project={projectFilter || undefined}
                 teams={teamKey || undefined}
-                revision={revision}
+                revision={revisionFor("feed")}
                 agents={unified.agents}
                 sources={unified.feedSources}
                 sourcesLoading={unified.loading}
@@ -3039,12 +3061,12 @@ export default function App() {
                       runIds={
                         projectFilter ? scopedRuns.map((r) => r.id) : undefined
                       }
-                      revision={revision}
+                      revision={revisionFor("approvals")}
                       onChange={() => void changed()}
                       onConversation={setConversation}
                     />
                     <ScheduledSends
-                      revision={revision}
+                      revision={revisionFor("scheduled")}
                       failedOnly
                       onOpen={(c) => setConversation(c)}
                       onDraft={draftFromScheduled}
@@ -3077,7 +3099,7 @@ export default function App() {
             <Traces
               key={profile.id}
               agentId={profile.id}
-              revision={revision}
+              revision={revisionFor("activities")}
               onConversation={setConversation}
               onArtifact={setActiveArtifact}
             />
@@ -3089,7 +3111,7 @@ export default function App() {
               onFilter={() => {}}
               hideFilters
               agent={profile.id}
-              revision={revision}
+              revision={revisionFor("feed")}
               agents={data.agents}
               connections={data.connections}
               onOpen={(c, m) => {
@@ -3187,7 +3209,7 @@ export default function App() {
                         ? projectFilter || undefined
                         : undefined
                     }
-                    revision={revision}
+                    revision={revisionFor(section === "saved" ? "saved" : section === "scheduled" ? "scheduled" : "later")}
                     onOpen={(c, m) => setConversation(c, m)}
                     onArtifact={(id) =>
                       void api<Artifact>("/artifacts/" + id)
@@ -3262,7 +3284,7 @@ export default function App() {
                   projectId={id}
                   agents={data.agents}
                   connections={data.connections}
-                  revision={revision}
+                  revision={revisionFor("activities")}
                   onOpen={open}
                   onReply={(item) => void replyToArtifact(item)}
                   onConversation={setConversation}
@@ -3295,7 +3317,7 @@ export default function App() {
                       setFolder(id);
                       setSheet("folder-edit");
                     }}
-                    version={revision}
+                    version={revisionFor("results")}
                   />
                 </>
               )}
@@ -3311,7 +3333,7 @@ export default function App() {
                   onFilter={() => {}}
                   hideFilters
                   project={id}
-                  revision={revision}
+                  revision={revisionFor("feed")}
                   agents={data.agents}
                   onOpen={(c, m) => setConversation(c, m)}
                   onReply={(c) => {
@@ -3338,7 +3360,7 @@ export default function App() {
                 ) : view === "saved" ? (
                   <SavedList
                     key={id}
-                    revision={revision}
+                    revision={revisionFor("saved")}
                     project={id}
                     searchLabel="Search saved decisions"
                     onOpen={(c, m) => setConversation(c, m)}
@@ -3354,7 +3376,7 @@ export default function App() {
                     onFilter={() => {}}
                     hideFilters
                     project={id}
-                    revision={revision}
+                    revision={revisionFor("feed")}
                     agents={data.agents}
                     onOpen={(c, m) => setConversation(c, m)}
                     onReply={(c) => {

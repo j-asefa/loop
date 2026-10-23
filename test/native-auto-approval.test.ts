@@ -1,5 +1,7 @@
 import type { Live } from "../src/server/native-sessions";
 import type { Request } from "../src/protocol";
+import { ServerFrame } from "../src/protocol";
+import { historicalEvent } from "../src/shared/workspace-events";
 import type { PermissionMode } from "../src/shared/permission-modes";
 import { Claude } from "../src/adapters/claude";
 import { Codex } from "../src/adapters/codex";
@@ -88,6 +90,50 @@ const approval: Request = {
   choices: ["allow", "deny"],
   allow: "allow",
 };
+
+it.each([
+  {
+    name: "long-id-and-choices",
+    request: { ...approval, id: "r".repeat(1001), choices: Array.from({ length: 1001 }, (_, i) => String(i)) },
+  },
+  {
+    name: "many-questions-and-options",
+    request: {
+      id: "questions", kind: "question", title: "Choose", detail: "",
+      questions: Array.from({ length: 1001 }, (_, i) => ({
+        id: i === 0 ? "q".repeat(1001) : String(i), title: "Question",
+        ...(i === 0 ? { options: Array.from({ length: 1001 }, (_, n) => String(n)) } : {}),
+      })),
+    },
+  },
+  { name: "empty-native-id", request: { ...approval, id: "" } },
+] satisfies { name: string; request: Request }[])(
+  "preserves the existing bounded native request contract: $name",
+  ({ name, request }) => {
+    // These values are accepted by the existing protocol and fit ingress's
+    // aggregate budget. Emission must not reject them after committing state.
+    expect(Buffer.byteLength(JSON.stringify(request))).toBeLessThan(64000);
+    expect(() => ServerFrame.parse({
+      v: 1, epoch: "fixture", cursor: 1, event: { type: "request", request },
+    })).not.toThrow();
+    const f = session("native-limits-" + name, "default");
+    expect(() => f.request(request)).not.toThrow();
+    expect(f.state()).toBe("awaiting_approval");
+    expect(f.answer).not.toHaveBeenCalled();
+    const decision = db.prepare("SELECT state,request FROM native_decisions WHERE run_id=?").get(f.run.id) as { state: string; request: string };
+    expect(decision.state).toBe("pending");
+    expect(JSON.parse(decision.request)).toEqual(request);
+
+    expect(() => f.sessions.event(f.live, { type: "resolved", id: request.id })).not.toThrow();
+    expect(f.state()).toBe("running");
+    expect(db.prepare("SELECT state FROM native_decisions WHERE run_id=?").get(f.run.id)).toEqual({ state: "resolved" });
+    const rows = db.prepare("SELECT run_id,type,payload FROM events WHERE run_id=? AND type='native.event' ORDER BY id").all(f.run.id) as { run_id: string; type: string; payload: string }[];
+    expect(rows.map(historicalEvent)).toEqual([
+      { type: "native.event", scope: { kind: "run", id: f.run.id }, payload: { conversationId: f.live.binding.conversation_id, generation: "test", event: { type: "request", request } } },
+      { type: "native.event", scope: { kind: "run", id: f.run.id }, payload: { conversationId: f.live.binding.conversation_id, generation: "test", event: { type: "resolved", id: request.id } } },
+    ]);
+  },
+);
 
 function fileApproval(bytes = 100000) {
   const content = Buffer.alloc(bytes, 42).toString("base64");

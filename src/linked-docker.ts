@@ -138,7 +138,7 @@ export async function connectLinkedDockerEvents(
   }
   const origin = `http://127.0.0.1:${workspace.port}`;
   const url = new URL("/api/events/ws", origin.replace("http:", "ws:"));
-  for (const key of ["epoch", "cursor"])
+  for (const key of ["epoch", "cursor", "v"])
     if (query.has(key)) url.searchParams.set(key, query.get(key)!);
   const upstream = new WebSocket(url, {
     origin, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024,
