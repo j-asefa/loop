@@ -880,15 +880,9 @@ a:focus-visible {
   width: 100px;
   height: 100px;
   border: 5px solid var(--surface);
-  background: #eee4bc;
-  color: #68531b;
   border-radius: 50%;
   font-size: 29px;
   font-weight: 600;
-}
-[data-theme="dark"] .my-profile-avatar {
-  background: #514526;
-  color: #f2dea0;
 }
 .my-profile-edit.secondary,
 [data-theme="dark"] .my-profile-edit.secondary {

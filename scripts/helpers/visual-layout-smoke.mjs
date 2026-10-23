@@ -26,6 +26,35 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       )
       .toBe(true);
   };
+  const personal = page.getByRole("region", {
+    name: "Your profile",
+    exact: true,
+  });
+  const personalArtwork = async () => {
+    await expect(personal).toBeVisible();
+    await imagesLoaded();
+    const portrait = personal.locator(".my-profile-avatar");
+    const cover = personal.locator(".profile-cover img");
+    await expect
+      .poll(() =>
+        cover.evaluate((image) => image.complete && image.naturalWidth > 0),
+      )
+      .toBe(true);
+    const avatar = await portrait.locator("img").getAttribute("src");
+    for (const nav of await page.locator(".nav-avatar").all()) {
+      await expect(nav.locator("img")).toHaveAttribute("src", avatar);
+      await expect(nav).toHaveAttribute(
+        "style",
+        await portrait.getAttribute("style"),
+      );
+    }
+    return { avatar, cover: await cover.getAttribute("src") };
+  };
+  await page.goto(fixture.base + "/?page=profile", {
+    waitUntil: "networkidle",
+  });
+  const accountName = await personal.locator("h1").textContent();
+  const accountArtwork = await personalArtwork();
   const covers = new Set();
   for (const candidate of fixture.agents.slice(0, 6)) {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
@@ -163,6 +192,10 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
         .getByRole("button", { name: "Collapse composer", exact: true })
         .click();
       await openSettings(page);
+      await expect(page.locator(".drawer-account .avatar img")).toHaveAttribute(
+        "src",
+        accountArtwork.avatar,
+      );
       await page
         .getByRole("button", { name: "Manage agents", exact: true })
         .click();
@@ -190,12 +223,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
         (theme) => (document.documentElement.dataset.theme = theme),
         theme,
       );
-      await expect(
-        page.getByRole("region", { name: "Your profile", exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.locator(".my-profile .profile-cover img"),
-      ).toHaveAttribute("src", "/profile-cover.webp");
+      assert.deepEqual(await personalArtwork(), accountArtwork);
       const status = page.locator(".workspace-connection");
       await expect(status).toHaveText("Connected to workspace");
       const connectionBox = await status.boundingBox();
@@ -206,10 +234,66 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
         connectionBox.y + connectionBox.height <= personalCover.y,
         "The profile cover must stay below the entire connection status",
       );
+      const personalAvatar = await personal
+        .locator(".my-profile-avatar")
+        .boundingBox();
+      const edit = await personal
+        .getByRole("button", { name: "Edit profile", exact: true })
+        .boundingBox();
+      assert(
+        personalAvatar.y < personalCover.y + personalCover.height &&
+          personalAvatar.y + personalAvatar.height >
+            personalCover.y + personalCover.height,
+        "Your avatar overlaps the banner",
+      );
+      assert(
+        edit.x >= personalAvatar.x + personalAvatar.width && edit.height >= 44,
+        "Edit profile stays clear of your avatar and keeps a touch-sized target",
+      );
       await fits();
       await capture(`personal-profile-${theme}-${width}`);
     }
   }
+  // Saving a display name updates all personal artwork; clearing it restores
+  // the account identity, including after a reload.
+  const editName = async (name) => {
+    await personal
+      .getByRole("button", { name: "Edit profile", exact: true })
+      .click();
+    const editor = page.getByRole("dialog", {
+      name: "Edit profile",
+      exact: true,
+    });
+    await editor.getByRole("textbox", { name: "Name", exact: true }).fill(name);
+    await editor
+      .getByRole("button", { name: "Save profile", exact: true })
+      .click();
+    await expect(editor).toBeHidden();
+  };
+  fixture.db
+    .prepare("DELETE FROM request_limits WHERE owner_id=?")
+    .run(fixture.owner);
+  await editName("Iris");
+  await expect(personal.locator("h1")).toHaveText("Iris");
+  const savedArtwork = {
+    avatar: "/avatars/iris.webp",
+    cover: "/profile-covers/iris-scene.webp",
+  };
+  assert.deepEqual(await personalArtwork(), savedArtwork);
+  await openSettings(page);
+  await expect(page.locator(".drawer-account .avatar img")).toHaveAttribute(
+    "src",
+    savedArtwork.avatar,
+  );
+  await closeSheets(page);
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(personal.locator("h1")).toHaveText("Iris");
+  assert.deepEqual(await personalArtwork(), savedArtwork);
+  await editName("");
+  await expect(personal.locator("h1")).toHaveText(accountName);
+  assert.deepEqual(await personalArtwork(), accountArtwork);
+  await page.reload({ waitUntil: "networkidle" });
+  assert.deepEqual(await personalArtwork(), accountArtwork);
   if (engine === "chromium") {
     // Exercise the real CSS env() values at the mobile/tablet breakpoints.
     const session = await page.context().newCDPSession(page);
@@ -265,5 +349,17 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
     profile.getByRole("button", { name: "Message", exact: true }),
   ).toBeVisible();
   await capture("profile-cover-fallback");
+  await fits();
+  await page.goto(fixture.base + "/?page=profile");
+  await expect(personal.locator(".my-profile-avatar img")).toBeHidden();
+  await expect(
+    personal.locator(".my-profile-avatar .avatar-fallback"),
+  ).not.toBeEmpty();
+  await expect(personal.locator(".profile-cover img")).toBeHidden();
+  await expect(personal.locator(".profile-cover")).toBeVisible();
+  await expect(
+    personal.getByRole("button", { name: "Edit profile", exact: true }),
+  ).toBeVisible();
+  await capture("personal-profile-fallback");
   await fits();
 }

@@ -7506,7 +7506,7 @@ details > summary {
   }
 }
 
-/* The You tab shows your initials in place of an icon. */
+/* The You tab shows your profile avatar in place of an icon. */
 .nav-avatar.avatar {
   width: 22px;
   height: 22px;
@@ -7690,18 +7690,6 @@ html:has(.sheet.side-panel[open]) {
   align-items: flex-start;
   justify-content: space-between;
 }
-.my-profile-avatar {
-  width: 68px;
-  height: 68px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 18px;
-  background: #6b5517;
-  color: #fff;
-  font-size: 24px;
-  font-weight: 600;
-}
 .my-profile-edit.secondary {
   border-radius: 999px;
   min-height: 40px;
@@ -7801,10 +7789,6 @@ html:has(.sheet.side-panel[open]) {
 [data-theme="dark"] .my-profile-card {
   background: #2a2619;
   border-color: #433b22;
-}
-[data-theme="dark"] .my-profile-avatar {
-  background: #d6c478;
-  color: #1a1a1c;
 }
 [data-theme="dark"] .my-profile-edit.secondary {
   background: #332d1d;

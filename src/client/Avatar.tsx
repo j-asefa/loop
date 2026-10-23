@@ -7,14 +7,16 @@ export { agentAppearance as avatarIdentity } from "./agentAppearance";
 
 export function Avatar({
   name = "Loop",
+  className = "",
 }: {
   name?: string;
+  className?: string;
   provider?: Provider;
 }) {
   const { character, background } = agentAppearance(name);
   return (
     <span
-      className="avatar avatar-3d"
+      className={`avatar avatar-3d ${className}`.trim()}
       role="img"
       aria-label={name + " avatar"}
       style={{ "--avatar-background": background } as CSSProperties}

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
+import { Avatar } from "./Avatar";
 import { ProfileCover } from "./ProfileCover";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { SHOW_LATER, type LaterSection, type ShowLater } from "./Later";
@@ -21,15 +22,6 @@ const profileTabs: [ProfileTab, string][] = [
   ["files", "Files"],
   ["social", "Social"],
 ];
-
-export function initialsOf(name: string) {
-  return (name.trim() || "You")
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => Array.from(part)[0])
-    .join("")
-    .toUpperCase();
-}
 
 /**
  * Your own profile: who you are, then your sent messages, published files and what Later
@@ -130,11 +122,9 @@ export function MyProfile({
   return (
     <section className="my-profile" aria-label="Your profile">
       <header className="my-profile-card">
-        <ProfileCover />
+        <ProfileCover name={name} />
         <div className="my-profile-top">
-          <span className="my-profile-avatar" aria-hidden="true">
-            {initialsOf(name)}
-          </span>
+          <Avatar name={name} className="my-profile-avatar" />
           <button
             type="button"
             className="secondary my-profile-edit"

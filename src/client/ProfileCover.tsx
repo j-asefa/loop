@@ -1,6 +1,6 @@
 import { agentAppearance } from "./agentAppearance";
 
-/** Agent covers coordinate with their avatar; personal profiles keep the Loop cover. */
+/** Personal and agent profile covers coordinate with their avatar. */
 export function ProfileCover({ name }: { name?: string }) {
   const src =
     name === undefined ? "/profile-cover.webp" : agentAppearance(name).cover;

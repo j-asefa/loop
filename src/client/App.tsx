@@ -10,7 +10,7 @@ import { CardTokens } from "./CardTokens";
 import { PersonalProfile } from "./PersonalProfile";
 import { PersonalFiles } from "./PersonalFiles";
 import { Social } from "./Social";
-import { MyProfile, initialsOf, type MyProfileData } from "./MyProfile";
+import { MyProfile, type MyProfileData } from "./MyProfile";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName } from "./modelChoices";
 import { AttachmentList, UploadButton } from "./Attachments";
@@ -1036,7 +1036,6 @@ export default function App() {
   // The name shown for you: your profile's, else the account's.
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
-  const initials = initialsOf(displayName);
   const receiptStorageKey = `loop-send:${threadIdentity}`;
   const receiptBox = useRef<{
     key: string;
@@ -2043,9 +2042,7 @@ export default function App() {
           }}
         >
           {t.id === "profile" ? (
-            <span className="avatar user nav-avatar" aria-hidden="true">
-              {initials}
-            </span>
+            <Avatar name={displayName} className="nav-avatar" />
           ) : (
             <t.icon size={21} />
           )}
@@ -3501,9 +3498,7 @@ export default function App() {
             connections={data.connections}
           />
           <footer className="drawer-account">
-            <span className="avatar user" aria-hidden="true">
-              {initials}
-            </span>
+            <Avatar name={displayName} />
             <span>
               <strong>{displayName}</strong>
               <small>Personal workspace</small>
