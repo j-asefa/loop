@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { apiInWorkspace, type api } from "./api";
+import { apiInWorkspace, readInWorkspace, type api } from "./api";
 import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
@@ -48,4 +48,10 @@ export function useSourcePath() {
     () => (path: string) => sourceApiPathAt(path, source),
     [source],
   );
+}
+
+export function useSourceRead() {
+  const source = useSourceId();
+  return useMemo(() => <T = any,>(path: string, signal: AbortSignal) =>
+    readInWorkspace<T>(path, source, signal), [source]);
 }

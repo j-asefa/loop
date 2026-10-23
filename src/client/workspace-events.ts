@@ -3,6 +3,7 @@ import {
   invalidate,
   type WorkspaceEvent,
 } from "../shared/workspace-events";
+import { retryAfter } from "./api";
 
 export type WorkspaceFrame =
   | WorkspaceFrameV3
@@ -33,12 +34,17 @@ export function watchWorkspaceEvents(options: {
     pollCursor = 0,
     attempt = 0;
   let lastRefresh = 0;
+  let pollAfter = 0;
   let socket: WebSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
   const connect = () => {
     if (stopped) return;
     clearTimeout(retry);
+    if (Date.now() < pollAfter) {
+      retry = setTimeout(connect, Math.min(2_147_483_647, pollAfter - Date.now()));
+      return;
+    }
     const url = new URL(options.url);
     url.searchParams.set("epoch", epoch);
     url.searchParams.set("cursor", String(cursor));
@@ -119,7 +125,7 @@ export function watchWorkspaceEvents(options: {
     current.onerror = () => current.close();
   };
   const poll = async () => {
-    if (stopped || ready || polling) return;
+    if (stopped || ready || polling || Date.now() < pollAfter) return;
     polling = true;
     const controller = (request = new AbortController());
     const deadline = setTimeout(() => controller.abort(), 12_000);
@@ -135,7 +141,9 @@ export function watchWorkspaceEvents(options: {
         lastRefresh = Date.now();
         options.changed();
       }
-    } catch {
+    } catch (error) {
+      if (!stopped && !controller.signal.aborted)
+        pollAfter = Math.max(pollAfter, Date.now() + retryAfter(error));
       /* Cached content remains readable during an outage. */
       if (!stopped && !ready) {
         pollHealthy = false;

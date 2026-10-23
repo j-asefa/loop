@@ -4280,7 +4280,7 @@ export default function App() {
         <Sheet title="Conversation" onClose={() => setConversation(null)}>
           {threadSource.error ? (
             <>
-              <p role="alert">{threadSource.error}</p>
+              <p role={threadSource.rateLimited ? "status" : "alert"}>{threadSource.error}</p>
               <button onClick={threadSource.retry}>Retry connection</button>
             </>
           ) : (
@@ -4299,6 +4299,11 @@ export default function App() {
             id={conversation}
             messageId={messageId}
             revision={revision}
+            sourceStatus={threadSource.error ? {
+              message: threadSource.error,
+              rateLimited: threadSource.rateLimited,
+              retry: threadSource.retry,
+            } : undefined}
             onAgentChanged={() => {
               threadSource.retry();
               void bootstrap();

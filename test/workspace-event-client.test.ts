@@ -320,3 +320,21 @@ it("resumes HTTP fallback from accepted socket cursors and replaces them on epoc
   await vi.advanceTimersByTimeAsync(1800);
   expect(s.read.mock.calls.at(-1)?.[0]).toBe(5);
 });
+
+it("backs off fallback reads and reconnect attempts until Retry-After without losing the cursor", async () => {
+  const s = subscribe();
+  s.socket.frame(17, "limited", "reset");
+  s.socket.close();
+  s.read.mockRejectedValueOnce(Object.assign(new Error("busy"), { status: 429, retryAt: Date.now() + 12_000 }));
+  await vi.advanceTimersByTimeAsync(1800);
+  expect(s.read).toHaveBeenCalledTimes(1);
+  Socket.instances.at(-1)!.close();
+  const attempts = Socket.instances.length;
+  await vi.advanceTimersByTimeAsync(10_199);
+  expect(s.read).toHaveBeenCalledTimes(1);
+  expect(Socket.instances).toHaveLength(attempts);
+  await vi.advanceTimersByTimeAsync(1801);
+  expect(s.read).toHaveBeenCalledTimes(2);
+  expect(s.read.mock.calls.at(-1)?.[0]).toBe(17);
+  expect(Socket.instances.length).toBeGreaterThan(attempts);
+});

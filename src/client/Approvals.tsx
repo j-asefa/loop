@@ -9,7 +9,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { parse } from "./api";
+import { isRateLimited, parse } from "./api";
 import { Avatar, Badge, RichText, Sheet } from "./components";
 import type { Provider } from "../shared/types";
 import { Tools } from "./Tools";
@@ -113,6 +113,8 @@ export function Approvals({
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
+  const [rateLimited, setRateLimited] = useState(false);
   const [notice, setNotice] = useState("");
   const [showTools, setShowTools] = useState(false);
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
@@ -131,12 +133,16 @@ export function Approvals({
     setSelected(null);
     setItems([]);
     setError("");
+    setReadError("");
+    setRateLimited(false);
   }, [teams, runId, scope]);
   useEffect(() => {
     let current = true;
     void api<Approval[]>("/approvals?teams=" + encodeURIComponent(teams))
       .then((fresh) => {
-        if (current)
+        if (current) {
+          setReadError("");
+          setRateLimited(false);
           setItems(
             fresh.filter(
               (item) =>
@@ -145,9 +151,13 @@ export function Approvals({
                 (!runIds || runIds.includes(item.run_id)),
             ),
           );
+        }
       })
       .catch((e) => {
-        if (current) setError(e.message);
+        if (current) {
+          setRateLimited(isRateLimited(e));
+          setReadError(isRateLimited(e) ? "" : e.message);
+        }
       });
     return () => {
       current = false;
@@ -312,6 +322,12 @@ export function Approvals({
           {notice}
         </p>
       )}
+      {rateLimited && (
+        <p className="field-hint" role="status">
+          Approval updates are paused briefly. Retrying automatically…
+        </p>
+      )}
+      {readError && <p className="error" role="alert">{readError}</p>}
       {error && !selected && (
         <p className="error" role="alert">
           {error}

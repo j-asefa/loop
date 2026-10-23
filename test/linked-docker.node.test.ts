@@ -47,6 +47,11 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       res.end(JSON.stringify({ mode: "single-user" }));
       return;
     }
+    if (req.url === "/api/conversations/limited?resume=1") {
+      res.writeHead(429, { "content-type": "application/json", "retry-after": "12" });
+      res.end(JSON.stringify({ error: "Too many requests" }));
+      return;
+    }
     if (req.url === "/api/artifacts/a1/download") {
       res.writeHead(303, { location: "/api/artifacts/a1/file" });
       res.end();
@@ -254,6 +259,12 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       app.headers.get("content-security-policy"),
       "sandbox allow-scripts; frame-ancestors 'self'",
     );
+    for (const prefix of [base, host.origin + `/api/linked/${sourceId}/`]) {
+      const limited = await fetch(prefix + "conversations/limited?resume=1", { headers: { cookie } });
+      assert.equal(limited.status, 429);
+      assert.equal(limited.headers.get("retry-after"), "12");
+      assert.deepEqual(await limited.json(), { error: "Too many requests" });
+    }
     // Links made with the container id before stable ids still resolve.
     assert.equal(
       (

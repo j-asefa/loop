@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { apiInWorkspace } from "./api";
 import {
   BuildIdentity,
   browserNeedsReload,
@@ -19,14 +20,11 @@ export function BrowserBuildStatus() {
       pending = controller;
       const timeout = setTimeout(() => controller.abort(), 30_000);
       try {
-        const response = await fetch("/api/build", {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
+        const response = await apiInWorkspace<{ serving: unknown }>(
+          "/build", "", undefined, undefined, controller.signal,
+        );
         const serving = BuildIdentity.safeParse(
-          (await response.json()).serving,
+          response.serving,
         );
         if (!stopped && generation === request && serving.success) {
           const updated = browserNeedsReload(runningBuild, serving.data);

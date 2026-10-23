@@ -746,6 +746,23 @@ core.get("/conversations/:id", (req, res) => {
   const c = owned("conversations", req.params.id, res.locals.owner);
   const before = z.string().max(512).optional().parse(req.query.before);
   const anchor = z.string().max(150).optional().parse(req.query.message);
+  const resume = z.enum(["0", "1"]).optional().parse(req.query.resume);
+  const returned = conversationReturnState(res.locals.owner, req.params.id);
+  let page = conversationMessages(res.locals.owner, req.params.id, before, anchor);
+  let resumed = false;
+  if (resume === "1" && !before && !anchor && returned.position_message_id &&
+      !page.messages.some(message => message.id === returned.position_message_id)) {
+    // Only an initial open opts into the saved position. Subsequent refreshes
+    // still read the latest page; explicit anchors/cursors retain precedence.
+    try {
+      page = conversationMessages(res.locals.owner, req.params.id, undefined, returned.position_message_id);
+      resumed = true;
+    } catch (error) {
+      // Saved positions can outlive deleted messages. Explicit anchors still
+      // report 404, but a stale automatic resume keeps the latest page.
+      if (!(error instanceof Problem) || error.status !== 404) throw error;
+    }
+  }
   const active = activeRun(
     res.locals.owner,
     req.params.id,
@@ -755,8 +772,9 @@ core.get("/conversations/:id", (req, res) => {
     conversation: c,
     // The run a reply would steer now; null means a reply queues.
     steerable_run_id: active?.liveInput ? active.run.id : null,
-    ...conversationMessages(res.locals.owner, req.params.id, before, anchor),
-    ...conversationReturnState(res.locals.owner, req.params.id),
+    ...page,
+    ...returned,
+    resumed,
   });
 });
 core.get("/messages/:id", (req, res) =>

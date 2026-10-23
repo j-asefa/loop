@@ -44,7 +44,8 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { parse } from "./api";
+import { parse, retryAfter, isRateLimited, RATE_LIMITED } from "./api";
+import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
@@ -133,7 +134,23 @@ function MessageShell({
   );
 }
 
-export function Conversation({
+type Transcript = {
+  conversation: any;
+  messages: ConversationMessage[];
+  next: string | null;
+  position_message_id?: string | null;
+  saved?: string[];
+  steerable_run_id?: string | null;
+  resumed?: boolean;
+};
+
+export function Conversation(props: Parameters<typeof ConversationView>[0]) {
+  const source = useSourceId();
+  // Remount before rendering a different identity, not in a later effect.
+  return <ConversationView key={JSON.stringify([viewOwner(), source, props.id])} {...props} />;
+}
+
+function ConversationView({
   id,
   messageId,
   revision,
@@ -157,6 +174,7 @@ export function Conversation({
   onNotice,
   onShowLater,
   onWork,
+  sourceStatus,
 }: {
   id: string;
   messageId?: string | null;
@@ -188,6 +206,7 @@ export function Conversation({
    * steer it, queue after it, or send later.
    */
   onWork?: (work: ThreadWork | null) => void;
+  sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
   const api = useSourceApi();
   // The thread's pull request, for the chip on its final message. "No PR
@@ -206,17 +225,13 @@ export function Conversation({
   const canOpenPull = (useSourceId() || "") === (executionSourceId() || "");
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
-  const [data, setData] = useState<{
-      conversation: any;
-      messages: ConversationMessage[];
-      next: string | null;
-      position_message_id?: string | null;
-      saved?: string[];
-      steerable_run_id?: string | null;
-    } | null>(null),
+  const owner = viewOwner();
+  const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
+  const [data, setData] = useState<Transcript | null>(() => cachedView<Transcript>(cacheKey) ?? null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [loadError, setLoadError] = useState(""),
+    [rateLimited, setRateLimited] = useState(false),
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true),
     [transfer, setTransfer] = useState(false),
@@ -244,7 +259,7 @@ export function Conversation({
       const query = new URLSearchParams(location.search);
       return query.get("conversation") === id ? query.get("verification") : null;
     }),
-    [savedIds, setSavedIds] = useState<Set<string>>(new Set()),
+    [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(cachedView<Transcript>(cacheKey)?.saved)),
     [usageData, setUsage] = useState<{
       conversationId: string;
       sourceId: string;
@@ -321,6 +336,13 @@ export function Conversation({
     queued: boolean;
   } | null>(null);
   const seenRevision = useRef(revision);
+  const initialRequest = useRef(true);
+  const hydrated = useRef(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const retryAt = useRef(0);
+  useEffect(() => {
+    if (data) cacheView(cacheKey, { ...data, saved: [...savedIds] }, owner);
+  }, [data, savedIds, cacheKey, owner]);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const positionSent = useRef("");
   const dataRef = useRef(data);
@@ -372,7 +394,7 @@ export function Conversation({
   /** Remember where you stopped reading, to reopen this thread there. */
   function saveReadingPosition() {
     const current = dataRef.current;
-    if (!current?.messages.length || current.conversation.id !== id) return;
+    if (!hydrated.current || owner !== viewOwner() || !current?.messages.length || current.conversation.id !== id) return;
     // Inspecting a linked or searched-for message is not where you stopped
     // reading: the saved position stays until you go back or reach the end.
     if (originRef.current) return;
@@ -391,7 +413,8 @@ export function Conversation({
     });
   }
   async function load(initial = false) {
-    if (paging.current) return;
+    if (owner !== viewOwner() || paging.current || Date.now() < retryAt.current) return;
+    initial ||= initialRequest.current;
     const current = generation.current;
     if (refreshRequest.current?.generation === current) {
       refreshRequest.current.queued = true;
@@ -402,32 +425,39 @@ export function Conversation({
     const ticket = ++loadRequest.current;
     if (initial) setLoading(true);
     try {
-      let fresh = await api(
+      let fresh = await api<Transcript>(
         "/conversations/" +
           id +
-          (initial && anchor ? "?message=" + anchor : ""),
+          (initial ? anchor ? "?message=" + encodeURIComponent(anchor) : "?resume=1" : ""),
         undefined, undefined, readController.current?.signal,
       );
+      if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner())
+        return;
+      if (initial && !anchor && typeof fresh.resumed !== "boolean" &&
+          fresh.position_message_id && !fresh.messages.some(message => message.id === fresh.position_message_id)) {
+        // Older linked servers ignore resume=1. Only those responses lack the
+        // marker; keep their existing resume behavior until they are upgraded.
+        fresh = await api<Transcript>(
+          `/conversations/${id}?message=${encodeURIComponent(fresh.position_message_id)}`,
+          undefined, undefined, readController.current?.signal,
+        );
+        if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner()) return;
+      }
       if (initial && !anchor) {
-        // Reopen where you stopped reading. Fetch the page around that
-        // message if it is not loaded.
-        const target = fresh.position_message_id || null;
-        if (target) {
-          if (!fresh.messages.some((m: Message) => m.id === target))
-            fresh = await api(
-              `/conversations/${id}?message=${encodeURIComponent(target)}`,
-              undefined, undefined, readController.current?.signal,
-            );
-          if (fresh.messages.some((m: Message) => m.id === target)) {
-            followLatest.current = false;
-            setJumpKind("resume");
-            setResumed(true);
-            setJump(target);
-          }
+        // The initial route chooses the saved-position page in one request.
+        const target = fresh.position_message_id;
+        if (target && fresh.messages.some(message => message.id === target)) {
+          followLatest.current = false;
+          setJumpKind("resume");
+          setResumed(true);
+          setJump(target);
         }
       }
-      if (current !== generation.current || ticket !== loadRequest.current)
-        return;
+      initialRequest.current = false;
+      hydrated.current = true;
+      retryAt.current = 0;
+      clearTimeout(retryTimer.current);
+      setRateLimited(false);
       // Opened at a specific message (Saved, Search, a notification, the
       // Feed): remember the reading position to go back to.
       if (initial && messageId && anchor === messageId)
@@ -459,8 +489,26 @@ export function Conversation({
             .map((m: Message) => m.id),
         );
     } catch (e) {
-      if (current === generation.current && ticket === loadRequest.current)
-        setLoadError((e as Error).message);
+      if (current === generation.current && ticket === loadRequest.current && owner === viewOwner()) {
+        if (isRateLimited(e)) {
+          setLoadError("");
+          setRateLimited(true);
+          initialRequest.current ||= initial;
+          retryAt.current = Date.now() + retryAfter(e);
+          const retry = () => {
+            clearTimeout(retryTimer.current);
+            retryTimer.current = setTimeout(() => {
+              if (current !== generation.current || owner !== viewOwner()) return;
+              if (Date.now() < retryAt.current) retry();
+              else void load(initial);
+            }, Math.min(2_147_483_647, Math.max(0, retryAt.current - Date.now())));
+          };
+          retry();
+        } else {
+          setRateLimited(false);
+          setLoadError((e as Error).message);
+        }
+      }
     } finally {
       if (current === generation.current && ticket === loadRequest.current)
         setLoading(false);
@@ -483,14 +531,19 @@ export function Conversation({
     anchoring.current = false;
     followLatest.current = !anchor;
     setAwayFromLatest(false);
-    if (!jump) setData(null);
+    if (!jump) setData(cachedView<Transcript>(cacheKey) ?? null);
     setTransfer(false);
     setShowToolActivity(false);
     setError("");
     setNotice("");
+    retryAt.current = 0;
+    setRateLimited(false);
     // A jump inside a loaded thread only needs the anchor effect below.
-    if (!jump || !dataRef.current?.messages.some((m) => m.id === jump))
+    if (!jump || !dataRef.current?.messages.some((m) => m.id === jump)) {
+      initialRequest.current = true;
+      hydrated.current = false;
       void load(true);
+    }
     const update = () => void load();
     const timer = setInterval(update, 5000);
     const stopChanges = listenWorkspaceChanges("thread", update, sourceId, id);
@@ -498,6 +551,7 @@ export function Conversation({
       generation.current++;
       readController.current?.abort();
       clearInterval(timer);
+      clearTimeout(retryTimer.current);
       stopChanges();
     };
   }, [id, anchor, sourceId]);
@@ -788,6 +842,14 @@ export function Conversation({
       heading={heading}
       onClose={onClose}
     >
+      {sourceStatus && (
+        <div role={sourceStatus.rateLimited ? "status" : "alert"} className={"thread-details " + (sourceStatus.rateLimited ? "muted" : "error")}>
+          Workspace details: {sourceStatus.message}
+          <button className="text-button" onClick={sourceStatus.retry}>
+            Retry connection
+          </button>
+        </div>
+      )}
       <CodeReviewStatus key={`${sourceId}:${id}`} conversationId={id} revision={revision} />
       {titleOpen && agent && (
         <p className="thread-details">
@@ -1123,11 +1185,12 @@ export function Conversation({
             scrollSave.current = setTimeout(saveReadingPosition, following ? 0 : 800);
           }}
         >
-          {loading && (
+          {loading && !data && !rateLimited && (
             <p role="status" className="muted">
               Loading conversation…
             </p>
           )}
+          {rateLimited && <p role="status" className="muted">{RATE_LIMITED}</p>}
           {loadError && (
             <div role="alert" className="error">
               {loadError}
@@ -1139,9 +1202,9 @@ export function Conversation({
           {data?.next && (
             <button
               className="text-button load-earlier"
-              disabled={loadingEarlier}
+              disabled={loadingEarlier || loading || rateLimited || !hydrated.current}
               onClick={async () => {
-                if (paging.current) return;
+                if (paging.current || loading || rateLimited || !hydrated.current) return;
                 paging.current = true;
                 loadRequest.current++;
                 setLoadingEarlier(true);

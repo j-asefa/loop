@@ -2,7 +2,7 @@ import { listenWorkspaceChanges } from "./workspace-changes";
 import { useSourceId, useSourceApi, useSourcePath } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Expand, File } from "lucide-react";
-import { parse } from "./api";
+import { parse, retryAfter, isRateLimited } from "./api";
 import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
@@ -139,19 +139,27 @@ export function RunFiles({
     [error, setError] = useState("");
   useEffect(() => {
     let live = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     setFiles([]);
     setError("");
     const refresh = () => {
-      if (runId)
+      if (live && runId)
         void api<Published[]>("/runs/" + runId + "/files")
           .then((files) => {
             if (live) {
+              clearTimeout(retry);
               setFiles(files);
               setError("");
             }
           })
           .catch((e) => {
-            if (live) setError(e.message);
+            if (!live) return;
+            if (isRateLimited(e)) {
+              // The thread keeps its cached transcript and one quiet status.
+              // Static file lists also recover once the source allows reads.
+              clearTimeout(retry);
+              retry = setTimeout(refresh, Math.min(2_147_483_647, retryAfter(e)));
+            } else setError(e.message);
           });
     };
     refresh();
@@ -160,6 +168,7 @@ export function RunFiles({
     return () => {
       live = false;
       clearInterval(timer);
+      clearTimeout(retry);
       stopChanges();
     };
   }, [runId, active, api, sourceId]);

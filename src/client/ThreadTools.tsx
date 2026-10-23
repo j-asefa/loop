@@ -1,4 +1,4 @@
-import { useSourceApi, useSourceId } from "./SourceContext";
+import { useSourceApi, useSourceId, useSourceRead } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -931,6 +931,7 @@ export function ScheduledSends({
   failedOnly?: boolean;
 }) {
   const api = useSourceApi();
+  const read = useSourceRead();
   const [all, setItems] = useState<ScheduledSend[]>([]);
   // Older messages that could not be sent load a page at a time.
   const [failedNext, setFailedNext] = useState<string | null>(null);
@@ -948,14 +949,15 @@ export function ScheduledSends({
     if (failedBefore) q.set("failedBefore", failedBefore);
     return "/scheduled-sends" + (q.size ? "?" + q : "");
   };
-  const load = () =>
-    api<Page>(query())
+  const load = (signal?: AbortSignal) =>
+    (signal ? read<Page>(query(), signal) : api<Page>(query()))
       .then((result) => {
+        if (signal?.aborted) return;
         setItems(result.items);
         setFailedNext(result.failed_next);
         setLoaded(true);
       })
-      .catch((e) => setError((e as Error).message));
+      .catch((e) => { if (!signal?.aborted) setError((e as Error).message); });
   const loadOlder = async () => {
     if (!failedNext) return;
     try {
@@ -974,10 +976,15 @@ export function ScheduledSends({
     }
   };
   useEffect(() => {
-    void load();
-    window.addEventListener("loop-scheduled-change", load);
-    return () => window.removeEventListener("loop-scheduled-change", load);
-  }, [conversationId, revision]);
+    const controller = new AbortController();
+    const refresh = () => void load(controller.signal);
+    refresh();
+    window.addEventListener("loop-scheduled-change", refresh);
+    return () => {
+      controller.abort();
+      window.removeEventListener("loop-scheduled-change", refresh);
+    };
+  }, [conversationId, revision, read]);
   // Scroll to the item a confirmation linked to, once it is listed.
   useEffect(() => {
     if (!focusId || !items.some((item) => item.id === focusId)) return;

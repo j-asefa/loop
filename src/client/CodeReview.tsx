@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { useSourceApi } from "./SourceContext";
+import { useSourceApi, useSourceRead } from "./SourceContext";
 import { Sheet } from "./components";
 import type { Folder, Team } from "../shared/types";
 
@@ -172,12 +172,14 @@ export function CodeReviewStatus({
   revision: number;
 }) {
   const sourceApi = useSourceApi();
+  const read = useSourceRead();
   const [review, setReview] = useState<Status | null>(null),
     [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     let active = true;
-    sourceApi<Status | null>(`/reviews/conversation/${conversationId}`)
+    const controller = new AbortController();
+    read<Status | null>(`/reviews/conversation/${conversationId}`, controller.signal)
       .then((r) => {
         if (active)
           setReview((previous) =>
@@ -193,8 +195,9 @@ export function CodeReviewStatus({
       .catch(() => {});
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [conversationId, revision, sourceApi]);
+  }, [conversationId, revision, read]);
   if (!review) return null;
   const complete = review.reviewers.filter(
     (r) => r.state === "completed",

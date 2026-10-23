@@ -8,7 +8,7 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
-  let browser;
+  let browser, page;
   try {
     const conversation = fixture.conversations.find(
       (c) => c.state === "completed",
@@ -132,11 +132,12 @@ for (const engine of selectedEngines()) {
       hasTouch: true,
       serviceWorkers: "block",
     });
-    const page = await context.newPage();
-    const reads = [],
+    page = await context.newPage();
+    const reads = [], transcriptReads = [],
       errors = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
+      if (url.pathname === `/api/conversations/${conversation.id}` && request.method() === "GET") transcriptReads.push(url);
       if (url.pathname === `/api/conversations/${conversation.id}/activities`)
         reads.push(url);
     });
@@ -149,6 +150,12 @@ for (const engine of selectedEngines()) {
     await expect(
       transcript.getByText("History answer 239", { exact: true }),
     ).toBeVisible();
+    // The socket reset can also queue an ordinary latest-page refresh. Keep
+    // that invalidation: the initial render itself needs only one resume GET.
+    assert.equal(transcriptReads.filter(url => url.searchParams.get("resume") === "1").length, 1);
+    assert(transcriptReads.every(url => url.search === "?resume=1" || url.search === ""),
+      "Cold opening must not perform a second anchor/cursor fetch");
+    assert.equal(transcriptReads[0].searchParams.get("resume"), "1");
     // Holding conversation text leaves selection and the native copy menu
     // to the browser. Message actions remain available through their button.
     for (const text of ["History prompt 239", "History answer 239"]) {
@@ -333,11 +340,274 @@ for (const engine of selectedEngines()) {
     await page.reload();
     await expect(transcript.getByText("History answer 239", { exact: true })).toBeVisible();
     await expect(page.locator(".conversation-sheet button.changes-chip")).toHaveCount(0);
+    // Reopening uses the production notification navigation handler, preserving
+    // this document's owner-scoped view cache (a reload would erase it).
+    const closeThread = async () => {
+      await page.locator("dialog.conversation-sheet[open] > .sheet-inner > .sheet-head")
+        .getByRole("button", { name: "Close", exact: true }).click();
+      await expect(page.locator("dialog.conversation-sheet[open]")).toHaveCount(0);
+      await page.waitForFunction(() => history.state?.loopSheet !== true);
+    };
+    const openThread = async (id, source = "") => {
+      await page.evaluate(({ id, source }) => {
+        const url = new URL(location.href);
+        url.search = new URLSearchParams({ conversation: id, ...(source ? { source } : {}) }).toString();
+        navigator.serviceWorker.dispatchEvent(new MessageEvent("message", {
+          data: { type: "loop-open", url: url.href },
+        }));
+      }, { id, source });
+    };
+    await closeThread();
+    const path = `/api/conversations/${conversation.id}`;
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let pending = 0, replied = 0;
+    const hold = async route => {
+      pending++;
+      await held;
+      replied++;
+      await route.continue();
+    };
+    await page.route(url => url.pathname === path, hold);
+    await openThread(conversation.id);
+    await expect.poll(() => pending).toBe(1);
+    await expect(transcript.getByText("History answer 239", { exact: true })).toBeVisible();
+    assert.equal(replied, 0, "Cached transcript must paint before its network response");
+    await expect(transcript.getByRole("button", { name: "Load earlier messages", exact: true })).toBeDisabled();
+    await expect(transcript.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
+    release();
+    await expect(transcript).toHaveAttribute("aria-busy", "false");
+    await expect(transcript.getByRole("button", { name: "Load earlier messages", exact: true })).toBeEnabled();
+    await page.unrouteAll({ behavior: "wait" });
+    await closeThread();
+
+    let limitedAt = 0, recoveredAt = 0, readsAfterLimit = 0;
+    const limitedRoute = async route => {
+      if (!limitedAt) {
+        limitedAt = Date.now();
+        await route.fulfill({ status: 429, contentType: "application/json", headers: { "Retry-After": "3" }, body: '{"error":"Too many requests"}' });
+      } else {
+        readsAfterLimit++;
+        recoveredAt = Date.now();
+        await route.continue();
+      }
+    };
+    await page.route(url => url.pathname === path, limitedRoute);
+    await openThread(conversation.id);
+    await expect(transcript.getByText("Updates are paused briefly. Retrying automatically…", { exact: true })).toBeVisible();
+    await expect(transcript.getByText("History answer 239", { exact: true })).toBeVisible();
+    await expect(transcript.locator('[role="alert"]')).toHaveCount(0);
+    await expect(transcript.getByRole("button", { name: "Load earlier messages", exact: true })).toBeDisabled();
+    // A push invalidation and the retained fallback must respect the deadline.
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-workspace-change")));
+    await page.waitForTimeout(1000);
+    assert.equal(readsAfterLimit, 0);
+    await expect.poll(() => readsAfterLimit).toBeGreaterThan(0);
+    assert(recoveredAt - limitedAt >= 2950, "Retry happened before Retry-After");
+    await expect(transcript.getByText("Updates are paused briefly. Retrying automatically…", { exact: true })).toHaveCount(0);
+    await page.unrouteAll({ behavior: "wait" });
+    await closeThread();
+
+    // A saved older page is chosen by the initial GET, not a second client GET.
+    const saved = db.prepare("SELECT id FROM messages WHERE conversation_id=? AND content='History answer 20'").get(conversation.id).id;
+    db.prepare(`INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES(?,?,?,1)
+      ON CONFLICT(owner_id,conversation_id) DO UPDATE SET position_message_id=excluded.position_message_id`).run(owner, conversation.id, saved);
+    const resumes = [];
+    const recordResume = request => {
+      const url = new URL(request.url());
+      if (url.pathname === path && request.method() === "GET") resumes.push(url);
+    };
+    page.on("request", recordResume);
+    await openThread(conversation.id);
+    await expect(page.locator(".conversation-sheet").getByText("Resumed where you left off", { exact: true })).toBeVisible();
+    await expect(page.locator(`[id="message-${saved}"]`)).toBeInViewport();
+    assert.equal(resumes.filter(url => url.searchParams.get("resume") === "1").length, 1);
+    assert.equal(resumes.some(url => url.searchParams.has("message")), false, "Resume must not issue a second anchor request");
+    page.off("request", recordResume);
+    await closeThread();
+
+    // Same opaque conversation ID on another source must not reuse this page.
+    // Route the fixture source over HTTP; the paired gateway's actual header
+    // forwarding is separately covered by linked-docker.node.test.ts.
+    const source = "docker:history-fixture";
+    const prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+    await fixture.api("/scheduled-sends", {
+      agentId: agent, conversationId: conversation.id, input: "Scheduled recovery sentinel",
+      sendAt: Date.now() + 3_600_000, idempotencyKey: randomUUID(),
+    });
+    let legacySource = true;
+    const legacyReads = [];
+    let linkedHold = false, linkedLimited = false, linkedMetadataFailure = false, linkedReplies = 0;
+    let releaseLinked;
+    let linkedGate = Promise.resolve();
+    await page.route(url => url.pathname.startsWith(prefix), async route => {
+      const url = new URL(route.request().url());
+      const upstream = new URL("/api/" + url.pathname.slice(prefix.length) + url.search, fixture.base);
+      if (linkedHold) await linkedGate;
+      if (linkedLimited) {
+        await route.fulfill({ status: 429, headers: { "Retry-After": "3" }, contentType: "application/json", body: '{"error":"Too many requests"}' });
+        return;
+      }
+      if (linkedMetadataFailure && upstream.pathname === "/api/bootstrap") {
+        await route.fulfill({ status: 503, json: { error: "Metadata fixture unavailable" } });
+        return;
+      }
+      if (upstream.pathname === `/api/reviews/conversation/${conversation.id}`) {
+        await route.fulfill({ json: {
+          id: "review-fixture", conversationId: conversation.id, scope: "branch", state: "completed",
+          fingerprint: "fixture-review", changed: [], omitted: [], current: null, freshnessError: null,
+          reviewers: ["correctness", "regressions", "security"].map(agent_id => ({ agent_id, state: "completed", error: null })),
+        } });
+        return;
+      }
+      if (legacySource && upstream.pathname === path) {
+        legacyReads.push(new URL(upstream));
+        upstream.searchParams.delete("resume"); // captured-base server behavior
+      }
+      const response = await route.fetch({ url: upstream.href });
+      if (upstream.pathname === path) {
+        const body = await response.json();
+        if (legacySource) delete body.resumed;
+        body.messages.forEach(message => { message.content = "Linked " + message.content; });
+        linkedReplies++;
+        await route.fulfill({ response, json: body });
+      } else await route.fulfill({ response });
+    });
+    db.prepare("UPDATE conversation_positions SET position_message_id=? WHERE owner_id=? AND conversation_id=?").run(saved, owner, conversation.id);
+    linkedHold = true;
+    linkedGate = new Promise(resolve => { releaseLinked = resolve; });
+    await openThread(conversation.id, source);
+    await expect(page.getByRole("status").filter({ hasText: "Loading conversation" })).toBeVisible();
+    await expect(transcript.getByText("History answer 20", { exact: true })).toHaveCount(0);
+    releaseLinked();
+    linkedHold = false;
+    await expect(transcript.getByText("Linked History answer 20", { exact: true })).toBeVisible();
+    assert.equal(legacyReads.filter(url => url.searchParams.has("message")).length, 1,
+      "Only an older source without the resume marker needs the compatibility anchor read");
+    await expect(transcript.getByText("Scheduled recovery sentinel", { exact: true })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Snapshot review status" })).toBeVisible();
+    legacySource = false;
+    await closeThread();
+    linkedHold = true;
+    linkedLimited = true;
+    linkedGate = new Promise(resolve => { releaseLinked = resolve; });
+    const priorReplies = linkedReplies;
+    await openThread(conversation.id, source);
+    await expect(transcript.getByText("Linked History answer 20", { exact: true })).toBeVisible();
+    assert.equal(linkedReplies, priorReplies, "Linked cache must paint before metadata or transcript responses");
+    releaseLinked();
+    linkedHold = false;
+    await expect(transcript.getByText("Updates are paused briefly. Retrying automatically…", { exact: true })).toBeVisible();
+    await expect(transcript.getByText("Linked History answer 20", { exact: true })).toBeVisible();
+    await expect(transcript.locator('[role="alert"]')).toHaveCount(0);
+    linkedLimited = false;
+    await expect.poll(() => linkedReplies, { timeout: 10_000 }).toBeGreaterThan(priorReplies);
+    await expect(transcript.getByText("Scheduled recovery sentinel", { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("complementary", { name: "Snapshot review status" })).toBeVisible({ timeout: 5000 });
+    await expect(transcript.getByText("Updates are paused briefly. Retrying automatically…", { exact: true })).toHaveCount(0);
+    await closeThread();
+    // Cached metadata predates this agent. A metadata-only failure must retain
+    // the readable transcript and a visible retry that repairs the composer.
+    const template = fixture.agents[0];
+    const recoveryAgent = await fixture.api("/agents", {
+      name: "metadata-recovery", connectionId: template.connection_id, model: template.model,
+    });
+    const recoveryConversation = randomUUID(), recoveryRun = randomUUID(), recoveryTime = Date.now();
+    db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)")
+      .run(recoveryConversation, owner, recoveryAgent.id, "Metadata recovery conversation", recoveryTime);
+    addRun.run(recoveryRun, owner, recoveryAgent.id, recoveryConversation, recoveryRun, recoveryTime, recoveryTime);
+    addMessage.run(randomUUID(), owner, recoveryConversation, recoveryRun, "assistant", "Metadata recovery transcript", recoveryTime);
+    linkedMetadataFailure = true;
+    await openThread(recoveryConversation, source);
+    await expect(transcript.getByText("Metadata recovery transcript", { exact: true })).toBeVisible();
+    await expect(composer).toHaveCount(0); // agent missing from cached metadata
+    await expect(page.locator("dialog.conversation-sheet[open]").getByRole("alert").filter({ hasText: "Metadata fixture unavailable" })).toBeVisible();
+    linkedMetadataFailure = false;
+    await page.locator("dialog.conversation-sheet[open]").getByRole("button", { name: "Retry connection", exact: true }).click();
+    await composer.locator("textarea").fill("Draft survives metadata recovery");
+    await expect(send).toBeEnabled();
+    await closeThread();
+    linkedMetadataFailure = true;
+    await openThread(recoveryConversation, source);
+    await expect(transcript.getByText("Metadata recovery transcript", { exact: true })).toBeVisible();
+    await expect(page.locator("dialog.conversation-sheet[open]").getByRole("alert").filter({ hasText: "Metadata fixture unavailable" })).toBeVisible();
+    linkedMetadataFailure = false;
+    await page.locator("dialog.conversation-sheet[open]").getByRole("button", { name: "Retry connection", exact: true }).click();
+    await expect(send).toBeEnabled();
+    await expect(composer.locator("textarea")).toHaveValue("Draft survives metadata recovery");
+    await expect(transcript.getByText("Metadata recovery transcript", { exact: true })).toBeVisible();
+    await expect(page.locator("dialog.conversation-sheet[open]").getByRole("alert")).toHaveCount(0);
+    await composer.locator("textarea").fill("");
+    await closeThread();
+    await page.unrouteAll({ behavior: "wait" });
+    // A delayed response from the previous conversation cannot replace a new one.
+    let releaseLate, lateStarted = false;
+    const lateGate = new Promise(resolve => { releaseLate = resolve; });
+    await page.route(url => url.pathname === path, async route => {
+      lateStarted = true;
+      const response = await route.fetch();
+      await lateGate;
+      await route.fulfill({ response }).catch(() => {}); // abandoned reads may already be aborted
+    });
+    await openThread(conversation.id);
+    await expect.poll(() => lateStarted).toBe(true);
+    const other = fixture.conversations.find(item => item.id !== conversation.id && item.state === "queued");
+    await openThread(other.id);
+    await expect(page.locator("dialog.conversation-sheet[open]")).toHaveAttribute("aria-label", other.title);
+    releaseLate();
+    await page.unrouteAll({ behavior: "wait" });
+    await expect(page.locator("dialog.conversation-sheet[open]")).toHaveAttribute("aria-label", other.title);
+    await expect(transcript.getByText("History answer 239", { exact: true })).toHaveCount(0);
+    await closeThread();
+    // A source cooldown must not leave a false approval failure after reads recover.
+    const waiting = fixture.conversations.find(item => item.state === "awaiting_approval");
+    let approvalReads = 0, failApprovalRead = false;
+    await page.route(url => url.pathname === "/api/approvals", async route => {
+      approvalReads++;
+      if (failApprovalRead) {
+        failApprovalRead = false;
+        await route.fulfill({ status: 503, json: { error: "Approval read temporarily unavailable" } });
+      } else await route.continue();
+    });
+    await openThread(waiting.id);
+    await expect(transcript.locator(".approval-card").first()).toBeVisible();
+    const beforeApprovalReads = approvalReads;
+    let approvalLimitedAt = 0;
+    await page.route(url => url.pathname === `/api/conversations/${waiting.id}`, async route => {
+      if (!approvalLimitedAt) {
+        approvalLimitedAt = Date.now();
+        await route.fulfill({ status: 429, headers: { "Retry-After": "8" }, json: { error: "Too many requests" } });
+      } else await route.continue();
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-workspace-change")));
+    await expect.poll(() => approvalLimitedAt).toBeGreaterThan(0);
+    // The five-second approval poll falls within the eight-second cooldown.
+    await expect(transcript.getByRole("status").filter({ hasText: "Approval updates are paused" })).toBeVisible({ timeout: 7000 });
+    await expect(transcript.locator('[role="alert"]')).toHaveCount(0);
+    await expect.poll(() => approvalReads, { timeout: 15_000 }).toBeGreaterThan(beforeApprovalReads);
+    assert(Date.now() - approvalLimitedAt >= 7950);
+    await expect(transcript.getByRole("status").filter({ hasText: "Approval updates are paused" })).toHaveCount(0);
+    await expect(transcript.locator('[role="alert"]')).toHaveCount(0);
+    await expect(transcript.locator(".approval-card").first()).toBeVisible();
+    // A later successful read clears its own error, but not a refused action.
+    await page.route(url => url.pathname.startsWith("/api/approvals/"), route => route.fulfill({
+      status: 409, json: { error: "Approval action refused for this fixture" },
+    }));
+    await transcript.locator(".approval-card").first().getByRole("button", { name: "Approve", exact: true }).click();
+    await expect(transcript.getByRole("alert").filter({ hasText: "Approval action refused" })).toBeVisible();
+    failApprovalRead = true;
+    await expect(transcript.getByRole("alert").filter({ hasText: "Approval read temporarily unavailable" })).toBeVisible({ timeout: 7000 });
+    await expect(transcript.getByRole("alert").filter({ hasText: "Approval read temporarily unavailable" })).toHaveCount(0, { timeout: 7000 });
+    await expect(transcript.getByRole("alert").filter({ hasText: "Approval action refused" })).toBeVisible();
+    await closeThread();
+    await page.unrouteAll({ behavior: "wait" });
+    console.log(`${engine.name()}: local/linked cached first paint, source isolation, resume request, Retry-After and approval recovery passed`);
     assert.deepEqual(errors, []);
     console.log(
       `${engine.name()}: bounded transcript opening, requested older activity and saved Git reviews passed`,
     );
   } finally {
+    await page?.unrouteAll({ behavior: "ignoreErrors" });
     await browser?.close();
     await fixture.close();
   }

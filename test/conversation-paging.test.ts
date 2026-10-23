@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import express from "express";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-conversation-paging-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -356,5 +357,54 @@ it("persists idempotent public messages independently of traces and scopes their
     ).toBe(first.id);
   } finally {
     db.exec("ALTER TABLE unavailable_traces RENAME TO run_traces");
+  }
+});
+
+
+it("serves a saved-position page in one resume request while ordinary refreshes, anchors and cursors retain their meaning", async () => {
+  const { core } = await import("../src/server/core-routes");
+  const { savePosition } = await import("../src/server/mobile-return");
+  const { Problem } = await import("../src/server/domain");
+  const conversation = thread();
+  const ids = Array.from({ length: 125 }, () => message(conversation, null));
+  savePosition("alice", conversation, { positionMessageId: ids[30] });
+  let requests = 0;
+  const app = express();
+  app.use((req, res, next) => { requests++; res.locals.owner = req.get("x-owner") || "alice"; next(); });
+  app.use(core);
+  app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status(error instanceof Problem ? error.status : 400).json({ error: error.message });
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>(resolve => server.once("listening", resolve));
+  const get = async (query = "", owner = "alice") => {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/conversations/${conversation}${query}`, { headers: { "x-owner": owner } });
+    return { status: response.status, body: await response.json() as any };
+  };
+  try {
+    const resumed = await get("?resume=1");
+    expect(requests).toBe(1);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.resumed).toBe(true);
+    expect(resumed.body.messages.at(-1).id).toBe(ids[30]);
+    const latest = await get();
+    expect(latest.body.resumed).toBe(false);
+    expect(latest.body.messages.map((m: any) => m.id)).toEqual(ids.slice(-50));
+    const anchored = await get("?resume=1&message=" + ids[60]);
+    expect(anchored.body.resumed).toBe(false);
+    expect(anchored.body.messages.at(-1).id).toBe(ids[60]);
+    const before = await get("?resume=1&before=" + latest.body.next);
+    expect(before.body.resumed).toBe(false);
+    expect(before.body.messages.map((m: any) => m.id)).toEqual(ids.slice(25, 75));
+    expect((await get("?resume=1", "bob")).status).toBe(404);
+    savePosition("alice", conversation, { positionMessageId: ids[124] });
+    expect((await get("?resume=1")).body.resumed).toBe(false);
+    savePosition("alice", conversation, { positionMessageId: ids[30] });
+    db.prepare("DELETE FROM messages WHERE id=?").run(ids[30]);
+    expect((await get("?resume=1")).body.messages.at(-1).id).toBe(ids[124]);
+    expect((await get("?message=" + ids[30])).status).toBe(404);
+    expect((await get("?before=invalid")).status).toBe(400);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });

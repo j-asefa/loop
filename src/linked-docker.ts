@@ -226,6 +226,7 @@ export async function proxyLinkedDocker(
         "last-modified",
         "accept-ranges",
         "content-range",
+        "retry-after",
         // The Docker server's own policy (sandbox, frame-ancestors) must
         // replace the Host page policy on proxied app and preview content.
         "content-security-policy",
