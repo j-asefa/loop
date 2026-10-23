@@ -1,3 +1,4 @@
+import { watchRun } from "./run-signal.js";
 import { db, emit, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
@@ -91,7 +92,6 @@ function message(input: Input): ChatMessage {
 export class SteeringInbox {
   private busy?: Promise<void>;
   private listener?: Delivery;
-  private timer?: ReturnType<typeof setInterval>;
   constructor(
     private run: Run,
     private delivered: (message: ChatMessage) => void = () => {},
@@ -115,6 +115,7 @@ export class SteeringInbox {
     if (this.listener || this.busy)
       throw new Error("Steering listener already active");
     this.listener = deliver;
+    const watched = watchRun(this.run);
     const pump = () => {
       if (this.busy || this.listener !== deliver) return;
       const input = this.pending()[0];
@@ -125,6 +126,7 @@ export class SteeringInbox {
         )
         .run(input.id).changes;
       if (!claimed) return;
+      let retryLater = false;
       this.busy = (async () => {
         try {
           const value = message(input);
@@ -137,6 +139,7 @@ export class SteeringInbox {
           // Certainly not handed over: keep it pending for a later attempt.
           // If the run ends first, it is marked as never delivered.
           if (error instanceof NotDelivered) {
+            retryLater = true;
             db.prepare(
               "UPDATE run_steering SET state='pending' WHERE id=? AND state='sending'",
             ).run(input.id);
@@ -150,14 +153,17 @@ export class SteeringInbox {
         }
       })().finally(() => {
         this.busy = undefined;
+        if (!retryLater) pump();
       });
     };
-    this.timer = setInterval(pump, 100);
+    watched.on("steering.pending", pump);
+    watched.on("running", pump);
+    watched.on("fallback", pump);
     pump();
     return async () => {
       if (this.listener === deliver) {
         this.listener = undefined;
-        clearInterval(this.timer);
+        watched.release();
       }
       await this.busy;
     };

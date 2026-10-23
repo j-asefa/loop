@@ -1,4 +1,5 @@
-import { afterAll, expect, it } from "vitest";
+import express from "express";
+import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import { z } from "zod";
 const dir = mkdtempSync(join(tmpdir(), "loop-mcp-errors-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-const { db, id, now } = await import("../src/server/db");
+const { db, id, now, changes } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -383,7 +384,14 @@ it("preserves the failed tool, transport code and redacted cause without replayi
   }
 });
 
-it("cancels an in-flight tool request promptly without changing the cancelled run to failed", async () => {
+it.each([true, false])("cancels in-flight MCP IO through the route without replay (bus=%s)", async (enabled) => {
+  const { core } = await import("../src/server/core-routes");
+  const app = express();
+  app.use(express.json(), (_req, res, next) => { res.locals.owner = "alice"; next(); });
+  app.use(core);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
   setMcpApprovalMode("alice", "allow");
   let started!: () => void;
   const waiting = new Promise<void>((resolve) => {
@@ -419,9 +427,15 @@ it("cancels an in-flight tool request promptly without changing the cancelled ru
   try {
     const work = tick(execute);
     await waiting;
-    db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(run.id);
+    const at = Date.now();
+    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
+    expect(response.status).toBe(200);
     await work;
     expect(cancelled).toBe(true);
+    expect(Date.now() - at).toBeLessThan(enabled ? 700 : 2300);
+    const failure = db.prepare("SELECT result FROM tool_invocations WHERE run_id=?").get(run.id) as { result: string };
+    expect(JSON.parse(failure.result)).toMatchObject({ failure: { phase: "calling", outcome: "unknown" } });
+    expect(failure.result).toContain("cancelled");
     expect(
       db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
     ).toEqual({ state: "cancelled", error: null });
@@ -438,6 +452,8 @@ it("cancels an in-flight tool request promptly without changing the cancelled ru
         .get(run.id),
     ).toBeUndefined();
   } finally {
+    bus?.mockRestore();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     restore();
   }
 });

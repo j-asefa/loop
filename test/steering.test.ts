@@ -1,4 +1,5 @@
-import { afterAll, expect, it } from "vitest";
+import { until } from "./helpers";
+import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,7 +10,7 @@ import type { ChatMessage } from "../src/server/providers";
 const dir = mkdtempSync(join(tmpdir(), "loop-steering-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-const { db, id, now } = await import("../src/server/db");
+const { db, id, now, changes } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
@@ -563,7 +564,7 @@ it("keeps input the harness certainly didn't take pending, then reports it unsen
     attempts++;
     throw new NotDelivered("No active turn");
   });
-  await expect.poll(() => attempts).toBeGreaterThan(1);
+  await expect.poll(() => attempts, { timeout: 2500 }).toBeGreaterThan(1);
   await stop();
   // Not "could not be confirmed": nothing was handed over.
   expect(
@@ -582,4 +583,60 @@ it("keeps input the harness certainly didn't take pending, then reports it unsen
       "ended before this message could be delivered",
     ),
   });
+});
+
+
+it.each([true, false])("cancels managed provider IO through the production route (bus=%s)", async (enabled) => {
+  const { run } = start();
+  const subscriptions = changes.subscriberCount;
+  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+  let signal: AbortSignal | undefined;
+  const restore = withTestAdapter("openai", {
+    async models() { return []; },
+    async *stream(_secret, input) {
+      signal = input.signal;
+      await new Promise<void>((resolve) => {
+        input.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      input.signal.throwIfAborted();
+    },
+  });
+  const work = executeAgent(run);
+  try {
+    await until(() => !!signal);
+    if (enabled) expect(changes.subscriberCount).toBe(subscriptions + 1);
+    const started = Date.now();
+    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(await executeWithDeadline(work)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
+    expect(signal?.reason.message).toContain("cancelled");
+    expect(changes.subscriberCount).toBe(subscriptions);
+  } finally { restore(); bus?.mockRestore(); }
+});
+
+it.each([true, false])("aborts managed IO with a readable connection cause (bus=%s)", async (enabled) => {
+  const { run } = start();
+  const connection = JSON.parse(run.payload).connectionId;
+  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+  let signal: AbortSignal | undefined;
+  const restore = withTestAdapter("openai", {
+    async models() { return []; },
+    async *stream(_secret, input) {
+      signal = input.signal;
+      await new Promise<void>((resolve) => input.signal.addEventListener("abort", () => resolve(), { once: true }));
+      input.signal.throwIfAborted();
+    },
+  });
+  const work = executeAgent(run).catch((error: Error) => error);
+  try {
+    await until(() => !!signal);
+    const started = Date.now();
+    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/connections/${connection}`, { method: "DELETE" });
+    expect(response.status).toBe(200);
+    expect((await work as Error).message).toContain("provider connection was disconnected");
+    expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
+    const event = db.prepare("SELECT owner_id,run_id,subject_kind,subject_id,payload FROM events WHERE type='connection.status' AND subject_id=? ORDER BY id DESC LIMIT 1").get(connection);
+    expect(event).toEqual({ owner_id: "alice", run_id: null, subject_kind: "connection", subject_id: connection, payload: '{"status":"disconnected"}' });
+  } finally { transition(run, "cancelled"); restore(); bus?.mockRestore(); }
 });

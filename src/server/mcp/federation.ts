@@ -6,7 +6,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { db, id, now } from "../db.js";
+import { db, emit, id, now } from "../db.js";
 import { Problem, owned } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { authorizeConnectionTool } from "./broker.js";
@@ -82,9 +82,12 @@ export function revokeFederationPeer(
         `UPDATE mcp_connections SET status='disconnected',secret=?
          WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=?`,
       ).run(seal(JSON.stringify({ type: "none" }), owner), owner, peerId);
-      db.prepare(
-        "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE owner_id=? AND peer_id=? AND state IN ('pending','claimed')",
-      ).run(now(), owner, peerId);
+      const calls = db.prepare(
+        "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE owner_id=? AND peer_id=? AND state IN ('pending','claimed') RETURNING id,run_key",
+      ).all(now(), owner, peerId) as { id: string; run_key: string }[];
+      for (const call of calls)
+        if (db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(call.run_key, owner))
+          emit(owner, call.run_key, "reverse.settled", { callId: call.id });
       return { peerId, revoked: true };
     })
     .immediate();

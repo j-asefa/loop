@@ -159,9 +159,11 @@ export function startWorker() {
     ),
   );
   let notifying = false;
-  maintenanceTimers.push(
-    setInterval(() => {
-      if (notifying || stopping) return;
+  let maintenanceWake: ReturnType<typeof setImmediate> | undefined;
+  let maintenanceDirty = false;
+  const maintain = () => {
+      if (stopping) return;
+      if (notifying) { maintenanceDirty = true; return; }
       notifying = true;
       // Surface Later items and submit due scheduled messages before
       // delivery, so their pushes go out in the same pass.
@@ -180,9 +182,14 @@ export function startWorker() {
         .catch(() => {})
         .finally(() => {
           notifying = false;
+          if (maintenanceDirty) { maintenanceDirty = false; wakeMaintenance(); }
         });
-    }, 3000),
-  );
+  };
+  const wakeMaintenance = () => {
+    if (stopping || maintenanceWake) return;
+    maintenanceWake = setImmediate(() => { maintenanceWake = undefined; maintain(); });
+  };
+  maintenanceTimers.push(setInterval(maintain, 3000));
   // Watched pull requests; each one is read about once a minute.
   maintenanceTimers.push(
     setInterval(() => {
@@ -244,6 +251,8 @@ export function startWorker() {
     });
   };
   const unsubscribe = changes.subscribe(null, (events) => {
+    if (events.some(({ type }) => type.startsWith("agent_mail.") || type === "artifact.published"))
+      wakeMaintenance();
     if (
       events.some(
         ({ type }) =>
@@ -266,6 +275,7 @@ export function startWorker() {
     stopObservation();
     cleanupController.abort();
     maintenanceTimers.forEach(clearInterval);
+    if (maintenanceWake) clearImmediate(maintenanceWake);
     clearInterval(health);
     clearInterval(index);
     clearInterval(scheduling);

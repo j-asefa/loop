@@ -1,3 +1,4 @@
+import { writeConnectionStatus } from "./connection-status.js";
 import { localArtifact } from "./published-files.js";
 import { sendHtmlPreview } from "./file-preview.js";
 import {
@@ -96,7 +97,7 @@ core.post("/connections", async (req, res) => {
     );
   }
   const record = id();
-  db.prepare(
+  writeConnectionStatus(record, () => db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
   ).run(
     record,
@@ -112,7 +113,7 @@ core.post("/connections", async (req, res) => {
         "Models available to this key; consumer chat history is not included",
     }),
     now(),
-  );
+  ));
   res.json({ id: record, models });
 });
 core.post("/connections/:id/refresh", async (req, res) => {
@@ -132,14 +133,14 @@ core.post("/connections/:id/refresh", async (req, res) => {
     const models = await adapter(c.provider).models(
       unseal(c.secret, res.locals.owner),
     );
-    db.prepare(
+    writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET models=?,status='connected' WHERE id=?",
-    ).run(JSON.stringify(models), c.id);
+    ).run(JSON.stringify(models), c.id));
     res.json({ models });
   } catch {
-    db.prepare(
+    writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET status='needs_reconnect' WHERE id=?",
-    ).run(c.id);
+    ).run(c.id));
     throw new Problem(
       422,
       "Connection could not be refreshed. Reconnect with a valid API key.",
@@ -203,9 +204,9 @@ core.post("/connections/:id/reconnect", async (req, res) => {
     );
   try {
     const models = await adapter(c.provider).models(secret);
-    db.prepare(
+    writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET secret=?,models=?,status='connected' WHERE id=?",
-    ).run(seal(secret, res.locals.owner), JSON.stringify(models), c.id);
+    ).run(seal(secret, res.locals.owner), JSON.stringify(models), c.id));
     res.json({ ok: true });
   } catch {
     throw new Problem(422, "Could not validate this API key");
@@ -213,9 +214,9 @@ core.post("/connections/:id/reconnect", async (req, res) => {
 });
 core.delete("/connections/:id", async (req, res) => {
   const c = owned<Connection>("connections", req.params.id, res.locals.owner);
-  db.prepare(
+  writeConnectionStatus(c.id, () => db.prepare(
     "UPDATE connections SET secret='',status='disconnected',metadata=json_remove(metadata,'$.retiredDirectRuntime','$.nativeRecoveryRequired') WHERE id=?",
-  ).run(req.params.id);
+  ).run(req.params.id));
   if (isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });

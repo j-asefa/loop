@@ -1,3 +1,4 @@
+import { watchRun } from "./run-signal.js";
 import {
   createServer,
   type IncomingMessage,
@@ -18,7 +19,8 @@ import {
 import { nativeSessions } from "./native-sessions.js";
 import { nativeBindings, invokeNative } from "./native-tools.js";
 import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
-import { db } from "./db.js";
+import { db, now } from "./db.js";
+import { Problem } from "../shared/problem.js";
 import type { Run } from "./queue.js";
 
 type Ticket = {
@@ -128,23 +130,37 @@ export class NativeToolBridge {
       );
     const result = (async () => {
       let waiting = false;
+      let pending: string | undefined;
+      const watched = watchRun(run);
+      const wait = async (revision: number) => {
+        // Expiry changes no row. It is a deadline, not another polling loop.
+        // A delegation or another call blocked by run state must not inherit
+        // a sibling tool request's approval deadline.
+        const approval = pending ? db.prepare("SELECT expires_at FROM approvals WHERE id=? AND owner_id=? AND run_id=? AND state='pending'")
+          .get(pending, run.owner_id, run.id) as { expires_at: number } | undefined : undefined;
+        const expired = new AbortController();
+        const expire = () => expired.abort(new Problem(409, "This approval expired. Start a new run after review."));
+        const deadline = approval ? setTimeout(expire, Math.max(0, approval.expires_at - now())) : undefined;
+        try { await watched.wait(revision, signal ? AbortSignal.any([signal, expired.signal]) : expired.signal); }
+        finally { clearTimeout(deadline); }
+      };
       try {
         for (;;) {
+          watched.signal.throwIfAborted();
+          const revision = watched.revision;
           if (
             signal?.aborted ||
             nativeSessions.current(t.conversation, t.generation).run?.id !==
               run.id
           )
             throw new Error("Native tool request ended");
-          const state = (
-            db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as Run
-          ).state;
-          if (!["running", "awaiting_approval"].includes(state))
+          const state = watched.state;
+          if (!["running", "awaiting_approval"].includes(state || ""))
             throw new Error("Run is no longer active");
-          // Only a known pending approval/delegation is polled. Uncertain external
+          // Wait only on known pending approvals/delegations. Uncertain external
           // calls throw from the broker and are never repeated.
           if (state === "awaiting_approval") {
-            await new Promise((r) => setTimeout(r, 200));
+            await wait(revision);
             continue;
           }
           const response = await (
@@ -163,7 +179,8 @@ export class NativeToolBridge {
             live.bridgeWaiting++;
             waiting = true;
           }
-          await new Promise((r) => setTimeout(r, 200));
+          pending = response.pending;
+          await wait(revision);
         }
       } catch (error) {
         return {
@@ -179,6 +196,7 @@ export class NativeToolBridge {
           ],
         };
       } finally {
+        watched.release();
         if (waiting) live.bridgeWaiting--;
       }
     })();

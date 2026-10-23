@@ -1,3 +1,4 @@
+import { watchRun } from "./run-signal.js";
 import { isNativeConnection } from "./native-connections.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
@@ -646,7 +647,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
       run.id,
     );
   }).immediate;
+  const watched = watchRun(run);
   const controller = new AbortController();
+  const signal = AbortSignal.any([watched.signal, controller.signal]);
   // Native harnesses own their turns. Only an explicit workflow budget should
   // impose a wall-clock deadline on a subscription run.
   const maxSeconds =
@@ -666,26 +669,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
             ),
           maxSeconds * 1000,
         );
-  const monitor = setInterval(() => {
-    const state = (
-      db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
-        state: string;
-      }
-    ).state;
-    const current = owned<Connection>(
-      "connections",
-      snapshot.connectionId,
-      run.owner_id,
-    );
-    if (
-      ["cancelled", "interrupted"].includes(state) ||
-      current.status !== "connected"
-    )
-      controller.abort();
-  }, 300);
   try {
     for (;;) {
-      controller.signal.throwIfAborted();
+      signal.throwIfAborted();
       const boundary = (
         db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
           state: string;
@@ -933,7 +919,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
             history.findLast((m) => m.role === "user")?.content,
           ),
           messages: structuredClone(history),
-          signal: AbortSignal.any([controller.signal, generation.signal]),
+          signal: AbortSignal.any([signal, generation.signal]),
           steering,
           maxTokens: snapshot.maxTokens,
           tools: bindings.length ? bindings : undefined,
@@ -988,7 +974,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       } catch (error) {
         if (
           generation.signal.reason !== redirected ||
-          controller.signal.aborted
+          signal.aborted
         )
           throw error;
       } finally {
@@ -996,7 +982,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       }
       if (
         generation.signal.reason === redirected &&
-        !controller.signal.aborted
+        !signal.aborted
       ) {
         round++;
         db.prepare("UPDATE agent_checkpoints SET round=? WHERE run_id=?").run(
@@ -1005,7 +991,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         );
         continue;
       }
-      controller.signal.throwIfAborted();
+      signal.throwIfAborted();
       if (owned<Run>("runs", run.id, run.owner_id).state === "cancelled") {
         persist(true);
         return false;
@@ -1085,11 +1071,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
     }
   } catch (error) {
     persist(true);
-    if (controller.signal.aborted) {
+    if (signal.aborted) {
       const current = owned<Run>("runs", run.id, run.owner_id);
       if (current.state === "cancelled") return false;
-      if (controller.signal.reason instanceof Problem)
-        throw controller.signal.reason;
+      if (signal.reason instanceof Problem)
+        throw signal.reason;
       throw new Problem(
         408,
         "The run stopped before an answer was completed. Check the provider connection and review partial work before retrying.",
@@ -1097,7 +1083,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     }
     throw error;
   } finally {
-    clearInterval(monitor);
+    watched.release();
     clearTimeout(timeout);
   }
 }

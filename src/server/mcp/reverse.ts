@@ -1,3 +1,4 @@
+import { watchRun } from "../run-signal.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -5,7 +6,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { db, id, now } from "../db.js";
+import { db, emit, id, now } from "../db.js";
 import { Problem, owned } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { config } from "../config.js";
@@ -192,25 +193,105 @@ export function completeReverseCall(
   state: "completed" | "unknown",
   result?: unknown,
 ) {
-  if (!peer(owner, peerId))
-    throw new Problem(403, "Execution source is not enrolled");
-  const saved = db
-    .prepare(
-      "SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=? AND peer_id=?",
-    )
-    .get(callId, owner, peerId) as Queued | undefined;
-  if (!saved) throw new Problem(404, "Shared tool call unavailable");
-  const encoded = state === "completed" ? JSON.stringify(result) : null;
-  if (encoded && Buffer.byteLength(encoded) > 4 * 1024 * 1024)
-    throw new Problem(413, "Shared tool result exceeds size limit");
-  if (!["pending", "claimed"].includes(saved.state)) {
-    if (saved.state === state && saved.result === encoded) return { state };
-    throw new Problem(409, "Shared tool call already resolved");
+  return db.transaction(() => {
+    if (!peer(owner, peerId))
+      throw new Problem(403, "Execution source is not enrolled");
+    const saved = db
+      .prepare(
+        "SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=? AND peer_id=?",
+      )
+      .get(callId, owner, peerId) as Queued | undefined;
+    if (!saved) throw new Problem(404, "Shared tool call unavailable");
+    const encoded = state === "completed" ? JSON.stringify(result) : null;
+    if (encoded && Buffer.byteLength(encoded) > 4 * 1024 * 1024)
+      throw new Problem(413, "Shared tool result exceeds size limit");
+    if (!["pending", "claimed"].includes(saved.state)) {
+      if (saved.state === state && saved.result === encoded) {
+        notifySettled(owner, saved.run_key, callId);
+        return { state };
+      }
+      throw new Problem(409, "Shared tool call already resolved");
+    }
+    db.prepare(
+      "UPDATE mcp_reverse_calls SET state=?,result=?,updated_at=? WHERE id=? AND state IN ('pending','claimed')",
+    ).run(state, encoded, now(), callId);
+    notifySettled(owner, saved.run_key, callId);
+    return { state };
+  }).immediate();
+}
+
+function notifySettled(owner: string, run: string, callId: string) {
+  // Reverse-call identities outlive a deleted run; keep its known outcome even
+  // when there is no run left on which to publish a notification.
+  if (db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(run, owner))
+    emit(owner, run, "reverse.settled", { callId });
+}
+const waiters = new Map<string, Set<() => void>>();
+function markUnknown(owner: string, callId: string) {
+  return db.transaction(() => {
+    const changed = db.prepare(
+      "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND owner_id=? AND state IN ('pending','claimed') RETURNING run_key",
+    ).get(now(), callId, owner) as { run_key: string } | undefined;
+    if (changed) notifySettled(owner, changed.run_key, callId);
+    return !!changed;
+  }).immediate();
+}
+
+/** Shared-call identity is durable; every HTTP waiter observes the same result. */
+export async function waitForReverseCall(owner: string, callId: string) {
+  const initial = db.prepare("SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=?")
+    .get(callId, owner) as Queued | undefined;
+  if (!initial) throw new Problem(404, "Shared tool call unavailable");
+  const watched = watchRun({ id: initial.run_key, owner_id: owner });
+  let remove: (() => void) | undefined;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<any>((resolve, reject) => {
+      let settled = false;
+      const settle = (error?: Problem, result?: unknown) => {
+        if (settled) return;
+        settled = true;
+        error ? reject(error) : resolve(result);
+      };
+      const check = () => {
+        if (settled) return;
+        if (!["running", "awaiting_approval"].includes(watched.state || "") ||
+          watched.signal.aborted || !peer(owner, initial.peer_id)) markUnknown(owner, callId);
+        const saved = db.prepare("SELECT state,result FROM mcp_reverse_calls WHERE id=? AND owner_id=?")
+          .get(callId, owner) as Queued | undefined;
+        if (saved?.state === "completed") settle(undefined, JSON.parse(saved.result!));
+        else if (!saved || !["pending", "claimed"].includes(saved.state))
+          settle(new Problem(409, "Shared tool outcome is uncertain; inspect it before retrying"));
+      };
+      const registered = waiters.get(callId) || new Set();
+      registered.add(check);
+      waiters.set(callId, registered);
+      const notify = () => { for (const waiter of [...registered]) waiter(); };
+      const unlisten = watched.on("*", notify);
+      watched.signal.addEventListener("abort", notify, { once: true });
+      remove = () => {
+        registered.delete(check);
+        if (!registered.size) waiters.delete(callId);
+        watched.signal.removeEventListener("abort", notify);
+        unlisten();
+      };
+      deadline = setTimeout(() => {
+        check();
+        if (settled) return;
+        // A foreign completion may win between this read and the conditional
+        // update. Its known result must still win over the local deadline.
+        if (!markUnknown(owner, callId)) { check(); return; }
+        settle(new Problem(408, "Shared tool response timed out; outcome is uncertain"));
+        notify();
+      }, Math.max(1, MCP_TOOL_TIMEOUT_MS - 5000));
+      // Completion can have landed before registration, including in another API.
+      check();
+    });
+  } finally {
+    clearTimeout(deadline);
+    remove?.();
+    watched.release();
   }
-  db.prepare(
-    "UPDATE mcp_reverse_calls SET state=?,result=?,updated_at=? WHERE id=? AND state IN ('pending','claimed')",
-  ).run(state, encoded, now(), callId);
-  return { state };
 }
 
 export async function handleReverseMcp(
@@ -242,35 +323,7 @@ export async function handleReverseMcp(
       request.params.arguments || {},
     );
     queuedKey = key;
-    const deadline = now() + Math.max(1, MCP_TOOL_TIMEOUT_MS - 5000);
-    for (;;) {
-      const live = db
-        .prepare("SELECT state FROM runs WHERE id=? AND owner_id=?")
-        .get(runKey, source.owner_id) as { state: string } | undefined;
-      if (!live || !["running", "awaiting_approval"].includes(live.state))
-        db.prepare(
-          "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND state IN ('pending','claimed')",
-        ).run(now(), key);
-      const saved = db
-        .prepare("SELECT state,result FROM mcp_reverse_calls WHERE id=?")
-        .get(key) as { state: string; result: string | null };
-      if (saved.state === "completed") return JSON.parse(saved.result!) as any;
-      if (!["pending", "claimed"].includes(saved.state))
-        throw new Problem(
-          409,
-          "Shared tool outcome is uncertain; inspect it before retrying",
-        );
-      if (now() >= deadline) {
-        db.prepare(
-          "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND state IN ('pending','claimed')",
-        ).run(now(), key);
-        throw new Problem(
-          408,
-          "Shared tool response timed out; outcome is uncertain",
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+    return await waitForReverseCall(source.owner_id, key);
   });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -278,10 +331,7 @@ export async function handleReverseMcp(
   });
   await server.connect(transport);
   res.on("close", () => {
-    if (queuedKey)
-      db.prepare(
-        "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND state IN ('pending','claimed')",
-      ).run(now(), queuedKey);
+    if (queuedKey) markUnknown(source.owner_id, queuedKey);
     void transport.close();
     void server.close();
   });

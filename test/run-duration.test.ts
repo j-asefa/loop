@@ -24,7 +24,11 @@ beforeEach(() => {
     return controller.signal;
   });
 });
-afterEach(() => {
+afterEach(async () => {
+  // A final transition schedules the process-wide committed-event drain.
+  // Flush it before replacing the fake clock, so the next test does not inherit
+  // a scheduled handle that its new clock can never execute.
+  await vi.advanceTimersByTimeAsync(0);
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

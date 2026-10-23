@@ -1,3 +1,5 @@
+import express from "express";
+import { until } from "./helpers";
 import { agentWorktree } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
@@ -15,7 +17,7 @@ const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-turn-recovery-")));
 process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 gitProject(dir);
-const { db } = await import("../src/server/db");
+const { db, changes } = await import("../src/server/db");
 db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)").run();
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
@@ -189,3 +191,35 @@ it("recognises a reworded Codex writer conflict instead of leaking the native er
     db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
   ).toBeUndefined();
 });
+
+
+it.each([true, false])("interrupts a native turn through the cancel route (bus=%s)", async (enabled) => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  const { core } = await import("../src/server/core-routes");
+  const app = express();
+  app.use(express.json(), (_req, res, next) => { res.locals.owner = "local-workspace"; next(); });
+  app.use(core);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const run = submit(`cancel-${enabled}`, "codex", `cancel-${enabled}`);
+  db.prepare("UPDATE runs SET input='wait' WHERE id=?").run(run.id);
+  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+  let finished = false;
+  const work = tick(execute).finally(() => { finished = true; });
+  try {
+    await until(() => (db.prepare("SELECT state FROM native_dispatch WHERE run_id=?").get(run.id) as any)?.state === "accepted");
+    const started = Date.now();
+    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
+    expect(response.status).toBe(200);
+    await until(() => finished, 2400);
+    await work;
+    expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "cancelled" });
+    expect(db.prepare("SELECT count(*) n FROM native_dispatch WHERE run_id=?").get(run.id)).toEqual({ n: 1 });
+  } finally {
+    bus?.mockRestore();
+    await nativeSessions.interrupt(run.id);
+    await work;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}, 10000);

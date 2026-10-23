@@ -1,3 +1,4 @@
+import { writeConnectionStatus } from "./connection-status.js";
 import { discover } from "../host-control.js";
 import { setRuntimeSetupState } from "../runtime-setup.js";
 import type { Harness } from "../protocol.js";
@@ -70,9 +71,9 @@ export async function prepareLocalHarnesses(
     } catch {
       // Never print provider configuration, credentials or raw auth subprocess output.
       // Verification failure must not leave a stale account available for dispatch.
-      db.prepare(
+      writeConnectionStatus("native-" + name, () => db.prepare(
         "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status<>'disconnected'",
-      ).run("native-" + name, OWNER);
+      ).run("native-" + name, OWNER));
       console.log(
         `${name}: check installation and sign-in in Provider connections.`,
       );

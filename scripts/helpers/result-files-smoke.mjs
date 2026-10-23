@@ -72,6 +72,11 @@ export async function resultFilesSmoke(page, fixture, capture) {
       original.id,
     );
   const dialog = () => page.locator("dialog[open]").last();
+  let workspaceSocket;
+  const rememberSocket = (socket) => {
+    if (new URL(socket.url()).pathname === "/api/events/ws") workspaceSocket = socket;
+  };
+  page.on("websocket", rememberSocket);
   try {
     for (const theme of ["light", "dark"]) {
       for (const width of [320, 390, 1024]) {
@@ -182,26 +187,31 @@ export async function resultFilesSmoke(page, fixture, capture) {
     const tableBefore = await page
       .locator(".result-sheet .table-scroll")
       .elementHandle();
-    const eventsUrl = /\/api\/events\?after=/;
-    await page.route(eventsUrl, (route) =>
-      route.fulfill({ json: [{ id: 999999999 }] }),
+    assert(workspaceSocket, "The workspace event stream is connected");
+    let committedId;
+    const delivered = workspaceSocket.waitForEvent("framereceived", {
+      predicate: ({ payload }) => JSON.parse(String(payload)).events?.some(
+        (entry) => entry.id === committedId,
+      ),
+    });
+    const refreshed = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/runs" && url.searchParams.get("active") === "1";
+    });
+    committedId = Number(fixture.db.prepare(
+      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'artifact.published',?,?)",
+    ).run(fixture.owner, original.run_id, JSON.stringify({ artifactId: original.id }), Date.now()).lastInsertRowid);
+    await delivered;
+    // The committed event triggers the real, coalesced workspace refresh.
+    await (await refreshed).finished();
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
-    try {
-      await (await page.waitForResponse(eventsUrl)).finished();
-      await page.evaluate(
-        () =>
-          new Promise((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(resolve)),
-          ),
-      );
-      await expect(page.locator("dialog[open]")).toHaveCount(2);
-      assert(
-        await tableBefore.evaluate((el) => el.isConnected),
-        "Workspace refreshes must preserve the existing table",
-      );
-    } finally {
-      await page.unroute(eventsUrl);
-    }
+    await expect(page.locator("dialog[open]")).toHaveCount(2);
+    assert(
+      await tableBefore.evaluate((el) => el.isConnected),
+      "Workspace refreshes must preserve the existing table",
+    );
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(1);
     // Exercise the download fallback without bringing up a native OS dialog.
@@ -430,6 +440,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await expect(page.locator(".profile-head")).toHaveCount(0);
     await page.waitForLoadState("networkidle");
   } finally {
+    page.off("websocket", rememberSocket);
     fixture.db
       .prepare("UPDATE artifacts SET content=? WHERE id=?")
       .run(original.content, original.id);

@@ -5,7 +5,9 @@ import type Database from "better-sqlite3";
 export type CommittedEvent = Readonly<{
   id: number;
   owner_id: string;
-  run_id: string;
+  run_id: string | null;
+  subject_kind: "run" | "connection";
+  subject_id: string;
   type: string;
 }>;
 type Subscriber = (events: readonly CommittedEvent[]) => void;
@@ -19,7 +21,7 @@ export function createChangeBus(
     throw new Error("Create the change bus outside a transaction");
   const subscribers = new Map<string | null, Set<Subscriber>>();
   const select = db.prepare(
-    "SELECT id,owner_id,run_id,type FROM events WHERE id>? ORDER BY id LIMIT ?",
+    "SELECT id,owner_id,run_id,subject_kind,subject_id,type FROM events WHERE id>? ORDER BY id LIMIT ?",
   );
   let version = db.pragma("data_version", { simple: true });
   // Existing history belongs to consumer snapshots/replay. Establish the live

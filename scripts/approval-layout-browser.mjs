@@ -30,6 +30,14 @@ for (const engine of selectedEngines()) {
         hasTouch: true,
         serviceWorkers: "block",
       });
+      // Each full navigation starts an independent layout/decision case. The
+      // suite compresses many cases into seconds; keep a fresh fixture-owned
+      // request window per case while retaining the real limiter within it.
+      page.on("request", (request) => {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame() &&
+          new URL(request.url()).origin === fixture.base)
+          fixture.db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(fixture.owner);
+      });
       await page.route("**/api/capabilities", async (route) => {
         const response = await route.fetch();
         await route.fulfill({

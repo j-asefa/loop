@@ -1,3 +1,4 @@
+import { writeConnectionStatus } from "./connection-status.js";
 import {
   diagnosticText,
   errorSummary,
@@ -368,9 +369,9 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
     // Only failures from the provider stream can invalidate its credentials.
     // MCP ownership and approvals are checked outside this boundary.
     if ([401, 403].includes((error as any)?.status))
-      db.prepare(
+      writeConnectionStatus(c.id, () => db.prepare(
         "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
-      ).run(c.id, c.owner_id);
+      ).run(c.id, c.owner_id));
     if (error instanceof HarnessError) throw new Problem(422, error.message);
     if (error instanceof Problem || input.signal.aborted) throw error;
     const message = isSubscription(c)
@@ -407,7 +408,7 @@ subscriptions.post("/subscriptions", (req, res) => {
           "Use an existing subscription connection; this workspace already has eight.",
         );
       const key = id();
-      db.prepare(
+      writeConnectionStatus(key, () => db.prepare(
         "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
       ).run(
         key,
@@ -424,7 +425,7 @@ subscriptions.post("/subscriptions", (req, res) => {
             "Official runtime sign-in; no API fallback. Past chats are imported separately.",
         }),
         now(),
-      );
+      ));
       return owned<Connection>("connections", key, owner);
     })
     .immediate();
@@ -457,17 +458,17 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
     return;
   }
   if (action === "login")
-    db.prepare("UPDATE connections SET status='signing_in' WHERE id=?").run(
+    writeConnectionStatus(c.id, () => db.prepare("UPDATE connections SET status='signing_in' WHERE id=?").run(
       c.id,
-    );
+    ));
   let result;
   try {
     result = await runtimeAction(c, action);
   } catch (error) {
     if (action === "login")
-      db.prepare(
+      writeConnectionStatus(c.id, () => db.prepare(
         "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
-      ).run(c.id);
+      ).run(c.id));
     throw error;
   }
   if (
@@ -499,7 +500,7 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
       )
       .max(300)
       .parse(result.models);
-    db.prepare(
+    writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
     ).run(
       JSON.stringify(models),
@@ -510,15 +511,15 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
         checkedAt: now(),
       }),
       c.id,
-    );
+    ));
   } else if (
     result.authenticated === false ||
     ["failed", "cancelled"].includes(result.state) ||
     action === "cancel"
   ) {
-    db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(
+    writeConnectionStatus(c.id, () => db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(
       c.id,
-    );
+    ));
   }
   res.json(result);
 });

@@ -1,3 +1,4 @@
+import { watchRun } from "../run-signal.js";
 import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
 import {
   diagnosticText,
@@ -277,16 +278,11 @@ export async function invokeTool(
   });
   let client;
   let phase = "connecting";
-  const controller = new AbortController();
-  const monitor = setInterval(() => {
-    const live = db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as
-      { state: string } | undefined;
-    if (!live || ["cancelled", "interrupted"].includes(live.state))
-      controller.abort();
-  }, 500);
+  const watched = watchRun(run);
   const started = now();
   let received = false;
   try {
+    watched.signal.throwIfAborted();
     client = await connectForRun(connection, run.id, callId);
     authorizeTool(
       run.owner_id,
@@ -302,7 +298,7 @@ export async function invokeTool(
     let result: any = await client.callTool(
       { name: binding.tool, arguments: args },
       undefined,
-      { timeout: MCP_TOOL_TIMEOUT_MS, signal: controller.signal },
+      { timeout: MCP_TOOL_TIMEOUT_MS, signal: watched.signal },
     );
     received = true;
     phase = "saving the result";
@@ -393,6 +389,7 @@ export async function invokeTool(
     });
     return { result, artifactId };
   } catch (error) {
+    if (watched.signal.aborted) error = watched.signal.reason;
     const elapsedMs = now() - started;
     const facts = {
       ...errorFacts(error),
@@ -455,7 +452,7 @@ export async function invokeTool(
       failure,
     );
   } finally {
-    clearInterval(monitor);
+    watched.release();
     if (JSON.parse(connection.metadata).transport !== "stdio")
       await client?.close().catch(() => {});
   }

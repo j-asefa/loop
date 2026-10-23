@@ -102,13 +102,14 @@ export function connectWorkspaceEvents(
       ? []
       : (db
           .prepare(
-            `SELECT id,run_id,type,
+            `SELECT id,run_id,subject_id,type,
               CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload END payload
              FROM events WHERE owner_id=? AND id>? ORDER BY id LIMIT 100`,
           )
           .all(MAX_EVENT_BYTES, owner, cursor) as {
           id: number;
-          run_id: string;
+          run_id: string | null;
+          subject_id: string;
           type: string;
           payload: string | null;
         }[]);
@@ -172,7 +173,7 @@ export function connectWorkspaceEvents(
             type: reset ? "reset" : "events",
             epoch,
             cursor,
-            events,
+            events: events.map(({ subject_id: _subject, ...event }) => event),
             ...(reset
               ? {
                   build: build || observedBuild().id,

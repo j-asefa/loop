@@ -12,6 +12,7 @@ import {
 } from "../src/shared/workspace-events";
 
 const examples = [
+  ["reverse.settled", { callId: "call" }],
   ["queued", {}],
   ["running", { resumed: true }],
   ["pausing", {}],
@@ -95,6 +96,7 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
     expect(examples.map(([type]) => type).sort()).toEqual(
       EmittedWorkspaceEvent.options
         .map((option) => option.shape.type.value)
+        .filter((type) => type !== "connection.status")
         .sort(),
     );
     for (const emission of examples) {

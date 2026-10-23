@@ -47,6 +47,10 @@ export async function continuitySmoke(page, fixture, capture) {
   };
   const db = fixture.db;
   const owner = fixture.owner;
+  // Independent journeys are compressed into one browser session. Give each
+  // its own request window; keep the production limiter active within it.
+  const requestWindow = () =>
+    db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(owner);
   const now = Date.now();
   // This journey submits/steers API work. The design catalog also contains
   // historical direct harness connections, which can no longer accept runs.
@@ -221,6 +225,7 @@ export async function continuitySmoke(page, fixture, capture) {
   try {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
 
+    requestWindow();
     // 1. Resume work from the Feed: each card names one specific action and
     // opens exactly there.
     const done = fixture.conversations.find((c) => c.state === "completed");
@@ -300,6 +305,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.locator("#composer").fill("");
     await closeThread();
 
+    requestWindow();
     // 2. Resume reading, jump to a search match, then Latest. The detour
     // never replaces the saved reading position.
     db.prepare(
@@ -335,6 +341,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect.poll(position).toBe(null);
     await closeThread();
 
+    requestWindow();
     // 3. Send later from outside a thread: confirm who, where and when,
     // follow the link, edit, then Undo/cancel.
     await nav("Feed").click();
@@ -421,6 +428,7 @@ export async function continuitySmoke(page, fixture, capture) {
       .click();
     await page.getByRole("tab", { name: /^Scheduled/ }).waitFor();
 
+    requestWindow();
     // 4. Reminders: create from a message, see why it is back, Done, and
     // Snooze again; both survive a reload.
     await page.goto(`${fixture.base}/?conversation=${long}&message=${longIds[30]}`, {
@@ -476,6 +484,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(snoozed.locator(".eyebrow")).toContainText("snoozed 1×");
     await expect(snoozed.locator(".subline")).toContainText("Tomorrow at");
 
+    requestWindow();
     // 5. Saved: a label to recognise a decision, search by it, open and
     // come back to the same search. Cards keep their size.
     await page.goto(`${fixture.base}/?conversation=${long}&message=${longIds[30]}`, {
@@ -540,6 +549,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await fixture.api(`/messages/${longIds[30]}/saved`, {});
     await later.getByLabel("Search Saved").fill("");
 
+    requestWindow();
     // 6. Project history: search, outcomes, saved decisions and unfinished
     // work, keeping project scope through a thread and back.
     await nav("Projects").click();
@@ -567,6 +577,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.getByRole("button", { name: /^Back to/ }).click();
     await expect(page.locator(".project-history-head")).toHaveCount(0);
 
+    requestWindow();
     // 7. Steer, queue or send later in a working thread; a queued message
     // can be read, explained and moved back to a draft with its files.
     const form = new FormData();
@@ -653,6 +664,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.locator("#composer").fill("");
     await closeThread();
 
+    requestWindow();
     // 8. One Git review per run, even when tool reports disagree.
     await page.goto(`${fixture.base}/?conversation=${changeConversation}`, {
       waitUntil: "networkidle",
@@ -692,6 +704,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await closeThread();
 
+    requestWindow();
     // 9. Keyboard: the message menu, More and focus return work without a
     // pointer.
     await page.goto(`${fixture.base}/?conversation=${long}&message=${longIds[30]}`, {

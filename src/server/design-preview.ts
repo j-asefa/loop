@@ -1,6 +1,8 @@
+import { watchRun } from "./run-signal.js";
+import { writeConnectionStatus } from "./connection-status.js";
 import type { RequestHandler } from "express";
 import { designPreview } from "../preview-context.js";
-import { db, emit, id, now } from "./db.js";
+import { db, changes, emit, id, now } from "./db.js";
 import { OWNER } from "./native-sessions.js";
 import { createAgent, owned, Problem } from "./domain.js";
 import { seal } from "./secrets.js";
@@ -186,7 +188,7 @@ export function seedDesignPreview() {
   db.transaction(() => {
     const project = ensureWorkspaceProject(OWNER),
       connection = id();
-    db.prepare(
+    writeConnectionStatus(connection, () => db.prepare(
       "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Preview simulator',?,'connected',?,'{\"preview\":true}',?)",
     ).run(
       connection,
@@ -194,7 +196,7 @@ export function seedDesignPreview() {
       seal("preview-only-not-a-provider-key", OWNER),
       JSON.stringify(models),
       now(),
-    );
+    ));
     const agents = ["willow", "cedar", "iris", "fern", "maple"].map((name) =>
       createAgent(OWNER, {
         name,
@@ -324,7 +326,26 @@ export function seedDesignPreview() {
 /** No real worker, model adapter, harness, scheduler, notification or MCP dispatcher runs. */
 export function startDesignSimulation() {
   if (!designPreview) throw new Error("Simulation requires a design preview");
-  const tick = () =>
+  let stopped = false;
+  let scheduled: ReturnType<typeof setImmediate> | undefined;
+  const watched = new Map<string, ReturnType<typeof watchRun>>();
+  const wake = () => {
+    if (stopped || scheduled) return;
+    scheduled = setImmediate(() => { scheduled = undefined; tick(); });
+  };
+  const reconcile = () => {
+    const live = db.prepare("SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')").all(OWNER) as Run[];
+    const ids = new Set(live.map((run) => run.id));
+    for (const [id, subscription] of watched) if (!ids.has(id)) {
+      subscription.release(); watched.delete(id);
+    }
+    for (const run of live) if (!watched.has(run.id)) {
+      const subscription = watchRun(run);
+      subscription.on("fallback", wake);
+      watched.set(run.id, subscription);
+    }
+  };
+  const tick = () => {
     db
       .transaction(() => {
         db.prepare(
@@ -368,9 +389,19 @@ export function startDesignSimulation() {
         }
       })
       .immediate();
+    reconcile();
+  };
+  const unsubscribe = changes.subscribe(OWNER, (events) => {
+    if (events.some(({ type }) => ["queued", "running", "completed", "failed", "cancelled", "interrupted", "steering.pending"].includes(type) || type.startsWith("approval."))) wake();
+  });
   tick();
-  const timer = setInterval(tick, 300);
+  // The simulation still advertises liveness without polling run/steering rows.
+  const timer = setInterval(() => db.prepare("INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)").run(now()), 5000);
   return async () => {
+    stopped = true;
+    if (scheduled) clearImmediate(scheduled);
+    unsubscribe();
+    for (const subscription of watched.values()) subscription.release();
     clearInterval(timer);
     db.prepare("DELETE FROM worker_health WHERE id='design-preview'").run();
   };

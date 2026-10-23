@@ -418,6 +418,8 @@ for (const mode of ["server", "companion"] as const) {
         payload: { messageId: "message" },
       },
     });
+    await expect.poll(() => legacy.frames.at(-1)?.cursor).toBe(valid);
+    expect(Object.keys(legacy.frames.at(-1).events[0]).sort()).toEqual(["id", "payload", "run_id", "type"]);
     const historical = Number(
       insert.run(f.owner, "historical.unknown", "not json").lastInsertRowid,
     );
@@ -590,3 +592,19 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
     rmSync(directory, { recursive: true, force: true });
   }
 }, 30_000);
+
+
+it("streams a connection disconnection without a run through the compiled v3 endpoint", async () => {
+  const f = await fixture("server");
+  const socket = connect(f, "?v=3");
+  await expect.poll(() => socket.frames.length).toBe(1);
+  f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES('status-connection',?,'openai','Fixture','must stay secret','connected',1)").run(f.owner);
+  const response = await f.request("/api/connections/status-connection", { method: "DELETE", headers: f.browser });
+  expect(response.status).toBe(200);
+  await expect.poll(() => socket.frames.flatMap((frame) => frame.events || []).find((entry) => entry.event?.type === "connection.status")).toMatchObject({
+    event: { type: "connection.status", scope: { kind: "connection", id: "status-connection" }, payload: { status: "disconnected" } },
+  });
+  expect(JSON.stringify(socket.frames)).not.toContain("must stay secret");
+  expect(f.db.prepare("SELECT count(*) n FROM runs").get()).toEqual({ n: 0 });
+  socket.socket.close();
+});

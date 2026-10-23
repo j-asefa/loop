@@ -1,3 +1,5 @@
+import { writeConnectionStatus } from "./connection-status.js";
+import { watchRun } from "./run-signal.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { agentWorkspace, prepareAgentWorkspace, verifyAgentWorkspace, AgentWorktreeError, type AgentWorkspace } from "./agent-worktree.js";
@@ -925,7 +927,7 @@ export class NativeSessions {
         JSON.stringify(models),
         now(),
       );
-      db.prepare(
+      writeConnectionStatus("native-" + options.harness, () => db.prepare(
         "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,status='connected',models=excluded.models,metadata=excluded.metadata",
       ).run(
         "native-" + options.harness,
@@ -936,7 +938,7 @@ export class NativeSessions {
         JSON.stringify(models),
         JSON.stringify(metadata),
         now(),
-      );
+      ));
       db.prepare(
         "UPDATE agents SET connection_id=? WHERE connection_id IS NULL AND id IN (SELECT agent_id FROM conversations c JOIN companion_sessions n ON n.conversation_id=c.id WHERE n.harness=?)",
       ).run("native-" + options.harness, options.harness);
@@ -1838,11 +1840,14 @@ export class NativeSessions {
     const complete = new Promise<string>((resolve) => {
       live.finish = resolve;
     });
-    const poll = setInterval(() => {
-      const state = owned<Run>("runs", run.id, run.owner_id).state;
-      if (["cancelled", "failed"].includes(state) && !live.cancelling)
-        void this.interrupt(run.id);
-    }, 100);
+    const watched = watchRun(run);
+    const stop = () => {
+      const cause = watched.signal.reason;
+      if (!live.cancelling) void this.interrupt(run.id,
+        cause instanceof Problem && cause.diagnostic?.cause === "connection_disconnected" ? cause.message : undefined);
+    };
+    watched.signal.addEventListener("abort", stop, { once: true });
+    if (watched.signal.aborted) stop();
     const deadline = (snapshot as any).maxSeconds
       ? setTimeout(
           () =>
@@ -1856,6 +1861,7 @@ export class NativeSessions {
     const steering = new SteeringInbox(run);
     let stopSteering: (() => Promise<void>) | undefined;
     try {
+      watched.signal.throwIfAborted();
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
@@ -1917,7 +1923,8 @@ export class NativeSessions {
       return false;
     } finally {
       await stopSteering?.();
-      clearInterval(poll);
+      watched.signal.removeEventListener("abort", stop);
+      watched.release();
       clearTimeout(deadline);
       clearTimeout(live.flush);
       live.run = undefined;

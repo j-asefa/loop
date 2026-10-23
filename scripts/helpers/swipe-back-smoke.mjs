@@ -209,9 +209,9 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       const profileFeed = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return (
-          url.pathname === "/api/results" &&
+          url.pathname === "/api/v1/cards" &&
           url.searchParams.get("agent") === resultAuthor.id &&
-          url.searchParams.get("view") === "all"
+          url.searchParams.get("view") === "results"
         );
       });
       await page
@@ -223,7 +223,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       const loaded = await (await profileFeed).json();
       const cards = page.locator(".feed-card:not(.inbox-card)");
       const cardCount = loaded.items.filter(
-        (item) => !item.role && !JSON.parse(item.metadata || "{}").snippet,
+        (entry) => entry.card.type === "result",
       ).length;
       assert(cardCount > 0, "The fixture profile has results to archive");
       await expect(cards).toHaveCount(cardCount);

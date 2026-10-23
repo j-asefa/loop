@@ -85,16 +85,13 @@ export async function conversationLiveSmoke(page, capture) {
       await expect(workingCard.locator(".inbox-you")).toHaveCount(0);
       const bootstrap = await fixture.api("/bootstrap");
       await expect(workingCard.locator(".agent-environment.laptop")).toHaveText(bootstrap.environmentName);
-      const laptopColor = await workingCard.locator(".agent-environment").evaluate(
-        (element) => getComputedStyle(element).backgroundColor,
-      );
+      // Feed metadata uses the neutral design.css style. The environment is
+      // distinguished by its visible label and icon, not a background color.
+      await expect(workingCard.locator(".agent-environment .lucide-laptop")).toBeVisible();
       setEnvironment("docker");
       await page.reload();
       await expect(workingCard.locator(".agent-environment.docker")).toHaveText("Docker");
-      const dockerColor = await workingCard.locator(".agent-environment").evaluate(
-        (element) => getComputedStyle(element).backgroundColor,
-      );
-      assert.notEqual(dockerColor, laptopColor, "Laptop and Docker badges use distinct colors");
+      await expect(workingCard.locator(".agent-environment .lucide-container")).toBeVisible();
     } finally {
       fixture.db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(connection.metadata, connection.id);
       fixture.db.prepare(

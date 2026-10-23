@@ -102,3 +102,38 @@ it("claims through the two-second fallback when local change wakes are unavailab
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+it("wakes maintenance for mail and published artifacts while retaining its time-based pass", async () => {
+  vi.resetModules();
+  const directory = mkdtempSync(join(tmpdir(), "loop-worker-maintenance-"));
+  vi.stubEnv("LOOP_PROFILE", "server"); vi.stubEnv("LOOP_DATA_DIR", directory);
+  const { db, changes, emit } = await import("../src/server/db");
+  const { enqueue } = await import("../src/server/queue");
+  const notifications = await import("../src/server/notifications");
+  let release = () => {};
+  const delivery = vi.spyOn(notifications, "deliverNotifications").mockImplementation(() => new Promise<void>((resolve) => { release = resolve; }));
+  const { startWorker } = await import("../src/server/worker");
+  const run = enqueue("maintenance", "Done", "maintenance");
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  const stop = startWorker();
+  try {
+    emit(run.owner_id, run.id, "artifact.published", { artifactId: "artifact" });
+    emit(run.owner_id, run.id, "agent_mail.sent", { mailId: "mail", threadId: "thread", delivery: "new_turn" });
+    await expect.poll(() => delivery.mock.calls.length).toBe(1);
+    emit(run.owner_id, run.id, "agent_mail.held", { mailId: "mail", threadId: "thread" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(delivery).toHaveBeenCalledOnce();
+    release();
+    await expect.poll(() => delivery.mock.calls.length).toBe(2);
+    release();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(delivery).toHaveBeenCalledTimes(3);
+  } finally {
+    release(); await stop(); changes.close(); db.close();
+    vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
