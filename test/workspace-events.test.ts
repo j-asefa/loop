@@ -1,16 +1,23 @@
-import { afterAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createConnection } from "node:net";
 import { cardsFixture } from "./helpers/cards-fixture";
+import { compiledServerFixture } from "./helpers/compiled-server";
+
+let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;
+beforeAll(async () => {
+  compiled = await compiledServerFixture();
+}, 30_000);
 
 const fixtures: Awaited<ReturnType<typeof cardsFixture>>[] = [];
 const sockets: WebSocket[] = [];
 afterAll(async () => {
   for (const socket of sockets) socket.terminate();
   await Promise.all(fixtures.map((fixture) => fixture.close()));
+  await compiled?.close();
 });
 async function fixture(mode: Parameters<typeof cardsFixture>[0]) {
-  const result = await cardsFixture(mode);
+  const result = await cardsFixture(mode, compiled.source);
   fixtures.push(result);
   return result;
 }
@@ -127,7 +134,7 @@ for (const mode of ["server", "companion"] as const) {
     const f = await fixture(mode);
     seed(f);
     const { socket, frames } = connect(f);
-    await expect.poll(() => frames.length).toBe(1);
+    await expect.poll(() => frames.length, { timeout: 7000 }).toBe(1);
     expect(frames[0]).toMatchObject({ v: 2, type: "reset", cursor: 0 });
     const { epoch } = frames[0];
     f.db
@@ -144,7 +151,9 @@ for (const mode of ["server", "companion"] as const) {
           .run(f.owner, Date.now());
       })
       .immediate();
-    await expect.poll(() => frames.length).toBeGreaterThan(1);
+    await expect
+      .poll(() => frames.length, { timeout: 7000 })
+      .toBeGreaterThan(1);
     // There is no run event: revision changes alone must wake the browser.
     expect(frames.at(-1)).toMatchObject({
       type: "events",
@@ -156,10 +165,14 @@ for (const mode of ["server", "companion"] as const) {
         "INSERT INTO artifacts(id,owner_id,kind,title,content,created_at,updated_at) VALUES('note',?,'markdown','A saved note','Body',1,1)",
       )
       .run(f.owner);
-    await expect.poll(() => frames.length).toBeGreaterThan(2);
+    await expect
+      .poll(() => frames.length, { timeout: 7000 })
+      .toBeGreaterThan(2);
     let before = frames.length;
     f.db.prepare("UPDATE artifacts SET pinned=1 WHERE id='note'").run();
-    await expect.poll(() => frames.length).toBeGreaterThan(before);
+    await expect
+      .poll(() => frames.length, { timeout: 7000 })
+      .toBeGreaterThan(before);
     before = frames.length;
     const dismissed = await f.request("/api/feed/thread", {
       method: "PATCH",
@@ -167,7 +180,9 @@ for (const mode of ["server", "companion"] as const) {
       headers: f.browser,
     });
     expect(dismissed.status).toBe(200);
-    await expect.poll(() => frames.length).toBeGreaterThan(before);
+    await expect
+      .poll(() => frames.length, { timeout: 7000 })
+      .toBeGreaterThan(before);
     const first = emit(f, "first");
     await expect.poll(() => frames.at(-1)?.cursor).toBe(Number(first));
     socket.close();
@@ -186,7 +201,7 @@ for (const mode of ["server", "companion"] as const) {
       type: "reset",
       cursor: Number(second),
     });
-  }, 30_000);
+  }, 40_000);
 
   it(`${mode} reconciles oversized event replays without a repeated disconnect`, async () => {
     const f = await fixture(mode);
@@ -285,3 +300,80 @@ it("closes an established socket when its account session is revoked", async () 
     .poll(() => socket.readyState, { timeout: 28_000, interval: 500 })
     .toBe(WebSocket.CLOSED);
 }, 35_000);
+
+it("broadcasts to both owner sockets, isolates another owner, and releases subscriptions after repeated disconnects", async () => {
+  const f = await fixture("multi-user");
+  seed(f);
+  const response = await f.request("/api/auth/sign-up/email", {
+    headers: { origin: f.origin },
+    body: {
+      name: "Second owner",
+      email: "second@example.com",
+      password: "fixture-second-owner-password",
+    },
+  });
+  expect(response.status).toBe(200);
+  const secondOwner = (await response.json()).user.id;
+  seed(f, secondOwner, "other-");
+  const cookie = response.headers
+    .getSetCookie()
+    .map((value) => value.split(";", 1)[0])
+    .join("; ");
+  const first = connect(f),
+    second = connect(f);
+  const other = connect(f, "", { ...f.browser, cookie });
+  await expect
+    .poll(() => [
+      first.frames.length,
+      second.frames.length,
+      other.frames.length,
+    ])
+    .toEqual([1, 1, 1]);
+  const event = emit(f, "both-owner-sockets");
+  await expect
+    .poll(() => [first.frames.at(-1)?.cursor, second.frames.at(-1)?.cursor])
+    .toEqual([Number(event), Number(event)]);
+  expect(other.frames).toHaveLength(1);
+  expect(first.frames.at(-1).events.map((event: any) => event.type)).toEqual([
+    "both-owner-sockets",
+  ]);
+  expect(second.frames.at(-1).events.map((event: any) => event.type)).toEqual([
+    "both-owner-sockets",
+  ]);
+  await expect.poll(() => f.eventSubscriberCount()).toBe(3);
+  for (let n = 0; n < 24; n++) {
+    const transient = connect(f);
+    await expect.poll(() => transient.frames.length).toBe(1);
+    transient.socket.close();
+    await expect.poll(() => transient.socket.readyState).toBe(WebSocket.CLOSED);
+    await expect.poll(() => f.eventSubscriberCount()).toBe(3);
+  }
+  for (const connected of [first, second, other]) connected.socket.close();
+  await expect.poll(() => f.eventSubscriberCount()).toBe(0);
+}, 30_000);
+
+it("catches up every replay page without a later write even after the process cursor advanced", async () => {
+  const f = await fixture("server");
+  seed(f);
+  const initial = connect(f);
+  await expect.poll(() => initial.frames.length).toBe(1);
+  const { epoch } = initial.frames[0];
+  initial.socket.close();
+  await expect.poll(() => f.eventSubscriberCount()).toBe(0);
+  const ids: number[] = [];
+  f.db
+    .transaction(() => {
+      for (let n = 0; n < 650; n++) ids.push(Number(emit(f, "backlog")));
+    })
+    .immediate();
+  // This live subscriber resets to the last row while the process drains the
+  // backlog. The reconnect below must still replay from its own cursor.
+  const live = connect(f);
+  await expect.poll(() => live.frames.at(-1)?.cursor).toBe(ids.at(-1));
+  const replay = connect(f, `?epoch=${epoch}&cursor=0`);
+  await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(ids.at(-1));
+  expect(replay.frames.length).toBeGreaterThan(1);
+  expect(
+    replay.frames.flatMap((frame) => frame.events).map((event) => event.id),
+  ).toEqual(ids);
+}, 15_000);

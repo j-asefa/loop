@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
+import { createChangeBus } from "./changes.js";
 export const db: Database.Database = new Database(join(config.data, "loop.db"));
 db.pragma("busy_timeout = 5000");
 // Simultaneous API/worker startup can hit SQLITE_BUSY while switching a fresh
@@ -185,15 +186,18 @@ db.transaction(() => {
 db.pragma("busy_timeout = 5000");
 export const now = () => Date.now();
 export const id = () => crypto.randomUUID();
+export const changes = createChangeBus(db, { pollMs: config.changePollMs });
 export function emit(
   owner: string,
   run: string,
   type: string,
   payload: unknown,
 ) {
-  return db
+  const row = db
     .prepare(
       "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,?,?,?)",
     )
     .run(owner, run, type, JSON.stringify(payload), now()).lastInsertRowid;
+  changes.wake();
+  return row;
 }

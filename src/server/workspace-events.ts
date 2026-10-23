@@ -1,14 +1,66 @@
 import { WebSocket } from "ws";
-import { db } from "./db.js";
+import { db, changes } from "./db.js";
 import { publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_REPLAY_BYTES = 512 * 1024;
 
-// Both API and worker processes commit to SQLite. Observe their durable
-// watermarks, including edits which do not emit a run event (save/dismiss).
-// The browser keeps its own pagers; these frames only prompt reconciliation.
+type RevisionListener = (failed: boolean) => void;
+const revisions = new Map<
+  string,
+  { value: string; listeners: Set<RevisionListener> }
+>();
+let revisionTimer: ReturnType<typeof setInterval> | undefined;
+function readRevision(owner: string) {
+  return JSON.stringify(
+    db
+      .prepare(
+        `SELECT
+    (SELECT epoch FROM card_revision_domain WHERE singleton=1) domain,
+    (SELECT COALESCE(max(revision),0) FROM feed_revisions WHERE owner_id=?) cards,
+    (SELECT COALESCE(max(revision),0) FROM done_card_revisions WHERE owner_id=?) done
+  `,
+      )
+      .get(owner, owner),
+  );
+}
+// Save/dismiss revisions do not all have events yet. One process timer checks
+// each subscribed owner once and shares the result across that owner's sockets.
+function watchRevisions(owner: string, listener: RevisionListener) {
+  let record = revisions.get(owner);
+  if (!record) {
+    record = { value: readRevision(owner), listeners: new Set() };
+    revisions.set(owner, record);
+  }
+  record.listeners.add(listener);
+  if (!revisionTimer) {
+    revisionTimer = setInterval(() => {
+      for (const [owner, record] of revisions) {
+        let failed = false;
+        try {
+          const next = readRevision(owner);
+          if (next === record.value) continue;
+          record.value = next;
+        } catch {
+          failed = true;
+        }
+        for (const notify of [...record.listeners]) notify(failed);
+      }
+    }, 5000);
+    revisionTimer.unref();
+  }
+  return () => {
+    if (!record.listeners.delete(listener)) return;
+    if (!record.listeners.size) revisions.delete(owner);
+    if (!revisions.size && revisionTimer) {
+      clearInterval(revisionTimer);
+      revisionTimer = undefined;
+    }
+  };
+}
+
+// Publications wake reconciliation; each socket retains its own replay cursor.
 export function connectWorkspaceEvents(
   socket: WebSocket,
   url: URL,
@@ -17,8 +69,10 @@ export function connectWorkspaceEvents(
   build?: string,
 ) {
   let cursor = Number(url.searchParams.get("cursor"));
-  let revision = "";
+  let revisionChanged = false;
   let initial = true;
+  let stopped = false;
+  let scheduled: ReturnType<typeof setImmediate> | undefined;
   const read = db.transaction(() => {
     const bounds = db
       .prepare(
@@ -28,16 +82,6 @@ export function connectWorkspaceEvents(
     `,
       )
       .get(owner, owner) as { first: number | null; last: number };
-    const cards = db
-      .prepare(
-        `SELECT
-      (SELECT epoch FROM card_revision_domain WHERE singleton=1) domain,
-      (SELECT COALESCE(max(revision),0) FROM feed_revisions WHERE owner_id=?) cards,
-      (SELECT COALESCE(max(revision),0) FROM done_card_revisions WHERE owner_id=?) done
-    `,
-      )
-      .get(owner, owner);
-    const nextRevision = JSON.stringify(cards);
     let reset =
       (initial &&
         (url.searchParams.get("epoch") !== epoch ||
@@ -71,11 +115,10 @@ export function connectWorkspaceEvents(
       events = [];
     }
     if (events.length) cursor = events.at(-1)!.id;
-    const changed =
-      initial || reset || events.length > 0 || revision !== nextRevision;
-    revision = nextRevision;
+    const changed = initial || reset || events.length > 0 || revisionChanged;
+    revisionChanged = false;
     initial = false;
-    return changed
+    const frame = changed
       ? {
           v: 2,
           type: reset ? "reset" : "events",
@@ -90,22 +133,51 @@ export function connectWorkspaceEvents(
             : {}),
         }
       : null;
+    return { frame, more: !reset && cursor < bounds.last };
   });
-  const poll = () => {
-    if (socket.readyState !== WebSocket.OPEN) return;
+  const pump = () => {
+    scheduled = undefined;
+    if (stopped || socket.readyState !== WebSocket.OPEN) return;
     if (socket.bufferedAmount > 2 * 1024 * 1024) {
       socket.close(4008, "Reconnect for current workspace state");
       return;
     }
     try {
-      const frame = read();
+      const { frame, more } = read();
       if (frame) socket.send(JSON.stringify(frame));
+      if (more) schedule();
     } catch {
       // A failed read must never establish a cursor. Reconnect and reconcile.
       socket.close(1011, "Workspace updates unavailable");
     }
   };
-  poll();
-  const timer = setInterval(poll, 250);
-  return () => clearInterval(timer);
+  const schedule = () => {
+    if (!stopped && !scheduled) scheduled = setImmediate(pump);
+  };
+  // Subscribe before the initial read so catch-up and live wakeups have no gap.
+  const unsubscribe = changes.subscribe(owner, schedule);
+  let unwatch = () => {};
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    unsubscribe();
+    unwatch();
+    if (scheduled) clearImmediate(scheduled);
+    socket.off("close", stop);
+  };
+  socket.once("close", stop);
+  try {
+    unwatch = watchRevisions(owner, (failed) => {
+      if (failed) socket.close(1011, "Workspace updates unavailable");
+      else {
+        revisionChanged = true;
+        schedule();
+      }
+    });
+    pump();
+  } catch {
+    stop();
+    socket.close(1011, "Workspace updates unavailable");
+  }
+  return stop;
 }

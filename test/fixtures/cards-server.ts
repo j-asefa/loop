@@ -2,9 +2,10 @@
 // Environment and data directory are supplied by the isolated parent fixture.
 import { once } from "node:events";
 const source =
-  process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/";
+  process.env.LOOP_TEST_CARDS_SOURCE ||
+  (process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/");
 const { config } = await import(source + "server/config.js");
-const { db } = await import(source + "server/db.js");
+const { db, changes } = await import(source + "server/db.js");
 let close: () => Promise<void>;
 let origin: string, owner: string, pair: string | undefined;
 if (process.env.LOOP_PROFILE === "companion") {
@@ -42,6 +43,16 @@ if (process.env.LOOP_PROFILE === "companion") {
   };
 }
 process.send?.({ origin, owner, pair });
+// IPC-only fixture observation; no production route or browser-visible state.
+process.on("message", (message) => {
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "change-subscriber-count"
+  )
+    process.send?.({ count: changes.subscriberCount });
+});
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, async () => {
     await close();

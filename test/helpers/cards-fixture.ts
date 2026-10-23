@@ -11,7 +11,7 @@ import Database from "better-sqlite3";
 
 export async function cardsFixture(
   mode: "server" | "companion" | "multi-user",
-  compiled = false,
+  compiled: boolean | string = false,
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
   let port = 0;
@@ -42,6 +42,7 @@ export async function cardsFixture(
         LOOP_URL: "http://127.0.0.1" + (port ? ":" + port : ""),
         PORT: String(port),
         LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
+        LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
         NODE_ENV: "test",
         LOOP_LISTEN_HOST: "127.0.0.1",
         LOOP_BIND_ADDRESS: "127.0.0.1",
@@ -175,6 +176,11 @@ export async function cardsFixture(
     db: database,
     request,
     browser,
+    async eventSubscriberCount(): Promise<number> {
+      const reply = once(child, "message");
+      child.send({ type: "change-subscriber-count" });
+      return (await reply)[0].count;
+    },
     async close() {
       database.close();
       if (child.exitCode === null && child.signalCode === null) {

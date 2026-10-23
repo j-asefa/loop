@@ -6,7 +6,7 @@ import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";
 import { executeWorkflow } from "./workflows/runtime.js";
 import { Problem } from "./domain.js";
-import { db, emit, id, now } from "./db.js";
+import { db, changes, emit, id, now } from "./db.js";
 import { executeImport } from "./imports.js";
 import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
@@ -220,20 +220,47 @@ export function startWorker() {
   maintenanceTimers.push(setInterval(() => void indexMemory(), 5000));
   const health = setInterval(heartbeat, 5000);
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
-  const scheduling = setInterval(
-    () => {
+  let scheduled: ReturnType<typeof setImmediate> | undefined;
+  const wake = () => {
+    if (stopping || scheduled) return;
+    scheduled = setImmediate(() => {
+      scheduled = undefined;
       if (stopping || active >= MAX_CONCURRENT_RUNS) return;
       active++;
+      let claimed = false;
       const promise = tick(execute)
+        .then((result) => {
+          claimed = result;
+        })
         .catch(() => {})
         .finally(() => {
           active--;
           inflight.delete(promise);
+          // A terminal publication can arrive while every slot is still held.
+          // Wake again after release, but do not spin on an empty claim.
+          if (claimed) wake();
         });
       inflight.add(promise);
-    },
-    companionMode ? 100 : 500,
-  );
+    });
+  };
+  const unsubscribe = changes.subscribe(null, (events) => {
+    if (
+      events.some(
+        ({ type }) =>
+          [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted",
+          ].includes(type) || type.startsWith("queue."),
+      )
+    )
+      wake();
+  });
+  const scheduling = setInterval(wake, 2000);
+  wake();
   return async () => {
     stopping = true;
     stopObservation();
@@ -242,6 +269,8 @@ export function startWorker() {
     clearInterval(health);
     clearInterval(index);
     clearInterval(scheduling);
+    unsubscribe();
+    if (scheduled) clearImmediate(scheduled);
     await nativeSessions.close();
     // Stop explicit API/tool work too, so shutdown cannot wait on provider IO.
     for (const run of db

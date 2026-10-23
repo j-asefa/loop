@@ -111,10 +111,16 @@ it("dispatches a digest only once its feeds have been read", async () => {
     await pass;
     // Now it has run, against the stories that pass brought in.
 
-    const run = w.db
-      .prepare("SELECT input FROM runs WHERE owner_id='owner'")
-      .get() as { input: string } | undefined;
-    expect(run?.input).toContain("A faster build system");
+    // Advancing the maintenance interval starts its async read, but does not
+    // await that read and its digest continuation. Observe the durable result.
+    await expect
+      .poll(() => {
+        const run = w.db
+          .prepare("SELECT input FROM runs WHERE owner_id='owner'")
+          .get() as { input: string } | undefined;
+        return run?.input;
+      })
+      .toContain("A faster build system");
 
     // A second local day with nothing new sends nothing: a digest covers what
     // arrived since the last one, and it marks nothing read, so without the

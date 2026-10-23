@@ -4,6 +4,7 @@ import { assertPreviewDataDir } from "../preview-context.js";
 export const config = {
   url: process.env.LOOP_URL || "http://localhost:3000",
   port: Number(process.env.PORT || 3000),
+  changePollMs: Number(process.env.LOOP_CHANGE_POLL_MS || 250),
   listenHost: process.env.LOOP_LISTEN_HOST || "127.0.0.1",
   authMode: process.env.LOOP_AUTH_MODE || "single-user",
   singleUserEmail: process.env.LOOP_SINGLE_USER_EMAIL || "",
