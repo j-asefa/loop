@@ -4096,6 +4096,23 @@ fieldset {
   font-size: var(--reading-size);
   line-height: 1.65;
 }
+.result-run-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.result-run-details .changes-chip {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  margin: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.result-run-details .changes-chip > svg {
+  flex-shrink: 0;
+}
 .result-options-menu {
   max-height: min(420px, 60dvh);
   overflow-y: auto;

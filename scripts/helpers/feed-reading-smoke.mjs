@@ -1,7 +1,34 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { seedCheckout } from "./checkout-fixture.mjs";
 
 export async function feedReadingSmoke(page, fixture, capture) {
   const done = fixture.conversations.find((item) => item.state === "completed");
+  const working = fixture.conversations.find((item) => item.state === "running");
+  const observations = new Map();
+  for (const item of [done, working]) {
+    const path = `src/${item.state}.ts`;
+    const files = [{ path, additions: 2, deletions: 1, binary: false }];
+    const patch = `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1,2 @@\n-before\n+after\n+verified\n`;
+    const summary = seedCheckout(fixture.db, item.run, { files, patch });
+    observations.set(item.run, { files, patch, summary });
+    if (item === working)
+      fixture.db.prepare("UPDATE run_checkouts SET state='started', files='[]', patch='', ended_at=NULL, summary=? WHERE run_id=?")
+        .run(JSON.stringify({ ...summary, state: "started", files: 0, additions: 0, deletions: 0 }), item.run);
+  }
+  const seedCheck = (item, command, kind, status, exit) => {
+    fixture.db.prepare(`INSERT INTO run_verifications(
+      id,owner_id,run_id,conversation_id,source_id,kind,tools,command,status,exit_code,output_tail,observed_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      randomUUID(), fixture.owner, item.run, item.id, randomUUID(), kind,
+      JSON.stringify([command]), command, status, exit, `Fixture output: ${command}`, Date.now(),
+    );
+  };
+  seedCheck(done, "npm test", "test", "passed", 0);
+  seedCheck(done, "npm run typecheck", "typecheck", "failed", 1);
+  seedCheck(done, "npm run lint", "lint", "unknown", null);
+  seedCheck(working, "npm run typecheck", "typecheck", "passed", 0);
   const fullMessage = "A detailed result.\n\n" + "Further findings.\n\n".repeat(350) + "\n\nEnd of the full result.";
   fixture.db.prepare("UPDATE messages SET content=? WHERE run_id=? AND role='assistant'")
     .run(fullMessage, done.run);
@@ -14,7 +41,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
     await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   for (const [filter, state] of [["done", "completed"], ["working", "running"], ["queued", "queued"]]) {
-    await page.setViewportSize({ width: filter === "queued" ? 320 : 390, height: 844 });
+    await page.setViewportSize({ width: filter === "done" ? 390 : 320, height: 844 });
     const item = fixture.conversations.find((value) => value.state === state);
     await page.goto(`${fixture.base}/?filter=${filter}`, { waitUntil: "networkidle" });
     const card = page.locator(".inbox-results .inbox-card").filter({ hasText: item.title });
@@ -29,6 +56,65 @@ export async function feedReadingSmoke(page, fixture, capture) {
       await expect(reader.locator(".artifact-body")).toContainText("End of the full result.");
     await reader.locator(".result-content").evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await expect(reader.getByRole("button", { name: "Reply", exact: true })).toBeInViewport();
+    const badges = reader.getByRole("group", { name: "Changes and checks" });
+    if (filter === "queued") {
+      await expect(badges).toHaveCount(0);
+    } else {
+      const checkout = badges.getByRole("button", { name: /^Checkout:/ });
+      const verification = badges.getByRole("button", { name: /^Verification:/ });
+      await expect(checkout).toContainText(filter === "done" ? "1 file +2 −1" : "in progress");
+      await expect(verification).toContainText(filter === "done" ? "npm test ✓" : "npm run typecheck ✓");
+      if (filter === "done") {
+        await expect(verification).toContainText("npm run typecheck ✗");
+        await expect(verification).toContainText("npm run lint ?");
+      }
+      await expect(checkout).toBeInViewport();
+      await expect(verification).toBeInViewport();
+      assert(await badges.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return [...element.querySelectorAll("button")].every((button) => {
+          const box = button.getBoundingClientRect();
+          return box.left >= bounds.left && box.right <= bounds.right + 1 && box.height >= 44;
+        });
+      }), "Preview badges fit narrow phones and retain touch-sized targets");
+      const scroll = await reader.locator(".result-content").evaluate((el) => el.scrollTop);
+      for (const [button, title, endpoint] of [
+        [checkout, "Checkout", "checkout"],
+        [verification, "Verification", "verifications"],
+      ]) {
+        const response = page.waitForResponse(`${fixture.base}/api/runs/${item.run}/${endpoint}`);
+        await button.click();
+        expect((await response).ok()).toBe(true);
+        const details = page.getByRole("dialog", { name: title, exact: true });
+        await expect(details).toBeVisible();
+        if (title === "Checkout" && filter === "done")
+          await expect(details.locator(".pull-files")).toContainText("src/completed.ts");
+        if (title === "Verification") {
+          await expect(details.locator(".verification-output").first()).toContainText(
+            filter === "done" ? "Fixture output: npm test" : "Fixture output: npm run typecheck",
+          );
+          await expect(details.locator(".verification-item")).toHaveCount(filter === "done" ? 3 : 1);
+        }
+        await details.locator(":scope > .sheet-inner > .sheet-head")
+          .getByRole("button", { name: "Close", exact: true }).click();
+        await expect(details).toHaveCount(0);
+        await expect(reader).toBeVisible();
+        await expect(button).toBeFocused();
+        expect(await reader.locator(".result-content").evaluate((el) => el.scrollTop)).toBe(scroll);
+        await expect(thread).toHaveCount(0);
+      }
+      if (filter === "working") {
+        // An open preview follows its run as a pending diff and new checks arrive.
+        const observed = observations.get(item.run);
+        fixture.db.prepare("UPDATE run_checkouts SET state='captured', files=?, patch=?, summary=?, ended_at=? WHERE run_id=?")
+          .run(JSON.stringify(observed.files), observed.patch, JSON.stringify(observed.summary), Date.now(), item.run);
+        seedCheck(item, "npm test", "test", "passed", 0);
+        await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+        await expect(checkout).toContainText("1 file +2 −1");
+        await expect(verification).toContainText("npm test ✓");
+        await expect(thread).toHaveCount(0);
+      }
+    }
     await capture(`feed-reading-${filter}`);
     await reader.getByRole("button", { name: "Reply", exact: true }).click();
     await expect(reader).toHaveCount(0);

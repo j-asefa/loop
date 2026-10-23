@@ -335,6 +335,24 @@ function FeedCard({
     setReading(false);
     action();
   };
+  const changesAndChecks = (compact = false) => (
+    <>
+      {showCheckout && onCheckout && (
+        <CheckoutChip
+          summary={checkoutSummary}
+          onOpen={onCheckout}
+          compact={compact}
+        />
+      )}
+      {showVerification && (
+        <VerificationChip
+          summary={item.run!.verification ?? null}
+          onOpen={onVerification}
+          compact={compact}
+        />
+      )}
+    </>
+  );
   return (
     <li
       className={
@@ -526,20 +544,7 @@ function FeedCard({
             className="inbox-card-details"
             aria-label="Changes and checks"
           >
-            {showCheckout && onCheckout && (
-              <CheckoutChip
-                summary={checkoutSummary}
-                onOpen={onCheckout}
-                compact
-              />
-            )}
-            {showVerification && (
-              <VerificationChip
-                summary={item.run!.verification ?? null}
-                onOpen={item.run!.verification ? onVerification : undefined}
-                compact
-              />
-            )}
+            {changesAndChecks(true)}
             {item.pull && (
               <PullStateChip state={item.pull} onOpen={onPull} compact />
             )}
@@ -618,6 +623,11 @@ function FeedCard({
                   >
                     Continue reading in conversation <ArrowUpRight size={14} />
                   </button>
+                )}
+                {(showCheckout || showVerification) && (
+                  <div className="result-run-details" role="group" aria-label="Changes and checks">
+                    {changesAndChecks()}
+                  </div>
                 )}
               </div>
               <div className="result-edit-actions">
