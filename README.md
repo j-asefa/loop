@@ -1,4 +1,4 @@
-# Loop: your coding agents, from your phone
+# ➰ Loop: your coding agents, from your phone
 
 Loop puts the agents on your computer into one phone workspace. Start runs, approve steps, answer questions and review results from your home screen; the agents keep running on your machine while your phone is away. Pair by scanning a QR code: no app store, no account and no server to set up, even when your computer sits behind a home router.
 
