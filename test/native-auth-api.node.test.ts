@@ -22,10 +22,10 @@ test("paired provider authentication protects credentials, checks project owners
   const bin = join(dir, "bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
-  for (const name of ["codex", "claude", "pi", "opencode"]) {
+  for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse"]) {
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
   }
@@ -199,6 +199,42 @@ test("paired provider authentication protects credentials, checks project owners
         /fixture-super-private|fixture-token-private|fixture-code/,
       );
     assert.equal((db.prepare("SELECT count(*) n FROM runs").get() as any).n, 0);
+    // Gemini has no login command; its route must still reach the driver.
+    const gemini = "/workspace/runtimes/gemini/auth";
+    const geminiStart = await api(gemini + "/start", {
+      projectId,
+      provider: "google",
+      method: "oauth",
+      commandId: randomUUID(),
+    });
+    await until(() => !!nativeSignIns.status("gemini").attempt?.prompt);
+    const geminiPrompt = (await api(gemini + "/status")).attempt.prompt;
+    await api(gemini + "/input", {
+      attemptId: geminiStart.attempt.id,
+      promptId: geminiPrompt.id,
+      value: "fixture-code",
+    });
+    await until(
+      () => nativeSignIns.status("gemini").attempt?.state === "complete",
+    );
+    assert.match(
+      await readFile(join(dir, "auth-audit"), "utf8"),
+      /gemini:authenticate/,
+    );
+    const muse = "/workspace/runtimes/muse/auth";
+    await api(muse + "/start", {
+      projectId,
+      provider: "meta",
+      method: "oauth",
+      commandId: randomUUID(),
+    });
+    await until(() => !!nativeSignIns.status("muse").attempt?.url);
+    assert.equal(
+      new URL((await api(muse + "/status")).attempt.url).hostname,
+      "auth.meta.com",
+    );
+    await writeFile(join(dir, "authorize-muse"), "yes");
+    await until(() => nativeSignIns.status("muse").attempt?.state === "complete");
     await api("/workspace/runtimes/codex/auth/start", {
       projectId,
       provider: "openai",

@@ -117,8 +117,9 @@ export const RuntimeHarness = z.enum([
   "pi",
   "opencode",
   "gemini",
+  "muse",
 ]);
-export const AuthHarness = z.enum(["codex", "claude", "pi", "opencode"]);
+export const AuthHarness = z.enum(["codex", "claude", "pi", "opencode", "gemini", "muse"]);
 export const RegistrationOptions = z.strictObject({
   harness: Harness,
   executable: Path,

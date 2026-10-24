@@ -15,6 +15,8 @@ const minimumVersions = {
   pi: "0.87.1",
   opencode: "1.18.32",
   gemini: "0.64.0",
+  // Account sign-in and login methods on the experimental MSP surface.
+  muse: "1.4.12",
 };
 const install = {
   codex: "https://developers.openai.com/codex/cli",
@@ -22,6 +24,7 @@ const install = {
   pi: "https://github.com/earendil-works/pi",
   opencode: "https://opencode.ai/docs",
   gemini: "https://geminicli.com/docs/get-started/installation/",
+  muse: "https://dev.meta.ai/docs/muse-code/",
 };
 
 function meetsMinimum(version: string | undefined, minimum: string) {

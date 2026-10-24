@@ -470,6 +470,19 @@ function RuntimeSignInSession({
           Start sign-in
         </button>
       )}
+      {!waiting && !complete && (
+        // Not every harness reports an existing sign-in (one made outside
+        // Loop, or before a restart). Enabling checks the account itself.
+        <details className="settings-details">
+          <summary>Already signed in on {location}?</summary>
+          <p className="field-hint">
+            Connect {label} without signing in again. Loop checks the account
+            before enabling it.
+          </p>
+          {connectionSetup}
+          {enableAction}
+        </details>
+      )}
       {!waiting && !complete && startRecovery && (
         <div>
           <p>{startRecovery.inspected ? "No sign-in is in progress. Start a new sign-in if needed." : "Check sign-in status before starting a new attempt."}</p>

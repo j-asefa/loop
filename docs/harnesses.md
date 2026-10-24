@@ -1,6 +1,6 @@
 # Native harnesses
 
-Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode and Gemini CLI on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
+Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode, Gemini CLI and Muse Code on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
 
 ```sh
 loop
@@ -8,7 +8,7 @@ loop start --project /absolute/path/to/project
 loop start --providers codex,claude
 ```
 
-The default selection is `installed` (all five supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
+The default selection is `installed` (all six supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
 
 ## Agent worktrees
 
@@ -31,11 +31,12 @@ Harnesses own their context, tools, configuration and credential homes. Loop inv
 | Pi | Existing native configuration; provider charges may apply | Live steering |
 | OpenCode | Existing native configuration; provider charges may apply | Next-turn queue |
 | Gemini CLI | Existing native sign-in and billing configuration | Next-turn queue |
+| Muse Code | Existing native sign-in and billing configuration | Live steering |
 | Custom ACP | Explicit desktop registration | Next-turn queue |
 
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
 
-Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
+Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens; Muse Code reports with its turn result. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
 
 Codex async questions appear in **Needs you** with their answer choices while the agent continues working. If native work finishes first, Loop keeps the run waiting for your answer and continues in the same native thread when you submit it. Cancelled or replaced sessions expire these decisions; resuming native history does not reopen old questions.
 
@@ -55,6 +56,7 @@ loop claude --project /absolute/path/to/project
 loop pi
 loop opencode
 loop gemini
+loop muse
 loop acp --executable /absolute/path/to/agent --acp-arg serve
 ```
 
@@ -62,11 +64,23 @@ These commands enable the harness in the same running workspace. Executable path
 
 ## Gemini CLI
 
-Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) **0.64.0 or newer**, then run `gemini` on the execution computer and choose **Sign in with Google**. After sign-in, run `loop gemini` in your project, or enable Gemini CLI in **Settings → Provider connections → Harnesses**. `loop start --providers gemini` limits automatic discovery to Gemini. Loop does not install the CLI or perform Google sign-in in the phone browser.
+Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) **0.64.0 or newer**, then choose **Sign in to Gemini CLI** in **Settings → Provider connections → Harnesses**, or run `gemini` on the execution computer and choose **Sign in with Google**. After sign-in, enable Gemini CLI there or run `loop gemini` in your project. `loop start --providers gemini` limits automatic discovery to Gemini. Loop does not install the CLI.
 
-Loop uses Gemini's [ACP mode](https://geminicli.com/docs/cli/acp-mode/) for native tools, approvals, model selection and conversation resume. Account and model checks create a native session without submitting a model prompt. Gemini keeps its credentials and conversation context; Loop never calls ACP `authenticate`, changes the saved sign-in method or falls back to another billing method. Saved agent instructions accompany each explicit Gemini prompt, including after a resume; earlier user tasks are not replayed. Follow-up messages during a turn queue for the next turn.
+Gemini CLI has no login command. Loop's sign-in runs `gemini --acp` in a temporary trusted workspace that selects Google sign-in with `NO_BROWSER=true`. Gemini prints its own authorization URL and reads the code you paste back. Once Gemini accepts the code, Loop sends ACP `authenticate` for `oauth-personal`, so Gemini saves Google as its sign-in method in its own user settings. A rejected code ends the attempt; start again for a new URL.
 
-Gemini defaults to `--billing existing`: its selected CLI account and configuration determine usage charges. ACP does not attest subscription entitlement, so `--billing subscription` is rejected. Choose Google sign-in in the CLI if that is the account you intend to use; a CLI already configured for API billing retains that configuration. Model choices come from Gemini's session catalog. A missing or expired sign-in blocks enablement until you sign in again on the computer. Gemini is discovered on PATH; the supplied Docker images do not install it.
+Loop uses Gemini's [ACP mode](https://geminicli.com/docs/cli/acp-mode/) for native tools, approvals, model selection and conversation resume. Account and model checks create a native session without submitting a model prompt. Gemini keeps its credentials and conversation context; outside that explicit sign-in, Loop never calls ACP `authenticate`, changes the saved sign-in method or falls back to another billing method. Saved agent instructions accompany each explicit Gemini prompt, including after a resume; earlier user tasks are not replayed. Follow-up messages during a turn queue for the next turn.
+
+Gemini defaults to `--billing existing`: its selected CLI account and configuration determine usage charges. ACP does not attest subscription entitlement, so `--billing subscription` is rejected. Choose Google sign-in in the CLI if that is the account you intend to use; a CLI already configured for API billing retains that configuration. Model choices come from Gemini's session catalog. A missing or expired sign-in blocks enablement until you sign in again. Gemini is discovered on PATH; the supplied Docker images do not install it.
+
+## Muse Code
+
+[Muse Code](https://dev.meta.ai/docs/muse-code/) is Meta's coding agent. Install it with Meta's installer (`curl -fsSL https://dev.meta.ai/install.sh | bash`), **1.4.12 or newer**. Then choose **Sign in to Muse Code** in **Settings → Provider connections → Harnesses**, or run `muse login` on the execution computer. After sign-in, enable Muse Code there or run `loop muse` in your project. `loop start --providers muse` limits automatic discovery to Muse Code. Loop does not install the CLI, and Muse's launcher updates itself, so Loop does not offer upgrades for it.
+
+Loop speaks Muse's native MSP protocol over `muse serve`. Sign-in uses MSP's account methods: **Sign in with Meta** shows Meta's device-code page and code, and **Meta API key** hands the key to Muse, which stores it. Muse keeps the credential; Loop never sees a Meta account token. `META_API_KEY` in the workspace environment takes priority over a stored sign-in, as it does in the CLI. Muse stores an API key without checking it, so a wrong key is reported by the first turn.
+
+Account and model checks read MSP `account/read` and `model/list` without creating a session or sending a prompt. Muse keeps its sessions and context; Loop resumes them by session id without copying their history. MSP has no system-instruction field, so the first prompt of a session carries the saved agent instructions; Muse keeps them in that session's context, and a resumed session that already has turns is not sent them again. Earlier user tasks are not replayed. Loop's workspace tools are added to each session as an optional MCP server, so an outage of those tools does not fail the turn. Approval requests offer only this-call choices (**allow** or **deny**); session-wide or saved grants stay in Muse's own interface. Follow-up messages steer the running turn.
+
+Muse Code defaults to `--billing existing`. MSP reports which credential is in effect but not the plan behind it, so `--billing subscription` is rejected. Model and reasoning-effort choices come from Muse's model catalog. Muse is discovered on PATH; the supplied Docker images do not install it.
 
 ## Cross-harness teams and handoffs
 

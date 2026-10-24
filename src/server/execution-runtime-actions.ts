@@ -198,11 +198,11 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
     );
   if (
     input.billing === "subscription" &&
-    (name === "opencode" || name === "gemini")
+    (name === "opencode" || name === "gemini" || name === "muse")
   )
     throw new ExecutionRefused(
       422,
-      `${name === "gemini" ? "Gemini CLI" : "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
+      `${name === "gemini" ? "Gemini CLI" : name === "muse" ? "Muse Code" : "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
     );
   const probe = await discover(name, saved?.executable);
   if (!probe.installed || !probe.supported || !probe.version)

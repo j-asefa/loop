@@ -8,6 +8,12 @@ import { discover } from "../src/host-control.js";
 const exec = promisify(execFile);
 
 const versions = {
+  muse: {
+    minimum: "1.4.12",
+    older: "1.4.11",
+    latest: "1.4.12",
+    format: (v: string) => `Muse Code ${v} (${v}-R6909.1)\n`,
+  },
   gemini: {
     minimum: "0.64.0",
     older: "0.63.0",

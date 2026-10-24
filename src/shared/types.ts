@@ -1,5 +1,5 @@
 export type Provider =
-  "openai" | "anthropic" | "codex" | "pi" | "opencode" | "gemini" | "acp";
+  "openai" | "anthropic" | "codex" | "pi" | "opencode" | "gemini" | "muse" | "acp";
 export type Agent = {
   id: string;
   owner_id: string;

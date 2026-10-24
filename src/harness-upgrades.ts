@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
-export type UpgradeHarness = "codex" | "claude" | "pi" | "opencode" | "gemini";
+export type UpgradeHarness = "codex" | "claude" | "pi" | "opencode" | "gemini" | "muse";
 export type Upgrade = {
   commandId: string;
   name: UpgradeHarness;
@@ -37,7 +37,8 @@ export type UpgradeRunner = (
   args: string[],
   options: { env: NodeJS.ProcessEnv; timeout: number },
 ) => Promise<string>;
-const packages = {
+// Muse Code is not an npm package; its launcher updates itself.
+const packages: Partial<Record<UpgradeHarness, string>> = {
   codex: "@openai/codex",
   claude: "@anthropic-ai/claude-code",
   pi: "@earendil-works/pi-coding-agent",
@@ -119,6 +120,11 @@ export function upgradeLauncher(name: UpgradeHarness, executable: string) {
 // Resolve the installation that owns the executable, never the user's current
 // npm prefix. Unknown/custom installations must use their own package manager.
 export function upgradePlan(name: UpgradeHarness, executable: string) {
+  // Muse's launcher checks for and installs updates itself.
+  if (name === "muse")
+    throw new Error(
+      "Muse Code updates itself. Run muse on the computer to check for an update now.",
+    );
   const real = realpathSync(executable);
   if (name === "opencode" && /loop-opencode|helpers\/opencode/.test(real))
     throw new Error(

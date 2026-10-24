@@ -42,6 +42,7 @@ import { Pi } from "../adapters/pi.js";
 import { NativeSetupError } from "../adapters/setup-error.js";
 import { OpenCode } from "../adapters/opencode.js";
 import { Gemini } from "../adapters/gemini.js";
+import { Muse } from "../adapters/muse.js";
 import { Acp } from "../adapters/acp.js";
 import {
   NotDelivered,
@@ -105,6 +106,7 @@ const classes = {
   opencode: OpenCode,
   acp: Acp,
   gemini: Gemini,
+  muse: Muse,
 };
 const labels = {
   codex: "Codex",
@@ -113,6 +115,7 @@ const labels = {
   opencode: "OpenCode",
   acp: "ACP agent",
   gemini: "Gemini CLI",
+  muse: "Muse Code",
 };
 
 // Native tools can return far more text than the phone needs to display. Keep
@@ -1335,12 +1338,14 @@ export class NativeSessions {
           });
         // Keep actionable setup guidance at the worker's safe error boundary.
         // Raw process/SDK errors may contain local paths or provider details.
-        if (["acp", "gemini"].includes(harness) && !(error instanceof Problem))
+        if (["acp", "gemini", "muse"].includes(harness) && !(error instanceof Problem))
           throw new Problem(
             503,
             harness === "gemini"
-              ? "Gemini CLI setup failed. Run gemini on this computer to check sign-in, then refresh the connection and retry."
-              : "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run.",
+              ? "Gemini CLI setup failed. Sign in to Gemini CLI in Provider connections, then refresh the connection and retry."
+              : harness === "muse"
+                ? "Muse Code setup failed. Sign in to Muse Code in Provider connections, then refresh the connection and retry."
+                : "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run.",
           );
         throw error;
       }
@@ -1991,7 +1996,33 @@ export class NativeSessions {
       await live.adapter.answer(d.native_id, answer);
       finishDecisions("resolved", "id=?", [decisionId]);
       return { state: "resolved" };
-    } catch {
+    } catch (error) {
+      // The harness explicitly refused the answer and is still waiting:
+      // nothing was applied, so the decision opens for another answer.
+      if (error instanceof NotDelivered) {
+        // Only while the same run and native session still wait for it. A
+        // run that ended meanwhile expires the decision, as it would have.
+        const current = this.live.get(d.conversation_id);
+        const runState = (db.prepare("SELECT state FROM runs WHERE id=?").get(d.run_id) as { state: string } | undefined)?.state;
+        if (
+          current === live &&
+          !live.closed &&
+          live.generation === d.generation &&
+          live.run?.id === d.run_id &&
+          ["running", "awaiting_approval"].includes(runState ?? "")
+        ) {
+          const reopened = db.prepare(
+            "UPDATE native_decisions SET state='pending',command_id=NULL,digest=NULL WHERE id=? AND state='deciding'",
+          ).run(decisionId).changes;
+          if (reopened) throw new Problem(409, `${error.message} Answer again.`);
+        } else
+          finishDecisions("expired", "id=? AND state='deciding'", [decisionId]);
+        // The harness resolved it meanwhile: report what is stored.
+        const stored = db.prepare("SELECT state FROM native_decisions WHERE id=?")
+          .get(decisionId) as { state: string } | undefined;
+        if (stored?.state === "resolved") return { state: "resolved" };
+        throw new Problem(409, "This native decision expired or was already handled.");
+      }
       // A harness resolution can arrive before the answer transport finishes.
       // A later transport failure must not undo that confirmation or record it
       // a second time. An unconfirmed answer stays uncertain and is not replayed.

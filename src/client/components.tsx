@@ -47,7 +47,9 @@ import {
 export const providerName = (p?: Provider) =>
   p === "gemini"
     ? "Gemini"
-    : p === "acp"
+    : p === "muse"
+      ? "Meta"
+      : p === "acp"
       ? "ACP agent"
       : p === "pi"
         ? "Pi"

@@ -6,7 +6,7 @@ export const isNativeConnection = (connection: Pick<Connection, "metadata">) =>
 
 // Only these harness adapters take input mid-turn; API and subscription
 // runtimes do too. Replies to other harnesses queue for the next turn.
-const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi"]);
+const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi", "muse"]);
 export const acceptsLiveInput = (connection: Pick<Connection, "metadata">) => {
   const harness = JSON.parse(connection.metadata).loopHarness;
   return harness == null || LIVE_INPUT_HARNESSES.has(harness);

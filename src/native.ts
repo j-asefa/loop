@@ -3,6 +3,17 @@ import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { killOwned, own } from "./processes.js";
 
+/** An explicit error response from the harness: it received and refused the request. */
+export class NativeRpcError extends Error {
+  constructor(
+    message: string,
+    public code?: number,
+    public kind?: string,
+  ) {
+    super(message);
+    this.name = "NativeRpcError";
+  }
+}
 /** A broken/timeout write may have executed; callers must never retry mutations. */
 export class Native extends EventEmitter {
   child: ChildProcessWithoutNullStreams;
@@ -16,6 +27,8 @@ export class Native extends EventEmitter {
   >();
   private seq = 0;
   private closed = false;
+  /** Strict JSON-RPC peers (Muse Code's MSP) reject frames without `jsonrpc`. */
+  jsonrpc = false;
   constructor(
     executable: string,
     args: string[],
@@ -97,11 +110,15 @@ export class Native extends EventEmitter {
           clearTimeout(p.timer);
           if (m.error || m.success === false)
             p.reject(
-              new Error(
-                typeof m.error === "string"
-                  ? m.error
-                  : m.error?.message || "Native command failed",
-              ),
+              typeof m.error === "object" && m.error
+                ? new NativeRpcError(
+                    m.error.message || "Native command failed",
+                    typeof m.error.code === "number" ? m.error.code : undefined,
+                    typeof m.error.data?.kind === "string" ? m.error.data.kind : undefined,
+                  )
+                : new Error(
+                    typeof m.error === "string" ? m.error : "Native command failed",
+                  ),
             );
           else p.resolve(m.type === "response" ? m.data : m.result);
         } else {
@@ -138,7 +155,10 @@ export class Native extends EventEmitter {
   write(message: unknown): Promise<void> {
     if (this.closed)
       return Promise.reject(new Error("Native process is closed."));
-    const line = JSON.stringify(message) + "\n";
+    const line =
+      JSON.stringify(
+        this.jsonrpc ? { jsonrpc: "2.0", ...(message as object) } : message,
+      ) + "\n";
     return new Promise((resolve, reject) =>
       this.child.stdin.write(line, (e) => (e ? reject(e) : resolve())),
     );

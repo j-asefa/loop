@@ -5,6 +5,7 @@ import { historicalEvent } from "../src/shared/workspace-events";
 import type { PermissionMode } from "../src/shared/permission-modes";
 import { Claude } from "../src/adapters/claude";
 import { Codex } from "../src/adapters/codex";
+import { NotDelivered } from "../src/adapters/types";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -576,5 +577,53 @@ it("keeps a confirmed answer resolved when the transport subsequently fails", as
   await expect(sessions.answer(decision.id, "confirmed-command", { choice: "allow" })).resolves.toEqual({ state: "resolved" });
   await expect(sessions.answer(decision.id, "confirmed-command", { choice: "allow" })).resolves.toEqual({ state: "resolved" });
   expect(answer).toHaveBeenCalledExactlyOnceWith(approval.id, { choice: "allow" });
+  expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "resolved" });
+});
+
+it("reopens a decision the harness explicitly refused, and keeps other failures uncertain", async () => {
+  const f = session("refused-answer", "default");
+  f.answer.mockRejectedValueOnce(new NotDelivered("Muse Code did not accept this decision."));
+  f.request(approval);
+  const decision = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(f.run.id) as { id: string };
+  await expect(f.sessions.answer(decision.id, "11111111-1111-4111-8111-111111111111", { choice: "allow" }))
+    .rejects.toThrow(/did not accept this decision\. Answer again/);
+  expect(db.prepare("SELECT state,command_id FROM native_decisions WHERE id=?").get(decision.id))
+    .toEqual({ state: "pending", command_id: null });
+  expect(await f.sessions.answer(decision.id, "22222222-2222-4222-8222-222222222222", { choice: "allow" }))
+    .toEqual({ state: "resolved" });
+  expect(f.answer).toHaveBeenCalledTimes(2);
+
+  const g = session("uncertain-answer", "default");
+  g.answer.mockRejectedValueOnce(new Error("transport closed"));
+  g.request(approval);
+  const uncertain = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(g.run.id) as { id: string };
+  await expect(g.sessions.answer(uncertain.id, "33333333-3333-4333-8333-333333333333", { choice: "allow" }))
+    .rejects.toThrow(/outcome is unknown/);
+  expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(uncertain.id)).toEqual({ state: "unknown" });
+});
+
+it("expires a refused decision when its run ended while the answer was in flight", async () => {
+  const f = session("refused-after-end", "default");
+  f.request(approval);
+  f.answer.mockImplementationOnce(async () => {
+    db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(f.run.id);
+    throw new NotDelivered("Muse Code did not accept this decision.");
+  });
+  const decision = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(f.run.id) as { id: string };
+  await expect(f.sessions.answer(decision.id, "44444444-4444-4444-8444-444444444444", { choice: "allow" }))
+    .rejects.toThrow(/expired or was already handled/);
+  expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "expired" });
+});
+
+it("reports a refused decision as resolved when the harness resolved it meanwhile", async () => {
+  const f = session("refused-after-resolution", "default");
+  f.request(approval);
+  f.answer.mockImplementationOnce(async () => {
+    f.sessions.event(f.live, { type: "resolved", id: approval.id });
+    throw new NotDelivered("Muse Code did not accept this decision.");
+  });
+  const decision = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(f.run.id) as { id: string };
+  expect(await f.sessions.answer(decision.id, "55555555-5555-4555-8555-555555555555", { choice: "allow" }))
+    .toEqual({ state: "resolved" });
   expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "resolved" });
 });

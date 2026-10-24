@@ -35,7 +35,10 @@ const labels: Record<string, string> = {
   pi: "Pi",
   opencode: "OpenCode",
   gemini: "Gemini CLI",
+  muse: "Muse Code",
 };
+// These harnesses cannot attest subscription billing, so setup has no picker.
+const existingOnly = (name: string) => name === "gemini" || name === "muse";
 function authBase(runtime: Runtime) {
   return `/workspace/runtimes/${runtime.name}/auth`;
 }
@@ -105,12 +108,10 @@ export function RuntimeSetup({
     );
     // Read existing attempts without starting a harness or another sign-in.
     const states = await Promise.allSettled(
-      host.runtimes
-        .filter((runtime) => runtime.name !== "gemini")
-        .map(async (runtime) => {
-          const auth = await authStatus(runtime);
-          return [runtimeAuthScope(runtime), auth.attempt?.state, auth.attempt?.id] as const;
-        }),
+      host.runtimes.map(async (runtime) => {
+        const auth = await authStatus(runtime);
+        return [runtimeAuthScope(runtime), auth.attempt?.state, auth.attempt?.id] as const;
+      }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
     if (revision === authRevision.current) {
@@ -149,7 +150,7 @@ export function RuntimeSetup({
       const projectId = runtime.enabled
         ? projects.find((p) => p.path === runtime.project)?.folder_id
         : project;
-      const selectedBilling = runtime.name === "gemini" ? "existing" : runtime.billing || billing;
+      const selectedBilling = existingOnly(runtime.name) ? "existing" : runtime.billing || billing;
       const commandKey = JSON.stringify([runtime.name, projectId, selectedBilling, runtime.version, authAttempts.current.get(runtimeAuthScope(runtime))]);
       // Only an explicit action after inspection starts a new verification.
       // Ordinary retries keep reconciling the original durable command.
@@ -312,7 +313,9 @@ export function RuntimeSetup({
           const open = signingIn === runtime.name;
           const signedIn =
             authStates[scope] === "complete" ||
-            runtime.authentication === "signed_in";
+            runtime.authentication === "signed_in" ||
+            // An enabled runtime passed its account check when it was enabled.
+            (runtime.enabled && runtime.authentication === "previously_verified");
           const authenticating = ["starting", "waiting"].includes(
             authStates[scope] || "",
           );
@@ -383,7 +386,7 @@ export function RuntimeSetup({
                   <small>
                     {runtime.billing === "existing" ||
                     runtime.name === "pi" ||
-                    runtime.name === "gemini"
+                    existingOnly(runtime.name)
                       ? "Existing billing · may incur API charges"
                       : runtime.billing === "subscription"
                         ? "Native subscription"
@@ -441,30 +444,7 @@ export function RuntimeSetup({
                   <p className="settings-intro">
                     {discovery.computer} · Native harness
                   </p>
-                  {runtime.available &&
-                  discovery.online &&
-                  runtime.name === "gemini" ? (
-                    <>
-                      <p>
-                        On this computer, run <code>gemini</code> and choose{" "}
-                        <strong>Sign in with Google</strong>. Then enable or
-                        refresh Gemini here.
-                      </p>
-                      <p>
-                        Loop uses Gemini CLI’s existing account and billing
-                        configuration. It does not change the sign-in method;
-                        provider charges may apply.
-                      </p>
-                      {runtime.enabled ? (
-                        <p>
-                          Project: <code>{runtime.project}</code>
-                        </p>
-                      ) : (
-                        projectFields
-                      )}
-                      {enableAction}
-                    </>
-                  ) : runtime.available && discovery.online ? (
+                  {runtime.available && discovery.online ? (
                     <RuntimeSignIn
                       base={authBase(runtime)}
                       backend="direct"
@@ -484,6 +464,8 @@ export function RuntimeSetup({
                               Project:{" "}
                               <code>{runtime.project || "Unknown"}</code>
                             </p>
+                          ) : existingOnly(runtime.name) ? (
+                            projectFields
                           ) : (
                             setupFields
                           )}

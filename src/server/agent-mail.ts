@@ -119,6 +119,8 @@ const HARNESSES: Record<string, string> = {
   claude: "Claude Code",
   pi: "Pi",
   opencode: "OpenCode",
+  gemini: "Gemini CLI",
+  muse: "Muse Code",
   acp: "ACP agent",
 };
 // What an agent runs on and where, so teammates know whose files they share.

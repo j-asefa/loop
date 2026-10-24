@@ -34,7 +34,7 @@ export class Gemini extends Acp {
       return await super.start();
     } catch {
       throw new Error(
-        "Gemini CLI setup failed. Run gemini on this computer, choose Sign in with Google, then enable Gemini again. Check the installed version and project configuration if sign-in is already complete.",
+        "Gemini CLI setup failed. Sign in to Gemini CLI in Provider connections, then enable Gemini again. Check the installed version and project configuration if sign-in is already complete.",
       );
     }
   }
