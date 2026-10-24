@@ -265,6 +265,10 @@ test(
       assert.equal(bootstrap.preview.build.id, before.preview.build.id);
       assert.equal(bootstrap.agents.length, 5);
       assert.equal((await phone.send("GET", "/api/capabilities")).data.cardTokens, false);
+      assert.equal((await phone.send("GET", "/api/capabilities")).data.personalDecisions, true);
+      const answerHistory = await phone.send("GET", "/api/me/decisions?kind=answer");
+      assert.equal(answerHistory.status, 200);
+      assert(Array.isArray(answerHistory.data.items));
       assert(!JSON.stringify(bootstrap.preview).includes(f.base));
       const buildStatus = await phone.send("GET", "/api/build");
       assert.equal(buildStatus.status, 200);
@@ -419,6 +423,11 @@ test(
         ).status,
         409,
       );
+      const approvalHistory = await phone.send("GET", "/api/me/decisions?kind=approval");
+      assert.equal(approvalHistory.status, 200);
+      const recordedApproval = approvalHistory.data.items.find((item: any) => item.id === "approval:" + approval.id);
+      assert.equal(recordedApproval?.choice, "approve");
+      assert.equal(recordedApproval?.state, "resolved");
       let continued: any;
       for (let i = 0; i < 60; i++) {
         continued = (await phone.send("GET", "/api/runs")).data.find(

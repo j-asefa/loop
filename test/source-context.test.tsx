@@ -17,11 +17,23 @@ import {
 import { loopFileUrl } from "../src/client/FilePreview";
 import { RichText } from "../src/client/components";
 import { PublishedFile } from "../src/client/PublishedFiles";
+import { PersonalDecisions } from "../src/client/PersonalDecisions";
 
 const server = profileCapabilities("server");
 afterEach(() => {
   setShellSource("");
   vi.unstubAllGlobals();
+});
+
+it.each(["approval", "answer"] as const)("explains unavailable %s history on an older connected source", kind => {
+  const html = renderToStaticMarkup(
+    <SourceProvider sourceId="docker:older" capabilities={{ ...server, personalDecisions: undefined }}>
+      <PersonalDecisions kind={kind} onConversation={() => {}} />
+    </SourceProvider>,
+  );
+  expect(html).toContain("Decision history unavailable");
+  expect(html).toContain("Update Loop on that workspace");
+  expect(html).not.toContain("Loading history");
 });
 
 it("binds conversation actions and file URLs to their source across later navigation", async () => {

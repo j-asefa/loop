@@ -216,6 +216,7 @@ it("shares GitHub merges under the approval policy while retaining the head requ
   const changed = await api(owner, "/mcp/preferences", { approvalMode: "allow" }, "PUT");
   expect(changed.data.resumed).toBe(1);
   expect(db.prepare("SELECT state FROM approvals WHERE id=?").get(approval.id)).toEqual({ state: "approved" });
+  expect(db.prepare("SELECT 1 FROM personal_decisions WHERE approval_id=?").get(approval.id)).toBeUndefined();
 });
 
 it("honors an older shared source's explicit alwaysAsk restriction even in Allow", async () => {

@@ -13,9 +13,16 @@ export type MyProfileData = {
   counts: { messages: number; agents: number; projects: number };
 };
 export type ProfileTab =
-  "messages" | "files" | "social" | Exclude<LaterSection, "all">;
+  | "messages"
+  | "approvals"
+  | "answers"
+  | "files"
+  | "social"
+  | Exclude<LaterSection, "all">;
 const profileTabs: [ProfileTab, string][] = [
   ["messages", "Messages"],
+  ["approvals", "Approvals"],
+  ["answers", "Answers"],
   ["saved", "Saved"],
   ["reminders", "Reminders"],
   ["scheduled", "Scheduled"],
@@ -24,7 +31,7 @@ const profileTabs: [ProfileTab, string][] = [
 ];
 
 /**
- * Your own profile: who you are, then your sent messages, published files and what Later
+ * Your own profile: who you are, then messages, decisions, published files and what Later
  * holds (Saved, Reminders, Scheduled) as tabs. It opens on the tab Later
  * was last asked for, so links to a reminder or scheduled send land there.
  */
@@ -34,6 +41,7 @@ export function MyProfile({
   profile,
   onSaved,
   messages,
+  decisions,
   files,
   social,
   later,
@@ -46,6 +54,7 @@ export function MyProfile({
   profile: MyProfileData | null;
   onSaved: (profile: MyProfileData) => void;
   messages: ReactNode;
+  decisions: (kind: "approval" | "answer") => ReactNode;
   files: ReactNode;
   social?: ReactNode;
   later: (section: Exclude<LaterSection, "all">) => ReactNode;
@@ -181,11 +190,13 @@ export function MyProfile({
       >
         {tab === "messages"
           ? messages
-          : tab === "files"
-            ? files
-            : tab === "social"
-              ? social
-              : later(tab)}
+          : tab === "approvals" || tab === "answers"
+            ? decisions(tab === "approvals" ? "approval" : "answer")
+            : tab === "files"
+              ? files
+              : tab === "social"
+                ? social
+                : later(tab)}
       </div>
       {editing && (
         <EditProfile

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
+import { recordPersonalDecision } from "./personal-decisions.js";
 export function requestApproval(
   run: Run,
   request: unknown,
@@ -41,6 +42,7 @@ export function decide(
   owner: string,
   approvalId: string,
   decision: "approve" | "reject",
+  automatic = false,
 ) {
   return db
     .transaction(() => {
@@ -58,6 +60,13 @@ export function decide(
         approvalId,
         "pending",
       );
+      if (!automatic)
+        recordPersonalDecision({
+          owner,
+          run: run.id,
+          approval: approvalId,
+          answer: { choice: decision },
+        });
       if (
         db
           .prepare(

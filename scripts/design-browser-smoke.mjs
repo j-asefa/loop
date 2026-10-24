@@ -32,6 +32,7 @@ const names = [
   "team-feed-visibility",
   "team-presets",
   "profile",
+  "personal-decisions",
   "models",
   "swipe",
   "done-card-dismissal",

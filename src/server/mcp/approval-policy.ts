@@ -72,7 +72,7 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
           }
           if (alwaysAsk) continue;
           try {
-            decide(owner, approval.id, "approve");
+            decide(owner, approval.id, "approve", true);
             emit(owner, approval.run_id, "approval.auto_approved", {
               approvalId: approval.id,
             });

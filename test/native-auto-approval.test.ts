@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { NativeOutput } from "../src/server/native-output";
+import { PERSONAL_DECISION_DETAIL_LIMIT, PERSONAL_DECISION_RESPONSE_LIMIT } from "../src/shared/personal-decisions";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
 const dir = mkdtempSync(join(tmpdir(), "loop-auto-approval-"));
@@ -19,6 +20,7 @@ process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
+const { personalDecisions } = await import("../src/server/personal-decisions");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -578,6 +580,74 @@ it("keeps a confirmed answer resolved when the transport subsequently fails", as
   await expect(sessions.answer(decision.id, "confirmed-command", { choice: "allow" })).resolves.toEqual({ state: "resolved" });
   expect(answer).toHaveBeenCalledExactlyOnceWith(approval.id, { choice: "allow" });
   expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "resolved" });
+  expect(personalDecisions(OWNER, { kind: "approval" }).items.filter((item) => item.id === "native:" + decision.id))
+    .toMatchObject([{ state: "resolved", choice: "allow", response_recorded: true }]);
+});
+
+it("records validated native answers once, hides secrets, and retains uncertain delivery without replay", async () => {
+  const f = session("personal-answers", "default");
+  f.request({ id: "questions", kind: "question", title: "Deployment preferences", detail: "Choose how to ship " + "x".repeat(20_000),
+    questions: [{ id: "target", title: "Which environment?", multiple: true }, { id: "token", title: "Access token", secret: true }],
+  });
+  const decision = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(f.run.id) as { id: string };
+  const response = { target: ["Staging", "Canary"], token: ["secret-token-value"], extra: ["unsolicited-secret"] };
+  await expect(f.sessions.answer(decision.id, "bad-answer", { target: "wrong", token: [] })).rejects.toThrow("Invalid question answer");
+  expect(db.prepare("SELECT 1 FROM personal_decisions WHERE native_decision_id=?").get(decision.id)).toBeUndefined();
+  f.answer.mockRejectedValue(new Error("Lost acknowledgement"));
+  await expect(f.sessions.answer(decision.id, "personal-answer", response)).rejects.toThrow("unknown");
+  await expect(f.sessions.answer(decision.id, "personal-answer", response)).resolves.toEqual({ state: "unknown" });
+  expect(f.answer).toHaveBeenCalledExactlyOnceWith("questions", response);
+  const item = personalDecisions(OWNER, { kind: "answer" }).items.find((item) => item.id === "native:" + decision.id);
+  expect(item).toMatchObject({ title: "Deployment preferences", state: "unknown", conversation_id: "personal-answers",
+    detail_truncated: true,
+    answers: [{ question: "Which environment?", values: ["Staging", "Canary"], secret: false },
+      { question: "Access token", values: null, secret: true }] });
+  expect(Buffer.byteLength(JSON.stringify(item?.detail))).toBeLessThanOrEqual(PERSONAL_DECISION_DETAIL_LIMIT);
+  const persisted = db.prepare("SELECT response FROM personal_decisions WHERE native_decision_id=?").get(decision.id);
+  expect(JSON.stringify(persisted)).not.toContain("secret-token-value");
+  expect(JSON.stringify(persisted)).not.toContain("unsolicited-secret");
+  expect(JSON.stringify(item)).not.toContain("secret-token-value");
+  expect(personalDecisions("other-owner", { kind: "answer" }).items).toEqual([]);
+});
+
+it("bounds saved answer previews without changing the complete answer delivered to the harness", async () => {
+  const f = session("large-personal-answer", "default");
+  const questions: NonNullable<Request["questions"]> = [
+    { id: "token", title: "Access token", secret: true },
+    ...Array.from({ length: 49 }, (_, i) => ({ id: "q" + i, title: "Question " + i })),
+  ];
+  f.request({ id: "large-questions", kind: "question", title: "Large answers", detail: "", questions });
+  const decision = db.prepare("SELECT id FROM native_decisions WHERE run_id=?").get(f.run.id) as { id: string };
+  const response = Object.fromEntries(questions.map((q) => [q.id,
+    q.secret ? ["private-answer"] : Array.from({ length: 30 }, (_, i) => i === 0 ? "🙂\\\u0001".repeat(1000) : "x".repeat(8000)),
+  ]));
+  await f.sessions.answer(decision.id, "large-answer-command", response);
+  await f.sessions.answer(decision.id, "large-answer-command", response);
+  expect(f.answer).toHaveBeenCalledExactlyOnceWith("large-questions", response);
+  expect(response.q48[29]).toHaveLength(8000);
+  const stored = db.prepare("SELECT response,response_truncated FROM personal_decisions WHERE native_decision_id=?").get(decision.id) as { response: string; response_truncated: number };
+  expect(Buffer.byteLength(stored.response)).toBeLessThanOrEqual(PERSONAL_DECISION_RESPONSE_LIMIT);
+  expect(stored.response_truncated).toBe(1);
+  expect(stored.response).not.toContain("private-answer");
+  const item = personalDecisions(OWNER, { kind: "answer" }).items.find((item) => item.id === "native:" + decision.id)!;
+  expect(item.response_recorded).toBe(true);
+  expect(item.response_truncated).toBe(true);
+  expect(Buffer.byteLength(JSON.stringify(item.answers))).toBeLessThanOrEqual(PERSONAL_DECISION_RESPONSE_LIMIT);
+  expect(item.answers[0]).toMatchObject({ secret: true, values: null });
+  expect(item.answers[1].values?.[0]).toMatch(/^🙂/);
+  expect(item.answers[1].values?.[0]).toMatch(/…$/);
+  expect(item.answers.some((answer) => answer.values?.length === 0)).toBe(false);
+});
+
+it("leaves automatic native approvals and externally resolved questions out of personal history", async () => {
+  const automatic = session("personal-auto", "bypassPermissions");
+  automatic.request(approval);
+  await vi.waitFor(() => expect(automatic.answer).toHaveBeenCalledOnce());
+  expect(db.prepare("SELECT 1 FROM personal_decisions WHERE run_id=?").get(automatic.run.id)).toBeUndefined();
+  const external = session("personal-external", "default");
+  external.request({ id: "external-question", kind: "question", title: "Choose", detail: "", questions: [{ id: "q", title: "Which?" }] });
+  external.sessions.event(external.live, { type: "resolved", id: "external-question" });
+  expect(db.prepare("SELECT 1 FROM personal_decisions WHERE run_id=?").get(external.run.id)).toBeUndefined();
 });
 
 it("reopens a decision the harness explicitly refused, and keeps other failures uncertain", async () => {
@@ -589,9 +659,13 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
     .rejects.toThrow(/did not accept this decision\. Answer again/);
   expect(db.prepare("SELECT state,command_id FROM native_decisions WHERE id=?").get(decision.id))
     .toEqual({ state: "pending", command_id: null });
+  expect(personalDecisions(OWNER, { kind: "approval" }).items.find(item => item.id === "native:" + decision.id))
+    .toBeUndefined();
   expect(await f.sessions.answer(decision.id, "22222222-2222-4222-8222-222222222222", { choice: "allow" }))
     .toEqual({ state: "resolved" });
   expect(f.answer).toHaveBeenCalledTimes(2);
+  expect(personalDecisions(OWNER, { kind: "approval" }).items.filter(item => item.id === "native:" + decision.id))
+    .toMatchObject([{ choice: "allow", state: "resolved" }]);
 
   const g = session("uncertain-answer", "default");
   g.answer.mockRejectedValueOnce(new Error("transport closed"));
@@ -600,6 +674,8 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
   await expect(g.sessions.answer(uncertain.id, "33333333-3333-4333-8333-333333333333", { choice: "allow" }))
     .rejects.toThrow(/outcome is unknown/);
   expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(uncertain.id)).toEqual({ state: "unknown" });
+  expect(personalDecisions(OWNER, { kind: "approval" }).items.find(item => item.id === "native:" + uncertain.id))
+    .toMatchObject({ choice: "allow", state: "unknown" });
 });
 
 it("expires a refused decision when its run ended while the answer was in flight", async () => {
@@ -613,6 +689,8 @@ it("expires a refused decision when its run ended while the answer was in flight
   await expect(f.sessions.answer(decision.id, "44444444-4444-4444-8444-444444444444", { choice: "allow" }))
     .rejects.toThrow(/expired or was already handled/);
   expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "expired" });
+  expect(personalDecisions(OWNER, { kind: "approval" }).items.find(item => item.id === "native:" + decision.id))
+    .toBeUndefined();
 });
 
 it("reports a refused decision as resolved when the harness resolved it meanwhile", async () => {
@@ -626,4 +704,6 @@ it("reports a refused decision as resolved when the harness resolved it meanwhil
   expect(await f.sessions.answer(decision.id, "55555555-5555-4555-8555-555555555555", { choice: "allow" }))
     .toEqual({ state: "resolved" });
   expect(db.prepare("SELECT state FROM native_decisions WHERE id=?").get(decision.id)).toEqual({ state: "resolved" });
+  expect(personalDecisions(OWNER, { kind: "approval" }).items.find(item => item.id === "native:" + decision.id))
+    .toMatchObject({ choice: "allow", state: "resolved" });
 });

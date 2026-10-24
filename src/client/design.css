@@ -919,6 +919,33 @@ a:focus-visible {
 .my-profile-counts strong {
   font-size: 14px;
 }
+.personal-decision {
+  overflow-wrap: anywhere;
+}
+.personal-decision-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.personal-decision-answers {
+  display: grid;
+  gap: 1rem;
+}
+.personal-decision-answers dt {
+  font-weight: 600;
+}
+.personal-decision-answers dd {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+}
+.personal-decision pre {
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .my-profile-tabs {
   margin: 0 -32px 0;
   padding-inline: 20px;

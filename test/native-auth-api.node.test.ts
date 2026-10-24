@@ -207,7 +207,7 @@ test("paired provider authentication protects credentials, checks project owners
       method: "oauth",
       commandId: randomUUID(),
     });
-    await until(() => !!nativeSignIns.status("gemini").attempt?.prompt);
+    await until(async () => !!(await api(gemini + "/status")).attempt?.prompt);
     const geminiPrompt = (await api(gemini + "/status")).attempt.prompt;
     await api(gemini + "/input", {
       attemptId: geminiStart.attempt.id,
@@ -215,7 +215,7 @@ test("paired provider authentication protects credentials, checks project owners
       value: "fixture-code",
     });
     await until(
-      () => nativeSignIns.status("gemini").attempt?.state === "complete",
+      async () => (await api(gemini + "/status")).attempt?.state === "complete",
     );
     assert.match(
       await readFile(join(dir, "auth-audit"), "utf8"),
@@ -228,13 +228,13 @@ test("paired provider authentication protects credentials, checks project owners
       method: "oauth",
       commandId: randomUUID(),
     });
-    await until(() => !!nativeSignIns.status("muse").attempt?.url);
+    await until(async () => !!(await api(muse + "/status")).attempt?.url);
     assert.equal(
       new URL((await api(muse + "/status")).attempt.url).hostname,
       "auth.meta.com",
     );
     await writeFile(join(dir, "authorize-muse"), "yes");
-    await until(() => nativeSignIns.status("muse").attempt?.state === "complete");
+    await until(async () => (await api(muse + "/status")).attempt?.state === "complete");
     await api("/workspace/runtimes/codex/auth/start", {
       projectId,
       provider: "openai",

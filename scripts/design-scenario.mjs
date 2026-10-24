@@ -23,6 +23,7 @@ import { teamNavigationSmoke } from "./helpers/team-navigation-smoke.mjs";
 import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
 import { teamFeedVisibilitySmoke } from "./helpers/team-feed-visibility-smoke.mjs";
 import { profileNavigationSmoke } from "./helpers/profile-navigation-smoke.mjs";
+import { personalDecisionsSmoke } from "./helpers/personal-decisions-smoke.mjs";
 import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
 import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
 import { doneCardDismissalSmoke } from "./helpers/done-card-dismissal-smoke.mjs";
@@ -108,6 +109,7 @@ const scenarios = {
   "team-feed-visibility": teamFeedVisibilitySmoke,
   "team-presets": teamPresetsSmoke,
   profile: profileNavigationSmoke,
+  "personal-decisions": personalDecisionsSmoke,
   models: (p, f, e, c) => modelLabelsSmoke(p, f, c),
   swipe: swipeBackSmoke,
   "done-card-dismissal": doneCardDismissalSmoke,

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { ZodError } from "zod";
+import { PERSONAL_DECISION_RESPONSE_LIMIT, PERSONAL_DECISIONS_PAGE_LIMIT } from "../src/shared/personal-decisions";
 const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -2003,4 +2004,106 @@ it("keeps your profile per owner, with counts matching your prompt history", asy
   const other = workspaceFor();
   expect((await api(other.owner, "/me/profile", "PUT", { display_name: null, handle: "JAMIE_A", bio: null })).status).toBe(409);
   expect((await api(other.owner, "/me/profile")).data).toMatchObject({ handle: null, counts: { messages: 0, agents: 0, projects: 0 } });
+});
+
+it("pages your explicit approvals through the profile API without mixing owners or automatic decisions", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Release review");
+  const rid = run(w.owner, a.id, cid, "awaiting_approval");
+  const approvals = [];
+  for (let i = 0; i < 53; i++) {
+    db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
+    const approval = requestApproval(owned<any>("runs", rid, w.owner), {
+      type: "mcp_tool", tool: "merge_pull_request", arguments: { pullNumber: i },
+    });
+    expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: i === 0 ? "reject" : "approve" })).status).toBe(200);
+    approvals.push(approval.id);
+  }
+  // Equal timestamps still page each decision exactly once.
+  db.prepare("UPDATE personal_decisions SET created_at=100 WHERE owner_id=?").run(w.owner);
+  expect((await api(w.owner, `/approvals/${approvals[1]}`, "POST", { decision: "approve" })).status).toBe(409);
+  const auto = requestApproval(owned<any>("runs", rid, w.owner), { type: "mcp_tool", tool: "automatic" }, true);
+  const expired = requestApproval(owned<any>("runs", rid, w.owner), { type: "mcp_tool", tool: "expired" });
+  db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
+  db.prepare("UPDATE approvals SET expires_at=0 WHERE id=?").run(expired.id);
+  expect((await api(w.owner, `/approvals/${expired.id}`, "POST", { decision: "approve" })).status).toBe(409);
+
+  const first = (await api(w.owner, "/me/decisions?kind=approval&owner=someone-else")).data;
+  expect(first.items).toHaveLength(50);
+  expect(first.next).toBeTruthy();
+  const second = (await api(w.owner, "/me/decisions?kind=approval&before=" + first.next)).data;
+  expect(second.items).toHaveLength(3);
+  expect(second.next).toBeNull();
+  const items = [...first.items, ...second.items];
+  expect(new Set(items.map((item: any) => item.id)).size).toBe(53);
+  expect(items.map((item: any) => item.choice).filter((choice: string) => choice === "reject")).toHaveLength(1);
+  expect(items.every((item: any) => item.agent_name === a.name && item.conversation_id === cid && item.conversation_title === "Release review")).toBe(true);
+  expect(items.some((item: any) => [auto.id, expired.id].some((id) => item.id.endsWith(id)))).toBe(false);
+  expect((await api("other-owner", `/me/decisions?kind=approval&owner=${w.owner}`)).data.items).toEqual([]);
+  expect((await api(w.owner, "/me/decisions?kind=answer")).data.items).toEqual([]);
+  for (const query of ["kind=invalid", "kind=answer&before=not-a-cursor", "kind=answer&before=" + Buffer.from('[null,"id"]').toString("base64url")])
+    expect((await api(w.owner, "/me/decisions?" + query)).status).toBe(400);
+  // A malformed legacy cross-owner reference must not expose its history.
+  db.prepare("UPDATE conversations SET owner_id='other-owner' WHERE id=?").run(cid);
+  expect((await api(w.owner, "/me/decisions?kind=approval")).data.items).toEqual([]);
+});
+
+it("bounds large workflow and tool request previews and resumes from any visible decision", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Large request previews");
+  const rid = run(w.owner, a.id, cid, "awaiting_approval");
+  const huge = "Request prefix " + "x".repeat(4 * 1024 * 1024) + "TAIL_SHOULD_NOT_BE_SENT";
+  for (const request of [
+    { type: "workflow_review", content: huge },
+    { type: "mcp_tool", tool: "large_tool", arguments: { input: huge } },
+    { type: "mcp_tool", tool: "large_message", message: huge },
+  ]) {
+    db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
+    const approval = requestApproval(owned<any>("runs", rid, w.owner), request);
+    expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: "approve" })).status).toBe(200);
+  }
+  const page = (await api(w.owner, "/me/decisions?kind=approval")).data;
+  expect(page.items).toHaveLength(3);
+  for (const item of page.items) {
+    expect(item.detail.length).toBeLessThanOrEqual(8192);
+    expect(item.detail_truncated).toBe(true);
+    expect(item.detail).toContain("Request prefix");
+  }
+  expect(JSON.stringify(page).length).toBeLessThan(30_000);
+  expect(JSON.stringify(page)).not.toContain("TAIL_SHOULD_NOT_BE_SENT");
+  const older = (await api(w.owner, "/me/decisions?kind=approval&before=" + page.items[0].cursor)).data;
+  expect(older.items.map((item: any) => item.id)).toEqual(page.items.slice(1).map((item: any) => item.id));
+});
+
+it("bounds a full answer-history page including oversized pre-preview records", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Large answer previews");
+  const rid = run(w.owner, a.id, cid, "completed");
+  const questions = Array.from({ length: 50 }, (_, i) => ({ id: "q" + i, title: "Question " + i + "🙂\u0001".repeat(40) }));
+  const request = JSON.stringify({ kind: "question", title: "Long responses", detail: "\u0001".repeat(6000), questions });
+  const legacy = JSON.stringify(Object.fromEntries(questions.map((q) => [q.id, Array(30).fill("x".repeat(8000))])));
+  const insertRequest = db.prepare(`INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,command_id,created_at)
+    VALUES(?,?,?,'fixture',?,?,'resolved',?,?)`);
+  const insertHistory = db.prepare(`INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,response_truncated,created_at)
+    VALUES(?,?,?,?,'answer',?,?,?)`);
+  db.transaction(() => {
+    for (let i = 0; i < 50; i++) {
+      const decision = id();
+      insertRequest.run(decision, rid, cid, decision, request, id(), i);
+      insertHistory.run("native:" + decision, w.owner, rid, decision,
+        i === 0 ? legacy : JSON.stringify({ q0: ["Recorded answer " + "x".repeat(7000)] }), Number(i !== 0), i);
+    }
+  }).immediate();
+  const { status, data: page } = await api(w.owner, "/me/decisions?kind=answer");
+  expect(status).toBe(200);
+  expect(page.items).toHaveLength(50);
+  expect(page.next).toBeNull();
+  expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(PERSONAL_DECISIONS_PAGE_LIMIT);
+  for (const item of page.items) {
+    expect(item.response_recorded).toBe(true);
+    expect(item.response_truncated).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(item.answers))).toBeLessThanOrEqual(PERSONAL_DECISION_RESPONSE_LIMIT);
+  }
+  expect(page.items[0].answers[0].values[0]).toContain("Recorded answer");
+  expect(page.items.at(-1).answers[0].values).toBeNull();
 });

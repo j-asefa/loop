@@ -7,6 +7,8 @@ export interface Capabilities {
   localProjects: boolean;
   /** Absent on older sources; preview sources explicitly disable management. */
   cardTokens?: boolean;
+  /** Absent on sources that predate personal decision history. */
+  personalDecisions?: boolean;
 }
 export function profileCapabilities(profile: DeploymentProfile): Capabilities {
   const companion = profile === "companion";
@@ -17,5 +19,6 @@ export function profileCapabilities(profile: DeploymentProfile): Capabilities {
     runtimeHosts: !companion,
     localProjects: companion,
     cardTokens: true,
+    personalDecisions: true,
   };
 }

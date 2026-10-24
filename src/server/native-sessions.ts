@@ -23,6 +23,7 @@ import { config } from "./config.js";
 import { RunDeferred } from "./run-deferred.js";
 import { selectedContext } from "./carried-context.js";
 import { NativeOutput } from "./native-output.js";
+import { recordPersonalDecision } from "./personal-decisions.js";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import { SteeringInbox } from "./steering.js";
 import { realpathSync, statSync, readFileSync } from "node:fs";
@@ -1989,9 +1990,20 @@ export class NativeSessions {
     } catch (e) {
       throw new Problem(400, (e as Error).message);
     }
-    db.prepare(
-      "UPDATE native_decisions SET state='deciding',command_id=?,digest=? WHERE id=? AND state='pending'",
-    ).run(commandId, digest, decisionId);
+    db.transaction(() => {
+      const claimed = db.prepare(
+        "UPDATE native_decisions SET state='deciding',command_id=?,digest=? WHERE id=? AND state='pending'",
+      ).run(commandId, digest, decisionId).changes;
+      if (!claimed) throw new Problem(409, "This native decision was already handled.");
+      if (!commandId.startsWith("auto:"))
+        recordPersonalDecision({
+          owner: run.owner_id,
+          run: run.id,
+          native: decisionId,
+          request: JSON.parse(d.request),
+          answer,
+        });
+    }).immediate();
     try {
       await live.adapter.answer(d.native_id, answer);
       finishDecisions("resolved", "id=?", [decisionId]);
@@ -2002,25 +2014,33 @@ export class NativeSessions {
       if (error instanceof NotDelivered) {
         // Only while the same run and native session still wait for it. A
         // run that ended meanwhile expires the decision, as it would have.
-        const current = this.live.get(d.conversation_id);
-        const runState = (db.prepare("SELECT state FROM runs WHERE id=?").get(d.run_id) as { state: string } | undefined)?.state;
-        if (
-          current === live &&
-          !live.closed &&
-          live.generation === d.generation &&
-          live.run?.id === d.run_id &&
-          ["running", "awaiting_approval"].includes(runState ?? "")
-        ) {
-          const reopened = db.prepare(
-            "UPDATE native_decisions SET state='pending',command_id=NULL,digest=NULL WHERE id=? AND state='deciding'",
-          ).run(decisionId).changes;
-          if (reopened) throw new Problem(409, `${error.message} Answer again.`);
-        } else
-          finishDecisions("expired", "id=? AND state='deciding'", [decisionId]);
+        const outcome = db.transaction(() => {
+          const current = this.live.get(d.conversation_id);
+          const runState = (db.prepare("SELECT state FROM runs WHERE id=?").get(d.run_id) as { state: string } | undefined)?.state;
+          let reopened = 0;
+          if (
+            current === live &&
+            !live.closed &&
+            live.generation === d.generation &&
+            live.run?.id === d.run_id &&
+            ["running", "awaiting_approval"].includes(runState ?? "")
+          ) {
+            reopened = db.prepare(
+              "UPDATE native_decisions SET state='pending',command_id=NULL,digest=NULL WHERE id=? AND state='deciding'",
+            ).run(decisionId).changes;
+          } else
+            finishDecisions("expired", "id=? AND state='deciding'", [decisionId]);
+          const stored = db.prepare("SELECT state FROM native_decisions WHERE id=?")
+            .get(decisionId) as { state: string } | undefined;
+          // Definitive non-delivery is not an answer, even if the run ended.
+          // Preserve only a response the harness already confirmed meanwhile.
+          if (stored?.state !== "resolved")
+            db.prepare("DELETE FROM personal_decisions WHERE native_decision_id=?").run(decisionId);
+          return { reopened, state: stored?.state };
+        }).immediate();
+        if (outcome.reopened) throw new Problem(409, `${error.message} Answer again.`);
         // The harness resolved it meanwhile: report what is stored.
-        const stored = db.prepare("SELECT state FROM native_decisions WHERE id=?")
-          .get(decisionId) as { state: string } | undefined;
-        if (stored?.state === "resolved") return { state: "resolved" };
+        if (outcome.state === "resolved") return { state: "resolved" };
         throw new Problem(409, "This native decision expired or was already handled.");
       }
       // A harness resolution can arrive before the answer transport finishes.

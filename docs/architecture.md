@@ -19,7 +19,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Database and migrations                                   | [db.ts](../src/server/db.ts), [migrations](../migrations)                                                                     |
 | Feed (thread list, `/api/feed`), reading position, Later and scheduled sends | [mobile-return.ts](../src/server/mobile-return.ts), [mobile-routes.ts](../src/server/mobile-routes.ts) |
 | Results stream (result cards and files, `/api/results`)   | [results.ts](../src/server/results.ts), [core-routes.ts](../src/server/core-routes.ts)                                         |
-| Your profile (name, handle, bio, counts) and sent prompts | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts)                    |
+| Your profile, sent prompts and decision history | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts) |
 | UI and shared contracts                                   | [client](../src/client), [shared](../src/shared)                                                                              |
 
 ## Execution paths

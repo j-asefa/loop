@@ -11,6 +11,7 @@ import { PersonalProfile } from "./PersonalProfile";
 import { PersonalFiles } from "./PersonalFiles";
 import { Social } from "./Social";
 import { MyProfile, type MyProfileData } from "./MyProfile";
+import { PersonalDecisions } from "./PersonalDecisions";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName, effortName } from "./modelChoices";
 import { AttachmentList, UploadButton } from "./Attachments";
@@ -3158,6 +3159,13 @@ export default function App() {
               accountName={accountName}
               profile={myProfile}
               onSaved={setMyProfile}
+              decisions={(kind) => (
+                <PersonalDecisions
+                  key={kind}
+                  kind={kind}
+                  onConversation={(id) => setConversation(id)}
+                />
+              )}
               onAgents={() => {
                 // Closing it comes back here, not to Settings.
                 setSettingsParent(false);

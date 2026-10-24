@@ -232,6 +232,12 @@ for (const mode of ["server", "companion"] as const) it(`${mode} delivers owned 
   f.db.prepare("INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('approval-run',?,'Review','awaiting_approval','approval-key',1,1)").run(f.owner);
   f.db.prepare("INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES('action-approval',?,'approval-run','action','{}','pending',1,?)").run(f.owner, Date.now() + 60_000);
   await mutate("/approvals/action-approval", { decision: "reject" }, "POST", "approval", "approvals", "action-approval");
+  await expect.poll(() => stream.events().some(({ event }) => event.type === "invalidate" &&
+    event.subject?.kind === "collection" && event.subject.id === "decisions" &&
+    eventScopes(event).some(scope => scope.kind === "collection" && scope.id === "approvals"))).toBe(true);
+  const history = await f.request("/api/me/decisions?kind=approval", { headers: f.browser });
+  expect(history.status).toBe(200);
+  expect((await history.json()).items).toMatchObject([{ id: "approval:action-approval", choice: "reject", state: "resolved" }]);
   const subscription = { endpoint: "https://fcm.googleapis.com/fixture", keys: {
     p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString("base64url"), auth: Buffer.alloc(16, 1).toString("base64url"),
   } };
@@ -382,6 +388,7 @@ it("publishes every internal reader dependency from committed worker writes with
     ["memory_receipts", { run_id: "run", mode: "off", sources: "[]", tokens: 0, created_at: 1 }, "run", "run", "runs"],
     ["native_dispatch", { run_id: "run", generation: "generation", digest: "digest", state: "accepted", created_at: 1 }, "run", "run", "decisions"],
     ["native_decisions", { id: "decision", run_id: "run", conversation_id: "thread", generation: "generation", native_id: "native", request: "{}", created_at: 1 }, "decision", "decision", "approvals"],
+    ["personal_decisions", { id: "native:decision", owner_id: owner, run_id: "run", native_decision_id: "decision", kind: "answer", response: "{}", created_at: 1 }, "collection", "decisions", "decisions"],
     ["run_traces", { owner_id: owner, run_id: "run", trace_key: "tool", kind: "tool", title: "Tool", created_at: 1 }, "run", "run", "activities"],
     ["workflow_steps", { run_id: "run", step_id: "step", position: 0, state: "completed", child_run_id: "child" }, "run", "run", "feed"],
     ["run_checkouts", { id: "checkout", owner_id: owner, run_id: "run", agent_id: "agent", conversation_id: "thread", directory: f.dir, source: f.dir, branch: "fixture", start_head: "a".repeat(40), start_dirty: 0, start_untracked: 0, started_at: 1, state: "started" }, "run", "run", "results"],
@@ -418,6 +425,9 @@ it("publishes every internal reader dependency from committed worker writes with
     await expect.poll(() => stream.events().some(({ id, event }) => id > before && event.subject?.kind === kind && event.subject.id === identity && eventScopes(event).some((scope) => scope.id === collection))).toBe(true);
   };
   await mutate("UPDATE artifact_publications SET sequence=sequence+100 WHERE artifact_id='artifact'", "artifact", "artifact", "results");
+  await mutate("UPDATE personal_decisions SET response='{\"q\":[\"Recorded\"]}' WHERE id='native:decision'", "collection", "decisions", "decisions");
+  await mutate("DELETE FROM native_decisions WHERE id='decision'", "collection", "decisions", "decisions");
+  expect(f.db.prepare("SELECT 1 FROM personal_decisions WHERE id='native:decision'").get()).toBeUndefined();
   const project = await f.request("/api/folders", { headers: f.browser, body: { name: "New root", kind: "project" } });
   const projectId = (await project.json()).id;
   const beforeProject = stream.frames.at(-1)!.cursor;

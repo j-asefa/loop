@@ -18,6 +18,7 @@ import {
 import { agentTraces, runTraceExport } from "./traces.js";
 import { personalHistory } from "./personal-history.js";
 import { personalFiles } from "./personal-files.js";
+import { personalDecisions } from "./personal-decisions.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages } from "./conversation-messages.js";
@@ -435,6 +436,9 @@ core.get("/agents/:id/traces/export", (req, res) => {
 });
 core.get("/me/files", (req, res) => {
   res.json(personalFiles(res.locals.owner, req.query));
+});
+core.get("/me/decisions", (req, res) => {
+  res.json(personalDecisions(res.locals.owner, req.query));
 });
 core.get("/me/profile", (_req, res) => {
   res.json(readProfile(res.locals.owner));
