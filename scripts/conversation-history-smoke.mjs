@@ -5,6 +5,7 @@ import { seedCheckout } from "./helpers/checkout-fixture.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { conversationFilesSmoke } from "./helpers/conversation-files-smoke.mjs";
 
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
@@ -602,6 +603,8 @@ for (const engine of selectedEngines()) {
     await closeThread();
     await page.unrouteAll({ behavior: "wait" });
     console.log(`${engine.name()}: local/linked cached first paint, source isolation, resume request, Retry-After and approval recovery passed`);
+    await conversationFilesSmoke(page, fixture, conversation.id);
+    console.log(`${engine.name()}: separate conversation/file loading, deferred metadata, on-demand previews and cancelled file reads passed`);
     assert.deepEqual(errors, []);
     console.log(
       `${engine.name()}: bounded transcript opening, requested older activity and saved Git reviews passed`,

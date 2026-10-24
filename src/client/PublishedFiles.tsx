@@ -1,6 +1,6 @@
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useSourceId, useSourceApi, useSourcePath } from "./SourceContext";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
 import { parse, retryAfter, isRateLimited } from "./api";
 import type { ResultCard } from "../shared/cards";
@@ -12,9 +12,11 @@ type Published = Pick<Artifact, "id" | "title" | "metadata"> &
 export function PublishedFile({
   item,
   preview = true,
+  previewImages = true,
 }: {
   item: Published;
   preview?: boolean;
+  previewImages?: boolean;
 }) {
   const meta = parse<any>(item.metadata, {});
   return (
@@ -23,6 +25,7 @@ export function PublishedFile({
       title={item.title}
       content={item.content}
       preview={preview}
+      previewImages={previewImages}
       display={{
         filename: meta.name || item.title,
         mime: meta.mime,
@@ -60,11 +63,13 @@ function PublishedFileView({
   display,
   download,
   preview = true,
+  previewImages = true,
 }: {
   id: string;
   title: string;
   content?: string;
   preview?: boolean;
+  previewImages?: boolean;
   download?: string;
   display: Pick<ResultCard["display"], "filename" | "mime" | "text" | "size">;
 }) {
@@ -83,7 +88,7 @@ function PublishedFileView({
   const url = sourceApiPath(download || "/api/artifacts/" + id + "/file");
   return (
     <div className="published-file">
-      {image && (
+      {previewImages && image && (
         <button
           type="button"
           className="published-file-image"
@@ -124,62 +129,142 @@ function PublishedFileView({
     </div>
   );
 }
+
+/** Let the transcript paint and settle at its reading position before file reads. */
+export function ConversationFiles({
+  runId,
+  active,
+  ready,
+}: {
+  runId: string;
+  active: boolean;
+  ready: boolean;
+}) {
+  const slot = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!ready || visible || !slot.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { root: slot.current.closest(".messages"), rootMargin: "200px" },
+    );
+    observer.observe(slot.current);
+    return () => observer.disconnect();
+  }, [ready, visible]);
+  return (
+    <div ref={slot}>
+      {/* Once activated, keep the list through transcript anchor reloads. */}
+      {visible && (
+        <RunFiles runId={runId} active={active} previewImages={false} />
+      )}
+    </div>
+  );
+}
+
 export function RunFiles({
   runId,
   excludeId,
   active = false,
+  previewImages = true,
 }: {
   runId?: string | null;
   excludeId?: string;
   active?: boolean;
+  previewImages?: boolean;
 }) {
   const api = useSourceApi();
   const sourceId = useSourceId();
   const [files, setFiles] = useState<Published[]>([]),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
+    let pending = false,
+      queued = false;
+    const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
     setFiles([]);
     setError("");
     const refresh = () => {
-      if (live && runId)
-        void api<Published[]>("/runs/" + runId + "/files")
-          .then((files) => {
-            if (live) {
-              clearTimeout(retry);
-              setFiles(files);
-              setError("");
-            }
-          })
-          .catch((e) => {
-            if (!live) return;
-            if (isRateLimited(e)) {
-              // The thread keeps its cached transcript and one quiet status.
-              // Static file lists also recover once the source allows reads.
-              clearTimeout(retry);
-              retry = setTimeout(refresh, Math.min(2_147_483_647, retryAfter(e)));
-            } else setError(e.message);
-          });
+      if (!live || !runId) return;
+      if (pending) {
+        queued = true;
+        return;
+      }
+      pending = true;
+      void api<Published[]>(
+        "/runs/" + runId + "/files",
+        undefined,
+        undefined,
+        controller.signal,
+      )
+        .then((files) => {
+          if (live) {
+            clearTimeout(retry);
+            setFiles(files);
+            setError("");
+          }
+        })
+        .catch((e) => {
+          if (!live) return;
+          if (isRateLimited(e)) {
+            // The thread keeps its cached transcript and one quiet status.
+            // Static file lists also recover once the source allows reads.
+            clearTimeout(retry);
+            retry = setTimeout(refresh, Math.min(2_147_483_647, retryAfter(e)));
+          } else setError(e.message);
+        })
+        .finally(() => {
+          pending = false;
+          if (!live) return;
+          if (queued) {
+            queued = false;
+            refresh();
+          }
+        });
     };
     refresh();
     const timer = active ? setInterval(refresh, 5000) : undefined;
     const stopChanges = listenWorkspaceChanges("results", refresh, sourceId);
     return () => {
       live = false;
+      controller.abort();
       clearInterval(timer);
       clearTimeout(retry);
       stopChanges();
     };
-  }, [runId, active, api, sourceId]);
+  }, [runId, active, api, sourceId, attempt]);
   const visible = files.filter((file) => file.id !== excludeId);
+  // Empty runs reserve no space, including while their summaries load. A
+  // temporary placeholder would move the reading position twice per answer.
   if (!visible.length && !error) return null;
   return (
     <section className="published-files" aria-label="Files from this run">
       <h3>Files</h3>
-      {error && <p role="alert">Could not load files: {error}</p>}
+      {error && (
+        <p role="alert">
+          Could not load files: {error}{" "}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            Retry files
+          </button>
+        </p>
+      )}
       {visible.map((file) => (
-        <PublishedFile key={file.id} item={file} preview={false} />
+        <PublishedFile
+          key={file.id}
+          item={file}
+          preview={false}
+          previewImages={previewImages}
+        />
       ))}
     </section>
   );

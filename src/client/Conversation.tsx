@@ -58,7 +58,7 @@ import { openPull } from "./PullRequests";
 import { pullStateFromWatch } from "../shared/pull-state";
 import type { CheckoutSummary } from "../shared/checkout";
 import { summarize as summarizeVerification, type VerificationItem } from "../shared/verification";
-import { RunFiles } from "./PublishedFiles";
+import { ConversationFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
 import {
   ActionSheet,
@@ -1543,10 +1543,11 @@ function ConversationView({
                       )}
                     </>
                   )}
-                  {!meta.progress && m.role === "assistant" && (
-                    <RunFiles
-                      runId={m.run_id}
+                  {finalForRun && m.role === "assistant" && (
+                    <ConversationFiles
+                      runId={m.run_id!}
                       active={m.run_state === "running"}
+                      ready={!loading && hydrated.current}
                     />
                   )}
                   {m.role === "assistant" &&

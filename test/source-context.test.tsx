@@ -16,6 +16,7 @@ import {
 } from "../src/client/sourceRouting";
 import { loopFileUrl } from "../src/client/FilePreview";
 import { RichText } from "../src/client/components";
+import { PublishedFile } from "../src/client/PublishedFiles";
 
 const server = profileCapabilities("server");
 afterEach(() => {
@@ -95,6 +96,25 @@ it("scopes transcript download links without rewriting external links", () => {
     'href="/api/agent-sources/docker%3Aalpha/objects/same"',
   );
   expect(html).toContain('href="https://example.com/page"');
+});
+
+it("keeps thread file summaries download-free while retaining source-scoped previews elsewhere", () => {
+  const item = {
+    id: "image-file",
+    title: "Design",
+    metadata: JSON.stringify({ name: "design.png", mime: "image/png", size: 5_000_000 }),
+  };
+  const render = (previewImages?: boolean) => renderToStaticMarkup(
+    <SourceProvider sourceId="docker:alpha" capabilities={server}>
+      <PublishedFile item={item} preview={false} previewImages={previewImages} />
+    </SourceProvider>,
+  );
+  const summary = render(false);
+  expect(summary).toContain('aria-label="Preview design.png"');
+  expect(summary).toContain("4.8 MB");
+  expect(summary).not.toContain("<img");
+  expect(summary).not.toContain('src=');
+  expect(render()).toContain('src="/api/agent-sources/docker%3Aalpha/artifacts/image-file/file?preview=1"');
 });
 
 it("recognizes source-qualified files for sandboxed HTML previews", () => {
