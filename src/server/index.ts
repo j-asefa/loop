@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { companionMode, capabilities } from "./profile.js";
 import { companion } from "./companion-routes.js";
 import { OWNER } from "./native-sessions.js";
@@ -366,6 +367,9 @@ const compiledClient = fileURLToPath(new URL("../client/", import.meta.url));
 const clientRoot = existsSync(compiledClient + "index.html")
   ? compiledClient
   : fileURLToPath(new URL("../../dist/client/", import.meta.url));
+// Tabs opened before an upgrade still request the original avatar URLs.
+// Serve the new robot artwork there without retaining the retired images.
+app.use("/avatars", express.static(join(clientRoot, "avatars/robots")));
 app.use(express.static(clientRoot));
 app.get("/{*splat}", (_req, res) =>
   res.sendFile("index.html", { root: clientRoot }),

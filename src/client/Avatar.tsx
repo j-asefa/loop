@@ -26,7 +26,7 @@ export function Avatar({
       </span>
       <img
         key={character}
-        src={`/avatars/${character}.webp`}
+        src={`/avatars/robots/${character}.webp`}
         alt=""
         aria-hidden="true"
         width="384"

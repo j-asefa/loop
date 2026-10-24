@@ -591,9 +591,14 @@ export class Host {
       )
         return this.json(res, 404, { error: "Not found" });
       const root = fileURLToPath(new URL("./web/", import.meta.url));
+      // Older paired tabs still request the original avatar URLs after upgrades.
+      const assetPath = decodeURIComponent(path).replace(
+        /^\/avatars\/([a-z]+)\.webp$/,
+        "/avatars/robots/$1.webp",
+      );
       const asset = resolve(
         root,
-        path === "/" ? "index.html" : "." + decodeURIComponent(path),
+        assetPath === "/" ? "index.html" : "." + assetPath,
       );
       if (!asset.startsWith(root.endsWith(sep) ? root : root + sep))
         return this.json(res, 404, { error: "Not found" });
@@ -606,6 +611,7 @@ export class Host {
         ".css": "text/css",
         ".svg": "image/svg+xml",
         ".png": "image/png",
+        ".webp": "image/webp",
         ".webmanifest": "application/manifest+json",
       };
       res.setHeader(

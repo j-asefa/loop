@@ -17,7 +17,7 @@ Loop puts the agents on your computer into one phone workspace. Start runs, appr
   </tr>
   <tr>
     <td><img src="docs/screenshots/result.png" alt="A finished @bug-hunter result opened from the Feed: its answer, then the branch, files and line counts Loop recorded in the agent's worktree, and the npm test, typecheck and lint commands it saw pass" width="300"></td>
-    <td><img src="docs/screenshots/saved.png" alt="Saved under Your profile: a searchable list with labels such as Rounding fix and Chosen approach, each result with Reply, Saved, Remind me and File" width="300"></td>
+    <td><img src="docs/screenshots/saved.png" alt="Saved under Your profile: a searchable list with labels such as Rounding fix and Review before merge, each result with Reply, Saved, Remind me and File" width="300"></td>
   </tr>
   <tr>
     <th>Agent profile: one agent's work</th>
@@ -25,7 +25,7 @@ Loop puts the agents on your computer into one phone workspace. Start runs, appr
   </tr>
   <tr>
     <td><img src="docs/screenshots/agent-profile.png" alt="The @orion agent profile: its tagline, model, computer, team and current work awaiting approval, above its results" width="300"></td>
-    <td><img src="docs/screenshots/your-profile.png" alt="Your profile: name, handle, bio and counts, above the Messages tab listing the prompts you sent to @orion and @bug-hunter" width="300"></td>
+    <td><img src="docs/screenshots/your-profile.png" alt="Your profile: robot avatar, banner, name, handle, bio and counts, above the Messages tab showing a prompt you sent to @orion" width="300"></td>
   </tr>
 </table>
 

@@ -1,9 +1,11 @@
-import { readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { agentAppearance } from "../src/client/agentAppearance";
 
 const publicDirectory = new URL("../public/", import.meta.url);
-const names = readdirSync(new URL("avatars/", publicDirectory))
+const robotDirectory = new URL("avatars/robots/", publicDirectory);
+const names = readdirSync(robotDirectory)
   .filter((file) => file.endsWith(".webp"))
   .map((file) => file.slice(0, -5));
 const covers = new Set([
@@ -14,6 +16,21 @@ const covers = new Set([
 ]);
 
 describe("agent appearance", () => {
+  it("ships 100 distinct robot avatars and retires the old artwork", () => {
+    expect(names).toHaveLength(100);
+    expect(
+      readdirSync(new URL("avatars/", publicDirectory)).filter((file) =>
+        file.endsWith(".webp"),
+      ),
+    ).toHaveLength(0);
+    const artwork = names.map((name) =>
+      createHash("sha256")
+        .update(readFileSync(new URL(`${name}.webp`, robotDirectory)))
+        .digest("hex"),
+    );
+    expect(new Set(artwork).size).toBe(100);
+  });
+
   it("gives every named character a distinct, shipped cover", () => {
     expect(names).toHaveLength(100);
     const namedCovers = new Set<string>();

@@ -55,6 +55,30 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   });
   const accountName = await personal.locator("h1").textContent();
   const accountArtwork = await personalArtwork();
+  // An already-open pre-upgrade tab must receive the new robot at its old URL.
+  assert(accountArtwork.avatar.startsWith("/avatars/robots/"));
+  const legacyAvatar = accountArtwork.avatar.replace(
+    "/avatars/robots/",
+    "/avatars/",
+  );
+  const [currentImage, legacyImage] = await Promise.all([
+    page.request.get(fixture.base + accountArtwork.avatar),
+    page.request.get(fixture.base + legacyAvatar),
+  ]);
+  for (const response of [currentImage, legacyImage]) {
+    assert.equal(response.status(), 200);
+    assert.match(response.headers()["content-type"], /^image\/webp/);
+  }
+  assert.deepEqual(await legacyImage.body(), await currentImage.body());
+  assert.deepEqual(
+    await page.evaluate(async (source) => {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, legacyAvatar),
+    [384, 384],
+  );
   const covers = new Set();
   for (const candidate of fixture.agents.slice(0, 6)) {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
@@ -276,7 +300,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await editName("Iris");
   await expect(personal.locator("h1")).toHaveText("Iris");
   const savedArtwork = {
-    avatar: "/avatars/iris.webp",
+    avatar: "/avatars/robots/iris.webp",
     cover: "/profile-covers/iris-scene.webp",
   };
   assert.deepEqual(await personalArtwork(), savedArtwork);
@@ -326,7 +350,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
     }
   }
   // A missing image leaves a readable local fallback, without an external request.
-  await page.route("**/avatars/*.webp", (route) => route.abort());
+  await page.route("**/avatars/robots/*.webp", (route) => route.abort());
   await page.goto(fixture.base);
   await expect(page.locator(".your-agents .avatar-3d").first()).toBeVisible();
   await expect(
