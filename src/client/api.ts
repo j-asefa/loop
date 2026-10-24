@@ -164,7 +164,7 @@ export async function apiInWorkspace<T = any>(
     throw Object.assign(
       new Error(data?.error || data?.message || "Request failed"),
       {
-        status: parsed || r.status === 429 ? r.status : undefined,
+        status: parsed || r.status === 429 || r.status >= 500 ? r.status : undefined,
         ...(["refused", "unknown", "completed"].includes(data?.executionOutcome)
           ? { executionOutcome: data.executionOutcome } : {}),
         ...(deadline !== undefined ? { retryAt: deadline, retryAfterMs: Math.max(0, deadline - Date.now()) } : {}),
@@ -186,13 +186,19 @@ export async function apiInWorkspace<T = any>(
   return data;
 }
 
-/** One-shot read surfaces have no fallback poll. Retry only header-limited
- * GETs, and cancel both IO and deadline waits with the owning view's signal. */
-export async function readInWorkspace<T = any>(path: string, sourceId: string, signal: AbortSignal): Promise<T> {
+/** One-shot projections recover from cooldowns and at most two transient
+ * server failures. Only GETs retry; view cancellation stops IO and waits. */
+export async function readInWorkspace<T = any>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
+  let failures = 0;
   for (;;) {
     try { return await apiInWorkspace<T>(path, sourceId, undefined, "GET", signal); }
     catch (error) {
-      if (!isRateLimited(error) || signal.aborted) throw error;
+      if (signal.aborted) throw error;
+      const status = (error as {status?:number}).status;
+      const delay = isRateLimited(error) ? retryAfter(error) :
+        status && status >= 500 && status < 600 && failures < 2 ? 2000 * ++failures : undefined;
+      if (delay === undefined) throw error;
+      onRetry?.(error);
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
           clearTimeout(timer);
@@ -202,7 +208,7 @@ export async function readInWorkspace<T = any>(path: string, sourceId: string, s
         const timer = setTimeout(() => {
           signal.removeEventListener("abort", abort);
           resolve();
-        }, Math.min(2_147_483_647, Math.max(1000, retryAfter(error))));
+        }, Math.min(2_147_483_647, Math.max(1000, delay)));
         signal.addEventListener("abort", abort, { once: true });
         if (signal.aborted) abort();
       });

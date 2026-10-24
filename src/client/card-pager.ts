@@ -67,6 +67,7 @@ export class CardPager {
     append: boolean,
     page: ReadPage,
     changes: ReadChanges,
+    recovery = false,
   ): Promise<CardPage | null> {
     if (key !== this.key) this.reset(key);
     const current = this.window;
@@ -99,15 +100,13 @@ export class CardPager {
         // Never skip edits that arrived during an older-page request.
         revision ??= result.revision;
       }
-      // One bounded batch per load, including immediately after extending the
-      // window. Ongoing refreshes drain `more` without downloading old pages.
-      const delta = await changes(
-        revision!,
-        view === "results" ? boundary?.[0] || 0 : undefined,
-      );
-      if (this.window !== current) return null;
-      for (const id of delta.removed) changed = items.delete(id) || changed;
-      for (const entry of delta.items) {
+      // A single notification can represent many bounded pages. Drain it now;
+      // a background timer is no longer responsible for finishing the window.
+      for (let batch = 0; ; batch++) {
+        const delta = await changes(revision!, view === "results" ? boundary?.[0] || 0 : undefined);
+        if (this.window !== current) return null;
+        for (const id of delta.removed) changed = items.delete(id) || changed;
+        for (const entry of delta.items) {
         if (
           items.has(entry.card.id) ||
           !boundary ||
@@ -118,6 +117,15 @@ export class CardPager {
               JSON.stringify(entry) || changed;
           items.set(entry.card.id, entry);
         }
+        }
+        if (delta.more && delta.revision === revision) throw new Error("Card updates did not advance");
+        revision = delta.revision;
+        if (!delta.more) break;
+        if (batch >= 99) {
+          this.reset(key);
+          if (recovery) throw new Error("Cards changed too quickly. Refresh to load the latest view.");
+          return this.load(key, view, false, page, changes, true);
+        }
       }
       // Commit the page and its reconciliation together. A failed changes
       // request cannot silently advance pagination before the UI sees the page.
@@ -125,7 +133,7 @@ export class CardPager {
         items,
         next,
         boundary,
-        revision: delta.revision,
+        revision,
       });
       if (!changed) return null;
       return {
@@ -133,7 +141,7 @@ export class CardPager {
           compareCardOrder(b.order, a.order),
         ),
         next,
-        revision: delta.revision,
+        revision: revision!,
       };
     })().catch((error) => {
       if (

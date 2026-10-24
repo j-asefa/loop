@@ -1,7 +1,8 @@
+import { reactiveSource } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import type { Agent, Connection, Folder, Run } from "../shared/types";
-import { apiInWorkspace, parse } from "./api";
+import { apiInWorkspace, readInWorkspace, retryAfter, parse } from "./api";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
@@ -172,24 +173,41 @@ export function useAgentSources(
       }
       requests.clear();
     };
-    const load = async () => {
+    const readProjection = async <T,>(path: string, source: string): Promise<T> => {
+      const controller = new AbortController();
+      const arm = (delay = 20_000) => {
+        clearTimeout(requests.get(controller));
+        requests.set(controller, setTimeout(() => controller.abort(), Math.min(2_147_483_647, delay)));
+      };
+      arm();
+      try {
+        return await readInWorkspace<T>(path, source, controller.signal, error => arm(retryAfter(error) + 20_000));
+      } finally {
+        clearTimeout(requests.get(controller));
+        requests.delete(controller);
+      }
+    };
+    const failedSources = new Set<string>();
+    type Refresh = { discovery?: boolean; changes?: Map<string, Set<string>> };
+    const queuedChanges = new Map<string, Set<string>>();
+    const load = async (options: Refresh = {}) => {
       if (!active) return;
       if (busy) { pending = true; return; }
       pending = false;
       busy = true;
       try {
-        await pass();
+        await pass(options);
       } finally {
         clearRequests();
         busy = false;
         if (active && pending) schedule();
       }
     };
-    const pass = async () => {
+    const pass = async (options: Refresh) => {
       let linked = known;
       let error = "";
       try {
-        linked = await apiInWorkspace<AgentSource[]>(
+        linked = options.changes ? known : await apiInWorkspace<AgentSource[]>(
           "/agent-sources",
           "",
           undefined,
@@ -245,22 +263,27 @@ export function useAgentSources(
       setDiscovered({ owner, currentSourceId, sources, ready: confirmed });
       const settled = await Promise.allSettled(
         sources
-          .filter((source) => source.id !== currentSourceId)
+          .filter((source) => source.id !== currentSourceId &&
+            (!options.changes || options.changes.has(source.id)) &&
+            (!options.discovery || !reactiveSource(source.id, "workspace") || !snapshots.has(source.id) || failedSources.has(source.id)))
           .map(async (source) => {
+            const retryMetadata = failedSources.has(source.id);
+            failedSources.add(source.id);
+            const prior = snapshots.get(source.id);
+            // A run signal must not certify stale metadata after a failed
+            // bootstrap. Retry the full source until every part recovers.
+            if (prior && !retryMetadata && options.changes?.get(source.id)?.size === 1 && options.changes.get(source.id)?.has("runs")) {
+              const runs = await readProjection<Run[]>("/runs?active=1", source.id);
+              return { source, data: { ...prior, runs: project(source, { agents: [], connections: [], folders: [], runs }).runs } };
+            }
             const [bootstrap, runs] = await Promise.all([
-              apiInWorkspace<{
+              readProjection<{
                 environmentName?: string;
                 agents: Agent[];
                 connections: Connection[];
                 folders: Folder[];
-              }>("/bootstrap", source.id, undefined, undefined, signal()),
-              apiInWorkspace<Run[]>(
-                "/runs?active=1",
-                source.id,
-                undefined,
-                undefined,
-                signal(),
-              ),
+              }>("/bootstrap", source.id),
+              readProjection<Run[]>("/runs?active=1", source.id),
             ]);
             if (!source.id && bootstrap.environmentName) {
               source.name = bootstrap.environmentName;
@@ -271,32 +294,44 @@ export function useAgentSources(
       );
       if (!active) return;
       for (const item of settled)
-        if (item.status === "fulfilled")
+        if (item.status === "fulfilled") {
           snapshots.set(item.value.source.id, item.value.data);
+          failedSources.delete(item.value.source.id);
+        }
       publish(
         error ||
-          (settled.some((item) => item.status === "rejected")
+          (sources.some(source => source.id !== currentSourceId && failedSources.has(source.id))
             ? "An environment is temporarily unavailable. Its last loaded agents are still shown."
             : ""),
       );
     };
     void load();
-    const timer = setInterval(() => void load(), 30_000);
+    // Docker/source discovery is external topology, not a database projection.
+    // Complete known sources do not refetch metadata or runs on this probe.
+    const timer = setInterval(() => void load({ discovery: true }), 30_000);
     const retry = () => void load();
     const schedule = () => {
       if (refreshTimer) return;
       refreshTimer = setTimeout(() => {
         refreshTimer = undefined;
-        void load();
+        const changes = new Map(queuedChanges);
+        queuedChanges.clear();
+        void load(changes.size ? { changes } : {});
       }, 250);
     };
-    const changed = (event: Event) => {
+    const changed = (kind: "runs" | "metadata") => (event: Event) => {
       const sources = (event as CustomEvent<{ sources?: string[] }>).detail?.sources;
-      if (sources?.some(source => source !== currentSourceId)) schedule();
+      for (const source of sources ?? snapshots.keys()) {
+        if (source === currentSourceId) continue;
+        const kinds = queuedChanges.get(source) ?? new Set<string>();
+        kinds.add(kind); queuedChanges.set(source,kinds);
+      }
+      if (queuedChanges.size) schedule();
     };
     window.addEventListener("loop-source-refresh", retry);
     // This projection includes active runs as well as source metadata.
-    const stopChanges = listenWorkspaceChanges("runs", changed);
+    const stopChanges = listenWorkspaceChanges("runs", changed("runs"));
+    const stopMetadata = listenWorkspaceChanges("metadata", changed("metadata"));
     return () => {
       active = false;
       clearRequests();
@@ -304,6 +339,7 @@ export function useAgentSources(
       clearTimeout(refreshTimer);
       window.removeEventListener("loop-source-refresh", retry);
       stopChanges();
+      stopMetadata();
     };
   }, [owner, currentSourceId, federated, localName]);
 

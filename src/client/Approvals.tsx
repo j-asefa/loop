@@ -1,4 +1,6 @@
-import { useSourceApi } from "./SourceContext";
+import { useSourceApi, useSourceId, useSourceRead } from "./SourceContext";
+import { surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -110,6 +112,7 @@ export function Approvals({
   runIds?: string[];
 }) {
   const api = useSourceApi();
+  const sourceId = useSourceId(), read = useSourceRead();
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");
@@ -125,10 +128,11 @@ export function Approvals({
   const [poll, setPoll] = useState(0);
   const scope = runIds?.join(",");
   useEffect(() => {
-    if (!runId) return;
-    const timer = setInterval(() => setPoll((value) => value + 1), 5000);
-    return () => clearInterval(timer);
-  }, [runId]);
+    const update = () => setPoll(value => value + 1);
+    const stopChanges = listenWorkspaceChanges("approvals", update, sourceId);
+    const stopFallback = runId ? surfaceFallback([sourceId], "workspace", 5000, update) : () => {};
+    return () => { stopChanges(); stopFallback(); };
+  }, [runId, sourceId]);
   useEffect(() => {
     setSelected(null);
     setItems([]);
@@ -138,7 +142,10 @@ export function Approvals({
   }, [teams, runId, scope]);
   useEffect(() => {
     let current = true;
-    void api<Approval[]>("/approvals?teams=" + encodeURIComponent(teams))
+    const controller = new AbortController();
+    void read<Approval[]>("/approvals?teams=" + encodeURIComponent(teams), controller.signal, (error) => {
+      if (current) { setRateLimited(isRateLimited(error)); setReadError(isRateLimited(error) ? "" : (error as Error).message); }
+    })
       .then((fresh) => {
         if (current) {
           setReadError("");
@@ -161,6 +168,7 @@ export function Approvals({
       });
     return () => {
       current = false;
+      controller.abort();
     };
   }, [revision, teams, runId, scope, poll]);
   useEffect(() => {

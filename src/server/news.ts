@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { db, now } from "./db.js";
+import { db, now, emit } from "./db.js";
 import { Problem } from "./domain.js";
 
 import { download, imageBytes, withFeedFetch } from "./feed-fetch.js";
@@ -88,6 +88,9 @@ const pendingAfter = (ms: number) =>
 // JSON twenty times a minute.
 const hot = new Map<string, Shown>();
 const pending = new Map<string, Promise<Shown>>();
+// Only owners reading a refresh in progress need its completion notification.
+// Routine worker refresh timestamps still produce no workspace traffic.
+const waitingReaders = new Map<string, Set<string>>();
 
 /** Tests swap the network for a fixture; returns a restore function. */
 export function withNewsFixture(
@@ -311,7 +314,15 @@ function read(feed: FeedEntry, at: number, state?: FeedState) {
       recordFailure(feed, error, at);
       throw error;
     })
-    .finally(() => pending.delete(feed.id));
+    .finally(() => {
+      pending.delete(feed.id);
+      const readers = waitingReaders.get(feed.id);
+      waitingReaders.delete(feed.id);
+      for (const owner of readers ?? [])
+        emit(owner, { kind: "collection", id: "social" }, "invalidate", {
+          scope: { kind: "collection", id: "social" },
+        });
+    });
   pending.set(feed.id, request);
   return request;
 }
@@ -947,6 +958,11 @@ export async function socialStories(
   const results = await atMost(feeds, CONCURRENT_FEEDS, (feed) => {
     const request = feedStories(feed, at, options);
     if (options.wait) return request;
+    if (pending.has(feed.id)) {
+      const readers = waitingReaders.get(feed.id) ?? new Set<string>();
+      readers.add(owner);
+      waitingReaders.set(feed.id, readers);
+    }
     const last = stored(feed.id);
     if (!last) return Promise.race([request, pendingAfter(FIRST_PAINT_MS)]);
     // A copy is on hand: show it rather than wait for the refresh.

@@ -1,3 +1,5 @@
+import { surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -10,7 +12,7 @@ import {
   Tag,
 } from "lucide-react";
 import { api } from "./api";
-import { useSourceApi, useSourceId } from "./SourceContext";
+import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
 import { useCards } from "./useCards";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact, cardMessage } from "./card-actions";
@@ -523,6 +525,8 @@ export function Later({
     options: { onUnsave: () => void },
   ) => ReactNode;
 }) {
+  const sourceId = useSourceId();
+  const read = useProjectionRead();
   type Reminders = { due: LaterView[]; upcoming: LaterView[] };
   const shown = cachedView<Reminders>("later:reminders");
   const [later, setLater] = useState<Reminders | null>(shown || null);
@@ -564,8 +568,8 @@ export function Later({
     const owner = viewOwner();
     try {
       const [items, scheduled] = await Promise.all([
-        api<Reminders>("/later"),
-        api<{ items: { state: string }[] }>("/scheduled-sends"),
+        read<Reminders>("/later"),
+        read<{ items: { state: string }[] }>("/scheduled-sends"),
       ]);
       if (owner !== viewOwner()) return;
       setLater(items);
@@ -581,13 +585,15 @@ export function Later({
     const update = () => void load();
     window.addEventListener("loop-later-change", update);
     window.addEventListener("loop-scheduled-change", update);
-    const timer = setInterval(update, 30_000);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 30_000, update);
+    const stopChanges = listenWorkspaceChanges("later", update, sourceId);
+    const stopScheduled = listenWorkspaceChanges("scheduled", update, sourceId);
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-scheduled-change", update);
-      clearInterval(timer);
+      stopFallback(); stopChanges(); stopScheduled();
     };
-  }, [revision]);
+  }, [revision, sourceId, read]);
   useEffect(() => {
     if (!focus || !later) return;
     const node = document.getElementById("later-" + focus);

@@ -1,3 +1,4 @@
+import { projectionSnapshot } from "./projection-snapshot.js";
 import { Router } from "express";
 import { z } from "zod";
 import { teamFilter } from "./teams.js";
@@ -45,7 +46,7 @@ const timestamp = z.coerce
 mobile.put("/conversations/:id/position", (req, res) =>
   res.json(savePosition(res.locals.owner, req.params.id, req.body)),
 );
-mobile.get("/feed", (req, res) => {
+mobile.get("/feed", projectionSnapshot((req, res) => {
   const q = z
     .object({
       filter: z.enum(FEED_FILTERS).default("all"),
@@ -55,13 +56,10 @@ mobile.get("/feed", (req, res) => {
       before: z.string().min(1).max(512).optional(),
     })
     .parse(req.query);
-  res.json(
-    feed(res.locals.owner, {
-      ...q,
-      teams: teamFilter(req.query.teams, res.locals.owner),
-    }),
-  );
-});
+  const selection = { ...q, teams: teamFilter(req.query.teams, res.locals.owner) };
+  const page = feed(res.locals.owner, selection);
+  res.json(page);
+}));
 mobile.patch("/feed/:id", (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
 );

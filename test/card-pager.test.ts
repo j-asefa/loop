@@ -248,8 +248,8 @@ it("advances irrelevant batches silently and resets after an invalid revision", 
   const pages = vi.fn(async () => page([entry("new", 100)], "older"));
   await pager.load("key", "sent", false, pages, unchanged);
   expect(
-    await pager.load("key", "sent", false, pages, async () =>
-      delta("advanced", [entry("old", 1)], ["m:not-loaded"], true),
+    await pager.load("key", "sent", false, pages, async (after) =>
+      delta("advanced", [entry("old", 1)], ["m:not-loaded"], after !== "advanced"),
     ),
   ).toBeNull();
   await expect(
@@ -301,4 +301,18 @@ it("coalesces refreshes without starving slow reads or losing append intent", as
   await refresh;
   expect((await append)!.items).toHaveLength(2);
   expect(await coalesced).toEqual(await append);
+});
+
+it("drains one invalidation through every bounded changes page before publishing", async () => {
+ const pager=new CardPager();
+ const page=async()=>({items:[entry("a",100)],next:null,revision:"0"});
+ let calls=0;
+ const changes=async():Promise<CardChanges>=>{
+  calls++;
+  return {items:[entry("b"+calls,100+calls)],removed:calls===3?["m:a"]:[],revision:String(calls),more:calls<4};
+ };
+ const result=await pager.load("owner:source","saved",false,page,changes);
+ expect(calls).toBe(4);expect(result!.items).toHaveLength(4);
+ expect(result!.items.some(item=>item.card.id==="m:a")).toBe(false);
+ expect(result!.revision).toBe("4");
 });

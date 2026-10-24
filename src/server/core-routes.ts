@@ -1,3 +1,4 @@
+import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { localArtifact } from "./published-files.js";
 import { sendHtmlPreview } from "./file-preview.js";
@@ -606,7 +607,7 @@ core.post("/runs/:id/:action", async (req, res) => {
   }
   res.json({ ok: true });
 });
-core.get("/results/updates", (req, res) => {
+core.get("/results/updates", projectionSnapshot((req, res) => {
   const number = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
   const options = z
     .object({
@@ -625,8 +626,8 @@ core.get("/results/updates", (req, res) => {
   if (options.folder) owned("folders", options.folder, res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
   res.json(resultsUpdates(res.locals.owner, { ...options, teams }));
-});
-core.get("/results", (req, res) => {
+}));
+core.get("/results", projectionSnapshot((req, res) => {
   const saved = req.query.saved === "1";
   const revision = resultsRevision(res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
@@ -711,7 +712,7 @@ core.get("/results", (req, res) => {
     items,
     next: items.length === limit ? items.at(-1)!.cursor : null,
   });
-});
+}));
 core.patch("/results/:id", (req, res) => {
   const item = owned<any>("artifacts", req.params.id, res.locals.owner);
   const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
@@ -725,7 +726,7 @@ core.patch("/results/:id", (req, res) => {
     });
   res.json({ ok: true });
 });
-core.get("/conversations/:id", (req, res) => {
+core.get("/conversations/:id", projectionSnapshot((req, res) => {
   const c = owned("conversations", req.params.id, res.locals.owner);
   const before = z.string().max(512).optional().parse(req.query.before);
   const anchor = z.string().max(150).optional().parse(req.query.message);
@@ -759,7 +760,7 @@ core.get("/conversations/:id", (req, res) => {
     ...returned,
     resumed,
   });
-});
+}));
 core.get("/messages/:id", (req, res) =>
   res.json(owned<Message>("messages", req.params.id, res.locals.owner)),
 );

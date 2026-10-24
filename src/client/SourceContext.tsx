@@ -1,8 +1,9 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { apiInWorkspace, readInWorkspace, type api } from "./api";
 import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
+import { viewGeneration } from "./viewCache";
 
 const SourceContext = createContext<{
   sourceId: string;
@@ -52,6 +53,19 @@ export function useSourcePath() {
 
 export function useSourceRead() {
   const source = useSourceId();
-  return useMemo(() => <T = any,>(path: string, signal: AbortSignal) =>
-    readInWorkspace<T>(path, source, signal), [source]);
+  return useMemo(() => <T = any,>(path: string, signal: AbortSignal, onRetry?: (error: unknown) => void) =>
+    readInWorkspace<T>(path, source, signal, onRetry), [source]);
+}
+
+/** Signal-driven snapshots must recover from Retry-After even if no later
+ * change arrives. Cancellation belongs to this owner/source view lifetime. */
+export function useProjectionRead(sourceId?: string) {
+  const contextSource = useSourceId(), source = sourceId ?? contextSource;
+  const generation = viewGeneration();
+  const handle = useMemo(() => ({ controller: new AbortController(), source }), [source, generation]);
+  useEffect(() => {
+    if (handle.controller.signal.aborted) handle.controller = new AbortController();
+    return () => handle.controller.abort();
+  }, [handle]);
+  return useMemo(() => <T = any,>(path: string, source = handle.source) => readInWorkspace<T>(path, source, handle.controller.signal), [handle]);
 }

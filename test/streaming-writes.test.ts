@@ -1,5 +1,5 @@
-// Artifacts stay live per chunk; their derived indexes catch up at completion.
-import { afterAll, expect, it } from "vitest";
+// Batches materialize display data and events together; indexes wait for completion.
+import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 const dir = mkdtempSync(join(tmpdir(), "loop-streaming-writes-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-const { db, id, now } = await import("../src/server/db");
+const { db, changes, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
@@ -42,7 +42,7 @@ const restore = withTestAdapter("openai", {
     ];
   },
   async *stream() {
-    for (const text of chunks) {
+    for (const [index, text] of chunks.entries()) {
       const snapshot = () =>
         prepare(`SELECT a.id, f.content fts, s.content search,
         r.revision FROM artifacts a JOIN artifact_fts f ON f.artifact_id=a.id
@@ -52,7 +52,9 @@ const restore = withTestAdapter("openai", {
       indexed ??= snapshot();
       const before = executed;
       yield { text };
-      // Back here once the chunk was persisted and the next one is requested.
+      // Fast chunks stay in memory. A 250ms batch makes exactly the same
+      // prefix available to snapshots and events, then requests more tokens.
+      if (index === 1 || index === 3) await vi.advanceTimersByTimeAsync(250);
       const after = executed;
       expect(snapshot()).toEqual(indexed);
       const { artifact } = runPreview("alice", runId);
@@ -69,6 +71,7 @@ const restore = withTestAdapter("openai", {
   },
 });
 afterAll(() => {
+  vi.useRealTimers();
   restore();
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -98,20 +101,22 @@ it("keeps the result live while deferring its indexes until completion", async (
   const run = claim("worker")!;
   runId = run.id;
   // As the worker does: a finished execution completes the run, which publishes.
-  expect(await executeAgent(run)).toBe(true);
+  vi.useFakeTimers();
+  try { expect(await executeAgent(run)).toBe(true); }
+  finally { vi.useRealTimers(); }
   transition(run, "completed");
 
-  // Both the preview and open result advance with every chunk.
-  let text = "";
+  // Each elapsed batch advances both projections; terminal flush saves the tail.
   for (const [index, step] of observed.entries()) {
-    text += chunks[index];
+    const through = index < 1 ? 0 : index < 3 ? 2 : 4;
+    const text = chunks.slice(0, through).join("");
     expect(step.preview).toBe(text);
     expect(step.artifact).toBe(text);
-    expect(step.projected).toBe(text.trim());
-    // The synchronous shadow adds source reads, card writes and feed.card
-    // emission to the seven original statements. Bound that work while the
-    // assertions above keep search/version indexes deferred until completion.
+    expect(step.projected).toBe(text.trim() || null);
+    // Preserve the shadow projection work bound and prove unflushed chunks
+    // perform no database work between the 250 ms materialization batches.
     expect(step.statements).toBeLessThanOrEqual(47);
+    if (index !== 1 && index !== 3) expect(step.statements).toBe(0);
   }
 
   const answer = chunks.join("");
@@ -143,4 +148,26 @@ it("keeps the result live while deferring its indexes until completion", async (
   expect(indexedFinal.revision).toBeGreaterThan(
     (indexed as { revision: number }).revision,
   );
+});
+
+it("releases run subscriptions when the terminal projection flush fails", async () => {
+  const connection = id();
+  prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)")
+    .run(connection, "alice", seal("fake-key", "alice"), JSON.stringify([{id:"fixture-model"}]), now());
+  const agent = createAgent("alice", {name:"flush-failure", connectionId:connection, model:"fixture-model"});
+  submit("alice", {agentId:agent.id,input:"Stream a tail",idempotencyKey:"flush-failure"});
+  const run = claim("worker")!;
+  const before = changes.subscriberCount;
+  const restoreFailure = withTestAdapter("openai", {
+    async models() { return []; },
+    async *stream() { yield {text:"Unflushed tail"}; },
+  });
+  db.exec("CREATE TEMP TRIGGER reject_terminal_flush BEFORE UPDATE OF content ON messages WHEN NEW.content='Unflushed tail' BEGIN SELECT RAISE(ABORT,'fixture terminal flush failure'); END");
+  try {
+    await expect(executeAgent(run)).rejects.toThrow("fixture terminal flush failure");
+    expect(changes.subscriberCount).toBe(before);
+  } finally {
+    db.exec("DROP TRIGGER reject_terminal_flush");
+    restoreFailure();
+  }
 });

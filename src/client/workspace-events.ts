@@ -2,6 +2,7 @@ import {
   WorkspaceFrameV3,
   WorkspaceClock,
   invalidate,
+  PARTIAL_WORKSPACE_CAPABILITIES,
   type WorkspaceEvent,
 } from "../shared/workspace-events";
 import { viewGeneration } from "./viewCache";
@@ -9,6 +10,12 @@ import { retryAfter } from "./api";
 
 export type WorkspaceFrame =
   | WorkspaceFrameV3
+  // A clock observed over HTTP can reset a replaced source, but cannot make
+  // claims about that deployment's build or delta capabilities.
+  | (Omit<Extract<WorkspaceFrameV3, { type: "reset" }>, "build" | "buildIdentity"> & {
+      build?: undefined;
+      buildIdentity?: undefined;
+    })
   | {
       v: 2;
       type: "reset" | "events";
@@ -74,6 +81,23 @@ export function watchWorkspaceEvents(options: {
     if (ready && epoch && parsed.data.epoch !== epoch) return;
     if (deadlineClock?.epoch !== parsed.data.epoch && detail.requestId !== undefined && detail.requestId < lastClockRequest) return;
     lastClockRequest = Math.max(lastClockRequest, detail.requestId ?? 0);
+    if (!ready && epoch !== parsed.data.epoch) {
+      const replaced = !!epoch;
+      epoch = parsed.data.epoch;
+      cursor = pollCursor = parsed.data.cursor;
+      if (replaced) {
+        // Invalidate the old socket before closing it: a late frame must not
+        // put the client back into the database that HTTP just replaced.
+        const obsolete = socket;
+        socket = undefined;
+        obsolete?.close();
+        clearTimeout(retry);
+        retry = setTimeout(connect, 0);
+        options.frame?.({ v: 3, type: "reset", ...parsed.data,
+          capabilities: PARTIAL_WORKSPACE_CAPABILITIES });
+        options.changed();
+      }
+    }
     armDeadline(parsed.data);
   };
   const connect = () => {
@@ -88,13 +112,20 @@ export function watchWorkspaceEvents(options: {
     url.searchParams.set("cursor", String(cursor));
     url.searchParams.set("v", "3");
     url.searchParams.set("clock", "1");
+    url.searchParams.set("projection", "1");
+    let firstFrame = true;
     const current = (socket = new WebSocket(url));
     current.onmessage = (event) => {
-      if (stopped || current !== socket) return;
+      if (stopped || current !== socket || viewGeneration() !== ownerGeneration) return;
       try {
         const value = JSON.parse(event.data);
         const m: WorkspaceFrame =
           value?.v === 3 ? WorkspaceFrameV3.parse(value) : value;
+        // A resumed connection may not reset its cursor. Older servers do
+        // not announce capabilities on replay, so conservatively restore
+        // fallback instead of retaining a previous deployment's promises.
+        if (firstFrame && m?.v === 3 && m.type === "events" && !m.capabilities)
+          m.capabilities = PARTIAL_WORKSPACE_CAPABILITIES;
         if (
           !m ||
           (m.v !== 2 && m.v !== 3) ||
@@ -143,6 +174,7 @@ export function watchWorkspaceEvents(options: {
         // Polling stops while push is healthy. Its last success cannot prove
         // connectivity after this socket subsequently disconnects.
         pollHealthy = false;
+        firstFrame = false;
         request?.abort();
         options.frame?.(m);
         const notifications = m.v === 3 && m.type === "events"
@@ -154,7 +186,7 @@ export function watchWorkspaceEvents(options: {
       }
     };
     current.onclose = (event) => {
-      if (stopped || current !== socket) return;
+      if (stopped || current !== socket || viewGeneration() !== ownerGeneration) return;
       ready = false;
       // A blocked upgrade must not hide a healthy HTTP fallback behind a
       // persistent reconnect notice, including subsequent socket retries.
@@ -173,16 +205,17 @@ export function watchWorkspaceEvents(options: {
     current.onerror = () => current.close();
   };
   const poll = async () => {
-    if (stopped || ready || polling || Date.now() < pollAfter) return;
+    if (stopped || viewGeneration() !== ownerGeneration || ready || polling || Date.now() < pollAfter) return;
     polling = true;
+    const requestEpoch = epoch;
     const controller = (request = new AbortController());
     const deadline = setTimeout(() => controller.abort(), 12_000);
     try {
       const events = await options.read(pollCursor, controller.signal);
-      if (stopped || ready || controller.signal.aborted) return;
+      if (stopped || viewGeneration() !== ownerGeneration || ready || controller.signal.aborted) return;
       pollHealthy = true;
       options.connected?.(true);
-      if (events.length) pollCursor = events.at(-1)!.id;
+      if (events.length && epoch === requestEpoch) pollCursor = events.at(-1)!.id;
       // Older servers do not publish Cards revisions. Keep their edits and
       // removals current even when no new run event accompanies the mutation.
       if (events.length || Date.now() - lastRefresh >= 15_000) {

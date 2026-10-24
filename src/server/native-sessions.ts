@@ -1770,18 +1770,19 @@ export class NativeSessions {
         if (item.kind === "assistant")
           recordConversationUpdate(run, `native-message:${item.id}`, {
             content: item.text,
-            metadata: { native: true, itemId: item.id, final: false },
+            metadata: { native: true, itemId: item.id, phase: item.phase, final: false },
           });
+        else
+          db.prepare("DELETE FROM messages WHERE owner_id=? AND run_id=? AND update_key=?")
+            .run(run.owner_id, run.id, `native-message:${item.id}`);
       }
       if (finalItem)
         recordConversationUpdate(run, `native-message:${finalItem.id}`, {
           content: finalItem.text,
-          metadata: { native: true, itemId: finalItem.id, final: true },
+          metadata: { native: true, itemId: finalItem.id, phase: finalItem.phase, final: true },
         });
-      emit(run.owner_id, run.id, "message.delta", {
-        messageId: checkpoint.message_id,
-        native: true,
-      });
+      // Message projection triggers publish item and aggregate identities,
+      // revisions and bounded append chunks in this same transaction.
     }).immediate();
     live.items.dirty.clear();
   }

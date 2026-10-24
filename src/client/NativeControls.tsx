@@ -1,4 +1,4 @@
-import { useSourceId, useSourceApi, useSourceCapabilities } from "./SourceContext";
+import { useSourceId, useSourceApi, useSourceCapabilities, useProjectionRead } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization, apiInWorkspace } from "./api";
 import { RichText } from "./components";
@@ -9,6 +9,7 @@ import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { codexToolApproval } from "../shared/codex-approval";
 import { watchWorkspaceEvents } from "./workspace-events";
+import { publishProjectionFrame, forgetProjectionSource, surfaceFallback } from "./workspace-projections";
 import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
 import { PARTIAL_WORKSPACE_CAPABILITIES, type WorkspaceEvent } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
@@ -41,18 +42,18 @@ export function WorkspaceConnection({
     let lastRefresh = 0;
     const pending = new WorkspaceChangeQueue();
     // Streaming tokens can produce many committed events. Reconcile views
-    // immediately after idle, then at most every 1.8 seconds while busy.
+    // immediately after idle, then at most every two seconds while busy.
     // Retain every source and the trailing change without flooding HTTP reads.
     const changed = (source: string, events?: readonly WorkspaceEvent[]) => {
       pending.add(source, events);
-      if (timer) return;
+      if (!pending.size || timer) return;
       timer = setTimeout(() => {
         timer = undefined;
         lastRefresh = Date.now();
         window.dispatchEvent(
           new CustomEvent("loop-workspace-change", { detail: pending.drain() }),
         );
-      }, Math.max(0, 1800 - (Date.now() - lastRefresh)));
+      }, Math.max(0, 2000 - (Date.now() - lastRefresh)));
     };
     const stops = new Map<string, () => void>();
     const subscribe = (sourceId: string) => {
@@ -74,8 +75,10 @@ export function WorkspaceConnection({
           ),
         changed: (events) => changed(sourceId, events),
         frame: (m) => {
+          publishProjectionFrame(sourceId, m);
+          if (m.v === 2 || m.capabilities)
+            pending.capabilities.set(sourceId, m.v === 3 ? m.capabilities! : PARTIAL_WORKSPACE_CAPABILITIES);
           if (m.type !== "reset") return;
-          pending.capabilities.set(sourceId, m.v === 3 ? m.capabilities : PARTIAL_WORKSPACE_CAPABILITIES);
           if (sourceId || typeof m.build !== "string") return;
           const identity = BuildIdentity.safeParse(m.buildIdentity);
           const updated = identity.success ? browserNeedsReload(runningBuild, identity.data) : null;
@@ -107,6 +110,7 @@ export function WorkspaceConnection({
         if (wanted.has(source)) continue;
         stop();
         stops.delete(source);
+        forgetProjectionSource(source);
         pending.delete(source);
       }
       for (const source of wanted)
@@ -119,7 +123,7 @@ export function WorkspaceConnection({
     reconcileSources.current = reconcile;
     const stop = () => {
       clearTimeout(timer);
-      stops.forEach((stop) => stop());
+      stops.forEach((stop, source) => { stop(); forgetProjectionSource(source); });
       stops.clear();
       pending.clear();
       if (reconcileSources.current === reconcile)
@@ -154,29 +158,30 @@ export function NativeDecisions({
   conversation?: string;
   onConversation?: (id: string) => void;
 }) {
-  const api = useSourceApi();
+  const api = useProjectionRead();
   const sourceId = useSourceId();
   const capabilities = useSourceCapabilities();
   const [items, setItems] = useState<Decision[]>([]);
   useEffect(() => {
     if (!capabilities.nativeHarnesses) return;
-    let stopped = false;
+    let stopped = false, latest = 0;
     const load = () => {
+      const request = ++latest;
       void api<Decision[]>(
         "/native/decisions" +
           (conversation ? "?conversation=" + conversation : ""),
       )
         .then((x) => {
-          if (!stopped) setItems(x);
+          if (!stopped && request === latest) setItems(x);
         })
         .catch(() => {});
     };
-    load();
-    const timer = setInterval(load, 3000);
     const stopChanges = listenWorkspaceChanges("decisions", load, sourceId, conversation);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 3000, load);
+    load();
     return () => {
       stopped = true;
-      clearInterval(timer);
+      stopFallback();
       stopChanges();
     };
   }, [conversation, sourceId]);

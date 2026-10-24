@@ -39,7 +39,8 @@ export type Message = {
   run_checkout?: string | null;
   /** JSON list of verification commands Loop observed for the run. */
   run_verification?: string | null;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
+  revision?: number;
   content: string;
   metadata: string;
   created_at: number;

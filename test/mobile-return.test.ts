@@ -849,8 +849,9 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
     // Even a legacy client writing this obsolete flag cannot hide a thread.
     db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
     const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
+    const display = ({ projection, ...page }: any) => page;
     const before = await Promise.all(filters.map(async (filter) =>
-      (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data));
+      display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)));
     const done = (await api(w.owner, "/feed?filter=done&expand=results")).data;
     expect(done.items[0].done_card_key).toBe("run:" + first);
     const working = ["running", "pausing", "waiting_children"].includes(state);
@@ -862,7 +863,7 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
     expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
     expect((await api(w.owner, "/feed?filter=done&expand=results")).data).toMatchObject({ items: [], summary: done.summary });
     for (const [index, filter] of filters.entries()) {
-      expect((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data).toEqual(before[index]);
+      expect(display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)).toEqual(before[index]);
     }
     expect((await api("intruder", "/feed?filter=working")).data.items).toEqual([]);
     expect(db.prepare("SELECT state FROM runs WHERE id=?").get(active)).toEqual({ state: state === "waiting_children" ? "running" : state });

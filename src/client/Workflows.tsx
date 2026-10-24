@@ -1,3 +1,6 @@
+import { useProjectionRead, useSourceId } from "./SourceContext";
+import { surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
 import {
   Play,
@@ -84,6 +87,7 @@ export function WorkflowEditor({
   onConversation: (id: string) => void;
   onCreateAgent: (source: string, id?: string) => void;
 }) {
+  const read = useProjectionRead(), sourceId = useSourceId();
   const [list, setList] = useState<any[]>([]),
     [record, setRecord] = useState<any>(null),
     [source, setSource] = useState(initialSource || starter(agents, "")),
@@ -116,13 +120,14 @@ export function WorkflowEditor({
   useEffect(() => {
     if (!selectedRun) return;
     const update = () =>
-      api<any[]>("/runs/" + selectedRun + "/steps")
+      read<any[]>("/runs/" + selectedRun + "/steps")
         .then(setSteps)
         .catch((e) => setError(e.message));
+    const stopChanges = listenWorkspaceChanges("runs", update, sourceId);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 1800, update);
     void update();
-    const timer = setInterval(() => void update(), 1800);
-    return () => clearInterval(timer);
-  }, [selectedRun]);
+    return () => { stopChanges(); stopFallback(); };
+  }, [selectedRun, sourceId, read]);
   async function save() {
     setBusy(true);
     try {

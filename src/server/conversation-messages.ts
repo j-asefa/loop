@@ -19,21 +19,11 @@ export const transcriptPageSql = `WITH page AS MATERIALIZED (
   SELECT * FROM conversation_transcript
   WHERE owner_id=? AND conversation_id=? AND (position,phase,ordinal)<(?,?,?)
   ORDER BY position DESC,phase DESC,ordinal DESC LIMIT 51
-) SELECT m.id,p.owner_id,p.conversation_id,p.run_id,m.role,m.content,
-  json_set(m.metadata,'$.completedMessageId',(SELECT final.id FROM messages final
-    WHERE final.owner_id=p.owner_id AND final.run_id=p.run_id
-      AND final.update_key IS NOT NULL AND json_extract(final.metadata,'$.final')=1
-    ORDER BY final.rowid DESC LIMIT 1),
-    '$.delivery',s.state,'$.deliveryError',s.error) metadata,
-  m.created_at,r.state run_state,r.error run_error,
-  (SELECT k.summary FROM run_checkouts k WHERE k.run_id=p.run_id AND k.owner_id=p.owner_id) run_checkout,
-  (SELECT json_group_array(json_object('id',v.id,'kind',v.kind,'tools',json(v.tools),'status',v.status))
-     FROM run_verifications v WHERE v.run_id=p.run_id AND v.owner_id=p.owner_id) run_verification,
+) SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
+  m.metadata,m.created_at,m.revision,m.run_state,m.run_error,m.run_checkout,m.run_verification,
   p.position,p.phase,p.ordinal
 FROM page p
-JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
-LEFT JOIN runs r ON r.id=p.run_id AND r.owner_id=p.owner_id
-LEFT JOIN run_steering s ON s.message_id=p.message_id AND s.owner_id=p.owner_id
+JOIN message_projection m ON m.id=p.message_id AND m.owner_id=p.owner_id
 ORDER BY p.position DESC,p.phase DESC,p.ordinal DESC`;
 
 export function conversationMessages(
@@ -86,6 +76,10 @@ export function conversationMessages(
   if (hasMore) items.pop();
   return {
     next: hasMore ? encode(position(items.at(-1)!)) : null,
+    range: {
+      from: hasMore ? position(items.at(-1)!) : ([0, 0, 0] as Position),
+      before: cursor,
+    },
     messages: items
       .reverse()
       .map(({ position: p, phase, ordinal, ...message }) => ({

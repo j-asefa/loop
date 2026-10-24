@@ -1,4 +1,6 @@
-import { useSourceApi } from "./SourceContext";
+import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
@@ -29,31 +31,36 @@ const WATCH_CHANGE = "loop-pr-watch-change";
 // the list is confirmed: an empty list while loading or after a failed
 // request is not "no watch".
 export function useWatchState(conversation: string | null | undefined) {
-  const api = useSourceApi();
+  const read = useProjectionRead();
+  const sourceId = useSourceId();
   const [watches, setWatches] = useState<Watch[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
   useEffect(() => {
     if (!conversation) return;
-    let live = true;
-    const load = () =>
-      api<{ watches: Watch[] }>(
+    let live = true, latest = 0;
+    const load = () => {
+      const request = ++latest;
+      return read<{ watches: Watch[] }>(
         "/pr-watches?conversation=" + encodeURIComponent(conversation),
       )
         .then((r) => {
-          if (!live) return;
+          if (!live || request !== latest) return;
           setWatches(r.watches);
           setStatus("ready");
         })
-        .catch(() => live && setStatus("failed"));
+        .catch(() => live && request === latest && setStatus("failed"));
+    };
     void load();
     window.addEventListener(WATCH_CHANGE, load);
-    const timer = setInterval(load, 60_000);
+    const stopChanges = listenWorkspaceChanges("pulls", load, sourceId, conversation ?? undefined);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 60_000, load);
     return () => {
       live = false;
       window.removeEventListener(WATCH_CHANGE, load);
-      clearInterval(timer);
+      stopChanges();
+      stopFallback();
     };
-  }, [conversation]);
+  }, [conversation, sourceId]);
   return { watches, status };
 }
 export function useWatches(conversation: string | null | undefined) {

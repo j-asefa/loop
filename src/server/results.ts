@@ -74,7 +74,7 @@ export function resultsUpdates(
     .prepare(
       prompts
         ? `
-    SELECT f.revision,f.object_id AS changed_id,f.cursor,m.*,r.state run_state,r.error run_error,c.agent_id AS feed_agent_id,c.team_id,json_extract((SELECT payload FROM runs fr WHERE fr.id=m.run_id),'$.folderId') AS folder_id,g.name,g.provider
+    SELECT f.revision AS change_revision,f.object_id AS changed_id,f.cursor,m.*,r.state run_state,r.error run_error,c.agent_id AS feed_agent_id,c.team_id,json_extract((SELECT payload FROM runs fr WHERE fr.id=m.run_id),'$.folderId') AS folder_id,g.name,g.provider
     FROM feed_revisions f LEFT JOIN messages m ON m.id=f.object_id AND m.owner_id=f.owner_id
     LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
     LEFT JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents g ON g.id=c.agent_id
@@ -82,7 +82,7 @@ export function resultsUpdates(
     ORDER BY f.revision LIMIT 200
   `
         : `
-    SELECT f.revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.saved || options.view === "files" ? fileArtifactSql : resultOutputSql}) AS output_visible
+    SELECT f.revision AS change_revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.saved || options.view === "files" ? fileArtifactSql : resultOutputSql}) AS output_visible
     FROM feed_revisions f LEFT JOIN artifacts a ON a.id=f.object_id AND a.owner_id=f.owner_id
     LEFT JOIN ${options.saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=f.object_id
     LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
@@ -105,7 +105,7 @@ export function resultsUpdates(
   ]);
   for (const row of rows) {
     const {
-      revision: _revision,
+      change_revision: _revision,
       changed_id,
       feed_agent_id,
       output_visible,
@@ -130,7 +130,7 @@ export function resultsUpdates(
   return {
     items,
     removed,
-    revision: rows.length === 200 ? rows.at(-1)!.revision : revision,
+    revision: rows.length === 200 ? rows.at(-1)!.change_revision : revision,
     more: rows.length === 200,
   };
 }

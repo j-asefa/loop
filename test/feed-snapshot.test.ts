@@ -1,6 +1,8 @@
 // The correctness oracle for the Feed storage work: every Feed and results
-// response over a fixed workspace, compared with committed snapshots. Run
-// with UPDATE_SNAPSHOTS=1 to record them (and statements.json, the SQL
+// display response over a fixed workspace, compared with committed snapshots.
+// Projection clocks/delta envelopes are validated separately from this content
+// oracle because epochs and owner watermarks are transport metadata. Run
+// with UPDATE_SNAPSHOTS=1 to record display snapshots (and statements.json, the SQL
 // statement count per request, which is informational).
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -71,7 +73,16 @@ it.each(cases)("%s matches its snapshot", async (name, path) => {
   resetStatements();
   const response = await app.fetch(path);
   counts[name] = statements();
-  const body = { status: response.status, body: await response.json() };
+  const { projection, ...content } = await response.json();
+  if (path !== "/api/feed/away?since=0") {
+    expect(projection).toMatchObject({
+      epoch: expect.any(String),
+      cursor: expect.any(Number),
+      serverNow: expect.any(Number),
+    });
+    expect(projection.cursor).toBeGreaterThanOrEqual(0);
+  }
+  const body = { status: response.status, body: content };
   const file = join(folder, `${name}.json`);
   if (update) writeFileSync(file, JSON.stringify(body, null, 2) + "\n");
   expect(body).toEqual(JSON.parse(readFileSync(file, "utf8")));

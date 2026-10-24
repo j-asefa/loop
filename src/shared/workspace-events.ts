@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProjectedMessage, MessageAppend, MessageRemoval } from "./transcript-projection.js";
 
 export const WORKSPACE_COLLECTIONS = [
   "feed",
@@ -7,6 +8,7 @@ export const WORKSPACE_COLLECTIONS = [
   "approvals",
   "decisions",
   "activities",
+  "usage",
   "saved",
   "later",
   "scheduled",
@@ -41,6 +43,10 @@ const Scopes = z.array(WorkspaceScope).min(1).max(32);
 const Invalidation = z.strictObject({ scope: WorkspaceScope, scopes: Scopes.optional() });
 const Tombstone = Invalidation.extend({ removed: WorkspaceSubject });
 const Deadline = z.strictObject({ serverNow: Count, nextDeadline: Count.nullable() });
+const Decision = z.strictObject({
+  decisionId: Id, conversationId: Id, runId: Id, generation: Id,
+  nativeId: z.string().max(256000), state: z.string(), request: z.unknown(),
+});
 
 
 // Provider receipts and execution snapshots have provider-specific JSON fields.
@@ -254,9 +260,18 @@ const Payloads = {
     snapshot: Json,
   }),
   "message.delta": z.union([
+    MessageAppend,
     z.strictObject({ messageId: Id, text: Text }),
     z.strictObject({ messageId: Id, native: z.literal(true) }),
   ]),
+  "message.upsert": z.strictObject({ message: ProjectedMessage }),
+  "message.remove": MessageRemoval,
+  "decision.pending": Decision,
+  "decision.deciding": Decision,
+  "decision.resolved": Decision,
+  "decision.expired": Decision,
+  "decision.unknown": Decision,
+  "decision.remove": Decision,
   "message.completed": Message,
   "trace.updated": z.strictObject({ round: Count }),
   "provider.receipt": z.strictObject({
@@ -319,6 +334,14 @@ export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
   variant("steering.failed"),
   variant("message.started"),
   variant("message.delta"),
+  variant("message.upsert"),
+  variant("message.remove"),
+  variant("decision.pending"),
+  variant("decision.deciding"),
+  variant("decision.resolved"),
+  variant("decision.expired"),
+  variant("decision.unknown"),
+  variant("decision.remove"),
   variant("message.completed"),
   variant("trace.updated"),
   variant("provider.receipt"),
@@ -350,8 +373,9 @@ export const WorkspaceEvent = z.discriminatedUnion("type", [
 export type WorkspaceEvent = z.infer<typeof WorkspaceEvent>;
 export function invalidate(
   scope: WorkspaceScope = { kind: "collection", id: "all" },
+  subject?: WorkspaceSubject,
 ): WorkspaceEvent {
-  return { type: "invalidate", scope };
+  return { type: "invalidate", scope, ...(subject ? { subject } : {}) };
 }
 export function eventScopes(event: WorkspaceEvent): WorkspaceScope[] {
   return [event.scope, ...("scopes" in event ? event.scopes ?? [] : [])];
@@ -378,6 +402,13 @@ export function parseEmission(run: string | null, type: string, payload: unknown
   if (type === "tombstone") return { type, subject, ...Tombstone.parse(payload) };
   if (type === "deadline") return { type, subject, scope: { kind: "collection", id: "all" }, ...Deadline.parse(payload) };
   const event = EmittedWorkspaceEvent.parse({ type, payload, subject, scope: eventScope(type, run, input) });
+  if (event.type === "message.upsert") event.scope = { kind: "conversation", id: event.payload.message.conversation_id };
+  else if (event.type === "message.remove")
+    event.scope = { kind: "conversation", id: event.payload.conversationId };
+  else if (event.type === "message.delta" && "conversationId" in event.payload)
+    event.scope = { kind: "conversation", id: event.payload.conversationId };
+  else if (event.type.startsWith("decision."))
+    event.scope = { kind: "collection", id: "decisions" };
   if (new TextEncoder().encode(JSON.stringify(event)).length > 16 * 1024 * 1024)
     throw new Error("Workspace event exceeds its durable size bound");
   return event;
@@ -393,7 +424,8 @@ export function historicalEvent(row: {
   const subject = parsed.success ? parsed.data : undefined;
   if (row.payload === null) {
     const scope = WorkspaceScope.safeParse(eventScope(row.type, row.run_id, subject));
-    return Object.hasOwn(Payloads, row.type) && scope.success ? invalidate(scope.data) : invalidate();
+    return Object.hasOwn(Payloads, row.type) && scope.success
+      ? invalidate(scope.data, subject?.kind === "message" ? subject : undefined) : invalidate();
   }
   try {
     return parseEmission(row.run_id, row.type, JSON.parse(row.payload), subject);
@@ -422,6 +454,8 @@ export const PARTIAL_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
 };
 export const COMPLETE_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
   ...PARTIAL_WORKSPACE_CAPABILITIES, invalidations: "complete", deadlines: true,
+  transcript: "delta",
+  feed: "delta", results: "delta",
 };
 export const WorkspaceClock = z.strictObject({
   epoch: z.string().min(1).max(200),
@@ -444,6 +478,7 @@ export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
   z.strictObject({
     v: z.literal(3),
     type: z.literal("events"),
+    capabilities: WorkspaceCapabilities.optional(),
     epoch: z.string().min(1).max(200),
     cursor: Count,
     events: z

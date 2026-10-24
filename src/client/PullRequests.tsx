@@ -1,3 +1,4 @@
+import { useProjectionRead } from "./SourceContext";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
@@ -14,6 +15,8 @@ import {
   X,
 } from "lucide-react";
 import { api } from "./api";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { executionSourceId } from "./sourceRouting";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { Empty, RichText, Sheet } from "./components";
 import { relativeTime } from "./threadView";
@@ -155,6 +158,7 @@ function PullRequestInbox({
   onSelect: (key: string) => void;
   onConnect: () => void;
 }) {
+  const read = useProjectionRead();
   const [filter, setFilterState] = useState<PullFilter>(
     () =>
       (PULL_FILTERS.find(
@@ -181,7 +185,7 @@ function PullRequestInbox({
       const params = new URLSearchParams({ filter });
       if (repo) params.set("repo", repo);
       if (terms) params.set("q", terms);
-      const result = await api<PullInbox>("/github/pulls?" + params);
+      const result = await read<PullInbox>("/github/pulls?" + params);
       if (mine !== request.current) return;
       // Only a connected read is kept: connecting GitHub must show at once.
       lastInbox = result.connected ? { key, inbox: result } : undefined;
@@ -200,7 +204,9 @@ function PullRequestInbox({
     const refresh = () => void load();
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener(TOOLS_CLOSED, refresh);
+    const stopChanges = listenWorkspaceChanges("pulls", refresh, executionSourceId());
     return () => {
+      stopChanges();
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener(TOOLS_CLOSED, refresh);
     };
@@ -700,6 +706,7 @@ function PullRequestDetail({
   onConnect: () => void;
   onAsk?: (text: string) => void;
 }) {
+  const read = useProjectionRead();
   const [pr, setPr] = useState<PullDetail | null>(null);
   const [error, setError] = useState<{ message: string; status?: number }>();
   const [busy, setBusy] = useState(false);
@@ -712,7 +719,7 @@ function PullRequestDetail({
     setBusy(true);
     setError(undefined);
     try {
-      setPr(await api<PullDetail>(pullPath(pullRef)));
+      setPr(await read<PullDetail>(pullPath(pullRef)));
     } catch (e) {
       setError({
         message: (e as Error).message,
@@ -728,7 +735,8 @@ function PullRequestDetail({
   useEffect(() => {
     const refresh = () => void load();
     window.addEventListener("loop-refresh", refresh);
-    return () => window.removeEventListener("loop-refresh", refresh);
+    const stopChanges = listenWorkspaceChanges("pulls", refresh, executionSourceId());
+    return () => { stopChanges(); window.removeEventListener("loop-refresh", refresh); };
   });
   const name = `${pullRef.owner}/${pullRef.repo}#${pullRef.number}`;
   const back = (

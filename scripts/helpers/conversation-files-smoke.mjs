@@ -209,6 +209,13 @@ export async function conversationFilesSmoke(page, fixture, conversation) {
     releaseOlder();
     await expect(page.locator(".conversation-sheet[open]")).toHaveCount(0);
     assert.equal(downloads.length, 1);
+  } catch (error) {
+    console.error("Conversation files diagnostics", JSON.stringify({
+      latest: { message: latest.id, run: latest.run_id },
+      listReads: Object.fromEntries(listReads),
+      answer: await page.locator(`#message-${latest.id}`).innerHTML().catch(() => "missing"),
+    }));
+    throw error;
   } finally {
     failFiles = false;
     releaseLists();

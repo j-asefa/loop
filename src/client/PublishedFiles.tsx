@@ -1,8 +1,9 @@
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceApi, useSourcePath } from "./SourceContext";
+import { useSourceId, useSourceRead, useSourcePath } from "./SourceContext";
+import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
-import { parse, retryAfter, isRateLimited } from "./api";
+import { isRateLimited, parse } from "./api";
 import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
@@ -177,7 +178,7 @@ export function RunFiles({
   active?: boolean;
   previewImages?: boolean;
 }) {
-  const api = useSourceApi();
+  const read = useSourceRead();
   const sourceId = useSourceId();
   const [files, setFiles] = useState<Published[]>([]),
     [error, setError] = useState(""),
@@ -187,7 +188,6 @@ export function RunFiles({
     let pending = false,
       queued = false;
     const controller = new AbortController();
-    let retry: ReturnType<typeof setTimeout> | undefined;
     setFiles([]);
     setError("");
     const refresh = () => {
@@ -197,27 +197,19 @@ export function RunFiles({
         return;
       }
       pending = true;
-      void api<Published[]>(
-        "/runs/" + runId + "/files",
-        undefined,
-        undefined,
-        controller.signal,
-      )
+      void read<Published[]>("/runs/" + runId + "/files", controller.signal, (error) => {
+        // Keep the existing immediate error and manual retry while a bounded
+        // transient GET retry is pending. Rate limits remain quiet.
+        if (live && !isRateLimited(error)) setError((error as Error).message);
+      })
         .then((files) => {
           if (live) {
-            clearTimeout(retry);
             setFiles(files);
             setError("");
           }
         })
         .catch((e) => {
-          if (!live) return;
-          if (isRateLimited(e)) {
-            // The thread keeps its cached transcript and one quiet status.
-            // Static file lists also recover once the source allows reads.
-            clearTimeout(retry);
-            retry = setTimeout(refresh, Math.min(2_147_483_647, retryAfter(e)));
-          } else setError(e.message);
+          if (live) setError(e.message);
         })
         .finally(() => {
           pending = false;
@@ -229,16 +221,15 @@ export function RunFiles({
         });
     };
     refresh();
-    const timer = active ? setInterval(refresh, 5000) : undefined;
+    const stopFallback = active ? surfaceFallback([sourceId], "results", 5000, refresh) : () => {};
     const stopChanges = listenWorkspaceChanges("results", refresh, sourceId);
     return () => {
       live = false;
       controller.abort();
-      clearInterval(timer);
-      clearTimeout(retry);
+      stopFallback();
       stopChanges();
     };
-  }, [runId, active, api, sourceId, attempt]);
+  }, [runId, active, read, sourceId, attempt]);
   const visible = files.filter((file) => file.id !== excludeId);
   // Empty runs reserve no space, including while their summaries load. A
   // temporary placeholder would move the reading position twice per answer.

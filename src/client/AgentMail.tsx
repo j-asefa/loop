@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { ArrowUpRight } from "lucide-react";
-import { apiInWorkspace } from "./api";
+import { apiInWorkspace, readInWorkspace } from "./api";
 import type { Agent } from "../shared/types";
 import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
 
@@ -67,6 +68,7 @@ function MailThreadsView({
     const controller = new AbortController();
     requests.current.add(controller);
     try {
+      if (body === undefined) return await readInWorkspace<T>(url, sourceId, controller.signal);
       return await apiInWorkspace<T>(
         url,
         sourceId,
@@ -96,8 +98,10 @@ function MailThreadsView({
   };
   useEffect(() => {
     active.current = true;
+    const stopChanges = listenWorkspaceChanges("mail", () => void load(), sourceId);
     void load();
     return () => {
+      stopChanges();
       active.current = false;
       generation.current++;
       for (const request of requests.current) request.abort();

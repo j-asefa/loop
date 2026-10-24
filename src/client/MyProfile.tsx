@@ -1,3 +1,6 @@
+import { readInWorkspace } from "./api";
+import { surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api } from "./api";
 import { Sheet } from "./components";
@@ -71,10 +74,9 @@ export function MyProfile({
     const load = async () => {
       const current = ++ticket;
       try {
-        const result = await api<{ unread: number }>(
+        const result = await readInWorkspace<{ unread: number }>(
           "/social/unread",
-          undefined,
-          undefined,
+          "",
           controller.signal,
         );
         if (
@@ -85,12 +87,14 @@ export function MyProfile({
           setSocialUnread(result.unread);
       } catch {}
     };
+    const stopChanges = listenWorkspaceChanges("social", load, "");
+    const stopFallback = surfaceFallback([""], "workspace", 30_000, load);
     void load();
-    const timer = setInterval(() => void load(), 30_000);
     window.addEventListener("loop-social-read", load);
     return () => {
       controller.abort();
-      clearInterval(timer);
+      stopChanges();
+      stopFallback();
       window.removeEventListener("loop-social-read", load);
     };
   }, []);

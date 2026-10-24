@@ -904,13 +904,31 @@ export async function executeAgent(run: Run): Promise<boolean> {
           content: turnText,
           metadata: { final, round },
         });
-      saveTurn();
-      emit(run.owner_id, run.id, "message.started", {
-        messageId: cp.message_id,
-        round,
-        snapshot,
-      });
+      const publicMessage = db.transaction(() => {
+        const message = saveTurn();
+        if (message) emit(run.owner_id, run.id, "message.started", {
+          messageId: message.id, round, snapshot,
+        });
+        return message;
+      }).immediate();
       const generation = new AbortController();
+      let dirty = false;
+      let writeTimer: ReturnType<typeof setTimeout> | undefined;
+      const flush = () => {
+        clearTimeout(writeTimer);
+        writeTimer = undefined;
+        if (!dirty) return;
+        // Public transcript, aggregate/artifact and their typed events share
+        // one commit. Tokens never get ahead of the materialized snapshot.
+        db.transaction(() => { saveTurn(); persist(true); }).immediate();
+        dirty = false;
+      };
+      const scheduleWrite = () => {
+        dirty = true;
+        if (!writeTimer) writeTimer = setTimeout(() => {
+          try { flush(); } catch (error) { generation.abort(error); }
+        }, 250);
+      };
       const redirected = new Error("Input added to the active run");
       const stopSteering = !isSubscription(currentConnection)
         ? steering.listen(async () => {
@@ -967,12 +985,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           if (chunk.text) {
             turnText += chunk.text;
             output += chunk.text;
-            saveTurn();
-            persist(true);
-            emit(run.owner_id, run.id, "message.delta", {
-              messageId: cp.message_id,
-              text: chunk.text,
-            });
+            scheduleWrite();
           }
           if (chunk.toolCall) {
             if (calls.length >= 8)
@@ -1007,7 +1020,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
         )
           throw error;
       } finally {
-        await stopSteering?.();
+        try {
+          flush(); // Terminal, cancellation, redirection and failure boundaries.
+        } finally {
+          await stopSteering?.();
+        }
       }
       if (
         generation.signal.reason === redirected &&
@@ -1066,6 +1083,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
               ).run(round, JSON.stringify(history), run.id);
               return true;
             }
+            saveTurn(true);
+            persist(false);
+            db.prepare("UPDATE runs SET result=? WHERE id=?").run(output, run.id);
             db.prepare(
               "UPDATE agent_checkpoints SET round=?,history=?,stage='done' WHERE run_id=?",
             ).run(round, JSON.stringify(history), run.id);
@@ -1073,12 +1093,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
           })
           .immediate();
         if (continuing) continue;
-        saveTurn(true);
-        persist(false);
-        db.prepare("UPDATE runs SET result=? WHERE id=?").run(output, run.id);
-        db.prepare(
-          "UPDATE agent_checkpoints SET round=?,history=?,stage='done' WHERE run_id=?",
-        ).run(round, JSON.stringify(history), run.id);
         const current = (
           db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
             state: string;
@@ -1091,8 +1105,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
           });
           return false;
         }
-        emit(run.owner_id, run.id, "message.completed", {
-          messageId: cp.message_id,
+        if (publicMessage) emit(run.owner_id, run.id, "message.completed", {
+          messageId: publicMessage.id,
         });
         return true;
       }

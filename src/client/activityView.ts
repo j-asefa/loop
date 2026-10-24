@@ -1,5 +1,6 @@
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceApi } from "./SourceContext";
+import { surfaceFallback } from "./workspace-projections";
+import { useSourceId, useProjectionRead } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
 // Type-only: the client bundle does not ship the zod schemas.
@@ -82,7 +83,7 @@ export function useConversationActivities(
   runs: string[] = [],
   tools = true,
 ) {
-  const api = useSourceApi();
+  const api = useProjectionRead();
   const sourceId = useSourceId();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [history, setHistory] = useState<ActivityHistoryState>({
@@ -110,16 +111,16 @@ export function useConversationActivities(
       tools,
     );
     loader.current = current;
-    void current.refresh();
     const update = () => {
       void current.refresh();
     };
-    const timer = setInterval(update, 5000);
     const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversation);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 5000, update);
+    update();
     return () => {
       current.stop();
       if (loader.current === current) loader.current = null;
-      clearInterval(timer);
+      stopFallback();
       stopChanges();
     };
   }, [conversation, tools, sourceId]);

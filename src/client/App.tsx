@@ -1,3 +1,4 @@
+import { surfaceFallback } from "./workspace-projections";
 import { workspaceChangeAffects } from "./workspace-changes";
 import { WORKSPACE_COLLECTIONS, type WorkspaceCollection } from "../shared/workspace-events";
 import { ContentCard } from "./ContentCard";
@@ -17,7 +18,7 @@ import { agentModelName, effortName } from "./modelChoices";
 import { AttachmentList, UploadButton } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 import { capabilities } from "./capabilities";
-import { SourceProvider } from "./SourceContext";
+import { SourceProvider, useProjectionRead } from "./SourceContext";
 import { useThreadSource } from "./useThreadSource";
 import {
   executionSourceId,
@@ -869,7 +870,8 @@ export default function App() {
   );
   const [resultsLoading, setResultsLoading] = useState(true);
   const [resultsError, setResultsError] = useState("");
-  const [workspaceLoadError, setWorkspaceLoadError] = useState("");
+  const [workspaceLoadErrors, setWorkspaceLoadErrors] = useState<Partial<Record<"bootstrap" | "runs", string>>>({});
+  const workspaceLoadError = workspaceLoadErrors.bootstrap || workspaceLoadErrors.runs || "";
   const [settingsParent, setSettingsParent] = useState(false);
   const previousPage = usePageHistory(
     JSON.stringify([
@@ -1069,6 +1071,7 @@ export default function App() {
   // Drafts are read and written only for the signed-in owner.
   setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
+  const readSnapshot = useProjectionRead();
   const personalWorkspace = useRef(false);
   const stopWorkspaceEvents = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
@@ -1245,16 +1248,27 @@ export default function App() {
       result ? { ...result, mode: result.mode || "multi-user" } : null,
     );
   }
+  function workspaceReadError(kind: "bootstrap" | "runs", error?: unknown) {
+    const message = !error ? "" : (error as {reconnecting?: boolean}).reconnecting
+      ? "Loop is reconnecting…" : kind === "bootstrap"
+        ? "Couldn’t refresh your agents and projects." : "Couldn’t refresh task status.";
+    setWorkspaceLoadErrors(old => ({...old, [kind]: message}));
+  }
   const bootstrapGeneration = useRef(0);
   async function bootstrap() {
     const generation = ++bootstrapGeneration.current;
     const owner = ownerRef.current;
-    const result = await api("/bootstrap");
+    const result = await readSnapshot("/bootstrap").catch(error => {
+      if (owner && owner === ownerRef.current && generation === bootstrapGeneration.current)
+        workspaceReadError("bootstrap", error);
+      throw error;
+    });
     if (
       owner &&
       owner === ownerRef.current &&
       generation === bootstrapGeneration.current
     ) {
+      workspaceReadError("bootstrap");
       setData(result);
       if (initialAgentId.current) {
         const match = result.agents.find(
@@ -1282,9 +1296,15 @@ export default function App() {
     const generation = ++runsGeneration.current;
     // Profiles show all of an agent's work. Feed and Running apply their
     // team/project filters locally without changing the profile's data.
-    const result = await api<Run[]>("/runs?active=1");
-    if (owner === ownerRef.current && generation === runsGeneration.current)
+    const result = await readSnapshot<Run[]>("/runs?active=1").catch(error => {
+      if (owner === ownerRef.current && generation === runsGeneration.current)
+        workspaceReadError("runs", error);
+      throw error;
+    });
+    if (owner === ownerRef.current && generation === runsGeneration.current) {
+      workspaceReadError("runs");
       setRuns(result);
+    }
   }
   async function loadResults(append = false, notify = true) {
     const owner = ownerRef.current,
@@ -1340,7 +1360,7 @@ export default function App() {
         return q;
       };
       const reader = cardReader((path, signal) =>
-        apiInWorkspace(path, source, undefined, undefined, signal),
+        readSnapshot(path, source),
       );
       const selection = {
         view: "results" as const,
@@ -1376,13 +1396,13 @@ export default function App() {
               async (before) => {
                 const q = query();
                 if (before !== null) q.set("before", String(before));
-                return apiInWorkspace("/results?" + q, source);
+                return readSnapshot("/results?" + q, source);
               },
               async (after, through) => {
                 const q = query();
                 q.set("after", String(after));
                 q.set("through", String(through));
-                return apiInWorkspace("/results/updates?" + q, source);
+                return readSnapshot("/results/updates?" + q, source);
               },
             );
       if (
@@ -1421,35 +1441,9 @@ export default function App() {
         setResultsLoading(false);
     }
   }
-  const refreshGeneration = useRef(0);
   async function refresh() {
-    const owner = ownerRef.current;
-    const generation = ++refreshGeneration.current;
-    const [workspace, , tasks] = await Promise.allSettled([
-      bootstrap(),
-      loadResults(),
-      loadRuns(),
-    ]);
-    if (
-      !owner ||
-      owner !== ownerRef.current ||
-      generation !== refreshGeneration.current
-    )
-      return;
-    // Loading failures recover independently of action errors. A later
-    // successful read must remove its warning without hiding a failed send.
-    const failed = [workspace, tasks].find((r) => r.status === "rejected") as
-      PromiseRejectedResult | undefined;
-    // Existing content stays on screen; only the status line changes.
-    setWorkspaceLoadError(
-      failed?.reason?.reconnecting
-        ? "Loop is reconnecting…"
-        : workspace.status === "rejected"
-          ? "Couldn’t refresh your agents and projects."
-          : tasks.status === "rejected"
-            ? "Couldn’t refresh task status."
-            : "",
-    );
+    // Each reader owns its latest request and independent recovery state.
+    await Promise.allSettled([bootstrap(), loadResults(), loadRuns()]);
   }
   useEffect(() => {
     void check().catch((e) => setError(e.message));
@@ -1463,7 +1457,7 @@ export default function App() {
       setItems([]);
       setRuns([]);
       setSendNotice(null);
-      setWorkspaceLoadError("");
+      setWorkspaceLoadErrors({});
       sessionStorage.clear();
       setTeamSelection([]);
       setArchivedCard(null);
@@ -1551,12 +1545,12 @@ export default function App() {
           });
         }
         if (refreshCurrent) {
-          if (fullRefresh || (broad && capabilities.pairedDevices)) void refresh().catch(() => {});
+          if (fullRefresh) void refresh().catch(() => {});
           else {
-            // Streaming events refresh current work and visible results.
-            // Metadata and hidden collections use the periodic/action refresh,
-            // avoiding redundant reads against the owner's shared HTTP limit.
+            // Each scoped reader exposes exhausted failures and activates
+            // workspace recovery without refreshing unrelated collections.
             void Promise.allSettled([
+              ...(broad ? [bootstrap()] : []),
               ...(refreshRuns ? [loadRuns()] : []),
               ...(refreshResults && resultsVisible.current ? [loadResults(false, false)] : []),
             ]);
@@ -1569,17 +1563,17 @@ export default function App() {
       }, 250);
     };
     window.addEventListener("loop-workspace-change", update);
-    const fallback = setInterval(() => update(new Event("refresh")), 15000);
+    const stopFallback = surfaceFallback([executionSourceId()], "workspace", 15000, () => update(new Event("refresh")));
     // Preserve the existing bounded catch-up cadence for visible result
     // collections; a single notification can represent more than one page.
-    const resultsRecovery = setInterval(() => {
+    const stopResultsFallback = surfaceFallback([executionSourceId()], "results", 1800, () => {
       if (!capabilities.pairedDevices && resultsVisible.current)
         void loadResults(false, true);
-    }, 1800);
+    });
     return () => {
       clearTimeout(timer);
-      clearInterval(fallback);
-      clearInterval(resultsRecovery);
+      stopFallback();
+      stopResultsFallback();
       window.removeEventListener("loop-workspace-change", update);
     };
   }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);

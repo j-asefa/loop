@@ -415,18 +415,284 @@ it("coalesces every advertised scope without losing the conversation or refreshi
   ]);
 });
 
-it("learns a replacement epoch through HTTP while sockets are unavailable and ignores the earlier response", async () => {
+it("resets projections and cursors on an HTTP-only epoch replacement and rejects late old responses", async () => {
   const s = subscribe(undefined, "one");
   clockFrame(s, 20_000, 10, "old");
-  s.socket.close(); s.changed.mockClear();
+  const obsoleteFrame = s.socket.onmessage;
+  s.socket.close(); s.changed.mockClear(); s.frame.mockClear();
   const received = (requestId: number, epoch: string, nextDeadline: number) => window.dispatchEvent(new CustomEvent("loop-workspace-clock", {
     detail: { source: "one", generation: viewGeneration(), requestId, clock: { epoch, cursor: 1, serverNow: 1000, nextDeadline } },
   }));
   received(2, "replacement", 1500);
+  expect(s.frame).toHaveBeenCalledExactlyOnceWith({v:3,type:"reset",epoch:"replacement",cursor:1,
+    serverNow:1000,nextDeadline:1500,capabilities:PARTIAL_WORKSPACE_CAPABILITIES});
+  expect(s.changed).toHaveBeenCalledExactlyOnceWith();
   received(1, "old", 20_000);
+  obsoleteFrame?.({data:JSON.stringify({v:2,type:"reset",epoch:"old",cursor:20})});
+  expect(s.frame).toHaveBeenCalledTimes(1);
+  s.changed.mockClear();
   await vi.advanceTimersByTimeAsync(500);
   expect(s.changed).toHaveBeenCalledTimes(1);
   expect(s.changed.mock.calls[0][0]).toEqual(expect.arrayContaining([
     { type: "invalidate", scope: { kind: "collection", id: "approvals" } },
   ]));
+  const replacement = Socket.instances.at(-1)!;
+  expect(replacement.url.searchParams.get("epoch")).toBe("replacement");
+  expect(replacement.url.searchParams.get("cursor")).toBe("1");
+  await vi.advanceTimersByTimeAsync(1300);
+  expect(s.read).toHaveBeenCalledWith(1, expect.any(AbortSignal));
+});
+
+it("removes transcript fallback only for a complete source and restores it after replacement or downgrade", async () => {
+  const { publishProjectionFrame, surfaceFallback, forgetProjectionSource } =
+    await import("../src/client/workspace-projections");
+  const { COMPLETE_WORKSPACE_CAPABILITIES } =
+    await import("../src/shared/workspace-events");
+  setViewOwner("mixed-capability-owner");
+  const read = vi.fn();
+  for (const source of ["v2", "early", "complete"])
+    stops.push(surfaceFallback([source], "transcript", 5000, read));
+  publishProjectionFrame("v2", { v: 2, type: "reset", epoch: "v2", cursor: 1 });
+  const reset = (capabilities: typeof COMPLETE_WORKSPACE_CAPABILITIES) => ({
+    v: 3 as const,
+    type: "reset" as const,
+    epoch: "v3",
+    cursor: 1,
+    build: "",
+    buildIdentity: null,
+    capabilities,
+  });
+  publishProjectionFrame("early", reset(PARTIAL_WORKSPACE_CAPABILITIES));
+  publishProjectionFrame("complete", reset(COMPLETE_WORKSPACE_CAPABILITIES));
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(read.mock.calls.map(([sources]) => sources)).toEqual([
+    ["v2"],
+    ["early"],
+  ]);
+  read.mockClear();
+  forgetProjectionSource("complete");
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(
+    read.mock.calls.some(([sources]) => sources.includes("complete")),
+  ).toBe(true);
+  publishProjectionFrame("complete", reset(COMPLETE_WORKSPACE_CAPABILITIES));
+  publishProjectionFrame("complete", reset(PARTIAL_WORKSPACE_CAPABILITIES));
+  read.mockClear();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(
+    read.mock.calls.some(([sources]) => sources.includes("complete")),
+  ).toBe(true);
+});
+
+it("delivers typed rows only to the subscribed source and drops a previous owner's late socket frame", async () => {
+  const { publishProjectionFrame, listenProjectionFrames } =
+    await import("../src/client/workspace-projections");
+  setViewOwner("old-projection-owner");
+  const s = subscribe(undefined, "one"),
+    other = vi.fn(),
+    one = vi.fn();
+  s.frame.mockImplementation((frame) => publishProjectionFrame("one", frame));
+  stops.push(
+    listenProjectionFrames("one", one),
+    listenProjectionFrames("two", other),
+  );
+  s.socket.frame(1, "one", "reset");
+  expect(one).toHaveBeenCalledTimes(1);
+  expect(other).not.toHaveBeenCalled();
+  setViewOwner("new-projection-owner");
+  const next = vi.fn();
+  stops.push(listenProjectionFrames("one", next));
+  s.socket.frame(2, "one");
+  expect(next).not.toHaveBeenCalled();
+  expect(one).toHaveBeenCalledTimes(1);
+});
+
+it("keeps complete streamed messages out of broad refreshes but retains explicit, deadline and socket-down invalidations", async () => {
+  const { COMPLETE_WORKSPACE_CAPABILITIES, invalidate } =
+    await import("../src/shared/workspace-events");
+  const { broadWorkspaceChange } =
+    await import("../src/client/workspace-changes");
+  const queue = new WorkspaceChangeQueue();
+  queue.capabilities.set("one", COMPLETE_WORKSPACE_CAPABILITIES);
+  queue.add("one", [
+    {
+      type: "message.delta",
+      scope: { kind: "conversation", id: "thread" },
+      payload: { messageId: "message", text: "A" },
+    },
+  ]);
+  expect(queue.size).toBe(0);
+  queue.add("one", [invalidate({ kind: "collection", id: "feed" })]);
+  let event = new CustomEvent("loop-workspace-change", {
+    detail: queue.drain(),
+  });
+  expect(broadWorkspaceChange(event)).toBe(false);
+  queue.add("one");
+  event = new CustomEvent("loop-workspace-change", { detail: queue.drain() });
+  expect(broadWorkspaceChange(event)).toBe(true);
+  expect(broadWorkspaceChange(new Event("loop-workspace-change"))).toBe(true);
+});
+
+it.each([
+  ["activity records and session controls", "activities", 5000],
+  ["usage receipts and run deletion", "usage", 5000],
+  ["native decision lifecycle", "decisions", 3000],
+  ["Feed membership, Social counts and deadline wakes", "feed", 30000],
+  ["workspace metadata and global approvals", "metadata", 15000],
+  ["Results edits, removals and continued pages", "results", 1800],
+  ["Social unread counts and digest status", "social", 30000],
+  ["workflow step progress", "runs", 1800],
+  ["conversation memory preference changes", "metadata", 4000],
+  ["reminders, labels and worker deadlines", "later", 30000],
+  ["scheduled sends and failures", "scheduled", 30000],
+  ["pull watch state and visibility deadlines", "pulls", 60000],
+  ["saved membership, edits and removals", "saved", 2000],
+] as const)(
+  "replaces the %s poll with a scoped complete-source signal while preserving legacy fallback",
+  async (_name, collection, interval) => {
+    const { publishProjectionFrame, surfaceFallback } =
+      await import("../src/client/workspace-projections");
+    const { COMPLETE_WORKSPACE_CAPABILITIES, invalidate } =
+      await import("../src/shared/workspace-events");
+    setViewOwner("responsibility-" + collection);
+    const complete = subscribe(undefined, "complete"),
+      legacy = subscribe(undefined, "legacy");
+    const reads = vi.fn(),
+      legacyReads = vi.fn();
+    const queue = new WorkspaceChangeQueue();
+    for (const [source, subscription] of [
+      ["complete", complete],
+      ["legacy", legacy],
+    ] as const) {
+      subscription.frame.mockImplementation((frame) => {
+        publishProjectionFrame(source, frame);
+        if (frame.type === "reset")
+          queue.capabilities.set(
+            source,
+            frame.v === 3 ? frame.capabilities : PARTIAL_WORKSPACE_CAPABILITIES,
+          );
+      });
+      subscription.changed.mockImplementation((events) => {
+        queue.add(source, events);
+        if (queue.size)
+          window.dispatchEvent(
+            new CustomEvent("loop-workspace-change", { detail: queue.drain() }),
+          );
+      });
+    }
+    complete.socket.onmessage?.({
+      data: JSON.stringify({
+        v: 3,
+        type: "reset",
+        epoch: "complete",
+        cursor: 0,
+        build: "",
+        buildIdentity: null,
+        capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
+        serverNow: Date.now(),
+        nextDeadline: null,
+      }),
+    });
+    legacy.socket.frame(0, "legacy", "reset");
+    stops.push(
+      listenWorkspaceChanges(collection, reads, "complete"),
+      listenWorkspaceChanges(collection, legacyReads, "legacy"),
+    );
+    stops.push(
+      surfaceFallback(["complete"], "workspace", interval, () => reads()),
+      surfaceFallback(["legacy"], "workspace", interval, () => legacyReads()),
+    );
+    await vi.advanceTimersByTimeAsync(interval + 1);
+    expect(reads).not.toHaveBeenCalled();
+    expect(legacyReads).toHaveBeenCalled();
+    complete.socket.onmessage?.({
+      data: JSON.stringify({
+        v: 3,
+        type: "events",
+        epoch: "complete",
+        cursor: 1,
+        events: [
+          { id: 1, event: invalidate({ kind: "collection", id: collection }) },
+        ],
+      }),
+    });
+    expect(reads).toHaveBeenCalledTimes(1);
+    // Sleep/wake and an HTTP-only outage retain authoritative reconciliation.
+    window.dispatchEvent(new Event("pageshow"));
+    expect(reads).toHaveBeenCalledTimes(2);
+  },
+);
+it("restores fallback when a replaying source restarts with older v3 capabilities and no reset", async () => {
+  const { publishProjectionFrame, reactiveSource } =
+    await import("../src/client/workspace-projections");
+  const { COMPLETE_WORKSPACE_CAPABILITIES, invalidate } =
+    await import("../src/shared/workspace-events");
+  setViewOwner("downgrade-owner");
+  const s = subscribe(undefined, "source");
+  s.frame.mockImplementation((frame) =>
+    publishProjectionFrame("source", frame),
+  );
+  s.socket.onmessage?.({
+    data: JSON.stringify({
+      v: 3,
+      type: "reset",
+      epoch: "epoch",
+      cursor: 1,
+      build: "",
+      buildIdentity: null,
+      capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
+    }),
+  });
+  expect(reactiveSource("source", "transcript")).toBe(true);
+  s.socket.close();
+  await vi.advanceTimersByTimeAsync(800);
+  const next = Socket.instances.at(-1)!;
+  expect(next.url.searchParams.get("projection")).toBe("1");
+  next.onmessage?.({
+    data: JSON.stringify({
+      v: 3,
+      type: "events",
+      epoch: "epoch",
+      cursor: 2,
+      events: [{ id: 2, event: invalidate() }],
+    }),
+  });
+  expect(reactiveSource("source", "transcript")).toBe(false);
+});
+
+it("routes Social unread changes to Feed and run changes to usage without refreshing unrelated metadata", async () => {
+  const { COMPLETE_WORKSPACE_CAPABILITIES, invalidate } =
+    await import("../src/shared/workspace-events");
+  const { workspaceChangeAffects } =
+    await import("../src/client/workspace-changes");
+  const queue = new WorkspaceChangeQueue();
+  queue.capabilities.set("one", COMPLETE_WORKSPACE_CAPABILITIES);
+  queue.add("one", [
+    invalidate({ kind: "collection", id: "social" }),
+    invalidate({ kind: "collection", id: "runs" }),
+  ]);
+  const event = new CustomEvent("loop-workspace-change", {
+    detail: queue.drain(),
+  });
+  expect(workspaceChangeAffects(event, "feed", "one")).toBe(true);
+  expect(workspaceChangeAffects(event, "usage", "one")).toBe(true);
+  expect(workspaceChangeAffects(event, "metadata", "one")).toBe(false);
+});
+
+
+it("negotiates Feed snapshots separately from transcript, Results and workspace controls", async () => {
+  const {publishProjectionFrame, reactiveSource, surfaceFallback} = await import("../src/client/workspace-projections");
+  const {COMPLETE_WORKSPACE_CAPABILITIES} = await import("../src/shared/workspace-events");
+  publishProjectionFrame("feed-snapshot",{v:3,type:"reset",epoch:"split",cursor:1,build:"fixture",buildIdentity:null,
+    capabilities:{...COMPLETE_WORKSPACE_CAPABILITIES,feed:"snapshot"}});
+  expect(reactiveSource("feed-snapshot","transcript")).toBe(true);
+  expect(reactiveSource("feed-snapshot","results")).toBe(true);
+  expect(reactiveSource("feed-snapshot","workspace")).toBe(true);
+  expect(reactiveSource("feed-snapshot","feed")).toBe(false);
+  const feed = vi.fn(), workspace = vi.fn();
+  stops.push(surfaceFallback(["feed-snapshot"],"feed",5000,feed));
+  stops.push(surfaceFallback(["feed-snapshot"],"workspace",5000,workspace));
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(feed).toHaveBeenCalledExactlyOnceWith(["feed-snapshot"]);
+  expect(workspace).not.toHaveBeenCalled();
 });

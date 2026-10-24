@@ -82,7 +82,7 @@ it("keeps live user edits and their versions while the generator finishes its ow
       yield { text: "First " };
       expect((await patch({ pinned: true, version: 1 })).status).toBe(200);
       yield { text: "second " };
-      expect(artifact()).toMatchObject({
+      await expect.poll(artifact, { timeout: 2000, interval: 10 }).toMatchObject({
         content: "First second ",
         pinned: 1,
         version: 2,

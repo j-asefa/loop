@@ -6,8 +6,8 @@ import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
-// Revision-only writes use the shared 5s watermark check, then up to 1.8s of
-// source coalescing and 250ms of App coalescing. Stay below fallback refreshes.
+// Foreign commits wake the 250ms change drain, followed by up to two seconds
+// of source coalescing and 250ms of App coalescing.
 const revisionTimeout = 8000;
 
 function seed({ db, owner }, label, history = 55, activeHistory = 45) {
@@ -162,6 +162,7 @@ for (const engine of engines) {
               this.addEventListener("message", (event) => {
                 const frame = JSON.parse(event.data);
                 if (frame.v === 3) this.__eventCursor = frame.cursor;
+                if (frame.type === "reset") this.__resetFrame = frame;
               });
             }
           };
@@ -244,6 +245,69 @@ for (const engine of engines) {
             )
             .toBe(1);
           assert.equal(await localSockets(), 1);
+          // The last metadata signal must survive a source-specific cooldown.
+          let limitedMetadata = false;
+          await working.route("**/api/agent-sources/*/bootstrap", route => {
+            if (limitedMetadata) return route.continue();
+            limitedMetadata = true;
+            return route.fulfill({status:429,headers:{"Retry-After":"2"},json:{error:"Fixture metadata cooldown"}});
+          });
+          remote.db.prepare("UPDATE agents SET name='Remote recovered' WHERE id='agent'").run();
+          await expect.poll(() => limitedMetadata).toBe(true);
+          await expect(working.getByRole("region", {name:"Your agents"})).toContainText("@Remote recovered", {timeout:revisionTimeout});
+          await working.unroute("**/api/agent-sources/*/bootstrap");
+          // A successful run read cannot clear a failed metadata projection.
+          // Discovery must keep retrying the source until bootstrap recovers.
+          let failedMetadataReads = 0;
+          await working.route("**/api/agent-sources/*/bootstrap", route => {
+            failedMetadataReads++;
+            return route.fulfill({status:403,json:{error:"Fixture metadata unavailable"}});
+          });
+          remote.db.prepare("UPDATE agents SET name='Remote metadata recovered' WHERE id='agent'").run();
+          const metadataWarning = working.getByRole("status").filter({hasText:"An environment is temporarily unavailable. Its last loaded agents are still shown."});
+          await expect(metadataWarning).toBeVisible({timeout:revisionTimeout});
+          const failedBeforeRuns = failedMetadataReads;
+          const linkedSource = await working.evaluate(() => decodeURIComponent(new URL(window.__eventSockets.find(socket =>
+            new URL(socket.url).pathname.includes("/agent-sources/")).url).pathname.split("/agent-sources/")[1].split("/")[0]));
+          await working.evaluate(source => window.dispatchEvent(new CustomEvent("loop-workspace-change",{
+            detail:{sources:[source],changes:[{source,events:[{type:"invalidate",scope:{kind:"collection",id:"runs"}}]}]},
+          })),linkedSource);
+          await expect.poll(() => failedMetadataReads,{timeout:revisionTimeout}).toBeGreaterThan(failedBeforeRuns);
+          await expect(metadataWarning).toBeVisible();
+          await working.unroute("**/api/agent-sources/*/bootstrap");
+          await expect(working.getByRole("region",{name:"Your agents"})).toContainText("@Remote metadata recovered",{timeout:35000});
+          await expect(metadataWarning).toHaveCount(0);
+          console.log(`PASS ${engine} run refresh preserves metadata failure and discovery recovers the source`);
+          remote.db.prepare("UPDATE agents SET name='Remote' WHERE id='agent'").run();
+          fixture.db.prepare("INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES('late-decision','live','thread','fixture','adapter',?,?)")
+            .run(JSON.stringify({id:"adapter",kind:"approval",title:"Late decision snapshot",detail:"Fixture only",choices:["allow","deny"]}),Date.now());
+          const decision = working.getByRole("heading", {name:"Late decision snapshot"});
+          await expect(decision).toHaveCount(1);
+          let capturedDecision = false, releaseDecision, deliveredDecision;
+          const decisionGate = new Promise(resolve => { releaseDecision = resolve; });
+          const decisionDelivered = new Promise(resolve => { deliveredDecision = resolve; });
+          await working.route("**/api/native/decisions", async route => {
+            if (capturedDecision) return route.continue();
+            const response = await route.fetch();
+            capturedDecision = true;
+            await decisionGate;
+            await route.fulfill({response});
+            deliveredDecision();
+          });
+          try {
+            await working.evaluate(() => window.dispatchEvent(new CustomEvent("loop-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"decisions"}}]}]}})));
+            await expect.poll(() => capturedDecision).toBe(true);
+            fixture.db.prepare("UPDATE native_decisions SET state='resolved' WHERE id='late-decision'").run();
+            await expect(decision).toHaveCount(0, {timeout:revisionTimeout});
+            releaseDecision();await decisionDelivered;
+            await working.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            await expect(decision).toHaveCount(0);
+          } finally {
+            releaseDecision();
+            await working.unroute("**/api/native/decisions");
+            fixture.db.prepare("DELETE FROM native_decisions WHERE id='late-decision'").run();
+          }
+          console.log(`PASS ${engine} native decision rejects an older pending snapshot after resolution`);
           assert.equal(
             await working.evaluate(
               () =>
@@ -394,6 +458,90 @@ for (const engine of engines) {
         });
         await expect(row(done, "Local history 0")).toHaveCount(1);
 
+        if (mode === "server") {
+          // A complete source applies real message identities in place. Leave
+          // the stream quiet beyond both former five-second thread timers.
+          fixture.db.prepare("UPDATE runs SET state='running' WHERE id='live'").run();
+          const thread = await context.newPage();
+          await thread.goto(fixture.origin + "/?conversation=thread");
+          const answer = thread.locator('[data-message-id="live-answer"]');
+          await expect(answer).toContainText("Changed while disconnected");
+          await thread.waitForTimeout(2500);
+          const transcriptReads = [], idleReads = [];
+          let idle = false;
+          const record = request => {
+            const path = new URL(request.url()).pathname;
+            if (request.method() === "GET" && path === "/api/conversations/thread") transcriptReads.push(path);
+            if (idle && path.startsWith("/api/")) idleReads.push(path);
+          };
+          thread.on("request", record);
+          for (let n = 1; n <= 6; n++) {
+            const text = "Live projection " + "token ".repeat(n);
+            fixture.db.prepare("UPDATE messages SET content=? WHERE id='live-answer'").run(text);
+            await expect(answer).toContainText(text.trim());
+          }
+          await thread.waitForTimeout(2500);
+          idle = true;
+          await thread.waitForTimeout(6500);
+          assert.equal(transcriptReads.length, 0, "streaming transcript must not refetch its snapshot");
+          const feedMode = await thread.evaluate(() => window.__eventSockets.find(socket => socket.__resetFrame?.v === 3)?.__resetFrame.capabilities.feed);
+          assert.ok(["snapshot","delta"].includes(feedMode), "the source must declare its Feed delivery mode");
+          // A snapshot Feed retains its 30s poll (two Feed reads and a Cards
+          // change read). Once Feed advertises deltas, the strict total budget
+          // applies automatically; covered transcript/Results paths stay quiet.
+          const coveredReads = feedMode === "snapshot"
+            ? idleReads.filter(path => !["/api/feed","/api/v1/cards/changes"].includes(path)) : idleReads;
+          assert.ok(coveredReads.length <= 2, `covered surfaces made ${coveredReads.length} quiet requests: ${coveredReads}`);
+          assert.ok(idleReads.length <= (feedMode === "snapshot" ? 5 : 2), `quiet stream made ${idleReads.length} API requests between frames: ${idleReads}`);
+          console.log(`PASS ${engine} transcript deltas: zero snapshot reads; ${idleReads.length} requests during 6.5s without frames`);
+          thread.off("request", record);
+          // Recover an unloaded row without exposing a detached history page.
+          const recovery = thread.waitForResponse(response => {
+            const url = new URL(response.url());
+            return url.pathname === "/api/conversations/thread" && url.searchParams.get("message") === "answer-0";
+          });
+          fixture.db.prepare("UPDATE messages SET content=content||' recovered older chunk' WHERE id='answer-0'").run();
+          await (await recovery).finished();
+          fixture.db.prepare("UPDATE messages SET content='Updated unloaded history' WHERE id='answer-0'").run();
+          await expect(row(done, "Updated unloaded history")).toHaveCount(1, {timeout:revisionTimeout});
+          await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
+          await thread.getByRole("button", {name:"Load earlier messages",exact:true}).click();
+          await expect(thread.locator('[data-message-id="answer-0"]')).toContainText("Updated unloaded history");
+          const loadedIds = await thread.locator('[data-message-id]').evaluateAll(rows => rows.map(row => row.dataset.messageId).sort());
+          // A reset replaces the loaded page set. Its new cursor must let the
+          // reader request the discarded history again, including the middle.
+          fixture.db.prepare("UPDATE messages SET content=content||' reset probe' WHERE id='live-answer'").run();
+          await expect(answer).toContainText("reset probe");
+          const clock = (await (await fixture.request("/api/conversations/thread", {headers:fixture.browser})).json()).projection;
+          const resetRead = thread.waitForResponse(response => new URL(response.url()).pathname === "/api/conversations/thread");
+          await thread.evaluate(clock => {
+            const socket = window.__eventSockets.find(socket => socket.__resetFrame?.v === 3);
+            if (!socket?.onmessage) throw new Error("Missing reset-capable socket");
+            socket.onmessage(new MessageEvent("message", {data:JSON.stringify({...socket.__resetFrame,...clock,type:"reset"})}));
+          }, clock);
+          await (await resetRead).finished();
+          await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
+          await thread.getByRole("button", {name:"Load earlier messages",exact:true}).click();
+          await expect.poll(() => thread.locator('[data-message-id]').evaluateAll(rows => rows.map(row => row.dataset.messageId).sort())).toEqual(loadedIds);
+          console.log(`PASS ${engine} unloaded deltas stay outside displayed pages and reset pagination restores all history`);
+          // Fault-inject a missing frame, then explicitly refresh. An absent
+          // row in the page must disappear instead of merging back from cache.
+          fixture.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('snapshot-delete',?,'thread','assistant','Temporary display row',?)").run(fixture.owner,Date.now());
+          await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(1);
+          await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.__forward = socket.onmessage; socket.onmessage = null; }));
+          fixture.db.prepare("DELETE FROM messages WHERE id='snapshot-delete'").run();
+          await thread.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+          await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(0);
+          await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.onmessage = socket.__forward; }));
+          console.log(`PASS ${engine} transcript gap recovery and explicit-refresh deletion reconciliation`);
+          await thread.close();
+          fixture.db.transaction(() => {
+            fixture.db.prepare("UPDATE runs SET state='completed' WHERE id='live'").run();
+            fixture.db.prepare("UPDATE messages SET content='Changed while disconnected' WHERE id='live-answer'").run();
+          }).immediate();
+          await expect(row(done, "Changed while disconnected")).toHaveCount(1, {timeout: revisionTimeout});
+        }
+
         if (engine === "chromium" && mode === "server") {
           // Two Done tabs and sustained events must leave room under the
           // server's shared 600-request/minute owner limit for user actions.
@@ -454,15 +602,33 @@ for (const engine of engines) {
           );
         }
 
-        // HTTP-only clients remain healthy when a proxy blocks upgrades.
+        // Give HTTP fallback its own database/request budget after the many
+        // navigation and streaming probes above; keep the real 600/min limit.
+        await working.close();
+        await done.close();
+        await fixture.close();
+        fixture = undefined;
+        if (dockerDir) process.env.PATH = dockerDir + ":" + priorPath;
+        fixture = await cardsFixture(mode, true);
+        process.env.PATH = priorPath;
+        seed(fixture, "Local", 2, 0);
+        complete(fixture, "Local");
+        if (fixture.browser.cookie) {
+          const [name,value] = fixture.browser.cookie.split("=");
+          await context.addCookies([{name,value,url:fixture.origin,httpOnly:true,sameSite:"Lax"}]);
+        }
         await context.unroute(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/);
+        const replay = await context.newPage();
+        replay.on("pageerror", e => { if (!isWebKitNavigationFetchError(engine,e,fixture.origin)) errors.push(e.message); });
+        await replay.goto(fixture.origin + "/?filter=working");
+        await expect(replay.locator(".workspace-connection")).toHaveText("Connected to workspace");
         blockSockets = true;
         const cursor = fixture.db
           .prepare("SELECT max(id) cursor FROM events WHERE owner_id=?")
           .get(fixture.owner).cursor;
         await expect
           .poll(() =>
-            done.evaluate(
+            replay.evaluate(
               () =>
                 window.__eventSockets
                   .filter((socket) =>
@@ -478,10 +644,10 @@ for (const engine of engines) {
           cursor >= 1000,
           "the socket already covered the historical events",
         );
-        const firstPoll = done.waitForRequest(
+        const firstPoll = replay.waitForRequest(
           (request) => new URL(request.url()).pathname === "/api/events",
         );
-        await done.evaluate(() =>
+        await replay.evaluate(() =>
           window.__eventSockets.forEach((socket) => socket.close()),
         );
         assert.equal(
@@ -489,18 +655,26 @@ for (const engine of engines) {
           cursor,
           "fallback resumes at the socket watermark",
         );
-        await expect(done.locator(".workspace-connection")).toHaveText(
+        await expect(replay.locator(".workspace-connection")).toHaveText(
           "Connected to workspace",
         );
-        await expect(done.locator(".connection-notice")).toHaveCount(0);
-        await working.close();
-        await done.close();
+        await expect(replay.locator(".connection-notice")).toHaveCount(0);
+        await replay.close();
         const fallback = await context.newPage();
+        const fallbackRequests = [];
+        fallback.on("response", response => {
+          const url = new URL(response.url());
+          if (url.pathname.startsWith("/api/")) fallbackRequests.push({path:url.pathname,status:response.status()});
+        });
+        fallback.on("requestfailed", request => fallbackRequests.push({path:new URL(request.url()).pathname,error:request.failure()?.errorText}));
         fallback.on("pageerror", (e) => errors.push(e.message));
         await fallback.goto(fixture.origin + "/?filter=working");
         await expect(fallback.locator(".workspace-connection")).toHaveText(
           "Connected to workspace",
-        );
+        ).catch(error => {
+          console.error("HTTP fallback diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests,limits:fixture.db.prepare("SELECT window,count FROM request_limits WHERE owner_id=?").get(fixture.owner)}));
+          throw error;
+        });
         await expect(fallback.locator(".connection-notice")).toHaveCount(0);
         fixture.db
           .transaction(() => {
@@ -518,6 +692,9 @@ for (const engine of engines) {
           .immediate();
         await expect(row(fallback, "Local task")).toHaveCount(1, {
           timeout: 5000,
+        }).catch(error => {
+          console.error("HTTP fallback transition diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests,limits:fixture.db.prepare("SELECT window,count FROM request_limits WHERE owner_id=?").get(fixture.owner)}));
+          throw error;
         });
         await expect(fallback.locator(".workspace-connection")).toHaveText(
           "Connected to workspace",

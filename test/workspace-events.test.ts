@@ -395,7 +395,7 @@ for (const mode of ["server", "companion"] as const) {
     await expect.poll(() => legacy.frames.length).toBe(1);
     expect(WorkspaceFrameV3.parse(live.frames[0])).toMatchObject({
       type: "reset",
-      capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
+      capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" },
     });
     expect(legacy.frames[0]).toMatchObject({ v: 2, type: "reset" });
     const insert = f.db.prepare(
@@ -562,7 +562,7 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
     expect(snapshot.headers.get("x-loop-next-deadline")).toBe("null");
     expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(Date.now() - 5000);
     expect(linked.frames[0].capabilities).toEqual(
-      COMPLETE_WORKSPACE_CAPABILITIES,
+      { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" },
     );
     const insert =
       "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','progress',?,1)";
@@ -586,6 +586,12 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
         },
       ],
     });
+    const resumed = connect(paired,
+      `?v=3&clock=1&projection=1&epoch=${frame.epoch}&cursor=${id}`,
+      paired.browser,
+      `/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/events/ws`);
+    await expect.poll(() => resumed.frames.length).toBeGreaterThan(0);
+    expect(resumed.frames[0]).toMatchObject({ type: "events", capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" } });
   } finally {
     process.env.PATH = priorPath;
     rmSync(directory, { recursive: true, force: true });

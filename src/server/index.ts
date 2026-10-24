@@ -74,7 +74,7 @@ app.use("/api", (req, res, next) => {
       // Cards grants authorize only their projection, not private workspace
       // activity or approval/watch expiry metadata, even with an owner cookie.
       if (res.locals.owner && res.locals.cardScope === undefined && res.statusCode < 400) {
-        const clock = workspaceClock(res.locals.owner);
+        const clock = res.locals.workspaceClock ?? workspaceClock(res.locals.owner);
         res.setHeader("X-Loop-Change-Epoch", clock.epoch);
         res.setHeader("X-Loop-Change-Cursor", String(clock.cursor));
         res.setHeader("X-Loop-Server-Now", String(clock.serverNow));

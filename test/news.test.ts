@@ -1148,3 +1148,33 @@ it("publishes story and health changes without logging healthy refresh bookkeepi
   expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
   expect(calls).toBe(13);
 });
+
+it.each(["same", "not-modified"])("signals pending Social completion after a %s response without waking inactive owners", async (mode) => {
+  db.exec("DELETE FROM feed_subscriptions; DELETE FROM feed_sources");
+  let held: Promise<void> | undefined;
+  let release = () => {};
+  restore = withNewsFixture(async () => {
+    if (held) {
+      await held;
+      if (mode === "not-modified") return new Response(null, { status: 304 });
+    }
+    return new Response(officialRss, { headers: { etag: '"pending-fixture"' } });
+  });
+  for (const owner of ["pending-viewer", "inactive-viewer"])
+    await call("/social/feeds/hackernews", "PUT", owner);
+  await get("/social", "pending-viewer");
+  db.prepare("UPDATE feed_state SET fetched_at=? WHERE feed_id='hackernews'").run(Date.now() - 6 * 60_000);
+  const before = (db.prepare("SELECT max(id) id FROM events").get() as {id: number}).id;
+  held = new Promise<void>(resolve => { release = resolve; });
+  try {
+    const first = await get("/social", "pending-viewer");
+    expect(first.data.pending).toEqual(["hackernews"]);
+    const finished = feedStories(feedById.get("hackernews")!);
+    release();
+    await finished;
+    const changes = db.prepare("SELECT owner_id,payload FROM events WHERE id>? AND owner_id IN ('pending-viewer','inactive-viewer') ORDER BY id").all(before) as {owner_id: string; payload: string}[];
+    expect(changes.map(change => change.owner_id)).toEqual(["pending-viewer"]);
+    expect(JSON.parse(changes[0].payload)).toMatchObject({scope:{kind:"collection",id:"social"}});
+    expect((await get("/social", "pending-viewer")).data.pending).toEqual([]);
+  } finally { release(); }
+});

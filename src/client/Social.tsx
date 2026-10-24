@@ -1,3 +1,4 @@
+import { useProjectionRead } from "./SourceContext";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -20,6 +21,8 @@ import {
   X,
 } from "lucide-react";
 import { api } from "./api";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { surfaceFallback, reactiveSource } from "./workspace-projections";
 import { Sheet } from "./components";
 import { LaterSheet, undoReminder, useSwipe } from "./ThreadTools";
 import { notify } from "./toast";
@@ -588,6 +591,7 @@ function HideSheet({
  * caught, so it can be judged before it is made.
  */
 function WatchSheet({ onClose }: { onClose: () => void }) {
+  const readSnapshot = useProjectionRead("");
   const [watches, setWatches] = useState<FeedWatch[]>([]);
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<
@@ -597,7 +601,7 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   async function load() {
     try {
-      const { watches: list } = await api<{ watches: FeedWatch[] }>(
+      const { watches: list } = await readSnapshot<{ watches: FeedWatch[] }>(
         "/social/watches",
       );
       setWatches(list);
@@ -606,7 +610,9 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
     }
   }
   useEffect(() => {
+    const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
     void load();
+    return stopChanges;
   }, []);
   async function show() {
     if (!query.trim()) return;
@@ -760,6 +766,7 @@ function DigestSheet({
   agents: { id: string; name: string; retired_at?: number | null }[];
   onClose: () => void;
 }) {
+  const readSnapshot = useProjectionRead("");
   const [digests, setDigests] = useState<FeedDigest[]>([]);
   const [access, setAccess] = useState(false);
   const [agent, setAgent] = useState("");
@@ -772,8 +779,8 @@ function DigestSheet({
   async function load() {
     try {
       const [list, preferences] = await Promise.all([
-        api<{ digests: FeedDigest[] }>("/social/digests"),
-        api<{ agent_access: boolean }>("/social/preferences"),
+        readSnapshot<{ digests: FeedDigest[] }>("/social/digests"),
+        readSnapshot<{ agent_access: boolean }>("/social/preferences"),
       ]);
       setDigests(list.digests);
       setAccess(preferences.agent_access);
@@ -782,7 +789,9 @@ function DigestSheet({
     }
   }
   useEffect(() => {
+    const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
     void load();
+    return stopChanges;
   }, []);
   async function create() {
     const [hours, minutes] = time.split(":").map(Number);
@@ -983,6 +992,7 @@ export function Social({
   onAsk?: (text: string) => void;
   agents?: { id: string; name: string; retired_at?: number | null }[];
 }) {
+  const readSnapshot = useProjectionRead("");
   const KEY = "social";
   const cached = cachedView<Shown>(KEY);
   const [view, setView] = useState<Shown | null>(cached || null);
@@ -1034,20 +1044,20 @@ export function Social({
     clearTimeout(fillIn.current);
     try {
       const [{ added, own }, social, preferences] = await Promise.all([
-        api<{ added: string[]; own: FeedEntry[] }>("/social/feeds"),
-        api<SocialResponse>(`/social?refresh=${options.force ? 1 : 0}${only}`),
-        api<{ images: boolean; mutes: string[] }>("/social/preferences"),
+        readSnapshot<{ added: string[]; own: FeedEntry[] }>("/social/feeds"),
+        readSnapshot<SocialResponse>(`/social?refresh=${options.force ? 1 : 0}${only}`),
+        readSnapshot<{ images: boolean; mutes: string[] }>("/social/preferences"),
       ]);
       if (ticket !== request.current || owner !== viewOwner()) return;
       const next = { ...social, added, own, ...preferences };
       setView(next);
       cacheView<Shown>(KEY, next, owner);
-      window.dispatchEvent(new Event("loop-social-read"));
+      if (!reactiveSource("", "workspace")) window.dispatchEvent(new Event("loop-social-read"));
       setError("");
       // Feeds still loading arrive behind the first paint: ask again for them
       // a few times, then leave it to the five-minute refresh.
       const polls = options.polls ?? 0;
-      if (social.pending.length && polls < FILL_IN_POLLS)
+      if (!reactiveSource("", "workspace") && social.pending.length && polls < FILL_IN_POLLS)
         fillIn.current = setTimeout(
           () => void load({ polls: polls + 1 }),
           FILL_IN_MS,
@@ -1197,8 +1207,8 @@ export function Social({
   }
   useEffect(() => {
     void load();
-    // The server refreshes each feed every five minutes; so does the list.
-    const timer = setInterval(() => void load(), 5 * 60_000);
+    const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
+    const stopFallback = surfaceFallback([""], "workspace", 5 * 60_000, () => void load());
     // Pulling down the page asks the feeds themselves for anything new. A
     // notification arriving while Social is open also lands here, with the
     // story it was about now in the address.
@@ -1208,7 +1218,8 @@ export function Social({
     };
     window.addEventListener("loop-refresh", pulled);
     return () => {
-      clearInterval(timer);
+      stopFallback();
+      stopChanges();
       clearTimeout(fillIn.current);
       window.removeEventListener("loop-refresh", pulled);
       // A load in flight must not write to an unmounted view.

@@ -11,6 +11,7 @@ import {
   type WorkspaceEmission,
 } from "../src/shared/workspace-events";
 
+const decision = { decisionId: "decision", conversationId: "thread", runId: "run", generation: "generation", nativeId: "adapter-request", request: {} };
 const examples = [
   ["reverse.settled", { callId: "call" }],
   ["queued", {}],
@@ -69,6 +70,15 @@ const examples = [
   ],
   ["message.delta", { messageId: "message", text: "Hello" }],
   ["message.completed", { messageId: "message" }],
+  ["message.upsert", { message: {id:"message",owner_id:"owner",conversation_id:"thread",run_id:"run",role:"assistant",content:"Hello",metadata:"{}",created_at:1,revision:1,cursor:[1,1,1]} }],
+  ["message.delta", { messageId:"message",conversationId:"thread",baseRevision:1,revision:2,offset:5,chunkIndex:0,text:" world" }],
+  ["message.remove", { messageId:"message",conversationId:"thread",revision:3 }],
+  ["decision.pending", { ...decision, state:"pending" }],
+  ["decision.deciding", { ...decision, state:"deciding" }],
+  ["decision.resolved", { ...decision, state:"resolved" }],
+  ["decision.expired", { ...decision, state:"expired" }],
+  ["decision.unknown", { ...decision, state:"unknown" }],
+  ["decision.remove", { ...decision, state:"unknown" }],
   ["trace.updated", { round: 0 }],
   ["provider.receipt", { externalId: "provider", usage: { input_tokens: 1 } }],
   ["attention.dismissed", {}],
@@ -94,7 +104,7 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
     db.prepare(
       "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('run','owner','fixture','running','key',1,1)",
     ).run();
-    expect(examples.map(([type]) => type).sort()).toEqual(
+    expect([...new Set(examples.map(([type]) => type))].sort()).toEqual(
       EmittedWorkspaceEvent.options
         .map((option) => option.shape.type.value)
         .filter((type) => type !== "connection.status")
@@ -110,7 +120,8 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
       expect(event).toEqual({
         type: emission[0],
         payload: emission[1],
-        scope: { kind: "run", id: "run" },
+        scope: emission[0].startsWith("decision.") ? {kind:"collection",id:"decisions"} :
+          ["message.upsert", "message.remove"].includes(emission[0]) || (emission[0] === "message.delta" && "revision" in emission[1]) ? {kind:"conversation",id:"thread"} : { kind: "run", id: "run" },
         subject: { kind: "run", id: "run" },
       });
       expect(WorkspaceEvent.parse(JSON.parse(JSON.stringify(event)))).toEqual(

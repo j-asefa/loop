@@ -1,6 +1,6 @@
-import { listenWorkspaceChanges } from "./workspace-changes";
+import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceApi, useSourceId } from "./SourceContext";
+import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -44,8 +44,11 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { parse, retryAfter, isRateLimited, RATE_LIMITED } from "./api";
+import { parse, retryAfter, isRateLimited, RATE_LIMITED, readInWorkspace } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { TranscriptHandoff, ProjectedMessage, type TranscriptEvent, type TranscriptRange } from "../shared/transcript-projection";
+import { eventScopes, type WorkspaceClock } from "../shared/workspace-events";
+import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
@@ -135,6 +138,8 @@ function MessageShell({
 }
 
 type Transcript = {
+  projection?: WorkspaceClock;
+  range?: TranscriptRange;
   conversation: any;
   messages: ConversationMessage[];
   next: string | null;
@@ -209,6 +214,7 @@ function ConversationView({
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
   const api = useSourceApi();
+  const read = useProjectionRead();
   // The thread's pull request, for the chip on its final message. "No PR
   // linked" is said only once the list is confirmed, and the chip opens the
   // pull request only on the shell's own source, which the Pull requests
@@ -336,10 +342,14 @@ function ConversationView({
     queued: boolean;
   } | null>(null);
   const seenRevision = useRef(revision);
+  const transcriptHandoff = useRef(new TranscriptHandoff());
+  const projectionContext = useRef("");
+  const missingMessages = useRef(new Map<string, number>());
   const initialRequest = useRef(true);
   const hydrated = useRef(false);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const retryAt = useRef(0);
+  const snapshotFailures = useRef(0);
   useEffect(() => {
     if (data) cacheView(cacheKey, { ...data, saved: [...savedIds] }, owner);
   }, [data, savedIds, cacheKey, owner]);
@@ -413,7 +423,7 @@ function ConversationView({
     });
   }
   async function load(initial = false) {
-    if (owner !== viewOwner() || paging.current || Date.now() < retryAt.current) return;
+    if (owner !== viewOwner() || paging.current || Date.now() < retryAt.current || snapshotFailures.current >= 3) return;
     initial ||= initialRequest.current;
     const current = generation.current;
     if (refreshRequest.current?.generation === current) {
@@ -423,13 +433,22 @@ function ConversationView({
     const request = { generation: current, queued: false };
     refreshRequest.current = request;
     const ticket = ++loadRequest.current;
+    const projection = transcriptHandoff.current;
+    const snapshot = projection.begin();
+    const recovery = initial ? undefined : missingMessages.current.keys().next().value;
+    const recoveryCursor = recovery ? missingMessages.current.get(recovery) : undefined;
+    const readSnapshot = (path: string) => readInWorkspace<Transcript>(path, sourceId, readController.current!.signal, error => {
+      if (current === generation.current && owner === viewOwner() && isRateLimited(error)) {
+        setLoadError("");
+        setRateLimited(true);
+      }
+    });
     if (initial) setLoading(true);
     try {
-      let fresh = await api<Transcript>(
+      let fresh = await readSnapshot(
         "/conversations/" +
           id +
-          (initial ? anchor ? "?message=" + encodeURIComponent(anchor) : "?resume=1" : ""),
-        undefined, undefined, readController.current?.signal,
+          (initial ? anchor ? "?message=" + encodeURIComponent(anchor) : "?resume=1" : recovery ? "?message=" + encodeURIComponent(recovery) : ""),
       );
       if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner())
         return;
@@ -437,11 +456,31 @@ function ConversationView({
           fresh.position_message_id && !fresh.messages.some(message => message.id === fresh.position_message_id)) {
         // Older linked servers ignore resume=1. Only those responses lack the
         // marker; keep their existing resume behavior until they are upgraded.
-        fresh = await api<Transcript>(
+        fresh = await readSnapshot(
           `/conversations/${id}?message=${encodeURIComponent(fresh.position_message_id)}`,
-          undefined, undefined, readController.current?.signal,
         );
         if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner()) return;
+      }
+      const incomingMessages = fresh.messages;
+      const replacedProjection = !!fresh.projection && !projection.ready;
+      if (fresh.projection) {
+        const rows = ProjectedMessage.array().safeParse(fresh.messages);
+        if (!rows.success) {
+          snapshotFailures.current = 3;
+          throw new Error("Couldn’t load these messages. Try again.");
+        }
+        if (!projection.install(snapshot, fresh.projection, rows.data, fresh.range, !recovery)) {
+          if (++snapshotFailures.current >= 3)
+            throw new Error("Messages kept changing while loading. Try again.");
+          const delay = 1000 * snapshotFailures.current;
+          retryAt.current = Date.now() + delay;
+          clearTimeout(retryTimer.current);
+          retryTimer.current = setTimeout(() => {
+            if (current === generation.current && owner === viewOwner()) void load(initial);
+          }, delay);
+          return;
+        }
+        fresh = { ...fresh, messages: projection.projection.rows() };
       }
       if (initial && !anchor) {
         // The initial route chooses the saved-position page in one request.
@@ -453,8 +492,25 @@ function ConversationView({
           setJump(target);
         }
       }
+      if (fresh.projection) {
+        // The requested anchor is covered even when it became hidden. Such
+        // rows have a transcript position but are absent from the response.
+        // A newer invalidation still needs a newer consistent snapshot.
+        if (recovery && (missingMessages.current.get(recovery) ?? Infinity) <= fresh.projection.cursor)
+          missingMessages.current.delete(recovery);
+        // A page can repair several missing rows, but cannot acknowledge an
+        // invalidation that arrived after its consistent snapshot watermark.
+        for (const message of incomingMessages) {
+          const cursor = missingMessages.current.get(message.id);
+          if (cursor !== undefined && cursor <= fresh.projection.cursor)
+            missingMessages.current.delete(message.id);
+        }
+      } else if (recovery && missingMessages.current.get(recovery) === recoveryCursor)
+        missingMessages.current.delete(recovery);
+      request.queued ||= missingMessages.current.size > 0 || projection.projection.needsLatest();
       initialRequest.current = false;
       hydrated.current = true;
+      snapshotFailures.current = 0;
       retryAt.current = 0;
       clearTimeout(retryTimer.current);
       setRateLimited(false);
@@ -468,10 +524,10 @@ function ConversationView({
         !initial && old
           ? {
               ...fresh,
-              messages: mergeConversationMessages(old.messages, fresh.messages),
-              next: conversationRefreshCursor(
+              messages: fresh.projection ? fresh.messages : mergeConversationMessages(old.messages, fresh.messages),
+              next: replacedProjection ? fresh.next : recovery ? old.next : conversationRefreshCursor(
                 old.messages,
-                fresh.messages,
+                incomingMessages,
                 old.next,
                 fresh.next,
               ),
@@ -490,7 +546,12 @@ function ConversationView({
         );
     } catch (e) {
       if (current === generation.current && ticket === loadRequest.current && owner === viewOwner()) {
-        if (isRateLimited(e)) {
+        if (recovery && (e as {status?: number}).status === 404) {
+          missingMessages.current.clear();
+          projection.reset(projection.epoch);
+          initialRequest.current = true;
+          request.queued = true;
+        } else if (isRateLimited(e)) {
           setLoadError("");
           setRateLimited(true);
           initialRequest.current ||= initial;
@@ -510,6 +571,7 @@ function ConversationView({
         }
       }
     } finally {
+      projection.cancel(snapshot);
       if (current === generation.current && ticket === loadRequest.current)
         setLoading(false);
       if (refreshRequest.current === request) {
@@ -537,20 +599,83 @@ function ConversationView({
     setError("");
     setNotice("");
     retryAt.current = 0;
+    snapshotFailures.current = 0;
     setRateLimited(false);
+    const context = JSON.stringify([owner, sourceId, id]);
+    const localJump = jump && projectionContext.current === context &&
+      dataRef.current?.messages.some((message) => message.id === jump) &&
+      (transcriptHandoff.current.ready || !dataRef.current.projection);
+    // Resuming or jumping to an already loaded row changes the scroll anchor,
+    // not the snapshot. Keep its revisions and readiness for subsequent deltas.
+    if (!localJump) {
+      transcriptHandoff.current = new TranscriptHandoff();
+      missingMessages.current.clear();
+    }
+    projectionContext.current = context;
+    const update = () => void load();
+    const markMissing = (message: string, cursor: number) =>
+      missingMessages.current.set(message, Math.max(cursor, missingMessages.current.get(message) ?? 0));
+    const stopFrames = listenProjectionFrames(sourceId, (frame) => {
+      if (frame.type === "reset") {
+        missingMessages.current.clear();
+        if (transcriptHandoff.current.connect(frame.epoch, frame.cursor)) update();
+        return;
+      }
+      if (frame.v !== 3 || !reactiveSource(sourceId, "transcript")) return;
+      let changed = false, refresh = false;
+      for (const entry of frame.events) {
+        const event = entry.event;
+        if (event.scope.kind === "conversation" && event.scope.id === id &&
+            (event.type === "message.upsert" || event.type === "message.remove" ||
+             (event.type === "message.delta" && "revision" in event.payload))) {
+          const outcome = transcriptHandoff.current.receive(entry.id, event as TranscriptEvent);
+          changed ||= outcome === "applied";
+          if (event.type === "message.remove" && outcome !== "gap" &&
+              entry.id >= (missingMessages.current.get(event.payload.messageId) ?? Infinity))
+            missingMessages.current.delete(event.payload.messageId);
+          refresh ||= outcome === "gap";
+          if (outcome === "gap") markMissing(event.type === "message.upsert" ? event.payload.message.id : event.payload.messageId, entry.id);
+        } else if (event.type === "invalidate" || event.type === "tombstone") {
+          // A full replacement may exceed the socket budget. Its bounded
+          // subject still identifies a retained older page to recover.
+          if (event.subject?.kind === "message" &&
+              (event.scope.kind === "conversation" && event.scope.id === id || event.scope.kind === "collection" && event.scope.id === "all") &&
+              dataRef.current?.messages.some(message => message.id === event.subject?.id)) {
+            markMissing(event.subject.id, entry.id);
+            refresh = true;
+          }
+          // SQL message writes have complete typed deltas. A primary saved
+          // notification covers bookmark state, not streamed content.
+          refresh ||= event.scope.kind === "collection" && ["all", "saved"].includes(event.scope.id);
+          refresh ||= event.scope.kind === "conversation" && event.scope.id === id;
+          refresh ||= event.subject?.kind === "conversation" && event.subject.id === id &&
+            eventScopes(event).some(scope => scope.kind === "collection" && scope.id === "metadata");
+          refresh ||= event.scope.kind === "collection" && event.scope.id === "runs" &&
+            event.subject?.kind === "run" && dataRef.current?.messages.some(message => message.run_id === event.subject?.id) === true;
+        } else if (["queued", "running", "pausing", "paused", "awaiting_approval", "completed", "failed", "cancelled", "interrupted"].includes(event.type)) {
+          refresh ||= event.scope.kind === "run" && dataRef.current?.messages.some(message => message.run_id === event.scope.id) === true;
+        }
+      }
+      if (changed && transcriptHandoff.current.ready) setData(old => old ? { ...old, messages: transcriptHandoff.current.projection.rows() } : old);
+      if (refresh || transcriptHandoff.current.projection.needsLatest()) update();
+    });
     // A jump inside a loaded thread only needs the anchor effect below.
-    if (!jump || !dataRef.current?.messages.some((m) => m.id === jump)) {
+    if (!localJump) {
       initialRequest.current = true;
       hydrated.current = false;
       void load(true);
-    }
-    const update = () => void load();
-    const timer = setInterval(update, 5000);
-    const stopChanges = listenWorkspaceChanges("thread", update, sourceId, id);
+    } else if (missingMessages.current.size || transcriptHandoff.current.projection.needsLatest()) void load();
+    window.addEventListener("loop-refresh", update);
+    const stopFallback = surfaceFallback([sourceId], "transcript", 5000, update);
+    const stopChanges = listenWorkspaceChanges("thread", (event) => {
+      if (!reactiveSource(sourceId, "transcript") || broadWorkspaceChange(event)) update();
+    }, sourceId, id);
     return () => {
       generation.current++;
       readController.current?.abort();
-      clearInterval(timer);
+      window.removeEventListener("loop-refresh", update);
+      stopFallback();
+      stopFrames();
       clearTimeout(retryTimer.current);
       stopChanges();
     };
@@ -558,27 +683,31 @@ function ConversationView({
   useEffect(() => {
     if (seenRevision.current === revision) return;
     seenRevision.current = revision;
-    void load();
+    if (!reactiveSource(sourceId, "transcript")) void load();
   }, [revision]);
   useEffect(() => {
     let active = true;
     let latest = 0;
     const refresh = () => {
       const request = ++latest;
-      return api(`/conversations/${id}/usage`)
+      return read(`/conversations/${id}/usage`)
         .then((result) => {
           if (active && request === latest)
             setUsage({ ...result, conversationId: id, sourceId });
         })
         .catch(() => {});
     };
+    window.addEventListener("loop-refresh", refresh);
+    const stopChanges = listenWorkspaceChanges("usage", () => void refresh(), sourceId, id);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 5000, () => void refresh());
     void refresh();
-    const timer = setInterval(refresh, 5000);
     return () => {
       active = false;
-      clearInterval(timer);
+      window.removeEventListener("loop-refresh", refresh);
+      stopFallback();
+      stopChanges();
     };
-  }, [id, sourceId, revision, data?.messages.length]);
+  }, [id, sourceId]);
   useEffect(() => {
     if (!imported && agent && data?.conversation.id === id)
       readyRef.current({
@@ -695,6 +824,7 @@ function ConversationView({
     setAwayFromLatest(false);
     setOrigin(null);
     setResumed(false);
+    void load();
     pinLatest();
     saveReadingPosition();
   }
@@ -1194,7 +1324,7 @@ function ConversationView({
           {loadError && (
             <div role="alert" className="error">
               {loadError}
-              <button className="text-button" onClick={() => void load(!data)}>
+              <button className="text-button" onClick={() => { snapshotFailures.current = 0; void load(!data); }}>
                 Try again
               </button>
             </div>
@@ -1209,16 +1339,27 @@ function ConversationView({
                 loadRequest.current++;
                 setLoadingEarlier(true);
                 const current = generation.current;
+                const projection = transcriptHandoff.current;
+                const snapshot = projection.begin();
                 try {
-                  const older = await api(
+                  const older = await readInWorkspace<Transcript>(
                     "/conversations/" + id + "?before=" + data.next,
+                    sourceId, readController.current!.signal,
                   );
                   if (current !== generation.current) return;
+                  if (older.projection) {
+                    const rows = ProjectedMessage.array().parse(older.messages);
+                    if (!projection.install(snapshot, older.projection, rows, older.range)) {
+                      setError("Messages changed while loading history. Try Load earlier messages again.");
+                      return;
+                    }
+                    older.messages = projection.projection.rows();
+                  }
                   setData((previous) =>
                     previous
                       ? {
                           ...previous,
-                          messages: mergeConversationMessages(
+                          messages: older.projection ? older.messages : mergeConversationMessages(
                             previous.messages,
                             older.messages,
                           ),
@@ -1228,13 +1369,14 @@ function ConversationView({
                   );
                   if (older.saved)
                     setSavedIds(
-                      (old) => new Set([...old, ...older.saved]),
+                      (old) => new Set([...old, ...older.saved!]),
                     );
                   setError("");
                 } catch (e) {
                   if (current === generation.current)
                     setError((e as Error).message);
                 } finally {
+                  projection.cancel(snapshot);
                   paging.current = false;
                   if (current === generation.current) {
                     setLoadingEarlier(false);

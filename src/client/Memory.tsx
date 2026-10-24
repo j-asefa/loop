@@ -1,4 +1,6 @@
-import { useSourceApi } from "./SourceContext";
+import { surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Bookmark, Info, MessageSquare } from "lucide-react";
 import { parse } from "./api";
@@ -344,22 +346,23 @@ export function MemoryUsed({ runId }: { runId: string }) {
   );
 }
 export function NativeConversation({ id }: { id: string }) {
-  const api = useSourceApi();
+  const api = useSourceApi(), read = useProjectionRead(), sourceId = useSourceId();
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [include, setInclude] = useState(true);
   useEffect(() => {
     const load = () =>
-      api("/conversations/" + id + "/memory")
+      read("/conversations/" + id + "/memory")
         .then((v) => {
           setData(v);
           setInclude(v.memoryIncluded);
         })
         .catch((e) => setError(e.message));
+    const stopChanges = listenWorkspaceChanges("metadata", load, sourceId);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 4000, load);
     void load();
-    const t = setInterval(() => void load(), 4000);
-    return () => clearInterval(t);
-  }, [id]);
+    return () => { stopChanges(); stopFallback(); };
+  }, [id, sourceId, read]);
   if (!data) return null;
   return (
     <details className="native-conversation">

@@ -1,5 +1,6 @@
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceApi } from "./SourceContext";
+import { useSourceId, useSourceApi, useSourceRead } from "./SourceContext";
+import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import type {
   ActivityCapabilities,
@@ -27,6 +28,8 @@ export function SessionActivityControls({
   };
 }) {
   const api = useSourceApi();
+  const read = useSourceRead();
+  const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Controls>();
@@ -67,11 +70,12 @@ export function SessionActivityControls({
     };
   }
   async function refresh() {
-    if (writing.current) return;
+    const controller = readController.current;
+    if (writing.current || !controller || controller.signal.aborted) return;
     const own = epoch.current,
       request = ++ticket.current;
     try {
-      const response = await api<Controls>(path);
+      const response = await read<Controls>(path, controller.signal);
       const next =
         response.state !== "disconnected" &&
         response.capabilities.settings.state === "supported"
@@ -113,16 +117,20 @@ export function SessionActivityControls({
     setInspecting(false);
     writing.current = false;
     if (!open) return;
+    const controller = new AbortController();
+    readController.current = controller;
     void refresh();
     const update = () => void refresh();
-    const timer = setInterval(update, 3000);
+    const stopFallback = surfaceFallback([sourceId], "workspace", 3000, update);
     const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversationId);
     return () => {
       epoch.current++;
-      clearInterval(timer);
+      controller.abort();
+      readController.current = null;
+      stopFallback();
       stopChanges();
     };
-  }, [open, conversationId, sourceId]);
+  }, [open, conversationId, sourceId, read]);
   async function inspect() {
     const failure = failedChange, own = epoch.current;
     setInspecting(true);

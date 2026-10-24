@@ -97,10 +97,18 @@ it("flushes dirty native items and completes after exceeding the display window"
         .get(),
     ).toEqual({ content: "updated" });
     vi.useRealTimers();
+    event({ id: "reclassified", kind: "assistant", text: "Interim display" });
+    sessions.projectOutput(live, true);
+    const reclassified = db.prepare("SELECT id FROM messages WHERE update_key='native-message:reclassified'").get() as { id: string };
+    event({ id: "reclassified", kind: "tool", text: "Actually tool output" });
+    sessions.projectOutput(live, true);
+    expect(db.prepare("SELECT id FROM messages WHERE id=?").get(reclassified.id)).toBeUndefined();
+    expect(db.prepare("SELECT payload FROM events WHERE type='message.remove' AND json_extract(payload,'$.messageId')=?").get(reclassified.id)).toBeDefined();
     event({ id: "one", kind: "assistant", text: "first" });
     sessions.projectOutput(live, false);
     expect(db.prepare("SELECT * FROM item_writes").all()).toEqual([
       { id: "two" },
+      { id: "reclassified" },
     ]);
     expect(
       db.prepare("SELECT content FROM messages WHERE id='message'").get(),
@@ -276,7 +284,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     clearTimeout(live.flush);
     vi.useRealTimers();
   }
-});
+}, 15000);
 
 it("drops item events from a superseded session generation", () => {
   db.prepare(

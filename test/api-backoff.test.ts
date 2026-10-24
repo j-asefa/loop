@@ -94,10 +94,12 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
   fetcher.mockResolvedValueOnce(limited("3"));
   await read().catch(() => {});
   const controller = new AbortController();
-  const pending = readInWorkspace("/scheduled-sends", "", controller.signal);
+  const onRetry = vi.fn();
+  const pending = readInWorkspace("/scheduled-sends", "", controller.signal, onRetry);
   await vi.advanceTimersByTimeAsync(2999);
   expect(fetcher).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(1);
+  expect(onRetry).toHaveBeenCalled();
   await expect(pending).resolves.toEqual({});
   expect(fetcher).toHaveBeenCalledTimes(2);
   fetcher.mockResolvedValueOnce(limited("60"));
@@ -142,4 +144,30 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
   const old = read("docker:one");
   setViewOwner("bob"); finish(response("obsolete")); await old;
   expect(received).toHaveLength(2);
+});
+
+it("recovers a signal-driven snapshot from a transient server error without retrying its actions or hiding a permanent refusal",async()=>{
+ fetcher.mockResolvedValueOnce(new Response('{"error":"Temporary failure"}',{status:503}));
+ const retry=vi.fn(), controller=new AbortController();
+ const pending=readInWorkspace("/approvals","",controller.signal,retry);
+ await vi.advanceTimersByTimeAsync(0);
+ expect(retry).toHaveBeenCalledWith(expect.objectContaining({status:503}));
+ await vi.advanceTimersByTimeAsync(2000);await expect(pending).resolves.toEqual({});
+ fetcher.mockImplementation(async () => new Response('{"error":"Still unavailable"}',{status:503}));
+ const failed=readInWorkspace("/approvals","",controller.signal).catch(error=>error);
+ await vi.advanceTimersByTimeAsync(6000);expect((await failed).status).toBe(503);
+ const before=fetcher.mock.calls.length;await vi.advanceTimersByTimeAsync(30000);expect(fetcher).toHaveBeenCalledTimes(before);
+});
+
+it.each(["<html>Gateway unavailable</html>", ""])("retries non-JSON 503 reads (%s) without replaying a write", async body => {
+  fetcher.mockResolvedValueOnce(new Response(body, {status:503}));
+  const pending = readInWorkspace("/runs/completed/files", "", new AbortController().signal);
+  const outcome = pending.catch(error => error);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await outcome).toEqual({});
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  fetcher.mockResolvedValueOnce(new Response(body, {status:503}));
+  await expect(apiInWorkspace("/runs", "", {input:"once"})).rejects.toMatchObject({status:503});
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(fetcher).toHaveBeenCalledTimes(3);
 });

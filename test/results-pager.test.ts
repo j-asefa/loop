@@ -191,3 +191,18 @@ it("advances an unchanged feed watermark without publishing a new snapshot", asy
   await feed.load("alice:all", false, page, updates);
   expect(updates).toHaveBeenLastCalledWith(7, 0);
 });
+
+it("drains all pages from one notification and applies removals without a catch-up timer", async () => {
+ const pager=new ResultsPager<Card>(), page=pageFrom(cards(100));
+ await pager.load("owner:source",false,page,noChanges);
+ let calls=0;
+ const updates=vi.fn(async (after:number):Promise<ResultsUpdates<Card>>=>{
+  calls++;
+  return {items:[{id:String(100-calls),cursor:100-calls,content:"changed "+calls}],removed:calls===3?["100"]:[],revision:after+1,more:calls<4};
+ });
+ const result=await pager.load("owner:source",false,page,updates);
+ expect(updates).toHaveBeenCalledTimes(4);
+ expect(result!.items.some(item=>item.id==="100")).toBe(false);
+ expect(result!.items.filter(item=>item.content.startsWith("changed"))).toHaveLength(4);
+ expect(result!.revision).toBe(5);
+});

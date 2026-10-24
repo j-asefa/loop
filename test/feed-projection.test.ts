@@ -39,7 +39,10 @@ async function equivalent() {
         });
         const response = await app.fetch("/api/feed?" + query);
         expect(response.status).toBe(200);
-        const expected = await response.json();
+        // PR 7 adds transport handoff metadata around the unchanged Feed
+        // selection. Keep comparing every item, cursor and summary field.
+        const { projection, ...expected } = await response.json();
+        expect(projection).toBeDefined();
         expect(
           readers.shadowFeed(OWNER, options),
           JSON.stringify(options),

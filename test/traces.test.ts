@@ -86,9 +86,10 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
         expect(
           resultsUpdates("alice", { after, through: 0, agent: a.id }).items,
         ).toEqual([]);
-        expect(
-          listRuns("alice", [], true).find((r) => r.id === run.id)
-            ?.preview_artifact,
+        // The public projection flushes within one 250ms batch, not per token.
+        await expect.poll(
+          () => listRuns("alice", [], true).find((r) => r.id === run.id)?.preview_artifact,
+          { timeout: 2000, interval: 10 },
         ).toMatchObject({
           content: expect.stringContaining(`source ${round + 1}`),
         });
@@ -193,7 +194,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
   } finally {
     restore();
   }
-});
+}, 15000);
 
 it("pages public agent messages and links final responses by message identity in completion order", async () => {
   const a = agent();

@@ -65,6 +65,23 @@ it("deduplicates repeated uploads and safely restarts import work", async () => 
     { status: "completed" },
   );
 });
+it("projects supported imported fractional timestamps without rejecting their snapshots", async () => {
+  const { ProjectedMessage } = await import("../src/shared/transcript-projection");
+  const { conversationMessages } = await import("../src/server/conversation-messages");
+  const bytes = Buffer.from(JSON.stringify([{ id: "fractional", mapping: {
+    one: { message: { id: "one", author: {role:"user"}, content: {parts:["Imported"]}, create_time: 1699999999123.456 } },
+  } }]));
+  const imported = await stageImport("fractional-owner", bytes, "conversations.json");
+  const run = enqueue("fractional-owner", "Import", "fractional-import", {kind:"import",payload:{importId:imported.id}});
+  const claimed = claim("fractional-importer")!;
+  expect(claimed.id).toBe(run.id);
+  await executeImport(claimed);
+  transition(claimed, "completed");
+  const row = db.prepare("SELECT conversation_id FROM messages WHERE owner_id='fractional-owner'").get() as {conversation_id:string};
+  const messages = conversationMessages("fractional-owner", row.conversation_id).messages;
+  expect(messages[0].created_at).toBe(1699999999123.456);
+  expect(ProjectedMessage.array().safeParse(messages).success).toBe(true);
+});
 it("moves and undoes atomically without duplicate objects and rejects stale undo", () => {
   const p = id(),
     f = id();

@@ -24,6 +24,7 @@ export function connectWorkspaceEvents(
   // Already-loaded v3 clients strictly reject new reset keys. Advertise the
   // clock extension only when this client (and any proxy) negotiates it.
   const clockV3 = v3 && url.searchParams.get("clock") === "1";
+  const projectionV3 = v3 && url.searchParams.get("projection") === "1";
   let cursor = Number(url.searchParams.get("cursor"));
   let initial = true;
   let stopped = false;
@@ -85,7 +86,8 @@ export function connectWorkspaceEvents(
       for (const row of events) {
         let entry = { id: row.id, event: historicalEvent(row) };
         if (Buffer.byteLength(JSON.stringify(entry)) > MAX_EVENT_BYTES)
-          entry = { id: row.id, event: invalidate(entry.event.scope) };
+          entry = { id: row.id, event: invalidate(entry.event.scope,
+            entry.event.subject?.kind === "message" ? entry.event.subject : undefined) };
         const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
         if (bytes + size > MAX_REPLAY_BYTES) break;
         typed.push(entry);
@@ -106,6 +108,8 @@ export function connectWorkspaceEvents(
     }
     if (!v3 && initial && !events.length) reset = true;
     const changed = initial || reset || events.length > 0;
+    const capabilities = { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" as const, deadlines: clockV3 };
+    const announce = initial && projectionV3;
     initial = false;
     const frame = changed
       ? v3
@@ -115,10 +119,10 @@ export function connectWorkspaceEvents(
               type: "reset",
               build: build || observedBuild().id,
               buildIdentity: publicBuild(observedBuild()),
-              capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, deadlines: clockV3 },
+              capabilities,
               ...(clockV3 ? workspaceClock(owner) : { epoch, cursor }),
             }
-          : { v: 3, type: "events", epoch, cursor, events: typed }
+          : { v: 3, type: "events", epoch, cursor, events: typed, ...(announce ? { capabilities } : {}) }
         : {
             v: 2,
             type: reset ? "reset" : "events",

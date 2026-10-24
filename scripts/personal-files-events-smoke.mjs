@@ -222,6 +222,31 @@ for (const engine of process.env.LOOP_BROWSER
           }),
         ).toHaveCount(1);
         assert.deepEqual(errors, []);
+        // Both quiet active runs and completed runs recover without a later
+        // notification, including a proxy's non-JSON failure.
+        db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES('file-answer',?,'thread','run','assistant','Files are ready',?)")
+          .run(owner,Date.now());
+        for (const state of ["running","completed"]) {
+          db.prepare("UPDATE runs SET state=? WHERE id='run'").run(state);
+          const thread = await context.newPage();
+          let runReads = 0;
+          await thread.route("**/api/runs/run/files", route => ++runReads === 1
+            ? route.fulfill({status:503,contentType:"text/html",body:"<html>Temporary gateway failure</html>"})
+            : route.continue());
+          await thread.goto(fixture.origin);
+          await expect(thread.locator(".workspace-connection")).toHaveText("Connected to workspace");
+          // Settle initial reset/coalescing before testing a quiet read. A
+          // reset during retry legitimately queues one more reconciliation.
+          await thread.waitForTimeout(2500);
+          await thread.evaluate(() => {
+            const url = new URL(location.href); url.search = "?conversation=thread";
+            navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
+          });
+          await expect(thread.locator(".conversation-sheet").getByText("Files are ready",{exact:true})).toBeVisible();
+          await expect(thread.locator(".conversation-sheet .published-files").getByRole("button",{name:"Preview report-001.pdf",exact:true})).toBeVisible({timeout:8000});
+          assert.equal(runReads,2,"One quiet run read failure must recover with one bounded retry");
+          await thread.close();
+        }
         console.log(
           `PASS ${engine}/${mode}: Files keeps loaded pages and scroll, queues updates during append, catches up 125 new files, isolates source/filter changes and retains history on failure`,
         );

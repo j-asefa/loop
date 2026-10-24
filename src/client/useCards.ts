@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cardReader } from "../shared/card-client";
 import type { CardPage, CardSelection } from "../shared/cards";
-import { useSourceApi, useSourceId } from "./SourceContext";
+import { useProjectionRead, useSourceId } from "./SourceContext";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { CardPager, type CardWindow } from "./card-pager";
+import { surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges } from "./workspace-changes";
 
 const noItems: CardPage["items"] = [];
 
@@ -11,7 +13,7 @@ const noItems: CardPage["items"] = [];
  * Polling updates the loaded window; it never restarts pagination. */
 export function useCards(selection: CardSelection, revision = 0) {
   const source = useSourceId(),
-    api = useSourceApi();
+    read = useProjectionRead();
   const owner = viewOwner(),
     key = JSON.stringify([owner, source, selection]);
   const context = useMemo(() => ({ key, foreground: 0 }), [key]);
@@ -20,8 +22,8 @@ export function useCards(selection: CardSelection, revision = 0) {
   const current = useRef<typeof context | null>(context);
   current.current = context;
   const reader = useMemo(
-    () => cardReader((path, signal) => api(path, undefined, undefined, signal)),
-    [api],
+    () => cardReader((path) => read(path)),
+    [read],
   );
   const pager = useRef(new CardPager());
   const loaded = useRef(restored ? key : "");
@@ -92,12 +94,14 @@ export function useCards(selection: CardSelection, revision = 0) {
     const refresh = () => {
       if (document.visibilityState === "visible") void load();
     };
-    const timer = setInterval(refresh, 2000);
+    const stopFallback = surfaceFallback([source], "results", 2000, refresh);
+    const stopChanges = listenWorkspaceChanges(selection.view === "saved" ? "saved" : "results", refresh, source);
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener("loop-later-change", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      clearInterval(timer);
+      stopFallback();
+      stopChanges();
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener("loop-later-change", refresh);
       document.removeEventListener("visibilitychange", refresh);
