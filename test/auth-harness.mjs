@@ -27,7 +27,7 @@ const audit = (message) =>
   appendFileSync(path + "/auth-audit", kind + ":" + message + "\n");
 if (process.argv.includes("--version")) {
   console.log(
-    { codex: "0.159.0", claude: "2.1.284", pi: "0.87.1", opencode: "1.18.33", gemini: "0.65.0", muse: "Muse Code 1.4.12 (1.4.12-R6909.1)" }[
+    { codex: "0.159.0", claude: "2.1.284", pi: "0.87.1", opencode: "1.18.33", gemini: "0.65.0", muse: "Muse Code 1.4.12 (1.4.12-R6909.1)", grok: "grok 1.0.70 (f50904eaee6c)" }[
       kind
     ],
   );
@@ -36,6 +36,26 @@ if (process.argv.includes("--version")) {
   if (!process.argv.includes("--device-auth")) process.exit(1);
   process.stdout.write("Open https://chatgpt.");
   setTimeout(() => process.stdout.write("com/device\nCode: ABCD-12345\n"), 15);
+  setInterval(() => {
+    if (existsSync(finish)) {
+      save("oauth");
+      process.exit(0);
+    }
+  }, 25);
+} else if (kind === "grok" && process.argv[2] === "login") {
+  // Grok 1.0.70's device-code output, including its ANSI-dimmed warning.
+  audit("login");
+  if (
+    !process.argv.includes("--device-auth") ||
+    process.env.BROWSER !== "false" ||
+    process.env.GROK_DISABLE_AUTOUPDATER !== "1"
+  )
+    process.exit(1);
+  process.stdout.write(
+    "\nTo sign in, open this URL in your browser:\n\n  https://accounts.x.ai/oauth2/device?user_code=KSXH-JR4E\n\n" +
+      "Confirm this code in your browser:\n\n  KSXH-JR4E\n\n" +
+      "\x1b[90mOnly continue with a code you requested. Don't share it with anyone.\x1b[0m\n\nWaiting for authorization...\n",
+  );
   setInterval(() => {
     if (existsSync(finish)) {
       save("oauth");

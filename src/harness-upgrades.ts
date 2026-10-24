@@ -14,7 +14,8 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
-export type UpgradeHarness = "codex" | "claude" | "pi" | "opencode" | "gemini" | "muse";
+export type UpgradeHarness =
+  "codex" | "claude" | "pi" | "opencode" | "gemini" | "muse" | "grok";
 export type Upgrade = {
   commandId: string;
   name: UpgradeHarness;
@@ -37,7 +38,7 @@ export type UpgradeRunner = (
   args: string[],
   options: { env: NodeJS.ProcessEnv; timeout: number },
 ) => Promise<string>;
-// Muse Code is not an npm package; its launcher updates itself.
+// Muse Code and Grok Build are not npm packages; they update themselves.
 const packages: Partial<Record<UpgradeHarness, string>> = {
   codex: "@openai/codex",
   claude: "@anthropic-ai/claude-code",
@@ -124,6 +125,10 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
   if (name === "muse")
     throw new Error(
       "Muse Code updates itself. Run muse on the computer to check for an update now.",
+    );
+  if (name === "grok")
+    throw new Error(
+      "Grok Build updates itself. Run grok update on the computer to check for an update now.",
     );
   const real = realpathSync(executable);
   if (name === "opencode" && /loop-opencode|helpers\/opencode/.test(real))
@@ -345,7 +350,9 @@ export class HarnessUpgrades {
         canUpgrade: false,
         upgradeHelp:
           message.startsWith("Managed OpenCode") ||
-          message.startsWith("Upgrade this custom")
+          message.startsWith("Upgrade this custom") ||
+          // Self-updating harnesses name their own update command.
+          / updates itself\. Run (muse|grok update) on the computer/.test(message)
             ? message
             : "Upgrade this installation on the computer, or rebuild its container image.",
       };

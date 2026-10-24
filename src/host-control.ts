@@ -17,6 +17,8 @@ const minimumVersions = {
   gemini: "0.64.0",
   // Account sign-in and login methods on the experimental MSP surface.
   muse: "1.4.12",
+  // ACP over `grok agent stdio`, verified with this release.
+  grok: "1.0.70",
 };
 const install = {
   codex: "https://developers.openai.com/codex/cli",
@@ -25,6 +27,7 @@ const install = {
   opencode: "https://opencode.ai/docs",
   gemini: "https://geminicli.com/docs/get-started/installation/",
   muse: "https://dev.meta.ai/docs/muse-code/",
+  grok: "https://x.ai/cli",
 };
 
 function meetsMinimum(version: string | undefined, minimum: string) {
@@ -62,6 +65,11 @@ export async function discover(name: Harness, explicit?: string) {
     const { stdout } = await exec(executable, ["--version"], {
       timeout: 10000,
       maxBuffer: 20000,
+      // Discovery must not start Grok's self-update.
+      env:
+        name === "grok"
+          ? { ...process.env, GROK_DISABLE_AUTOUPDATER: "1" }
+          : process.env,
     });
     const version = stdout.match(
       /(?:^|\s)v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=\s|$)/,

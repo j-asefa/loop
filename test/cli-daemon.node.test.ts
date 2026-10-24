@@ -934,7 +934,7 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
           "start",
           "--local-only",
           "--providers",
-          "opencode,pi,claude,codex,gemini,muse",
+          "opencode,pi,claude,codex,gemini,muse,grok",
         ])
       ).stdout,
       PAIR_URL,

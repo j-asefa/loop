@@ -63,7 +63,7 @@ export async function prepareLocalHarnesses(
               version: probe.version,
               project,
               billing:
-                ["opencode", "pi", "gemini", "muse", "acp"].includes(name)
+                ["opencode", "pi", "gemini", "muse", "grok", "acp"].includes(name)
                   ? "existing"
                   : "subscription",
             },

@@ -14,6 +14,12 @@ const versions = {
     latest: "1.4.12",
     format: (v: string) => `Muse Code ${v} (${v}-R6909.1)\n`,
   },
+  grok: {
+    minimum: "1.0.70",
+    older: "1.0.69",
+    latest: "1.0.70",
+    format: (v: string) => `grok ${v} (f50904eaee6c)\n`,
+  },
   gemini: {
     minimum: "0.64.0",
     older: "0.63.0",
@@ -54,7 +60,8 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
     const executable = join(dir, name);
     await writeFile(
       executable,
-      `#!/usr/bin/env node\nif (process.argv[2] !== "--version") process.exit(90);\nprocess.stdout.write(${JSON.stringify(output)});\nprocess.exit(${exitCode});\n`,
+      // Grok's version check must not start its self-update.
+      `#!/usr/bin/env node\nif (process.argv[2] !== "--version") process.exit(90);\n${name === "grok" ? 'if (process.env.GROK_DISABLE_AUTOUPDATER !== "1") process.exit(93);\n' : ""}process.stdout.write(${JSON.stringify(output)});\nprocess.exit(${exitCode});\n`,
       { mode: 0o755 },
     );
     return executable;

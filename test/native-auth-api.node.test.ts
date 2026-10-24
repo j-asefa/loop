@@ -22,7 +22,7 @@ test("paired provider authentication protects credentials, checks project owners
   const bin = join(dir, "bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
-  for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse"]) {
+  for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"]) {
     await writeFile(
       join(bin, name),
       `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
@@ -235,6 +235,21 @@ test("paired provider authentication protects credentials, checks project owners
     );
     await writeFile(join(dir, "authorize-muse"), "yes");
     await until(async () => (await api(muse + "/status")).attempt?.state === "complete");
+    // Grok's device code reaches the phone only from its own sign-in host.
+    const grok = "/workspace/runtimes/grok/auth";
+    await api(grok + "/start", {
+      projectId,
+      provider: "xai",
+      method: "oauth",
+      commandId: randomUUID(),
+    });
+    await until(async () => !!(await api(grok + "/status")).attempt?.url);
+    const grokAttempt = (await api(grok + "/status")).attempt;
+    assert.equal(new URL(grokAttempt.url).hostname, "accounts.x.ai");
+    assert.equal(grokAttempt.code, "KSXH-JR4E");
+    await writeFile(join(dir, "authorize-grok"), "yes");
+    await until(async () => (await api(grok + "/status")).attempt?.state === "complete");
+    assert.match(await readFile(join(dir, "auth-audit"), "utf8"), /grok:login/);
     await api("/workspace/runtimes/codex/auth/start", {
       projectId,
       provider: "openai",

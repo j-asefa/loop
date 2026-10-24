@@ -16,6 +16,7 @@ export function harnessName(connection: Connection) {
     openai: "OpenAI API",
     gemini: "Gemini CLI",
     muse: "Muse Code",
+    grok: "Grok Build",
     pi: "Pi",
     opencode: "OpenCode",
     acp: "ACP agent",

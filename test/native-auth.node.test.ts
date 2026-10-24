@@ -202,7 +202,7 @@ test("out-of-band completion clears an obsolete prompt and selects validate thei
   }
 });
 
-for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse"]) {
+for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"]) {
   test(`${name}: native sign-in protocol and credential storage without any model session`, async () => {
     const project = join(dir, name);
     await mkdir(project);
@@ -230,12 +230,19 @@ for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse"]) {
         assert.equal(auth.status(name).attempt?.code, "ABCD-12345");
       if (name === "muse")
         assert.equal(auth.status(name).attempt?.code, "FIXT-CODE");
+      if (name === "grok") {
+        assert.equal(auth.status(name).attempt?.code, "KSXH-JR4E");
+        assert.equal(
+          new URL(auth.status(name).attempt!.url!).hostname,
+          "accounts.x.ai",
+        );
+      }
       if (name === "opencode")
         assert.match(
           auth.status(name).attempt?.instructions || "",
           /1234-5678/,
         );
-      if (name === "codex" || name === "opencode" || name === "muse")
+      if (["codex", "opencode", "muse", "grok"].includes(name))
         await writeFile(join(project, "authorize-" + name), "yes");
       else {
         await until(() => !!auth.status(name).attempt?.prompt);

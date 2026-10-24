@@ -86,6 +86,8 @@ export class Acp implements Adapter {
   private terminalReported = false;
   private closed = false;
   private loading = false;
+  /** session/load replayed at least one user or agent message. */
+  protected historyReplayed = false;
   private sequence = new Map<string, number>();
   private settingWrite: Promise<void> = Promise.resolve();
   private pendingSettingWrites = 0;
@@ -720,6 +722,11 @@ export class Acp implements Adapter {
   private update(notification: SessionNotification) {
     if (this.closed || notification.sessionId !== this.session) return;
     const u = notification.update;
+    if (
+      this.loading &&
+      ["user_message_chunk", "agent_message_chunk"].includes(u.sessionUpdate)
+    )
+      this.historyReplayed = true;
     if (
       !this.loading &&
       !this.active &&

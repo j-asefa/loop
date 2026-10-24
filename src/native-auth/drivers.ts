@@ -32,18 +32,24 @@ async function stop(child?: ChildProcess) {
   });
 }
 
+// Codex and Grok Build print a device-code URL and code; Claude Code prints a
+// URL and reads a pasted code. Credentials stay in each CLI's own store.
 function cliDriver(options: AuthOptions): AuthDriver {
   let child: ChildProcess | undefined;
   const codex = options.name === "codex";
+  const grok = options.name === "grok";
+  const device = codex || grok;
   return {
     async providers() {
       return [
         {
-          id: codex ? "openai" : "anthropic",
-          name: codex ? "ChatGPT" : "Claude",
+          id: codex ? "openai" : grok ? "xai" : "anthropic",
+          name: codex ? "ChatGPT" : grok ? "Grok" : "Claude",
           methods: codex
             ? [{ id: "oauth", type: "oauth", label: "Sign in with ChatGPT" }]
-            : [
+            : grok
+              ? [{ id: "oauth", type: "oauth", label: "Sign in with Grok" }]
+              : [
                 { id: "oauth", type: "oauth", label: "Sign in with Claude" },
                 {
                   id: "console",
@@ -58,7 +64,7 @@ function cliDriver(options: AuthOptions): AuthDriver {
       await stop(child);
       const process = (child = spawn(
         options.executable,
-        codex
+        device
           ? ["login", "--device-auth"]
           : [
               "auth",
@@ -71,6 +77,7 @@ function cliDriver(options: AuthOptions): AuthDriver {
             ...(options.env ?? globalThis.process.env),
             BROWSER: "false",
             DISABLE_AUTOUPDATER: "1",
+            GROK_DISABLE_AUTOUPDATER: "1",
           },
           stdio: "pipe",
           detached: true,
@@ -101,7 +108,9 @@ function cliDriver(options: AuthOptions): AuthDriver {
                   !parsed.password &&
                   (codex
                     ? /(^|\.)(openai\.com|chatgpt\.com)$/
-                    : /(^|\.)(anthropic\.com|claude\.ai|claude\.com)$/
+                    : grok
+                      ? /^accounts\.x\.ai$/
+                      : /(^|\.)(anthropic\.com|claude\.ai|claude\.com)$/
                   ).test(parsed.hostname)
                 );
               } catch {
@@ -111,7 +120,7 @@ function cliDriver(options: AuthOptions): AuthDriver {
             if (url)
               io.link(
                 url,
-                codex
+                device
                   ? output.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4,5}\b/)?.[0]
                   : undefined,
               );
@@ -119,7 +128,7 @@ function cliDriver(options: AuthOptions): AuthDriver {
               url &&
               !asked &&
               /(?:paste|enter)[^\n]*code/i.test(output) &&
-              !codex
+              !device
             ) {
               asked = true;
               void io
@@ -748,7 +757,7 @@ async function museDriver(options: AuthOptions): Promise<AuthDriver> {
 export async function createAuthDriver(
   options: AuthOptions,
 ): Promise<AuthDriver> {
-  if (options.name === "codex" || options.name === "claude")
+  if (["codex", "claude", "grok"].includes(options.name))
     return cliDriver(options);
   if (options.name === "pi") return piDriver(options);
   if (options.name === "opencode") return openCodeDriver(options);

@@ -1,6 +1,6 @@
 # Native harnesses
 
-Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode, Gemini CLI and Muse Code on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
+Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode, Gemini CLI, Muse Code and Grok Build on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
 
 ```sh
 loop
@@ -8,7 +8,7 @@ loop start --project /absolute/path/to/project
 loop start --providers codex,claude
 ```
 
-The default selection is `installed` (all six supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
+The default selection is `installed` (all seven supported harnesses). Saved provider selections are reused. `openai` selects Codex, `anthropic` selects Claude, and `both` selects Codex and Claude. `loop doctor --json` checks installation without making a model request. Missing harnesses are not installed automatically. In Settings → Provider connections, check installed runtimes, sign in or enable a newly installed harness without stopping the workspace.
 
 ## Agent worktrees
 
@@ -32,6 +32,7 @@ Harnesses own their context, tools, configuration and credential homes. Loop inv
 | OpenCode | Existing native configuration; provider charges may apply | Next-turn queue |
 | Gemini CLI | Existing native sign-in and billing configuration | Next-turn queue |
 | Muse Code | Existing native sign-in and billing configuration | Live steering |
+| Grok Build | Existing native sign-in and billing configuration | Next-turn queue |
 | Custom ACP | Explicit desktop registration | Next-turn queue |
 
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
@@ -57,6 +58,7 @@ loop pi
 loop opencode
 loop gemini
 loop muse
+loop grok
 loop acp --executable /absolute/path/to/agent --acp-arg serve
 ```
 
@@ -81,6 +83,16 @@ Loop speaks Muse's native MSP protocol over `muse serve`. Sign-in uses MSP's acc
 Account and model checks read MSP `account/read` and `model/list` without creating a session or sending a prompt. Muse keeps its sessions and context; Loop resumes them by session id without copying their history. MSP has no system-instruction field, so the first prompt of a session carries the saved agent instructions; Muse keeps them in that session's context, and a resumed session that already has turns is not sent them again. Earlier user tasks are not replayed. Loop's workspace tools are added to each session as an optional MCP server, so an outage of those tools does not fail the turn. Approval requests offer only this-call choices (**allow** or **deny**); session-wide or saved grants stay in Muse's own interface. Follow-up messages steer the running turn.
 
 Muse Code defaults to `--billing existing`. MSP reports which credential is in effect but not the plan behind it, so `--billing subscription` is rejected. Model and reasoning-effort choices come from Muse's model catalog. Muse is discovered on PATH; the supplied Docker images do not install it.
+
+## Grok Build
+
+[Grok Build](https://x.ai/cli) is xAI's coding agent, run as `grok`. Install it with xAI's installer (`curl -fsSL https://x.ai/cli/install.sh | bash`), **1.0.70 or newer**. Then choose **Sign in to Grok Build** in **Settings → Provider connections → Harnesses**, or run `grok login` on the execution computer. After sign-in, enable Grok Build there or run `loop grok` in your project. `loop start --providers grok` limits automatic discovery to Grok Build. Loop does not install the CLI. Grok updates itself when you run it, so Loop does not offer upgrades for it; run `grok update` to check now.
+
+**Sign in with Grok** runs `grok login --device-auth` and shows xAI's device-code page (`accounts.x.ai`) and code. Grok keeps the credential in its own store (`~/.grok/auth.json`); Loop never sees it. Grok falls back to `XAI_API_KEY` in the workspace environment when it has no stored sign-in.
+
+Loop uses Grok's ACP mode, `grok agent --no-leader stdio`, for native tools, approvals, model selection and conversation resume. `--no-leader` keeps each session in a process Loop owns even if Grok is configured to share a leader process. Loop sets `GROK_DISABLE_AUTOUPDATER=1` for the processes it starts, including the version check, so discovery or a turn never replaces the binary mid-session. Account and model checks create a native session without submitting a model prompt; Grok lists that empty session in its own history. Loop never calls ACP `authenticate`. ACP has no system-instruction field, so prompts carry the saved agent instructions, including any earlier turns carried over from another harness, until a turn in that native session completes; Grok then keeps them in the session's context. A resumed session whose `session/load` replays earlier turns is not sent them again. After a failed or cancelled first turn they are sent again rather than risk losing them. Earlier user tasks are never re-sent as new prompts. Follow-up messages during a turn queue for the next turn. Grok's own permission mode and rules apply first; tool calls it still asks about appear as approvals in Loop.
+
+Grok Build defaults to `--billing existing`: the signed-in Grok account or `XAI_API_KEY` determines usage charges. ACP does not attest the plan behind the credential, so `--billing subscription` is rejected. Model choices come from Grok's session catalog. Grok is discovered on PATH; the supplied Docker images do not install it.
 
 ## Cross-harness teams and handoffs
 

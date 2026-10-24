@@ -44,6 +44,7 @@ import { NativeSetupError } from "../adapters/setup-error.js";
 import { OpenCode } from "../adapters/opencode.js";
 import { Gemini } from "../adapters/gemini.js";
 import { Muse } from "../adapters/muse.js";
+import { Grok } from "../adapters/grok.js";
 import { Acp } from "../adapters/acp.js";
 import {
   NotDelivered,
@@ -108,6 +109,7 @@ const classes = {
   acp: Acp,
   gemini: Gemini,
   muse: Muse,
+  grok: Grok,
 };
 const labels = {
   codex: "Codex",
@@ -117,6 +119,7 @@ const labels = {
   acp: "ACP agent",
   gemini: "Gemini CLI",
   muse: "Muse Code",
+  grok: "Grok Build",
 };
 
 // Native tools can return far more text than the phone needs to display. Keep
@@ -1339,14 +1342,12 @@ export class NativeSessions {
           });
         // Keep actionable setup guidance at the worker's safe error boundary.
         // Raw process/SDK errors may contain local paths or provider details.
-        if (["acp", "gemini", "muse"].includes(harness) && !(error instanceof Problem))
+        if (["acp", "gemini", "muse", "grok"].includes(harness) && !(error instanceof Problem))
           throw new Problem(
             503,
-            harness === "gemini"
-              ? "Gemini CLI setup failed. Sign in to Gemini CLI in Provider connections, then refresh the connection and retry."
-              : harness === "muse"
-                ? "Muse Code setup failed. Sign in to Muse Code in Provider connections, then refresh the connection and retry."
-                : "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run.",
+            harness === "acp"
+              ? "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run."
+              : `${labels[harness]} setup failed. Sign in to ${labels[harness]} in Provider connections, then refresh the connection and retry.`,
           );
         throw error;
       }
@@ -1632,7 +1633,7 @@ export class NativeSessions {
       .get(live.binding.conversation_id) as
       { generation: string | null } | undefined;
     if (current?.generation !== live.generation) return;
-    const transport = ["acp", "gemini"].includes(live.binding.harness)
+    const transport = ["acp", "gemini", "grok"].includes(live.binding.harness)
       ? "acp"
       : "native";
     if (event.type === "activity_capabilities") {

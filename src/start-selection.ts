@@ -1,7 +1,7 @@
 import type { Harness } from "./protocol.js";
 export function selectedHarnesses(value = "installed"): Harness[] {
   const aliases: Record<string, string> = {
-    installed: "codex,claude,pi,opencode,gemini,muse",
+    installed: "codex,claude,pi,opencode,gemini,muse,grok",
     both: "codex,claude",
     openai: "codex",
     anthropic: "claude",
@@ -12,11 +12,11 @@ export function selectedHarnesses(value = "installed"): Harness[] {
   if (
     !names.length ||
     names.some(
-      (n) => !["codex", "claude", "pi", "opencode", "gemini", "muse"].includes(n),
+      (n) => !["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"].includes(n),
     )
   )
     throw new Error(
-      "Choose installed, codex, claude, pi, opencode, gemini or muse. Register custom ACP agents with loop acp --executable PATH.",
+      "Choose installed, codex, claude, pi, opencode, gemini, muse or grok. Register custom ACP agents with loop acp --executable PATH.",
     );
   return names as Harness[];
 }

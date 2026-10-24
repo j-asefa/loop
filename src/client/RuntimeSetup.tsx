@@ -36,9 +36,11 @@ const labels: Record<string, string> = {
   opencode: "OpenCode",
   gemini: "Gemini CLI",
   muse: "Muse Code",
+  grok: "Grok Build",
 };
 // These harnesses cannot attest subscription billing, so setup has no picker.
-const existingOnly = (name: string) => name === "gemini" || name === "muse";
+const existingOnly = (name: string) =>
+  name === "gemini" || name === "muse" || name === "grok";
 function authBase(runtime: Runtime) {
   return `/workspace/runtimes/${runtime.name}/auth`;
 }

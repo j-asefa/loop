@@ -121,6 +121,7 @@ const HARNESSES: Record<string, string> = {
   opencode: "OpenCode",
   gemini: "Gemini CLI",
   muse: "Muse Code",
+  grok: "Grok Build",
   acp: "ACP agent",
 };
 // What an agent runs on and where, so teammates know whose files they share.
