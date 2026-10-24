@@ -9,7 +9,7 @@ import { ConnectionDetails } from "./ConnectionDetails";
 import type { Connection } from "../shared/types";
 import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { HarnessUpgrade } from "./HarnessUpgrade";
-import { RuntimeSignIn } from "./RuntimeSignIn";
+import { connectsModelProvider, RuntimeSignIn } from "./RuntimeSignIn";
 import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
 type Runtime = {
@@ -406,7 +406,9 @@ export function RuntimeSetup({
                     ? `${label} setup details`
                     : signedIn || runtime.enabled
                       ? `Manage ${label} account`
-                      : `Sign in to ${label}`
+                      : connectsModelProvider(runtime.name)
+                        ? `Connect a model provider for ${label}`
+                        : `Sign in to ${label}`
                 }
               >
                 {!runtime.available || !discovery.online
@@ -415,7 +417,9 @@ export function RuntimeSetup({
                     ? runtime.enabled
                       ? "Manage account"
                       : "Finish connecting"
-                    : `Sign in to ${label}`}{" "}
+                    : connectsModelProvider(runtime.name)
+                      ? "Connect a provider"
+                      : `Sign in to ${label}`}{" "}
                 <span aria-hidden="true">→</span>
               </button>
               {!runtime.available && (

@@ -25,6 +25,11 @@ type RuntimeSignInProps = {
   onClose(): void;
 };
 
+// Pi and OpenCode have no account of their own; sign-in connects the model
+// provider they call, so the copy names the provider rather than the harness.
+export const connectsModelProvider = (name: string) =>
+  name === "pi" || name === "opencode";
+
 function forStartCommand(view: NativeAuthView, commandId?: string): NativeAuthView {
   const attempt = view.attempt;
   // An older completed attempt is evidence of the old account, not success
@@ -243,9 +248,17 @@ function RuntimeSignInSession({
                   ? "Saved account"
                   : enabled
                     ? "Ready in Loop"
-                    : `Signed in to ${label}`}
+                    : connectsModelProvider(name)
+                      ? `Provider connected to ${label}`
+                      : `Signed in to ${label}`}
               </h3>
-              {enabled && <p>Signed in to {label}</p>}
+              {enabled && (
+                <p>
+                  {connectsModelProvider(name)
+                    ? `Provider connected to ${label}`
+                    : `Signed in to ${label}`}
+                </p>
+              )}
             </div>
           </div>
           <p>
@@ -261,6 +274,15 @@ function RuntimeSignInSession({
           </ol>
           {connectionSetup}
           {enableAction}
+        </>
+      ) : connectsModelProvider(name) ? (
+        <>
+          <h3>Connect a model provider for {label}</h3>
+          <p>
+            {label} runs on {location} and needs a model provider. Choose
+            one, then sign in or enter its API key. {label} saves the
+            credential in {location}.
+          </p>
         </>
       ) : (
         <>
