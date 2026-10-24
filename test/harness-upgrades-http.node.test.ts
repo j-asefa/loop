@@ -8,11 +8,14 @@ import {
   rmSync,
   realpathSync,
   readFileSync,
+  existsSync,
+  unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
+import { until } from "./helpers.js";
 
 test("paired runtime upgrade HTTP boundary fixes the executable, persists status and deduplicates reconnects", async (t) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-upgrade-http-")));
@@ -22,10 +25,11 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   mkdirSync(bin);
   const calls = join(dir, "calls");
   const version = join(dir, "version");
+  const gate = join(dir, "probe-gate"), entered = join(dir, "probe-entered");
   writeFileSync(version, "1.18.33");
   writeFileSync(
     join(bin, "opencode"),
-    `#!/usr/bin/env node\nconst fs=require('node:fs');\nif(process.argv[2]==='--version') console.log(fs.readFileSync(${JSON.stringify(version)}, 'utf8'));\nelse if(process.argv[2]==='upgrade') { fs.appendFileSync(${JSON.stringify(calls)}, 'upgrade\\n'); fs.writeFileSync(${JSON.stringify(version)}, '1.18.40'); }\nelse process.exit(91);\n`,
+    `#!/usr/bin/env node\nconst fs=require('node:fs');\nif(process.argv[2]==='--version') { if(fs.existsSync(${JSON.stringify(gate)})) { fs.writeFileSync(${JSON.stringify(entered)},'entered'); const timer=setInterval(()=>{if(!fs.existsSync(${JSON.stringify(gate)})){clearInterval(timer);console.log(fs.readFileSync(${JSON.stringify(version)},'utf8'));}},10); } else console.log(fs.readFileSync(${JSON.stringify(version)}, 'utf8')); }\nelse if(process.argv[2]==='upgrade') { fs.appendFileSync(${JSON.stringify(calls)}, 'upgrade\\n'); fs.writeFileSync(${JSON.stringify(version)}, '1.18.40'); }\nelse process.exit(91);\n`,
     { mode: 0o755 },
   );
   // Any package-manager call would be recorded here and fail; npm cannot
@@ -106,7 +110,22 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   assert.match((await refused.json()).error, /active runs/);
   assert.equal(harnessUpgrades.busy("opencode"), false, "a refused request releases its hold");
   db.prepare("UPDATE runs SET state='completed' WHERE id='busy'").run();
-  assert.equal((await post({ commandId })).status, 200);
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-opencode','local-workspace','opencode','Fixture','','connected','[]',?,1)")
+    .run(JSON.stringify({ loopHarness: "opencode", runtimeKind: "loop-local", authMode: "native-existing" }));
+  db.prepare("INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES('upgrade-waiter','local-workspace','busy','queued native turn','queued','upgrade-waiter',?,2,2)")
+    .run(JSON.stringify({ connectionId: "native-opencode" }));
+  writeFileSync(gate, "hold discovery after reservation");
+  const upgrading = post({ commandId });
+  try {
+    await until(() => existsSync(entered));
+    const { tick } = await import("../src/server/worker.js");
+    let dispatched = false;
+    assert.equal(await tick(async () => { dispatched = true; }), false, "an upgrade reserved through HTTP prevents the authority's worker claim");
+    assert.equal(dispatched, false);
+    assert.equal((db.prepare("SELECT state FROM runs WHERE id='upgrade-waiter'").get() as { state: string }).state, "queued");
+  } finally { unlinkSync(gate); }
+  assert.equal((await upgrading).status, 200);
+  db.prepare("UPDATE runs SET state='cancelled' WHERE id='upgrade-waiter'").run();
   assert.equal((await post({ commandId })).status, 200);
   let state;
   const deadline = Date.now() + 5000;
@@ -126,4 +145,26 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   assert.equal((await fetch(base).then((r) => r.json())).upgrade, null);
   assert.equal((await post({ commandId }).then((r) => r.json())).upgrade.state, "complete");
   assert.equal(readFileSync(calls, "utf8"), "upgrade\n");
+
+  // Discovery yields before a sign-in starts. An upgrade that reserves during
+  // that probe must still prevent the authority from opening a login driver.
+  const { nativeSessions } = await import("../src/server/native-sessions.js");
+  const project = nativeSessions.addProject(dir) as { id: string };
+  unlinkSync(entered);
+  writeFileSync(gate, "hold sign-in discovery");
+  const signInCommand = randomUUID();
+  const signingIn = post({ projectId: project.id, provider: "openai", method: "0", commandId: signInCommand }, base.replace("/upgrade", "/auth/start"));
+  let releaseSignInHold: (() => void) | undefined;
+  try {
+    await until(() => existsSync(entered));
+    releaseSignInHold = harnessUpgrades.reserve("opencode");
+    unlinkSync(gate);
+    const response = await signingIn;
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /Wait for the runtime upgrade/);
+    assert.equal(db.prepare("SELECT command_id FROM execution_commands WHERE command_id=?").get(signInCommand), undefined);
+  } finally {
+    if (existsSync(gate)) unlinkSync(gate);
+    releaseSignInHold?.();
+  }
 });

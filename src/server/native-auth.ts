@@ -8,6 +8,7 @@ import type {
 } from "../shared/native-auth.js";
 import { createAuthDriver } from "../native-auth/drivers.js";
 import { Problem } from "../shared/problem.js";
+import { ExecutionRefused } from "./execution-refusal.js";
 
 export type AuthOptions = {
   name: string;
@@ -103,7 +104,8 @@ export class NativeSignIns {
     options: AuthOptions,
     restart = false,
   ): Promise<Session> {
-    if (this.closing) throw new Problem(503, "The workspace is stopping.");
+    if (this.closing)
+      throw new ExecutionRefused(503, "The workspace is stopping.");
     const pending = this.opening.get(options.name);
     if (pending) {
       await pending;
@@ -120,7 +122,7 @@ export class NativeSignIns {
       )
         return prior;
       if (active(prior.attempt))
-        throw new Problem(
+        throw new ExecutionRefused(
           409,
           "Finish or cancel this sign-in before changing its runtime or project.",
         );
@@ -147,7 +149,7 @@ export class NativeSignIns {
         return session;
       } catch {
         await driver?.dispose().catch(() => {});
-        throw new Problem(
+        throw new ExecutionRefused(
           422,
           "Could not load provider sign-in. Check the installed harness and try again.",
         );
@@ -178,6 +180,34 @@ export class NativeSignIns {
     const session = this.sessions.get(name);
     return session ? this.view(session) : { providers: [] };
   }
+  reconcileAttempt(name: string, attemptId: string): NativeAuthView {
+    const session = this.sessions.get(name);
+    if (!session || session.attempt?.id !== attemptId)
+      throw new ExecutionRefused(
+        409,
+        "This sign-in request has already been used. Check the current status before starting again.",
+      );
+    return this.view(session);
+  }
+  reconcileStart(
+    name: string,
+    provider: string,
+    method: string,
+    commandId: string,
+  ) {
+    const old = this.commands.get(commandId);
+    if (
+      !old ||
+      old.name !== name ||
+      old.provider !== provider ||
+      old.method !== method
+    )
+      throw new ExecutionRefused(
+        409,
+        "This sign-in request cannot be reconciled. Check the current status before starting again.",
+      );
+    return this.reconcileAttempt(name, old.attemptId);
+  }
   inProgress(name: string) {
     return active(this.sessions.get(name)?.attempt);
   }
@@ -204,22 +234,10 @@ export class NativeSignIns {
     commandId: string,
   ): Promise<NativeAuthView> {
     let session = await this.session(options);
-    const old = this.commands.get(commandId);
-    if (old) {
-      if (
-        old.name !== options.name ||
-        old.provider !== provider ||
-        old.method !== method ||
-        old.attemptId !== session.attempt?.id
-      )
-        throw new Problem(
-          409,
-          "This sign-in request has already been used. Check the current status before starting again.",
-        );
-      return this.view(session);
-    }
+    if (this.commands.has(commandId))
+      return this.reconcileStart(options.name, provider, method, commandId);
     if (active(session.attempt))
-      throw new Problem(
+      throw new ExecutionRefused(
         409,
         "A sign-in is already in progress. Continue or cancel it first.",
       );
@@ -233,17 +251,18 @@ export class NativeSignIns {
       .find((p) => p.id === provider)
       ?.methods.find((m) => m.id === method);
     if (!choice)
-      throw new Problem(
+      throw new ExecutionRefused(
         422,
         "Choose a sign-in method offered by this harness.",
       );
     if (this.commands.size >= 4096)
-      throw new Problem(
+      throw new ExecutionRefused(
         429,
         "Too many sign-in attempts. Restart the workspace before trying again.",
       );
     const attempt: SignIn = {
       id: randomUUID(),
+      commandId,
       provider,
       method,
       state: "starting",

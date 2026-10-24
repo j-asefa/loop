@@ -7,3 +7,13 @@ export class Problem extends Error {
     super(message);
   }
 }
+
+export class ExecutionProblem extends Problem {
+  constructor(
+    status: number,
+    message: string,
+    public outcome: "refused" | "unknown" | "completed",
+  ) {
+    super(status, message);
+  }
+}

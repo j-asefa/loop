@@ -12,6 +12,7 @@ export type AuthPrompt = {
 };
 export type SignIn = {
   id: string;
+  commandId?: string;
   provider: string;
   method: string;
   state:

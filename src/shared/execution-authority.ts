@@ -1,0 +1,429 @@
+import { z } from "zod";
+import { Harness } from "../protocol.js";
+import { ACTIVITY_FEATURES, type Setting } from "../agent-activities.js";
+
+// Private execution transport. Browser authorization remains at the HTTP host;
+// the authority independently resolves every object against the supplied owner.
+// The public HTTP parser accepts 12 MiB. Reserve additional room for the
+// private envelope so every accepted API body can cross this boundary.
+export const EXECUTION_REQUEST_BYTES = 12 * 1024 * 1024 + 64 * 1024;
+// Native frames may contain 8 MiB of commands or models. Catalogs combine
+// those frames with derived inventory, so allow expansion without truncation.
+export const EXECUTION_RESPONSE_BYTES = 64 * 1024 * 1024;
+const Id = z.string().min(1).max(200);
+const Path = z.string().min(1).max(4096);
+const Empty = z.strictObject({});
+const JsonObject = z.record(z.string(), z.json());
+const Billing = z.strictObject({
+  mode: z.enum(["subscription", "existing"]),
+  description: z.string(),
+  provider: z.string().optional(),
+  // Codex config/read reports an unset default model as null.
+  model: z.string().nullish(),
+});
+const Model = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    resolvedModel: z.string().optional(),
+    effortLevels: z
+      .array(
+        z.strictObject({
+          value: z.string(),
+          description: z.string().optional(),
+        }),
+      )
+      .optional(),
+    defaultEffort: z.string().optional(),
+  })
+  .catchall(z.json());
+const NativeCommand = z.strictObject({
+  name: z.string(),
+  token: z.string(),
+  kind: z.string(),
+  description: z.string(),
+  argumentHint: z.string().optional(),
+  disabledReason: z.string().optional(),
+  sourceInfo: z
+    .object({
+      source: z.string().optional(),
+      scope: z.string().optional(),
+      origin: z.string().optional(),
+      baseDir: z.string().optional(),
+      path: z.string().optional(),
+    })
+    .catchall(z.json())
+    .optional(),
+});
+const SettingValue = z.union([z.string(), z.boolean(), z.number()]);
+// Controls expose the full adapter state, not a size-limited activity update.
+// The response envelope bounds total bytes without cutting model choices.
+const ControlSetting = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  description: z.string().nullable().optional(),
+  type: z.enum(["select", "boolean", "text"]).optional(),
+  choices: z
+    .array(
+      z.object({
+        value: z.string(),
+        label: z.string(),
+        description: z.string().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  confirmed: SettingValue.nullable().optional(),
+  requested: SettingValue.nullable().optional(),
+  rejected: z.string().nullable().optional(),
+  application: z.enum(["live", "next-turn", "new-session"]).optional(),
+  mutable: z.boolean().optional(),
+  reason: z.string().nullable().optional(),
+  provenance: z.string().optional(),
+}) satisfies z.ZodType<Setting>;
+const Capabilities = z.record(
+  z.enum(ACTIVITY_FEATURES),
+  z.strictObject({
+    state: z.enum(["supported", "unsupported", "undiscovered"]),
+    source: z.string(),
+    reason: z.string().optional(),
+  }),
+);
+const Controls = z.strictObject({
+  generation: z.string().nullable(),
+  state: z.string().optional(),
+  settings: z.strictObject({
+    options: z.array(ControlSetting),
+    revision: z.number().int().nonnegative(),
+  }),
+  commands: z.strictObject({
+    commands: z.array(JsonObject),
+    revision: z.number().int().nonnegative(),
+  }),
+  capabilities: Capabilities,
+});
+const Catalog = z.strictObject({
+  available: z.boolean(),
+  runtime: z.string().optional(),
+  commands: z.array(NativeCommand),
+  inventory: z.json().optional(),
+  revision: z.number().int().nonnegative().optional(),
+  capabilities: Capabilities.optional(),
+  message: z.string().optional(),
+});
+export const RuntimeHarness = z.enum([
+  "codex",
+  "claude",
+  "pi",
+  "opencode",
+  "gemini",
+]);
+export const AuthHarness = z.enum(["codex", "claude", "pi", "opencode"]);
+export const RegistrationOptions = z.strictObject({
+  harness: Harness,
+  executable: Path,
+  project: Path,
+  version: z.string().max(100),
+  billing: z.enum(["subscription", "existing"]),
+  args: z.array(z.string().max(4096)).max(32).optional(),
+});
+const Enabled = z.strictObject({
+  name: Harness,
+  billing: Billing,
+  models: z.array(Model),
+  capabilities: JsonObject,
+});
+const SignIn = z.strictObject({
+  providers: z.array(
+    z.strictObject({
+      id: Id,
+      name: z.string(),
+      configured: z.boolean().optional(),
+      methods: z.array(
+        z.strictObject({
+          id: Id,
+          label: z.string(),
+          type: z.enum(["oauth", "api"]),
+        }),
+      ),
+    }),
+  ),
+  attempt: z
+    .strictObject({
+      id: Id,
+      commandId: Id.optional(),
+      provider: Id,
+      method: Id,
+      state: z.enum([
+        "starting",
+        "waiting",
+        "complete",
+        "failed",
+        "cancelled",
+        "expired",
+      ]),
+      expiresAt: z.number(),
+      url: z.string().optional(),
+      code: z.string().optional(),
+      instructions: z.string().optional(),
+      prompt: z
+        .strictObject({
+          id: Id,
+          type: z.enum(["text", "secret", "select", "manual_code"]),
+          message: z.string(),
+          options: z
+            .array(z.strictObject({ id: Id, label: z.string() }))
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+const Upgrade = z.strictObject({
+  commandId: Id,
+  name: RuntimeHarness,
+  state: z.enum([
+    "running",
+    "complete",
+    "failed",
+    "unconfirmed",
+    "restart-required",
+  ]),
+  message: z.string(),
+  version: z.string().optional(),
+  previous: z.string().optional(),
+  target: z.string().optional(),
+});
+const UpgradeView = z.strictObject({
+  upgrade: Upgrade.nullable(),
+  canUpgrade: z.boolean().optional(),
+  upgradeHelp: z.string().optional(),
+});
+const Filters = z.strictObject({
+  extensions: z.array(z.string().max(300)).max(100).optional(),
+  skills: z.array(z.string().max(300)).max(100).optional(),
+  prompts: z.array(z.string().max(300)).max(100).optional(),
+  themes: z.array(z.string().max(300)).max(100).optional(),
+});
+const PiMutation = z.strictObject({
+  status: z.literal("configured"),
+  application: z.literal("new-session"),
+});
+const Agent = { agentId: Id };
+const Package = {
+  ...Agent,
+  source: z.string().min(1).max(512),
+  scope: z.enum(["user", "project"]),
+};
+const Hash = z.string().regex(/^[a-f0-9]{64}$/);
+const method = <I extends z.ZodType, O extends z.ZodType>(
+  input: I,
+  output: O,
+  effect: "none" | "receipt" | "existing" | "session" = "none",
+) => ({ input, output, effect });
+
+/** Schemas for both sides of every operation, shared by in-process and IPC. */
+export const executionOperations = {
+  "runtime.status": method(
+    Empty,
+    z.strictObject({ nativeProcesses: z.number().int().nonnegative() }),
+  ),
+  "runtime.list": method(
+    z.strictObject({ fresh: z.boolean() }),
+    z.strictObject({
+      computer: z.string(),
+      online: z.literal(true),
+      runtimes: z.array(
+        z.strictObject({
+          name: RuntimeHarness,
+          backend: z.literal("direct"),
+          installed: z.boolean(),
+          available: z.boolean(),
+          version: z.string().optional(),
+          help: z.string(),
+          enabled: z.boolean(),
+          authentication: z.enum(["previously_verified", "unknown"]),
+          billing: z.string().optional(),
+          project: z.string().optional(),
+        }),
+      ),
+    }),
+  ),
+  "runtime.register": method(
+    z.strictObject({ options: RegistrationOptions }),
+    Enabled,
+    "receipt",
+  ),
+  "runtime.enable": method(
+    z.strictObject({
+      name: RuntimeHarness,
+      projectId: Id,
+      billing: z.enum(["subscription", "existing"]),
+    }),
+    Enabled,
+    "receipt",
+  ),
+  "runtime.refresh": method(z.strictObject({ connectionId: Id }), Enabled),
+  "auth.catalog": method(
+    z.strictObject({ name: AuthHarness, projectId: Id }),
+    SignIn,
+  ),
+  "auth.status": method(z.strictObject({ name: AuthHarness }), SignIn),
+  "auth.start": method(
+    z.strictObject({
+      name: AuthHarness,
+      projectId: Id,
+      provider: Id,
+      method: z.string().min(1).max(100),
+    }),
+    SignIn,
+    "session",
+  ),
+  "auth.input": method(
+    z.strictObject({
+      name: AuthHarness,
+      attemptId: z.uuid(),
+      promptId: z.uuid(),
+      value: z
+        .string()
+        .min(1)
+        .max(16000)
+        .regex(/^[^\r\n]+$/),
+    }),
+    SignIn,
+    "session",
+  ),
+  "auth.cancel": method(
+    z.strictObject({ name: AuthHarness, attemptId: z.uuid() }),
+    SignIn,
+    "session",
+  ),
+  "upgrade.status": method(
+    z.strictObject({ name: RuntimeHarness }),
+    UpgradeView,
+  ),
+  "upgrade.start": method(
+    z.strictObject({ name: RuntimeHarness }),
+    UpgradeView,
+    "existing",
+  ),
+  "upgrade.dismiss": method(
+    z.strictObject({ name: RuntimeHarness }),
+    UpgradeView,
+    "existing",
+  ),
+  "upgrade.recover": method(
+    z.strictObject({ name: RuntimeHarness, confirmedStopped: z.literal(true) }),
+    UpgradeView,
+    "existing",
+  ),
+  "native.answer": method(
+    z.strictObject({ decisionId: Id, answer: JsonObject }),
+    z.strictObject({ state: z.string() }),
+    "existing",
+  ),
+  "native.controls": method(
+    z.strictObject({ conversationId: z.uuid() }),
+    Controls,
+  ),
+  "native.setting": method(
+    z.strictObject({
+      conversationId: z.uuid(),
+      setting: Id,
+      value: z.union([z.string().max(1000), z.boolean(), z.number()]),
+      revision: z.number().int().nonnegative(),
+      generation: Id,
+    }),
+    Controls,
+    "receipt",
+  ),
+  "native.catalog": method(
+    z.strictObject({ ...Agent, conversationId: z.uuid().optional() }),
+    Catalog,
+  ),
+  "pi.trust": method(
+    z.strictObject({ ...Agent, trusted: z.boolean(), fingerprint: Hash }),
+    Empty,
+    "receipt",
+  ),
+  "pi.filters": method(
+    z.strictObject({ ...Package, filters: Filters, settingsHash: Hash }),
+    PiMutation,
+    "receipt",
+  ),
+  "pi.preview": method(
+    z.strictObject({
+      ...Agent,
+      name: z.string().min(1).max(100),
+      args: z.string().max(2000),
+      conversationId: z.uuid().optional(),
+    }),
+    z.strictObject({ token: z.string(), expanded: z.string() }),
+  ),
+  "pi.inspect": method(
+    z.strictObject({ ...Agent, source: z.string().min(1).max(512) }),
+    z.strictObject({
+      source: z.string(),
+      inspected: z.boolean(),
+      resolved: z.string().optional(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      resources: z.record(z.string(), z.array(z.string())),
+      note: z.string().optional(),
+    }),
+  ),
+  "pi.rollback": method(z.strictObject(Package), PiMutation, "receipt"),
+  "pi.action": method(
+    z.strictObject({
+      ...Package,
+      action: z.enum(["install", "remove", "update"]),
+    }),
+    PiMutation,
+    "receipt",
+  ),
+} as const;
+export type ExecutionMethod = keyof typeof executionOperations;
+export type ExecutionInput<M extends ExecutionMethod> = z.input<
+  (typeof executionOperations)[M]["input"]
+>;
+export type ExecutionOutput<M extends ExecutionMethod> = z.output<
+  (typeof executionOperations)[M]["output"]
+>;
+export const ExecutionRequest = z.strictObject({
+  v: z.literal(1),
+  requestId: z.uuid(),
+  generation: z.uuid(),
+  owner: Id,
+  method: z.enum(
+    Object.keys(executionOperations) as [ExecutionMethod, ...ExecutionMethod[]],
+  ),
+  commandId: Id.optional(),
+  input: z.json(),
+});
+export type ExecutionRequest = z.infer<typeof ExecutionRequest>;
+export const ExecutionReady = z.strictObject({
+  v: z.literal(1),
+  generation: z.uuid(),
+  state: z.enum(["starting", "ready", "stopping", "disconnected"]),
+});
+export const ExecutionResponse = z.discriminatedUnion("ok", [
+  z.strictObject({
+    v: z.literal(1),
+    requestId: z.uuid(),
+    generation: z.uuid(),
+    ok: z.literal(true),
+    result: z.json(),
+  }),
+  z.strictObject({
+    v: z.literal(1),
+    requestId: z.uuid(),
+    generation: z.uuid(),
+    ok: z.literal(false),
+    error: z.strictObject({
+      status: z.number().int().min(400).max(599),
+      message: z.string().max(4000),
+      outcome: z.enum(["refused", "unknown", "completed"]),
+    }),
+  }),
+]);
+export type ExecutionResponse = z.infer<typeof ExecutionResponse>;

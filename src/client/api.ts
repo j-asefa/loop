@@ -165,6 +165,8 @@ export async function apiInWorkspace<T = any>(
       new Error(data?.error || data?.message || "Request failed"),
       {
         status: parsed || r.status === 429 ? r.status : undefined,
+        ...(["refused", "unknown", "completed"].includes(data?.executionOutcome)
+          ? { executionOutcome: data.executionOutcome } : {}),
         ...(deadline !== undefined ? { retryAt: deadline, retryAfterMs: Math.max(0, deadline - Date.now()) } : {}),
       },
     );

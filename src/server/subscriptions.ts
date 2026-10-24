@@ -13,7 +13,7 @@ import {
   uploadedFile,
 } from "./uploads.js";
 import { UPLOAD_CHUNK_BYTES, safeUploadName } from "../../runtime/uploads.ts";
-import { nativeSessions } from "./native-sessions.js";
+import { executionRequest } from "./execution-client.js";
 import { companionMode } from "./profile.js";
 import { createHash, randomBytes } from "node:crypto";
 import { HarnessError } from "../../runtime/harness.ts";
@@ -116,7 +116,7 @@ export async function runtimeAction(
       throw new Problem(409, "Native harnesses require the companion profile.");
     if (action === "logout" || action === "cancel") return { ok: true };
     if (action === "status")
-      return nativeSessions.enable(nativeSessions.registration(harness));
+      return executionRequest("runtime.refresh", { connectionId: c.id }, { owner: c.owner_id });
     throw new Problem(
       409,
       "Sign in with the native harness on this computer, then run loop " +

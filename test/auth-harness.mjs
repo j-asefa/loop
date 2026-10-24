@@ -62,6 +62,7 @@ if (process.argv.includes("--version")) {
   process.argv.some((a) => a.endsWith("/pi-auth-extension.mjs"))
 ) {
   const channel = new Socket({ fd: 3, readable: true, writable: true });
+  if (existsSync(path + "/refuse-auth-providers")) process.exit(1);
   const send = (message) => channel.write(JSON.stringify(message) + "\n");
   let method;
   let provider;

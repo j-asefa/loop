@@ -1,0 +1,316 @@
+import { ExecutionRefused } from "./execution-refusal.js";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { NativeToolBridge } from "./native-tool-bridge.js";
+import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSignIns } from "./native-auth.js";
+import { harnessUpgrades } from "./harness-upgrades.js";
+import { db } from "./db.js";
+import { owned, Problem } from "./domain.js";
+import { ExecutionProblem } from "../shared/problem.js";
+import { startWorker } from "./worker.js";
+import { nextTurnConnection, nextTurnFolder } from "./agent-runtime.js";
+import type { Agent, Connection } from "../shared/types.js";
+import { boundedExecutionJson } from "./execution-wire.js";
+import { executionCommand } from "./execution-commands.js";
+import {
+  authOptions,
+  runtimeList,
+  runtimeEnable,
+  upgradeStatus,
+  upgradeStart,
+  upgradeDismiss,
+  upgradeRecover,
+} from "./execution-runtime-actions.js";
+import {
+  ExecutionRequest,
+  ExecutionResponse,
+  executionOperations,
+  EXECUTION_REQUEST_BYTES,
+  EXECUTION_RESPONSE_BYTES,
+  type ExecutionInput,
+  type ExecutionMethod,
+} from "../shared/execution-authority.js";
+
+type Context = { commandId: string };
+type Handlers = {
+  [M in ExecutionMethod]: (
+    input: ExecutionInput<M>,
+    context: Context,
+  ) => unknown | Promise<unknown>;
+};
+const agent = (id: string) => owned<Agent>("agents", id, OWNER);
+const handlers: Handlers = {
+  "runtime.status": () => ({ nativeProcesses: nativeSessions.count }),
+  "runtime.list": runtimeList,
+  "runtime.register": ({ options }) => nativeSessions.enable(options),
+  "runtime.enable": runtimeEnable,
+  "runtime.refresh": ({ connectionId }) => {
+    const connection = owned<Connection>("connections", connectionId, OWNER);
+    const name = JSON.parse(connection.metadata).loopHarness;
+    return nativeSessions.enable(nativeSessions.registration(name));
+  },
+  "auth.catalog": async (input) =>
+    nativeSignIns.catalog(await authOptions(input)),
+  "auth.status": ({ name }) => nativeSignIns.status(name),
+  "auth.start": async (input, { commandId }) => {
+    const checkUpgrade = () => {
+      if (harnessUpgrades.busy(input.name))
+        throw new ExecutionRefused(
+          409,
+          "Wait for the runtime upgrade to finish before signing in.",
+        );
+    };
+    checkUpgrade();
+    const options = await authOptions(input);
+    checkUpgrade();
+    return nativeSignIns.start(
+      options,
+      input.provider,
+      input.method,
+      commandId,
+    );
+  },
+  "auth.input": ({ name, attemptId, promptId, value }) =>
+    nativeSignIns.answer(name, attemptId, promptId, value),
+  "auth.cancel": ({ name, attemptId }) => nativeSignIns.cancel(name, attemptId),
+  "upgrade.status": upgradeStatus,
+  "upgrade.start": (input, { commandId }) => upgradeStart(input, commandId),
+  "upgrade.dismiss": upgradeDismiss,
+  "upgrade.recover": (input, { commandId }) => upgradeRecover(input, commandId),
+  "native.answer": ({ decisionId, answer }, { commandId }) => {
+    const decision = db
+      .prepare("SELECT conversation_id FROM native_decisions WHERE id=?")
+      .get(decisionId) as { conversation_id: string } | undefined;
+    if (!decision) throw new Problem(404, "Native decision not found.");
+    owned("conversations", decision.conversation_id, OWNER);
+    return nativeSessions.answer(decisionId, commandId, answer);
+  },
+  "native.controls": ({ conversationId }) => {
+    owned("conversations", conversationId, OWNER);
+    return nativeSessions.controls(conversationId);
+  },
+  "native.setting": ({
+    conversationId,
+    setting,
+    value,
+    revision,
+    generation,
+  }) => {
+    owned("conversations", conversationId, OWNER);
+    return nativeSessions.setSetting(
+      conversationId,
+      setting,
+      value,
+      revision,
+      generation,
+    );
+  },
+  "native.catalog": ({ agentId, conversationId }) => {
+    const selectedAgent = agent(agentId);
+    const selected = conversationId
+      ? owned<{ id: string; agent_id: string }>(
+          "conversations",
+          conversationId,
+          OWNER,
+        )
+      : undefined;
+    const conversation =
+      selected?.agent_id === agentId ? selected.id : undefined;
+    const { connection } = nextTurnConnection(OWNER, selectedAgent);
+    return nativeSessions.catalog(
+      {
+        ...selectedAgent,
+        connection_id: connection.id,
+        folder_id: nextTurnFolder(OWNER, selectedAgent, conversation),
+      },
+      conversation,
+    );
+  },
+  "pi.trust": ({ agentId, trusted, fingerprint }) =>
+    nativeSessions.piTrustDecision(agent(agentId), trusted, fingerprint),
+  "pi.filters": ({ agentId, source, scope, filters, settingsHash }) =>
+    nativeSessions.piPackageFilters(
+      agent(agentId),
+      source,
+      scope,
+      filters,
+      settingsHash,
+    ),
+  "pi.preview": ({ agentId, name, args, conversationId }) =>
+    nativeSessions.piPromptPreview(agent(agentId), name, args, conversationId),
+  "pi.inspect": ({ agentId, source }) =>
+    nativeSessions.piInspectPackage(agent(agentId), source),
+  "pi.rollback": ({ agentId, source, scope }) =>
+    nativeSessions.piRollbackPackage(agent(agentId), source, scope),
+  "pi.action": ({ agentId, action, source, scope }) =>
+    nativeSessions.piPackageAction(agent(agentId), action, source, scope),
+};
+
+/** The sole owner of live sessions, tool tickets, sign-ins, upgrades and the
+ * scheduler. PR 8a invokes it in-process through the same validated wire data. */
+export class ExecutionAuthority {
+  readonly generation = randomUUID();
+  private state: "starting" | "ready" | "stopping" | "disconnected" = "ready";
+  private tools = new NativeToolBridge();
+  private stopWorker?: () => Promise<void>;
+  private opening?: Promise<void>;
+  private closing?: Promise<void>;
+  status() {
+    return { v: 1 as const, generation: this.generation, state: this.state };
+  }
+  open() {
+    return (this.opening ??= (async () => {
+      if (this.state !== "ready")
+        throw new Problem(503, "Execution authority is unavailable.");
+      this.state = "starting";
+      nativeSignIns.open();
+      await this.tools.start();
+      if (this.state !== "starting")
+        throw new Problem(503, "Execution authority is stopping.");
+      nativeSessions.tools = (conversation, generation) =>
+        this.tools.issue(conversation, generation);
+      nativeSessions.revokeTools = (conversation, generation) =>
+        this.tools.revoke(conversation, generation);
+      this.state = "ready";
+    })());
+  }
+  schedule() {
+    if (this.state !== "ready")
+      throw new Problem(503, "Execution authority is unavailable.");
+    this.stopWorker ??= startWorker();
+  }
+  close() {
+    return (this.closing ??= (async () => {
+      this.state = "stopping";
+      await nativeSignIns.close();
+      await this.opening?.catch(() => {});
+      if (this.stopWorker) await this.stopWorker();
+      else await nativeSessions.close();
+      await this.tools.close();
+      this.state = "disconnected";
+    })());
+  }
+  async request(raw: unknown): Promise<ExecutionResponse> {
+    const request = ExecutionRequest.parse(
+      boundedExecutionJson(raw, EXECUTION_REQUEST_BYTES),
+    );
+    const base = {
+      v: 1 as const,
+      requestId: request.requestId,
+      generation: this.generation,
+    };
+    let entered = false;
+    try {
+      if (this.state !== "ready")
+        throw new Problem(503, "Execution authority is not ready.");
+      if (request.generation !== this.generation)
+        throw new Problem(
+          409,
+          "Execution authority changed; refresh before retrying.",
+        );
+      if (request.owner !== OWNER)
+        throw new Problem(
+          403,
+          "Execution authority belongs to another workspace.",
+        );
+      const operation = executionOperations[request.method];
+      if (operation.effect !== "none" && !request.commandId)
+        throw new Problem(
+          400,
+          "Execution actions require a durable command ID.",
+        );
+      const input = operation.input.parse(request.input);
+      // Refuse cross-owner identities before reserving a command ID. A typo
+      // or an unauthorized probe must not poison a later authorized request.
+      if ("projectId" in input) owned("folders", input.projectId, OWNER);
+      if ("agentId" in input) owned("agents", input.agentId, OWNER);
+      if ("conversationId" in input && input.conversationId)
+        owned("conversations", input.conversationId, OWNER);
+      if ("connectionId" in input)
+        owned("connections", input.connectionId, OWNER);
+      const run = async () => {
+        entered = true;
+        // The mapped handlers are checked against their individual inputs;
+        // this one dynamic dispatch follows the method's runtime schema.
+        const handler = handlers[request.method] as (
+          input: unknown,
+          context: Context,
+        ) => unknown;
+        const result = await handler(input, {
+          commandId: request.commandId || "",
+        });
+        return operation.output.parse(
+          boundedExecutionJson(result, EXECUTION_RESPONSE_BYTES),
+        );
+      };
+      const result =
+        operation.effect === "receipt" || operation.effect === "session"
+          ? await executionCommand(
+              request,
+              run,
+              operation.effect === "session"
+                ? () => {
+                    if (request.method === "auth.start") {
+                      const start = input as ExecutionInput<"auth.start">;
+                      return nativeSignIns.reconcileStart(
+                        start.name,
+                        start.provider,
+                        start.method,
+                        request.commandId!,
+                      );
+                    }
+                    const action = input as ExecutionInput<
+                      "auth.input" | "auth.cancel"
+                    >;
+                    return nativeSignIns.reconcileAttempt(
+                      action.name,
+                      action.attemptId,
+                    );
+                  }
+                : undefined,
+            )
+          : await run();
+      if (this.state !== "ready")
+        throw new Problem(
+          503,
+          "Execution authority disconnected; reconcile the command before retrying.",
+        );
+      return ExecutionResponse.parse(
+        boundedExecutionJson(
+          { ...base, ok: true, result },
+          EXECUTION_RESPONSE_BYTES,
+        ),
+      );
+    } catch (error) {
+      return {
+        ...base,
+        ok: false,
+        error: {
+          status:
+            error instanceof Problem
+              ? error.status
+              : error instanceof z.ZodError && !entered
+                ? 400
+                : 500,
+          message: (error instanceof Problem
+            ? error.message
+            : error instanceof z.ZodError && !entered
+              ? "Invalid execution request."
+              : "Execution request could not be completed. Inspect its current state before retrying."
+          ).slice(0, 4000),
+          outcome:
+            error instanceof ExecutionProblem
+              ? error.outcome
+              : entered && !(error instanceof ExecutionRefused)
+                ? "unknown"
+                : "refused",
+        },
+      };
+    }
+  }
+}
+
+// In 8a there is one in-process authority. The process activation changes the
+// transport, not the objects it owns or the operations its routes may invoke.
+export const executionAuthority = new ExecutionAuthority();

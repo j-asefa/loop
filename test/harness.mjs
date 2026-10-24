@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
-import { writeSync, appendFileSync } from "node:fs";
+import { writeSync, appendFileSync, existsSync } from "node:fs";
 const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
 let threadId = randomUUID();
 let thinkingLevel = "medium";
@@ -40,6 +40,8 @@ if (process.argv.includes("auth")) {
   process.exit();
 }
 if (kind === "claude" && process.argv.includes("--print")) {
+  if (process.env.LOOP_TEST_PROBE_AUDIT) appendFileSync(process.env.LOOP_TEST_PROBE_AUDIT, "launch\n");
+  if (process.env.LOOP_TEST_PROBE_FAIL_FILE && existsSync(process.env.LOOP_TEST_PROBE_FAIL_FILE)) process.exit(1);
   if (process.env.LOOP_TEST_ARGV)
     appendFileSync(
       process.env.LOOP_TEST_ARGV,
@@ -143,6 +145,7 @@ function finish(status = "completed") {
   }
   held = false;
 }
+let piModel = { provider: "openai-codex", id: "fixture" };
 if (kind === "pi")
   writeSync(
     3,
@@ -185,7 +188,7 @@ if (kind !== "opencode") {
     if (type === "account/read")
       return result({ account: { type: "chatgpt", planType: "plus" } });
     if (type === "skills/list") return result({ data: [] });
-    if (type === "get_commands") return result({ commands: [] });
+    if (type === "get_commands") return result({ commands: process.env.LOOP_TEST_PI_LARGE_CATALOG ? Array.from({ length: 120 }, (_, i) => ({ name: `large-${i}`, source: "extension", description: "x".repeat(30_000) })) : process.env.LOOP_TEST_PI_COMMAND_METADATA ? [{ name: "fixture-command", source: "extension", description: "Fixture command", sourceInfo: { source: "fixture", scope: "user", packageId: "fixture-package" } }] : [] });
     if (type === "model/list") return result({ data: [] });
     if (type === "get_available_thinking_levels")
       return result({ levels: ["off", "low", "medium", "high"] });
@@ -194,17 +197,23 @@ if (kind !== "opencode") {
         models: [
           { provider: "openai-codex", id: "fixture", name: "Fixture" },
           { provider: "openai-codex", id: "plain", name: "Plain" },
+          ...Array.from({ length: Number(process.env.LOOP_TEST_PI_MODEL_COUNT || 0) }, (_, i) => ({ provider: "openai-codex", id: i === 0 && process.env.LOOP_TEST_PI_LONG_MODEL_ID ? "custom-" + "x".repeat(250) : `model-${i}`, name: i === 0 ? "Long model name ".repeat(60) : `Model ${i}` })),
           ...(process.env.LOOP_TEST_PI_API_MODEL
             ? [{ provider: "openai", id: "fixture", name: "Fixture" }]
             : []),
         ],
       });
+    if (type === "set_model") {
+      piModel = { provider: m.provider, id: m.modelId };
+      if (process.env.LOOP_TEST_PI_MODEL_AUDIT) appendFileSync(process.env.LOOP_TEST_PI_MODEL_AUDIT, piModel.id + "\n");
+      return result({});
+    }
     if (type === "set_thinking_level") {
       thinkingLevel = m.level;
       return result({});
     }
     if (type === "config/read")
-      return result({ config: { model_provider: "openai" } });
+      return result({ config: { model_provider: "openai", ...(process.env.LOOP_TEST_CODEX_NULL_MODEL ? { model: null } : {}) } });
     if (type === "thread/start" || type === "thread/resume") {
       mailBridge = m.params?.config?.["mcp_servers.loop_workspace"];
       if (type === "thread/resume" && process.env.LOOP_TEST_REQUIRE_RESUME_CWD && m.params.cwd !== process.cwd())
@@ -268,8 +277,8 @@ if (kind !== "opencode") {
       });
     if (type === "get_state")
       return result({
-        sessionId: "pi-1",
-        model: { provider: "openai-codex", id: "fixture" },
+        sessionId: process.env.LOOP_TEST_PI_SESSION_ID || "pi-1",
+        model: piModel,
         thinkingLevel,
         isStreaming: !!active && !piQueue.length,
         pendingMessageCount: piQueue.length,
@@ -288,6 +297,10 @@ if (kind !== "opencode") {
     }
     if (type === "get_messages") return result({ messages: [] });
     if (type === "control_request") {
+      if (m.request.subtype === "set_permission_mode" && process.env.LOOP_TEST_SETTING_AUDIT) {
+        appendFileSync(process.env.LOOP_TEST_SETTING_AUDIT, m.request.mode + "\n");
+        if (m.request.mode === "plan" && process.env.LOOP_TEST_SETTING_DROP) process.exit(0);
+      }
       out({
         type: "control_response",
         response: {
@@ -507,6 +520,17 @@ if (kind !== "opencode") {
         return;
       }
       if (text === "wait") return;
+      if (kind === "codex" && text === "latency-stream") {
+        let index = 0;
+        const timer = setInterval(() => {
+          const item = { id: "latency-" + index, type: "agentMessage", text: ("Streaming fixture " + index + " ").repeat(400) };
+          note("item/started", { item: { ...item, text: "" } });
+          note("item/agentMessage/delta", { itemId: item.id, delta: item.text });
+          note("item/completed", { item });
+          if (++index === 80) { clearInterval(timer); finish(); }
+        }, 100);
+        return;
+      }
       if (kind === "codex" && text.startsWith("mcp-")) {
         held = true;
         const [choice, params] = text.slice(4).split("\n");

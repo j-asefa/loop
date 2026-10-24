@@ -5,6 +5,7 @@ import {
   isNativeConnection,
   NATIVE_CONNECTION_SQL,
 } from "./native-connections.js";
+import { executionRequest } from "./execution-client.js";
 import { nativeSessions } from "./native-sessions.js";
 import { hostEnvironmentName } from "./execution-location.js";
 import {
@@ -42,7 +43,7 @@ import { createWithPrompt } from "./agent-creation.js";
 import { suggestAgentName } from "./agent-names.js";
 import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
-import { nextTurnConnection, nextTurnFolder, submit } from "./agent-runtime.js";
+import { nextTurnConnection, submit } from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
 import { attachmentIds } from "./uploads.js";
 import { transition, type Run } from "./queue.js";
@@ -121,7 +122,7 @@ core.post("/connections/:id/refresh", async (req, res) => {
   if (isNativeConnection(c)) {
     const harness = JSON.parse(c.metadata).loopHarness;
     return res.json(
-      await nativeSessions.enable(nativeSessions.registration(harness)),
+      await executionRequest("runtime.refresh", { connectionId: c.id }, { owner: res.locals.owner }),
     );
   }
   if (isSubscription(c))
@@ -154,7 +155,7 @@ core.get("/connections/:id/models", async (req, res) => {
   let models;
   if (isNativeConnection(c)) {
     const harness = JSON.parse(c.metadata).loopHarness;
-    await nativeSessions.enable(nativeSessions.registration(harness));
+    await executionRequest("runtime.refresh", { connectionId: c.id }, { owner: res.locals.owner });
     models = JSON.parse(
       owned<Connection>("connections", c.id, res.locals.owner).models,
     );
@@ -309,7 +310,6 @@ core.get("/agents/:id/harness", async (req, res) => {
   const conversation = selected?.agent_id === agent.id ? selected : undefined;
   const conversationKey: string | undefined = conversation?.id;
   const { connection } = nextTurnConnection(res.locals.owner, agent);
-  const native = JSON.parse(connection.metadata);
   if (!isSubscription(connection) && !isNativeConnection(connection)) {
     res.json({
       available: false,
@@ -319,13 +319,8 @@ core.get("/agents/:id/harness", async (req, res) => {
     });
     return;
   }
-  const catalogAgent = {
-    ...agent,
-    connection_id: connection.id,
-    folder_id: nextTurnFolder(res.locals.owner, agent, conversationKey),
-  };
   const catalog = isNativeConnection(connection)
-    ? await nativeSessions.catalog(catalogAgent, conversationKey)
+    ? await executionRequest("native.catalog", { agentId: agent.id, conversationId: conversationKey }, { owner: res.locals.owner })
     : await runtimeAction(connection, "capabilities", {
         workspaceKey: runtimeWorkspaceKey(res.locals.owner, agent.id),
       });
@@ -336,7 +331,7 @@ core.get("/agents/:id/harness", async (req, res) => {
     );
   res.json(catalog);
 });
-// Pi configuration stays on the selected native harness.
+// Mutations belong to the authority; configuration readback uses shared files/DB.
 core.get("/agents/:id/pi-packages", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
   res.json(nativeSessions.piConfiguration(agent));
@@ -350,7 +345,8 @@ core.post("/agents/:id/pi-trust", async (req, res) => {
     })
     .strict()
     .parse(req.body);
-  res.json(await nativeSessions.piTrustDecision(agent, trusted, fingerprint));
+  await executionRequest("pi.trust", { agentId: agent.id, trusted, fingerprint }, { owner: res.locals.owner });
+  res.json(nativeSessions.piConfiguration(agent));
 });
 core.post("/agents/:id/pi-package-filters", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -370,15 +366,8 @@ core.post("/agents/:id/pi-package-filters", async (req, res) => {
     })
     .strict()
     .parse(req.body);
-  res.json(
-    nativeSessions.piPackageFilters(
-      agent,
-      source,
-      scope,
-      filters,
-      settingsHash,
-    ),
-  );
+  const result = await executionRequest("pi.filters", { agentId: agent.id, source, scope, filters, settingsHash }, { owner: res.locals.owner });
+  res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
 core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -391,12 +380,7 @@ core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
     .strict()
     .parse(req.body);
   res.json(
-    await nativeSessions.piPromptPreview(
-      agent,
-      input.name,
-      input.args,
-      input.conversation,
-    ),
+    await executionRequest("pi.preview", { agentId: agent.id, name: input.name, args: input.args, conversationId: input.conversation }, { owner: res.locals.owner }),
   );
 });
 core.post("/agents/:id/pi-package-inspect", async (req, res) => {
@@ -405,7 +389,7 @@ core.post("/agents/:id/pi-package-inspect", async (req, res) => {
     .object({ source: z.string().min(1).max(512) })
     .strict()
     .parse(req.body);
-  res.json(await nativeSessions.piInspectPackage(agent, source));
+  res.json(await executionRequest("pi.inspect", { agentId: agent.id, source }, { owner: res.locals.owner }));
 });
 core.post("/agents/:id/pi-package-rollback", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -416,7 +400,8 @@ core.post("/agents/:id/pi-package-rollback", async (req, res) => {
     })
     .strict()
     .parse(req.body);
-  res.json(await nativeSessions.piRollbackPackage(agent, source, scope));
+  const result = await executionRequest("pi.rollback", { agentId: agent.id, source, scope }, { owner: res.locals.owner });
+  res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
 core.post("/agents/:id/pi-packages", async (req, res) => {
   const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
@@ -428,14 +413,8 @@ core.post("/agents/:id/pi-packages", async (req, res) => {
     })
     .strict()
     .parse(req.body);
-  res.json(
-    await nativeSessions.piPackageAction(
-      agent,
-      input.action,
-      input.source,
-      input.scope,
-    ),
-  );
+  const result = await executionRequest("pi.action", { agentId: agent.id, ...input }, { owner: res.locals.owner });
+  res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
 core.get("/agents/:id/traces", (req, res) => {
   const before = z.coerce

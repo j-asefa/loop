@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import { nativeSettingsBrowser } from "./helpers/native-settings-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
@@ -250,6 +251,7 @@ try {
   assert.equal(db.prepare("SELECT count(*) n FROM native_dispatch").get().n, 0);
   await page.goto(workspaceUrl);
   await nativeAuthBrowser({ browser, host, dir, db });
+  await nativeSettingsBrowser({ page, host, dir, db });
   const devices = await control(dir, "devices");
   await control(dir, "revoke", { id: devices[0].id });
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();

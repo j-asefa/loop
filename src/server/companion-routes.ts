@@ -1,9 +1,5 @@
 import { enabled as memoryEnabled } from "./memory.js";
 import { runtimeSetupState } from "../runtime-setup.js";
-import { upgradeLauncher } from "../harness-upgrades.js";
-import { harnessUpgrades as upgrades } from "./harness-upgrades.js";
-import { discover } from "../host-control.js";
-import { hostEnvironmentName } from "./execution-location.js";
 import { nativeHistory } from "./native-history.js";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import express from "express";
@@ -12,291 +8,65 @@ import { db } from "./db.js";
 import { config } from "./config.js";
 import { Problem, owned } from "./domain.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
-import { nativeSignIns } from "./native-auth.js";
+import { executionRequest } from "./execution-client.js";
+import { AuthHarness, RuntimeHarness, executionOperations } from "../shared/execution-authority.js";
 
 export const companion = express.Router();
-const runtimeHarness = z.enum(["codex", "claude", "pi", "opencode", "gemini"]);
-const authHarness = z.enum(["codex", "claude", "pi", "opencode"]);
-async function authOptions(
-  name: z.infer<typeof authHarness>,
-  projectId: string,
-) {
-  owned("folders", projectId, OWNER);
-  const project = db
-    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
-    .get(projectId) as { path: string } | undefined;
-  if (!project)
-    throw new Problem(422, "Choose a project directory on this computer.");
-  const saved = nativeSessions.registrations().some((r) => r.name === name)
-    ? nativeSessions.registration(name)
-    : undefined;
-  const probe = await discover(name, saved?.executable);
-  if (!probe.installed || !probe.supported) throw new Problem(409, probe.help);
-  return {
-    name,
-    executable: probe.executable!,
-    project: saved?.project || project.path,
-  };
-}
 companion.get("/workspace/runtimes/:name/auth", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const options = await authOptions(
-    authHarness.parse(req.params.name),
-    z.string().min(1).parse(req.query.projectId),
-  );
-  res.json(await nativeSignIns.catalog(options));
+  res.json(await executionRequest("auth.catalog", {
+    name: AuthHarness.parse(req.params.name), projectId: z.string().min(1).parse(req.query.projectId),
+  }));
 });
-companion.get("/workspace/runtimes/:name/auth/status", (req, res) => {
+companion.get("/workspace/runtimes/:name/auth/status", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(nativeSignIns.status(authHarness.parse(req.params.name)));
+  res.json(await executionRequest("auth.status", { name: AuthHarness.parse(req.params.name) }));
 });
 companion.post("/workspace/runtimes/:name/auth/start", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const body = z
-    .object({
-      projectId: z.string().min(1),
-      provider: z.string().min(1).max(200),
-      method: z.string().min(1).max(100),
-      commandId: z.string().uuid(),
-    })
-    .strict()
-    .parse(req.body);
-  if (upgrades.busy(req.params.name)) throw new Problem(409, "Wait for the runtime upgrade to finish before signing in.");
-  const options = await authOptions(
-    authHarness.parse(req.params.name),
-    body.projectId,
-  );
-  res.json(
-    await nativeSignIns.start(
-      options,
-      body.provider,
-      body.method,
-      body.commandId,
-    ),
-  );
+  const { commandId, ...input } = executionOperations["auth.start"].input.omit({ name: true })
+    .extend({ commandId: z.string().uuid() }).parse(req.body);
+  res.json(await executionRequest("auth.start", { ...input, name: AuthHarness.parse(req.params.name) }, { commandId }));
 });
-companion.post("/workspace/runtimes/:name/auth/input", (req, res) => {
+companion.post("/workspace/runtimes/:name/auth/input", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const body = z
-    .object({
-      attemptId: z.string().uuid(),
-      promptId: z.string().uuid(),
-      value: z
-        .string()
-        .min(1)
-        .max(16000)
-        .regex(/^[^\r\n]+$/),
-    })
-    .strict()
-    .parse(req.body);
-  res.json(
-    nativeSignIns.answer(
-      authHarness.parse(req.params.name),
-      body.attemptId,
-      body.promptId,
-      body.value,
-    ),
-  );
+  const input = executionOperations["auth.input"].input.omit({ name: true }).parse(req.body);
+  res.json(await executionRequest("auth.input", { ...input, name: AuthHarness.parse(req.params.name) }));
 });
 companion.post("/workspace/runtimes/:name/auth/cancel", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const body = z
-    .object({ attemptId: z.string().uuid() })
-    .strict()
-    .parse(req.body);
-  res.json(
-    await nativeSignIns.cancel(
-      authHarness.parse(req.params.name),
-      body.attemptId,
-    ),
-  );
+  const input = executionOperations["auth.cancel"].input.omit({ name: true }).parse(req.body);
+  res.json(await executionRequest("auth.cancel", { ...input, name: AuthHarness.parse(req.params.name) }));
 });
-companion.get("/workspace", (_req, res) =>
-  res.json({
-    harnesses: nativeSessions.registrations(),
-    nativeProcesses: nativeSessions.count,
-    concurrency: MAX_CONCURRENT_RUNS,
-    hostLifetime: "foreground",
-    tunnelOrigin: config.url,
-    projectPaths: db.prepare("SELECT * FROM project_paths").all(),
-  }),
-);
-// The setup screen polls runtimes while harnesses are prepared. Reuse a recent
-// probe instead of running every harness's --version on each poll; an explicit
-// refresh (?fresh=1) probes again.
-const PROBE_TTL_MS = 10_000;
-const probes = new Map<
-  string,
-  { at: number; probe: ReturnType<typeof discover> }
->();
-function recentDiscover(
-  name: z.infer<typeof runtimeHarness>,
-  executable?: string,
-  fresh = false,
-) {
-  const key = name + "\0" + (executable ?? "");
-  const hit = probes.get(key);
-  if (!fresh && hit && Date.now() - hit.at < PROBE_TTL_MS) return hit.probe;
-  const probe = discover(name, executable);
-  probes.set(key, { at: Date.now(), probe });
-  probe.catch(() => probes.delete(key));
-  return probe;
-}
-// Runs on the paired execution computer. Never accepts executable paths from the app.
+companion.get("/workspace", async (_req, res) => res.json({
+  harnesses: nativeSessions.registrations(),
+  ...await executionRequest("runtime.status", {}),
+  concurrency: MAX_CONCURRENT_RUNS, hostLifetime: "foreground", tunnelOrigin: config.url,
+  projectPaths: db.prepare("SELECT * FROM project_paths").all(),
+}));
 companion.get("/workspace/runtimes", async (req, res) => {
-  const fresh = req.query.fresh === "1";
-  const registered = nativeSessions.registrations();
-  const runtimes = await Promise.all(
-    runtimeHarness.options.map(async (name) => {
-      const enabled = registered.find((r) => r.name === name);
-      const saved = enabled ? nativeSessions.registration(name) : undefined;
-      const probe = await recentDiscover(name, saved?.executable, fresh);
-      return {
-        name,
-        backend: "direct",
-        installed: probe.installed,
-        available: !!(probe.installed && probe.supported),
-        version: probe.installed ? probe.version : undefined,
-        help: probe.help,
-        enabled: !!enabled && db.prepare("SELECT 1 FROM connections WHERE id=? AND owner_id=? AND status='connected'").get("native-" + name, OWNER) != null,
-        authentication: enabled ? "previously_verified" : "unknown",
-        billing: saved?.billing,
-        project: saved?.project,
-      };
-    }),
-  );
-  res.json({
-    computer: hostEnvironmentName(),
-    online: true,
-    setup: runtimeSetupState(),
-    runtimes,
-  });
+  const runtimes = await executionRequest("runtime.list", { fresh: req.query.fresh === "1" });
+  res.json({ ...runtimes, setup: runtimeSetupState() });
 });
 companion.get("/workspace/runtimes/:name/upgrade", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  const name = runtimeHarness.parse(req.params.name);
-  const saved = nativeSessions.registrations().some((r) => r.name === name) ? nativeSessions.registration(name) : undefined;
-  const probe = await discover(name, saved?.executable);
-  res.json({ upgrade: upgrades.status(name), ...(probe.installed ? upgrades.availability(name, probe.executable!) : { canUpgrade: false, upgradeHelp: "Install this runtime on the computer first." }) });
+  res.json(await executionRequest("upgrade.status", { name: RuntimeHarness.parse(req.params.name) }));
 });
 companion.post("/workspace/runtimes/:name/upgrade", async (req, res) => {
-  const name = runtimeHarness.parse(req.params.name);
-  const { commandId } = z.object({ commandId: z.string().uuid() }).strict().parse(req.body);
-  let release: () => void;
-  try {
-    const previous = upgrades.operation(name, commandId);
-    if (previous) { res.json({ upgrade: previous }); return; }
-    // Hold the harness before checking for runs: run start checks the same
-    // hold, so a run cannot begin between this check and the upgrade.
-    release = upgrades.reserve(name);
-  } catch (error) { throw new Problem(409, (error as Error).message); }
-  try {
-    if (nativeSignIns.inProgress(name)) throw new Problem(409, "Finish or cancel sign-in before upgrading.");
-    if (db.prepare("SELECT 1 FROM runs WHERE owner_id=? AND state IN ('running','pausing','awaiting_approval') LIMIT 1").get(OWNER))
-      throw new Problem(409, "Finish or cancel active runs before upgrading runtimes.");
-      const saved = nativeSessions.registrations().some((r) => r.name === name) ? nativeSessions.registration(name) : undefined;
-    const probe = await discover(name, saved?.executable);
-    if (!probe.installed) throw new Problem(409, "Install this runtime on the computer first.");
-    let executable: string, upgrade: ReturnType<typeof upgrades.start>;
-    try {
-      executable = upgradeLauncher(name, probe.executable!);
-      // Hand the hold to the upgrade in the same tick.
-      release();
-      upgrade = upgrades.start(name, executable, commandId);
-      probes.clear();
-    } catch (error) { throw new Problem(409, (error as Error).message); }
-    if (saved && saved.executable !== executable)
-      db.prepare("UPDATE harnesses SET options=? WHERE name=?").run(JSON.stringify({ ...saved, executable }), name);
-    res.json({ upgrade });
-  } finally {
-    release();
-  }
+  const { commandId } = z.strictObject({ commandId: z.string().uuid() }).parse(req.body);
+  res.json(await executionRequest("upgrade.start", { name: RuntimeHarness.parse(req.params.name) }, { commandId }));
 });
-// Clears a finished upgrade outcome; retry is a new upgrade request.
-companion.delete("/workspace/runtimes/:name/upgrade", (req, res) => {
-  const name = runtimeHarness.parse(req.params.name);
-  try {
-    upgrades.dismiss(name);
-  } catch (error) { throw new Problem(409, (error as Error).message); }
-  res.json({ upgrade: null });
+companion.delete("/workspace/runtimes/:name/upgrade", async (req, res) => {
+  res.json(await executionRequest("upgrade.dismiss", { name: RuntimeHarness.parse(req.params.name) }));
 });
-companion.post("/workspace/runtimes/:name/upgrade/recover", (req, res) => {
-  const name = runtimeHarness.parse(req.params.name);
-  const { commandId } = z.object({ confirmedStopped: z.literal(true), commandId: z.string().uuid() }).strict().parse(req.body);
-  try { upgrades.recover(name, commandId); }
-  catch (error) { throw new Problem(409, (error as Error).message); }
-  res.json({ upgrade: upgrades.status(name) });
+companion.post("/workspace/runtimes/:name/upgrade/recover", async (req, res) => {
+  const { commandId, confirmedStopped } = z.strictObject({ confirmedStopped: z.literal(true), commandId: z.string().uuid() }).parse(req.body);
+  res.json(await executionRequest("upgrade.recover", { name: RuntimeHarness.parse(req.params.name), confirmedStopped }, { commandId }));
 });
 companion.post("/workspace/runtimes/:name/enable", async (req, res) => {
-  const name = runtimeHarness.parse(req.params.name);
-  if (nativeSignIns.inProgress(name))
-    throw new Problem(
-      409,
-      "Finish or cancel this runtime’s sign-in before enabling it.",
-    );
-  const input = z
-    .object({
-      projectId: z.string().min(1),
-      billing: z.enum(["subscription", "existing"]),
-    })
-    .strict()
-    .parse(req.body);
-  owned("folders", input.projectId, OWNER);
-  const project = db
-    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
-    .get(input.projectId) as { path: string } | undefined;
-  if (!project)
-    throw new Problem(
-      422,
-      "Choose a project with a directory on this computer. Add one in Projects.",
-    );
-  const registered = nativeSessions
-    .registrations()
-    .some((r) => r.name === name);
-  const saved = registered ? nativeSessions.registration(name) : undefined;
-  if (saved && input.billing !== saved.billing)
-    throw new Problem(
-      409,
-      "This runtime is already enabled with another billing policy. Change it explicitly from the desktop.",
-    );
-  if (saved && project.path !== saved.project)
-    throw new Problem(
-      409,
-      "This runtime is already bound to another project. Stop the desktop workspace before changing its project.",
-    );
-  if (
-    input.billing === "subscription" &&
-    (name === "opencode" || name === "gemini")
-  )
-    throw new Problem(
-      422,
-      `${name === "gemini" ? "Gemini CLI" : "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
-    );
-  const probe = await discover(name, saved?.executable);
-  if (!probe.installed || !probe.supported || !probe.version)
-    throw new Problem(
-      409,
-      "Install or repair " + name + " on this computer. " + probe.help,
-    );
-  try {
-    res.json(
-      await nativeSessions.enable({
-        harness: name,
-        executable: probe.executable!,
-        version: probe.version,
-        project: project.path,
-        billing: input.billing,
-      }),
-    );
-  } catch (error) {
-    if (error instanceof Problem) throw error;
-    // Provider/process diagnostics can contain credentials. Return setup guidance,
-    // not the raw adapter error, through the paired HTTP boundary.
-    throw new Problem(
-      422,
-      `Could not enable ${name} on this computer. Check its CLI sign-in and configuration, and verify the selected billing policy. Subscription mode requires a supported native subscription; no billing fallback was attempted. Run loop doctor for installation checks, then retry.`,
-    );
-  }
+  const { commandId, ...input } = executionOperations["runtime.enable"].input.omit({ name: true })
+    .extend({ commandId: z.string().uuid().optional() }).parse(req.body);
+  res.json(await executionRequest("runtime.enable", { ...input, name: RuntimeHarness.parse(req.params.name) }, { commandId }));
 });
 companion.post("/workspace/projects", (req, res) => {
   const d = z
@@ -352,18 +122,18 @@ companion.post("/native/decisions/:id", async (req, res) => {
   const d = z
     .object({
       commandId: z.string().uuid(),
-      answer: z.record(z.string(), z.unknown()),
+      answer: z.record(z.string(), z.json()),
     })
     .strict()
     .parse(req.body);
   res.json(
-    await nativeSessions.answer(String(req.params.id), d.commandId, d.answer),
+    await executionRequest("native.answer", { decisionId: String(req.params.id), answer: d.answer }, { commandId: d.commandId }),
   );
 });
-companion.get("/conversations/:id/settings", (req, res) => {
+companion.get("/conversations/:id/settings", async (req, res) => {
   const conversation = z.string().uuid().parse(req.params.id);
   owned("conversations", conversation, OWNER);
-  res.json(nativeSessions.controls(conversation));
+  res.json(await executionRequest("native.controls", { conversationId: conversation }));
 });
 companion.patch("/conversations/:id/settings/:setting", async (req, res) => {
   const conversation = z.string().uuid().parse(req.params.id);
@@ -373,17 +143,15 @@ companion.patch("/conversations/:id/settings/:setting", async (req, res) => {
       value: z.union([z.string().max(1000), z.boolean(), z.number()]),
       revision: z.number().int().nonnegative(),
       generation: z.string().min(1).max(200),
+      commandId: z.string().uuid().optional(),
     })
     .strict()
     .parse(req.body);
   res.json(
-    await nativeSessions.setSetting(
-      conversation,
-      String(req.params.setting),
-      body.value,
-      body.revision,
-      body.generation,
-    ),
+    await executionRequest("native.setting", {
+      conversationId: conversation, setting: String(req.params.setting), value: body.value,
+      revision: body.revision, generation: body.generation,
+    }, { commandId: body.commandId }),
   );
 });
 companion.get("/conversations/:id/native", (req, res, next) => {

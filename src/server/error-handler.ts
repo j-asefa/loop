@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler } from "express";
 import { MulterError } from "multer";
 import { ZodError } from "zod";
-import { Problem } from "../shared/problem.js";
+import { ExecutionProblem, Problem } from "../shared/problem.js";
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   if (res.headersSent) return next(err);
@@ -24,6 +24,9 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
       `Unexpected error on ${req.method} ${req.path}: ${err?.stack ?? err}`,
     );
   res.status(status).json({
+    ...(err instanceof ExecutionProblem
+      ? { executionOutcome: err.outcome }
+      : {}),
     error:
       err instanceof Problem
         ? err.message

@@ -1,3 +1,4 @@
+import { executionRequest } from "./execution-client.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { discover } from "../host-control.js";
 import { setRuntimeSetupState } from "../runtime-setup.js";
@@ -53,7 +54,7 @@ export async function prepareLocalHarnesses(
         if (connection) throw new Error("Saved harness unavailable");
         continue;
       }
-      await nativeSessions.enable(
+      await executionRequest("runtime.register", { options:
         saved
           ? { ...saved, executable: probe.executable, version: probe.version }
           : {
@@ -66,7 +67,7 @@ export async function prepareLocalHarnesses(
                   ? "existing"
                   : "subscription",
             },
-      );
+      });
       enabled++;
     } catch {
       // Never print provider configuration, credentials or raw auth subprocess output.

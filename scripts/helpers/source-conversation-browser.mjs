@@ -352,12 +352,14 @@ export async function sourceConversationBrowser(
       .filter({ hasText: remote.thread.title })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
-    await expect(dialog().getByRole("alert")).toContainText(
+    await expect(dialog().getByRole("alert").filter({
+      has: page.getByRole("button", { name: "Try again", exact: true }),
+    })).toContainText(
       "Fixture connection interrupted",
     );
     offline = false;
     await dialog()
-      .getByRole("button", { name: /Retry connection|Try again/ })
+      .getByRole("button", { name: "Try again", exact: true })
       .click();
     await expect(dialog().locator(".thread-head")).toContainText(
       "@" + remote.agent.name,

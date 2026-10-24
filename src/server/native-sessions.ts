@@ -1,3 +1,4 @@
+import { ExecutionRefused } from "./execution-refusal.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { watchRun } from "./run-signal.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
@@ -287,6 +288,7 @@ export class NativeSessions {
       "UPDATE pi_project_trust SET fingerprint=?,decided_at=? WHERE owner_id=? AND project=?",
     ).run(piProjectResources(project).fingerprint, now(), OWNER, project);
   }
+  // Shared database/filesystem reads only; safe in the HTTP process.
   piConfiguration(agent: any) {
     const { project } = this.piPackageContext(agent);
     const trust = this.projectTrust(project);
@@ -361,7 +363,7 @@ export class NativeSessions {
     db.prepare(
       "INSERT INTO pi_project_trust(owner_id,project,fingerprint,trusted,decided_at) VALUES(?,?,?,?,?) ON CONFLICT(owner_id,project) DO UPDATE SET fingerprint=excluded.fingerprint,trusted=excluded.trusted,decided_at=excluded.decided_at",
     ).run(OWNER, project, fingerprint, trusted ? 1 : 0, now());
-    return this.piConfiguration(agent);
+    return {};
   }
   piPackageFilters(
     agent: any,
@@ -388,7 +390,6 @@ export class NativeSessions {
     return {
       status: "configured",
       application: "new-session",
-      ...this.piConfiguration(agent),
     };
   }
   async piPromptPreview(
@@ -497,7 +498,6 @@ export class NativeSessions {
       return {
         status: "configured",
         application: "new-session",
-        ...this.piConfiguration(agent),
       };
     } catch (error: any) {
       throw new Problem(
@@ -657,7 +657,6 @@ export class NativeSessions {
       return {
         status: "configured",
         application: "new-session",
-        ...this.piConfiguration(agent),
       };
     } catch (error: any) {
       throw new Problem(
@@ -721,7 +720,7 @@ export class NativeSessions {
   ) {
     const live = this.live.get(conversation);
     if (!live || live.closed || !live.adapter.setSetting)
-      throw new Problem(
+      throw new ExecutionRefused(
         409,
         "This native session does not expose live settings. Open the conversation and retry.",
       );
@@ -740,9 +739,9 @@ export class NativeSessions {
       );
     };
     if (!isCurrent())
-      throw new Problem(409, "Native session changed; refresh and retry.");
+      throw new ExecutionRefused(409, "Native session changed; refresh and retry.");
     if (live.cancelling || (live.run && !(setting === "mode" && live.waiting)))
-      throw new Problem(
+      throw new ExecutionRefused(
         409,
         "Wait for the native turn to finish before changing settings.",
       );
@@ -821,13 +820,13 @@ export class NativeSessions {
   }
   enable(options: Options) {
     if (harnessUpgrades.busy(options.harness))
-      throw new Problem(
+      throw new ExecutionRefused(
         409,
         "Wait for the runtime upgrade to finish before enabling a runtime.",
       );
     const pending = this.enabling.get(options.harness);
     if (pending)
-      throw new Problem(
+      throw new ExecutionRefused(
         409,
         "This harness is already being enabled. Retry shortly.",
       );
@@ -838,7 +837,7 @@ export class NativeSessions {
     return promise;
   }
   private async probe(options: Options) {
-    if (this.stopped) throw new Problem(409, "Workspace is stopping");
+    if (this.stopped) throw new ExecutionRefused(409, "Workspace is stopping");
     if (options.harness === "acp") {
       const existing = db
         .prepare("SELECT options FROM harnesses WHERE name='acp'")
@@ -850,23 +849,33 @@ export class NativeSessions {
           JSON.stringify(saved.args || []) !==
             JSON.stringify(options.args || [])
         )
-          throw new Problem(
+          throw new ExecutionRefused(
             409,
             "This workspace already has an ACP agent. Existing conversations retain that agent; changing its executable requires a distinct connection identity.",
           );
       }
     }
-    options = {
-      harness: options.harness,
-      executable:
-        options.harness === "acp"
-          ? realpathSync(options.executable)
-          : resolve(options.executable),
-      version: options.version,
-      project: this.directory(options.project),
-      billing: options.billing,
-      args: options.harness === "acp" ? options.args : undefined,
-    };
+    try {
+      options = {
+        harness: options.harness,
+        executable:
+          options.harness === "acp"
+            ? realpathSync(options.executable)
+            : resolve(options.executable),
+        version: options.version,
+        project: this.directory(options.project),
+        billing: options.billing,
+        args: options.harness === "acp" ? options.args : undefined,
+      };
+    } catch (error) {
+      // Path validation precedes adapter creation and any native command.
+      if (error instanceof Problem)
+        throw new ExecutionRefused(error.status, error.message, error.diagnostic);
+      throw new ExecutionRefused(
+        422,
+        "Could not resolve the native executable or project directory. Restore the path and retry.",
+      );
+    }
     const native: Adapter = new classes[options.harness](
       { ...options, probeOnly: true },
       () => {},
@@ -875,16 +884,21 @@ export class NativeSessions {
     try {
       billing = await native.start();
     } catch (error) {
+      // This is a prompt-free verification adapter, before registration writes.
+      // Disposal below must complete before a failed probe becomes retryable.
       if (error instanceof NativeSetupError)
-        throw new Problem(422, error.message, {
+        throw new ExecutionRefused(422, error.message, {
           phase: "native startup",
           code: error.code,
         });
-      throw error;
+      throw new ExecutionRefused(
+        422,
+        "Could not verify native runtime startup. Check its CLI sign-in and configuration, then retry. No task prompt was sent.",
+      );
     } finally {
       await native.dispose();
     }
-    if (this.stopped) throw new Problem(409, "Workspace is stopping");
+    if (this.stopped) throw new ExecutionRefused(409, "Workspace is stopping");
     const models = [
       native.defaultModelOption || {
         id: "native-default",

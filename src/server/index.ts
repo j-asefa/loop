@@ -53,6 +53,7 @@ import { designPreviewBoundary } from "./design-preview.js";
 import { currentBuilds } from "./deployments.js";
 import { publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
+import { eventLoopHealth } from "./event-loop-health.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
@@ -216,7 +217,7 @@ app.use("/api", async (req, res, next) => {
   next();
 });
 if (designPreview) app.use("/api", designPreviewBoundary);
-app.get("/api/build", (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds() }));
+app.get("/api/build", (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds(), eventLoop: eventLoopHealth() }));
 if (!companionMode) {
   // Setup returns private service credentials. Besides arriving locally, it
   // must carry a header that no paired-browser proxy forwards (they use

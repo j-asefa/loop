@@ -1,6 +1,7 @@
 import { db, id, now } from "./db.js";
 import { BuildStamp, publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
+import { observeApiEventLoop } from "./event-loop-health.js";
 
 const FRESH_MS = 20_000;
 type Instance = {
@@ -19,6 +20,7 @@ const instances = (at: number) =>
     .all(at - FRESH_MS) as Instance[];
 /** Called by actual serving/working entrypoints, never by a read or CLI status. */
 export function observeProcess(role: Instance["role"], build?: BuildStamp) {
+  const stopEventLoop = role === "api" ? observeApiEventLoop() : undefined;
   const instance = id(),
     started = now();
   db.prepare("DELETE FROM deployment_instances WHERE seen_at<?").run(
@@ -40,6 +42,7 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
   const timer = setInterval(pulse, 5000);
   timer.unref();
   return () => {
+    stopEventLoop?.();
     clearInterval(timer);
     db.prepare("UPDATE deployment_instances SET stopped_at=? WHERE id=?").run(
       now(),

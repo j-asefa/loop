@@ -1,14 +1,12 @@
 import { companionMode } from "./server/profile.js";
-import { NativeToolBridge } from "./server/native-tool-bridge.js";
+import { openExecution, scheduleExecution, closeExecution, executionRequest } from "./server/execution-client.js";
 import { Host } from "./host.js";
 import type { Options } from "./adapters/types.js";
 import { app } from "./server/index.js";
 import { db } from "./server/db.js";
 import { config } from "./server/config.js";
 import { nativeSessions, OWNER } from "./server/native-sessions.js";
-import { nativeSignIns } from "./server/native-auth.js";
-import { startWorker } from "./server/worker.js";
-import { z } from "zod";
+import { RegistrationOptions } from "./shared/execution-authority.js";
 import { connectWorkspaceEvents } from "./server/workspace-events.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -31,19 +29,8 @@ const BUILD = (() => {
     return "development";
   }
 })();
-const registration = z
-  .object({
-    harness: z.enum(["pi", "claude", "codex", "opencode", "gemini", "acp"]),
-    executable: z.string().min(1).max(4096),
-    project: z.string().min(1).max(4096),
-    version: z.string().max(100),
-    billing: z.enum(["subscription", "existing"]),
-    args: z.array(z.string().max(4096)).max(32).optional(),
-  })
-  .strict();
 export class WorkspaceHost {
   gateway: Host;
-  private tools = new NativeToolBridge();
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -102,7 +89,7 @@ export class WorkspaceHost {
         if (designPreview)
           throw new Error("Design previews do not enable native harnesses.");
         if (action === "/enable")
-          return nativeSessions.enable(registration.parse(input));
+          return executionRequest("runtime.register", { options: RegistrationOptions.parse(input) });
         throw new Error("Unknown workspace control command");
       },
       shareTools: (sourceId, action) =>
@@ -158,16 +145,11 @@ export class WorkspaceHost {
         },
       };
     }
-    nativeSignIns.open();
-    await this.tools.start();
+    await openExecution();
     if (this.closing) {
-      await this.tools.close();
+      await closeExecution();
       throw new Error("Workspace is stopping");
     }
-    nativeSessions.tools = (conversation, generation) =>
-      this.tools.issue(conversation, generation);
-    nativeSessions.revokeTools = (conversation, generation) =>
-      this.tools.revoke(conversation, generation);
     await this.gateway.listen(this.listenOptions);
     if (this.closing) {
       await this.gateway.close();
@@ -191,20 +173,21 @@ export class WorkspaceHost {
                 "Execution host ready. Choose and enable an installed runtime in the app; authentication is checked when enabling.",
             },
           })
-        : await nativeSessions.enable(options));
+        : await executionRequest("runtime.register", { options: {
+            harness: options.harness, executable: options.executable, project: options.project,
+            version: options.version, billing: options.billing, args: options.args,
+          } }));
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
-    this.stopWorker = startWorker();
+    await scheduleExecution();
     return account;
   }
   async close() {
     this.closing = true;
     this.stopObservation?.();
     this.mcpSharing.close();
-    await nativeSignIns.close();
     await this.stopWorker?.();
-    if (!this.stopWorker) await nativeSessions.close();
-    await this.tools.close();
+    if (!designPreview) await closeExecution();
     await this.gateway.close();
   }
 }

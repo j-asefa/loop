@@ -70,6 +70,8 @@ Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`; 
 
 If status reports a crash or unresponsive workspace, inspect logs and use `loop restart --force` to replace only the application, or `loop stop` to stop everything. It checks recorded process identity before signaling, reports processes it cannot confirm and retains unresolved records for another stop attempt. Never assume an uncertain dispatch did not execute: inspect partial work before an explicit follow-up. `loop uninstall` retains workspace/native data and prints package-removal guidance.
 
+Authenticated `/api/build` includes API event-loop delay statistics in milliseconds. The API also emits an `api-event-loop` diagnostic every 30 seconds to the existing logs, with its sample count, window length, mean, p95, p99 and maximum. Compare these with client request times when investigating a slow streaming conversation; they measure event-loop scheduling delay, not provider response time. Native control ownership is described in the [execution authority](architecture.md#companion-execution-authority).
+
 ## Unified agents and Feed
 
 The paired app shows agents and conversations from the laptop and connected Loop servers in one Feed and agent directory. Each agent and thread shows its execution environment. Opening a thread routes reads and actions to the server that owns it, so existing conversations continue with their original credentials and dispatch history. No provider sign-in is needed to read old chats. A fresh install works with only the laptop source and shows the same interface without an environment selector.

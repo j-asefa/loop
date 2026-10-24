@@ -33,11 +33,14 @@ export function SessionActivityControls({
   const [pending, setPending] = useState<{ id: string; value: SettingValue }>();
   const [error, setError] = useState("");
   const [readError, setReadError] = useState("");
+  const [failedChange, setFailedChange] = useState<{ id: string; value: SettingValue; inspected?: boolean }>();
+  const [inspecting, setInspecting] = useState(false);
   const epoch = useRef(0),
     ticket = useRef(0),
     writing = useRef(false);
   const path = `/conversations/${encodeURIComponent(conversationId)}/settings`;
   const saved = useRef(recorded);
+  const commands = useRef(new Map<string, string>());
   saved.current = recorded;
   function readOnlySnapshot(): Controls | undefined {
     const record = saved.current?.settings;
@@ -85,6 +88,7 @@ export function SessionActivityControls({
             ? old
             : next,
         );
+        return next;
       }
     } catch (e) {
       if (own === epoch.current && request === ticket.current) {
@@ -105,6 +109,8 @@ export function SessionActivityControls({
     setPending(undefined);
     setError("");
     setReadError("");
+    setFailedChange(undefined);
+    setInspecting(false);
     writing.current = false;
     if (!open) return;
     void refresh();
@@ -117,13 +123,29 @@ export function SessionActivityControls({
       stopChanges();
     };
   }, [open, conversationId, sourceId]);
-  async function change(id: string, value: SettingValue) {
+  async function inspect() {
+    const failure = failedChange, own = epoch.current;
+    setInspecting(true);
+    try {
+      const next = await refresh();
+      if (next && own === epoch.current)
+        setFailedChange(current => current === failure && current ? { ...current, inspected: true } : current);
+    } finally {
+      if (own === epoch.current) setInspecting(false);
+    }
+  }
+  async function change(id: string, value: SettingValue, newAttempt = false) {
     if (!data || data.readOnly || !data.generation || writing.current) return;
     const own = epoch.current;
     writing.current = true;
     ticket.current++;
     setPending({ id, value });
     setError("");
+    setFailedChange(undefined);
+    const commandKey = JSON.stringify([sourceId, conversationId, data.generation, data.settings.revision, id, value]);
+    if (newAttempt) commands.current.delete(commandKey);
+    const commandId = commands.current.get(commandKey) || crypto.randomUUID();
+    commands.current.set(commandKey, commandId);
     try {
       const next = await api<Controls>(
         `${path}/${encodeURIComponent(id)}`,
@@ -131,15 +153,20 @@ export function SessionActivityControls({
           value,
           revision: data.settings.revision,
           generation: data.generation,
+          commandId,
         },
         "PATCH",
       );
       if (own === epoch.current) {
+        commands.current.delete(commandKey);
         setData(next);
         window.dispatchEvent(new Event("loop-workspace-change"));
       }
     } catch (e) {
-      if (own === epoch.current) setError((e as Error).message);
+      if (own === epoch.current) {
+        setError((e as Error).message);
+        setFailedChange({ id, value });
+      }
     } finally {
       if (own === epoch.current) {
         writing.current = false;
@@ -167,6 +194,18 @@ export function SessionActivityControls({
           {(error || readError) && (
             <p role="alert" className="error">
               {error || readError}
+            </p>
+          )}
+          {failedChange && (
+            <p className="note">
+              {failedChange.inspected ? "Session status is up to date. Apply the setting again if needed." : "Refresh session status before applying the setting again."}
+              {failedChange.inspected && (
+                <button
+                  type="button"
+                  disabled={!!pending || inspecting || !data || data.readOnly || !data.generation || data.capabilities.settings.state !== "supported" || !data.settings.options.find(option => option.id === failedChange.id)?.mutable}
+                  onClick={() => void change(failedChange.id, failedChange.value, true)}
+                >Apply setting again</button>
+              )}
             </p>
           )}
           {!data && !error && !readError && (
@@ -299,10 +338,13 @@ export function SessionActivityControls({
             </>
           )}
           <button
-            disabled={!!pending}
+            disabled={!!pending || inspecting}
             onClick={() => {
-              setError("");
-              void refresh();
+              if (failedChange) void inspect();
+              else {
+                setError("");
+                void refresh();
+              }
             }}
           >
             Refresh session

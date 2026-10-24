@@ -110,7 +110,10 @@ test("paired provider authentication protects credentials, checks project owners
     assert.equal(catalog.headers.get("cache-control"), "no-store");
     assert.equal(((await catalog.json()) as any).providers[0].id, "anthropic");
     const started = await api(base + "/start", body);
+    assert.equal(started.attempt.commandId, body.commandId);
     await until(() => !!nativeSignIns.status("claude").attempt?.prompt);
+    const waitingCommand = { ...body, commandId: randomUUID() };
+    assert.equal((await request(base + "/start", waitingCommand)).status, 409);
     const resumed = await api(base + "?projectId=" + projectId);
     assert.equal(resumed.attempt.id, started.attempt.id);
     assert.equal(
@@ -133,7 +136,12 @@ test("paired provider authentication protects credentials, checks project owners
     await until(
       () => nativeSignIns.status("claude").attempt?.state === "complete",
     );
-    assert.equal((await api(base + "/status")).attempt.state, "complete");
+    const complete = (await api(base + "/status")).attempt;
+    assert.equal(complete.state, "complete");
+    assert.equal(complete.commandId, body.commandId);
+    const afterWait = await api(base + "/start", waitingCommand);
+    assert.equal((await request(base + "/start", body)).status, 409);
+    await api(base + "/cancel", { attemptId: afterWait.attempt.id });
     await api("/workspace/runtimes/claude/enable", {
       projectId,
       billing: "subscription",
@@ -144,12 +152,22 @@ test("paired provider authentication protects credentials, checks project owners
       ),
     );
     const pi = "/workspace/runtimes/pi/auth";
-    const piStart = await api(pi + "/start", {
+    const piCommand = {
       projectId,
       provider: "anthropic",
       method: "api",
       commandId: randomUUID(),
-    });
+    };
+    await writeFile(
+      join(dir, "refuse-auth-providers"),
+      "fail before login starts",
+    );
+    try {
+      assert.equal((await request(pi + "/start", piCommand)).status, 422);
+    } finally {
+      await rm(join(dir, "refuse-auth-providers"));
+    }
+    const piStart = await api(pi + "/start", piCommand);
     await until(() => !!nativeSignIns.status("pi").attempt?.prompt);
     const keyPrompt = (await api(pi + "/status")).attempt.prompt;
     const key = "fixture-super-private-provider-key";
@@ -175,6 +193,7 @@ test("paired provider authentication protects credentials, checks project owners
       "events",
       "harnesses",
       "connections",
+      "execution_commands",
     ])
       assert.doesNotMatch(
         JSON.stringify(db.prepare(`SELECT * FROM ${table}`).all()),

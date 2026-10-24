@@ -59,21 +59,26 @@ export function RuntimeSetup({
   const [project, setProject] = useState("");
   const [billing, setBilling] = useState("subscription");
   const [enabling, setEnabling] = useState<string>();
-  const busy = !!enabling;
+  const [inspecting, setInspecting] = useState<string>();
+  const busy = !!enabling || !!inspecting;
   const [error, setError] = useState("");
   const [enableError, setEnableError] = useState<{
     name: string;
     scope: string;
     message: string;
+    inspected?: boolean;
   }>();
   const [signingIn, setSigningIn] = useState<string>();
   const [authStates, setAuthStates] = useState<
     Record<string, SignIn["state"] | undefined>
   >({});
   const authRevision = useRef(0);
+  const authAttempts = useRef(new Map<string, string | undefined>());
+  const enableCommands = useRef(new Map<string, string>());
   const onAuthState = useCallback(
-    (name: string, state: SignIn["state"] | undefined) => {
+    (name: string, state: SignIn["state"] | undefined, attemptId?: string) => {
       authRevision.current++;
+      authAttempts.current.set(name, attemptId);
       setAuthStates((current) => ({ ...current, [name]: state }));
       // A new login supersedes the previous account's enable/refresh failure.
       // Do not clear on every complete status: verification can still fail
@@ -104,11 +109,14 @@ export function RuntimeSetup({
         .filter((runtime) => runtime.name !== "gemini")
         .map(async (runtime) => {
           const auth = await authStatus(runtime);
-          return [runtimeAuthScope(runtime), auth.attempt?.state] as const;
+          return [runtimeAuthScope(runtime), auth.attempt?.state, auth.attempt?.id] as const;
         }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
-    if (revision === authRevision.current)
+    if (revision === authRevision.current) {
+      for (const result of states)
+        if (result.status === "fulfilled")
+          authAttempts.current.set(result.value[0], result.value[2]);
       setAuthStates((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -117,8 +125,23 @@ export function RuntimeSetup({
           ),
         ),
       }));
+    }
   }
-  async function enable(runtime: Runtime) {
+  async function inspect(runtime: Runtime) {
+    const failure = enableError;
+    setInspecting(runtime.name);
+    setError("");
+    try {
+      await refresh();
+      setEnableError((current) => current === failure && current
+        ? { ...current, inspected: true } : current);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setInspecting(undefined);
+    }
+  }
+  async function enable(runtime: Runtime, newAttempt = false) {
     setEnabling(runtime.name);
     setEnableError(undefined);
     setError("");
@@ -126,11 +149,19 @@ export function RuntimeSetup({
       const projectId = runtime.enabled
         ? projects.find((p) => p.path === runtime.project)?.folder_id
         : project;
+      const selectedBilling = runtime.name === "gemini" ? "existing" : runtime.billing || billing;
+      const commandKey = JSON.stringify([runtime.name, projectId, selectedBilling, runtime.version, authAttempts.current.get(runtimeAuthScope(runtime))]);
+      // Only an explicit action after inspection starts a new verification.
+      // Ordinary retries keep reconciling the original durable command.
+      if (newAttempt) enableCommands.current.delete(commandKey);
+      const commandId = enableCommands.current.get(commandKey) || crypto.randomUUID();
+      enableCommands.current.set(commandKey, commandId);
       await api(`/workspace/runtimes/${runtime.name}/enable`, {
         projectId,
-        billing:
-          runtime.name === "gemini" ? "existing" : runtime.billing || billing,
+        billing: selectedBilling,
+        commandId,
       });
+      enableCommands.current.delete(commandKey);
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
         refresh(),
@@ -194,7 +225,7 @@ export function RuntimeSetup({
           .map(async (runtime) => {
             const view = await authStatus(runtime);
             if (!disposed)
-              onAuthState(runtimeAuthScope(runtime), view.attempt?.state);
+              onAuthState(runtimeAuthScope(runtime), view.attempt?.state, view.attempt?.id);
           }),
       );
       if (!disposed) timer = setTimeout(poll, 1200);
@@ -327,7 +358,16 @@ export function RuntimeSetup({
                 <div className="settings-error" role="alert">
                   <strong>Connection not verified</strong>
                   <p>{enableError.message}</p>
-                  <p>Your sign-in is saved. Check the setup and retry.</p>
+                  <p>{enableError.inspected
+                    ? "Runtime status is up to date. Start a new verification if needed."
+                    : "Your sign-in is saved. Check runtime status before starting a new verification."}</p>
+                  <button
+                    type="button"
+                    disabled={busy || authenticating || !projectId || !runtime.available || !discovery.online}
+                    onClick={() => void (enableError.inspected ? enable(runtime, true) : inspect(runtime))}
+                  >
+                    {inspecting === runtime.name ? "Checking…" : enableError.inspected ? "Start new verification" : "Check runtime status"}
+                  </button>
                 </div>
               )}
             </>
@@ -453,7 +493,7 @@ export function RuntimeSetup({
                         </section>
                       }
                       enableAction={enableAction}
-                      onStateChange={(_, state) => onAuthState(scope, state)}
+                      onStateChange={(_, state, attemptId) => onAuthState(scope, state, attemptId)}
                       onClose={() => {
                         setSigningIn(undefined);
                         void refresh().catch((e) => setError(e.message));
