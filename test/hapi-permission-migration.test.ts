@@ -49,7 +49,7 @@ it.each(["main", "hapi-preview", "both"])(
         console.log(JSON.stringify({
           registrations:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pr_watch_registrations'").get(),
           lease:db.pragma('table_info(native_permissions)').filter(c=>c.name==='delivery_expires_at').length,
-          versions:db.prepare('SELECT version FROM schema_version WHERE version BETWEEN 67 AND 69 ORDER BY version').all().map(x=>x.version)
+          versions:db.prepare('SELECT prefix AS version FROM schema_migrations WHERE prefix BETWEEN 67 AND 69 ORDER BY prefix').all().map(x=>x.version)
         }));
         db.close();
       `,

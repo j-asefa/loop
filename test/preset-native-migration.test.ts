@@ -48,7 +48,7 @@ it.each(["main", "native-preview", "fresh"])(
             `
           const {db} = await import('./src/server/db.ts');
           console.log(JSON.stringify({
-            versions: db.prepare('SELECT version FROM schema_version WHERE version >= 70 ORDER BY version').all().map(r => r.version),
+            versions: db.prepare('SELECT prefix AS version FROM schema_migrations WHERE prefix >= 70 ORDER BY prefix').all().map(r => r.version),
             presets: !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='team_creations'").get(),
             reviews: !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='code_reviews'").get(),
             status: db.prepare("SELECT status FROM connections WHERE id='native'").get().status,

@@ -141,7 +141,7 @@ it.each(["main", "direct-mail preview"])("upgrades populated %s mail with foreig
         .map((file) => Number(file.slice(0, 3)))
         .filter((version) => Number.isFinite(version) && version >= 80)
         .sort((a, b) => a - b);
-    expect(db.prepare("SELECT version FROM schema_version WHERE version>=80 ORDER BY version").all())
+    expect(db.prepare("SELECT prefix AS version FROM schema_migrations WHERE prefix>=80 ORDER BY prefix").all())
       .toEqual(versions.map((version) => ({ version })));
     expect(snapshot()).toEqual(before);
     expect(db.pragma("foreign_key_check")).toEqual([]);

@@ -10,7 +10,7 @@ const exec = promisify(execFile);
 const start = async (directory: string) => {
   const result = await exec(process.execPath, [
     "--import", "tsx", "--input-type=module", "-e",
-    "const {db}=await import('./src/server/db.ts');if(db.pragma('foreign_key_check').length)throw Error('foreign keys');console.log(JSON.stringify(db.prepare('SELECT version FROM schema_version ORDER BY version').all()));db.close();",
+    "const {db}=await import('./src/server/db.ts');if(db.pragma('foreign_key_check').length)throw Error('foreign keys');console.log(JSON.stringify(db.prepare('SELECT prefix AS version FROM schema_migrations ORDER BY prefix').all()));db.close();",
   ], { env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: directory } });
   return JSON.parse(result.stdout) as { version: number }[];
 };

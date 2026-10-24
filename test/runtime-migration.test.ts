@@ -126,7 +126,7 @@ for (const [label, [trust, recovery], before] of [
           "tsx",
           "--input-type=module",
           "-e",
-          `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version WHERE version>=40 ORDER BY version').all(),trace:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='trace_fts'").get(),excerpt:db.pragma('table_info(scheduled_sends)').some(c=>c.name==='reply_excerpt')}));db.close();`,
+          `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT prefix AS version FROM schema_migrations WHERE prefix>=40 ORDER BY prefix').all(),trace:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='trace_fts'").get(),excerpt:db.pragma('table_info(scheduled_sends)').some(c=>c.name==='reply_excerpt')}));db.close();`,
         ],
         {
           cwd: resolve("."),
@@ -173,7 +173,7 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
         "tsx",
         "--input-type=module",
         "-e",
-        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version WHERE version IN (45,46,47,48) ORDER BY version').all(),seen:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pr_watch_seen'").get()}));db.close();`,
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({versions:db.prepare('SELECT prefix AS version FROM schema_migrations WHERE prefix IN (45,46,47,48) ORDER BY prefix').all(),seen:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pr_watch_seen'").get()}));db.close();`,
       ],
       {
         cwd: resolve("."),
@@ -195,8 +195,8 @@ it("applies agent mail and feed archive migrations in either upgrade order", () 
   const migrations = readdirSync("migrations")
     .filter((name) => name.endsWith(".sql"))
     .sort();
-  const versions = migrations.map((name) => Number(name.split("-")[0]));
-  expect(new Set(versions).size).toBe(versions.length);
+  const names = migrations.map((name) => name.replace(/^\d+-|\.sql$/g, ""));
+  expect(new Set(names).size).toBe(names.length);
 
   const feedArchive = readFileSync(
     "migrations/047-conversation-feed-hidden.sql",
@@ -265,7 +265,7 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
         "tsx",
         "--input-type=module",
         "-e",
-        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({table:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='conversation_positions'").get(),version:db.prepare('SELECT max(version) version FROM schema_version').get().version}));db.close();`,
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({table:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='conversation_positions'").get(),version:db.prepare('SELECT max(prefix) version FROM schema_migrations').get().version}));db.close();`,
       ],
       {
         cwd: resolve("."),
@@ -302,7 +302,7 @@ it("preserves permission-branch databases that used feed migration number 51", (
         "tsx",
         "--input-type=module",
         "-e",
-        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({feed:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='feed_subscriptions'").get(),permission:db.pragma('table_info(mcp_preferences)').some(c=>c.name==='agent_permission_mode'),versions:db.prepare('SELECT version FROM schema_version WHERE version IN (51,52) ORDER BY version').all().map(x=>x.version)}));db.close();`,
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({feed:!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='feed_subscriptions'").get(),permission:db.pragma('table_info(mcp_preferences)').some(c=>c.name==='agent_permission_mode'),versions:db.prepare('SELECT prefix AS version FROM schema_migrations WHERE prefix IN (51,52) ORDER BY prefix').all().map(x=>x.version)}));db.close();`,
       ],
       {
         cwd: resolve("."),

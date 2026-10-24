@@ -14,6 +14,30 @@ The root build typechecks, builds the Vite UI/service worker and bundles CLI/ser
 
 For design or runtime experiments before merging, use [experiment previews](previews.md). `loop preview create NAME` creates a separate branch, build and paired workspace; design previews use sample data and simulated replies by default.
 
+## Database migrations
+
+Add SQL under `migrations/` as `<numeric-prefix>-<unique-name>.sql`. Prefixes
+order migrations numerically; files with the same prefix run in name order.
+Names identify migrations permanently. Choose a new descriptive name, keep it
+unchanged after release, and leave completed migrations intact. Renumbering a
+file changes its order for new databases but does not make an existing database
+run that name again. Account for dependencies when choosing an order.
+
+The API and worker use the same immediate startup transaction. The runner records
+successful files in `schema_migrations(name,prefix,applied_at)`; new SQL must not
+write completion records, including `schema_version`. Duplicate names and new
+files that write a completion ledger fail startup. If any file fails, all changes
+in that startup transaction roll back before another process can migrate.
+
+`legacy-migrations.ts` freezes the old number-to-name mapping through prefix 121
+and its historical branch repairs. A one-time translation normalizes those old
+branch numbers, copies the applied history, and commits a translation marker in
+the same transaction. Afterward, completion decisions use only the named ledger.
+Do not extend the frozen mapping for new migrations. Historical SQL retains its
+old completion inserts for fresh installs, so `schema_version` remains a
+compatibility table; its contents are not the current applied set. An unknown
+legacy version fails translation rather than guessing which migration it meant.
+
 ## Build provenance
 
 `npm run build` gives the browser and server one build identity. A clean checkout of `github.com/j-asefa/loop` builds from an immutable Git archive, with up to 10,000 ancestor commits embedded only in the server. Runtime helpers, migrations and package metadata are staged in `dist/support`, and compiled module imports and resource URLs point there. Edits made to the source checkout while that build runs do not enter its output. Dirty, Git-less and other-repository builds still work but cannot establish commit inclusion. Production artifacts retain their identity when packed and installed; source-mode processes remain unverified. The running process uses compiled metadata, not the current checkout's HEAD. Replacing a running installation's files invalidates its clean provenance until restart.

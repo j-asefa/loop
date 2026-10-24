@@ -43,8 +43,8 @@ it.each([false, true])(
         old.close();
       }
       const scripts = [
-        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version ORDER BY version').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
-        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT version FROM schema_version ORDER BY version').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
+        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT prefix AS version FROM schema_migrations ORDER BY prefix').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
+        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT prefix AS version FROM schema_migrations ORDER BY prefix').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
       ];
       const results = await Promise.all(
         scripts.map(
