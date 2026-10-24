@@ -12,11 +12,19 @@ Loop puts the agents on your computer into one phone workspace. Start runs, appr
     <td><img src="docs/screenshots/feed.png" alt="The Feed's Done tab: result cards from @orion, a review of pull request #42, and @bug-hunter, the root cause of order totals off by a cent" width="300"></td>
   </tr>
   <tr>
+    <th>Result: what changed and which checks ran</th>
+    <th>Saved: results worth keeping, labelled</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/result.png" alt="A finished @bug-hunter result opened from the Feed: its answer, then the branch, files and line counts Loop recorded in the agent's worktree, and the npm test, typecheck and lint commands it saw pass" width="300"></td>
+    <td><img src="docs/screenshots/saved.png" alt="Saved under Your profile: a searchable list with labels such as Rounding fix and Chosen approach, each result with Reply, Saved, Remind me and File" width="300"></td>
+  </tr>
+  <tr>
     <th>Agent profile: one agent's work</th>
     <th>Your profile: a history of your prompts</th>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/agent-profile.png" alt="The @orion agent profile: instructions, model, computer, team and current work awaiting approval, above its results" width="300"></td>
+    <td><img src="docs/screenshots/agent-profile.png" alt="The @orion agent profile: its tagline, model, computer, team and current work awaiting approval, above its results" width="300"></td>
     <td><img src="docs/screenshots/your-profile.png" alt="Your profile: name, handle, bio and counts, above the Messages tab listing the prompts you sent to @orion and @bug-hunter" width="300"></td>
   </tr>
 </table>
@@ -46,6 +54,10 @@ loop start
 ```
 
 The installer runs `npm ci`, builds Loop and links `loop` into a writable directory on your PATH. If none is writable, it uses `~/.local/bin` and prints the PATH command needed for your shell. Keep the checkout in place while using this installation.
+
+`loop start` prints a single-use pairing code. Scan it with your phone's camera:
+
+<img src="docs/screenshots/loop-start.png" alt="Terminal output of loop start: workspace ready, pairing instructions, a QR code and the trycloudflare.com pairing link" width="640">
 
 ## Install on your phone
 
