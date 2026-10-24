@@ -103,7 +103,8 @@ export function Sheet({
   title,
   heading,
   children,
-  onClose,
+  onClose: onDismiss,
+  dismissible = true,
   wide = false,
   titleRef,
   swipeToClose = false,
@@ -114,17 +115,21 @@ export function Sheet({
   heading?: ReactNode;
   children: ReactNode;
   onClose: () => void;
+  dismissible?: boolean;
   wide?: boolean;
   titleRef?: Ref<HTMLHeadingElement>;
   swipeToClose?: boolean;
   footer?: ReactNode;
   className?: string;
 }) {
+  const onClose = () => {
+    if (dismissible) onDismiss();
+  };
   const ref = useRef<HTMLDialogElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const bodyRef = useRef<HTMLDivElement>(null);
-  useSheetDrag(ref, swipeToClose, closeRef);
+  useSheetDrag(ref, swipeToClose && dismissible, closeRef);
   useSheetViewport(ref);
   useEffect(() => {
     // The keyboard shrinks the sheet after the browser has scrolled the
@@ -198,6 +203,7 @@ export function Sheet({
           className="sheet-grip"
           aria-label="Close conversation"
           title="Drag down to close"
+          disabled={!dismissible}
           onClick={onClose}
         >
           <span />
@@ -214,6 +220,7 @@ export function Sheet({
             type="button"
             aria-label="Close"
             className="icon-button"
+            disabled={!dismissible}
             onClick={onClose}
           >
             <X size={20} />

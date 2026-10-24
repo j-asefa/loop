@@ -4017,6 +4017,7 @@ export default function App() {
       {sheet === "teamDirectory" && (
         <TeamDirectory
           teams={data.teams || []}
+          folders={data.folders}
           onVisibilityChanged={teamVisibilityChanged}
           agents={data.agents}
           connections={data.connections}

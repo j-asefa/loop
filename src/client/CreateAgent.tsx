@@ -17,6 +17,7 @@ import type {
 } from "./agentSources";
 import { AttachmentList, UploadButton } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
+import { MarkdownDefinitions } from "./MarkdownDefinitions";
 export function CreateAgent({
   connections,
   folders,
@@ -90,6 +91,10 @@ export function CreateAgent({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const formId = useId();
+  const [definitionsOpen, setDefinitionsOpen] = useState(false);
+  const [instructions, setInstructions] = useState("");
+  const [importedName, setImportedName] = useState("");
+  const [requestedModel, setRequestedModel] = useState("");
   const instructionsHint = useId(),
     promptHint = useId();
   const locked = useRef(false),
@@ -158,11 +163,18 @@ export function CreateAgent({
   const models = nativeConnection
     ? currentCatalog?.models || []
     : parse<ModelOption[]>(selected?.models, []);
-  const chosen =
-    models.find((m) => m.id === model)?.id ||
-    models.find((m) => m.effortLevels?.length)?.id ||
-    models[0]?.id ||
-    "";
+  const missingDefinitionModel =
+    !!requestedModel && !models.some((m) => m.id === requestedModel);
+  const chosen = missingDefinitionModel
+    ? ""
+    : models.find((m) => m.id === model)?.id ||
+      models.find((m) => m.effortLevels?.length)?.id ||
+      models[0]?.id ||
+      "";
+  const chosenModel = models.find((m) => m.id === chosen);
+  const invalidEffort =
+    !!effort &&
+    !chosenModel?.effortLevels?.some((level) => level.value === effort);
   const setupSources = ["codex", "anthropic", "openai"].includes(provider)
     ? sources.filter(
         (item) =>
@@ -178,7 +190,14 @@ export function CreateAgent({
   const crossSource = attachments.length > 0 && source !== attachmentSource;
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (locked.current || uploading || !chosen || refreshingModels) return;
+    if (
+      locked.current ||
+      uploading ||
+      !chosen ||
+      refreshingModels ||
+      invalidEffort
+    )
+      return;
     const f = new FormData(e.currentTarget);
     if (crossSource && attachments.length) {
       setError(
@@ -192,7 +211,7 @@ export function CreateAgent({
         .toLowerCase(),
       connectionId: selected?.id,
       model: chosen,
-      effort: String(f.get("effort") || "") || null,
+      effort: effort || null,
       instructions: String(f.get("instructions") || ""),
       initialPrompt: initialPrompt.trim(),
       attachmentIds: attachments.map((file) => file.id),
@@ -249,6 +268,28 @@ export function CreateAgent({
       )}
     </details>
   );
+  if (definitionsOpen)
+    return (
+      <MarkdownDefinitions
+        key={source}
+        kind="agent"
+        sourceId={source}
+        onClose={() => setDefinitionsOpen(false)}
+        onUse={(definition) => {
+          if (definition.spec.kind !== "agent") return;
+          const spec = definition.spec;
+          setTypedName(spec.name);
+          setNameTouched(true);
+          setInstructions(spec.instructions);
+          setImportedName(spec.name);
+          const requested = spec.model === "inherit" ? "" : spec.model || "";
+          setRequestedModel(requested);
+          setModel(requested || chosen);
+          setEffort(spec.effort || "");
+          setDefinitionsOpen(false);
+        }}
+      />
+    );
   return (
     <Sheet
       title="Meet your next agent"
@@ -264,6 +305,7 @@ export function CreateAgent({
             uploading ||
             refreshingModels ||
             !chosen ||
+            invalidEffort ||
             !name.trim() ||
             (!!attachments.length && !initialPrompt.trim()) ||
             crossSource
@@ -282,6 +324,20 @@ export function CreateAgent({
         Pick a project and a model. Everything else is optional and can change
         later.
       </p>
+      <button
+        type="button"
+        className="text-button"
+        disabled={busy || uploading}
+        onClick={() => setDefinitionsOpen(true)}
+      >
+        From Markdown
+      </button>
+      {importedName && (
+        <p className="field-hint">
+          Loaded {importedName}. Changes below apply to this agent; the saved
+          definition stays in Loop.
+        </p>
+      )}
       {!connected.length && setupBlock}
       <form id={formId} onSubmit={create}>
         <label>
@@ -311,7 +367,17 @@ export function CreateAgent({
         </label>
         <div className="provider-picker">
           {(
-            ["codex", "anthropic", "pi", "opencode", "gemini", "muse", "grok", "acp", "openai"] as const
+            [
+              "codex",
+              "anthropic",
+              "pi",
+              "opencode",
+              "gemini",
+              "muse",
+              "grok",
+              "acp",
+              "openai",
+            ] as const
           ).map((p) => (
             <button
               type="button"
@@ -323,6 +389,8 @@ export function CreateAgent({
                 setProvider(p);
                 setConnection("");
                 setModel("");
+                setRequestedModel("");
+                setEffort("");
               }}
             >
               <Badge provider={p} />
@@ -342,6 +410,8 @@ export function CreateAgent({
                 setConnection(value);
                 setFolderChoice("");
                 setModel("");
+                setRequestedModel("");
+                setEffort("");
               }}
             >
               {accounts.map((c) => (
@@ -364,10 +434,20 @@ export function CreateAgent({
             <ModelPicker
               models={models}
               value={chosen}
-              onChange={setModel}
+              onChange={(value) => {
+                setModel(value);
+                setRequestedModel("");
+                setEffort("");
+              }}
               disabled={busy || refreshingModels}
               refreshing={refreshingModels}
             />
+            {missingDefinitionModel && !refreshingModels && (
+              <p className="error" role="alert">
+                The definition requests {requestedModel}, which is unavailable
+                on this connection. Choose a model.
+              </p>
+            )}
             {nativeConnection && currentCatalog?.error && (
               <div>
                 <p className="error" role="alert">
@@ -386,16 +466,16 @@ export function CreateAgent({
               </div>
             )}
             <EffortSelect
-              model={models.find((m) => m.id === chosen)}
-              value={
-                models
-                  .find((m) => m.id === chosen)
-                  ?.effortLevels?.some((level) => level.value === effort)
-                  ? effort
-                  : ""
-              }
+              model={chosenModel}
+              value={effort}
               onChange={setEffort}
             />
+            {invalidEffort && (
+              <p className="error" role="alert">
+                This model does not report {effort} effort. Choose a reported
+                effort level or the runtime default.
+              </p>
+            )}
           </>
         ) : (
           <div className="note">
@@ -443,12 +523,17 @@ export function CreateAgent({
             />
           </div>
         </label>
-        <details className="advanced-agent-options">
+        <details
+          className="advanced-agent-options"
+          open={importedName ? true : undefined}
+        >
           <summary>Instructions & advanced options</summary>
           <label>
             Agent instructions
             <textarea
               name="instructions"
+              value={instructions}
+              onChange={(event) => setInstructions(event.target.value)}
               aria-label="Agent instructions"
               rows={3}
               maxLength={12000}

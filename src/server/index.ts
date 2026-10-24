@@ -6,6 +6,7 @@ import { companion } from "./companion-routes.js";
 import { OWNER } from "./native-sessions.js";
 import { listRuns } from "./run-attention.js";
 import { teams, teamFilter } from "./teams.js";
+import { agentDefinitions } from "./agent-definitions.js";
 import { runtimeHosts } from "./runtime-hosts.js";
 import { subscriptions } from "./subscriptions.js";
 import { sharing } from "./sharing.js";
@@ -341,6 +342,7 @@ app.get("/api/runs", (req, res) => {
 });
 if (companionMode) app.use("/api", companion);
 app.use("/api", teams);
+app.use("/api", agentDefinitions);
 app.use("/api", agentMail);
 app.use("/api", notifications);
 app.use("/api", memoryRoutes);

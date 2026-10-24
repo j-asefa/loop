@@ -18,13 +18,16 @@ export function EffortSelect({
         aria-label="Effort"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        disabled={!levels.length}
+        disabled={!levels.length && !value}
       >
         <option value="">
           {model?.defaultEffort
             ? `Runtime default (${model.defaultEffort})`
             : "Runtime default"}
         </option>
+        {value && !levels.some((level) => level.value === value) && (
+          <option value={value}>{value} (not reported by this model)</option>
+        )}
         {levels.map((level) => (
           <option key={level.value} value={level.value}>
             {level.value[0].toUpperCase() + level.value.slice(1)}

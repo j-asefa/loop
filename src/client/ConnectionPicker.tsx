@@ -51,6 +51,11 @@ export function ModelPicker({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
+        {!!models.length && !models.some((model) => model.id === value) && (
+          <option value="" disabled>
+            Choose a model
+          </option>
+        )}
         {!models.length && (
           <option value="">
             {refreshing ? "Checking available models…" : "No models available"}

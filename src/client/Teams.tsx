@@ -20,6 +20,11 @@ import { AgentMailThreads } from "./AgentMail";
 import { SettingsToggle } from "./SettingsUI";
 import { viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
+import {
+  CreateFromDefinition,
+  MarkdownDefinitions,
+} from "./MarkdownDefinitions";
+import type { AgentDefinition } from "../shared/agent-definitions";
 
 function TeamFeedVisibility({
   team,
@@ -59,7 +64,11 @@ function TeamFeedVisibility({
           }
         }}
       />
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -68,6 +77,7 @@ export function TeamDirectory({
   teams,
   agents,
   connections,
+  folders = [],
   onClose,
   onOpen,
   onCreate,
@@ -78,6 +88,7 @@ export function TeamDirectory({
   teams: Team[];
   agents: Agent[];
   connections: Connection[];
+  folders?: Folder[];
   onClose: () => void;
   onOpen: (team: Team) => void;
   onCreate: () => void;
@@ -86,6 +97,8 @@ export function TeamDirectory({
   onReview?: (team: Team) => void;
 }) {
   const [adding, setAdding] = useState<Team | null>(null);
+  const [definitionsOpen, setDefinitionsOpen] = useState(false);
+  const [definition, setDefinition] = useState<AgentDefinition>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const name = (id: string) =>
@@ -107,6 +120,37 @@ export function TeamDirectory({
     setAdding(null);
     setError("");
   };
+  if (adding && definitionsOpen)
+    return (
+      <MarkdownDefinitions
+        key={executionSourceId()}
+        kind="agent"
+        sourceId={executionSourceId()}
+        onClose={() => setDefinitionsOpen(false)}
+        onUse={(item) => {
+          setDefinition(item);
+          setDefinitionsOpen(false);
+        }}
+      />
+    );
+  if (adding && definition)
+    return (
+      <CreateFromDefinition
+        key={`${executionSourceId()}:${definition.id}:${definition.version}`}
+        definition={definition}
+        sourceId={executionSourceId()}
+        connections={connections}
+        folders={folders}
+        initialFolder={adding.folder_id || undefined}
+        teamId={adding.id}
+        onClose={() => setDefinition(undefined)}
+        onCreated={() => {
+          setDefinition(undefined);
+          setAdding(null);
+          onChanged();
+        }}
+      />
+    );
   return (
     <Sheet
       title={adding ? `Add a worker to ${adding.name}` : "Agent teams"}
@@ -118,6 +162,13 @@ export function TeamDirectory({
             Choose an agent with a connected provider. A team can have up to 8
             workers.
           </p>
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() => setDefinitionsOpen(true)}
+          >
+            Create worker from Markdown
+          </button>
           {error && (
             <p className="error" role="alert">
               {error}
@@ -461,7 +512,9 @@ export function TeamFilter({
               <Users size={20} />
               <span>
                 <strong>All teams</strong>
-                <small>Your agents and teams, with hidden results excluded</small>
+                <small>
+                  Your agents and teams, with hidden results excluded
+                </small>
               </span>
               {!selected.length && <Check size={20} />}
             </button>
@@ -649,6 +702,8 @@ export function CreateTeam({
   const [preset, setPreset] = useState<TeamPreset | null>(
     TEAM_PRESETS.find((p) => p.id === initialPreset) || null,
   );
+  const [definitionsOpen, setDefinitionsOpen] = useState(false);
+  const [definition, setDefinition] = useState<AgentDefinition>();
   const available = agents.filter(
     (agent) =>
       !agent.retired_at &&
@@ -663,8 +718,39 @@ export function CreateTeam({
     [members, setMembers] = useState<string[]>([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  if (definitionsOpen)
+    return (
+      <MarkdownDefinitions
+        key={executionSourceId()}
+        kind="team"
+        sourceId={executionSourceId()}
+        onClose={() => setDefinitionsOpen(false)}
+        onUse={(item) => {
+          setDefinition(item);
+          setDefinitionsOpen(false);
+        }}
+      />
+    );
+  if (definition)
+    return (
+      <CreateFromDefinition
+        key={`${executionSourceId()}:${definition.id}:${definition.version}`}
+        definition={definition}
+        sourceId={executionSourceId()}
+        connections={connections}
+        folders={folders}
+        initialFolder={initialFolder}
+        onClose={() => setDefinition(undefined)}
+        onCreated={(result) => {
+          if (result.team) onCreated(result.team);
+        }}
+      />
+    );
   return (
     <Sheet title="Create an agent team" onClose={onClose}>
+      <button className="text-button" onClick={() => setDefinitionsOpen(true)}>
+        From Markdown
+      </button>
       <PresetPicker selected={preset?.id || null} onSelect={setPreset} />
       {preset ? (
         <PresetTeamForm

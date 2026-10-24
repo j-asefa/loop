@@ -72,6 +72,54 @@ Turn off **Show results in feed** in a team's directory entry, or select one tea
 
 Agents can also [discover, message and hand work to one another](#agent-messaging) without a shared team. `loop_delegate` remains available only to the manager of an active team.
 
+## Markdown agent and team definitions
+
+Choose **From Markdown** when creating an agent or team. In **Teams → Add worker**, choose **Create worker from Markdown** to create and attach a new worker. Agent creation opens the private library on the selected connection's workspace; team and worker creation use the team's workspace. Libraries belong to their owner on that workspace and are not synced between computers. Create an example, import a `.md` file or paste Markdown, then **Save definition**. Saved definitions can be edited, downloaded or deleted there and reused with different names and connections.
+
+Loop stores the original Markdown in `LOOP_DATA_DIR/loop.db`, under its owner's account. Keep that database in backups. Importing copies the file; Loop does not watch the original file or write to a harness's configuration directories. Existing agents retain their own settings when a definition changes or is deleted. Creating from a definition does not start work; the ordinary agent form still offers an optional initial prompt.
+
+Agent files use YAML frontmatter followed by the instructions, like the basic [Claude Code subagent format](https://code.claude.com/docs/en/sub-agents):
+
+```markdown
+---
+name: code-reviewer
+description: Reviews changes for correctness and missing tests.
+---
+
+Read the relevant code, identify concrete bugs, and explain each finding
+with file references. Do not edit files.
+```
+
+`kind: agent` is optional. `name` follows Loop's handle rules: 3–32 letters, numbers or hyphens, beginning with a letter; names are normalized to lowercase. `description` is optional library text (up to 1,000 characters). The nonempty Markdown body becomes the agent's instructions. Optional `model` names a model from the selected connection's catalog; omitted or `inherit` uses the model chosen in Loop. Optional `effort` must be reported by that model; otherwise choose the runtime default or a reported level before creation. If a requested model is unavailable, choose another explicitly in the creation form. Importing an agent fills an editable draft; the saved definition stays unchanged.
+
+A team file defines one manager and one to eight workers. Each role has a unique name, instructions, and optional description, model and effort. The Markdown body is optional shared guidance, prepended to every role's instructions:
+
+```markdown
+---
+kind: team
+name: Feature team
+description: Implement and independently review a change.
+manager:
+  name: feature-lead
+  instructions: |
+    Implement the change. Use loop_delegate to request an independent
+    review, address confirmed findings, and report changes and checks.
+members:
+  - name: feature-reviewer
+    instructions: |
+      Review for correctness and missing tests. Return findings with
+      file references. Leave edits to the lead.
+---
+
+Follow the project's conventions. Distinguish evidence from assumptions.
+```
+
+Choose a project and each role's name, connection and model before creating the team. Every role becomes an ordinary Loop agent, editable from its profile and usable with any supported connected harness or API provider. Creation is atomic: invalid settings, duplicate handles or a full team leave no partial agents. Retrying the same creation request returns the recorded result. Worker imports obey the existing eight-worker limit and fixed code-review-team roles.
+
+Files are limited to 128 KB and each agent's resulting instructions to 12,000 characters, including shared team guidance. Unknown fields are rejected; Claude-specific `tools`, `disallowedTools`, hooks, permissions, skills and MCP declarations are not translated. Configure tools and permissions in Loop and the selected harness. YAML aliases, custom tags and references to other files are not supported. Use one self-contained team file, or import worker files individually into an existing team.
+
+The authenticated API exposes `GET /api/agent-definitions` for summaries and `GET /api/agent-definitions/:id` for a file and its parsed definition. Save with `PUT /api/agent-definitions/:id`, a client-generated UUID, and `{markdown, version}`: use version `0` for a new definition and the returned version for later edits. Delete with `DELETE` and `{version}`. Stale edits and deletes return 409. Creation uses `POST /api/agent-definitions/:id/create` with `{version, selection: {connectionId, model}, idempotencyKey}`; optional `folderId`, `name`, `teamId` (agent files only), and `roles` keyed by the file's original role names select the destination and override names, connections, models or effort. An explicit role model overrides the file's model; otherwise the file's model precedes the default selection. Omit a worker's `folderId` to inherit its team's project, or pass `null` for Workspace. The definition version is checked before creation; a previously recorded retry remains retrievable after the definition changes or is deleted.
+
 ## Agent messaging
 
 Ordinary agent runs have `loop_agents`, `loop_message`, `loop_message_status` and `loop_handoff` through the shared API/native tool layer ([agent-mail.ts](../src/server/agent-mail.ts)). `loop_agents` searches and paginates the current owner's non-retired agents on this Loop server, returning stable IDs, names, runtime and availability. It does not reveal instruction prompts or connection secrets. Another execution machine behind this server is eligible; another server shown in the unified Feed is a separate source and cannot receive this mail. Disconnected recipients can have accepted mail waiting. Retired agents, unsupported connections and snapshot review targets are refused; review runs keep their restricted tool catalog.
