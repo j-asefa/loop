@@ -9,9 +9,8 @@ import { submit } from "./agent-runtime.js";
 import {
   captureSnapshot,
   snapshotFingerprint,
-  type ReviewSnapshot,
 } from "./review-snapshot.js";
-import { reviewRecord, type requestReviewSchema } from "./review-access.js";
+import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
 import type { Agent } from "../shared/types.js";
 import type { Run } from "./queue.js";
 
@@ -187,8 +186,7 @@ export function reviewStatus(
   reviewId: string,
   freshness = false,
 ) {
-  const r = reviewRecord(owner, reviewId);
-  const s: ReviewSnapshot = JSON.parse(r.snapshot);
+  const { record: r, snapshot: s } = reviewSnapshot(owner, reviewId);
   const run = owned<any>("runs", r.run_id, owner);
   const reviewers = db
     .prepare(
@@ -220,8 +218,8 @@ export function reviewStatus(
     scope: s.scope,
     fingerprint: r.fingerprint,
     createdAt: r.created_at,
-    changed: s.changed,
-    omitted: s.omitted,
+    changed: [...s.changed],
+    omitted: [...s.omitted],
     reviewers,
     current,
     freshnessError,
