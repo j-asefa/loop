@@ -2256,8 +2256,10 @@ export function conversationUsage(owner: string, conversation: string) {
   owned("conversations", conversation, owner);
   const events = db
     .prepare(
-      `SELECT e.run_id,e.type,e.payload FROM events e JOIN runs r ON r.id=e.run_id AND r.owner_id=e.owner_id
-      WHERE e.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`,
+      // Start with this conversation's runs, then visit only their usage
+      // receipts. Polling must never scan the workspace's tool/event history.
+      `SELECT e.run_id,e.type,e.payload FROM runs r CROSS JOIN events e INDEXED BY events_usage ON r.id=e.run_id AND r.owner_id=e.owner_id
+      WHERE r.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`,
     )
     .all(owner, conversation) as {
     run_id: string;
