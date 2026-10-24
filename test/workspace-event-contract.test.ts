@@ -46,6 +46,7 @@ const examples = [
   ],
   ["workflow.completed", { outputs: { answer: "Done" } }],
   ["feed.changed", { artifactId: "artifact", hidden: true }],
+  ["feed.card", { conversationId: "thread", cardKey: "run:run", kind: "thread", removed: false, card: { title: "Live work" } }],
   ["approval.auto_approved", { approvalId: "approval" }],
   [
     "approval.requested",

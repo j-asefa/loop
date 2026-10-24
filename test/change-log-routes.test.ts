@@ -282,6 +282,14 @@ for (const mode of ["server", "companion"] as const) it(`${mode} delivers owned 
 it("emits no unauthorized deletion and retains a tombstone across a run cascade and replay hole", async () => {
   const f = await fixture(); seed(f);
   f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES('other','someone-else','openai','Private','not-used','connected',1)").run();
+  // Raw fixture seeding bypasses the application's synchronous projector.
+  // Finish setup through an owned production write before measuring whether
+  // the unauthorized request emits anything.
+  const positioned = await f.request("/api/conversations/thread/position", {
+    method: "PUT", headers: f.browser, body: { positionMessageId: "message" },
+  });
+  expect(positioned.status).toBe(200);
+  expect(f.db.prepare("SELECT * FROM feed_card_dirty").all()).toEqual([]);
   const stream = watch(f); await expect.poll(() => stream.frames.length).toBeGreaterThan(0);
   const before = f.db.prepare("SELECT count(*) n FROM events").get();
   const refused = await f.request("/api/connections/other", { method: "DELETE", headers: f.browser });

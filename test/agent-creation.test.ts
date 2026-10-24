@@ -397,12 +397,16 @@ it("rolls back the new agent, handle and conversation when its initial run canno
     connectionId,
     model: "fixture",
   });
-  for (let i = 0; i < 100; i++)
-    submit(owner, {
-      agentId: existing.id,
-      input: "Pending task",
-      idempotencyKey: id(),
-    });
+  // Build the full-queue fixture in one commit before testing the independent
+  // HTTP creation transaction and its rollback.
+  db.transaction(() => {
+    for (let i = 0; i < 100; i++)
+      submit(owner, {
+        agentId: existing.id,
+        input: "Pending task",
+        idempotencyKey: id(),
+      });
+  }).immediate();
   const before = counts(owner);
   const result = await create(
     {

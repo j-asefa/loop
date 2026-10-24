@@ -1578,14 +1578,18 @@ it("holds mail at queue pressure and refuses obsolete targets on recovery withou
     c = agent(owner, "other");
   const source = running(owner, a.id, {});
   const pending: Run[] = [];
-  for (let i = 0; i < 99; i++)
-    pending.push(
-      submit(owner, {
-        agentId: c.id,
-        input: "work",
-        idempotencyKey: id(),
-      }) as Run,
-    );
+  // Seed queue pressure in one commit; the delivery/recovery actions below
+  // still run as separate production transactions.
+  db.transaction(() => {
+    for (let i = 0; i < 99; i++)
+      pending.push(
+        submit(owner, {
+          agentId: c.id,
+          input: "work",
+          idempotencyKey: id(),
+        }) as Run,
+      );
+  }).immediate();
   const accepted = sendMail(source, "full", { to: b.id, body: "Wait" });
   expect(accepted.delivery).toBe("pending");
   transition(pending[0], "cancelled");

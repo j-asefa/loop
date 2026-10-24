@@ -1,3 +1,5 @@
+import { projectFeed } from "./feed-projector.js";
+import { installProjectionBoundary } from "./projected-database.js";
 import { capabilities } from "./profile.js";
 import Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
@@ -8,6 +10,8 @@ import { createChangeBus } from "./changes.js";
 import { eventSubjects } from "./event-subjects.js";
 import { parseEmission, type WorkspaceEmission, type WorkspaceSubject } from "../shared/workspace-events.js";
 export const db: Database.Database = new Database(join(config.data, "loop.db"));
+const subjects = eventSubjects(db);
+let wakeChanges = () => {};
 db.pragma("busy_timeout = 5000");
 // Simultaneous API/worker startup can hit SQLITE_BUSY while switching a fresh
 // database to WAL, before SQLite can use its normal busy handler.
@@ -185,11 +189,14 @@ db.transaction(() => {
         `This data directory belongs to the ${stored.profile} profile. Choose a separate LOOP_DATA_DIR for ${capabilities.profile}.`,
       );
   }).immediate();
+  projectFeed(db, emit);
 }).immediate();
+installProjectionBoundary(db, () => projectFeed(db, emit));
 db.pragma("busy_timeout = 5000");
-export const now = () => Date.now();
-export const id = () => crypto.randomUUID();
+export function now() { return Date.now(); }
+export function id() { return crypto.randomUUID(); }
 export const changes = createChangeBus(db, { pollMs: config.changePollMs });
+wakeChanges = changes.wake;
 export const deadlines = createDeadlineScheduler(db, changes);
 export function workspaceClock(owner: string) {
   const identity = db.prepare(`SELECT COALESCE(w.epoch,c.epoch) epoch,COALESCE(w.last_event_id,0) cursor
@@ -205,7 +212,6 @@ export function ensureWorkspaceOwner(owner: string): string {
     return (db.prepare("SELECT epoch FROM change_watermark WHERE owner_id=?").get(owner) as { epoch: string }).epoch;
   }).immediate();
 }
-const subjects = eventSubjects(db);
 // Capture before deleting a subject, inside the deletion transaction.
 export const ownedEventSubject = subjects.prove;
 export function emit(
@@ -223,7 +229,7 @@ export function emit(
         "INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES(?,?,?,?,?,?,?)",
       )
       .run(owner, run, type, JSON.stringify(payload), now(), subject.kind, subject.id).lastInsertRowid;
-    changes.wake();
+    wakeChanges();
     return row;
   }).immediate();
 }

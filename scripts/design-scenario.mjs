@@ -945,8 +945,8 @@ for (const engine of selectedEngines()) {
         await page.getByRole("button", { name: /Nested work/ }).click();
         await expect(page.locator(".file-row").first()).toBeVisible();
         await expect(page.locator(".project-heading h2")).toHaveText("Loop");
-        // Later lives on your profile: your messages, then Saved, Reminders
-        // and Scheduled as tabs, alongside Files and Social.
+        // Later shares your profile with messages, decision history, Files
+        // and Social. Keep the full tab order covered as sections are added.
         await nav("Your profile");
         const yourProfile = page.getByRole("region", {
           name: "Your profile",
@@ -955,7 +955,7 @@ for (const engine of selectedEngines()) {
         await expect(yourProfile).toBeVisible();
         await expect(
           yourProfile.getByRole("tablist", { name: "Show" }).getByRole("tab"),
-        ).toHaveText(["Messages", "Saved", "Reminders", "Scheduled", "Files", /^Social/]);
+        ).toHaveText(["Messages", "Approvals", "Answers", "Saved", "Reminders", "Scheduled", "Files", /^Social/]);
         await expect(
           page.getByRole("button", { name: "Recent", exact: true }),
         ).toHaveCount(0);

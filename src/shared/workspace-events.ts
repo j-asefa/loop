@@ -217,6 +217,10 @@ const Payloads = {
   "workflow.completed": z.strictObject({
     outputs: z.record(z.string().max(1000), Text),
   }),
+  "feed.card": z.strictObject({
+    conversationId: Id, cardKey: z.string().max(200),
+    kind: z.enum(["thread", "result", "idle"]), removed: z.boolean(), card: Json.nullable(),
+  }),
   "feed.changed": z.strictObject({ artifactId: Id, hidden: z.boolean() }),
   "approval.auto_approved": Approval,
   "approval.requested": z.strictObject({ approvalId: Id, request: Json }),
@@ -302,6 +306,7 @@ export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
   variant("workflow.step.started"),
   variant("workflow.completed"),
   variant("feed.changed"),
+  variant("feed.card"),
   variant("approval.auto_approved"),
   variant("approval.requested"),
   variant("approval.decided"),

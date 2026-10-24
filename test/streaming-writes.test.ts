@@ -15,6 +15,7 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { runPreview } = await import("../src/server/run-attention");
+const { shadowFeed } = await import("../src/server/mobile-return");
 
 let executed = 0;
 const prepare = db.prepare.bind(db);
@@ -31,8 +32,7 @@ db.prepare = ((sql: string) => {
 }) as typeof db.prepare;
 
 const chunks = ["Streaming ", "one ", "answer ", "in ", "pieces."];
-const observed: { statements: number; preview: string; artifact: string }[] =
-  [];
+const observed: { statements: number; preview: string; artifact: string; projected: string | null }[] = [];
 let indexed: unknown;
 let runId = "";
 const restore = withTestAdapter("openai", {
@@ -63,6 +63,7 @@ const restore = withTestAdapter("openai", {
         statements: after - before,
         preview: String(artifact?.content ?? ""),
         artifact: stored.content,
+        projected: shadowFeed("alice", { filter: "working" }).items[0].live_preview,
       });
     }
   },
@@ -106,9 +107,11 @@ it("keeps the result live while deferring its indexes until completion", async (
     text += chunks[index];
     expect(step.preview).toBe(text);
     expect(step.artifact).toBe(text);
-    // Six persistence statements plus one producer ownership check. Derived
-    // indexes remain deferred; identity-only log writes happen in SQL triggers.
-    expect(step.statements).toBe(7);
+    expect(step.projected).toBe(text.trim());
+    // The synchronous shadow adds source reads, card writes and feed.card
+    // emission to the seven original statements. Bound that work while the
+    // assertions above keep search/version indexes deferred until completion.
+    expect(step.statements).toBeLessThanOrEqual(47);
   }
 
   const answer = chunks.join("");

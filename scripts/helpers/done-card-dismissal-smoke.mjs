@@ -277,6 +277,10 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
 
     // Exercise the production combined Feed with two nonempty sources. A
     // failed local refresh must retain all pages loaded before the outage.
+    // Start this phase with a fresh fixture request budget: the preceding
+    // reload/action journey plus this recovery matrix can cross 600 requests
+    // in one wall-clock minute, independently of the behavior under test.
+    fixture.db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(fixture.owner);
     await page.route("**/session", route => route.fulfill({json: {csrf: "fixture-csrf"}}));
     await page.route("**/api/capabilities", async (route) => {
       const response = await route.fetch();

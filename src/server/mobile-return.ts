@@ -1,3 +1,4 @@
+import { assertFeedApplied, projectionPage, projectionSummary, projectionDoneRows } from "./feed-card-read.js";
 import { nonemptyAnswer } from "./feed-answers.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { feedNeeds, feedWorking } from "./feed-predicates.js";
@@ -326,7 +327,7 @@ LEFT JOIN native_decisions d ON d.id=k.decision_id
 LEFT JOIN later_items l ON l.id=k.later_id AND l.owner_id=@owner
 ORDER BY k.sort_at DESC,k.conversation_id DESC,k.done_card_key DESC`;
 
-export function feed(
+function readFeed(
   owner: string,
   options: {
     filter?: (typeof FEED_FILTERS)[number];
@@ -336,6 +337,7 @@ export function feed(
     agent?: string;
     before?: string;
   },
+  shadow = false,
 ) {
   if (options.agent) owned("agents", options.agent, owner);
   const filter = options.filter || "all";
@@ -409,7 +411,8 @@ export function feed(
   const afterCard = results
     ? "(@afterCard IS NULL OR done_card_key<@afterCard)"
     : "done_card_key<@afterCard";
-  const rows = db
+  const projected = shadow ? projectionPage(db, params, filter, results) : null;
+  const rows = projected ? projected.map(item => item.row) : db
     .prepare(
       `${results ? feedSql(!!teams, !!folders, !!options.agent, true) : sql},
 page AS MATERIALIZED (
@@ -422,7 +425,7 @@ page AS MATERIALIZED (
   const more = rows.length > 40;
   if (more) rows.pop();
   // Dismissing a Done card changes neither run state nor any activity count.
-  const summary = db
+  const summary = shadow ? projectionSummary(db, params) : db
     .prepare(
       `${sql} SELECT COALESCE(sum(is_needs),0) needs,COALESCE(sum(is_working),0) working,
       COALESCE(sum(has_queued),0) queued FROM flagged`,
@@ -441,7 +444,7 @@ page AS MATERIALIZED (
     .get(owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
-    items: rows.map((row) => feedItem(owner, row, mode)),
+    items: projected ? projected.slice(0,40).map(item => item.display) : rows.map((row) => feedItem(owner, row, mode)),
     next:
       more && last
         ? encode(
@@ -460,6 +463,25 @@ page AS MATERIALIZED (
       scheduled_pending: scheduled.pending,
     },
   };
+}
+
+/** The public endpoint keeps the legacy query throughout the shadow stage. */
+export function feed(owner: string, options: Parameters<typeof readFeed>[1]) {
+  return readFeed(owner, options);
+}
+export function shadowFeed(owner: string, options: Parameters<typeof readFeed>[1]) {
+  return db.transaction(() => { assertFeedApplied(db); return readFeed(owner, options, true); })();
+}
+export function shadowDoneCardRows(owner: string, options: Parameters<typeof doneCardRows>[1]) {
+  if (options.ids && !options.ids.length) return [];
+  return db.transaction(() => {
+    assertFeedApplied(db);
+    return projectionDoneRows(db, { owner, now: options.atTime ?? now(),
+      teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
+      folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
+      ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,
+      key: options.before?.[1] ?? null, limit: options.limit, detail: !!options.detail });
+  })();
 }
 
 /** Shared Done projection: keeps the legacy feed's exact membership and identity. */
