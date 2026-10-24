@@ -419,7 +419,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(page.locator("#composer")).toHaveValue("Post the release notes");
     await page.locator("#composer").fill("");
     await page.getByRole("button", { name: "Collapse composer" }).click();
-    await nav("You").click();
+    await nav("Your profile").click();
     await laterTab("Scheduled").click();
     await later
       .locator(".scheduled-message.not-sent")
@@ -456,7 +456,7 @@ export async function continuitySmoke(page, fixture, capture) {
     db.prepare(
       "UPDATE later_items SET surfaced_at=?,due_at=? WHERE owner_id=? AND done_at IS NULL AND target_id IN (?,?)",
     ).run(Date.now(), Date.now() - 1000, owner, longIds[30], done.id);
-    await nav("You").click();
+    await nav("Your profile").click();
     await laterTab("Reminders").click();
     const messageReminder = later
       .locator(".later-card.due")
@@ -499,7 +499,7 @@ export async function continuitySmoke(page, fixture, capture) {
       .click();
     await dismissToast();
     await closeThread();
-    await nav("You").click();
+    await nav("Your profile").click();
     await laterTab("Saved").click();
     const savedItem = later
       .locator(".saved-item")

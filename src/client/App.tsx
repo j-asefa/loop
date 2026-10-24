@@ -180,7 +180,7 @@ const tabs = [
   { id: "projects", label: "Projects", icon: Folder },
   { id: "pulls", label: "Pull requests", icon: GitPullRequest },
   { id: "search", label: "Search", icon: Search },
-  { id: "profile", label: "You", icon: UserRound },
+  { id: "profile", label: "Your profile", icon: UserRound },
 ];
 // Links and bookmarks from earlier layouts keep working. Later (Saved,
 // Reminders, Scheduled) now lives on your profile.

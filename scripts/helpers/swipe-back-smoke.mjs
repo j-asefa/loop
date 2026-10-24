@@ -135,7 +135,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       window.scrollTo({ top: 240, behavior: "instant" }),
     );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
-    await nav("You").tap();
+    await nav("Your profile").tap();
     const heading = page.locator(".my-profile-name h1");
     for (const [dx, dy, cancelled, multi] of [
       [-30, 0],
@@ -145,7 +145,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       [-170, 0, false, true],
     ]) {
       await swipe(heading, dx, dy, cancelled, multi);
-      await expect(nav("You")).toHaveAttribute("aria-current", "page");
+      await expect(nav("Your profile")).toHaveAttribute("aria-current", "page");
     }
     await swipe(heading);
     await expect(nav("Feed")).toHaveAttribute("aria-current", "page");
@@ -176,7 +176,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await expect(nav("Search")).toHaveAttribute("aria-current", "page");
     await expect(page.getByLabel("Search everything")).toHaveValue("review");
     await expect(searchResults).toHaveCount(resultCount);
-    await nav("You").tap();
+    await nav("Your profile").tap();
     // Later's sections are tabs on your profile.
     const laterSection = (name) =>
       page
@@ -185,7 +185,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await laterSection("Reminders").tap();
     await nav("Projects").tap();
     await swipe(page.getByRole("heading", { name: "Projects", exact: true }));
-    await expect(nav("You")).toHaveAttribute("aria-current", "page");
+    await expect(nav("Your profile")).toHaveAttribute("aria-current", "page");
     await expect(laterSection("Reminders")).toHaveAttribute(
       "aria-selected",
       "true",
@@ -262,7 +262,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     // The agent row owns its horizontal gestures, even when the Feed has a Back
     // destination. Every agent remains reachable by touch and keyboard.
     await page.goto(fixture.base, { waitUntil: "networkidle" });
-    await nav("You").tap();
+    await nav("Your profile").tap();
     await nav("Feed").tap();
     const strip = page.locator(".your-agents .agent-strip");
     assert(

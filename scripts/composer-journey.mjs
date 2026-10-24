@@ -652,7 +652,7 @@ export async function scheduledSendJourney(page, api, dir) {
   await page.reload();
   await page
     .locator(".mobile-nav")
-    .getByRole("button", { name: "You", exact: true })
+    .getByRole("button", { name: "Your profile", exact: true })
     .click();
   await page
     .getByRole("region", { name: "Your profile", exact: true })

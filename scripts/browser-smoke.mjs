@@ -123,7 +123,7 @@ try {
   });
   await imported.getByRole("button", { name: "Save", exact: true }).click();
   // Saved results and messages share the Saved tab on your profile.
-  await openTab(page, "You");
+  await openTab(page, "Your profile");
   await page.getByRole("region", { name: "Your profile", exact: true }).waitFor();
   await page.getByRole("tab", { name: "Saved", exact: true }).click();
   await expect(imported).toBeVisible();

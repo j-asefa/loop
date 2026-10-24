@@ -148,11 +148,11 @@ export async function needsStackSmoke(page, fixture, capture) {
   await interrupted.getByRole("button", { name: "Thread actions", exact: true }).click();
   await page.getByRole("menuitem", { name: "Dismiss from Needs you", exact: true }).click();
   await expect(needs).toBeHidden();
-  // Social now lives on You. Its search remains available independently of
+  // Social now lives on Your profile. Its search remains available independently of
   // the Feed's Needs you stack.
   await page
     .locator(".mobile-nav")
-    .getByRole("button", { name: "You", exact: true })
+    .getByRole("button", { name: "Your profile", exact: true })
     .click();
   const socialTab = page
     .locator(".my-profile-tabs")

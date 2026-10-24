@@ -244,7 +244,7 @@ for (const engine of selectedEngines()) {
         await expect(
           inboxFilters.getByRole("tab", { name: "Done", exact: true }),
         ).toHaveAttribute("aria-selected", "true");
-        // Every Feed filter fits a small phone. Social lives on You.
+        // Every Feed filter fits a small phone. Social lives on Your profile.
         await page.setViewportSize({ width: 360, height: 780 });
         assert.ok(
           await inboxFilters.evaluate((el) => el.scrollWidth <= el.clientWidth),
@@ -945,7 +945,7 @@ for (const engine of selectedEngines()) {
         await expect(page.locator(".project-heading h2")).toHaveText("Loop");
         // Later lives on your profile: your messages, then Saved, Reminders
         // and Scheduled as tabs, alongside Files and Social.
-        await nav("You");
+        await nav("Your profile");
         const yourProfile = page.getByRole("region", {
           name: "Your profile",
           exact: true,

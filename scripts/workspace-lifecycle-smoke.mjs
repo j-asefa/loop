@@ -83,7 +83,7 @@ for (const engine of selectedEngines()) {
       page
         .getByRole("region", { name: "Your profile", exact: true })
         .getByRole("tab", { name: "Saved", exact: true });
-    await nav("You");
+    await nav("Your profile");
     await savedTab().click();
     await expect(savedTab()).toHaveAttribute("aria-selected", "true");
     await expect(card).toBeVisible();
@@ -171,7 +171,7 @@ for (const engine of selectedEngines()) {
         exact: true,
       }),
     ).toBeVisible();
-    await nav("You");
+    await nav("Your profile");
     await savedTab().click();
     await expect(card).toBeVisible();
     if (evidence)

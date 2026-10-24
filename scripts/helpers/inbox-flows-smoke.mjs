@@ -187,7 +187,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(answer.locator(".saved-mark")).toBeVisible();
     await dismissToast();
     await closeThread();
-    await nav("You").click();
+    await nav("Your profile").click();
     await laterTab("Saved").click();
     await expect(laterTab("Saved")).toHaveAttribute("aria-selected", "true");
     const kept = later
@@ -246,7 +246,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
 
     // A tapped notification hands its link to the open app (via the service
     // worker), which opens the thread at that message in place.
-    await nav("You").click();
+    await nav("Your profile").click();
     await page.evaluate(
       ({ conversation, message }) =>
         navigator.serviceWorker.dispatchEvent(
@@ -296,7 +296,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     );
     await expect(row(snoozed.title)).toHaveCount(1);
     await expect(row(target.title)).toHaveCount(1);
-    await nav("You").click();
+    await nav("Your profile").click();
     await laterTab("Reminders").click();
     const reminder = later
       .locator(".later-card")
@@ -321,7 +321,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await nav("Feed").click();
     await row(target.title).waitFor();
     await capture("overflow-inbox-320");
-    await nav("You").click();
+    await nav("Your profile").click();
     for (const tab of ["Messages", "Saved", "Reminders", "Scheduled"]) {
       await laterTab(tab).click();
       await capture(
