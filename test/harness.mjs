@@ -388,7 +388,9 @@ if (kind !== "opencode") {
         throw new Error("Fixture expected native confirm=false");
       if (kind === "claude" && m.response?.response?.behavior !== "deny")
         throw new Error("Fixture expected native deny behavior");
-      if (held) finish();
+      if (process.env.LOOP_TEST_DECISION_AUDIT)
+        appendFileSync(process.env.LOOP_TEST_DECISION_AUDIT, "answer\n");
+      if (held && !process.env.LOOP_TEST_DECISION_HOLD) finish();
       return;
     }
     if (type === "prompt" && m.message === "/loop-status") {

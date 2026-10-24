@@ -4,6 +4,17 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { atomic } from "./state.js";
 
+const DARWIN_IDENTITY = "darwin-utc:";
+function psIdentity(pid: number, normalized = false) {
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8", timeout: 3000,
+      env: normalized ? { ...process.env, LC_ALL: "C", TZ: "UTC" } : process.env,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || undefined;
+  } catch { return undefined; }
+}
+
 /** Boot and start time of a live process; undefined when it can't be read. */
 export function identity(pid: number): string | undefined {
   if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
@@ -16,15 +27,21 @@ export function identity(pid: number): string | undefined {
         stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]
       );
     }
-    return (
-      execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
-        encoding: "utf8",
-        timeout: 3000,
-      }).trim() || undefined
-    );
+    const value = psIdentity(pid, process.platform === "darwin");
+    return value && (process.platform === "darwin" ? DARWIN_IDENTITY + value : value);
   } catch {
     return undefined;
   }
+}
+/** Legacy macOS timestamps have no locale or timezone. A mismatch is not proof
+ * of PID reuse; only the normalized format supports that inference. */
+export function processIdentityState(pid: number, expected: string): "same" | "different" | "unknown" {
+  const live = identity(pid);
+  if (!live || !expected) return "unknown";
+  if (live === expected) return "same";
+  if (process.platform === "darwin" && !expected.startsWith(DARWIN_IDENTITY))
+    return psIdentity(pid) === expected ? "same" : "unknown";
+  return "different";
 }
 /**
  * The PID namespace of this process. Records written in another namespace (a
@@ -53,8 +70,7 @@ function dead(owner: Owner) {
       if (stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] === "Z") return true;
     } catch { /* Identity verification below remains conservative. */ }
   }
-  const live = identity(owner.pid);
-  return !!live && live !== owner.identity;
+  return processIdentityState(owner.pid, owner.identity) === "different";
 }
 const WORKSPACE_LOCK = {
   name: "host.lock",

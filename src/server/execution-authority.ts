@@ -1,4 +1,5 @@
 import { ExecutionRefused } from "./execution-refusal.js";
+import { assertExecutionGeneration, executionGeneration } from "./execution-ownership.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { NativeToolBridge } from "./native-tool-bridge.js";
@@ -150,10 +151,10 @@ const handlers: Handlers = {
 /** The sole owner of live sessions, tool tickets, sign-ins, upgrades and the
  * scheduler. PR 8a invokes it in-process through the same validated wire data. */
 export class ExecutionAuthority {
-  readonly generation = randomUUID();
+  readonly generation = executionGeneration() ?? randomUUID();
   private state: "starting" | "ready" | "stopping" | "disconnected" = "ready";
   private tools = new NativeToolBridge();
-  private stopWorker?: () => Promise<void>;
+  private stopWorker?: ReturnType<typeof startWorker>;
   private opening?: Promise<void>;
   private closing?: Promise<void>;
   status() {
@@ -164,6 +165,9 @@ export class ExecutionAuthority {
       if (this.state !== "ready")
         throw new Problem(503, "Execution authority is unavailable.");
       this.state = "starting";
+      await harnessUpgrades.ready;
+      if (this.state !== "starting")
+        throw new Problem(503, "Execution authority is stopping.");
       nativeSignIns.open();
       await this.tools.start();
       if (this.state !== "starting")
@@ -176,13 +180,18 @@ export class ExecutionAuthority {
     })());
   }
   schedule() {
+    assertExecutionGeneration(this.generation);
     if (this.state !== "ready")
       throw new Problem(503, "Execution authority is unavailable.");
     this.stopWorker ??= startWorker();
   }
+  quiesce() {
+    this.state = "stopping";
+    this.stopWorker?.quiesce();
+  }
   close() {
     return (this.closing ??= (async () => {
-      this.state = "stopping";
+      this.quiesce();
       await nativeSignIns.close();
       await this.opening?.catch(() => {});
       if (this.stopWorker) await this.stopWorker();
@@ -202,6 +211,7 @@ export class ExecutionAuthority {
     };
     let entered = false;
     try {
+      assertExecutionGeneration(this.generation);
       if (this.state !== "ready")
         throw new Problem(503, "Execution authority is not ready.");
       if (request.generation !== this.generation)

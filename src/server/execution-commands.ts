@@ -133,7 +133,14 @@ export async function executionCommand(
             "UPDATE execution_commands SET state='unknown',updated_at=? WHERE owner_id=? AND command_id=? AND generation=? AND state='started'",
           ).run(now(), request.owner, commandId, request.generation);
         }
-        throw error;
+        // All concurrent callers await this same promise. Preserve its
+        // outcome independently of whether their own handler was entered.
+        if (error instanceof ExecutionRefused || error instanceof ExecutionProblem) throw error;
+        throw new ExecutionProblem(
+          error instanceof Problem ? error.status : 500,
+          error instanceof Problem ? error.message : "Execution request could not be completed. Inspect its current state before retrying.",
+          "unknown",
+        );
       },
     )
     .finally(() => inflight.delete(key));

@@ -1,5 +1,6 @@
 import { companionMode } from "./server/profile.js";
-import { openExecution, scheduleExecution, closeExecution, executionRequest } from "./server/execution-client.js";
+import { executionClient, executionRequest } from "./server/execution-client.js";
+import { ExecutionProcess, type ExecutionLifecycle } from "./server/execution-process.js";
 import { Host } from "./host.js";
 import type { Options } from "./adapters/types.js";
 import { app } from "./server/index.js";
@@ -40,7 +41,7 @@ export class WorkspaceHost {
   listenOptions?: Parameters<Host["listen"]>[0];
   /** Launch facts owned by the CLI (connection, supervisor), merged into status. */
   statusExtras: () => object = () => ({});
-  constructor(dir: string, options: Options) {
+  constructor(dir: string, options: Options, private execution: ExecutionLifecycle = new ExecutionProcess()) {
     if (!companionMode)
       throw new Error(
         "WorkspaceHost requires LOOP_PROFILE=companion before loading the application",
@@ -67,7 +68,7 @@ export class WorkspaceHost {
         state: "ready",
         project: options.project,
         serverReady: true,
-        executionReady: !!db
+        executionReady: executionClient.connected && !!db
           .prepare(
             "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loopHarness') IS NOT NULL",
           )
@@ -100,6 +101,7 @@ export class WorkspaceHost {
           : this.mcpSharing.status(),
       originChanged: (origin) => {
         config.url = origin;
+        this.execution.setOrigin?.(origin);
       },
       connect: (socket, url) =>
         connectWorkspaceEvents(socket, url, OWNER, this.epoch, BUILD),
@@ -145,9 +147,9 @@ export class WorkspaceHost {
         },
       };
     }
-    await openExecution();
+    await this.execution.open();
     if (this.closing) {
-      await closeExecution();
+      await this.execution.close();
       throw new Error("Workspace is stopping");
     }
     await this.gateway.listen(this.listenOptions);
@@ -179,15 +181,18 @@ export class WorkspaceHost {
           } }));
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
-    await scheduleExecution();
+    await this.execution.schedule();
     return account;
   }
   async close() {
     this.closing = true;
     this.stopObservation?.();
     this.mcpSharing.close();
-    await this.stopWorker?.();
-    if (!designPreview) await closeExecution();
-    await this.gateway.close();
+    try {
+      await this.stopWorker?.();
+      if (!designPreview) await this.execution.close();
+    } finally {
+      await this.gateway.close();
+    }
   }
 }

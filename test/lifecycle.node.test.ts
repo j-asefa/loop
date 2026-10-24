@@ -9,7 +9,9 @@ import {
   readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { workspaceLock } from "../src/lifecycle.js";
 test("workspace ownership is exclusive, recovers a proven stale owner, and never removes a replacement lock", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-lock-"));
@@ -37,3 +39,33 @@ test("workspace ownership is exclusive, recovers a proven stale owner, and never
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+for (const legacy of [false, true]) {
+  test(`compiled macOS workspace lock preserves a live ${legacy ? "legacy" : "normalized"} owner across a timezone change`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "loop-lock-mac-timezone-"));
+    try {
+      execFileSync(process.execPath, ["--input-type=module", "-e", `
+        import assert from "node:assert/strict";
+        import { readFileSync, writeFileSync } from "node:fs";
+        import { join } from "node:path";
+        import { workspaceLock } from ${JSON.stringify(pathToFileURL(resolve("dist/lifecycle.js")).href)};
+        process.env.TZ = "UTC";
+        const dir = ${JSON.stringify(dir)}, release = workspaceLock(dir), path = join(dir, "host.lock");
+        try {
+          if (${legacy}) {
+            const owner = JSON.parse(readFileSync(path, "utf8"));
+            owner.identity = owner.identity.replace(/^darwin-utc:/, "");
+            writeFileSync(path, JSON.stringify(owner));
+          }
+          const retained = readFileSync(path, "utf8");
+          process.env.TZ = "Pacific/Honolulu";
+          assert.throws(() => workspaceLock(dir), /starting or running/);
+          assert.equal(readFileSync(path, "utf8"), retained);
+        } finally { release(); }
+      `], {
+        env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(resolve("test/fixtures/execution-macos-hooks.mjs")).href}` },
+        timeout: 10_000, stdio: ["ignore", "pipe", "pipe"],
+      });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}

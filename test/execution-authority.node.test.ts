@@ -1,3 +1,4 @@
+import { inProcessExecution } from "./in-process-execution.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -47,7 +48,7 @@ test(
       project,
       version: "fixture",
       billing: "existing",
-    });
+    }, inProcessExecution);
     t.after(async () => {
       await host.close();
       db.close();
@@ -153,6 +154,41 @@ test(
         normal();
       },
     );
+    await t.test("concurrent retries share an uncertain execution outcome", async () => {
+      const { nativeSessions } = await import("../src/server/native-sessions.js");
+      const enable = nativeSessions.enable;
+      let entered = false, calls = 0, release!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const before = countProbes();
+      nativeSessions.enable = async function (options) {
+        await enable.call(this, options);
+        entered = true;
+        await held;
+        throw new Error("fixture confirmation lost after native verification");
+      };
+      setExecutionTransport({
+        status: () => executionAuthority.status(),
+        send(message) { calls++; return executionAuthority.request(message); },
+      });
+      const input = { projectId, billing: "existing", commandId: randomUUID() };
+      try {
+        const first = request("/workspace/runtimes/claude/enable", input);
+        await until(() => entered);
+        const duplicate = request("/workspace/runtimes/claude/enable", input);
+        await until(() => calls === 2);
+        release();
+        for (const response of await Promise.all([first, duplicate])) {
+          assert.equal(response.status, 422);
+          assert.equal((await response.json()).executionOutcome, "unknown");
+        }
+        assert.equal(countProbes(), before + 1);
+        assert.equal((db.prepare("SELECT state FROM execution_commands WHERE command_id=?").get(input.commandId) as any).state, "unknown");
+      } finally {
+        release();
+        nativeSessions.enable = enable;
+        normal();
+      }
+    });
     await t.test(
       "a pre-execution upgrade refusal leaves the enablement command retryable",
       async () => {

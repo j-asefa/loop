@@ -32,7 +32,8 @@ import { matchWatches } from "./feed-watches.js";
 import { sweepAgentMail } from "./agent-mail.js";
 import { reconcileCheckouts } from "./run-checkouts.js";
 import { observeProcess } from "./deployments.js";
-const workerId = id();
+import { assertExecutionGeneration, executionGeneration } from "./execution-ownership.js";
+const workerId = executionGeneration() ?? id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
     if (run.kind !== "diagnostic") throw new Error("Run type is not installed");
@@ -40,11 +41,20 @@ export async function tick(
       message: "Durable worker received the record",
     });
   },
+  accepting: () => boolean = () => true,
 ) {
+  if (!accepting()) return false;
+  assertExecutionGeneration(workerId);
   await closeFinishedSessions();
+  // A tick already in flight can resume after the scheduler quiesced. Check
+  // again before recovery or any claim; clearing wake timers is insufficient.
+  if (!accepting()) return false;
+  assertExecutionGeneration(workerId);
   recoverStale();
   void reconcileCheckouts().catch(() => {});
   const run = claim(workerId, (candidate) => {
+    if (!accepting()) return false;
+    assertExecutionGeneration(workerId);
     const p = JSON.parse(candidate.payload);
     const c = db
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
@@ -128,6 +138,7 @@ export async function execute(run: Run) {
   else return executeAgent(run);
 }
 export function startWorker() {
+  assertExecutionGeneration(workerId);
   const stopObservation = observeProcess("worker");
   migrateMcpUrlCredentials();
   if (companionMode) nativeSessions.recover();
@@ -235,7 +246,7 @@ export function startWorker() {
       if (stopping || active >= MAX_CONCURRENT_RUNS) return;
       active++;
       let claimed = false;
-      const promise = tick(execute)
+      const promise = tick(execute, () => !stopping)
         .then((result) => {
           claimed = result;
         })
@@ -270,7 +281,8 @@ export function startWorker() {
   });
   const scheduling = setInterval(wake, 2000);
   wake();
-  return async () => {
+  const quiesce = () => {
+    if (stopping) return;
     stopping = true;
     stopObservation();
     cleanupController.abort();
@@ -281,23 +293,26 @@ export function startWorker() {
     clearInterval(scheduling);
     unsubscribe();
     if (scheduled) clearImmediate(scheduled);
-    await nativeSessions.close();
-    // Stop explicit API/tool work too, so shutdown cannot wait on provider IO.
+    // Shutdown owns this transition before native IO is terminated; a
+    // resulting pipe failure must not reclassify an interrupted turn as failed.
     for (const run of db
-      .prepare(
-        "SELECT * FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')",
-      )
+      .prepare("SELECT * FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')")
       .all(workerId) as Run[])
       transition(run, "interrupted");
+  };
+  const stop = async () => {
+    quiesce();
+    await nativeSessions.close();
     await Promise.allSettled(inflight);
     await closeFinishedSessions();
     db.prepare("DELETE FROM worker_health WHERE id=?").run(workerId);
   };
+  return Object.assign(stop, { quiesce });
 }
 
 if (process.argv[1]?.match(/\/worker\.(ts|js)$/)) {
   if (companionMode)
-    throw new Error("The companion host owns its in-process worker.");
+    throw new Error("The companion host starts its worker through inherited IPC and an ownership lock.");
   const stop = startWorker();
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => void stop());

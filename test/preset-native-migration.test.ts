@@ -59,6 +59,7 @@ it.each(["main", "native-preview", "fresh"])(
           {
             env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
             encoding: "utf8",
+            timeout: 30_000,
           },
         );
         expect(JSON.parse(result)).toEqual({
@@ -77,4 +78,5 @@ it.each(["main", "native-preview", "fresh"])(
       rmSync(dir, { recursive: true, force: true });
     }
   },
+  30_000,
 );

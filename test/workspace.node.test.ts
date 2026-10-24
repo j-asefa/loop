@@ -1,3 +1,4 @@
+import { inProcessExecution } from "./in-process-execution.js";
 import { gitProject } from "./git-project.js";
 process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
@@ -45,7 +46,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     version: "fixture",
     billing: "existing" as const,
   };
-  const host = new WorkspaceHost(dir, options);
+  const host = new WorkspaceHost(dir, options, inProcessExecution);
   const sockets: WebSocket[] = [];
   try {
     await host.start(options);

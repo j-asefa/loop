@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 // Uses real paired APIs and a CLI sign-in fixture; never navigates to a provider.
-export async function nativeAuthBrowser({ browser, host, dir, db }) {
+export async function prepareNativeAuthBrowser(dir) {
   const bin = join(dir, "auth-bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
@@ -16,6 +16,9 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
     { mode: 0o755 },
   );
   process.env.PATH = bin + ":" + originalPath;
+  return () => { process.env.PATH = originalPath; };
+}
+export async function nativeAuthBrowser({ browser, host, dir, db }) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -365,6 +368,5 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
-    process.env.PATH = originalPath;
   }
 }

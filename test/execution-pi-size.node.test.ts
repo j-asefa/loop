@@ -1,3 +1,4 @@
+import { inProcessExecution } from "./in-process-execution.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -40,7 +41,7 @@ test(
       version: "fixture",
       billing: "existing" as const,
     };
-    const host = new WorkspaceHost(directory, options);
+    const host = new WorkspaceHost(directory, options, inProcessExecution);
     t.after(async () => {
       await host.close();
       db.close();

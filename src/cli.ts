@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
-import { openSync, closeSync, statSync } from "node:fs";
+import { openSync, closeSync, statSync, existsSync } from "node:fs";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { join, resolve, dirname, isAbsolute } from "node:path";
@@ -115,6 +115,8 @@ export async function forceStop(
   reason: string,
   kill?: (pid: number, signal: NodeJS.Signals) => void,
 ) {
+  const { assertExecutionNamespace, retireStoppedExecution } = await import("./server/execution-ownership.js");
+  assertExecutionNamespace(dir);
   if (workspace)
     console.error(
       `Workspace process ${workspace.pid} ${reason}; terminating it and its native processes.`,
@@ -135,7 +137,14 @@ export async function forceStop(
       `${unresolved.length} recorded native process(es) (${unresolved.map((r) => r.pid).join(", ")}) could not be confirmed as Loop's, or led a process group that outlived them, so they were left running. They stay on record: check them with ps, then run loop stop again.`,
     );
   }
-  await forgetWorkspace(dir);
+  // The worker is stopped. Hold its actual lock through final validation and
+  // record retirement so a concurrent replacement cannot be erased by stop.
+  // A killed Linux process can show a zombie leader while its other threads
+  // are still releasing descriptors. Wait for the OS lock itself, never expire it.
+  await retireStoppedExecution(dir, {
+    lockWaitMs: 2000,
+    cleanupWorkspace: () => forgetWorkspace(dir),
+  });
 }
 /** Stops the application, its runners and managed containers; never the connection service. */
 async function stopWorkspace(dir: string) {
@@ -147,7 +156,7 @@ async function stopWorkspace(dir: string) {
   if (!answered) {
     if (!recorded) {
       // A previous stop may have left records it couldn't resolve.
-      if ((await recordedChildren(dir)).length)
+      if ((await recordedChildren(dir)).length || existsSync(join(dir, "execution/owner.json")))
         return forceStop(dir, undefined, "exited");
       throw new Error("No workspace is running.");
     }
@@ -169,7 +178,7 @@ async function stopWorkspace(dir: string) {
       `did not exit within ${STOP_WAIT_MS / 1000}s`,
     );
   // Retry anything an earlier incomplete stop left on record.
-  if ((await recordedChildren(dir)).length)
+  if ((await recordedChildren(dir)).length || existsSync(join(dir, "execution/owner.json")))
     return forceStop(dir, undefined, "exited");
 }
 function runCommand(command: string, args: string[], cwd: string) {
@@ -652,6 +661,7 @@ async function main() {
       force: { type: "boolean" },
       from: { type: "string" },
       "upgraded-from": { type: "string" },
+      "stopped-generation": { type: "string" },
     },
   });
   if (values.version) {
@@ -692,6 +702,10 @@ loop status [--json] | devices | devices revoke ID | doctor [--json]
 loop logs [--follow] | stop | uninstall
 loop stop               Stop Loop completely, including its tunnel. The next
                         start may get a new Quick Tunnel address.
+loop recover-execution [--stopped-generation UUID]
+                        Inspect a retained execution owner. After independently
+                        confirming its prior host/container and processes stopped,
+                        retire that namespace lifetime's records by generation.
 loop service install|uninstall  Start automatically at login
 loop preview --help      Create, open, rebuild and discard isolated experiments.
 
@@ -766,6 +780,24 @@ Uninstall removes the package separately; workspace/native history is retained.`
     : positionals[0] === "claude-code"
       ? "claude"
       : positionals[0];
+  if (values["stopped-generation"] && action !== "recover-execution")
+    throw new Error("--stopped-generation applies only to loop recover-execution.");
+  if (action === "recover-execution") {
+    if (positionals.length !== 1) throw new Error("Use loop recover-execution [--stopped-generation UUID].");
+    const { recordedExecutionOwner, recoverStoppedExecution } = await import("./server/execution-ownership.js");
+    if (values["stopped-generation"]) {
+      const archive = recoverStoppedExecution(dir, values["stopped-generation"]);
+      console.log(`Execution records archived at ${archive}. Workspace data is retained; run loop start when ready.`);
+    } else {
+      const owner = recordedExecutionOwner(dir);
+      if (!owner) console.log("No retained execution owner. No records changed.");
+      else {
+        console.log(JSON.stringify({ generation: owner.generation, namespace: owner.namespace, namespaceIdentity: owner.namespaceIdentity, pid: owner.pid }));
+        console.log("Only after independently confirming the prior host/container and every process in that namespace lifetime stopped, run loop recover-execution --stopped-generation " + owner.generation + ". This also applies after an unclean host reboot. A free lock alone does not prove native children stopped.");
+      }
+    }
+    return;
+  }
   if (preview && ["upgrade", "service", "uninstall"].includes(action))
     throw new Error(
       "Manage experiments with loop preview. Preview builds cannot replace the global installation or login service.",

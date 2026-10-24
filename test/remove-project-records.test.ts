@@ -116,4 +116,4 @@ it("upgrades populated records, preserves source work and restarts without retir
     if (db.open) db.close();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 30_000);

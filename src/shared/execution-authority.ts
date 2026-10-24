@@ -427,3 +427,18 @@ export const ExecutionResponse = z.discriminatedUnion("ok", [
   }),
 ]);
 export type ExecutionResponse = z.infer<typeof ExecutionResponse>;
+
+// The inherited IPC channel carries only these envelopes. Lifecycle commands
+// are parent-owned and generation-bound; they cannot submit native effects.
+export const ExecutionParentMessage = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("request"), request: ExecutionRequest }),
+  z.strictObject({
+    type: z.literal("lifecycle"), requestId: z.uuid(), generation: z.uuid(),
+    action: z.enum(["schedule", "origin", "stop"]), origin: z.string().max(4096).optional(),
+  }),
+]);
+export const ExecutionChildMessage = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("ready"), ready: ExecutionReady }),
+  z.strictObject({ type: z.literal("response"), response: ExecutionResponse }),
+  z.strictObject({ type: z.literal("ack"), requestId: z.uuid(), generation: z.uuid(), ok: z.boolean() }),
+]);

@@ -39,7 +39,7 @@ export class ExecutionClient {
     this.pending.clear();
   }
   get connected() {
-    return !!this.connection;
+    return !!this.connection && this.connection.transport.status().state === "ready" && this.connection.transport.status().generation === this.connection.generation;
   }
   async request<M extends ExecutionMethod>(
     method: M,

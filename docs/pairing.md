@@ -70,6 +70,8 @@ Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`; 
 
 If status reports a crash or unresponsive workspace, inspect logs and use `loop restart --force` to replace only the application, or `loop stop` to stop everything. It checks recorded process identity before signaling, reports processes it cannot confirm and retains unresolved records for another stop attempt. Never assume an uncertain dispatch did not execute: inspect partial work before an explicit follow-up. `loop uninstall` retains workspace/native data and prints package-removal guidance.
 
+The companion runs its HTTP gateway and native execution worker in separate processes. A worker crash keeps the gateway and pairing available while the host attempts replacement; interrupted work is not resent. `loop stop` stops both processes and their recorded native children, while ordinary `loop restart` still refuses active runs and preserves the connection service address. If execution ownership or child processes cannot be confirmed, recovery stops with the records under `workspace/execution/` retained for inspection. Do not delete `ownership.sqlite` to force takeover. A retained owner from a stopped container has a [generation-bound recovery command](#recovering-retained-execution-ownership). See the [execution authority](architecture.md#companion-execution-authority) for the ownership contract.
+
 Authenticated `/api/build` includes API event-loop delay statistics in milliseconds. The API also emits an `api-event-loop` diagnostic every 30 seconds to the existing logs, with its sample count, window length, mean, p95, p99 and maximum. Compare these with client request times when investigating a slow streaming conversation; they measure event-loop scheduling delay, not provider response time. Native control ownership is described in the [execution authority](architecture.md#companion-execution-authority).
 
 ## Unified agents and Feed
@@ -126,3 +128,36 @@ docker compose -f compose.companion.yaml stop
 Use Compose logs for foreground service output. `loop logs` remains available for any CLI daemon log in the persistent workspace. Stop through Compose to avoid its restart policy restarting an intentionally stopped CLI. Preserve the volumes when upgrading; do not use `down --volumes` for real workspaces. The server's `compose.yaml` and its data volume remain separate.
 
 The companion prepares Codex, Claude Code, OpenCode and Pi using native execution inside the container. Sign in through the app on that runner. Codex and Claude Code require subscription authentication by default; Pi and OpenCode use their existing billing configuration, which may incur API charges. Each harness is checked independently.
+
+## Recovering retained execution ownership
+
+After an unclean host reboot, a container restart, or moving workspace data, startup can report that the retained execution owner belongs to another PID namespace lifetime. Linux identity includes the host boot and namespace init process, so reusing the same namespace inode does not make old PIDs safe to signal. macOS uses its kernel boot-session UUID to distinguish a reboot or another Mac; an unavailable boot identity blocks startup. Acquiring the worker lock proves that its holder is gone, but does not prove that native children outside this host or container have stopped.
+
+For a local installation after a confirmed reboot, first confirm that the previous host and all its processes stopped. If the workspace was moved or shared, also confirm the original host stopped using it. Inspect the retained generation, then substitute it in the recovery command:
+
+```sh
+loop recover-execution
+loop recover-execution --stopped-generation UUID_FROM_OUTPUT
+loop start
+```
+
+This is an explicit operator assertion, required after an unclean reboot; automatic startup remains blocked until it is made. The same procedure applies to retained records that predate host identity tracking, after confirming their prior host and all its processes stopped. A completed `loop stop` retires its verified execution owner under the lock, so a later reboot or container replacement needs no manual ownership recovery.
+
+For a container installation, use the following procedure.
+
+Stop the application through Compose and confirm it is exited. Also stop any other container using the same workspace volume. Keep the connection service running if you want to preserve its address. Then inspect the retained generation with a temporary container:
+
+```sh
+docker compose -f compose.companion.yaml stop loop-companion
+docker compose -f compose.companion.yaml ps -a loop-companion
+docker compose -f compose.companion.yaml run --rm --no-deps loop-companion loop recover-execution
+```
+
+Only after confirming the old container and all processes in its namespace have stopped, substitute the printed generation below. This argument is an explicit operator assertion; the command cannot verify a foreign namespace itself.
+
+```sh
+docker compose -f compose.companion.yaml run --rm --no-deps loop-companion loop recover-execution --stopped-generation UUID_FROM_OUTPUT
+docker compose -f compose.companion.yaml up -d --no-deps loop-companion
+```
+
+Recovery takes the existing exclusive lock, refuses an active holder or a changed generation, and archives only that previous namespace lifetime's owner and child records under `workspace/execution/retired-*`. It keeps the lock inode, database, credentials, devices and history. The next worker performs normal interrupted-run recovery; no external action is replayed. For records with the current host/namespace lifetime identity, use `loop stop` and resolve any reported live or unidentified processes instead. An unreadable process registry is retained and blocks stop and takeover until its uncertainty is resolved.

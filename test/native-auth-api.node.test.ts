@@ -17,7 +17,6 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_PROFILE = "companion";
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
-const { nativeSignIns } = await import("../src/server/native-auth.js");
 
 test("paired provider authentication protects credentials, checks project ownership, resumes and enables Claude without API fallback", async () => {
   const bin = join(dir, "bin");
@@ -111,7 +110,7 @@ test("paired provider authentication protects credentials, checks project owners
     assert.equal(((await catalog.json()) as any).providers[0].id, "anthropic");
     const started = await api(base + "/start", body);
     assert.equal(started.attempt.commandId, body.commandId);
-    await until(() => !!nativeSignIns.status("claude").attempt?.prompt);
+    await until(async () => !!(await api(base + "/status")).attempt?.prompt);
     const waitingCommand = { ...body, commandId: randomUUID() };
     assert.equal((await request(base + "/start", waitingCommand)).status, 409);
     const resumed = await api(base + "?projectId=" + projectId);
@@ -134,7 +133,7 @@ test("paired provider authentication protects credentials, checks project owners
     assert.doesNotMatch(JSON.stringify(accepted), /fixture-code/);
     assert.equal((await request(base + "/input", answer)).status, 409);
     await until(
-      () => nativeSignIns.status("claude").attempt?.state === "complete",
+      async () => (await api(base + "/status")).attempt?.state === "complete",
     );
     const complete = (await api(base + "/status")).attempt;
     assert.equal(complete.state, "complete");
@@ -168,7 +167,7 @@ test("paired provider authentication protects credentials, checks project owners
       await rm(join(dir, "refuse-auth-providers"));
     }
     const piStart = await api(pi + "/start", piCommand);
-    await until(() => !!nativeSignIns.status("pi").attempt?.prompt);
+    await until(async () => !!(await api("/workspace/runtimes/pi/auth/status")).attempt?.prompt);
     const keyPrompt = (await api(pi + "/status")).attempt.prompt;
     const key = "fixture-super-private-provider-key";
     await api(pi + "/input", {
@@ -176,7 +175,7 @@ test("paired provider authentication protects credentials, checks project owners
       promptId: keyPrompt.id,
       value: key,
     });
-    await until(() => nativeSignIns.status("pi").attempt?.state === "complete");
+    await until(async () => (await api("/workspace/runtimes/pi/auth/status")).attempt?.state === "complete");
     assert.doesNotMatch(
       JSON.stringify(await api(pi + "/status")),
       /fixture-super-private|fixture-private/,
@@ -206,7 +205,7 @@ test("paired provider authentication protects credentials, checks project owners
       method: "oauth",
       commandId: randomUUID(),
     });
-    await until(() => !!nativeSignIns.status("codex").attempt?.url);
+    await until(async () => !!(await api("/workspace/runtimes/codex/auth/status")).attempt?.url);
     const pending = (await api("/workspace/runtimes/codex/auth/status"))
       .attempt;
     await api("/workspace/runtimes/codex/auth/cancel", {

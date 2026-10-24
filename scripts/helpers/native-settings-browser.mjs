@@ -7,7 +7,6 @@ import { join } from "node:path";
 // Real paired API and native session. Seed an uncertain receipt, never a
 // successful settings response, to exercise recovery with an unchanged revision.
 export async function nativeSettingsBrowser({ page, host, dir, db }) {
-  process.env.LOOP_TEST_SETTING_AUDIT = join(dir, "setting-recovery-audit");
   const api = (path, body) =>
     page.evaluate(
       async ({ path, body }) => {

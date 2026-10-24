@@ -46,7 +46,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     version: "workspace",
     billing: "existing" as const,
   };
-  const host = new WorkspaceHost(dir, options);
+  let host = new WorkspaceHost(dir, options);
   try {
     const { prepareLocalHarnesses } = await import("../src/server/local-harnesses.js");
     await host.start(options, undefined, () => prepareLocalHarnesses(dir, [...names]), true);
@@ -87,6 +87,10 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     const previousKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "fixture-private-value-must-not-leak";
     try {
+      // Child environments are fixed at launch, as in the installed CLI.
+      await host.close();
+      host = new WorkspaceHost(dir, options);
+      await host.start(options, undefined, undefined, true);
       const failure = await fetch(
         host.origin + "/api/workspace/runtimes/codex/enable",
         {
@@ -108,6 +112,9 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     } finally {
       if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = previousKey;
+      await host.close();
+      host = new WorkspaceHost(dir, options);
+      await host.start(options, undefined, undefined, true);
     }
     for (const name of names) {
       await api(`/workspace/runtimes/${name}/enable`, {

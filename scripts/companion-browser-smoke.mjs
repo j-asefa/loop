@@ -6,7 +6,7 @@ import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
-import { nativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import { nativeAuthBrowser, prepareNativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
 import { nativeSettingsBrowser } from "./helpers/native-settings-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
@@ -40,6 +40,8 @@ const provider = createServer((req, res) => {
     res.end('<a href="/authorize">Authorize fixture</a>');
   }
 });
+const restoreAuthPath = await prepareNativeAuthBrowser(dir);
+process.env.LOOP_TEST_SETTING_AUDIT = join(dir, "setting-recovery-audit");
 try {
   await host.start(options);
   const launch = {
@@ -275,6 +277,7 @@ try {
   await browser?.close();
   await new Promise((resolve) => provider.close(resolve));
   await host.close();
+  restoreAuthPath();
   db.close();
   await rm(dir, { recursive: true, force: true });
 }
