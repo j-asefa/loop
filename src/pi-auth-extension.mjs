@@ -1,6 +1,6 @@
 // Loaded only into a dedicated, prompt-free sign-in process. Pi owns auth.json.
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { Socket } from "node:net";
+import { createReadStream, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 export default function loopSignIn(pi) {
@@ -9,13 +9,15 @@ export default function loopSignIn(pi) {
     // hasConfiguredAuth reads the availability snapshot populated by refresh.
     // Skipping it makes existing native credentials appear signed out.
     const runtime = await ModelRuntime.create({ allowModelNetwork: false });
-    const channel = new Socket({ fd: 3, readable: true, writable: true });
-    const send = (value) => channel.write(JSON.stringify(value) + "\n");
+    // Pi's compiled binary closes a net.Socket on fd 3 immediately, so read
+    // and write the descriptor directly, as pi-extension.mjs does.
+    const channel = createReadStream(null, { fd: 3, autoClose: false });
+    const send = (value) => writeSync(3, JSON.stringify(value) + "\n");
     const pending = new Map();
     let abort;
     let buffer = "";
     channel.on("error", () => abort?.abort());
-    channel.on("close", () => abort?.abort());
+    channel.on("end", () => abort?.abort());
     channel.on("data", (chunk) => {
       buffer += chunk.toString();
       if (buffer.length > 100000) {
