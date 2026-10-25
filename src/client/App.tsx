@@ -1832,6 +1832,14 @@ export default function App() {
       });
       settleAccepted();
       if (owner !== ownerRef.current) return;
+      try {
+        localStorage.setItem(
+          `loop-last-recipient:${JSON.stringify([owner, actionSource || "laptop"])}`,
+          accepted.agent_id || recipient.id,
+        );
+      } catch {
+        // Storage restrictions must not turn an accepted send into an error.
+      }
       const unchanged = sameComposer();
       if (!unchanged)
         notify({
@@ -2202,7 +2210,25 @@ export default function App() {
         {!composerExpanded && !threadMode && (
           <button
             className={"composer-launch" + (draft ? " has-draft" : "")}
-            onClick={focusComposer}
+            onClick={() => {
+              if (!draft.trim() && !attachments.length && !replyContext) {
+                try {
+                  const last = localStorage.getItem(
+                    `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
+                  );
+                  const agent = availableAgents.find((agent) => agent.id === last);
+                  if (agent) {
+                    setSelected(agent.id);
+                    setContextArtifact(null);
+                    setFolderChoice(undefined);
+                    setFolder(agent.folder_id || "");
+                  }
+                } catch {
+                  // Keep the current recipient when browser storage is unavailable.
+                }
+              }
+              focusComposer();
+            }}
             aria-label="Compose a message"
             aria-expanded={false}
             title={
@@ -2830,7 +2856,7 @@ export default function App() {
                 >
                   <MoreHorizontal size={20} />
                 </button>
-                <Avatar name={profile.name} provider={profile.provider} />
+                <Avatar name={profile.name} provider={profile.provider} expandable />
                 <div className="profile-identity">
                   <div className="profile-name">
                     <h1>{profile.name}</h1>

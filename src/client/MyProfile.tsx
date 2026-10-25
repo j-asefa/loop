@@ -137,7 +137,7 @@ export function MyProfile({
       <header className="my-profile-card">
         <ProfileCover name={name} />
         <div className="my-profile-top">
-          <Avatar name={name} className="my-profile-avatar" />
+          <Avatar name={name} className="my-profile-avatar" expandable />
           <button
             type="button"
             className="secondary my-profile-edit"

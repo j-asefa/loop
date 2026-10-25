@@ -1,3 +1,4 @@
+import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
@@ -47,6 +48,7 @@ import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 import { attachmentPickerSmoke } from "./helpers/attachment-picker-smoke.mjs";
 
 const scenarios = {
+  "profile-photos-recipient": profilePhotosRecipientSmoke,
   "visual-layout": visualLayoutSmoke,
   gemini: geminiSmoke,
   "workspace-project": workspaceProjectSmoke,
