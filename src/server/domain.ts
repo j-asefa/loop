@@ -1,3 +1,4 @@
+import * as rows from "./row-schemas.js";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import type { Agent, Connection } from "../shared/types.js";
@@ -139,4 +140,74 @@ export function renameAgent(owner: string, agentId: string, name: unknown) {
       return { ...agent, name: normalized };
     })
     .immediate();
+}
+
+export function ownedRun(recordId: string, owner: string) {
+  return rows.parseRun(owned("runs", recordId, owner));
+}
+export function ownedRunControl(recordId: string, owner: string) {
+  const record = db.prepare("SELECT id,owner_id,state,worker_id,attention_dismissed_at FROM runs WHERE id=? AND owner_id=?")
+    .get(recordId, owner);
+  if (!record) throw new Problem(404, "Item not found");
+  return rows.parseRecord(rows.RunControl, record, "runs");
+}
+
+export function ownedAgent(recordId: string, owner: string) {
+  return rows.parseRecord(rows.AgentRecord, owned("agents", recordId, owner), "agents");
+}
+
+export function ownedConnection(recordId: string, owner: string) {
+  return rows.parseConnection(owned("connections", recordId, owner));
+}
+
+export function ownedConversation(recordId: string, owner: string) {
+  return rows.parseRecord(rows.ConversationRecord, owned("conversations", recordId, owner), "conversations");
+}
+
+export function ownedMessage(recordId: string, owner: string) {
+  return rows.parseMessage(owned("messages", recordId, owner));
+}
+
+export function ownedArtifact(recordId: string, owner: string) {
+  return rows.parseArtifact(owned("artifacts", recordId, owner));
+}
+
+export function ownedObject(recordId: string, owner: string) {
+  return rows.parseRecord(rows.ObjectRecord, owned("objects", recordId, owner), "objects");
+}
+
+export function ownedFolder(recordId: string, owner: string) {
+  return rows.parseRecord(rows.FolderRecord, owned("folders", recordId, owner), "folders");
+}
+
+export function ownedImport(recordId: string, owner: string) {
+  return rows.parseRecord(rows.ImportRecord, owned("imports", recordId, owner), "imports");
+}
+
+export function ownedWorkflow(recordId: string, owner: string) {
+  return rows.parseRecord(rows.WorkflowRecord, owned("workflows", recordId, owner), "workflows");
+}
+
+export function ownedMcpConnection(recordId: string, owner: string) {
+  return rows.parseMcpConnection(owned("mcp_connections", recordId, owner));
+}
+
+export function ownedApproval(recordId: string, owner: string) {
+  return rows.parseRecord(rows.ApprovalRecord, owned("approvals", recordId, owner), "approvals");
+}
+
+export function ownedOperation(recordId: string, owner: string) {
+  return rows.parseRecord(rows.OperationRecord, owned("operations", recordId, owner), "operations");
+}
+
+export function ownedTeam(recordId: string, owner: string) {
+  return rows.parseRecord(rows.TeamRecord, owned("teams", recordId, owner), "teams");
+}
+
+export function ownedRuntimeHost(recordId: string, owner: string) {
+  return rows.parseRuntimeHost(owned("runtime_hosts", recordId, owner));
+}
+
+export function ownedMemorySource(recordId: string, owner: string) {
+  return rows.parseRecord(rows.MemorySourceRecord, owned("memory_sources", recordId, owner), "memory_sources");
 }

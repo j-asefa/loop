@@ -13,7 +13,7 @@ process.env.LOOP_PROFILE = "server";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db.js");
 const { seal } = await import("../src/server/secrets.js");
-const { createAgent } = await import("../src/server/domain.js");
+const { createAgent, ownedAgent, ownedConnection, ownedConversation, ownedRun, ownedRunControl, ownedMessage, ownedArtifact, ownedMemorySource } = await import("../src/server/domain.js");
 const { submit } = await import("../src/server/agent-runtime.js");
 const { tick, execute } = await import("../src/server/worker.js");
 const { withTestAdapter } = await import("../src/server/providers.js");
@@ -58,4 +58,30 @@ it("matches storage schemas to worker-produced rows without changing their seria
   const sources = QueryRecords.memory_sources.array().parse(db.prepare("SELECT * FROM memory_sources WHERE owner_id=?").all(owner));
   expect(sources.some(source => source.message_id === message.id && source.content === completed.result)).toBe(true);
   expect(sources.every(source => source.owner_id === owner)).toBe(true);
+  expect(ownedAgent(agent.id, owner)).toEqual(AgentRecord.parse(agent));
+  expect(ownedConversation(queued.conversation_id!, owner).id).toBe(queued.conversation_id);
+  expect(ownedRun(queued.id, owner)).toEqual(parseRun(completed));
+  expect(ownedConnection(connection, owner).models).toEqual([{ id: "fixture", name: "fixture" }]);
+  expect(ownedMessage(message.id, owner)).toEqual(parseMessage(message));
+  expect(ownedArtifact(artifact.id, owner)).toEqual(parseArtifact(artifact));
+  expect(ownedMemorySource(sources[0].id, owner).owner_id).toBe(owner);
+  for (const [read, key] of [
+    [ownedAgent, agent.id], [ownedConnection, connection], [ownedConversation, queued.conversation_id!],
+    [ownedRun, queued.id], [ownedRunControl, queued.id], [ownedMessage, message.id],
+    [ownedArtifact, artifact.id], [ownedMemorySource, sources[0].id],
+  ] as const) expect(() => read(key, "other-owner")).toThrow("Item not found");
+
+  // Control access retains ownership without interpreting damaged execution
+  // data. The new full reader refuses it; neither reader repairs storage.
+  const damaged = JSON.stringify({ ...JSON.parse(completed.payload), reviewId: null });
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(damaged, queued.id);
+  expect(() => ownedRun(queued.id, owner)).toThrow(queued.id);
+  expect(() => ownedRun(queued.id, "other-owner")).toThrow("Item not found");
+  expect(ownedRunControl(queued.id, owner)).toMatchObject({ id: queued.id, owner_id: owner, state: "completed" });
+  expect(ownedRunControl(queued.id, owner)).not.toHaveProperty("payload");
+  expect(QueryRecords.runs.parse(rawRun()).payload).toBe(damaged);
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run('{"loopHarness":false}', connection);
+  expect(() => ownedConnection(connection, owner)).toThrow(connection);
+  expect(() => ownedConnection(connection, "other-owner")).toThrow("Item not found");
+  expect(ConnectionRecord.parse(db.prepare("SELECT * FROM connections WHERE id=?").get(connection)).metadata).toBe('{"loopHarness":false}');
 });

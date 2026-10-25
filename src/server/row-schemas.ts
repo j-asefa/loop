@@ -104,6 +104,11 @@ export const RunRow = z.object({
   worker_id: Id.nullable().optional(), heartbeat: z.number().nullable().optional(), active_ms: z.number().optional(), active_since: z.number().nullable().optional(), attention_dismissed_at: z.number().nullable().optional(),
 });
 export type Run = z.infer<typeof RunRow>;
+// Stopping or dismissing a record must not make its execution payload readable
+// or executable. Control paths use only these owner-checked scalar fields.
+export const RunControl = RunRow.pick({
+  id: true, owner_id: true, state: true, worker_id: true, attention_dismissed_at: true,
+});
 export function parseRun(value: unknown): Run {
   const raw = parseRecord(z.object({ id: Id, payload: z.unknown() }), value, "runs");
   // Unknown legacy display fields are retained on reads, never allowed on new
