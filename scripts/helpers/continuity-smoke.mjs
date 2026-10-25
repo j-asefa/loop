@@ -372,6 +372,28 @@ export async function continuitySmoke(page, fixture, capture) {
     });
     await expect(scheduled).toHaveClass(/anchored/);
     await expect(scheduled).toContainText("Waiting to send");
+    let omittedExcerpt = false;
+    const withoutExcerpt = async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      for (const item of data.items) {
+        assert(Object.hasOwn(item, "reply_excerpt"));
+        delete item.reply_excerpt;
+        omittedExcerpt = true;
+      }
+      await route.fulfill({ response, json: data });
+    };
+    const excerptPattern = /\/api\/scheduled-sends(?:\?|$)/;
+    await page.route(excerptPattern, withoutExcerpt);
+    try {
+      await page.reload({ waitUntil: "networkidle" });
+      await laterTab("Scheduled").click();
+      await expect.poll(() => omittedExcerpt).toBe(true);
+      await expect(scheduled).toContainText("Waiting to send");
+      await expect(later.getByRole("alert")).toHaveCount(0);
+    } finally {
+      await page.unroute(excerptPattern, withoutExcerpt);
+    }
     await scheduled.getByRole("button", { name: "Edit scheduled message" }).click();
     await dialog().getByLabel("Message").fill("Send the weekly summary, short");
     await dialog().getByRole("button", { name: "Save", exact: true }).click();
@@ -385,10 +407,15 @@ export async function continuitySmoke(page, fixture, capture) {
 
     // A message refused when due stays in Needs you and Scheduled with its
     // text and reason, and can be copied back to a draft.
+    const legacyUpload = new FormData();
+    legacyUpload.append("file", new Blob(["Release notes"], { type: "text/plain" }), "notes.txt");
+    const uploaded = await fetch(fixture.base + "/api/uploads", { method: "POST", headers: { origin: fixture.base }, body: legacyUpload });
+    assert(uploaded.ok);
+    const legacyAttachment = await uploaded.json();
     const failing = await fixture.api("/scheduled-sends", {
       agentId: agent.id,
       input: "Post the release notes",
-      attachmentIds: [],
+      attachmentIds: [legacyAttachment.id],
       idempotencyKey: "continuity-" + randomUUID(),
       sendAt: Date.now() + 3600000,
     });
@@ -398,6 +425,23 @@ export async function continuitySmoke(page, fixture, capture) {
       "This agent is retired. Restore it from its profile before sending new work.",
       failing.id,
     );
+    // Before #40 the list had attachment IDs but no display descriptors.
+    // The real failed row must still render and copy its text to a draft.
+    let omittedScheduledFiles = false;
+    const scheduledPattern = /\/api\/scheduled-sends(?:\?|$)/;
+    const olderScheduled = async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      for (const item of data.items) {
+        if (item.id === failing.id) {
+          assert(item.attachments.some(file => file.id === legacyAttachment.id));
+          omittedScheduledFiles = true;
+        }
+        delete item.attachments;
+      }
+      await route.fulfill({ response, json: data });
+    };
+    await page.route(scheduledPattern, olderScheduled);
     await nav("Feed").click();
     await showNeeds();
     await expect(page.locator(".scheduled-summary")).toContainText(
@@ -416,8 +460,10 @@ export async function continuitySmoke(page, fixture, capture) {
     const failedRow = later
       .locator(".scheduled-message.not-sent")
       .filter({ hasText: "Post the release notes" });
+    await expect.poll(() => omittedScheduledFiles).toBe(true);
     await failedRow.getByRole("button", { name: "Copy to a draft" }).click();
     await expect(page.locator("#composer")).toHaveValue("Post the release notes");
+    await page.unroute(scheduledPattern, olderScheduled);
     await page.locator("#composer").fill("");
     await page.getByRole("button", { name: "Collapse composer" }).click();
     await nav("Your profile").click();

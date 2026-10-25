@@ -12,7 +12,7 @@ beforeEach(() => {
   fetcher.mockReset().mockImplementation(async () => new Response("{}"));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
-const read = (source = "", path: import("../src/client/legacy-paths").LegacyClientPath = "/conversations/thread/usage") => apiInWorkspace(path, source);
+const read = (source = "", path: import("../src/client/legacy-paths").LegacyClientPath = "/conversations/thread/memory") => apiInWorkspace(path, source);
 const limited = (header = "8") => new Response("busy", { status: 429, headers: { "Retry-After": header } });
 
 it("surfaces Retry-After and backs off every read for only the rate-limited source", async () => {
@@ -22,7 +22,7 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
   await vi.advanceTimersByTimeAsync(3000);
   expect(retryAfter(error)).toBe(5000);
   await expect(read("docker:one", "/events?after=12")).rejects.toMatchObject({ status: 429, retryAfterMs: 5000 });
-  await expect(read("docker:one", "/conversations/thread/usage")).rejects.toMatchObject({ status: 429 });
+  await expect(read("docker:one", "/conversations/thread/memory")).rejects.toMatchObject({ status: 429 });
   expect(fetcher).toHaveBeenCalledTimes(1);
   await read("docker:two");
   await read();

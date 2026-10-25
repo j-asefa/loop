@@ -1,4 +1,4 @@
-import { useSourceApi, useSourceId, useSourceRead } from "./SourceContext";
+import { useSourceRoute, useSourceId, useSourceRouteRead } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -22,12 +22,12 @@ import {
   User,
   X,
 } from "lucide-react";
-import { apiInWorkspace } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import { RichText, Sheet } from "./components";
 import type { Agent } from "../shared/types";
-import type { UploadedFile } from "../shared/uploads";
 import {
   compactNumber,
   dayLabel,
@@ -281,7 +281,7 @@ export function QuotePartSheet({
 }
 
 /** A reminder Loop created, for the confirmation's link and Undo. */
-export type CreatedReminder = { id: string; replaced: string | null };
+export type CreatedReminder = Required<Pick<RouteResponse<typeof workspaceApi.laterCreate>, "id" | "replaced">>;
 
 /**
  * Remind me: time presets, "when it finishes", "next time I open the
@@ -348,17 +348,14 @@ export function LaterSheet({
       projectId: condition === "project_open" ? project?.id : undefined,
     };
     try {
-      const row = await apiInWorkspace<{
-        id: string;
-        replaced?: string | null;
-      }>(
-        itemId ? `/later/${itemId}/snooze` : "/later",
-        sourceId ?? scopedSource,
-        itemId ? trigger : { kind, targetId, ...trigger },
-      );
+      const created: CreatedReminder = itemId
+        ? await callRoute(workspaceApi.laterSnooze, { params: { id: itemId }, body: trigger }, sourceId ?? scopedSource)
+          .then(row => ({ id: row.id, replaced: null }))
+        : await callRoute(workspaceApi.laterCreate, { body: { kind, targetId, ...trigger } }, sourceId ?? scopedSource)
+          .then(row => ({ id: row.id, replaced: row.replaced ?? null }));
       if (!current()) return;
       window.dispatchEvent(new Event("loop-later-change"));
-      onDone(label, { id: row.id, replaced: row.replaced ?? null });
+      onDone(label, created);
       onClose();
     } catch (e) {
       if (current()) setError((e as Error).message);
@@ -440,22 +437,13 @@ export async function undoReminder(
   created: CreatedReminder,
   sourceId = executionSourceId(),
 ) {
-  await apiInWorkspace(`/later/${created.id}`, sourceId, undefined, "DELETE");
+  await callRoute(workspaceApi.laterFinish, { params: { id: created.id }, body: undefined }, sourceId);
   if (created.replaced)
-    await apiInWorkspace(
-      `/later/${created.replaced}/reopen`,
-      sourceId,
-      {},
-    ).catch(() => {});
+    await callRoute(workspaceApi.laterReopen, { params: { id: created.replaced }, body: {} }, sourceId).catch(() => {});
   window.dispatchEvent(new Event("loop-later-change"));
 }
 
-type OutlineItem = {
-  message_id: string;
-  kind: "prompt" | "result" | "approval" | "failure" | "saved";
-  preview: string;
-  created_at: number;
-};
+type OutlineItem = RouteResponse<typeof workspaceApi.conversationOutline>["items"][number];
 const outlineIcon = {
   prompt: <User size={17} />,
   result: <MessageSquareQuote size={17} />,
@@ -471,13 +459,7 @@ const outlineLabel = {
   saved: "Saved",
 };
 
-type ThreadMatch = {
-  message_id: string;
-  kind: "prompt" | "response" | "update" | "result" | "failure";
-  saved: boolean;
-  preview: string;
-  created_at: number;
-};
+type ThreadMatch = NonNullable<RouteResponse<typeof workspaceApi.conversationOutline>["matches"]>[number];
 const matchLabel = {
   prompt: "You",
   response: "Agent",
@@ -514,7 +496,7 @@ export function OutlineSheet({
   onJump: (messageId: string) => void;
   onClose: () => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const [items, setItems] = useState<OutlineItem[] | null>(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | OutlineItem["kind"]>("all");
@@ -525,7 +507,7 @@ export function OutlineSheet({
   const [searchAttempt, setSearchAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    api<{ items: OutlineItem[] }>(`/conversations/${conversationId}/outline`)
+    call(workspaceApi.conversationOutline, { params: { id: conversationId } })
       .then((result) => active && setItems(result.items))
       .catch((e) => active && setError((e as Error).message));
     return () => {
@@ -544,10 +526,8 @@ export function OutlineSheet({
     let active = true;
     setSearching(true);
     const timer = setTimeout(() => {
-      api<{ matches: ThreadMatch[] }>(
-        `/conversations/${conversationId}/outline?q=${encodeURIComponent(text)}`,
-      )
-        .then((result) => active && setMatches(result.matches))
+      call(workspaceApi.conversationOutline, { params: { id: conversationId }, query: { q: text } })
+        .then((result) => active && setMatches(result.matches ?? []))
         .catch((e) => active && setSearchError((e as Error).message))
         .finally(() => active && setSearching(false));
     }, 250);
@@ -720,7 +700,7 @@ export function ForkSheet({
   onClose: () => void;
   onForked: (conversationId: string, agentId: string) => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const choices = agents.filter((a) => a.connection_id && !a.retired_at);
   const [agentId, setAgentId] = useState(
     choices.find((a) => a.id === defaultAgentId)?.id || choices[0]?.id || "",
@@ -781,10 +761,7 @@ export function ForkSheet({
           setBusy(true);
           setError("");
           try {
-            const result = await api<{ id: string; agentId: string }>(
-              `/conversations/${conversationId}/fork`,
-              { messageId, agentId },
-            );
+            const result = await call(workspaceApi.conversationFork, { params: { id: conversationId }, body: { messageId, agentId } });
             onForked(result.id, result.agentId);
           } catch (e) {
             setError((e as Error).message);
@@ -799,20 +776,7 @@ export function ForkSheet({
   );
 }
 
-export type ScheduledSend = {
-  id: string;
-  /** The message's files, for putting it back into a draft. */
-  attachments?: UploadedFile[];
-  input: string;
-  send_at: number;
-  agent_id: string;
-  state: "scheduled" | "failed";
-  error: string | null;
-  conversation_id: string | null;
-  agent_name?: string | null;
-  conversation_title?: string | null;
-  folder_name?: string | null;
-};
+export type ScheduledSend = RouteResponse<typeof workspaceApi.scheduledSendList>["items"][number];
 
 /**
  * Change the text or time of a message that has not been sent yet. A
@@ -827,7 +791,7 @@ function EditScheduled({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const failed = item.state === "failed";
   const [text, setText] = useState(item.input);
   const [at, setAt] = useState(
@@ -886,11 +850,7 @@ function EditScheduled({
           setBusy(true);
           setError("");
           try {
-            await api(
-              `/scheduled-sends/${item.id}`,
-              { input: text, sendAt },
-              "PATCH",
-            );
+            await call(workspaceApi.scheduledSendUpdate, { params: { id: item.id }, body: { input: text, sendAt } });
             onSaved();
             onClose();
           } catch (e) {
@@ -930,8 +890,8 @@ export function ScheduledSends({
   /** Only messages that could not be sent (for Needs you). */
   failedOnly?: boolean;
 }) {
-  const api = useSourceApi();
-  const read = useSourceRead();
+  const call = useSourceRoute();
+  const read = useSourceRouteRead();
   const [all, setItems] = useState<ScheduledSend[]>([]);
   // Older messages that could not be sent load a page at a time.
   const [failedNext, setFailedNext] = useState<string | null>(null);
@@ -942,15 +902,11 @@ export function ScheduledSends({
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<ScheduledSend | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  type Page = { items: ScheduledSend[]; failed_next: string | null };
-  const query = (failedBefore?: string) => {
-    const q = new URLSearchParams();
-    if (conversationId) q.set("conversation", conversationId);
-    if (failedBefore) q.set("failedBefore", failedBefore);
-    return q.size ? `/scheduled-sends?${q}` as const : "/scheduled-sends";
-  };
+  const query = (failedBefore?: string): RouteInput<typeof workspaceApi.scheduledSendList>["query"] => ({
+    conversation: conversationId || undefined, failedBefore,
+  });
   const load = (signal?: AbortSignal) =>
-    (signal ? read<Page>(query(), signal) : api<Page>(query()))
+    (signal ? read(workspaceApi.scheduledSendList, { query: query() }, signal) : call(workspaceApi.scheduledSendList, { query: query() }))
       .then((result) => {
         if (signal?.aborted) return;
         setItems(result.items);
@@ -961,7 +917,7 @@ export function ScheduledSends({
   const loadOlder = async () => {
     if (!failedNext) return;
     try {
-      const page = await api<Page>(query(failedNext));
+      const page = await call(workspaceApi.scheduledSendList, { query: query(failedNext) });
       setItems((old) => {
         const failed = old.filter((item) => item.state === "failed");
         return [
@@ -998,12 +954,9 @@ export function ScheduledSends({
     setError("");
     try {
       if (action === "cancel")
-        await api(`/scheduled-sends/${item.id}`, undefined, "DELETE");
+        await call(workspaceApi.scheduledSendCancel, { params: { id: item.id }, body: undefined });
       else {
-        const result = await api<{
-          run: { id: string } | null;
-          row: ScheduledSend;
-        }>(`/scheduled-sends/${item.id}/retry`, {});
+        const result = await call(workspaceApi.scheduledSendRetry, { params: { id: item.id }, body: {} });
         if (!result.run)
           setError(result.row.error || "Loop could not send this message.");
       }

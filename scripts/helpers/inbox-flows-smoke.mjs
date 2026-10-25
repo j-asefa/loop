@@ -288,6 +288,17 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       .click();
     await expect(dialog()).toHaveAttribute("aria-label", "Remind me");
     await expect(dialog()).toContainText("Nothing is sent to an agent.");
+    let omittedReplacement = false;
+    const olderCreated = async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      const data = await response.json();
+      assert(Object.hasOwn(data, "replaced"));
+      delete data.replaced;
+      omittedReplacement = true;
+      await route.fulfill({ response, json: data });
+    };
+    await page.route("**/api/later", olderCreated);
     await dialog()
       .getByRole("button", { name: /^Tomorrow morning/ })
       .click();
@@ -295,6 +306,8 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(page.locator(".action-toast")).toContainText(
       "Reminder set: tomorrow morning.",
     );
+    assert(omittedReplacement);
+    await page.unroute("**/api/later", olderCreated);
     await expect(row(snoozed.title)).toHaveCount(1);
     await expect(row(target.title)).toHaveCount(1);
     await nav("Your profile").click();
@@ -306,6 +319,33 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(reminder.locator(".eyebrow")).toContainText("Reminder");
     await expect(reminder.locator(".subline")).toContainText("Tomorrow at");
     await capture("later-snoozed");
+    // Older linked sources omit these additions independently. Remove only
+    // that field from a real response, then render the production client.
+    for (const field of ["snoozes", "url"]) {
+      let omitted = 0;
+      const olderLater = async (route) => {
+        const response = await route.fetch();
+        const data = await response.json();
+        for (const item of [...data.due, ...data.upcoming]) {
+          assert(Object.hasOwn(item, field));
+          delete item[field];
+          omitted++;
+        }
+        await route.fulfill({ response, json: data });
+      };
+      await page.route("**/api/later", olderLater);
+      try {
+        await page.reload({ waitUntil: "networkidle" });
+        await laterTab("Reminders").click();
+        await expect.poll(() => omitted).toBeGreaterThan(0);
+        await expect(reminder).toHaveCount(1);
+        await expect(reminder.locator(".subline")).toContainText("Tomorrow at");
+        await expect(later.getByRole("alert")).toHaveCount(0);
+        await capture(`later-without-${field}`);
+      } finally {
+        await page.unroute("**/api/later", olderLater);
+      }
+    }
     await reminder
       .getByRole("button", {
         name: `Cancel reminder for ${snoozed.title}`,

@@ -6,6 +6,16 @@ import { designFixture } from "./design-fixture.mjs";
 // failed searches. Page overflow alone misses clipping inside modal sheets.
 export async function threadLayoutSmoke(page, capture) {
   const fixture = await designFixture();
+  const usagePattern = /\/api\/conversations\/[^/]+\/usage$/;
+  let omittedMemory = 0;
+  const olderUsage = async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    assert(Array.isArray(data.memory));
+    delete data.memory;
+    omittedMemory++;
+    await route.fulfill({ response, json: data });
+  };
   try {
     const id = fixture.conversations[0].id;
     const usageRun = fixture.db.prepare("SELECT id FROM runs WHERE conversation_id=? LIMIT 1").get(id).id;
@@ -13,6 +23,9 @@ export async function threadLayoutSmoke(page, capture) {
       "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'native.usage',?,?)",
     ).run(fixture.owner, usageRun, JSON.stringify({ usage: { input_tokens: input, output_tokens: output } }), Date.now());
     recordUsage(1200, 300);
+    fixture.db.prepare("INSERT INTO memory_receipts VALUES(?,'shared','[]',5,?)").run(usageRun, Date.now());
+    assert((await fixture.api(`/conversations/${id}/usage`)).memory.includes(usageRun));
+    await page.route(usagePattern, olderUsage);
     const first = fixture.db
       .prepare(
         "SELECT id FROM messages WHERE conversation_id=? ORDER BY created_at LIMIT 1",
@@ -37,6 +50,8 @@ export async function threadLayoutSmoke(page, capture) {
         await page.goto(`${fixture.base}/?conversation=${id}`);
         const usage = page.locator(".conversation-sheet .message-foot .usage-line");
         await expect(usage).toHaveText("1.2k in · 300 out tokens");
+        assert(omittedMemory > 0);
+        await expect(page.getByText("Memory used", { exact: true })).toHaveCount(0);
         await expect(page.locator(".conversation-sheet .sheet-head .usage-line")).toHaveCount(0);
         const pill = page.getByRole("group", { name: "Thread position" });
         await expect(
@@ -125,6 +140,7 @@ export async function threadLayoutSmoke(page, capture) {
       "Thread search bounds, failure recovery, plural counts and reading controls passed in both themes at 320/390/768px",
     );
   } finally {
+    await page.unroute(usagePattern, olderUsage);
     await page.goto("about:blank");
     await page.emulateMedia({ colorScheme: "light" });
     await fixture.close();

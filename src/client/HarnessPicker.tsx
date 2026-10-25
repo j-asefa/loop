@@ -1,11 +1,11 @@
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceApi, useSourceRoute } from "./SourceContext";
+import { useSourceId, useSourceRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "./components";
 
 type Catalog = RouteResponse<typeof workspaceApi.agentHarness>;
-type Snippet = { id: string; title: string; content: string };
+type Snippet = RouteResponse<typeof workspaceApi.snippetList>["items"][number];
 /**
  * A snippet's own name, or nothing when its title is just the start of its
  * text (as "Save as snippet" makes them), so the text isn't shown twice.
@@ -31,7 +31,6 @@ export function HarnessPicker({
   focusInput: () => void;
   compact?: boolean;
 }) {
-  const api = useSourceApi();
   const route = useSourceRoute();
   const sourceId = useSourceId();
   const [snippets, setSnippets] = useState<Snippet[] | null>(null),
@@ -50,7 +49,7 @@ export function HarnessPicker({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    api<{ items: Snippet[] }>("/snippets")
+    route(workspaceApi.snippetList, {})
       .then((result) => active && setSnippets(result.items))
       .catch(() => active && setSnippets([]));
     return () => {

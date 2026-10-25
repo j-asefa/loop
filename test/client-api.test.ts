@@ -89,9 +89,9 @@ it("opens old workspace links through the source route", async () => {
   vi.stubGlobal("location", { search: `?workspace=docker:${id}` });
   const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }));
   vi.stubGlobal("fetch", fetcher);
-  await api("/conversations/old-thread/usage");
+  await api("/conversations/old-thread/memory");
   expect(fetcher.mock.calls[0][0]).toBe(
-    `/api/agent-sources/docker%3A${id}/conversations/old-thread/usage`,
+    `/api/agent-sources/docker%3A${id}/conversations/old-thread/memory`,
   );
 });
 it("keeps the paired session when one source refuses authentication", async () => {

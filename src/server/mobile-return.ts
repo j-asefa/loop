@@ -1,3 +1,8 @@
+import {
+  PositionInput, FeedUpdateInput, SavedLabelInput, LaterInput as laterInput,
+  ScheduleInput as scheduleInput, ScheduleUpdateInput, RunReorderInput,
+  QueuedRunInput, RunWithdrawInput, RunMoveInput, ConversationForkInput,
+} from "../shared/mobile-contract-schemas.js";
 import { MessageMetadata, parseMessages } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -21,9 +26,8 @@ import {
 import { submit } from "./agent-runtime.js";
 import { transition, type Run } from "./queue.js";
 import { runPreview } from "./run-attention.js";
-import { attachedFiles, attachmentIds } from "./uploads.js";
+import { attachedFiles } from "./uploads.js";
 import { messageReplyContext } from "./message-replies.js";
-import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { savedStory, unreadCount } from "./news.js";
 
@@ -132,9 +136,7 @@ export function savePosition(
   conversation: string,
   body: unknown,
 ) {
-  const { positionMessageId } = z
-    .object({ positionMessageId: z.string().min(1).max(150).nullable() })
-    .parse(body ?? {});
+  const { positionMessageId } = PositionInput.parse(body ?? {});
   return db
     .transaction(() => {
       const c = ownedConversation(conversation, owner);
@@ -513,15 +515,7 @@ export function setDoneCardHidden(
   conversation: string,
   body: unknown,
 ) {
-  const { hidden, cardKey } = z
-    .object({
-      hidden: z.boolean(),
-      cardKey: z
-        .string()
-        .regex(/^(run|message):.+$/)
-        .max(200),
-    })
-    .parse(body);
+  const { hidden, cardKey } = FeedUpdateInput.parse(body);
   return db
     .transaction(() => {
       ownedConversation(conversation, owner);
@@ -1013,16 +1007,7 @@ export function listSaved(
  * item the owner currently has saved can be labelled.
  */
 export function setSavedLabel(owner: string, body: unknown) {
-  const d = z
-    .object({
-      key: z
-        .string()
-        .regex(/^[ma]:/)
-        .min(3)
-        .max(160),
-      label: z.string().trim().max(40),
-    })
-    .parse(body);
+  const d = SavedLabelInput.parse(body);
   return db
     .transaction(() => {
       const target = d.key.slice(2);
@@ -1246,13 +1231,6 @@ type LaterItem = {
   done_at: number | null;
   snoozes: number;
 };
-const laterInput = z.object({
-  kind: z.enum(["conversation", "artifact", "message", "story"]),
-  targetId: z.string().min(1).max(150),
-  condition: z.enum(["time", "run_finished", "project_open"]),
-  dueAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  projectId: z.string().min(1).max(150).optional(),
-});
 const YEAR = 366 * 24 * 60 * 60 * 1000;
 
 function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
@@ -1594,22 +1572,6 @@ export function surfaceLater(time = now()) {
 // ---------------------------------------------------------------------------
 // 6. Scheduled sends
 const MONTH = 30 * 24 * 60 * 60 * 1000;
-const scheduleInput = z
-  .object({
-    agentId: z.string().min(1).max(150),
-    conversationId: z.string().min(1).max(150).optional(),
-    folderId: z.string().min(1).max(150).nullable().optional(),
-    input: z.string().trim().min(1).max(30000),
-    attachmentIds,
-    replyToMessageId: z.string().min(1).max(150).optional(),
-    replyExcerpt: z.string().trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
-    idempotencyKey: z.string().min(8).max(150),
-    sendAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  })
-  .refine((d) => !d.replyExcerpt || d.replyToMessageId, {
-    message: "Choose the message the excerpt comes from",
-    path: ["replyExcerpt"],
-  });
 type ScheduledSend = {
   id: string;
   owner_id: string;
@@ -1825,17 +1787,7 @@ export function editScheduledSend(
   sendId: string,
   body: unknown,
 ) {
-  const d = z
-    .object({
-      input: z.string().trim().min(1).max(30000).optional(),
-      sendAt: z
-        .number()
-        .int()
-        .positive()
-        .max(Number.MAX_SAFE_INTEGER)
-        .optional(),
-    })
-    .parse(body ?? {});
+  const d = ScheduleUpdateInput.parse(body ?? {});
   return db
     .transaction(() => {
       const row = scheduledSend(owner, sendId);
@@ -1980,9 +1932,7 @@ function editable(run: Pick<Run, "id" | "worker_id" | "active_since"> & { state:
 }
 
 export function reorderRun(owner: string, runId: string, body: unknown) {
-  const { direction } = z
-    .object({ direction: z.enum(["up", "down"]) })
-    .parse(body);
+  const { direction } = RunReorderInput.parse(body);
   return db
     .transaction(() => {
       const run = ownedRun(runId, owner);
@@ -2022,9 +1972,7 @@ export function reorderRun(owner: string, runId: string, body: unknown) {
 }
 
 export function editQueuedRun(owner: string, runId: string, body: unknown) {
-  const { input } = z
-    .object({ input: z.string().trim().min(1).max(30000) })
-    .parse(body);
+  const { input } = QueuedRunInput.parse(body);
   return db
     .transaction(() => {
       const run = ownedRun(runId, owner);
@@ -2057,14 +2005,7 @@ export function withdrawQueuedRun(
 ) {
   // The files already in the draft it goes back to: the run is only
   // cancelled if its own files fit beside them.
-  const { draftAttachmentIds } = z
-    .object({
-      draftAttachmentIds: z
-        .array(z.string().min(1).max(150))
-        .max(MAX_MESSAGE_FILES)
-        .default([]),
-    })
-    .parse(body ?? {});
+  const { draftAttachmentIds } = RunWithdrawInput.parse(body ?? {});
   return db
     .transaction(() => {
       const run = ownedRun(runId, owner);
@@ -2109,12 +2050,7 @@ export function withdrawQueuedRun(
 }
 
 export function moveQueuedRun(owner: string, runId: string, body: unknown) {
-  const d = z
-    .object({
-      agentId: z.string().min(1).max(150),
-      idempotencyKey: z.string().min(8).max(150),
-    })
-    .parse(body);
+  const d = RunMoveInput.parse(body);
   return db
     .transaction(() => {
       const run = ownedRun(runId, owner);
@@ -2161,12 +2097,7 @@ export function forkConversation(
   conversation: string,
   body: unknown,
 ) {
-  const d = z
-    .object({
-      messageId: z.string().min(1).max(150),
-      agentId: z.string().min(1).max(150).optional(),
-    })
-    .parse(body);
+  const d = ConversationForkInput.parse(body);
   return db
     .transaction(() => {
       const c = ownedConversation(conversation, owner);

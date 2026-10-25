@@ -300,6 +300,12 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       return route.fulfill({contentType:"text/plain",body:"Wrong local attachment"});
     });
     const remoteEntry = (await (await page.request.get(`${fixture.base}/api/v1/cards?view=done&limit=1`)).json()).items[0];
+    // Capture production acknowledgements before substituting remote IDs,
+    // and restore the local fixture's original saved state.
+    const receiptPath = `/messages/${remoteEntry.card.display.last_message.id}/saved`;
+    const saveReceipt = await fixture.api(receiptPath, {});
+    const unsaveReceipt = await fixture.api(receiptPath, undefined, "DELETE");
+    if (remoteEntry.card.saved) await fixture.api(receiptPath, {});
     remoteEntry.card.id = "d:run:remote-run";
     remoteEntry.card.source.conversation_id = "remote-thread";
     remoteEntry.card.source.run_id = "remote-run";
@@ -335,7 +341,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         remoteActions.push(saved ? "save" : "unsave");
         if (!saved) remoteWorking = 3;
         remoteEntry.card.saved = remoteEntry.card.display.last_message.saved = saved;
-        return route.fulfill({json: {ok:true}});
+        return route.fulfill({json: saved ? saveReceipt : unsaveReceipt});
       }
       if (path.includes("/v1/cards")) return route.fulfill(remoteLegacy
         ? {status: 400, json: {error: "Unsupported view"}}

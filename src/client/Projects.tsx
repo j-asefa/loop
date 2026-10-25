@@ -15,6 +15,9 @@ import {
   Workflow,
 } from "lucide-react";
 import { api } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { Chip } from "./ThreadTools";
@@ -37,15 +40,7 @@ const historyRoutes: [Exclude<ProjectHistory, "search">, string, ReactNode][] =
     ["unfinished", "Unfinished work", <CircleDashed size={16} key="u" />],
   ];
 
-type Summary = {
-  id: string;
-  name: string;
-  agents: number;
-  last_activity_at: number | null;
-  working: number;
-  needs: number;
-  latest_result: { id: string; title: string; created_at: number } | null;
-};
+type Summary = RouteResponse<typeof workspaceApi.projectSummaries>["items"][number];
 
 export function Projects({
   folders,
@@ -150,7 +145,7 @@ export function Projects({
   const projectAgents = current ? members(current.id) : [];
   useEffect(() => {
     let active = true;
-    api<{ items: Summary[] }>("/projects/summary")
+    callRoute(workspaceApi.projectSummaries, {}, executionSourceId())
       .then((result) => active && setSummary(result.items))
       .catch(() => {});
     return () => {
@@ -160,8 +155,8 @@ export function Projects({
   // Opening a project brings back anything snoozed "until I open this project".
   useEffect(() => {
     if (!selected) return;
-    void api(`/projects/${selected}/opened`, {})
-      .then((result: { surfaced?: number }) => {
+    void callRoute(workspaceApi.projectOpened, { params: { id: selected }, body: {} }, executionSourceId())
+      .then((result) => {
         if (result?.surfaced)
           window.dispatchEvent(new Event("loop-later-change"));
       })

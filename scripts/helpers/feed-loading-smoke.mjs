@@ -100,7 +100,9 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
       const method = route.request().method();
       savedWrites.push({ source: source.id, method });
       savedBySource.set(source.id, method === "POST");
-      return fulfill(route, { ok: true });
+      // Use the production acknowledgement, including its saved boolean.
+      // A fabricated Ok-only receipt would be an uncertain contract response.
+      return fulfill(route, await fixture.api("/" + match[2], method === "POST" ? {} : undefined, method));
     }
     if (match[2] === `runs/${working.items[0].run.id}/pause`) {
       pauseReads++;

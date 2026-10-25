@@ -1,4 +1,5 @@
 import { z } from "zod";
+import * as mobile from "./mobile-contract-schemas.js";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
 import { PersonalDecisionsQuery, PersonalDecisionsPageSchema } from "./personal-decisions.js";
 import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage } from "./personal-schemas.js";
@@ -130,6 +131,8 @@ const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_
 export type RouteContract = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
   status?: number;
+  // Other success statuses the handler writes (for example an accepted replay).
+  additionalStatuses?: readonly number[];
   kind?: "stream";
   contentType?: string;
   access: "session" | "card:results" | "card:cards";
@@ -176,6 +179,37 @@ export const workspaceApi = {
   personalProfile: endpoint({ ...base, method: "GET", path: "/me/profile", response: PublicProfile }),
   personalProfileUpdate: endpoint({ ...base, method: "PUT", path: "/me/profile", body: ProfileInput, response: PublicProfile }),
   personalPrompts: endpoint({ ...base, method: "GET", path: "/me/prompts", query: PersonalPromptsQuery, response: PersonalPromptsPage }),
+  conversationPosition: endpoint({ ...base, method: "PUT", path: "/conversations/:id/position", params: Id, body: mobile.PositionInput, response: z.object({ position_message_id: MaybeText }) }),
+  feedUpdate: endpoint({ ...base, method: "PATCH", path: "/feed/:id", params: Id, body: mobile.FeedUpdateInput, response: Ok }),
+  feedAway: endpoint({ ...base, method: "GET", path: "/feed/away", query: z.object({ since: NumberCursor.default(0) }), response: mobile.PublicAway }),
+  messageSave: endpoint({ ...base, method: "POST", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
+  messageUnsave: endpoint({ ...base, method: "DELETE", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
+  savedList: endpoint({ ...base, method: "GET", path: "/saved", query: z.object({ before: Text.max(500).optional(), folder: Text.max(150).optional(), teams: Teams, q: Text.max(200).optional() }), response: z.object({ items: z.array(z.discriminatedUnion("kind", [
+    // Sources before Saved labels (#40, 74d4971a) omit the envelope label.
+    z.object({ kind: z.literal("message"), key: Text, saved_at: Time, label: MaybeText.optional(), message: mobile.PublicSavedMessage }),
+    z.object({ kind: z.literal("result"), key: Text, saved_at: Time, label: MaybeText.optional(), result: PublicArtifact.extend({ team_id: MaybeText }) }),
+  ])), next: MaybeText }) }),
+  savedLabel: endpoint({ ...base, method: "PUT", path: "/saved/label", body: mobile.SavedLabelInput, response: z.object({ key: Text, label: MaybeText }) }),
+  conversationOutline: endpoint({ ...base, method: "GET", path: "/conversations/:id/outline", params: Id, query: z.object({ q: Text.max(200).optional() }), response: mobile.PublicOutline }),
+  laterCreate: endpoint({ ...base, method: "POST", path: "/later", body: mobile.LaterInput, response: mobile.PublicCreatedLater, status: 201 }),
+  laterList: endpoint({ ...base, method: "GET", path: "/later", response: mobile.PublicLaterList }),
+  laterFinish: endpoint({ ...base, method: "DELETE", path: "/later/:id", params: Id, body: z.unknown(), response: Ok }),
+  laterSnooze: endpoint({ ...base, method: "POST", path: "/later/:id/snooze", params: Id, body: mobile.LaterInput.pick({ condition: true, dueAt: true, projectId: true }), response: mobile.PublicLater }),
+  laterReopen: endpoint({ ...base, method: "POST", path: "/later/:id/reopen", params: Id, body: z.unknown(), response: mobile.PublicLater }),
+  projectOpened: endpoint({ ...base, method: "POST", path: "/projects/:id/opened", params: Id, body: z.unknown(), response: z.object({ surfaced: z.number() }) }),
+  projectSummaries: endpoint({ ...base, method: "GET", path: "/projects/summary", response: mobile.PublicProjectSummaries }),
+  scheduledSendCreate: endpoint({ ...base, method: "POST", path: "/scheduled-sends", body: mobile.ScheduleInput, response: mobile.PublicScheduledSend, status: 201, additionalStatuses: [200] }),
+  scheduledSendList: endpoint({ ...base, method: "GET", path: "/scheduled-sends", query: z.object({ conversation: Text.min(1).max(150).optional(), failedBefore: Text.max(500).optional() }), response: mobile.PublicScheduledList }),
+  scheduledSendCancel: endpoint({ ...base, method: "DELETE", path: "/scheduled-sends/:id", params: Id, body: z.unknown(), response: Ok }),
+  scheduledSendUpdate: endpoint({ ...base, method: "PATCH", path: "/scheduled-sends/:id", params: Id, body: mobile.ScheduleUpdateInput.optional(), response: mobile.PublicScheduledSend }),
+  scheduledSendRetry: endpoint({ ...base, method: "POST", path: "/scheduled-sends/:id/retry", params: Id, body: z.unknown(), response: z.object({ run: PublicRun.nullable(), row: mobile.PublicScheduledSend }) }),
+  runReorder: endpoint({ ...base, method: "POST", path: "/runs/:id/reorder", params: Id, body: mobile.RunReorderInput, response: Ok }),
+  runUpdate: endpoint({ ...base, method: "PATCH", path: "/runs/:id", params: Id, body: mobile.QueuedRunInput, response: Ok }),
+  runWithdraw: endpoint({ ...base, method: "POST", path: "/runs/:id/withdraw", params: Id, body: mobile.RunWithdrawInput.optional(), response: mobile.PublicWithdrawnDraft }),
+  runMove: endpoint({ ...base, method: "POST", path: "/runs/:id/move", params: Id, body: mobile.RunMoveInput, response: PublicRun, status: 202 }),
+  conversationFork: endpoint({ ...base, method: "POST", path: "/conversations/:id/fork", params: Id, body: mobile.ConversationForkInput, response: z.object({ id: Text, agentId: Text }) }),
+  conversationUsage: endpoint({ ...base, method: "GET", path: "/conversations/:id/usage", params: Id, response: mobile.PublicUsage }),
+  snippetList: endpoint({ ...base, method: "GET", path: "/snippets", response: mobile.PublicSnippets }),
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
   feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),

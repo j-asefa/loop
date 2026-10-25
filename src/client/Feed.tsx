@@ -1,6 +1,5 @@
 import type { CardReadTransport } from "../shared/card-client";
-import type { LegacyClientPath } from "./legacy-paths";
-import { workspaceApi, type RouteInput } from "../shared/workspace-api";
+import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import { DoneCardsReader } from "./feed-cards";
 import type { CardWindow } from "./card-pager";
@@ -191,15 +190,7 @@ type Summary = {
   scheduled_pending?: number;
   social_unread?: number;
 };
-type AwayItem = {
-  sourceId?: string;
-  conversation_id: string;
-  title: string;
-  agent_name: string | null;
-  run_id: string;
-  state: string;
-  updated_at: number;
-};
+type AwayItem = RouteResponse<typeof workspaceApi.feedAway>["completed"][number] & { sourceId?: string };
 
 export const feedFilters: { id: FeedFilter; label: string }[] = [
   // Done keeps each completed result; open work has its own chip.
@@ -697,11 +688,7 @@ function AwaySummary({
       void Promise.allSettled(
         sources.map(async (source) => ({
           source,
-          result: await apiInWorkspace<{
-            completed: AwayItem[];
-            needs: AwayItem[];
-            failed: AwayItem[];
-          }>(`/feed/away?since=${since}`, source.id),
+          result: await callRoute(workspaceApi.feedAway, { query: { since: String(since) } }, source.id),
         })),
       ).then((settled) => {
         const loaded = settled.flatMap((entry) =>
@@ -844,12 +831,9 @@ export function EditQueued({
           setBusy(true);
           setError("");
           try {
-            await apiInWorkspace(
-              `/runs/${message.id}`,
-              message.sourceId ?? scopedSource,
-              { input: text },
-              "PATCH",
-            );
+            await callRoute(workspaceApi.runUpdate, {
+              params: { id: message.id }, body: { input: text },
+            }, message.sourceId ?? scopedSource);
             onSaved();
             onClose();
           } catch (e) {
@@ -915,15 +899,10 @@ function MoveQueued({
         onClick={async () => {
           setError("");
           try {
-            const result = await apiInWorkspace<{ conversation_id: string }>(
-              `/runs/${message.id}/move`,
-              message.sourceId ?? scopedSource,
-              {
-                agentId,
-                idempotencyKey: key.current,
-              },
-            );
-            onMoved(result.conversation_id);
+            const result = await callRoute(workspaceApi.runMove, {
+              params: { id: message.id }, body: { agentId, idempotencyKey: key.current },
+            }, message.sourceId ?? scopedSource);
+            onMoved(result.conversation_id ?? undefined);
             onClose();
           } catch (e) {
             setError((e as Error).message);
@@ -1614,13 +1593,16 @@ export function Feed({
   }, [filter, project, teams, agent, sourceKey]);
   async function runAction(
     runId: string,
-    action: string,
-    sourceId: string,
-    body = {},
+    ...command: [action: "reorder", sourceId: string, body: RouteInput<typeof workspaceApi.runReorder>["body"]]
+      | [action: "cancel" | "pause" | "resume" | "dismiss", sourceId: string]
   ) {
+    const [action, sourceId, body] = command;
     const owner = viewOwner();
     try {
-      await callRoute(workspaceApi.runAction, { params: { id: runId, action }, body }, sourceId);
+      if (action === "reorder")
+        await callRoute(workspaceApi.runReorder, { params: { id: runId }, body }, sourceId);
+      else
+        await callRoute(workspaceApi.runAction, { params: { id: runId, action }, body: {} }, sourceId);
       if (owner !== viewOwner()) return;
       if (action === "dismiss") {
         // Discard an older Needs read and remove exactly the acknowledged
@@ -1645,6 +1627,7 @@ export function Feed({
   }
   async function dismissDoneCard(item: FeedItem) {
     if (filter !== "done" || !item.done_card_key) return;
+    const cardKey = item.done_card_key;
     const owner = viewOwner(), key = shownKey();
     const source = item.sourceId ?? scopedSource;
     const current = () => owner === viewOwner() &&
@@ -1678,12 +1661,9 @@ export function Feed({
       }
     };
     try {
-      await apiInWorkspace(
-        `/feed/${item.conversation_id}`,
-        source,
-        { hidden: true, cardKey: item.done_card_key },
-        "PATCH",
-      );
+      await callRoute(workspaceApi.feedUpdate, {
+        params: { id: item.conversation_id }, body: { hidden: true, cardKey },
+      }, source);
       if (owner !== viewOwner()) return;
       updateCard(true);
       update((old) =>
@@ -1698,12 +1678,9 @@ export function Feed({
         text: "Removed from Done.",
         undo: async () => {
           if (owner !== viewOwner()) return;
-          await apiInWorkspace(
-            `/feed/${item.conversation_id}`,
-            source,
-            { hidden: false, cardKey: item.done_card_key },
-            "PATCH",
-          );
+          await callRoute(workspaceApi.feedUpdate, {
+            params: { id: item.conversation_id }, body: { hidden: false, cardKey },
+          }, source);
           updateCard(false);
           update((old) => [...old.filter((row) => feedItemKey(row) !== feedItemKey(item)), item].sort(feedItemOrder));
           if (current()) await load();
@@ -1758,12 +1735,9 @@ export function Feed({
     messageId: string,
     saved: boolean,
   ) {
-    await apiInWorkspace(
-      `/messages/${messageId}/saved`,
-      item.sourceId ?? scopedSource,
-      saved ? {} : undefined,
-      saved ? "POST" : "DELETE",
-    );
+    await callRoute(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
+      params: { id: messageId }, body: saved ? {} : undefined,
+    }, item.sourceId ?? scopedSource);
     window.dispatchEvent(new Event("loop-later-change"));
   }
   /**

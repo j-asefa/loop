@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   SourceProvider,
-  useSourceApi,
   useSourceCapabilities,
   useSourcePath,
   useSourceRoute,
@@ -48,13 +47,11 @@ it("binds conversation actions and file URLs to their source across later naviga
   const fetch = vi.fn(async (_path: string, _init?: RequestInit) => ({
     ok: true,
     redirected: false,
-    json: async () => _path.includes("/native/decisions/") ? { state: "resolved" } : _path.includes("/connections/") ? { models: [] } : {},
+    json: async () => _path.includes("/native/decisions/") ? { state: "resolved" } : _path.includes("/connections/") ? { models: [] } : { ok: true },
   }));
   vi.stubGlobal("fetch", fetch);
-  let captured!: ReturnType<typeof useSourceApi>;
   let typed!: ReturnType<typeof useSourceRoute>;
   function Controls() {
-    captured = useSourceApi();
     typed = useSourceRoute();
     const path = useSourcePath();
     const capabilities = useSourceCapabilities();
@@ -69,7 +66,6 @@ it("binds conversation actions and file URLs to their source across later naviga
       <Controls />
     </SourceProvider>,
   );
-  const remoteAction = captured;
   const remoteTypedAction = typed;
   expect(html).toContain(
     "/api/agent-sources/docker%3Aalpha/artifacts/same/file",
@@ -83,7 +79,7 @@ it("binds conversation actions and file URLs to their source across later naviga
     search: "?source=docker:beta",
     href: "https://loop.test/?source=docker:beta",
   });
-  await remoteAction("/runs/same/cancel", {});
+  await remoteTypedAction(workspaceApi.runAction, { params: { id: "same", action: "cancel" }, body: {} });
   expect(fetch.mock.calls[0][0]).toBe(
     "/api/agent-sources/docker%3Aalpha/runs/same/cancel",
   );

@@ -1,8 +1,8 @@
-import { workspaceApi, type ConversationPage, type RouteInput } from "../shared/workspace-api";
+import { workspaceApi, type ConversationPage, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { readRoute, UnavailableResponse } from "./workspace-api";
 import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceApi, useSourceId, useProjectionRead, useSourceRoute } from "./SourceContext";
+import { useSourceApi, useSourceId, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -90,7 +90,6 @@ import {
   timeLabel,
 } from "./threadView";
 
-type Usage = { input_tokens: number; output_tokens: number };
 export type ThreadWork = {
   state: string;
   /** A reply now is delivered to the running task (steering). */
@@ -207,7 +206,7 @@ function ConversationView({
 }) {
   const api = useSourceApi();
   const call = useSourceRoute();
-  const read = useProjectionRead();
+  const readUsage = useProjectionRoute();
   // The thread's pull request, for the chip on its final message. "No PR
   // linked" is said only once the list is confirmed, and the chip opens the
   // pull request only on the shell's own source, which the Pull requests
@@ -262,9 +261,7 @@ function ConversationView({
     [usageData, setUsage] = useState<{
       conversationId: string;
       sourceId: string;
-      runs: Record<string, Usage>;
-      memory?: string[];
-    } | null>(null),
+    } & RouteResponse<typeof workspaceApi.conversationUsage> | null>(null),
     [jump, setJump] = useState<string | null>(null),
     // How the current jump started: reopening at the reading position, or
     // going to a specific message (which is highlighted).
@@ -411,7 +408,7 @@ function ConversationView({
     const signature = JSON.stringify(body);
     if (positionSent.current === signature) return;
     positionSent.current = signature;
-    void api(`/conversations/${id}/position`, body, "PUT").catch(() => {
+    void call(workspaceApi.conversationPosition, { params: { id }, body }).catch(() => {
       positionSent.current = "";
     });
   }
@@ -683,7 +680,7 @@ function ConversationView({
     let latest = 0;
     const refresh = () => {
       const request = ++latest;
-      return read(`/conversations/${id}/usage`)
+      return readUsage(workspaceApi.conversationUsage, { params: { id } })
         .then((result) => {
           if (active && request === latest)
             setUsage({ ...result, conversationId: id, sourceId });
@@ -830,11 +827,9 @@ function ConversationView({
     });
   }
   async function setSavedOnServer(messageId: string, saved: boolean) {
-    await api(
-      `/messages/${messageId}/saved`,
-      saved ? {} : undefined,
-      saved ? "POST" : "DELETE",
-    );
+    await call(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
+      params: { id: messageId }, body: saved ? {} : undefined,
+    });
     window.dispatchEvent(new Event("loop-later-change"));
   }
   /**

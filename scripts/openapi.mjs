@@ -179,7 +179,7 @@ for (const [name, route] of Object.entries(workspaceApi)) {
           },
         }
       : {}),
-    responses: { [route.status ?? 200]: response, ...errors },
+    responses: { ...Object.fromEntries([route.status ?? 200, ...(route.additionalStatuses ?? [])].map(status => [status, response])), ...errors },
   };
   paths[path] ||= {};
   paths[path][method] = operation;

@@ -11,8 +11,10 @@ import {
   Search,
   Tag,
 } from "lucide-react";
-import { api } from "./api";
-import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
+import { useSourceApi, useSourceId, useProjectionRoute, useSourceRoute } from "./SourceContext";
 import { useCards } from "./useCards";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact, cardMessage } from "./card-actions";
@@ -34,26 +36,7 @@ import {
 } from "./threadView";
 import { notify } from "./toast";
 
-type LaterView = {
-  id: string;
-  kind: "conversation" | "artifact" | "message" | "story";
-  target_id: string;
-  condition: "time" | "run_finished" | "project_open";
-  due_at: number | null;
-  surfaced_at: number | null;
-  created_at: number;
-  snoozes?: number;
-  title: string;
-  preview: string;
-  content?: string;
-  provider: string | null;
-  conversation_id: string | null;
-  message_id: string | null;
-  agent_name: string | null;
-  project_name: string | null;
-  /** Where a saved story is, which is outside Loop. */
-  url?: string | null;
-};
+type LaterView = RouteResponse<typeof workspaceApi.laterList>["due"][number];
 export type SavedMessage = {
   message_id: string;
   conversation_id: string;
@@ -186,7 +169,7 @@ function LabelSheet({
   onClose: () => void;
   onSaved: (label: string | null) => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const owner = useRef(viewOwner());
   const alive = useRef(true);
   useEffect(() => {
@@ -208,11 +191,7 @@ function LabelSheet({
           setBusy(true);
           setError("");
           try {
-            const saved = await api<{ label: string | null }>(
-              "/saved/label",
-              { key: item.key, label },
-              "PUT",
-            );
+            const saved = await call(workspaceApi.savedLabel, { body: { key: item.key, label } });
             if (!current()) return;
             onSaved(saved.label);
             onClose();
@@ -287,6 +266,7 @@ function SavedCollection({
   searchLabel = "Search Saved",
 }: SavedListProps) {
   const api = useSourceApi();
+  const call = useSourceRoute();
   const source = useSourceId();
   const owner = viewOwner();
   const queryKey =
@@ -350,13 +330,11 @@ function SavedCollection({
         // The originating source stays captured even if Undo outlives navigation.
         void (async () => {
           if (viewOwner() !== owner) return;
-          if (item.card.type === "message")
-            await api(
-              `/messages/${item.card.source.message_id}/saved`,
-              undefined,
-              "DELETE",
-            );
-          else {
+          if (item.card.type === "message") {
+            const messageId = item.card.source.message_id;
+            if (!messageId) throw new Error("Saved message is unavailable.");
+            await call(workspaceApi.messageUnsave, { params: { id: messageId }, body: undefined });
+          } else {
             const current = await api<Artifact>(
               `/artifacts/${item.card.source.artifact_id}`,
             );
@@ -526,8 +504,8 @@ export function Later({
   ) => ReactNode;
 }) {
   const sourceId = useSourceId();
-  const read = useProjectionRead();
-  type Reminders = { due: LaterView[]; upcoming: LaterView[] };
+  const read = useProjectionRoute();
+  type Reminders = RouteResponse<typeof workspaceApi.laterList>;
   const shown = cachedView<Reminders>("later:reminders");
   const [later, setLater] = useState<Reminders | null>(shown || null);
   const [failed, setFailed] = useState(0);
@@ -568,8 +546,8 @@ export function Later({
     const owner = viewOwner();
     try {
       const [items, scheduled] = await Promise.all([
-        read<Reminders>("/later"),
-        read<{ items: { state: string }[] }>("/scheduled-sends"),
+        read(workspaceApi.laterList, {}),
+        read(workspaceApi.scheduledSendList, {}),
       ]);
       if (owner !== viewOwner()) return;
       setLater(items);
@@ -610,13 +588,13 @@ export function Later({
   }
   async function done(item: LaterView, due: boolean) {
     try {
-      await api(`/later/${item.id}`, undefined, "DELETE");
+      await callRoute(workspaceApi.laterFinish, { params: { id: item.id }, body: undefined }, executionSourceId());
       window.dispatchEvent(new Event("loop-later-change"));
       // Undo reopens this same reminder: Done is a state, not a deletion.
       notify({
         text: due ? "Marked done." : "Reminder cancelled.",
         undo: async () => {
-          await api(`/later/${item.id}/reopen`, {});
+          await callRoute(workspaceApi.laterReopen, { params: { id: item.id }, body: {} }, executionSourceId());
           window.dispatchEvent(new Event("loop-later-change"));
         },
       });

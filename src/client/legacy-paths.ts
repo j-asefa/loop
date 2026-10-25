@@ -23,15 +23,9 @@ type Path =
   | `/capabilities`
   | `/conversations/${string}/activities`
   | `/conversations/${string}/continue`
-  | `/conversations/${string}/fork`
   | `/conversations/${string}/memory`
   | `/conversations/${string}/native`
-  | `/conversations/${string}/outline`
-  | `/conversations/${string}/position`
-  | `/conversations/${string}/usage`
   | `/events`
-  | `/feed/${string}`
-  | `/feed/away`
   | `/folders`
   | `/folders/${string}`
   | `/github/pulls`
@@ -46,10 +40,6 @@ type Path =
   | `/imports/${string}/cancel`
   | `/imports/${string}/start`
   | `/imports/preview`
-  | `/later`
-  | `/later/${string}`
-  | `/later/${string}/reopen`
-  | `/later/${string}/snooze`
   | `/mcp`
   | `/mcp-sharing`
   | `/mcp/${string}`
@@ -66,7 +56,6 @@ type Path =
   | `/memory/notes/${string}`
   | `/memory/policy`
   | `/memory/sources/${string}`
-  | `/messages/${string}/saved`
   | `/native/history`
   | `/native/history/${string}`
   | `/native/history/${string}/fork`
@@ -78,31 +67,24 @@ type Path =
   | `/pr-watches/${string}`
   | `/pr-watches/${string}/resume`
   | `/preferences`
-  | `/projects/${string}/opened`
-  | `/projects/summary`
   | `/results/${string}`
   | `/reviews/conversation/${string}`
   | `/routing/preview`
-  | `/runs/${string}`
+  | `/runs/${string}/activities`
   | `/runs/${string}/checkout`
   | `/runs/${string}/files`
   | `/runs/${string}/memory`
-  | `/runs/${string}/move`
   | `/runs/${string}/steps`
   | `/runs/${string}/verifications`
   | `/runs/${string}/withdraw`
   | `/runtime-hosts`
   | `/runtime-hosts/${string}`
-  | `/saved`
-  | `/saved/label`
   | `/scheduled-sends`
   | `/scheduled-sends/${string}`
-  | `/scheduled-sends/${string}/retry`
   | `/search`
   | `/search/status`
   | `/share/preview`
   | `/share/send`
-  | `/snippets`
   | `/social`
   | `/social/digests`
   | `/social/digests/${string}`
