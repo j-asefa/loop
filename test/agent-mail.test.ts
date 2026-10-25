@@ -12,7 +12,7 @@ process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { createAgent, Problem } = await import("../src/server/domain");
+const { createAgent, Problem, owned } = await import("../src/server/domain");
 const { createTeam, deleteTeam, listTeams } =
   await import("../src/server/teams");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
@@ -98,7 +98,7 @@ function running(
   db.prepare(
     "UPDATE runs SET state='running',worker_id='fixture-worker' WHERE id=?",
   ).run(run.id);
-  return db.prepare("SELECT * FROM runs WHERE id=?").get(run.id) as Run;
+  return owned<Run>("runs", run.id, owner);
 }
 function binding(run: Run, tool: string) {
   return nativeBindings(run).find((b) => b.tool === tool);
@@ -123,8 +123,10 @@ async function message(run: Run, args: Record<string, unknown>, call = id()) {
 }
 const mail = (mailId: string) =>
   db.prepare("SELECT * FROM agent_mail WHERE id=?").get(mailId) as any;
-const runOf = (runId: string) =>
-  db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as Run;
+const runOf = (runId: string) => {
+  const row = db.prepare("SELECT owner_id FROM runs WHERE id=?").get(runId) as { owner_id: string };
+  return owned<Run>("runs", runId, row.owner_id);
+};
 const userMessage = (runId: string) =>
   db
     .prepare(

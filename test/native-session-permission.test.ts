@@ -46,6 +46,7 @@ function run(name: string, permissionMode = "default") {
   return enqueue(OWNER, "Fixture only", name, {
     conversation: name, agent: "worktree-fixture",
     payload: {
+      agentId: "worktree-fixture", name: "Fixture", provider: "anthropic", folderId: null,
       connectionId: "native-claude",
       model: "native-default",
       instructions: "",
@@ -208,6 +209,7 @@ it("drops a session-chosen mode once the workspace level changes", async () => {
     enqueue(OWNER, "Fixture only", "superseded-same", {
       conversation: "superseded", agent: "worktree-fixture",
       payload: {
+        agentId: "worktree-fixture", name: "Fixture", provider: "anthropic", folderId: null,
         connectionId: "native-claude",
         model: "native-default",
         instructions: "",
@@ -222,6 +224,7 @@ it("drops a session-chosen mode once the workspace level changes", async () => {
     enqueue(OWNER, "Fixture only", "superseded-next", {
       conversation: "superseded", agent: "worktree-fixture",
       payload: {
+        agentId: "worktree-fixture", name: "Fixture", provider: "anthropic", folderId: null,
         connectionId: "native-claude",
         model: "native-default",
         instructions: "",

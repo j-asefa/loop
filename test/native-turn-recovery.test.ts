@@ -61,6 +61,7 @@ function submit(conversation: string, harness: string, key: string) {
   return enqueue("local-workspace", "Check the review", key, {
     conversation, agent: "worktree-fixture",
     payload: {
+      agentId: "worktree-fixture", name: "Fixture", provider: harness === "claude" ? "anthropic" : harness, folderId: null,
       connectionId: `native-${harness}`,
       model: "fixture",
       instructions: "",

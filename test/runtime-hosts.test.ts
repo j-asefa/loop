@@ -1,3 +1,4 @@
+import type { Connection } from "../src/shared/types";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ const codex = await codexFixture();
 const { codexStream } = await import("../src/server/codex-app-server");
 const { core } = await import("../src/server/core-routes");
 const { installConfig } = await import("../src/server/mcp/install");
-const { Problem } = await import("../src/server/domain");
+const { Problem, owned } = await import("../src/server/domain");
 it("keeps remote Codex work alive beyond the old deadline until the caller cancels", async () => {
   const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
   const clock = vi
@@ -408,9 +409,7 @@ it("pairs Codex app-server, uses the host account, scopes access and never logs 
     authenticated: true,
     authMode: "subscription",
   });
-  const connection = db
-    .prepare("SELECT * FROM connections WHERE id=?")
-    .get(created.data.id) as any;
+  const connection = owned<Connection>("connections", created.data.id, "alice");
   expect(connection.status).toBe("connected");
   const input = {
     model: "fixture",
@@ -575,9 +574,7 @@ it("discovers only the selected owner’s skills and dispatches native review an
     (await api(`/agents/${agent.data.id}/harness`, undefined, undefined, "bob"))
       .status,
   ).toBe(404);
-  const connection = db
-    .prepare("SELECT * FROM connections WHERE id=?")
-    .get(created.data.id) as any;
+  const connection = owned<Connection>("connections", created.data.id, "alice");
   const run = async (content: string) => {
     const chunks = [];
     for await (const c of subscriptionStream(connection, {

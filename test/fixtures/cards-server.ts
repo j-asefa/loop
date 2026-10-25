@@ -6,6 +6,7 @@ const source =
   (process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/");
 const { config } = await import(source + "server/config.js");
 const { db, changes } = await import(source + "server/db.js");
+const { seal } = await import(source + "server/secrets.js");
 let close: () => Promise<void>;
 let origin: string, owner: string, pair: string | undefined;
 if (process.env.LOOP_PROFILE === "companion") {
@@ -42,7 +43,8 @@ if (process.env.LOOP_PROFILE === "companion") {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };
 }
-process.send?.({ origin, owner, pair });
+// This fixed mock credential exists only in the isolated fixture database.
+process.send?.({ origin, owner, pair, fixtureSecret: owner ? seal("fixture-api-key", owner) : undefined });
 // IPC-only fixture observation; no production route or browser-visible state.
 process.on("message", (message) => {
   if (message && typeof message === "object" && "type" in message && message.type === "busy-timeout" &&

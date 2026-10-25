@@ -47,6 +47,7 @@ async function worker(feed: () => Promise<Response>) {
   vi.stubEnv("LOOP_DATA_DIR", dir);
   vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
   const { db } = await import("../src/server/db");
+  const { seal } = await import("../src/server/secrets");
   const news = await import("../src/server/news");
   const watches = await import("../src/server/feed-watches");
   const digests = await import("../src/server/feed-digests");
@@ -62,6 +63,7 @@ async function worker(feed: () => Promise<Response>) {
   const stop = startWorker();
   return {
     db,
+    seal,
     news,
     watches,
     digests,
@@ -85,9 +87,9 @@ it("dispatches a digest only once its feeds have been read", async () => {
     const connection = "connection-1";
     w.db
       .prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'owner','openai','Fixture','x','connected','[{\"id\":\"fixture\"}]',0)",
+        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'owner','openai','Fixture',?,'connected','[{\"id\":\"fixture\"}]',0)",
       )
-      .run(connection);
+      .run(connection, w.seal("fixture-api-key", "owner"));
     w.db
       .prepare(
         "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'owner','Scout','scout','openai',?,'fixture',0)",

@@ -1,3 +1,4 @@
+import type { Connection } from "../src/shared/types";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ process.env.LOOP_TEST_GEMINI_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
-const { createAgent } = await import("../src/server/domain");
+const { createAgent, owned } = await import("../src/server/domain");
 const { enqueue } = await import("../src/server/queue");
 const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
@@ -36,9 +37,7 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
     id: "gemini-fixture",
     name: "Gemini fixture",
   });
-  const connection = db
-    .prepare("SELECT * FROM connections WHERE id='native-gemini'")
-    .get() as any;
+  const connection = owned<Connection>("connections", "native-gemini", OWNER);
   expect(connection).toMatchObject({
     provider: "gemini",
     secret: "",
@@ -69,6 +68,7 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
     conversation: "gemini-conversation",
     agent: agent.id,
     payload: {
+      agentId: agent.id, name: agent.name, provider: "gemini", folderId: null,
       connectionId: connection.id,
       model: "gemini-fixture",
       instructions: "Fixture instructions",
@@ -132,6 +132,7 @@ it("switches an existing Gemini conversation from an explicit model back to the 
     conversation: "gemini-model-conversation",
     agent: agent.id,
     payload: {
+      agentId: agent.id, name: agent.name, provider: "gemini", folderId: null,
       connectionId: "native-gemini",
       model: "gemini-fixture",
       instructions: "Model fixture instructions",

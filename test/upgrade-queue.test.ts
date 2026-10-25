@@ -25,7 +25,7 @@ afterAll(async () => {
 
 it("leaves held prompts queued while an unrelated runtime progresses, then executes the original identity", async () => {
   const queued = enqueue("local-workspace", "prompt", "maintenance", {
-    payload: { connectionId: "codex" },
+    payload: { agentId: "maintenance-fixture", name: "Fixture", provider: "openai", folderId: null, connectionId: "codex", model: "native-default", instructions: "" },
   });
   const unrelated = enqueue("other-owner", "unrelated", "unrelated", {
     kind: "diagnostic",
@@ -60,7 +60,7 @@ it("leaves held prompts queued while an unrelated runtime progresses, then execu
 
 it("returns a run claimed immediately before maintenance to the queue without failure", async () => {
   const queued = enqueue("local-workspace", "race", "race", {
-    payload: { connectionId: "codex" },
+    payload: { agentId: "maintenance-fixture", name: "Fixture", provider: "openai", folderId: null, connectionId: "codex", model: "native-default", instructions: "" },
   });
   await tick(async (run) => {
     const release = harnessUpgrades.reserve("codex");

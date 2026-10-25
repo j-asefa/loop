@@ -1,3 +1,4 @@
+import type { Connection } from "../src/shared/types";
 import { it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +12,12 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
+const { owned } = await import("../src/server/domain");
+function subscriptionConnection(provider: "codex" | "anthropic", metadata: object = {}) {
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('fixture','alice',?,'Fixture','','connected',?,?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,metadata=excluded.metadata")
+    .run(provider, JSON.stringify({ authMode: "subscription", ...metadata }), now());
+  return owned<Connection>("connections", "fixture", "alice");
+}
 const { runtimeGithubCredential } =
   await import("../src/server/runtime-github");
 const { runtimeWorkspaceKey, subscriptionStream } =
@@ -166,12 +173,7 @@ it("forwards auth outside model context only to managed runtimes and redacts all
     workspaceKey,
   };
   for (const provider of ["codex", "anthropic"] as const) {
-    const connection: any = {
-      id: "fixture",
-      owner_id: "alice",
-      provider,
-      metadata: "{}",
-    };
+    const connection = subscriptionConnection(provider);
     const chunks = [];
     for await (const chunk of subscriptionStream(connection, input))
       chunks.push(chunk);
@@ -190,10 +192,10 @@ it("forwards auth outside model context only to managed runtimes and redacts all
     seal(process.env.LOOP_RUNTIME_TOKEN!, "alice"),
     now(),
   );
-  for (const metadata of [JSON.stringify({ runtimeHostId: "native" }), "{}"]) {
-    if (metadata === "{}") preference("alice", "ask");
+  for (const metadata of [{ runtimeHostId: "native" }, {}]) {
+    if (!("runtimeHostId" in metadata)) preference("alice", "ask");
     for await (const _chunk of subscriptionStream(
-      { id: "fixture", owner_id: "alice", provider: "codex", metadata } as any,
+      subscriptionConnection("codex", metadata),
       input,
     )) {
       /* drain */

@@ -104,6 +104,7 @@ function submit(
     conversation,
     agent,
     payload: {
+      agentId: agent, name: agent, provider: harness,
       connectionId: `native-${harness}`,
       folderId: folder.id,
       model: "native-default",

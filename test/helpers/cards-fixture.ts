@@ -57,7 +57,7 @@ export async function cardsFixture(
     errors += chunk;
   });
   const timeout = setTimeout(() => child.kill(), 20000);
-  let ready: { origin: string; owner: string; pair?: string };
+  let ready: { origin: string; owner: string; pair?: string; fixtureSecret?: string };
   try {
     ready = await Promise.race([
       once(child, "message").then(([message]) => message),
@@ -174,6 +174,7 @@ export async function cardsFixture(
     origin,
     owner,
     db: database,
+    fixtureSecret: ready.fixtureSecret,
     request,
     browser,
     async setBusyTimeout(ms: number): Promise<void> {

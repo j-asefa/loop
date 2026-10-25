@@ -51,6 +51,7 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
   enqueue("owner", "Next question", "switch-run", {
     conversation: "switch", agent: "worktree-fixture",
     payload: {
+      agentId: "worktree-fixture", name: "Fixture", provider: "acp", folderId: null,
       connectionId: "native-acp",
       model: "native-default",
       instructions: "Be brief.",

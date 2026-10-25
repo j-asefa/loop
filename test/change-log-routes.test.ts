@@ -26,7 +26,8 @@ function watch(f: Awaited<ReturnType<typeof fixture>>, query = "") {
   return { socket, frames, events: () => frames.flatMap((frame) => frame.type === "events" ? frame.events : []) };
 }
 function seed(f: Awaited<ReturnType<typeof fixture>>) {
-  f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('connection',?,'openai','Fixture','not-used','connected','[{\"id\":\"fixture\"}]',1)").run(f.owner);
+  if (!f.fixtureSecret) throw new Error("This route fixture requires its single owner credential");
+  f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('connection',?,'openai','Fixture',?,'connected','[{\"id\":\"fixture\"}]',1)").run(f.owner, f.fixtureSecret);
   for (const agent of ["agent", "worker", "extra"])
     f.db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,?,?,?,'openai','connection','fixture',1)").run(agent, f.owner, agent, agent);
   f.db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('thread',?,'agent','Thread',1)").run(f.owner);

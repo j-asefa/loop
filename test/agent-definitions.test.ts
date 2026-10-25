@@ -22,6 +22,7 @@ for (const file of readdirSync("migrations")
   existing.exec(readFileSync(join("migrations", file), "utf8"));
 existing.close();
 const { db, id, now } = await import("../src/server/db");
+const { seal } = await import("../src/server/secrets");
 const { agentDefinitions } = await import("../src/server/agent-definitions");
 const { teams } = await import("../src/server/teams");
 const { core } = await import("../src/server/core-routes");
@@ -63,10 +64,11 @@ async function request(
 function connection(owner = "alice") {
   const connectionId = id();
   db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture','private-fixture-secret','connected',?,?)",
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
   ).run(
     connectionId,
     owner,
+    seal("private-fixture-secret", owner),
     JSON.stringify([{ id: "fixture", effortLevels: [{ value: "high" }] }]),
     now(),
   );

@@ -1,3 +1,4 @@
+import type { Connection } from "../src/shared/types";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ writeFileSync(join(dir, "muse-credential.json"), JSON.stringify({ state: "accoun
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
-const { createAgent } = await import("../src/server/domain");
+const { createAgent, owned } = await import("../src/server/domain");
 const { enqueue } = await import("../src/server/queue");
 const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
@@ -42,9 +43,7 @@ it("registers Muse Code as a live-input native connection and resumes its genera
     billing: "existing",
   });
   expect(registration.models.map((m: { id: string }) => m.id)).toContain("muse-spark-fixture");
-  const connection = db
-    .prepare("SELECT * FROM connections WHERE id='native-muse'")
-    .get() as any;
+  const connection = owned<Connection>("connections", "native-muse", OWNER);
   expect(connection).toMatchObject({ provider: "muse", secret: "", status: "connected", owner_id: OWNER });
   expect(harnessName(connection)).toBe("Muse Code");
   // Replies during a turn reach Muse through turn/steer, not the queue.
@@ -65,7 +64,7 @@ it("registers Muse Code as a live-input native connection and resumes its genera
   const task = enqueue(OWNER, "Fixture", "muse-run", {
     conversation: "muse-conversation",
     agent: agent.id,
-    payload: { connectionId: connection.id, model: "muse-spark-fixture", instructions: "Fixture instructions" },
+    payload: { agentId: agent.id, name: agent.name, provider: "muse", folderId: null, connectionId: connection.id, model: "muse-spark-fixture", instructions: "Fixture instructions" },
   });
   const first = await sessions.session(task);
   expect(first.binding.harness).toBe("muse");

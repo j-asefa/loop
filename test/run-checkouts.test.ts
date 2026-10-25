@@ -20,6 +20,7 @@ const git = (cwd: string, ...args: string[]) =>
   ).trim();
 
 const { db, id, now } = await import("../src/server/db");
+const { owned } = await import("../src/server/domain");
 const { agentWorktree } = await import("../src/server/agent-worktree");
 const {
   startCheckout,
@@ -60,7 +61,7 @@ function runFixture(conversation: string, state = "running", at = now()): Run {
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Change things',?,?,'{}',?,?)",
   ).run(runId, owner, agent, conversation, state, runId, at, at);
-  return db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as Run;
+  return owned<Run>("runs", runId, owner);
 }
 function bind(conversation: string, checkout: string) {
   db.prepare(
@@ -279,8 +280,8 @@ it("lets one capture at a time own a run, and reruns for a request that arrived 
 
 it("records other runs active on the same checkout as overlap, not authorship", async () => {
   const first = db
-    .prepare("SELECT * FROM runs WHERE conversation_id='thread-1'")
-    .get() as Run;
+    .prepare("SELECT id FROM runs WHERE conversation_id='thread-1'")
+    .get() as { id: string };
   const started = checkoutDetail(owner, first.id)!.started_at;
   // One sibling ended after this run started; one began earlier and is still
   // running, so its updated_at predates the start. Both overlap.

@@ -62,6 +62,7 @@ it("preserves safe subscription setup guidance through the real worker and trace
     {
       conversation: "startup", agent: "worktree-fixture",
       payload: {
+        agentId: "worktree-fixture", name: "Fixture", provider: "pi", folderId: null,
         connectionId: "native-pi",
         model: "openai/fixture",
         instructions: "",
