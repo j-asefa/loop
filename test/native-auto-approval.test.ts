@@ -94,6 +94,22 @@ const approval: Request = {
   allow: "allow",
 };
 
+it("stops rejected excess requests before publishing a native event", () => {
+  const f = session("request-cap", "default");
+  const interrupt = vi.spyOn(f.sessions, "interrupt").mockResolvedValue();
+  for (let i = 0; i < 25; i++) f.request({ ...approval, id: "allowed-" + i });
+  const decisions = () => db.prepare("SELECT COUNT(*) AS count FROM native_decisions WHERE run_id=?").get(f.run.id);
+  const events = () => db.prepare("SELECT COUNT(*) AS count FROM events WHERE run_id=? AND type='native.event'").get(f.run.id);
+  expect(decisions()).toEqual({ count: 25 });
+  expect(events()).toEqual({ count: 25 });
+  f.request({ ...approval, id: "over-cap" });
+  expect(interrupt).toHaveBeenCalledExactlyOnceWith(f.run.id, "Native decision exceeds safe display bounds.");
+  expect(f.live.requests.size).toBe(25);
+  expect(decisions()).toEqual({ count: 25 });
+  expect(events()).toEqual({ count: 25 });
+  expect(f.answer).not.toHaveBeenCalled();
+});
+
 it.each([
   {
     name: "long-id-and-choices",
