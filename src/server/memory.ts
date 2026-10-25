@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { Router } from "express";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { z } from "zod";
@@ -17,7 +18,7 @@ export function enabled(
     return false;
   const p = db
     .prepare("SELECT enabled FROM memory_policy WHERE owner_id=? AND scope=?")
-    .get(owner, scope) as any;
+    .get(owner, scope) as Pick<QueryRow<"memory_policy">, "enabled"> | undefined;
   return p ? p.enabled === 1 : fallback;
 }
 function eligible(s: any) {
@@ -31,7 +32,7 @@ function eligible(s: any) {
   if (s.kind === "artifact") {
     const artifact = db
       .prepare("SELECT pinned FROM artifacts WHERE id=? AND owner_id=?")
-      .get(s.source_id, s.owner_id) as any;
+      .get(s.source_id, s.owner_id) as Pick<QueryRow<"artifacts">, "pinned"> | undefined;
     if (
       !artifact ||
       !enabled(s.owner_id, "artifact:" + s.source_id, !!artifact.pinned)
@@ -49,12 +50,12 @@ function eligible(s: any) {
       return false;
     const native = db
       .prepare("SELECT coherent FROM native_sessions WHERE conversation_id=?")
-      .get(s.conversation_id) as any;
+      .get(s.conversation_id) as Pick<QueryRow<"native_sessions">, "coherent"> | undefined;
     if (native && !native.coherent) return false;
     if (s.message_id) {
       const m = db
         .prepare("SELECT metadata FROM messages WHERE id=? AND owner_id=?")
-        .get(s.message_id, s.owner_id) as any;
+        .get(s.message_id, s.owner_id) as Pick<QueryRow<"messages">, "metadata"> | undefined;
       if (!m || JSON.parse(m.metadata).superseded) return false;
     }
   }
@@ -67,7 +68,7 @@ function putSource(s: any) {
   );
   const old = db
     .prepare("SELECT * FROM memory_sources WHERE id=?")
-    .get(sourceId) as any;
+    .get(sourceId) as QueryRow<"memory_sources"> | undefined;
   if (old?.tombstone || old?.content_hash === hash) return;
   const revision = (old?.revision || 0) + 1;
   db.prepare(
@@ -118,7 +119,7 @@ export function captureMemory() {
         `SELECT m.*,c.project_id,c.title,c.agent_id,r.state FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN runs r ON r.id=m.run_id
       WHERE m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (r.state IN ('completed','failed','cancelled') OR m.run_id IS NULL) AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.owner_id=m.owner_id AND s.kind='message' AND s.source_id=m.id AND s.updated_at>=m.created_at AND s.content_hash IS NOT NULL AND s.content=m.content) LIMIT 250`,
       )
-      .all() as any[];
+      .all() as (QueryRow<"messages"> & { state: string | null; project_id: string | null; title: string; agent_id: string | null; origin?: string })[];
     for (const m of rows) {
       const meta = JSON.parse(m.metadata);
       const include =
@@ -141,7 +142,7 @@ export function captureMemory() {
       .prepare(
         "SELECT * FROM artifacts WHERE pinned=1 OR id IN (SELECT substr(scope,10) FROM memory_policy WHERE scope LIKE 'artifact:%' AND enabled=1)",
       )
-      .all() as any[];
+      .all() as QueryRow<"artifacts">[];
     for (const a of artifacts)
       if (["markdown", "note", "text"].includes(a.kind))
         putSource({
@@ -185,7 +186,7 @@ export async function indexMemory() {
     captureMemory();
     const jobs = db
       .prepare("SELECT * FROM memory_outbox WHERE next_attempt<=? LIMIT 8")
-      .all(now()) as any[];
+      .all(now()) as QueryRow<"memory_outbox">[];
     for (const job of jobs) {
       const s = db
         .prepare("SELECT * FROM memory_sources WHERE id=?")
@@ -423,7 +424,7 @@ memoryRoutes.put("/memory/policy", (req, res) => {
     ).run(owner, scope, value ? 1 : 0);
     const sources = db
       .prepare("SELECT * FROM memory_sources WHERE owner_id=?")
-      .all(owner) as any[];
+      .all(owner) as QueryRow<"memory_sources">[];
     for (const s of sources) {
       if (
         scope !== "workspace" &&

@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdirSync,
@@ -274,7 +275,7 @@ export function localArtifact(owner: string, artifactId: string) {
     .prepare(
       "SELECT * FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
     )
-    .get(artifactId, owner) as any;
+    .get(artifactId, owner) as QueryRow<"artifact_objects"> | undefined;
   if (!object) throw new Problem(404, "Local file unavailable");
   if (
     !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(

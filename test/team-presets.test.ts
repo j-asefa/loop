@@ -549,7 +549,7 @@ it("creates an LLM council whose chair manages members on their own connections"
   });
   const agent = (agentId: string) =>
     db.prepare("SELECT * FROM agents WHERE id=?").get(agentId) as any;
-  const { assignments } = JSON.parse(council.preset_config);
+  const { assignments } = JSON.parse(council.preset_config!);
   expect(council.preset_id).toBe("llm-council");
   expect(assignments.map((a: any) => a.role)).toEqual([
     "chair",

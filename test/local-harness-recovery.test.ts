@@ -85,7 +85,7 @@ it("recovers retired connections only after account verification, preserving tea
   });
   const first = submit(OWNER, {
     agentId: manager.id,
-    conversationId: team.conversation_id,
+    conversationId: team.conversation_id!,
     input: "Existing task",
     idempotencyKey: id(),
   });
@@ -134,7 +134,7 @@ it("recovers retired connections only after account verification, preserving tea
   );
   const next = submit(OWNER, {
     agentId: manager.id,
-    conversationId: team.conversation_id,
+    conversationId: team.conversation_id!,
     input: "Continue",
     idempotencyKey: id(),
   });

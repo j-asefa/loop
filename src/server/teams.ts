@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -14,13 +15,13 @@ export function listTeams(owner: string) {
       .prepare(
         "SELECT * FROM teams WHERE owner_id=? AND deleted_at IS NULL ORDER BY created_at DESC",
       )
-      .all(owner) as any[]
+      .all(owner) as QueryRow<"teams">[]
   ).map((t) => ({
     ...t,
     members: (
       db
         .prepare("SELECT agent_id FROM team_members WHERE team_id=?")
-        .all(t.id) as any[]
+        .all(t.id) as Pick<QueryRow<"team_members">, "agent_id">[]
     ).map((m) => m.agent_id),
     paused_threads: (
       db
@@ -123,7 +124,7 @@ export function createPresetTeam(owner: string, input: unknown) {
         .prepare(
           "SELECT * FROM team_creations WHERE owner_id=? AND request_key=?",
         )
-        .get(owner, idempotencyKey) as any;
+        .get(owner, idempotencyKey) as QueryRow<"team_creations"> | undefined;
       if (prior) {
         if (prior.request_hash !== hash)
           throw new Problem(

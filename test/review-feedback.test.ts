@@ -253,7 +253,7 @@ it("finishes reciprocal teams despite intervening queued tasks without overlappi
     const parents = teams.map((team, i) =>
       submit(owner, {
         agentId: team.manager_id,
-        conversationId: team.conversation_id,
+        conversationId: team.conversation_id!,
         input: "Manager " + (i ? "B" : "A"),
         idempotencyKey: id(),
       }),

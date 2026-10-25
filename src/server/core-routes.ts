@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { localArtifact } from "./published-files.js";
@@ -690,11 +691,11 @@ core.get("/results", projectionSnapshot((req, res) => {
       .prepare(
         `SELECT m.*,r.state run_state,r.error run_error,m.rowid cursor,c.agent_id,c.team_id,a.name,a.provider FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents a ON a.id=c.agent_id WHERE ${filter} ORDER BY m.rowid DESC LIMIT 40`,
       )
-      .all(...values) as any[];
+      .all(...values) as (QueryRow<"messages"> & { cursor: number; run_state: string | null; run_error: string | null; agent_id: string | null; team_id: string | null; name: string | null; provider: string | null })[];
     res.json({
       revision,
       items: rows,
-      next: rows.length === 40 ? rows.at(-1).cursor : null,
+      next: rows.length === 40 ? rows.at(-1)!.cursor : null,
     });
     return;
   }

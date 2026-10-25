@@ -278,7 +278,7 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
   try {
     const submitted = submit("feedback", {
       agentId: manager.id,
-      conversationId: team.conversation_id,
+      conversationId: team.conversation_id!,
       input: "Investigate",
       idempotencyKey: "team-fixture-key",
     });
@@ -400,7 +400,7 @@ it("avoids cross-team manager deadlocks and cancels only the selected team's chi
     for (const team of teams)
       submit("feedback", {
         agentId: team.manager_id,
-        conversationId: team.conversation_id,
+        conversationId: team.conversation_id!,
         input: "Coordinate",
         idempotencyKey: "reciprocal-" + team.id,
       });

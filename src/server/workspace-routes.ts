@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
 import { Router } from "express";
@@ -182,8 +183,8 @@ workspace.get("/artifacts", (req, res) => {
     .prepare(
       `SELECT a.*,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,a.rowid AS cursor,g.name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY a.rowid DESC LIMIT 60`,
     )
-    .all(...args) as any[];
-  res.json({ items, next: items.length === 60 ? items.at(-1).cursor : null });
+    .all(...args) as (QueryRow<"artifacts"> & { cursor: number; name: string | null; provider: string | null })[];
+  res.json({ items, next: items.length === 60 ? items.at(-1)!.cursor : null });
 });
 // The checkout Loop observed for a run: branch, commits, files and the patch
 // stored at capture time. Read-only; there is nothing to apply from here.
@@ -291,13 +292,13 @@ workspace.post("/operations/:id/undo", (req, res) =>
 workspace.get("/objects/:id", (req, res) => {
   const o = db
     .prepare("SELECT * FROM objects WHERE id=? AND owner_id=?")
-    .get(req.params.id, res.locals.owner) as any;
+    .get(req.params.id, res.locals.owner) as QueryRow<"objects"> | undefined;
   if (!o) throw new Problem(404, "File not found");
   if (sendHtmlPreview(res, req.query.preview, o)) return;
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename*=UTF-8''${encodeURIComponent(o.name.split("/").at(-1))}`,
+    `attachment; filename*=UTF-8''${encodeURIComponent(o.name.split("/").at(-1)!)}`,
   );
   res.send(o.bytes);
 });

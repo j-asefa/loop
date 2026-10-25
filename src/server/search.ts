@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { searchExcerpt } from "../shared/search-excerpt.js";
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
@@ -29,7 +30,7 @@ const hash = (d: SearchDoc) =>
 function embeddingConfig(owner: string) {
   const preference = db
     .prepare("SELECT * FROM preferences WHERE owner_id=?")
-    .get(owner) as any;
+    .get(owner) as QueryRow<"preferences"> | undefined;
   if (preference?.embedding_enabled && !preference.embedding_connection)
     return {
       id: "local",
@@ -51,7 +52,7 @@ const configuration = (c: Connection & { embedding_model?: string }) =>
 export function searchStatus(owner: string) {
   const preference = db
     .prepare("SELECT * FROM preferences WHERE owner_id=?")
-    .get(owner) as any;
+    .get(owner) as QueryRow<"preferences"> | undefined;
   if (!preference?.embedding_enabled)
     return {
       enabled: false,
@@ -77,7 +78,7 @@ export function searchStatus(owner: string) {
     .prepare(
       "SELECT * FROM search_index_status WHERE owner_id=? AND configuration=?",
     )
-    .get(owner, c ? configuration(c) : "") as any;
+    .get(owner, c ? configuration(c) : "") as QueryRow<"search_index_status"> | undefined;
   const state = !c
     ? "needs_connection"
     : !pending
@@ -91,7 +92,7 @@ export function searchStatus(owner: string) {
     state === "needs_connection"
       ? "Reconnect the embedding account in Search preferences. Keyword search is available."
       : state === "error"
-        ? status.error
+        ? status!.error
         : state === "ready"
           ? `Semantic search is ready. ${counts.indexed} items indexed.`
           : counts.indexed
@@ -145,7 +146,7 @@ export async function indexPending() {
         .prepare(
           "SELECT * FROM search_index_status WHERE owner_id=? AND configuration=?",
         )
-        .get(owner_id, configuration(c)) as any;
+        .get(owner_id, configuration(c)) as QueryRow<"search_index_status"> | undefined;
       if (previous?.state === "error" && now() - previous.updated_at < 30000)
         continue;
       const status = (state: string, error: string | null = null) =>

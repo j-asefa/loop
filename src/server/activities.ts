@@ -1,3 +1,4 @@
+import type { QueryRow } from "./query-records.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db, emit, now } from "./db.js";
@@ -311,7 +312,7 @@ function legacyTools(
       scope,
       before ?? Number.MAX_SAFE_INTEGER,
       before === undefined ? 2000 : 101,
-    ) as any[];
+    ) as Pick<QueryRow<"run_traces">, "run_id" | "trace_key" | "title" | "content" | "metadata" | "artifact_id" | "id">[];
   const more = before !== undefined && traces.length > 100;
   if (more) traces.pop();
   const next = more ? (traces.at(-1)!.id as number) : null;
