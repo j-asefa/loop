@@ -68,7 +68,7 @@ export function WorkspaceConnection({
         url, source: sourceId,
         read: (after, signal) =>
           apiInWorkspace(
-            "/events?after=" + after,
+            `/events?after=${after}`,
             sourceId,
             undefined,
             undefined,

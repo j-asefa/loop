@@ -119,7 +119,7 @@ const Ok = z.object({ ok: z.boolean() });
 const ResultSelection = { agent: Text.optional(), folder: Text.optional(), teams: Teams, view: z.enum(["all", "prompts", "files"]).default("all"), saved: z.enum(["1", "0"]).optional() };
 const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export type RouteContract = {
-  method: "GET" | "POST" | "PATCH"; path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
 };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody };

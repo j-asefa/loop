@@ -37,7 +37,7 @@ it("loads one recent page on open and keeps historical and live cursors independ
   let items: ActivityItem[] = [];
   let state: any;
   const loader = new ActivityHistory(
-    "/activities",
+    "/conversations/thread/activities",
     async (url) => {
       requests.push(url);
       return pages.shift()!;
@@ -50,18 +50,18 @@ it("loads one recent page on open and keeps historical and live cursors independ
     },
   );
   await loader.refresh();
-  expect(requests).toEqual(["/activities?view=recent"]);
+  expect(requests).toEqual(["/conversations/thread/activities?view=recent"]);
   expect(state.hasEarlier).toBe(true);
   await loader.refresh();
   await loader.loadEarlier();
   await loader.loadEarlier();
   await loader.refresh();
   expect(requests).toEqual([
-    "/activities?view=recent",
-    "/activities?view=updates&after=200",
-    "/activities?view=recent&before=101",
-    `/activities?view=legacy&before=${Number.MAX_SAFE_INTEGER}`,
-    "/activities?view=updates&after=202",
+    "/conversations/thread/activities?view=recent",
+    "/conversations/thread/activities?view=updates&after=200",
+    "/conversations/thread/activities?view=recent&before=101",
+    `/conversations/thread/activities?view=legacy&before=${Number.MAX_SAFE_INTEGER}`,
+    "/conversations/thread/activities?view=updates&after=202",
   ]);
   expect(items.find((i) => i.key === "recent")!.sequence).toBe(202);
   expect(items.map((i) => i.key)).toEqual(["legacy", "older", "recent", "new"]);
@@ -82,7 +82,7 @@ it("fetches file history only for displayed runs and does not advance the live c
     page(250),
   ];
   const loader = new ActivityHistory(
-    "/activities",
+    "/conversations/thread/activities",
     async (url) => {
       requests.push(url);
       return pages.shift()!;
@@ -95,11 +95,11 @@ it("fetches file history only for displayed runs and does not advance the live c
   await loader.setRuns(["r1", "r2"]);
   await loader.refresh();
   expect(requests).toEqual([
-    "/activities?view=recent",
-    "/activities?view=files&runs=r1&after=0",
-    "/activities?view=files&runs=r1&after=90",
-    "/activities?view=files&runs=r2&after=0",
-    "/activities?view=updates&after=200",
+    "/conversations/thread/activities?view=recent",
+    "/conversations/thread/activities?view=files&runs=r1&after=0",
+    "/conversations/thread/activities?view=files&runs=r1&after=90",
+    "/conversations/thread/activities?view=files&runs=r2&after=0",
+    "/conversations/thread/activities?view=updates&after=200",
   ]);
 });
 
@@ -109,7 +109,7 @@ it("discards an in-flight old conversation response and coalesces concurrent ref
     received = 0,
     states = 0;
   const loader = new ActivityHistory(
-    "/old",
+    "/conversations/old/activities",
     () => {
       requests++;
       return new Promise((r) => {
@@ -143,7 +143,7 @@ it("retries a failed older-page read with the same cursor", async () => {
   const requests: string[] = [];
   let state: any;
   const loader = new ActivityHistory(
-    "/activities",
+    "/conversations/thread/activities",
     async (url) => {
       requests.push(url);
       if (url.includes("before=") && fail) {
@@ -166,8 +166,8 @@ it("retries a failed older-page read with the same cursor", async () => {
   });
   await loader.loadEarlier();
   expect(requests.slice(1)).toEqual([
-    "/activities?view=recent&before=5",
-    "/activities?view=recent&before=5",
+    "/conversations/thread/activities?view=recent&before=5",
+    "/conversations/thread/activities?view=recent&before=5",
   ]);
   expect(state).toMatchObject({ hasEarlier: false, error: "" });
 });
@@ -176,7 +176,7 @@ it("preserves snapshot paging with older desktops without refetching it for ever
   const requests: string[] = [];
   const pages = [page(500, [], { more: true }), page(750)];
   const loader = new ActivityHistory(
-    "/old",
+    "/conversations/old/activities",
     async (url) => {
       requests.push(url);
       return pages.shift()!;
@@ -186,14 +186,14 @@ it("preserves snapshot paging with older desktops without refetching it for ever
   );
   await loader.refresh();
   await loader.setRuns(["r1", "r2"]);
-  expect(requests).toEqual(["/old?view=recent", "/old?view=updates&after=500"]);
+  expect(requests).toEqual(["/conversations/old/activities?view=recent", "/conversations/old/activities?view=updates&after=500"]);
 });
 
 it("follows a change signalled during a read with one more read", async () => {
   const requests: string[] = [];
   let release!: (page: ActivityPage) => void;
   const loader = new ActivityHistory(
-    "/activities",
+    "/conversations/thread/activities",
     (url) => {
       requests.push(url);
       return requests.length === 1
@@ -213,15 +213,15 @@ it("follows a change signalled during a read with one more read", async () => {
   await first;
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(requests).toEqual([
-    "/activities?view=recent",
-    "/activities?view=updates&after=200",
+    "/conversations/thread/activities?view=recent",
+    "/conversations/thread/activities?view=updates&after=200",
   ]);
 });
 
 it("loads conversation controls and displayed files without requesting tool or legacy history", async () => {
   const requests: string[] = [];
   const loader = new ActivityHistory(
-    "/activities",
+    "/conversations/thread/activities",
     async (url) => {
       requests.push(url);
       return page(200, [], { earlier: null });
@@ -235,8 +235,8 @@ it("loads conversation controls and displayed files without requesting tool or l
   await loader.refresh();
   await loader.loadEarlier();
   expect(requests).toEqual([
-    "/activities?view=recent&tools=0",
-    "/activities?view=files&runs=run&after=0",
-    "/activities?view=updates&tools=0&after=200",
+    "/conversations/thread/activities?view=recent&tools=0",
+    "/conversations/thread/activities?view=files&runs=run&after=0",
+    "/conversations/thread/activities?view=updates&tools=0&after=200",
   ]);
 });

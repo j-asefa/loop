@@ -112,7 +112,7 @@ export function Tools({
     }
   }
   async function test(id: string) {
-    const result = await api("/mcp/" + id + "/test", {});
+    const result = await api(`/mcp/${id}/test`, {});
     if (result.authorizationUrl) location.assign(result.authorizationUrl);
     else setNotice("Connected. Available to all agents in your workspace.");
   }
@@ -551,7 +551,7 @@ export function Tools({
                         onClick={() =>
                           action(async () => {
                             await api(
-                              "/mcp/" + c.id,
+                              `/mcp/${c.id}`,
                               {
                                 action:
                                   c.status === "disabled"
@@ -594,7 +594,7 @@ export function Tools({
                         onClick={() =>
                           action(async () => {
                             await api(
-                              "/mcp/" + c.id,
+                              `/mcp/${c.id}`,
                               { action: "disconnect" },
                               "PATCH",
                             );
@@ -707,7 +707,7 @@ export function Tools({
                 let c;
                 if (editing) {
                   c = await api(
-                    "/mcp/" + editing,
+                    `/mcp/${editing}`,
                     { action: "credentials", auth },
                     "PATCH",
                   );

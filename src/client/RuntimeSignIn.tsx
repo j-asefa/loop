@@ -10,7 +10,7 @@ import { api } from "./api";
 import type { NativeAuthView, SignIn } from "../shared/native-auth";
 
 type RuntimeSignInProps = {
-  base: string;
+  base: `/workspace/runtimes/${string}/auth` | `/subscriptions/${string}/native-auth`;
   backend: "direct" | "environment";
   location: string;
   name: string;
@@ -151,7 +151,7 @@ function RuntimeSignInSession({
     const poll = async () => {
       try {
         const next = await api<NativeAuthView>(
-          base + "/status",
+          `${base}/status`,
           backend === "environment" ? {} : undefined,
           undefined,
           controller.signal,
@@ -193,7 +193,7 @@ function RuntimeSignInSession({
     setStartRecovery(undefined);
     void perform(async () => {
       try {
-        const next = await api<NativeAuthView>(base + "/start", {
+        const next = await api<NativeAuthView>(`${base}/start`, {
           projectId, provider, method, commandId,
         });
         requestId.current = undefined;
@@ -207,7 +207,7 @@ function RuntimeSignInSession({
   function inspectStart() {
     const failure = startRecovery;
     void perform(async () => {
-      let next = await api<NativeAuthView>(base + "/status", backend === "environment" ? {} : undefined);
+      let next = await api<NativeAuthView>(`${base}/status`, backend === "environment" ? {} : undefined);
       // A restarted authority has no cached providers until discovery runs.
       // Load the catalog without creating a sign-in attempt.
       if (!next.providers.length && !next.attempt)
@@ -226,7 +226,7 @@ function RuntimeSignInSession({
     const input = value;
     setValue("");
     void perform(() =>
-      api(base + "/input", {
+      api(`${base}/input`, {
         attemptId: attempt.id,
         promptId: attempt.prompt!.id,
         value: input,
@@ -500,7 +500,7 @@ function RuntimeSignInSession({
           disabled={busy}
           onClick={() =>
             void perform(() =>
-              api(base + "/cancel", { attemptId: attempt!.id }),
+              api(`${base}/cancel`, { attemptId: attempt!.id }),
             )
           }
         >

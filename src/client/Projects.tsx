@@ -515,7 +515,7 @@ export function ProjectSearchResults({
     setResult(null);
     setError("");
     api<{ items: any[] }>(
-      "/search?" + new URLSearchParams({ q: query, scope: "all", project }),
+      `/search?${new URLSearchParams({ q: query, scope: "all", project })}`,
     )
       .then((r) => active && setResult(r))
       .catch((e) => active && setError((e as Error).message));

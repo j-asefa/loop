@@ -1,4 +1,3 @@
-import { cardApi } from "./card-api.js";
 import { z } from "zod";
 import {
   CardSchema,
@@ -32,23 +31,23 @@ const parameters = (input: object) => {
 /** Use the same typed, validated reads with a cookie transport or an integration
  * token. The transport is fixed to one authorized source for its lifetime. */
 export function cardReader(
-  request: (path: string, signal?: AbortSignal) => Promise<unknown>,
+  request: (path: `/v1/cards?${string}` | `/v1/cards/changes?${string}` | `/v1/cards/${string}`, signal?: AbortSignal) => Promise<unknown>,
 ) {
   return {
     async list(input: CardListInput = {}, signal?: AbortSignal) {
       return CardPageSchema.parse(
-        await request(cardApi.list.path + "?" + parameters(input), signal),
+        await request(`/v1/cards?${parameters(input)}`, signal),
       );
     },
     async changes(input: CardChangesInput, signal?: AbortSignal) {
       return CardChangesSchema.parse(
-        await request(cardApi.changes.path + "?" + parameters(input), signal),
+        await request(`/v1/cards/changes?${parameters(input)}`, signal),
       );
     },
     async detail(id: string, signal?: AbortSignal) {
       return CardSchema.parse(
         await request(
-          cardApi.detail.path.replace(":id", encodeURIComponent(id)),
+          `/v1/cards/${encodeURIComponent(id)}`,
           signal,
         ),
       );

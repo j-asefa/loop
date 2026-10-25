@@ -30,10 +30,13 @@ export function routeSourceId(
     : "";
 }
 
+export type SourceApiPath<P extends string> = P | (P extends `/api/${infer Rest}` ? `/api/agent-sources/${string}/${Rest}` : never);
+export function sourceApiPath<const P extends string>(path: P): SourceApiPath<P>;
 export function sourceApiPath(path: string) {
   return sourceApiPathAt(path, executionSourceId());
 }
 
+export function sourceApiPathAt<const P extends string>(path: P, id: string): SourceApiPath<P>;
 export function sourceApiPathAt(path: string, id: string) {
   // Social feeds belong to the paired app, so they remain available when an
   // older linked Docker server has no Social routes.

@@ -12,7 +12,7 @@ beforeEach(() => {
   fetcher.mockReset().mockImplementation(async () => new Response("{}"));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
-const read = (source = "", path = "/conversations/thread") => apiInWorkspace(path, source);
+const read = (source = "", path: import("../src/client/legacy-paths").LegacyClientPath = "/conversations/thread/usage") => apiInWorkspace(path, source);
 const limited = (header = "8") => new Response("busy", { status: 429, headers: { "Retry-After": header } });
 
 it("surfaces Retry-After and backs off every read for only the rate-limited source", async () => {
@@ -26,7 +26,7 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
   expect(fetcher).toHaveBeenCalledTimes(1);
   await read("docker:two");
   await read();
-  await read("docker:one", "/social/news"); // routed locally
+  await read("docker:one", "/social/feeds"); // routed locally
   expect(fetcher).toHaveBeenCalledTimes(4);
   await vi.advanceTimersByTimeAsync(5000);
   await read("docker:one");
@@ -35,7 +35,7 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
 
 it("accepts HTTP dates and never replays a rejected mutation", async () => {
   fetcher.mockResolvedValueOnce(limited(new Date(Date.now() + 60_000).toUTCString()));
-  const error = await apiInWorkspace("/runs", "", { input: "once" }).catch(error => error);
+  const error = await apiInWorkspace("/agents", "", { input: "once" }).catch(error => error);
   expect(error).toMatchObject({ status: 429, retryAfterMs: 60_000 });
   expect(error.message).not.toMatch(/retrying automatically/i);
   await vi.advanceTimersByTimeAsync(59_999);
@@ -80,7 +80,7 @@ it("keeps long deadlines without timer overflow and uses a bounded fallback for 
 it("preserves actionable domain 429 messages without imposing a destination cooldown", async () => {
   for (const method of ["GET", "POST"]) {
     fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: "This workspace has 100 pending runs. Cancel some first." }), { status: 429, headers: { "content-type": "application/json" } }));
-    const error = await apiInWorkspace("/runs", "", method === "POST" ? { input: "once" } : undefined, method).catch(error => error);
+    const error = await apiInWorkspace("/agents", "", method === "POST" ? { input: "once" } : undefined, method).catch(error => error);
     expect(error).toMatchObject({ status: 429, message: "This workspace has 100 pending runs. Cancel some first." });
     expect(error.retryAt).toBeUndefined();
     expect(retryAfter(error)).toBe(0);
@@ -110,7 +110,7 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
   await vi.advanceTimersByTimeAsync(60_000);
   expect(fetcher).toHaveBeenCalledTimes(3);
   fetcher.mockResolvedValueOnce(new Response('{"error":"Capacity reached"}', { status: 429 }));
-  await expect(readInWorkspace("/catalog", "", new AbortController().signal)).rejects.toThrow("Capacity reached");
+  await expect(readInWorkspace("/mcp/catalog", "", new AbortController().signal)).rejects.toThrow("Capacity reached");
   expect(fetcher).toHaveBeenCalledTimes(4);
 });
 
@@ -149,12 +149,12 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
 it("recovers a signal-driven snapshot from a transient server error without retrying its actions or hiding a permanent refusal",async()=>{
  fetcher.mockResolvedValueOnce(new Response('{"error":"Temporary failure"}',{status:503}));
  const retry=vi.fn(), controller=new AbortController();
- const pending=readInWorkspace("/approvals","",controller.signal,retry);
+ const pending=readInWorkspace("/scheduled-sends","",controller.signal,retry);
  await vi.advanceTimersByTimeAsync(0);
  expect(retry).toHaveBeenCalledWith(expect.objectContaining({status:503}));
  await vi.advanceTimersByTimeAsync(2000);await expect(pending).resolves.toEqual({});
  fetcher.mockImplementation(async () => new Response('{"error":"Still unavailable"}',{status:503}));
- const failed=readInWorkspace("/approvals","",controller.signal).catch(error=>error);
+ const failed=readInWorkspace("/scheduled-sends","",controller.signal).catch(error=>error);
  await vi.advanceTimersByTimeAsync(6000);expect((await failed).status).toBe(503);
  const before=fetcher.mock.calls.length;await vi.advanceTimersByTimeAsync(30000);expect(fetcher).toHaveBeenCalledTimes(before);
 });
@@ -167,7 +167,7 @@ it.each(["<html>Gateway unavailable</html>", ""])("retries non-JSON 503 reads (%
   expect(await outcome).toEqual({});
   expect(fetcher).toHaveBeenCalledTimes(2);
   fetcher.mockResolvedValueOnce(new Response(body, {status:503}));
-  await expect(apiInWorkspace("/runs", "", {input:"once"})).rejects.toMatchObject({status:503});
+  await expect(apiInWorkspace("/agents", "", {input:"once"})).rejects.toMatchObject({status:503});
   await vi.advanceTimersByTimeAsync(6000);
   expect(fetcher).toHaveBeenCalledTimes(3);
 });

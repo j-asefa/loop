@@ -1,5 +1,6 @@
+import { registrar } from "./registrar.js";
 import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, ResultItem } from "../shared/workspace-api.js";
-import { route } from "./route.js";
+
 import { InvalidRow, parseConnectionControl, ConnectionModels, ConnectionMetadata, runResponse, messageResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -37,7 +38,7 @@ import {
   runtimeConfigured,
   runtimeWorkspaceKey,
 } from "./subscriptions.js";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, emit, id, now } from "./db.js";
 import { owned, ownedAgent, ownedConversation, ownedArtifact, ownedConnection, ownedMessage, ownedRun, renameAgent, Problem, agentInput, validateEffort } from "./domain.js";
@@ -53,9 +54,10 @@ import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { publicPreview } from "../preview-context.js";
-export const core = Router();
-core.use(viewportDiagnostics);
-core.get(workspaceApi.bootstrap.path, route(workspaceApi.bootstrap, (_req, res) => {
+const routes = registrar("core", { middleware: [[viewportDiagnostics]] });
+export const core = routes.mount;
+
+routes.on(workspaceApi.bootstrap, (_req, res) => {
   ensureWorkspaceProject(res.locals.owner);
   res.json({
     ...(publicPreview ? { preview: publicPreview } : {}),
@@ -80,13 +82,13 @@ core.get(workspaceApi.bootstrap.path, route(workspaceApi.bootstrap, (_req, res) 
       claudeLogin: runtimeConfigured(),
     },
   });
-}));
+});
 const connectionInput = z.object({
   provider: z.enum(["openai", "anthropic"]),
   label: z.string().trim().min(1).max(80),
   secret: z.string().trim().min(8).max(4096),
 });
-core.post("/connections", async (req, res) => {
+routes.legacy("POST /connections", async (req, res) => {
   const d = connectionInput.parse(req.body);
   let models;
   try {
@@ -117,7 +119,7 @@ core.post("/connections", async (req, res) => {
   ));
   res.json({ id: record, models });
 });
-core.post("/connections/:id/refresh", async (req, res) => {
+routes.legacy("POST /connections/:id/refresh", async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (isNativeConnection(c)) {
     const harness = c.metadata.loopHarness;
@@ -148,7 +150,7 @@ core.post("/connections/:id/refresh", async (req, res) => {
     );
   }
 });
-core.get("/connections/:id/models", async (req, res) => {
+routes.legacy("GET /connections/:id/models", async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (c.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
@@ -193,7 +195,7 @@ core.get("/connections/:id/models", async (req, res) => {
   );
   res.json({ models: catalog });
 });
-core.post("/connections/:id/reconnect", async (req, res) => {
+routes.legacy("POST /connections/:id/reconnect", async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner),
     secret = z.string().min(8).max(4096).parse(req.body.secret);
   if (isSubscription(c))
@@ -211,7 +213,7 @@ core.post("/connections/:id/reconnect", async (req, res) => {
     throw new Problem(422, "Could not validate this API key");
   }
 });
-core.delete("/connections/:id", async (req, res) => {
+routes.legacy("DELETE /connections/:id", async (req, res) => {
   const raw = owned("connections", req.params.id, res.locals.owner);
   let c: ReturnType<typeof parseConnectionControl> | undefined;
   try { c = parseConnectionControl(raw); }
@@ -224,13 +226,13 @@ core.delete("/connections/:id", async (req, res) => {
   if (c && isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
-core.get("/agents/suggest-name", (_req, res) =>
+routes.legacy("GET /agents/suggest-name", (_req, res) =>
   res.set("Cache-Control", "no-store").json({ name: suggestAgentName() }),
 );
-core.post("/agents", (req, res) =>
+routes.legacy("POST /agents", (req, res) =>
   res.status(201).json(createWithPrompt(res.locals.owner, req.body)),
 );
-core.patch("/agents/:id", (req, res) => {
+routes.legacy("PATCH /agents/:id", (req, res) => {
   const result = db
     .transaction(() => {
       const owner = res.locals.owner,
@@ -293,7 +295,7 @@ core.patch("/agents/:id", (req, res) => {
     .immediate();
   res.json(result);
 });
-core.get("/agents/:id/harness", async (req, res) => {
+routes.legacy("GET /agents/:id/harness", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const conversationId = z
     .string()
@@ -331,11 +333,11 @@ core.get("/agents/:id/harness", async (req, res) => {
   res.json(catalog);
 });
 // Mutations belong to the authority; configuration readback uses shared files/DB.
-core.get("/agents/:id/pi-packages", async (req, res) => {
+routes.legacy("GET /agents/:id/pi-packages", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   res.json(nativeSessions.piConfiguration(agent));
 });
-core.post("/agents/:id/pi-trust", async (req, res) => {
+routes.legacy("POST /agents/:id/pi-trust", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const { trusted, fingerprint } = z
     .object({
@@ -347,7 +349,7 @@ core.post("/agents/:id/pi-trust", async (req, res) => {
   await executionRequest("pi.trust", { agentId: agent.id, trusted, fingerprint }, { owner: res.locals.owner });
   res.json(nativeSessions.piConfiguration(agent));
 });
-core.post("/agents/:id/pi-package-filters", async (req, res) => {
+routes.legacy("POST /agents/:id/pi-package-filters", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source, scope, filters, settingsHash } = z
     .object({
@@ -368,7 +370,7 @@ core.post("/agents/:id/pi-package-filters", async (req, res) => {
   const result = await executionRequest("pi.filters", { agentId: agent.id, source, scope, filters, settingsHash }, { owner: res.locals.owner });
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
-core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
+routes.legacy("POST /agents/:id/pi-prompt-preview", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const input = z
     .object({
@@ -382,7 +384,7 @@ core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
     await executionRequest("pi.preview", { agentId: agent.id, name: input.name, args: input.args, conversationId: input.conversation }, { owner: res.locals.owner }),
   );
 });
-core.post("/agents/:id/pi-package-inspect", async (req, res) => {
+routes.legacy("POST /agents/:id/pi-package-inspect", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source } = z
     .object({ source: z.string().min(1).max(512) })
@@ -390,7 +392,7 @@ core.post("/agents/:id/pi-package-inspect", async (req, res) => {
     .parse(req.body);
   res.json(await executionRequest("pi.inspect", { agentId: agent.id, source }, { owner: res.locals.owner }));
 });
-core.post("/agents/:id/pi-package-rollback", async (req, res) => {
+routes.legacy("POST /agents/:id/pi-package-rollback", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source, scope } = z
     .object({
@@ -402,7 +404,7 @@ core.post("/agents/:id/pi-package-rollback", async (req, res) => {
   const result = await executionRequest("pi.rollback", { agentId: agent.id, source, scope }, { owner: res.locals.owner });
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
-core.post("/agents/:id/pi-packages", async (req, res) => {
+routes.legacy("POST /agents/:id/pi-packages", async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const input = z
     .object({
@@ -415,7 +417,7 @@ core.post("/agents/:id/pi-packages", async (req, res) => {
   const result = await executionRequest("pi.action", { agentId: agent.id, ...input }, { owner: res.locals.owner });
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
-core.get("/agents/:id/traces", (req, res) => {
+routes.legacy("GET /agents/:id/traces", (req, res) => {
   const before = z.coerce
     .number()
     .int()
@@ -427,33 +429,33 @@ core.get("/agents/:id/traces", (req, res) => {
   const q = z.string().max(500).optional().parse(req.query.q);
   res.json(agentTraces(res.locals.owner, req.params.id, before, runId, q));
 });
-core.get("/agents/:id/traces/export", (req, res) => {
+routes.legacy("GET /agents/:id/traces/export", (req, res) => {
   const runId = z.string().min(1).max(100).parse(req.query.run);
   const data = runTraceExport(res.locals.owner, req.params.id, runId);
   res.attachment(`loop-run-${runId}-traces.json`).json(data);
 });
-core.get("/me/files", (req, res) => {
+routes.legacy("GET /me/files", (req, res) => {
   res.json(personalFiles(res.locals.owner, req.query));
 });
-core.get("/me/decisions", (req, res) => {
+routes.legacy("GET /me/decisions", (req, res) => {
   res.json(personalDecisions(res.locals.owner, req.query));
 });
-core.get("/me/profile", (_req, res) => {
+routes.legacy("GET /me/profile", (_req, res) => {
   res.json(readProfile(res.locals.owner));
 });
-core.put("/me/profile", (req, res) => {
+routes.legacy("PUT /me/profile", (req, res) => {
   res.json(saveProfile(res.locals.owner, req.body));
 });
-core.get("/me/prompts", (req, res) => {
+routes.legacy("GET /me/prompts", (req, res) => {
   const before = z.string().min(1).max(512).optional().parse(req.query.before);
   const q = z.string().trim().max(200).optional().parse(req.query.q);
   res.json(personalHistory(res.locals.owner, before, q || undefined));
 });
-core.get("/agents/:id/messages", (req, res) => {
+routes.legacy("GET /agents/:id/messages", (req, res) => {
   const before = z.string().min(1).max(512).optional().parse(req.query.before);
   res.json(agentMessages(res.locals.owner, req.params.id, before));
 });
-core.get("/agents/:id", (req, res) => {
+routes.legacy("GET /agents/:id", (req, res) => {
   const a = ownedAgent(req.params.id, res.locals.owner);
   res.json({
     agent: a,
@@ -469,13 +471,13 @@ core.get("/agents/:id", (req, res) => {
       .all(res.locals.owner, a.id),
   });
 });
-core.post(workspaceApi.submit.path, route(workspaceApi.submit, (req, res) => {
+routes.on(workspaceApi.submit, (req, res) => {
   const { queue, ...data } = req.body;
   res
     .status(202)
     .json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
-}));
-core.post(workspaceApi.runAction.path, route(workspaceApi.runAction, async (req, res) => {
+});
+routes.on(workspaceApi.runAction, async (req, res) => {
   const action = req.params.action;
   if (action === "dismiss" || action === "cancel") {
     res.json((action === "dismiss" ? dismissRun : cancelRun)(res.locals.owner, req.params.id));
@@ -546,15 +548,15 @@ core.post(workspaceApi.runAction.path, route(workspaceApi.runAction, async (req,
   )
     transition(run, "paused");
   res.json({ ok: true });
-}));
-core.get(workspaceApi.resultUpdates.path, projectionSnapshot(route(workspaceApi.resultUpdates, (req, res) => {
+});
+routes.on(workspaceApi.resultUpdates, (req, res) => {
   const options = { ...req.query, saved: req.query.saved === "1" };
   if (options.agent) owned("agents", options.agent, res.locals.owner);
   if (options.folder) owned("folders", options.folder, res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
   res.json(resultsUpdates(res.locals.owner, { ...options, teams }));
-})));
-core.get(workspaceApi.results.path, projectionSnapshot(route(workspaceApi.results, (req, res) => {
+}, { wrap: projectionSnapshot });
+routes.on(workspaceApi.results, (req, res) => {
   const saved = req.query.saved === "1";
   const revision = resultsRevision(res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
@@ -639,8 +641,8 @@ core.get(workspaceApi.results.path, projectionSnapshot(route(workspaceApi.result
     items,
     next: items.length === limit ? items.at(-1)!.cursor : null,
   });
-})));
-core.patch("/results/:id", (req, res) => {
+}, { wrap: projectionSnapshot });
+routes.legacy("PATCH /results/:id", (req, res) => {
   const item = ownedArtifact(req.params.id, res.locals.owner);
   const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
   db.prepare(
@@ -653,7 +655,7 @@ core.patch("/results/:id", (req, res) => {
     });
   res.json({ ok: true });
 });
-core.get(workspaceApi.conversation.path, projectionSnapshot(route(workspaceApi.conversation, (req, res) => {
+routes.on(workspaceApi.conversation, (req, res) => {
   const c = ownedConversation(req.params.id, res.locals.owner);
   const before = req.query.before;
   const anchor = req.query.message;
@@ -690,11 +692,11 @@ core.get(workspaceApi.conversation.path, projectionSnapshot(route(workspaceApi.c
     ...returned,
     resumed,
   });
-})));
-core.get("/messages/:id", (req, res) =>
+}, { wrap: projectionSnapshot });
+routes.legacy("GET /messages/:id", (req, res) =>
   res.json(messageResponse(ownedMessage(req.params.id, res.locals.owner))),
 );
-core.get("/messages", (req, res) => {
+routes.legacy("GET /messages", (req, res) => {
   const q = z
     .string()
     .max(500)
@@ -708,7 +710,7 @@ core.get("/messages", (req, res) => {
   );
 });
 
-core.get("/artifacts/:id/file", (req, res) => {
+routes.legacy("GET /artifacts/:id/file", (req, res) => {
   const file = localArtifact(res.locals.owner, req.params.id);
   const artifact = ownedArtifact(req.params.id, res.locals.owner);
   const name = artifact.metadata.name || artifact.title;
@@ -731,7 +733,7 @@ core.get("/artifacts/:id/file", (req, res) => {
   res.send(file.bytes);
 });
 
-core.get("/artifacts/:id/download", (req, res) => {
+routes.legacy("GET /artifacts/:id/download", (req, res) => {
   owned("artifacts", req.params.id, res.locals.owner);
   res.redirect(303, "/api/artifacts/" + req.params.id + "/file");
 });

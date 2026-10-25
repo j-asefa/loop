@@ -1,10 +1,11 @@
+import { registrar } from "./registrar.js";
 import { MessageMetadata, artifactResponse, runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
 
 import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
-import { Router } from "express";
+
 import multer from "multer";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -23,13 +24,13 @@ import { enqueue, RunIdentity, transition } from "./queue.js";
 import { checkoutDetail } from "./run-checkouts.js";
 import { runVerifications } from "./run-verifications.js";
 
-export const workspace = Router();
+const routes = registrar("workspace");
+export const workspace = routes.mount;
 const fileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 2, fieldSize: 200 },
 });
-workspace.post(
-  "/uploads",
+routes.legacy("POST /uploads",
   (req, res, next) =>
     fileUpload.single("file")(req, res, (error) => {
       next(
@@ -49,7 +50,7 @@ workspace.post(
     res.status(201).json(uploadFile(res.locals.owner, req.file, options));
   },
 );
-workspace.get("/folders", (_req, res) => {
+routes.legacy("GET /folders", (_req, res) => {
   ensureWorkspaceProject(res.locals.owner);
   res.json(
     db
@@ -57,7 +58,7 @@ workspace.get("/folders", (_req, res) => {
       .all(res.locals.owner),
   );
 });
-workspace.post("/folders", (req, res) => {
+routes.legacy("POST /folders", (req, res) => {
   const d = z
     .object({
       name: z
@@ -102,7 +103,7 @@ workspace.post("/folders", (req, res) => {
   }).immediate();
   res.status(201).json(ownedFolder(folderId, res.locals.owner));
 });
-workspace.patch("/folders/:id", (req, res) => {
+routes.legacy("PATCH /folders/:id", (req, res) => {
   const f = ownedFolder(req.params.id, res.locals.owner);
   if (isWorkspaceProject(res.locals.owner, f.id))
     throw new Problem(400, "The default Workspace project cannot be renamed, moved, or assigned a directory.");
@@ -163,7 +164,7 @@ workspace.patch("/folders/:id", (req, res) => {
   }).immediate();
   res.json({ ok: true });
 });
-workspace.get("/artifacts", (req, res) => {
+routes.legacy("GET /artifacts", (req, res) => {
   let where = "a.owner_id=? AND a.archived=0";
   const args: unknown[] = [res.locals.owner];
   if (req.query.folder === "inbox") where += " AND a.folder_id IS NULL";
@@ -193,7 +194,7 @@ workspace.get("/artifacts", (req, res) => {
 });
 // The checkout Loop observed for a run: branch, commits, files and the patch
 // stored at capture time. Read-only; there is nothing to apply from here.
-workspace.get("/runs/:id/checkout", (req, res) => {
+routes.legacy("GET /runs/:id/checkout", (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
   const detail = checkoutDetail(res.locals.owner, req.params.id);
   if (!detail) throw new Problem(404, "This run has no checkout record.");
@@ -201,11 +202,11 @@ workspace.get("/runs/:id/checkout", (req, res) => {
 });
 // The verification commands Loop observed for a run, with their exits and
 // output tails. Observations of what the agent ran, not what tests exist.
-workspace.get("/runs/:id/verifications", (req, res) => {
+routes.legacy("GET /runs/:id/verifications", (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
   res.json(runVerifications(res.locals.owner, req.params.id));
 });
-workspace.get("/runs/:id/files", (req, res) => {
+routes.legacy("GET /runs/:id/files", (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
   res.json(
     db
@@ -215,7 +216,7 @@ workspace.get("/runs/:id/files", (req, res) => {
       .all(res.locals.owner, req.params.id),
   );
 });
-workspace.get("/artifacts/:id", (req, res) => {
+routes.legacy("GET /artifacts/:id", (req, res) => {
   const a = ownedArtifact(req.params.id, res.locals.owner);
   const agent = a.agent_id
     ? (db
@@ -224,7 +225,7 @@ workspace.get("/artifacts/:id", (req, res) => {
     : undefined;
   res.json({ ...artifactResponse(a), ...agent });
 });
-workspace.post("/artifacts", (req, res) => {
+routes.legacy("POST /artifacts", (req, res) => {
   const d = z
     .object({
       title: z.string().min(1).max(180),
@@ -240,7 +241,7 @@ workspace.post("/artifacts", (req, res) => {
   if (d.folder) owned("folders", d.folder, res.locals.owner);
   res.status(201).json({ id: saveArtifact(res.locals.owner, d) });
 });
-workspace.patch("/artifacts/:id", (req, res) => {
+routes.legacy("PATCH /artifacts/:id", (req, res) => {
   const d = z
     .object({
       title: z.string().min(1).max(180).optional(),
@@ -279,7 +280,7 @@ workspace.patch("/artifacts/:id", (req, res) => {
   }).immediate();
   res.json(artifactResponse(ownedArtifact(req.params.id, res.locals.owner)));
 });
-workspace.post("/artifacts/:id/move", (req, res) => {
+routes.legacy("POST /artifacts/:id/move", (req, res) => {
   const d = z
     .object({
       folderId: z.string().nullable().optional(),
@@ -291,10 +292,10 @@ workspace.post("/artifacts/:id/move", (req, res) => {
     : (d.folderId ?? null);
   res.json(moveArtifact(res.locals.owner, req.params.id, folder));
 });
-workspace.post("/operations/:id/undo", (req, res) =>
+routes.legacy("POST /operations/:id/undo", (req, res) =>
   res.json(undoMove(res.locals.owner, req.params.id)),
 );
-workspace.get("/objects/:id", (req, res) => {
+routes.legacy("GET /objects/:id", (req, res) => {
   const o = db
     .prepare("SELECT * FROM objects WHERE id=? AND owner_id=?")
     .get(req.params.id, res.locals.owner) as QueryRow<"objects"> | undefined;
@@ -307,7 +308,7 @@ workspace.get("/objects/:id", (req, res) => {
   );
   res.send(o.bytes);
 });
-workspace.get("/search", async (req, res) => {
+routes.legacy("GET /search", async (req, res) => {
   const q = z.string().min(1).max(500).parse(req.query.q);
   res.json(
     await search(res.locals.owner, q, {
@@ -327,17 +328,17 @@ workspace.get("/search", async (req, res) => {
     }),
   );
 });
-workspace.get("/search/status", (_req, res) =>
+routes.legacy("GET /search/status", (_req, res) =>
   res.json(searchStatus(res.locals.owner)),
 );
-workspace.get("/preferences", (_req, res) =>
+routes.legacy("GET /preferences", (_req, res) =>
   res.json(
     db
       .prepare("SELECT * FROM preferences WHERE owner_id=?")
       .get(res.locals.owner) || { embedding_enabled: 0 },
   ),
 );
-workspace.post("/preferences", (req, res) => {
+routes.legacy("POST /preferences", (req, res) => {
   const d = z
     .object({
       embeddingEnabled: z.boolean(),
@@ -370,13 +371,13 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 30 * 1024 * 1024, files: 1, fields: 2 },
 });
-workspace.post("/imports/preview", upload.single("file"), async (req, res) => {
+routes.legacy("POST /imports/preview", upload.single("file"), async (req, res) => {
   if (!req.file) throw new Problem(400, "Choose an export file");
   res.json(
     await stageImport(res.locals.owner, req.file.buffer, req.file.originalname),
   );
 });
-workspace.get("/imports", (_req, res) =>
+routes.legacy("GET /imports", (_req, res) =>
   res.json(
     db
       .prepare(
@@ -385,7 +386,7 @@ workspace.get("/imports", (_req, res) =>
       .all(res.locals.owner),
   ),
 );
-workspace.post("/imports/:id/start", (req, res) => {
+routes.legacy("POST /imports/:id/start", (req, res) => {
   const job = ownedImport(req.params.id, res.locals.owner);
   const active = db
     .prepare(
@@ -407,7 +408,7 @@ workspace.post("/imports/:id/start", (req, res) => {
   db.prepare("UPDATE imports SET status='queued' WHERE id=?").run(job.id);
   res.json(runResponse(run));
 });
-workspace.post("/imports/:id/cancel", (req, res) => {
+routes.legacy("POST /imports/:id/cancel", (req, res) => {
   owned("imports", req.params.id, res.locals.owner);
   const jobId = req.params.id;
   const runs = z.array(RunIdentity).parse(db
@@ -421,7 +422,7 @@ workspace.post("/imports/:id/cancel", (req, res) => {
   ).run(jobId);
   res.json({ ok: true });
 });
-workspace.post("/conversations/:id/continue", (req, res) => {
+routes.legacy("POST /conversations/:id/continue", (req, res) => {
   const c = ownedConversation(req.params.id, res.locals.owner);
   const d = z
     .object({

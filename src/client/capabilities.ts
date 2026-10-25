@@ -1,3 +1,4 @@
+import { authorizedFetch } from "./api";
 import { profileCapabilities, type Capabilities } from "../shared/capabilities";
 import {
   executionSourceId,
@@ -6,12 +7,12 @@ import {
 } from "./sourceRouting";
 export let capabilities: Capabilities = profileCapabilities("server");
 export async function loadCapabilities() {
-  const response = await fetch(sourceApiPath("/api/capabilities"), {
+  const response = await authorizedFetch(sourceApiPath("/api/capabilities"), {
     cache: "no-store",
     credentials: "same-origin",
   });
   if (response.status === 401 && executionSourceId()) {
-    const local = await fetch("/api/capabilities", {
+    const local = await authorizedFetch("/api/capabilities", {
       cache: "no-store",
       credentials: "same-origin",
     });

@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { route } from "./route.js";
+import { registrar } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
@@ -115,13 +115,15 @@ app.use((req, _res, next) => {
       : req.socket.remoteAddress;
   next();
 });
+const appTransport = registrar("app", { prefix: "/api", automaticOptions: false });
+app.use(appTransport.mount);
 // Keep the existing federation routes and their independent credential checks
 // ahead of the Cards selector. Express owns their case/trailing-slash matching.
 if (!companionMode) {
-  app.all("/api/mcp/federation", express.json({ limit: "12mb" }), (req, res, next) => {
+  appTransport.legacy("ALL /mcp/federation", express.json({ limit: "12mb" }), (req, res, next) => {
     void handleFederationMcp(req, res, req.body).catch(next);
   });
-  app.all("/api/mcp/reverse", express.json({ limit: "12mb" }), (req, res, next) => {
+  appTransport.legacy("ALL /mcp/reverse", express.json({ limit: "12mb" }), (req, res, next) => {
     void handleReverseMcp(req, res, req.body).catch(next);
   });
 }
@@ -145,25 +147,30 @@ app.use("/api", (req, res, next) => {
     next(error);
   }
 });
-app.get("/api/capabilities", (_req, res) => res.json({ ...capabilities, cardTokens: !designPreview }));
+const appCapabilities = registrar("app", { prefix: "/api", automaticOptions: false });
+app.use(appCapabilities.mount);
+appCapabilities.legacy("GET /capabilities", (_req, res) => res.json({ ...capabilities, cardTokens: !designPreview }));
+const appAuth = registrar("app", { prefix: "/api", automaticOptions: false });
 if (companionMode) {
   // Host authorizes devices, origins and CSRF before forwarding to this app.
   app.use((_req, res, next) => {
     res.locals.owner = OWNER;
     next();
   });
-  app.get("/api/auth/get-session", (_req, res) =>
+  app.use(appAuth.mount);
+  appAuth.legacy("GET /auth/get-session", (_req, res) =>
     res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
   );
-  app.get("/api/auth-options", (_req, res) =>
+  appAuth.legacy("GET /auth-options", (_req, res) =>
     res.json({ mode: "paired", github: false }),
   );
 } else {
-  app.get("/api/auth/get-session", async (req, res, next) => {
+  app.use(appAuth.mount);
+  appAuth.legacy("GET /auth/get-session", async (req, res, next) => {
     if (config.authMode === "multi-user") return next();
     res.json(await access!.workspaceSession(req));
   });
-  app.all("/api/auth/*splat", (req, res) => {
+  appAuth.legacy("ALL /auth/*splat", (req, res) => {
     if (config.authMode === "single-user") {
       res.status(404).json({
         error: "This is a personal workspace. No Loop account is needed.",
@@ -172,7 +179,7 @@ if (companionMode) {
     }
     return toNodeHandler(authentication!.auth)(req, res);
   });
-  app.get("/api/auth-options", (_req, res) =>
+  appAuth.legacy("GET /auth-options", (_req, res) =>
     res.json({
       mode: config.authMode,
       github:
@@ -181,7 +188,9 @@ if (companionMode) {
   );
 }
 app.use(express.json({ limit: "12mb" }));
-app.get("/api/health", (_req, res) => {
+const appHealth = registrar("app", { prefix: "/api", automaticOptions: false });
+app.use(appHealth.mount);
+appHealth.legacy("GET /health", (_req, res) => {
   const worker = db
     .prepare("SELECT max(heartbeat) last FROM worker_health")
     .get() as { last: number | null };
@@ -223,7 +232,9 @@ app.use("/api", async (req, res, next) => {
   next();
 });
 if (designPreview) app.use("/api", designPreviewBoundary);
-app.get("/api/build", (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds(), eventLoop: eventLoopHealth() }));
+const appSession = registrar("app", { prefix: "/api", automaticOptions: false });
+app.use(appSession.mount);
+appSession.legacy("GET /build", (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds(), eventLoop: eventLoopHealth() }));
 if (!companionMode) {
   // Setup returns private service credentials. Besides arriving locally, it
   // must carry a header that no paired-browser proxy forwards (they use
@@ -232,7 +243,7 @@ if (!companionMode) {
     config.authMode === "single-user" &&
     access!.localRequest(req) &&
     req.get(FEDERATION_SETUP_HEADER) === "1";
-  app.post("/api/mcp/federation/enroll", (req, res) => {
+  appSession.legacy("POST /mcp/federation/enroll", (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     res.json({
@@ -242,7 +253,7 @@ if (!companionMode) {
       ),
     });
   });
-  app.post("/api/mcp/federation/import", async (req, res) => {
+  appSession.legacy("POST /mcp/federation/import", async (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     const { peerId, label, endpoint, token } = req.body || {};
@@ -264,7 +275,7 @@ if (!companionMode) {
       ),
     );
   });
-  app.post("/api/mcp/federation/import-reverse", async (req, res) => {
+  appSession.legacy("POST /mcp/federation/import-reverse", async (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     const { peerId, label, tools } = req.body || {};
@@ -278,7 +289,7 @@ if (!companionMode) {
       await installReverseCatalog(res.locals.owner, peerId, label, tools),
     );
   });
-  app.post("/api/mcp/federation/revoke", (req, res) => {
+  appSession.legacy("POST /mcp/federation/revoke", (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     res.json(
@@ -289,14 +300,14 @@ if (!companionMode) {
       ),
     );
   });
-  app.get("/api/mcp/federation/pending", (req, res) => {
+  appSession.legacy("GET /mcp/federation/pending", (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     res.json(
       pendingReverseCalls(res.locals.owner, String(req.query.peerId || "")),
     );
   });
-  app.post("/api/mcp/federation/claim/:id", (req, res) => {
+  appSession.legacy("POST /mcp/federation/claim/:id", (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     const { peerId } = req.body || {};
@@ -304,7 +315,7 @@ if (!companionMode) {
       throw new Problem(400, "Invalid shared tool claim");
     res.json(claimReverseCall(res.locals.owner, peerId, String(req.params.id)));
   });
-  app.post("/api/mcp/federation/complete/:id", (req, res) => {
+  appSession.legacy("POST /mcp/federation/complete/:id", (req, res) => {
     if (!localFederationSetup(req))
       throw new Problem(403, "Local execution source setup required");
     const { peerId, state, result } = req.body || {};
@@ -321,7 +332,7 @@ if (!companionMode) {
     );
   });
 }
-app.post("/api/diagnostic", (req, res) =>
+appSession.legacy("POST /diagnostic", (req, res) =>
   res.json(
     runResponse(enqueue(
       res.locals.owner,
@@ -331,7 +342,7 @@ app.post("/api/diagnostic", (req, res) =>
     )),
   ),
 );
-app.get("/api/events", (req, res) =>
+appSession.legacy("GET /events", (req, res) =>
   res.json(
     db
       .prepare(
@@ -340,10 +351,10 @@ app.get("/api/events", (req, res) =>
       .all(res.locals.owner, Number(req.query.after) || 0),
   ),
 );
-app.get("/api" + workspaceApi.runs.path, route(workspaceApi.runs, (req, res) => {
+appSession.on(workspaceApi.runs, (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
   res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1") as z.input<typeof workspaceApi.runs.response>);
-}));
+});
 if (companionMode) app.use("/api", companion);
 app.use("/api", teams);
 app.use("/api", agentDefinitions);

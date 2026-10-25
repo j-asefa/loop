@@ -440,7 +440,7 @@ export async function undoReminder(
   created: CreatedReminder,
   sourceId = executionSourceId(),
 ) {
-  await apiInWorkspace("/later/" + created.id, sourceId, undefined, "DELETE");
+  await apiInWorkspace(`/later/${created.id}`, sourceId, undefined, "DELETE");
   if (created.replaced)
     await apiInWorkspace(
       `/later/${created.replaced}/reopen`,
@@ -887,7 +887,7 @@ function EditScheduled({
           setError("");
           try {
             await api(
-              "/scheduled-sends/" + item.id,
+              `/scheduled-sends/${item.id}`,
               { input: text, sendAt },
               "PATCH",
             );
@@ -947,7 +947,7 @@ export function ScheduledSends({
     const q = new URLSearchParams();
     if (conversationId) q.set("conversation", conversationId);
     if (failedBefore) q.set("failedBefore", failedBefore);
-    return "/scheduled-sends" + (q.size ? "?" + q : "");
+    return q.size ? `/scheduled-sends?${q}` as const : "/scheduled-sends";
   };
   const load = (signal?: AbortSignal) =>
     (signal ? read<Page>(query(), signal) : api<Page>(query()))
@@ -998,7 +998,7 @@ export function ScheduledSends({
     setError("");
     try {
       if (action === "cancel")
-        await api("/scheduled-sends/" + item.id, undefined, "DELETE");
+        await api(`/scheduled-sends/${item.id}`, undefined, "DELETE");
       else {
         const result = await api<{
           run: { id: string } | null;

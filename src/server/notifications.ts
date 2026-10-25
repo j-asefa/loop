@@ -1,5 +1,6 @@
+import { registrar } from "./registrar.js";
 import { plainPreview } from "../shared/text.js";
-import { Router } from "express";
+
 import { z } from "zod";
 import webpush from "web-push";
 import { db, id, now } from "./db.js";
@@ -100,8 +101,9 @@ function devicePreferences(owner: string) {
     },
   }));
 }
-export const notifications = Router();
-notifications.get("/notifications", (_req, res) => {
+const routes = registrar("notifications");
+export const notifications = routes.mount;
+routes.legacy("GET /notifications", (_req, res) => {
   res.json({
     publicKey: notificationKeys().publicKey,
     devices: devicePreferences(res.locals.owner),
@@ -112,7 +114,7 @@ notifications.get("/notifications", (_req, res) => {
     ).map((s) => s.endpoint),
   });
 });
-notifications.post("/notifications/subscriptions", (req, res) => {
+routes.legacy("POST /notifications/subscriptions", (req, res) => {
   const subscription = subscriptionSchema.parse(req.body);
   const preferences = preferencesSchema.optional().parse(req.body.preferences);
   const owner = res.locals.owner;
@@ -167,7 +169,7 @@ notifications.post("/notifications/subscriptions", (req, res) => {
   }).immediate();
   res.status(201).json({ ok: true });
 });
-notifications.delete("/notifications/subscriptions", (req, res) => {
+routes.legacy("DELETE /notifications/subscriptions", (req, res) => {
   const { endpoint } = z.object({ endpoint: endpointSchema }).parse(req.body);
   db.prepare(
     "DELETE FROM push_subscriptions WHERE endpoint=? AND owner_id=?",

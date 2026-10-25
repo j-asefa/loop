@@ -1,8 +1,9 @@
+import { registrar } from "./registrar.js";
 import { readRunConnectionId, maybeConnection, maybeRunNotice, InvalidRow, type RunNotice } from "./row-schemas.js";
 
 
 import { READABLE_MAIL_SQL } from "./mail-context.js";
-import { Router } from "express";
+
 
 import {
   messageSchema,
@@ -1431,11 +1432,12 @@ function describeThreads(threads: Thread[]) {
   };
 }
 
-export const agentMail = Router();
-agentMail.get("/teams/:id/messages", (req, res) =>
+const routes = registrar("agentMail");
+export const agentMail = routes.mount;
+routes.legacy("GET /teams/:id/messages", (req, res) =>
   res.json(teamMessages(res.locals.owner, req.params.id)),
 );
-agentMail.post("/teams/:id/threads/:threadId/resume", (req, res) =>
+routes.legacy("POST /teams/:id/threads/:threadId/resume", (req, res) =>
   res.json(resumeThread(res.locals.owner, req.params.id, req.params.threadId)),
 );
 
@@ -1450,10 +1452,10 @@ export function agentMessages(owner: string, agentId: string) {
       .all(owner, agentId) as Thread[],
   );
 }
-agentMail.get("/agents/:id/mail", (req, res) =>
+routes.legacy("GET /agents/:id/mail", (req, res) =>
   res.json(agentMessages(res.locals.owner, req.params.id)),
 );
-agentMail.post("/agents/:id/mail/:threadId/resume", (req, res) => {
+routes.legacy("POST /agents/:id/mail/:threadId/resume", (req, res) => {
   const owner = res.locals.owner;
   ownedAgent(req.params.id, owner);
   if (

@@ -197,7 +197,7 @@ export function RunFiles({
         return;
       }
       pending = true;
-      void read<Published[]>("/runs/" + runId + "/files", controller.signal, (error) => {
+      void read<Published[]>(`/runs/${runId}/files`, controller.signal, (error) => {
         // Keep the existing immediate error and manual retry while a bounded
         // transient GET retry is pending. Rate limits remain quiet.
         if (live && !isRateLimited(error)) setError((error as Error).message);

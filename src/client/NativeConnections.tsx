@@ -67,7 +67,7 @@ export function NativeConnections({
                     setBusy(true);
                     setError("");
                     try {
-                      await api("/connections/" + c.id + "/refresh", {});
+                      await api(`/connections/${c.id}/refresh`, {});
                       await onChange();
                     } catch (e) {
                       setError((e as Error).message);

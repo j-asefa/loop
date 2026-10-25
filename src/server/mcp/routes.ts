@@ -1,7 +1,8 @@
+import { registrar } from "../registrar.js";
 import type { QueryRow } from "../query-records.js";
 import { McpConnectionRecord, parseRecord, runResponse } from "../row-schemas.js";
 
-import { Router } from "express";
+
 import { z } from "zod";
 import {
   artifactRefreshSource,
@@ -40,14 +41,15 @@ import {
   importNativeMcpCandidate,
   publicNativeMcpCandidates,
 } from "./native-config-import.js";
-export const mcp = Router();
-mcp.get("/mcp/preferences", (_req, res) =>
+const routes = registrar("mcp");
+export const mcp = routes.mount;
+routes.legacy("GET /mcp/preferences", (_req, res) =>
   res.json({
     approvalMode: mcpApprovalMode(res.locals.owner),
     agentPermissionMode: agentPermissionMode(res.locals.owner),
   }),
 );
-mcp.put("/mcp/preferences", (req, res) => {
+routes.legacy("PUT /mcp/preferences", (req, res) => {
   const data = z
     .object({
       approvalMode: z.enum(["ask", "allow"]).optional(),
@@ -71,7 +73,7 @@ mcp.put("/mcp/preferences", (req, res) => {
     : { approvalMode: mcpApprovalMode(res.locals.owner), resumed: 0 };
   res.json({ ...tools, ...agent });
 });
-mcp.get("/mcp/catalog", (_req, res) => {
+routes.legacy("GET /mcp/catalog", (_req, res) => {
   res.json({
     entries: publicCatalog(),
     reviewedAt,
@@ -83,10 +85,10 @@ mcp.get("/mcp/catalog", (_req, res) => {
 // any signed-in user's to list or import.
 const nativeImportAllowed = () =>
   companionMode || config.authMode !== "multi-user";
-mcp.get("/mcp/native-candidates", async (_req, res) => {
+routes.legacy("GET /mcp/native-candidates", async (_req, res) => {
   res.json(nativeImportAllowed() ? await publicNativeMcpCandidates() : []);
 });
-mcp.post("/mcp/native-candidates/:id/import", async (req, res) => {
+routes.legacy("POST /mcp/native-candidates/:id/import", async (req, res) => {
   if (!nativeImportAllowed())
     throw new Problem(
       403,
@@ -98,7 +100,7 @@ mcp.post("/mcp/native-candidates/:id/import", async (req, res) => {
       await importNativeMcpCandidate(res.locals.owner, String(req.params.id)),
     );
 });
-mcp.post("/mcp/catalog/:id/install", async (req, res) => {
+routes.legacy("POST /mcp/catalog/:id/install", async (req, res) => {
   const data = z
     .object({
       values: z.record(z.string().max(100), z.string().max(10000)).default({}),
@@ -115,7 +117,7 @@ mcp.post("/mcp/catalog/:id/install", async (req, res) => {
     ),
   );
 });
-mcp.post("/mcp/install", async (req, res) => {
+routes.legacy("POST /mcp/install", async (req, res) => {
   const d = z
     .object({
       config: z.union([
@@ -165,7 +167,7 @@ function publicConnection(c: MCPConnection) {
   const { secret, ...safe } = c;
   return { ...safe, authType: readSecret(c).type };
 }
-mcp.get("/mcp", (_req, res) =>
+routes.legacy("GET /mcp", (_req, res) =>
   res.json(
     db
       .prepare(
@@ -175,7 +177,7 @@ mcp.get("/mcp", (_req, res) =>
       .map((c) => publicConnection(c as MCPConnection)),
   ),
 );
-mcp.post("/mcp", async (req, res) => {
+routes.legacy("POST /mcp", async (req, res) => {
   const data = z
       .object({
         name: z.string().trim().min(1).max(80),
@@ -201,7 +203,7 @@ mcp.post("/mcp", async (req, res) => {
       publicConnection(ownedMcpConnection(connection, res.locals.owner)),
     );
 });
-mcp.post("/mcp/:id/test", async (req, res) => {
+routes.legacy("POST /mcp/:id/test", async (req, res) => {
   const c = ownedMcpConnection(String(req.params.id), res.locals.owner);
   try {
     if (readSecret(c).type === "oauth") {
@@ -221,7 +223,7 @@ mcp.post("/mcp/:id/test", async (req, res) => {
     throw e;
   }
 });
-mcp.patch("/mcp/:id", async (req, res) => {
+routes.legacy("PATCH /mcp/:id", async (req, res) => {
   const raw = owned("mcp_connections", String(req.params.id), res.locals.owner);
   const data = z
       .object({
@@ -262,7 +264,7 @@ mcp.patch("/mcp/:id", async (req, res) => {
     );
   res.json(publicConnection(ownedMcpConnection(c.id, c.owner_id)));
 });
-mcp.get("/mcp/oauth/callback", async (req, res) => {
+routes.legacy("GET /mcp/oauth/callback", async (req, res) => {
   const state = String(req.query.state || ""),
     code = String(req.query.code || "");
   const saved = db
@@ -288,7 +290,7 @@ mcp.get("/mcp/oauth/callback", async (req, res) => {
   await discover(c);
   res.redirect("/?tools=connected");
 });
-mcp.get("/agents/:id/tools", (req, res) => {
+routes.legacy("GET /agents/:id/tools", (req, res) => {
   res.json(
     toolBindings(res.locals.owner, String(req.params.id)).map((binding) => ({
       connection_id: binding.connectionId,
@@ -296,7 +298,7 @@ mcp.get("/agents/:id/tools", (req, res) => {
     })),
   );
 });
-mcp.put("/agents/:id/tools", (req, res) => {
+routes.legacy("PUT /agents/:id/tools", (req, res) => {
   ownedAgent(String(req.params.id), res.locals.owner);
   throw new Problem(
     410,
@@ -326,7 +328,7 @@ export function queueTool(
 const callSchema = toolInvocationSchema.extend({
   idempotencyKey: z.string().min(10).max(200),
 });
-mcp.post("/artifacts/:id/tool-call", (req, res) => {
+routes.legacy("POST /artifacts/:id/tool-call", (req, res) => {
   const a = ownedArtifact(String(req.params.id), res.locals.owner),
     meta = a.metadata;
   if (!a.agent_id || !meta.connectionId)
@@ -341,7 +343,7 @@ mcp.post("/artifacts/:id/tool-call", (req, res) => {
     })),
   );
 });
-mcp.post("/artifacts/:id/refresh", (req, res) => {
+routes.legacy("POST /artifacts/:id/refresh", (req, res) => {
   const a = ownedArtifact(String(req.params.id), res.locals.owner),
     meta = a.metadata;
   const source = artifactRefreshSource(a.agent_id, meta);
@@ -388,7 +390,7 @@ export async function executeMcp(run: Run) {
   return true;
 }
 
-mcp.get("/artifacts/:id/app", (req, res) => {
+routes.legacy("GET /artifacts/:id/app", (req, res) => {
   const a = ownedArtifact(String(req.params.id), res.locals.owner),
     meta = a.metadata;
   if (typeof meta.appResource?.html !== "string")

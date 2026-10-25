@@ -1,11 +1,13 @@
+import { registrar } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db } from "./db.js";
 import { ownedFolder, ownedAgent, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { Agent } from "../shared/types.js";
-export const sharing = Router();
+const routes = registrar("sharing");
+export const sharing = routes.mount;
 export const sourceSchema = z.object({
   url: z
     .string()
@@ -55,7 +57,7 @@ const shareSchema = z.object({
   sharedText: z.string().max(12000).optional(),
   folderId: z.string().optional(),
 });
-sharing.post("/share/preview", (req, res) => {
+routes.legacy("POST /share/preview", (req, res) => {
   const d = shareSchema.parse(req.body);
   if (d.folderId) ownedFolder(d.folderId, res.locals.owner);
   const agent = routeHandle(res.locals.owner, d.question);
@@ -73,7 +75,7 @@ sharing.post("/share/preview", (req, res) => {
     source: d.source,
   });
 });
-sharing.post("/share/send", (req, res) => {
+routes.legacy("POST /share/send", (req, res) => {
   const d = shareSchema
       .extend({
         newAgentId: z.string().optional(),
@@ -107,7 +109,7 @@ sharing.post("/share/send", (req, res) => {
   );
 });
 
-sharing.post("/routing/preview", (req, res) => {
+routes.legacy("POST /routing/preview", (req, res) => {
   const d = z
     .object({
       input: z.string().min(1).max(30000),

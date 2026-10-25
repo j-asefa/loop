@@ -19,7 +19,7 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
     setError("");
     const f = new FormData(e.currentTarget);
     try {
-      await api("/auth/" + (signup ? "sign-up" : "sign-in") + "/email", {
+      await api(`/auth/${signup ? "sign-up" : "sign-in"}/email`, {
         name: f.get("name") || "Loop user",
         email: f.get("email"),
         password: f.get("password"),

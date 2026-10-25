@@ -1,3 +1,4 @@
+import type { LegacyClientPath } from "./legacy-paths";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import { DoneCardsReader } from "./feed-cards";
@@ -702,7 +703,7 @@ function AwaySummary({
             completed: AwayItem[];
             needs: AwayItem[];
             failed: AwayItem[];
-          }>("/feed/away?since=" + since, source.id),
+          }>(`/feed/away?since=${since}`, source.id),
         })),
       ).then((settled) => {
         const loaded = settled.flatMap((entry) =>
@@ -846,7 +847,7 @@ export function EditQueued({
           setError("");
           try {
             await apiInWorkspace(
-              "/runs/" + message.id,
+              `/runs/${message.id}`,
               message.sourceId ?? scopedSource,
               { input: text },
               "PATCH",
@@ -1277,7 +1278,7 @@ export function Feed({
             if (doneCards.current.size > 40) doneCards.current.delete(doneCards.current.keys().next().value!);
           }
           const combined = sources && !project && !teams && !agent;
-          const transport = (path: string) => combined ? apiInWorkspace(path, source) : api(path);
+          const transport = (path: LegacyClientPath) => combined ? apiInWorkspace(path, source) : api(path);
           const boundary = reader.pager.snapshot()?.boundary;
           const catchUp = boundary && priorItems.some(item => compareCardOrder(order(item), boundary) < 0);
           const resetVersion = reader.resetVersion;

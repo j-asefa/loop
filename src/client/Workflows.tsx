@@ -102,7 +102,7 @@ export function WorkflowEditor({
     spec = parse<any>(source, null);
   async function load(id: string, restoreDraft = false) {
     try {
-      const r = await api("/workflows/" + id);
+      const r = await api(`/workflows/${id}`);
       setRecord(r);
       setSource(restoreDraft && initialSource ? initialSource : r.source);
       setInputs({});
@@ -120,7 +120,7 @@ export function WorkflowEditor({
   useEffect(() => {
     if (!selectedRun) return;
     const update = () =>
-      read<any[]>("/runs/" + selectedRun + "/steps")
+      read<any[]>(`/runs/${selectedRun}/steps`)
         .then(setSteps)
         .catch((e) => setError(e.message));
     const stopChanges = listenWorkspaceChanges("runs", update, sourceId);
@@ -135,7 +135,7 @@ export function WorkflowEditor({
         source,
         ...(record ? { id: record.id, expectedVersion: record.version } : {}),
       });
-      setRecord(await api("/workflows/" + r.id));
+      setRecord(await api(`/workflows/${r.id}`));
       setList(await api("/workflows"));
       setNotice(`Version ${r.version} saved.`);
       setError("");
@@ -166,7 +166,7 @@ export function WorkflowEditor({
         idempotencyKey: request.current.key,
       });
       setSelectedRun(r.id);
-      setRecord(await api("/workflows/" + record.id));
+      setRecord(await api(`/workflows/${record.id}`));
       onStarted();
       setNotice(
         "Workflow queued. You can close Loop; the server will continue.",

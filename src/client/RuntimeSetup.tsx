@@ -42,7 +42,7 @@ const labels: Record<string, string> = {
 const existingOnly = (name: string) =>
   name === "gemini" || name === "muse" || name === "grok";
 function authBase(runtime: Runtime) {
-  return `/workspace/runtimes/${runtime.name}/auth`;
+  return `/workspace/runtimes/${runtime.name}/auth` as const;
 }
 function authStatus(runtime: Runtime) {
   return api<NativeAuthView>(`${authBase(runtime)}/status`);

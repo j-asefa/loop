@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import { workspaceApi, PublicConnection } from "../src/shared/workspace-api";
 import { Problem, ExecutionProblem } from "../src/shared/problem";
-import { route } from "../src/server/route";
+import { registrar } from "../src/server/registrar";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-route-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
@@ -46,18 +46,20 @@ function fixture(who = owner) {
 const helper = express();
 helper.use(express.json());
 const contract = { method: "POST", path: "/input", params: z.object({}), query: z.object({}), body: z.object({ label: z.string() }), response: z.object({ label: z.string() }) } as const;
-helper.post(contract.path, route(contract, (req, res) => {
+const helperRoutes = registrar("test");
+helper.use(helperRoutes.mount);
+helperRoutes.on(contract, (req, res) => {
   const projection = { label: req.body.label, secret: "must-not-leak" };
   res.json(projection);
-}));
+});
 helper.post("/legacy", (req, res) => res.json(contract.body.parse(req.body)));
-helper.post("/sync", route(contract, () => { throw new Problem(409, "Already changed"); }));
-helper.post("/async", route(contract, async () => { await Promise.resolve(); throw new ExecutionProblem(409, "Inspect first", "unknown"); }));
-helper.post("/invalid-output", route(contract, async (_req, res) => {
+helperRoutes.on({ ...contract, path: "/sync" }, () => { throw new Problem(409, "Already changed"); });
+helperRoutes.on({ ...contract, path: "/async" }, async () => { await Promise.resolve(); throw new ExecutionProblem(409, "Inspect first", "unknown"); });
+helperRoutes.on({ ...contract, path: "/invalid-output" }, async (_req, res) => {
   await Promise.resolve();
   // @ts-expect-error The typed response rejects this at compile time too.
   res.status(201).json({ label: 42, secret: "must-not-leak" });
-}));
+});
 helper.use(errorHandler);
 const helperServer = helper.listen(0, "127.0.0.1");
 await new Promise<void>(resolve => helperServer.once("listening", resolve));
@@ -93,6 +95,9 @@ it("serves a credential-free bootstrap from the production HTTP app and retains 
   expect(data.agents.some(row => row.id === foreign.agent.id)).toBe(false);
   expect(PublicConnection.parse({ ...connection, secret: "private", nativeCredential: "private" })).toEqual(connection);
   expect(result.headers.get("x-loop-change-epoch")).toEqual(expect.any(String));
+  const session = await request("/auth/get-session");
+  expect(session.data.user.id).toBe(owner);
+  expect(session.headers.get("x-loop-change-epoch")).toEqual(expect.any(String));
 });
 
 it("keeps invalid run inputs side-effect free and preserves submit, replay and cancel wire responses", async () => {

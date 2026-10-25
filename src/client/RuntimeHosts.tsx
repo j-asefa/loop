@@ -96,7 +96,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
                     onClick={async () => {
                       setBusy(true);
                       try {
-                        await api("/runtime-hosts/" + h.id, {}, "DELETE");
+                        await api(`/runtime-hosts/${h.id}`, {}, "DELETE");
                         await load();
                       } catch (e) {
                         setError((e as Error).message);

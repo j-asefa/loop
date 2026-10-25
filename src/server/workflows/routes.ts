@@ -1,9 +1,10 @@
+import { registrar } from "../registrar.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
-import { route } from "../route.js";
+
 import { runResponse } from "../row-schemas.js";
 
 import { teamFilter } from "../teams.js";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, id, now } from "../db.js";
 import { ownedWorkflow, ownedApproval, ownedRun, Problem } from "../domain.js";
@@ -11,8 +12,9 @@ import { compile, bind } from "./compiler.js";
 import { startWorkflow } from "./runtime.js";
 import { saveArtifact } from "../artifacts.js";
 import { decide } from "../approvals.js";
-export const workflows = Router();
-workflows.get("/workflows", (_req, res) =>
+const routes = registrar("workflows");
+export const workflows = routes.mount;
+routes.legacy("GET /workflows", (_req, res) =>
   res.json(
     db
       .prepare(
@@ -21,7 +23,7 @@ workflows.get("/workflows", (_req, res) =>
       .all(res.locals.owner),
   ),
 );
-workflows.post("/workflows/validate", (req, res) => {
+routes.legacy("POST /workflows/validate", (req, res) => {
   const source = z.string().max(100000).parse(req.body.source);
   const spec = compile(source);
   const bindings = bind(res.locals.owner, spec);
@@ -31,7 +33,7 @@ workflows.post("/workflows/validate", (req, res) => {
     notice: `Up to ${spec.limits.maxCalls} model calls, each capped at ${spec.limits.maxOutputTokens} output tokens. Provider pricing applies.`,
   });
 });
-workflows.post("/workflows", (req, res) => {
+routes.legacy("POST /workflows", (req, res) => {
   const d = z
     .object({
       source: z.string().max(100000),
@@ -78,7 +80,7 @@ workflows.post("/workflows", (req, res) => {
   }).immediate();
   res.json(ownedWorkflow(workflowId, res.locals.owner));
 });
-workflows.get("/workflows/:id", (req, res) => {
+routes.legacy("GET /workflows/:id", (req, res) => {
   const w = ownedWorkflow(req.params.id, res.locals.owner);
   res.json({
     ...w,
@@ -94,7 +96,7 @@ workflows.get("/workflows/:id", (req, res) => {
       .all(res.locals.owner, w.id),
   });
 });
-workflows.post("/workflows/:id/run", (req, res) => {
+routes.legacy("POST /workflows/:id/run", (req, res) => {
   const d = z
     .object({
       version: z.number().int().min(1),
@@ -114,7 +116,7 @@ workflows.post("/workflows/:id/run", (req, res) => {
       )),
     );
 });
-workflows.get("/runs/:id/steps", (req, res) => {
+routes.legacy("GET /runs/:id/steps", (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
   res.json(
     db
@@ -124,7 +126,7 @@ workflows.get("/runs/:id/steps", (req, res) => {
       .all(req.params.id),
   );
 });
-workflows.get(workspaceApi.approvals.path, route(workspaceApi.approvals, (req, res) => {
+routes.on(workspaceApi.approvals, (req, res) => {
   const teams = teamFilter(req.query.teams, res.locals.owner);
   const filter = teams.length
     ? " AND json_extract(r.payload,'$.teamId') IN (" +
@@ -140,8 +142,8 @@ workflows.get(workspaceApi.approvals.path, route(workspaceApi.approvals, (req, r
       )
       .all(res.locals.owner, ...teams) as z.input<typeof workspaceApi.approvals.response>,
   );
-}));
-workflows.post(workspaceApi.approval.path, route(workspaceApi.approval, async (req, res) => {
+});
+routes.on(workspaceApi.approval, async (req, res) => {
   const approval = ownedApproval(req.params.id, res.locals.owner);
   res.json(decide(res.locals.owner, req.params.id, req.body.decision));
-}));
+});

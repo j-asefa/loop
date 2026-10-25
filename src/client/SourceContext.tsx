@@ -1,3 +1,4 @@
+import type { LegacyClientPath } from "./legacy-paths";
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { apiInWorkspace, readInWorkspace, type api } from "./api";
 import { capabilities as shellCapabilities } from "./capabilities";
@@ -48,14 +49,14 @@ export function useSourceApi() {
 export function useSourcePath() {
   const source = useSourceId();
   return useMemo(
-    () => (path: string) => sourceApiPathAt(path, source),
+    () => <const P extends string,>(path: P) => sourceApiPathAt(path, source),
     [source],
   );
 }
 
 export function useSourceRead() {
   const source = useSourceId();
-  return useMemo(() => <T = any,>(path: string, signal: AbortSignal, onRetry?: (error: unknown) => void) =>
+  return useMemo(() => <T = any,>(path: LegacyClientPath, signal: AbortSignal, onRetry?: (error: unknown) => void) =>
     readInWorkspace<T>(path, source, signal, onRetry), [source]);
 }
 
@@ -84,7 +85,7 @@ function useProjectionScope(sourceId?: string) {
 }
 export function useProjectionRead(sourceId?: string) {
   const handle = useProjectionScope(sourceId);
-  return useMemo(() => <T = any,>(path: string, source = handle.source) => readInWorkspace<T>(path, source, handle.controller.signal), [handle]);
+  return useMemo(() => <T = any,>(path: LegacyClientPath, source = handle.source) => readInWorkspace<T>(path, source, handle.controller.signal), [handle]);
 }
 export function useProjectionRoute(sourceId?: string) {
   const handle = useProjectionScope(sourceId);

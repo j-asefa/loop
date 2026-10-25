@@ -1,6 +1,7 @@
+import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
 
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { ownedFolder, ownedTeam, ownedConversation, ownedAgent, ownedConnection, createAgent, Problem } from "./domain.js";
@@ -256,7 +257,8 @@ export function assertTeamRestoreCapacity(owner: string, agentId: string) {
     );
 }
 
-export const teams = Router();
+const routes = registrar("teams");
+export const teams = routes.mount;
 export function setTeamFeedVisibility(owner: string, teamId: string, input: unknown) {
   const { hideResultsFromFeed } = z
     .object({ hideResultsFromFeed: z.boolean() })
@@ -283,17 +285,17 @@ export function deleteTeam(owner: string, teamId: string) {
     ).run(teamId, owner);
   }).immediate();
 }
-teams.get("/teams", (_req, res) => res.json(listTeams(res.locals.owner)));
-teams.get("/team-presets", (_req, res) => res.json(TEAM_PRESETS));
-teams.post("/teams/from-preset", (req, res) =>
+routes.legacy("GET /teams", (_req, res) => res.json(listTeams(res.locals.owner)));
+routes.legacy("GET /team-presets", (_req, res) => res.json(TEAM_PRESETS));
+routes.legacy("POST /teams/from-preset", (req, res) =>
   res.status(201).json(createPresetTeam(res.locals.owner, req.body)),
 );
-teams.post("/teams/:id/reviews", (req, res) =>
+routes.legacy("POST /teams/:id/reviews", (req, res) =>
   res
     .status(201)
     .json(startCodeReview(res.locals.owner, req.params.id, req.body)),
 );
-teams.get("/reviews/conversation/:id", (req, res) => {
+routes.legacy("GET /reviews/conversation/:id", (req, res) => {
   ownedConversation(req.params.id, res.locals.owner);
   const run = db
     .prepare(
@@ -310,16 +312,16 @@ teams.get("/reviews/conversation/:id", (req, res) => {
       : null,
   );
 });
-teams.post("/teams", (req, res) =>
+routes.legacy("POST /teams", (req, res) =>
   res.status(201).json(createTeam(res.locals.owner, req.body)),
 );
-teams.post("/teams/:id/members", (req, res) =>
+routes.legacy("POST /teams/:id/members", (req, res) =>
   res.json(addTeamMember(res.locals.owner, req.params.id, req.body)),
 );
-teams.patch("/teams/:id/feed-visibility", (req, res) =>
+routes.legacy("PATCH /teams/:id/feed-visibility", (req, res) =>
   res.json(setTeamFeedVisibility(res.locals.owner, req.params.id, req.body)),
 );
-teams.delete("/teams/:id", (req, res) => {
+routes.legacy("DELETE /teams/:id", (req, res) => {
   deleteTeam(res.locals.owner, req.params.id);
   res.json({ ok: true });
 });

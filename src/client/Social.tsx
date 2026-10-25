@@ -1,3 +1,4 @@
+import type { LegacyClientPath } from "./legacy-paths";
 import { useProjectionRead } from "./SourceContext";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -504,7 +505,7 @@ function HideSheet({
 }) {
   const [phrase, setPhrase] = useState("");
   const [error, setError] = useState("");
-  async function change(path: string, body: unknown, method: string) {
+  async function change(path: LegacyClientPath, body: unknown, method: string) {
     try {
       const next = await api<{ mutes: string[] }>(path, body, method);
       onChanged(next);

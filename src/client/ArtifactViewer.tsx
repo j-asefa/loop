@@ -182,7 +182,7 @@ export function ArtifactViewer({
     if (!current()) return;
     try {
       await api(
-        "/artifacts/" + item.id,
+        `/artifacts/${item.id}`,
         { content: text, version: item.version },
         "PATCH",
       );
@@ -229,7 +229,7 @@ export function ArtifactViewer({
                   onClick={async () => {
                     try {
                       await api(
-                        "/results/" + item.id,
+                        `/results/${item.id}`,
                         { hidden: false },
                         "PATCH",
                       );
@@ -248,7 +248,7 @@ export function ArtifactViewer({
                 <button
                   onClick={async () => {
                     try {
-                      await api("/artifacts/" + item.id + "/refresh", {
+                      await api(`/artifacts/${item.id}/refresh`, {
                         idempotencyKey: crypto.randomUUID(),
                       });
                       if (!current()) return;

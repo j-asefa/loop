@@ -29,7 +29,7 @@ export class DoneCardsReader {
     return this.supported === false;
   }
   async load(
-    request: (path: string) => Promise<unknown>,
+    request: Parameters<typeof cardReader>[0],
     selection: CardSelection,
     append: boolean,
     allowResync = true,

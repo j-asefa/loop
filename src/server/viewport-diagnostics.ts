@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { registrar } from "./registrar.js";
+
 import { z } from "zod";
 
 const number = z.number().finite().min(-1e9).max(1e9);
@@ -26,8 +27,9 @@ const input = z
   .strict();
 
 // Mounted behind the same owner/device/CSRF boundary as the rest of the API.
-export const viewportDiagnostics = Router();
-viewportDiagnostics.post("/ui/viewport-diagnostics", (req, res) => {
+const routes = registrar("viewportDiagnostics");
+export const viewportDiagnostics = routes.mount;
+routes.legacy("POST /ui/viewport-diagnostics", (req, res) => {
   const sample = input.parse(req.body);
   console.info("loop-viewport-diagnostics", JSON.stringify(sample));
   res.status(204).end();

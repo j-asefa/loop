@@ -29,8 +29,8 @@ export class ActivityHistory {
   };
 
   constructor(
-    private base: string,
-    private fetch: (url: string) => Promise<ActivityPage>,
+    private base: `/conversations/${string}/activities` | `/runs/${string}/activities`,
+    private fetch: (url: `/conversations/${string}/activities?${string}` | `/runs/${string}/activities?${string}`) => Promise<ActivityPage>,
     private receive: (page: ActivityPage) => void,
     private changed: (state: ActivityHistoryState) => void,
     private tools = true,

@@ -79,7 +79,7 @@ export function PersonalFiles({
           const params = new URLSearchParams(queryParams);
           if (cursor) params.set("before", String(cursor));
           result = await api<PersonalFilesPage>(
-            "/me/files?" + params,
+            `/me/files?${params}`,
             undefined,
             undefined,
             controller.signal,

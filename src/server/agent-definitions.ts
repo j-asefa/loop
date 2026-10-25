@@ -1,5 +1,6 @@
+import { registrar } from "./registrar.js";
 import { createHash } from "node:crypto";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { ownedAgent, ownedTeam, ownedConnection, agentInput, createAgent, handle, Problem } from "./domain.js";
@@ -270,8 +271,9 @@ export function createFromDefinition(
     .immediate();
 }
 
-export const agentDefinitions = Router();
-agentDefinitions.get("/agent-definitions", (_req, res) => {
+const routes = registrar("agentDefinitions");
+export const agentDefinitions = routes.mount;
+routes.legacy("GET /agent-definitions", (_req, res) => {
   res.json(
     db
       .prepare(
@@ -280,13 +282,13 @@ agentDefinitions.get("/agent-definitions", (_req, res) => {
       .all(res.locals.owner),
   );
 });
-agentDefinitions.get("/agent-definitions/:id", (req, res) =>
+routes.legacy("GET /agent-definitions/:id", (req, res) =>
   res.json(detail(stored(res.locals.owner, req.params.id))),
 );
-agentDefinitions.put("/agent-definitions/:id", (req, res) =>
+routes.legacy("PUT /agent-definitions/:id", (req, res) =>
   res.json(saveDefinition(res.locals.owner, req.params.id, req.body)),
 );
-agentDefinitions.delete("/agent-definitions/:id", (req, res) => {
+routes.legacy("DELETE /agent-definitions/:id", (req, res) => {
   const data = z.object({ version }).strict().parse(req.body);
   db.transaction(() => {
     const row = stored(res.locals.owner, req.params.id);
@@ -302,7 +304,7 @@ agentDefinitions.delete("/agent-definitions/:id", (req, res) => {
   }).immediate();
   res.json({ ok: true });
 });
-agentDefinitions.post("/agent-definitions/:id/create", (req, res) =>
+routes.legacy("POST /agent-definitions/:id/create", (req, res) =>
   res
     .status(201)
     .json(createFromDefinition(res.locals.owner, req.params.id, req.body)),

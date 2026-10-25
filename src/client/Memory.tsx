@@ -36,7 +36,7 @@ export function Memory({
     void load();
     const requested = new URLSearchParams(location.search).get("memory");
     if (requested)
-      void api("/memory/sources/" + requested)
+      void api(`/memory/sources/${requested}`)
         .then(setSource)
         .catch((e) => setError(e.message));
   }, []);
@@ -189,7 +189,7 @@ export function Memory({
                         aria-label={s.title}
                         disabled={!!s.tombstone || !s.eligible}
                         onClick={() =>
-                          void api("/memory/sources/" + s.id)
+                          void api(`/memory/sources/${s.id}`)
                             .then(setSource)
                             .catch((e) => setError(e.message))
                         }
@@ -217,7 +217,7 @@ export function Memory({
                           type="button"
                           className="text-button"
                           onClick={() =>
-                            void api("/memory/sources/" + s.id, {}, "DELETE")
+                            void api(`/memory/sources/${s.id}`, {}, "DELETE")
                               .then(load)
                               .catch((e) => setError(e.message))
                           }
@@ -269,7 +269,7 @@ export function Memory({
                   className="primary"
                   onClick={() =>
                     void api(
-                      "/memory/notes/" + source.id,
+                      `/memory/notes/${source.id}`,
                       {
                         revision: source.revision,
                         title: source.title,
@@ -327,7 +327,7 @@ export function MemoryUsed({ runId }: { runId: string }) {
   const [receipt, setReceipt] = useState<any>(null),
     [opened, setOpened] = useState(false);
   useEffect(() => {
-    if (opened) void api("/runs/" + runId + "/memory").then(setReceipt);
+    if (opened) void api(`/runs/${runId}/memory`).then(setReceipt);
   }, [runId, opened]);
   return (
     <details onToggle={(e) => setOpened(e.currentTarget.open)}>
@@ -352,7 +352,7 @@ export function NativeConversation({ id }: { id: string }) {
     [include, setInclude] = useState(true);
   useEffect(() => {
     const load = () =>
-      read("/conversations/" + id + "/memory")
+      read(`/conversations/${id}/memory`)
         .then((v) => {
           setData(v);
           setInclude(v.memoryIncluded);

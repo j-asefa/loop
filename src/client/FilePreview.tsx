@@ -1,3 +1,4 @@
+import { legacyFilePath } from "./legacy-paths";
 import { sourceApiPathAt } from "./sourceRouting";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -142,7 +143,7 @@ export function FilePreview({
     setSaveError("");
     void (async () => {
       try {
-        const response = await authorizedFetch(url, {
+        const response = await authorizedFetch(legacyFilePath(url), {
           signal: controller.signal,
         });
         if (response.redirected || response.status === 401)

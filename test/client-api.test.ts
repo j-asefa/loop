@@ -1,7 +1,30 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { api } from "../src/client/api";
+import { api, apiInWorkspace, authorizedFetch, readInWorkspace } from "../src/client/api";
+import { legacyFilePath } from "../src/client/legacy-paths";
 beforeEach(() => vi.stubGlobal("location", { search: "" }));
 afterEach(() => vi.unstubAllGlobals());
+it("fetches only named download paths from serialized file responses", async () => {
+  const fetcher = vi.fn().mockResolvedValue(new Response("file"));
+  vi.stubGlobal("fetch", fetcher);
+  await authorizedFetch(legacyFilePath("/api/agent-sources/docker%3Aone/artifacts/artifact/file"));
+  expect(fetcher.mock.calls[0][0]).toBe("/api/agent-sources/docker%3Aone/artifacts/artifact/file");
+  expect(() => legacyFilePath("/api/unlisted")).toThrow("File address is unavailable");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+// The compiler enforces the transport boundary; these calls are never run.
+function pathTypes(path: string, signal: AbortSignal) {
+  // @ts-expect-error Raw strings require a contract or a named legacy path.
+  api(path);
+  // @ts-expect-error Source routing cannot widen the legacy path boundary.
+  apiInWorkspace(path, "");
+  // @ts-expect-error Retrying reads use the same named paths.
+  readInWorkspace(path, "", signal);
+  // @ts-expect-error Authenticated fetch cannot bypass the named list.
+  authorizedFetch(path);
+  // @ts-expect-error Already-typed routes must use callRoute/readRoute.
+  api("/bootstrap");
+}
 it("returns server proxy redirects to the auth screen", async () => {
   const dispatchEvent = vi.fn();
   vi.stubGlobal("window", { dispatchEvent });
@@ -33,13 +56,13 @@ it("keeps Social on the paired app while an agent source owns its conversations"
   await api("/social");
   await api("/social/feeds");
   await api("/social/feeds/hackernews", undefined, "PUT");
-  await api("/conversations");
+  await api("/agents");
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
     "/api/social",
     "/api/social/feeds",
     "/session",
     "/api/social/feeds/hackernews",
-    `/api/agent-sources/docker%3A${id}/conversations`,
+    `/api/agent-sources/docker%3A${id}/agents`,
   ]);
 });
 it("opens old workspace links through the source route", async () => {
@@ -47,9 +70,9 @@ it("opens old workspace links through the source route", async () => {
   vi.stubGlobal("location", { search: `?workspace=docker:${id}` });
   const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }));
   vi.stubGlobal("fetch", fetcher);
-  await api("/conversations/old-thread");
+  await api("/conversations/old-thread/usage");
   expect(fetcher.mock.calls[0][0]).toBe(
-    `/api/agent-sources/docker%3A${id}/conversations/old-thread`,
+    `/api/agent-sources/docker%3A${id}/conversations/old-thread/usage`,
   );
 });
 it("keeps the paired session when one source refuses authentication", async () => {
@@ -64,7 +87,7 @@ it("keeps the paired session when one source refuses authentication", async () =
         Response.json({ error: "Source sign-in needed" }, { status: 401 }),
       ),
   );
-  await expect(api("/bootstrap")).rejects.toThrow("Source sign-in needed");
+  await expect(api("/agents")).rejects.toThrow("Source sign-in needed");
   expect(dispatchEvent).not.toHaveBeenCalled();
 });
 it.each(["truncated", "interrupted"])(
@@ -78,7 +101,7 @@ it.each(["truncated", "interrupted"])(
         new DOMException("Body stream aborted", "AbortError"),
       );
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
-    await expect(api("/bootstrap")).rejects.toThrow(
+    await expect(api("/agents")).rejects.toThrow(
       "Connection unavailable. Try again.",
     );
   },
@@ -90,7 +113,7 @@ it("still expires the session when an unauthorized response has no JSON body", a
     "fetch",
     vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })),
   );
-  await expect(api("/bootstrap")).rejects.toThrow(
+  await expect(api("/agents")).rejects.toThrow(
     "Connection unavailable. Try again.",
   );
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
@@ -104,7 +127,7 @@ it("treats the connection service's restart response as reconnecting, never as s
   const dispatchEvent = vi.fn();
   vi.stubGlobal("window", { dispatchEvent });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(restarting()));
-  const error = await api("/bootstrap").catch((e) => e);
+  const error = await api("/agents").catch((e) => e);
   expect(error).toMatchObject({ status: 503, reconnecting: true });
   expect(error.message).toMatch(/reconnecting/);
   const events = dispatchEvent.mock.calls.map(([event]) => event.type);
@@ -117,7 +140,7 @@ it("keeps a mutation's session and outcome uncertain while Loop restarts", async
   // One attempt: the client never resends on its own.
   const fetcher = vi.fn().mockResolvedValue(restarting());
   vi.stubGlobal("fetch", fetcher);
-  const error = await api("/runs", { input: "x" }).catch((e) => e);
+  const error = await api("/agents", { input: "x" }).catch((e) => e);
   expect(error.status).toBe(503);
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(dispatchEvent.mock.calls.map(([event]) => event.type)).not.toContain(

@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { registrar } from "./registrar.js";
+
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -236,17 +237,18 @@ export function runDueDigests(at = now()) {
   return sent;
 }
 
-export const feedDigests = Router();
-feedDigests.get("/social/digests", (_req, res) => {
+const routes = registrar("feedDigests");
+export const feedDigests = routes.mount;
+routes.legacy("GET /social/digests", (_req, res) => {
   res.json({ digests: listDigests(res.locals.owner) });
 });
-feedDigests.post("/social/digests", (req, res) => {
+routes.legacy("POST /social/digests", (req, res) => {
   res.status(201).json(saveDigest(res.locals.owner, req.body));
 });
-feedDigests.patch("/social/digests/:id", (req, res) => {
+routes.legacy("PATCH /social/digests/:id", (req, res) => {
   res.json(saveDigest(res.locals.owner, req.body, req.params.id));
 });
-feedDigests.delete("/social/digests/:id", (req, res) => {
+routes.legacy("DELETE /social/digests/:id", (req, res) => {
   removeDigest(res.locals.owner, req.params.id);
   res.json({ digests: listDigests(res.locals.owner) });
 });

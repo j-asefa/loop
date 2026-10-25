@@ -1,4 +1,5 @@
-import { Router, type Response } from "express";
+import { registrar } from "./registrar.js";
+import { type Response } from "express";
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -802,10 +803,11 @@ export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
 // ---------------------------------------------------------------------------
 // Routes
 
-export const githubPulls = Router();
+const routes = registrar("githubPulls");
+export const githubPulls = routes.mount;
 const refOf = (params: unknown): PullRequestRef => refParams.parse(params);
 
-githubPulls.get("/github/pulls", async (req, res) => {
+routes.legacy("GET /github/pulls", async (req, res) => {
   const query = z
     .object({
       filter: z.enum(["review", "authored", "involved"]).optional(),
@@ -821,20 +823,20 @@ githubPulls.get("/github/pulls", async (req, res) => {
     }),
   );
 });
-githubPulls.get("/github/pulls/:owner/:repo/:number", async (req, res) =>
+routes.legacy("GET /github/pulls/:owner/:repo/:number", async (req, res) =>
   res.json(await detail(res.locals.owner, refOf(req.params))),
 );
-githubPulls.get("/github/pulls/:owner/:repo/:number/files", async (req, res) => {
+routes.legacy("GET /github/pulls/:owner/:repo/:number/files", async (req, res) => {
   const { head } = z
     .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
     .parse(req.query);
   res.json(await files(res.locals.owner, refOf(req.params), head));
 });
-githubPulls.get("/github/pulls/:owner/:repo/:number/commits/:sha/files", async (req, res) => {
+routes.legacy("GET /github/pulls/:owner/:repo/:number/commits/:sha/files", async (req, res) => {
   const sha = z.string().regex(SHA, "Choose a full commit SHA").parse(req.params.sha);
   res.json(await commitFiles(res.locals.owner, refOf(req.params), sha));
 });
-githubPulls.get("/github/pulls/:owner/:repo/:number/file", async (req, res) => {
+routes.legacy("GET /github/pulls/:owner/:repo/:number/file", async (req, res) => {
   const { head, path } = z
     .object({
       head: z.string().regex(SHA, "Refresh the pull request first"),
@@ -843,12 +845,12 @@ githubPulls.get("/github/pulls/:owner/:repo/:number/file", async (req, res) => {
     .parse(req.query);
   sendViewed(res, await fileAt(res.locals.owner, refOf(req.params), head, path), path);
 });
-githubPulls.post("/github/pulls/:owner/:repo/:number/reviews", async (req, res) =>
+routes.legacy("POST /github/pulls/:owner/:repo/:number/reviews", async (req, res) =>
   res.status(201).json(await review(res.locals.owner, refOf(req.params), req.body)),
 );
-githubPulls.post("/github/pulls/:owner/:repo/:number/comments", async (req, res) =>
+routes.legacy("POST /github/pulls/:owner/:repo/:number/comments", async (req, res) =>
   res.status(201).json(await addComment(res.locals.owner, refOf(req.params), req.body)),
 );
-githubPulls.post("/github/pulls/:owner/:repo/:number/merge", async (req, res) =>
+routes.legacy("POST /github/pulls/:owner/:repo/:number/merge", async (req, res) =>
   res.json(await merge(res.locals.owner, refOf(req.params), req.body)),
 );

@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { registrar } from "./registrar.js";
+
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { Problem } from "./domain.js";
@@ -232,20 +233,21 @@ const announced = (watchId: string) =>
     ).map((row) => `${row.feed_id}:${row.story_id}`),
   );
 
-export const feedWatches = Router();
-feedWatches.get("/social/watches", (_req, res) => {
+const routes = registrar("feedWatches");
+export const feedWatches = routes.mount;
+routes.legacy("GET /social/watches", (_req, res) => {
   res.json({ watches: listWatches(res.locals.owner) });
 });
-feedWatches.post("/social/watches", (req, res) => {
+routes.legacy("POST /social/watches", (req, res) => {
   res.status(201).json(saveWatch(res.locals.owner, req.body));
 });
-feedWatches.post("/social/watches/preview", (req, res) => {
+routes.legacy("POST /social/watches/preview", (req, res) => {
   res.json(previewWatch(res.locals.owner, req.body));
 });
-feedWatches.patch("/social/watches/:id", (req, res) => {
+routes.legacy("PATCH /social/watches/:id", (req, res) => {
   res.json(saveWatch(res.locals.owner, req.body, req.params.id));
 });
-feedWatches.delete("/social/watches/:id", (req, res) => {
+routes.legacy("DELETE /social/watches/:id", (req, res) => {
   removeWatch(res.locals.owner, req.params.id);
   res.json({ watches: listWatches(res.locals.owner) });
 });

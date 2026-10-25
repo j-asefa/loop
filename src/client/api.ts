@@ -1,3 +1,7 @@
+import { z } from "zod";
+import { Problem } from "../shared/problem";
+import type { RouteContract, RouteInput, RouteResponse } from "../shared/workspace-api";
+import type { LegacyClientPath, LegacyFetchPath } from "./legacy-paths";
 import { WorkspaceClock } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
@@ -73,7 +77,10 @@ export async function authorize() {
 export function clearAuthorization() {
   csrf = "";
 }
-export async function authorizedFetch(path: string, init: RequestInit = {}) {
+export function authorizedFetch(path: LegacyFetchPath, init: RequestInit = {}) {
+  return sendRequest(path, init);
+}
+async function sendRequest(path: string, init: RequestInit = {}) {
   const method = init.method || "GET";
   const headers = new Headers(init.headers);
   if (!["GET", "HEAD"].includes(method.toUpperCase())) {
@@ -88,7 +95,7 @@ export async function authorizedFetch(path: string, init: RequestInit = {}) {
   });
 }
 export async function api<T = any>(
-  path: string,
+  path: LegacyClientPath,
   body?: unknown,
   method?: string,
   signal?: AbortSignal,
@@ -97,12 +104,15 @@ export async function api<T = any>(
 }
 
 export async function apiInWorkspace<T = any>(
-  path: string,
+  path: LegacyClientPath,
   sourceId: string,
   body?: unknown,
   method?: string,
   signal?: AbortSignal,
 ): Promise<T> {
+  return requestInWorkspace<T>(path, sourceId, body, method, signal);
+}
+async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
@@ -118,7 +128,7 @@ export async function apiInWorkspace<T = any>(
   const until = readBackoff.get(destination) ?? 0;
   if (["GET", "HEAD"].includes(verb.toUpperCase()) && until > Date.now())
     throw limited(until);
-  const r = await authorizedFetch(url, {
+  const r = await sendRequest(url, {
     signal,
     method: verb,
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -188,10 +198,13 @@ export async function apiInWorkspace<T = any>(
 
 /** One-shot projections recover from cooldowns and at most two transient
  * server failures. Only GETs retry; view cancellation stops IO and waits. */
-export async function readInWorkspace<T = any>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
+export function readInWorkspace<T = any>(path: LegacyClientPath, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
+  return readRequest<T>(path, sourceId, signal, onRetry);
+}
+async function readRequest<T>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
   let failures = 0;
   for (;;) {
-    try { return await apiInWorkspace<T>(path, sourceId, undefined, "GET", signal); }
+    try { return await requestInWorkspace<T>(path, sourceId, undefined, "GET", signal); }
     catch (error) {
       if (signal.aborted) throw error;
       const status = (error as {status?:number}).status;
@@ -222,3 +235,53 @@ export const parse = <T = any>(value: string | undefined, fallback: T): T => {
     return fallback;
   }
 };
+
+// Callers can keep their existing invalid-snapshot recovery policy without
+// exposing validation details or treating malformed output as a transient GET.
+export class UnavailableResponse extends Error {
+  constructor() {
+    super("The workspace returned an unavailable response. Refresh before trying again.");
+    this.name = "UnavailableResponse";
+  }
+}
+
+/** Validate before sending, but serialize the input: server defaults and query
+ * coercions must run once on the receiving side, not become new wire values. */
+function validateInput<C extends RouteContract>(contract: C, input: RouteInput<C>) {
+  try {
+    const params = z.record(z.string(), z.string()).parse(contract.params.parse(input.params ?? {}));
+    contract.query.parse(input.query ?? {});
+    contract.body.parse(input.body);
+    return params;
+  } catch (error) {
+    // Nothing reached transport. Match the server's validation refusal so send
+    // receipts can change intent, without classifying response failures as safe.
+    if (error instanceof z.ZodError)
+      throw new Problem(400, error.issues.map(issue => issue.message).join("; "));
+    throw error;
+  }
+}
+export function routePath<C extends RouteContract>(contract: C, input: RouteInput<C>) {
+  const params = validateInput(contract, input);
+  const path = contract.path.replace(/:([^/]+)/g, (_, key: string) => {
+    if (params[key] === undefined) throw new Error("Missing route parameter: " + key);
+    return encodeURIComponent(params[key]);
+  });
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(input.query ?? {})) {
+    if (value !== undefined) query.set(key, String(value));
+  }
+  const serialized = query.toString();
+  return path + (serialized ? "?" + serialized : "");
+}
+function response<C extends RouteContract>(contract: C, value: unknown): RouteResponse<C> {
+  const parsed = contract.response.safeParse(value);
+  if (!parsed.success) throw new UnavailableResponse();
+  return parsed.data as RouteResponse<C>;
+}
+export async function callRoute<C extends RouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
+  return response(contract, await requestInWorkspace<unknown>(routePath(contract, input), sourceId, input.body, contract.method, signal));
+}
+export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<RouteResponse<C>> {
+  return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry));
+}

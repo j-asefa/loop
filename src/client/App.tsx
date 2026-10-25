@@ -562,7 +562,7 @@ export default function App() {
         routeSourceId(url.search),
       );
     } else if (artifact)
-      void api<Artifact>("/artifacts/" + artifact)
+      void api<Artifact>(`/artifacts/${artifact}`)
         .then((item) => void open(item))
         .catch((e) => setError(e.message));
     else location.assign(url.href);
@@ -789,7 +789,7 @@ export default function App() {
       const original =
         card?.type === "result"
           ? cardArtifact(card, source, owner)
-          : await apiInWorkspace<Artifact>("/artifacts/" + item.id, source);
+          : await apiInWorkspace<Artifact>(`/artifacts/${item.id}`, source);
       if (!current()) return;
       if (
         !original.agent_id ||
@@ -848,7 +848,7 @@ export default function App() {
   ) {
     const owner = ownerRef.current;
     try {
-      await apiInWorkspace("/results/" + id, source, { hidden }, "PATCH");
+      await apiInWorkspace(`/results/${id}`, source, { hidden }, "PATCH");
       if (source !== executionSourceId() || owner !== ownerRef.current) return;
       setItems((old) => old.filter((item) => item.id !== id));
       setArchivedCard(hidden ? { id, source, owner } : null);
@@ -1635,7 +1635,7 @@ export default function App() {
       }
       try {
         const result = await threadApi(
-          "/artifacts/" + contextArtifact.id + "/move",
+          `/artifacts/${contextArtifact.id}/move`,
           {
             command: draft,
           },
@@ -1834,7 +1834,7 @@ export default function App() {
             onSelect: () => openSourceLater("scheduled", row.id, actionSource),
           },
           undo: async () => {
-            await threadApi("/scheduled-sends/" + row.id, undefined, "DELETE");
+            await threadApi(`/scheduled-sends/${row.id}`, undefined, "DELETE");
             window.dispatchEvent(new Event("loop-scheduled-change"));
             if (currentView())
               setDraft((current) => (current.trim() ? current : text));
@@ -1982,7 +1982,7 @@ export default function App() {
         // public selections. A card itself must always use its typed detail.
         if (item.card || (error as { status?: number }).status !== 404)
           throw error;
-        item = await apiInWorkspace<Artifact>("/artifacts/" + item.id, source);
+        item = await apiInWorkspace<Artifact>(`/artifacts/${item.id}`, source);
       }
     } catch (e) {
       if (current()) setError((e as Error).message);
@@ -2003,7 +2003,7 @@ export default function App() {
   useEffect(() => {
     const artifact = new URLSearchParams(location.search).get("artifact");
     if (session?.user && artifact)
-      void api<Artifact>("/artifacts/" + artifact)
+      void api<Artifact>(`/artifacts/${artifact}`)
         .then((item) => void open(item))
         .catch((e) => setError(e.message));
   }, [session?.user?.id]);
@@ -2605,7 +2605,7 @@ export default function App() {
           if (item.cardOwner && item.cardOwner !== owner) return;
           try {
             await apiInWorkspace(
-              "/artifacts/" + item.id,
+              `/artifacts/${item.id}`,
               source,
               { pinned: !item.pinned, version: item.version },
               "PATCH",
@@ -2644,7 +2644,7 @@ export default function App() {
           if (onUnsave && item.pinned) return onUnsave();
           try {
             await api(
-              "/artifacts/" + item.id,
+              `/artifacts/${item.id}`,
               { pinned: !item.pinned, version: item.version },
               "PATCH",
             );
@@ -3262,7 +3262,7 @@ export default function App() {
                     revision={revisionFor(section === "saved" ? "saved" : section === "scheduled" ? "scheduled" : "later")}
                     onOpen={(c, m) => setConversation(c, m)}
                     onArtifact={(id) =>
-                      void api<Artifact>("/artifacts/" + id)
+                      void api<Artifact>(`/artifacts/${id}`)
                         .then((item) => void open(item))
                         .catch((e) => setError(e.message))
                     }
@@ -3402,7 +3402,7 @@ export default function App() {
                     query={text}
                     onConversation={(c, m) => setConversation(c, m)}
                     onArtifact={(artifact) =>
-                      void api<Artifact>("/artifacts/" + artifact)
+                      void api<Artifact>(`/artifacts/${artifact}`)
                         .then((item) => void open(item))
                         .catch((e) => setError(e.message))
                     }
@@ -4239,7 +4239,7 @@ export default function App() {
               const f = new FormData(e.currentTarget);
               try {
                 const a = await api<Agent>(
-                  "/agents/" + profile.id,
+                  `/agents/${profile.id}`,
                   {
                     name: f.get("name"),
                     instructions: f.get("instructions"),

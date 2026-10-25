@@ -1,3 +1,4 @@
+import { registrar } from "./registrar.js";
 import { ConnectionMetadata, ConnectionModels, requireSealedSecret, type Connection, type ConnectionControl } from "./row-schemas.js";
 
 
@@ -20,7 +21,7 @@ import { executionRequest } from "./execution-client.js";
 import { companionMode } from "./profile.js";
 import { createHash, randomBytes } from "node:crypto";
 import { HarnessError } from "../../runtime/harness.ts";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { ownedArtifact, ownedConnection, Problem } from "./domain.js";
@@ -383,8 +384,9 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
     throw new Problem(502, message, errorFacts(error));
   }
 }
-export const subscriptions = Router();
-subscriptions.post("/subscriptions", (req, res) => {
+const routes = registrar("subscriptions");
+export const subscriptions = routes.mount;
+routes.legacy("POST /subscriptions", (req, res) => {
   const d = z
     .object({
       provider: z.enum(["codex", "claude"]),
@@ -434,7 +436,7 @@ subscriptions.post("/subscriptions", (req, res) => {
     .immediate();
   res.status(201).json({ id: record.id });
 });
-subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
+routes.legacy("POST /subscriptions/:id/:action", async (req, res) => {
   const c = ownedConnection(String(req.params.id), res.locals.owner);
   if (!isSubscription(c))
     throw new Problem(400, "This connection uses an API key");

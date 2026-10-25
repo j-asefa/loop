@@ -1,5 +1,6 @@
+import { registrar } from "./registrar.js";
 import { companionMode } from "./profile.js";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { owned, ownedRuntimeHost, Problem } from "./domain.js";
@@ -96,8 +97,7 @@ export function runtimeEndpoint(
     dispatcher: privateOrigin ? undefined : publicNetworkDispatcher,
   };
 }
-export const runtimeHosts = Router();
-runtimeHosts.use("/runtime-hosts", (req, res, next) => {
+const routes = registrar("runtimeHosts", { middleware: [["/runtime-hosts", (req, res, next) => {
   if (!companionMode) return next();
   if (req.method === "GET")
     return res.json([
@@ -107,8 +107,10 @@ runtimeHosts.use("/runtime-hosts", (req, res, next) => {
     409,
     "Remote runtime management requires the server profile.",
   );
-});
-runtimeHosts.get("/runtime-hosts", (_req, res) =>
+}]] });
+export const runtimeHosts = routes.mount;
+
+routes.legacy("GET /runtime-hosts", (_req, res) =>
   res.json(
     db
       .prepare(
@@ -117,7 +119,7 @@ runtimeHosts.get("/runtime-hosts", (_req, res) =>
       .all(res.locals.owner),
   ),
 );
-runtimeHosts.post("/runtime-hosts", async (req, res) => {
+routes.legacy("POST /runtime-hosts", async (req, res) => {
   const d = z
     .object({
       name: z.string().trim().min(1).max(80),
@@ -188,7 +190,7 @@ runtimeHosts.post("/runtime-hosts", async (req, res) => {
   );
   res.status(201).json({ id: host, name: d.name, url, kind: d.kind });
 });
-runtimeHosts.delete("/runtime-hosts/:id", (req, res) => {
+routes.legacy("DELETE /runtime-hosts/:id", (req, res) => {
   owned("runtime_hosts", req.params.id, res.locals.owner);
   if (
     db

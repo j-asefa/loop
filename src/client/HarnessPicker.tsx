@@ -92,10 +92,9 @@ export function HarnessPicker({
       const own = ++request;
       try {
         const result = await api<Catalog>(
-          `/agents/${agentId}/harness` +
-            (conversationId
+          `/agents/${agentId}/harness${conversationId
               ? "?conversation=" + encodeURIComponent(conversationId)
-              : ""),
+              : ""}`,
         );
         if (current === generation.current && own === request) {
           setCatalog((old) =>

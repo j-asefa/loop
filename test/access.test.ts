@@ -130,6 +130,27 @@ async function launch(
 }
 const sessionPath = "/auth/get-session";
 
+it.each(["single-user", "multi-user"])("preserves app OPTIONS admission and later-router methods in %s mode", async mode => {
+  const server = await launch(directory(), { LOOP_AUTH_MODE: mode });
+  try {
+    for (const path of ["/capabilities", "/auth-options", "/health", "/build"]) {
+      const response = await server.request(path, undefined, {}, "OPTIONS");
+      expect(response.status, path).toBe(mode === "multi-user" ? 401 : 404);
+      expect(response.headers.get("allow"), path).toBeNull();
+      expect(await response.json()).toEqual({ error: mode === "multi-user" ? "Sign in to Loop" : "Endpoint not found" });
+      const bearer = await server.request(path, undefined, { authorization: "Bearer invalid-fixture", origin: "https://foreign.invalid" }, "OPTIONS");
+      expect(bearer.status, path).toBe(403);
+      expect(bearer.headers.get("access-control-allow-origin"), path).toBeNull();
+    }
+    const runs = await server.request("/runs", undefined, {}, "OPTIONS");
+    expect(runs.status).toBe(mode === "multi-user" ? 401 : 200);
+    expect(runs.headers.get("allow")).toBe(mode === "multi-user" ? null : "POST");
+    expect((await server.request("/capabilities")).status).toBe(200);
+  } finally {
+    await stop(server.child);
+  }
+}, 30000);
+
 it("keeps running build observations behind the workspace authentication boundary", async () => {
   const personal = await launch(directory());
   const response = await personal.request("/build");

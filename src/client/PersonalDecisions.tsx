@@ -79,7 +79,7 @@ export function PersonalDecisions({
           if (cursor) params.set("before", cursor);
           result = PersonalDecisionsPageSchema.parse(
             await api<unknown>(
-              "/me/decisions?" + params,
+              `/me/decisions?${params}`,
               undefined,
               undefined,
               controller.signal,

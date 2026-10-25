@@ -1,5 +1,6 @@
+import { registrar } from "./registrar.js";
 import { cardApi } from "../shared/card-api.js";
-import { Router } from "express";
+
 import {
   createCardToken,
   listCardTokens,
@@ -8,16 +9,17 @@ import {
 import { Problem } from "./domain.js";
 
 /** Mounted only after the ordinary owner/device session boundary. */
-export const cardTokens = Router({ strict: true, caseSensitive: true });
-cardTokens.use("/card-tokens", (req, _res, next) => {
+const routes = registrar("cardTokens", { strict: true, caseSensitive: true, middleware: [["/card-tokens", (req, _res, next) => {
   if (req.headers.authorization !== undefined)
     throw new Problem(403, "Use your Loop session to manage tokens");
   next();
-});
-cardTokens[cardApi.tokens.method](cardApi.tokens.path, (_req, res) =>
+}]] });
+export const cardTokens = routes.mount;
+
+routes.legacy("GET /card-tokens", (_req, res) =>
   res.json(cardApi.tokens.response.parse(listCardTokens(res.locals.owner))),
 );
-cardTokens[cardApi.createToken.method](cardApi.createToken.path, (req, res) =>
+routes.legacy("POST /card-tokens", (req, res) =>
   res
     .status(cardApi.createToken.status)
     .json(
@@ -26,7 +28,7 @@ cardTokens[cardApi.createToken.method](cardApi.createToken.path, (req, res) =>
       ),
     ),
 );
-cardTokens[cardApi.revokeToken.method](cardApi.revokeToken.path, (req, res) => {
+routes.legacy("DELETE /card-tokens/:id", (req, res) => {
   revokeCardToken(res.locals.owner, req.params.id);
   res.json(cardApi.revokeToken.response.parse({ ok: true }));
 });

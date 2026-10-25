@@ -9,7 +9,7 @@ export function HarnessUpgrade({
   disabled,
   onComplete,
 }: {
-  base: string;
+  base: `/workspace/runtimes/${string}/upgrade` | `/subscriptions/${string}/upgrade`;
   label: string;
   generation?: number;
   disabled?: boolean;
@@ -145,7 +145,7 @@ export function HarnessUpgrade({
               setSending(true);
               try {
                 const value = await api<{ upgrade: Upgrade }>(
-                  base + "/recover",
+                  `${base}/recover`,
                   {
                     confirmedStopped: true,
                     commandId: upgrade.commandId,

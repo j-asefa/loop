@@ -48,7 +48,7 @@ import {
 
 /** The page's address for one pull request: owner/repo/number. */
 export const pullKey = (ref: PullRequestRef) =>
-  `${ref.owner}/${ref.repo}/${ref.number}`;
+  `${ref.owner}/${ref.repo}/${ref.number}` as const;
 export function pullFromKey(key: string): PullRequestRef | undefined {
   const match = key.match(
     /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/(\d{1,9})$/,
@@ -65,7 +65,7 @@ export function openPull(ref: PullRequestRef) {
 }
 
 const pullPath = (ref: PullRequestRef) =>
-  `/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}`;
+  `/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}` as const;
 
 const STATE_LABEL: Record<PullRequestState, string> = {
   draft: "Draft",
@@ -185,7 +185,7 @@ function PullRequestInbox({
       const params = new URLSearchParams({ filter });
       if (repo) params.set("repo", repo);
       if (terms) params.set("q", terms);
-      const result = await read<PullInbox>("/github/pulls?" + params);
+      const result = await read<PullInbox>(`/github/pulls?${params}`);
       if (mine !== request.current) return;
       // Only a connected read is kept: connecting GitHub must show at once.
       lastInbox = result.connected ? { key, inbox: result } : undefined;

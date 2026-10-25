@@ -1,7 +1,8 @@
+import { registrar } from "./registrar.js";
 import { createdPullRequest } from "../shared/pr-command.js";
 import { pullStateFromWatch, type PullState, type WatchRow } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { ownedArtifact, Problem } from "./domain.js";
@@ -800,8 +801,9 @@ export async function pollWatches(time = now()) {
 // ---------------------------------------------------------------------------
 // Routes
 
-export const prWatches = Router();
-prWatches.get("/pr-watches", (req, res) => {
+const routes = registrar("prWatches");
+export const prWatches = routes.mount;
+routes.legacy("GET /pr-watches", (req, res) => {
   const conversation = z
     .string()
     .max(150)
@@ -809,12 +811,12 @@ prWatches.get("/pr-watches", (req, res) => {
     .parse(req.query.conversation);
   res.json({ watches: watchesFor(res.locals.owner, conversation) });
 });
-prWatches.post("/pr-watches", (req, res) =>
+routes.legacy("POST /pr-watches", (req, res) =>
   res.status(201).json(startWatch(res.locals.owner, req.body)),
 );
-prWatches.post("/pr-watches/:id/resume", (req, res) =>
+routes.legacy("POST /pr-watches/:id/resume", (req, res) =>
   res.json(resumeWatch(res.locals.owner, req.params.id)),
 );
-prWatches.delete("/pr-watches/:id", (req, res) =>
+routes.legacy("DELETE /pr-watches/:id", (req, res) =>
   res.json(stopWatch(res.locals.owner, req.params.id)),
 );

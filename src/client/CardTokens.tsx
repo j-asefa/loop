@@ -264,7 +264,7 @@ export function CardTokens({
                       setError("");
                       try {
                         await apiInWorkspace(
-                          "/card-tokens/" + encodeURIComponent(token.id),
+                          `/card-tokens/${encodeURIComponent(token.id)}`,
                           sourceId,
                           undefined,
                           "DELETE",

@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { registrar } from "./registrar.js";
+
 import { z } from "zod";
 import { db, now, emit } from "./db.js";
 import { Problem } from "./domain.js";
@@ -1030,11 +1031,12 @@ export async function socialStories(
   };
 }
 
-export const news = Router();
-news.get("/social/unread", (_req, res) => {
+const routes = registrar("news");
+export const news = routes.mount;
+routes.legacy("GET /social/unread", (_req, res) => {
   res.json({ unread: unreadCount(res.locals.owner) });
 });
-news.get("/social", async (req, res) => {
+routes.legacy("GET /social", async (req, res) => {
   res.json(
     await socialStories(res.locals.owner, Date.now(), {
       force: req.query.refresh === "1",
@@ -1047,7 +1049,7 @@ news.get("/social", async (req, res) => {
     }),
   );
 });
-news.get("/social/search", (req, res) => {
+routes.legacy("GET /social/search", (req, res) => {
   res.json(
     searchStories(res.locals.owner, {
       q: z.string().max(200).default("").parse(req.query.q),
@@ -1062,7 +1064,7 @@ news.get("/social/search", (req, res) => {
  * publisher never sees who is reading. Only the address stored on a story of
  * a feed this owner follows is ever fetched.
  */
-news.get("/social/image", async (req, res) => {
+routes.legacy("GET /social/image", async (req, res) => {
   const { story } = ownedStory(
     res.locals.owner,
     z.string().min(3).max(600).parse(req.query.story),
@@ -1079,40 +1081,40 @@ news.get("/social/image", async (req, res) => {
     })
     .send(Buffer.from(bytes));
 });
-news.get("/social/mutes", (_req, res) => {
+routes.legacy("GET /social/mutes", (_req, res) => {
   res.json({ mutes: mutes(res.locals.owner) });
 });
-news.post("/social/mutes", (req, res) => {
+routes.legacy("POST /social/mutes", (req, res) => {
   const { phrase } = z.object({ phrase: z.string().max(80) }).parse(req.body);
   res.json({ mutes: muteWords(res.locals.owner, phrase) });
 });
-news.delete("/social/mutes", (req, res) => {
+routes.legacy("DELETE /social/mutes", (req, res) => {
   const { phrase } = z.object({ phrase: z.string().max(80) }).parse(req.body);
   res.json({ mutes: unmuteWords(res.locals.owner, phrase) });
 });
 const storyIds = z.object({
   stories: z.array(z.string().min(3).max(600)).max(200),
 });
-news.post("/social/read", (req, res) => {
+routes.legacy("POST /social/read", (req, res) => {
   const { stories } = storyIds.parse(req.body);
   res.json({ unread: markRead(res.locals.owner, stories, true) });
 });
-news.delete("/social/read", (req, res) => {
+routes.legacy("DELETE /social/read", (req, res) => {
   const { stories } = storyIds.parse(req.body);
   res.json({ unread: markRead(res.locals.owner, stories, false) });
 });
-news.post("/social/dismiss", (req, res) => {
+routes.legacy("POST /social/dismiss", (req, res) => {
   const { stories } = storyIds.parse(req.body);
   res.json({ unread: dismissStories(res.locals.owner, stories, true) });
 });
-news.delete("/social/dismiss", (req, res) => {
+routes.legacy("DELETE /social/dismiss", (req, res) => {
   const { stories } = storyIds.parse(req.body);
   res.json({ unread: dismissStories(res.locals.owner, stories, false) });
 });
-news.get("/social/preferences", (_req, res) => {
+routes.legacy("GET /social/preferences", (_req, res) => {
   res.json(feedPreferences(res.locals.owner));
 });
-news.put("/social/preferences", (req, res) => {
+routes.legacy("PUT /social/preferences", (req, res) => {
   const change = z
     .object({
       agent_access: z.boolean().optional(),
@@ -1121,33 +1123,33 @@ news.put("/social/preferences", (req, res) => {
     .parse(req.body);
   res.json(setFeedPreferences(res.locals.owner, change));
 });
-news.post("/social/read-all", (req, res) => {
+routes.legacy("POST /social/read-all", (req, res) => {
   const feed = z.string().max(120).optional().parse(req.body?.feed);
   res.json({ unread: markAllRead(res.locals.owner, feed) });
 });
-news.get("/social/feeds", (_req, res) => {
+routes.legacy("GET /social/feeds", (_req, res) => {
   res.json({
     added: addedFeeds(res.locals.owner),
     own: ownSources(res.locals.owner),
   });
 });
 // Feeds an owner adds by address, rather than from the catalog.
-news.post("/social/sources/discover", async (req, res) => {
+routes.legacy("POST /social/sources/discover", async (req, res) => {
   res.json(await discover(req.body));
 });
-news.put("/social/sources", async (req, res) => {
+routes.legacy("PUT /social/sources", async (req, res) => {
   res.status(201).json(await addSource(res.locals.owner, req.body));
 });
-news.delete("/social/sources/:id", (req, res) => {
+routes.legacy("DELETE /social/sources/:id", (req, res) => {
   removeSource(res.locals.owner, req.params.id);
   res.json({ own: ownSources(res.locals.owner) });
 });
-news.post("/social/opml", (req, res) => {
+routes.legacy("POST /social/opml", (req, res) => {
   const document =
     typeof req.body === "string" ? req.body : String(req.body?.opml ?? "");
   res.json(importOpml(res.locals.owner, document));
 });
-news.get("/social/opml", (_req, res) => {
+routes.legacy("GET /social/opml", (_req, res) => {
   res
     .type("application/xml")
     .set("content-disposition", 'attachment; filename="loop-feeds.opml"')
@@ -1158,14 +1160,14 @@ news.get("/social/opml", (_req, res) => {
       ),
     );
 });
-news.put("/social/feeds/:id", (req, res) => {
+routes.legacy("PUT /social/feeds/:id", (req, res) => {
   const feed = catalogFeed(req.params.id);
   db.prepare(
     "INSERT OR IGNORE INTO feed_subscriptions(owner_id, feed_id, created_at) VALUES(?,?,?)",
   ).run(res.locals.owner, feed.id, now());
   res.json({ added: addedFeeds(res.locals.owner) });
 });
-news.delete("/social/feeds/:id", (req, res) => {
+routes.legacy("DELETE /social/feeds/:id", (req, res) => {
   const feed = catalogFeed(req.params.id);
   db.prepare(
     "DELETE FROM feed_subscriptions WHERE owner_id=? AND feed_id=?",

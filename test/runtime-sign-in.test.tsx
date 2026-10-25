@@ -5,7 +5,7 @@ import { RuntimeSignIn } from "../src/client/RuntimeSignIn";
 function render(name: string, label: string, enableAction: React.ReactNode = null) {
   return renderToStaticMarkup(
     <RuntimeSignIn
-      base="/runtimes/auth"
+      base="/workspace/runtimes/codex/auth"
       backend="direct"
       location="loop-dev"
       name={name}

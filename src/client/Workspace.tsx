@@ -71,7 +71,7 @@ export function FolderForm({
           setError("");
           try {
             const created = await api<FolderType>(
-              existing ? "/folders/" + existing.id : "/folders",
+              existing ? `/folders/${existing.id}` : "/folders",
               {
                 path: f.get("path") || undefined,
                 name: f.get("name"),
@@ -315,7 +315,7 @@ export function Saved({
       else if (embedded || view === "folders")
         params.set("folder", folder || "inbox");
       if (append && next) params.set("before", String(next));
-      const r = await api("/artifacts?" + params);
+      const r = await api(`/artifacts?${params}`);
       if (ticket !== request.current) return;
       setItems((prev) => (append ? [...prev, ...r.items] : r.items));
       setNext(r.next);
@@ -334,7 +334,7 @@ export function Saved({
   async function pin(a: Artifact) {
     try {
       await api(
-        "/artifacts/" + a.id,
+        `/artifacts/${a.id}`,
         { pinned: !a.pinned, version: a.version },
         "PATCH",
       );
@@ -601,7 +601,7 @@ export function SearchWorkspace({
       if (from) p.set("from", String(Date.parse(from)));
       if (to) p.set("to", String(Date.parse(to) + 86400000 - 1));
       if (append && result?.next) p.set("before", String(result.next));
-      const r = await api("/search?" + p);
+      const r = await api(`/search?${p}`);
       if (request !== searchRequest.current) return;
       setResultQuery(text);
       if (!append) {
@@ -654,7 +654,7 @@ export function SearchWorkspace({
     try {
       if (r.message_id || r.id.startsWith("message:"))
         onConversation(r.conversation_id, r.message_id || r.id.slice(8));
-      else onOpen(await api("/artifacts/" + r.id.slice(9)));
+      else onOpen(await api(`/artifacts/${r.id.slice(9)}`));
     } catch (e) {
       setError((e as Error).message);
     }

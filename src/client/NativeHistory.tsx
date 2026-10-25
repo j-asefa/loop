@@ -37,8 +37,7 @@ export function NativeHistory({
     setError("");
     try {
       const r = await api(
-        "/native/history" +
-          (discover ? "?discover=1&cursor=" + encodeURIComponent(cursor) : ""),
+        discover ? `/native/history?discover=1&cursor=${encodeURIComponent(cursor)}` : "/native/history",
       );
       setData((old: any) => ({
         ...r,
@@ -120,7 +119,7 @@ export function NativeHistory({
                   setError("");
                   try {
                     const r = await api(
-                      "/native/history/" + encodeURIComponent(c.id),
+                      `/native/history/${encodeURIComponent(c.id)}`,
                     );
                     if (ticket !== selection.current) return;
                     setSelected({ ...c, note: r.note });
@@ -174,7 +173,7 @@ export function NativeHistory({
               }
               try {
                 const r = await api(
-                  "/native/history/" + selected.id + "/fork",
+                  `/native/history/${selected.id}/fork`,
                   { commandId },
                 );
                 sessionStorage.removeItem(key);

@@ -6,8 +6,10 @@ import {
   useSourceApi,
   useSourceCapabilities,
   useSourcePath,
+  useSourceRoute,
 } from "../src/client/SourceContext";
 import { profileCapabilities } from "../src/shared/capabilities";
+import { workspaceApi } from "../src/shared/workspace-api";
 import {
   routeSourceId,
   setShellSource,
@@ -46,12 +48,14 @@ it("binds conversation actions and file URLs to their source across later naviga
   const fetch = vi.fn(async (_path: string, _init?: RequestInit) => ({
     ok: true,
     redirected: false,
-    json: async () => ({}),
+    json: async () => _path.includes("/native/decisions/") ? { state: "resolved" } : {},
   }));
   vi.stubGlobal("fetch", fetch);
   let captured!: ReturnType<typeof useSourceApi>;
+  let typed!: ReturnType<typeof useSourceRoute>;
   function Controls() {
     captured = useSourceApi();
+    typed = useSourceRoute();
     const path = useSourcePath();
     const capabilities = useSourceCapabilities();
     return (
@@ -66,6 +70,7 @@ it("binds conversation actions and file URLs to their source across later naviga
     </SourceProvider>,
   );
   const remoteAction = captured;
+  const remoteTypedAction = typed;
   expect(html).toContain(
     "/api/agent-sources/docker%3Aalpha/artifacts/same/file",
   );
@@ -82,13 +87,22 @@ it("binds conversation actions and file URLs to their source across later naviga
   expect(fetch.mock.calls[0][0]).toBe(
     "/api/agent-sources/docker%3Aalpha/runs/same/cancel",
   );
-  await captured("/native/decisions/same", {
+  await captured("/connections/same/refresh", {
     generation: 4,
     decision: "approve",
   });
   expect(fetch.mock.calls[1][0]).toBe(
-    "/api/agent-sources/docker%3Abeta/native/decisions/same",
+    "/api/agent-sources/docker%3Abeta/connections/same/refresh",
   );
+  const input = { params: { id: "same" }, body: {
+    commandId: "f7719a2b-dea1-4c80-8c5f-de7c503cab12", answer: { choice: "allow" },
+  } };
+  await remoteTypedAction(workspaceApi.nativeAnswer, input);
+  await typed(workspaceApi.nativeAnswer, input);
+  expect(fetch.mock.calls.slice(2).map(call => call[0])).toEqual([
+    "/api/agent-sources/docker%3Aalpha/native/decisions/same",
+    "/api/agent-sources/docker%3Abeta/native/decisions/same",
+  ]);
   expect(executionSourceId()).toBe("");
   expect(routeSourceId()).toBe("docker:beta");
 });

@@ -1,13 +1,13 @@
+import { registrar } from "./registrar.js";
 import { recordCardRead, tokenCardPage } from "./card-tokens.js";
 import { cardApi } from "../shared/card-api.js";
-import { Router } from "express";
+
 import { cardChanges, cardDetail, listCards } from "./cards.js";
 import { Problem } from "./domain.js";
 import { cardReadRoute, CardGrantSchema } from "../shared/card-access.js";
 import { CardViewSchema } from "../shared/cards.js";
 
-export const cards = Router({ strict: true, caseSensitive: true });
-cards.use("/v1/cards", (req, res, next) => {
+const routes = registrar("cards", { strict: true, caseSensitive: true, middleware: [["/v1/cards", (req, res, next) => {
   const route = cardReadRoute(req.method, req.originalUrl);
   if (!route) throw new Problem(404, "Card route not found");
   if (
@@ -24,8 +24,10 @@ cards.use("/v1/cards", (req, res, next) => {
   if (route.kind !== "detail" && res.locals.cardScope && req.query.view === "done")
     throw new Problem(403, "Done requires an owner session");
   next();
-});
-cards[cardApi.list.method](cardApi.list.path, (req, res) =>
+}]] });
+export const cards = routes.mount;
+
+routes.legacy("GET /v1/cards", (req, res) =>
   res.json(
     cardApi.list.response.parse(
       tokenCardPage(
@@ -36,7 +38,7 @@ cards[cardApi.list.method](cardApi.list.path, (req, res) =>
     ),
   ),
 );
-cards[cardApi.changes.method](cardApi.changes.path, (req, res) =>
+routes.legacy("GET /v1/cards/changes", (req, res) =>
   res.json(
     cardApi.changes.response.parse(
       tokenCardPage(
@@ -47,7 +49,7 @@ cards[cardApi.changes.method](cardApi.changes.path, (req, res) =>
     ),
   ),
 );
-cards[cardApi.detail.method](cardApi.detail.path, (req, res) => {
+routes.legacy("GET /v1/cards/:id", (req, res) => {
   if (Object.keys(req.query).length)
     throw new Problem(400, "Card detail does not accept query parameters");
   const card = cardApi.detail.response.parse(

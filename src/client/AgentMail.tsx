@@ -1,3 +1,4 @@
+import type { LegacyClientPath } from "./legacy-paths";
 import { useEffect, useRef, useState } from "react";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { ArrowUpRight } from "lucide-react";
@@ -60,11 +61,11 @@ function MailThreadsView({
   const active = useRef(false);
   const generation = useRef(0);
   const requests = useRef(new Set<AbortController>());
-  const path =
+  const path: `/teams/${string}/messages` | `/agents/${string}/mail` =
     target.kind === "team"
       ? `/teams/${target.id}/messages`
       : `/agents/${target.id}/mail`;
-  const request = async <T,>(url: string, body?: object) => {
+  const request = async <T,>(url: LegacyClientPath, body?: object) => {
     const controller = new AbortController();
     requests.current.add(controller);
     try {
@@ -112,7 +113,7 @@ function MailThreadsView({
     setResuming(threadId);
     setNotice("");
     try {
-      const url =
+      const url: LegacyClientPath =
         target.kind === "team"
           ? `/teams/${target.id}/threads/${threadId}/resume`
           : `${path}/${threadId}/resume`;

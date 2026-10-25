@@ -1,5 +1,6 @@
+import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
-import { Router } from "express";
+
 import { z } from "zod";
 import { db, emit, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
@@ -566,8 +567,9 @@ export function listActivities(
   };
 }
 
-export const activityRoutes = Router();
-activityRoutes.get("/conversations/:id/activities", (req, res) => {
+const routes = registrar("activityRoutes");
+export const activityRoutes = routes.mount;
+routes.legacy("GET /conversations/:id/activities", (req, res) => {
   const query = z
     .object({
       after: z.coerce.number().int().nonnegative().optional(),

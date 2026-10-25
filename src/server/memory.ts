@@ -1,6 +1,7 @@
+import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
 
-import { Router } from "express";
+
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -369,8 +370,9 @@ export async function recallForRun(run: Run) {
   );
   return run.input + text;
 }
-export const memoryRoutes = Router();
-memoryRoutes.get("/conversations/:id/memory", (req, res) => {
+const routes = registrar("memoryRoutes");
+export const memoryRoutes = routes.mount;
+routes.legacy("GET /conversations/:id/memory", (req, res) => {
   const conversation = ownedConversation(req.params.id, res.locals.owner);
   res.json({
     memoryIncluded: enabled(
@@ -380,7 +382,7 @@ memoryRoutes.get("/conversations/:id/memory", (req, res) => {
     ),
   });
 });
-memoryRoutes.get("/memory", async (_req, res) => {
+routes.legacy("GET /memory", async (_req, res) => {
   const owner = res.locals.owner;
   let readiness: any = { ready: false, mode: "lexical-degraded" };
   try {
@@ -405,7 +407,7 @@ memoryRoutes.get("/memory", async (_req, res) => {
       .all(owner),
   });
 });
-memoryRoutes.put("/memory/policy", (req, res) => {
+routes.legacy("PUT /memory/policy", (req, res) => {
   const { scope, enabled: value } = z
       .object({ scope: z.string().max(160), enabled: z.boolean() })
       .parse(req.body),
@@ -441,13 +443,13 @@ memoryRoutes.put("/memory/policy", (req, res) => {
   }).immediate();
   res.json({ ok: true });
 });
-memoryRoutes.get("/memory/sources/:id", (req, res) => {
+routes.legacy("GET /memory/sources/:id", (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind === "note" && !s.tombstone)
     return res.json({ ...s, truncated: false });
   res.json(readMemory(res.locals.owner, req.params.id));
 });
-memoryRoutes.delete("/memory/sources/:id", (req, res) => {
+routes.legacy("DELETE /memory/sources/:id", (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   db.transaction(() => {
     db.prepare(
@@ -459,7 +461,7 @@ memoryRoutes.delete("/memory/sources/:id", (req, res) => {
   }).immediate();
   res.json({ ok: true, originalHistoryRetained: true });
 });
-memoryRoutes.post("/memory/notes", (req, res) => {
+routes.legacy("POST /memory/notes", (req, res) => {
   const d = z
     .object({
       title: z.string().min(1).max(180),
@@ -485,7 +487,7 @@ memoryRoutes.post("/memory/notes", (req, res) => {
   ).immediate();
   res.json({ id: digest(res.locals.owner + ":note:" + source) });
 });
-memoryRoutes.get("/runs/:id/memory", (req, res) => {
+routes.legacy("GET /runs/:id/memory", (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
   res.json(
     db
@@ -496,7 +498,7 @@ memoryRoutes.get("/runs/:id/memory", (req, res) => {
   );
 });
 
-memoryRoutes.patch("/memory/notes/:id", (req, res) => {
+routes.legacy("PATCH /memory/notes/:id", (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   const d = z
     .object({
@@ -512,7 +514,7 @@ memoryRoutes.patch("/memory/notes/:id", (req, res) => {
   ).immediate();
   res.json({ ok: true });
 });
-memoryRoutes.get("/memory/notes/:id/versions", (req, res) => {
+routes.legacy("GET /memory/notes/:id/versions", (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind !== "note" || s.tombstone)
     throw new Problem(404, "Note unavailable");

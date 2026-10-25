@@ -358,11 +358,11 @@ function SavedCollection({
             );
           else {
             const current = await api<Artifact>(
-              "/artifacts/" + item.card.source.artifact_id,
+              `/artifacts/${item.card.source.artifact_id}`,
             );
             if (viewOwner() !== owner) return;
             await api(
-              "/artifacts/" + current.id,
+              `/artifacts/${current.id}`,
               { pinned: false, version: current.version },
               "PATCH",
             );
@@ -610,7 +610,7 @@ export function Later({
   }
   async function done(item: LaterView, due: boolean) {
     try {
-      await api("/later/" + item.id, undefined, "DELETE");
+      await api(`/later/${item.id}`, undefined, "DELETE");
       window.dispatchEvent(new Event("loop-later-change"));
       // Undo reopens this same reminder: Done is a state, not a deletion.
       notify({

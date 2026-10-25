@@ -41,7 +41,7 @@ export function useWatchState(conversation: string | null | undefined) {
     const load = () => {
       const request = ++latest;
       return read<{ watches: Watch[] }>(
-        "/pr-watches?conversation=" + encodeURIComponent(conversation),
+        `/pr-watches?conversation=${encodeURIComponent(conversation)}`,
       )
         .then((r) => {
           if (!live || request !== latest) return;
