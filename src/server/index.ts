@@ -1,3 +1,4 @@
+import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -319,12 +320,12 @@ if (!companionMode) {
 }
 app.post("/api/diagnostic", (req, res) =>
   res.json(
-    enqueue(
+    runResponse(enqueue(
       res.locals.owner,
       "Foundation record",
       String(req.body.key || crypto.randomUUID()),
       { kind: "diagnostic" },
-    ),
+    )),
   ),
 );
 app.get("/api/events", (req, res) =>

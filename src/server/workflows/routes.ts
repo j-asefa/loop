@@ -1,3 +1,4 @@
+import { runResponse } from "../row-schemas.js";
 import { teamFilter } from "../teams.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -101,13 +102,13 @@ workflows.post("/workflows/:id/run", (req, res) => {
   res
     .status(202)
     .json(
-      startWorkflow(
+      runResponse(startWorkflow(
         res.locals.owner,
         req.params.id,
         d.version,
         d.inputs,
         d.idempotencyKey,
-      ),
+      )),
     );
 });
 workflows.get("/runs/:id/steps", (req, res) => {

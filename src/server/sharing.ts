@@ -1,3 +1,4 @@
+import { runResponse } from "./row-schemas.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
@@ -95,14 +96,14 @@ sharing.post("/share/send", (req, res) => {
         ? "\n\nUser-shared text:\n" + d.sharedText
         : "");
   res.json(
-    submit(res.locals.owner, {
+    runResponse(submit(res.locals.owner, {
       agentId: agent.id,
       personal: true,
       input,
       folderId: d.folderId,
       idempotencyKey: d.idempotencyKey,
       source: d.source,
-    }),
+    })),
   );
 });
 

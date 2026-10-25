@@ -1,3 +1,4 @@
+import { runResponse } from "./row-schemas.js";
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -134,9 +135,10 @@ mobile.delete("/scheduled-sends/:id", (req, res) =>
 mobile.patch("/scheduled-sends/:id", (req, res) =>
   res.json(editScheduledSend(res.locals.owner, req.params.id, req.body)),
 );
-mobile.post("/scheduled-sends/:id/retry", (req, res) =>
-  res.json(retryScheduledSend(res.locals.owner, req.params.id)),
-);
+mobile.post("/scheduled-sends/:id/retry", (req, res) => {
+  const result = retryScheduledSend(res.locals.owner, req.params.id);
+  res.json({ ...result, run: result.run ? runResponse(result.run) : null });
+});
 mobile.post("/runs/:id/reorder", (req, res) =>
   res.json(reorderRun(res.locals.owner, req.params.id, req.body)),
 );
@@ -147,7 +149,7 @@ mobile.post("/runs/:id/withdraw", (req, res) =>
   res.json(withdrawQueuedRun(res.locals.owner, req.params.id, req.body)),
 );
 mobile.post("/runs/:id/move", (req, res) =>
-  res.status(202).json(moveQueuedRun(res.locals.owner, req.params.id, req.body)),
+  res.status(202).json(runResponse(moveQueuedRun(res.locals.owner, req.params.id, req.body))),
 );
 mobile.post("/conversations/:id/fork", (req, res) =>
   res.json(forkConversation(res.locals.owner, req.params.id, req.body)),

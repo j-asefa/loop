@@ -17,6 +17,7 @@ const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams } = await import("../src/server/teams");
 const { workflows } = await import("../src/server/workflows/routes");
+const { sharing } = await import("../src/server/sharing");
 const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
@@ -33,7 +34,7 @@ app.use((req, res, next) => {
   res.locals.owner = req.get("x-owner");
   next();
 });
-app.use("/api", mobile, core, workspace, teams, workflows);
+app.use("/api", mobile, core, workspace, teams, workflows, sharing);
 app.use((e: any, _req: any, res: any, _next: any) =>
   res
     .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
@@ -1379,6 +1380,8 @@ it("keeps scheduled messages that could not be sent visible until you retry or d
   db.prepare("UPDATE agents SET retired_at=NULL WHERE id=?").run(a.id);
   const sent = await api(w.owner, `/scheduled-sends/${created.id}/retry`, "POST", {});
   expect(sent.data.row).toMatchObject({ state: "submitted", run_id: sent.data.run.id });
+  expect(typeof sent.data.run.payload).toBe("string");
+  expect(JSON.parse(sent.data.run.payload)).toMatchObject({ agentId: a.id });
   expect((await api(w.owner, `/scheduled-sends/${created.id}/retry`, "POST", {})).status).toBe(409);
   expect(db.prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?").get(key)).toEqual({ n: 1 });
   // Dismissing removes a failed message without sending it.
@@ -2107,4 +2110,17 @@ it("bounds a full answer-history page including oversized pre-preview records", 
   }
   expect(page.items[0].answers[0].values[0]).toContain("Recorded answer");
   expect(page.items.at(-1).answers[0].values).toBeNull();
+});
+
+
+it("keeps shared-source runs serialized and owner-scoped over HTTP", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const source = { url: "https://example.com/shared", title: "Shared source", excerpt: "Fixture" };
+  const body = { question: "@" + a.name + " Read this", source, idempotencyKey: id() };
+  const sent = await api(w.owner, "/share/send", "POST", body);
+  expect(sent.status).toBe(200);
+  expect(typeof sent.data.payload).toBe("string");
+  expect(JSON.parse(sent.data.payload)).toMatchObject({ agentId: a.id, source });
+  expect((await api(w.owner, "/share/send", "POST", body)).data).toEqual(sent.data);
+  expect((await api("intruder", "/share/send", "POST", body)).status).toBe(404);
 });

@@ -120,7 +120,10 @@ export function parseRun(value: unknown): Run {
 }
 export function maybeRun(value: unknown) { return value === undefined ? undefined : parseRun(value); }
 export function parseRuns(values: unknown[]): Run[] { return values.map(parseRun); }
-export function runResponse<T extends Run>(run: T) { return { ...run, payload: JSON.stringify(run.payload) }; }
+// HTTP keeps the serialized public payload while execution readers migrate.
+export function runResponse<T extends { payload: string | Run["payload"] }>(run: T): Omit<T, "payload"> & { payload: string } {
+  return { ...run, payload: typeof run.payload === "string" ? run.payload : JSON.stringify(run.payload) };
+}
 
 const modelRead = ConnectionModels.element.extend({ name: z.string().optional() }).transform(model => ({ ...model, name: model.name ?? model.id }));
 export function parseConnection(value: unknown) {

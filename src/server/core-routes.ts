@@ -1,3 +1,4 @@
+import { runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
@@ -500,7 +501,7 @@ core.post("/runs", (req, res) => {
   const { queue, ...data } = d;
   res
     .status(202)
-    .json(submit(res.locals.owner, { ...data, steer: !queue, personal: true }));
+    .json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
 });
 core.post("/runs/:id/:action", async (req, res) => {
   const run = owned<Run>("runs", req.params.id, res.locals.owner);
@@ -539,14 +540,14 @@ core.post("/runs/:id/:action", async (req, res) => {
       .object({ idempotencyKey: z.string().min(8).max(150) })
       .parse(req.body);
     res.json(
-      submit(res.locals.owner, {
+      runResponse(submit(res.locals.owner, {
         agentId: run.agent_id,
         conversationId: run.conversation_id || undefined,
         input: run.input,
         idempotencyKey: d.idempotencyKey,
         attachmentIds: JSON.parse(run.payload).attachmentIds || [],
         replyTo: JSON.parse(run.payload).replyTo,
-      }),
+      })),
     );
     return;
   }

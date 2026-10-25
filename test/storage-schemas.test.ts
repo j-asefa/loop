@@ -61,6 +61,7 @@ it("matches storage schemas to worker-produced rows without changing their seria
   expect(ownedAgent(agent.id, owner)).toEqual(AgentRecord.parse(agent));
   expect(ownedConversation(queued.conversation_id!, owner).id).toBe(queued.conversation_id);
   expect(ownedRun(queued.id, owner)).toEqual(parseRun(completed));
+  expect(runResponse(completed).payload).toBe(completed.payload);
   expect(ownedConnection(connection, owner).models).toEqual([{ id: "fixture", name: "fixture" }]);
   expect(ownedMessage(message.id, owner)).toEqual(parseMessage(message));
   expect(ownedArtifact(artifact.id, owner)).toEqual(parseArtifact(artifact));

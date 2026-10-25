@@ -1,3 +1,4 @@
+import { runResponse } from "../row-schemas.js";
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -338,12 +339,12 @@ mcp.post("/artifacts/:id/tool-call", (req, res) => {
     throw new Problem(400, "This artifact has no tool context");
   const body = callSchema.parse(req.body);
   res.json(
-    queueTool(res.locals.owner, {
+    runResponse(queueTool(res.locals.owner, {
       ...body,
       agentId: a.agent_id,
       connectionId: meta.connectionId,
       folderId: a.folder_id || undefined,
-    }),
+    })),
   );
 });
 mcp.post("/artifacts/:id/refresh", (req, res) => {
@@ -352,7 +353,7 @@ mcp.post("/artifacts/:id/refresh", (req, res) => {
   const source = artifactRefreshSource(a.agent_id, meta);
   if (!source) throw new Problem(400, "No refresh source is available");
   res.json(
-    queueTool(res.locals.owner, {
+    runResponse(queueTool(res.locals.owner, {
       ...callSchema.parse({
         ...req.body,
         tool: source.tool,
@@ -361,7 +362,7 @@ mcp.post("/artifacts/:id/refresh", (req, res) => {
       agentId: source.agentId,
       connectionId: source.connectionId,
       folderId: a.folder_id || undefined,
-    }),
+    })),
   );
 });
 export async function executeMcp(run: Run) {

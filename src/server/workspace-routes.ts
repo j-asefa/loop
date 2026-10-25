@@ -1,3 +1,4 @@
+import { runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
@@ -404,7 +405,7 @@ workspace.post("/imports/:id/start", (req, res) => {
     payload: { importId: job.id },
   });
   db.prepare("UPDATE imports SET status='queued' WHERE id=?").run(job.id);
-  res.json(run);
+  res.json(runResponse(run));
 });
 workspace.post("/imports/:id/cancel", (req, res) => {
   const job = owned<any>("imports", req.params.id, res.locals.owner);
