@@ -1,16 +1,12 @@
+import { workspaceApi, type Bootstrap } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
 import { useEffect, useState } from "react";
 import { apiInWorkspace, retryAfter, isRateLimited, RATE_LIMITED } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
-import type { Agent, Connection, Folder, Team } from "../shared/types";
 
-type Snapshot = {
-  agents: Agent[];
-  connections: Connection[];
-  folders: Folder[];
-  teams?: Team[];
-};
+type Snapshot = Bootstrap;
 
 // Keep the Feed's source and identity untouched. Only the open thread needs
 // this source's agent settings, project choices and runtime capabilities.
@@ -40,7 +36,7 @@ export function useThreadSource(source: string | null, owner?: string) {
       const signal = controller.signal;
       try {
         const [data, capabilities] = await Promise.all([
-          apiInWorkspace<Snapshot>("/bootstrap", source, undefined, undefined, signal),
+          callRoute(workspaceApi.bootstrap, {}, source, signal),
           apiInWorkspace<Capabilities>("/capabilities", source, undefined, undefined, signal),
         ]);
         if (!active || owner !== viewOwner()) return;

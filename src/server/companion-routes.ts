@@ -1,3 +1,5 @@
+import { workspaceApi } from "../shared/workspace-api.js";
+import { route } from "./route.js";
 import { enabled as memoryEnabled } from "./memory.js";
 import { runtimeSetupState } from "../runtime-setup.js";
 import { nativeHistory } from "./native-history.js";
@@ -103,57 +105,39 @@ companion.patch("/workspace/projects/:id", (req, res) => {
     note: "Existing native conversations keep their original directory.",
   });
 });
-companion.get("/native/decisions", (req, res) => {
-  const conversation = z
-    .string()
-    .uuid()
-    .optional()
-    .parse(req.query.conversation);
+companion.get(workspaceApi.nativeDecisions.path, route(workspaceApi.nativeDecisions, (req, res) => {
+  const { conversation } = req.query;
   if (conversation) ownedConversation(conversation, OWNER);
   res.json(
     db
       .prepare(
         "SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=? AND (? IS NULL OR d.conversation_id=?) ORDER BY d.created_at",
       )
-      .all(OWNER, conversation || null, conversation || null),
+      .all(OWNER, conversation || null, conversation || null) as z.input<typeof workspaceApi.nativeDecisions.response>,
   );
-});
-companion.post("/native/decisions/:id", async (req, res) => {
-  const d = z
-    .object({
-      commandId: z.string().uuid(),
-      answer: z.record(z.string(), z.json()),
-    })
-    .strict()
-    .parse(req.body);
+}));
+companion.post(workspaceApi.nativeAnswer.path, route(workspaceApi.nativeAnswer, async (req, res) => {
+  const d = req.body;
   res.json(
     await executionRequest("native.answer", { decisionId: String(req.params.id), answer: d.answer }, { commandId: d.commandId }),
   );
-});
-companion.get("/conversations/:id/settings", async (req, res) => {
-  const conversation = z.string().uuid().parse(req.params.id);
+}));
+companion.get(workspaceApi.session.path, route(workspaceApi.session, async (req, res) => {
+  const conversation = req.params.id;
   ownedConversation(conversation, OWNER);
   res.json(await executionRequest("native.controls", { conversationId: conversation }));
-});
-companion.patch("/conversations/:id/settings/:setting", async (req, res) => {
-  const conversation = z.string().uuid().parse(req.params.id);
+}));
+companion.patch(workspaceApi.setting.path, route(workspaceApi.setting, async (req, res) => {
+  const conversation = req.params.id;
   ownedConversation(conversation, OWNER);
-  const body = z
-    .object({
-      value: z.union([z.string().max(1000), z.boolean(), z.number()]),
-      revision: z.number().int().nonnegative(),
-      generation: z.string().min(1).max(200),
-      commandId: z.string().uuid().optional(),
-    })
-    .strict()
-    .parse(req.body);
+  const body = req.body;
   res.json(
     await executionRequest("native.setting", {
       conversationId: conversation, setting: String(req.params.setting), value: body.value,
       revision: body.revision, generation: body.generation,
     }, { commandId: body.commandId }),
   );
-});
+}));
 companion.get("/conversations/:id/native", (req, res, next) => {
   const conversation = ownedConversation(String(req.params.id), OWNER);
   const binding = db

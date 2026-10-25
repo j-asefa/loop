@@ -1,3 +1,5 @@
+import { workspaceApi, type Bootstrap as BootstrapResponse, type ResultItem } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
 import { surfaceFallback } from "./workspace-projections";
 import { workspaceChangeAffects } from "./workspace-changes";
 import { WORKSPACE_COLLECTIONS, type WorkspaceCollection } from "../shared/workspace-events";
@@ -18,7 +20,7 @@ import { agentModelName, effortName } from "./modelChoices";
 import { AttachmentList, UploadButton } from "./Attachments";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads";
 import { capabilities } from "./capabilities";
-import { SourceProvider, useProjectionRead } from "./SourceContext";
+import { SourceProvider, useProjectionRead, useProjectionRoute } from "./SourceContext";
 import { useThreadSource } from "./useThreadSource";
 import {
   executionSourceId,
@@ -168,15 +170,7 @@ import type {
 import "./style.css";
 import "./design.css";
 import { PreviewBanner } from "./PreviewBanner";
-import type { PreviewInfo } from "../shared/preview";
-type Bootstrap = {
-  preview?: PreviewInfo;
-  environmentName?: string;
-  teams?: Team[];
-  agents: Agent[];
-  connections: Connection[];
-  folders: FolderType[];
-};
+type Bootstrap = Pick<BootstrapResponse, "agents" | "connections" | "folders"> & Partial<Omit<BootstrapResponse, "agents" | "connections" | "folders">>;
 const tabs = [
   { id: "feed", label: "Feed", icon: Newspaper },
   { id: "projects", label: "Projects", icon: Folder },
@@ -1072,10 +1066,11 @@ export default function App() {
   setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
   const readSnapshot = useProjectionRead();
+  const readContract = useProjectionRoute();
   const personalWorkspace = useRef(false);
   const stopWorkspaceEvents = useRef<() => void>(() => {});
   personalWorkspace.current = session?.mode === "single-user";
-  const resultsPager = useRef(new ResultsPager<any>());
+  const resultsPager = useRef(new ResultsPager<ResultItem>());
   const cardsPager = useRef(new CardPager());
   const resultsSelection = useRef({ key: "" });
   const resultsVisible = useRef(true);
@@ -1258,7 +1253,7 @@ export default function App() {
   async function bootstrap() {
     const generation = ++bootstrapGeneration.current;
     const owner = ownerRef.current;
-    const result = await readSnapshot("/bootstrap").catch(error => {
+    const result = await readContract(workspaceApi.bootstrap, {}).catch(error => {
       if (owner && owner === ownerRef.current && generation === bootstrapGeneration.current)
         workspaceReadError("bootstrap", error);
       throw error;
@@ -1296,7 +1291,7 @@ export default function App() {
     const generation = ++runsGeneration.current;
     // Profiles show all of an agent's work. Feed and Running apply their
     // team/project filters locally without changing the profile's data.
-    const result = await readSnapshot<Run[]>("/runs?active=1").catch(error => {
+    const result = await readContract(workspaceApi.runs, { query: { active: "1" } }).catch(error => {
       if (owner === ownerRef.current && generation === runsGeneration.current)
         workspaceReadError("runs", error);
       throw error;
@@ -1323,7 +1318,7 @@ export default function App() {
       // Both transports publish into the same list. Restore only this exact
       // owner/source/selection's committed window before reconciling changes.
       resultsSelection.current = { key };
-      resultsPager.current = new ResultsPager<any>();
+      resultsPager.current = new ResultsPager<ResultItem>();
       cardsPager.current.reset();
       const saved = view !== "files" && cachedView<CardWindow>(cacheKey);
       if (saved) {
@@ -1396,13 +1391,13 @@ export default function App() {
               async (before) => {
                 const q = query();
                 if (before !== null) q.set("before", String(before));
-                return readSnapshot("/results?" + q, source);
+                return readContract(workspaceApi.results, { query: Object.fromEntries(q) }, source);
               },
               async (after, through) => {
                 const q = query();
                 q.set("after", String(after));
                 q.set("through", String(through));
-                return readSnapshot("/results/updates?" + q, source);
+                return readContract(workspaceApi.resultUpdates, { query: { ...Object.fromEntries(q), after: String(after), through: String(through), view: "files" } }, source);
               },
             );
       if (
@@ -1826,10 +1821,10 @@ export default function App() {
         if (!conversation) collapseComposer();
         return;
       }
-      const accepted = await threadApi<Run & { steeringId?: string }>("/runs", {
+      const accepted = await callRoute(workspaceApi.submit, { body: {
         ...body,
         ...(options.queue ? { queue: true } : {}),
-      });
+      } }, actionSource);
       settleAccepted();
       if (owner !== ownerRef.current) return;
       try {
@@ -3973,7 +3968,7 @@ export default function App() {
           connections={data.connections}
           initialEnvironmentId={environmentToOpen}
           onClose={closeSheet}
-          onChange={async () => setData(await api("/bootstrap"))}
+          onChange={async () => setData(await callRoute(workspaceApi.bootstrap, {}, executionSourceId()))}
           onLegacy={() => setSheet("runtime-hosts")}
         />
       )}

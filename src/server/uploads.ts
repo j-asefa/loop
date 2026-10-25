@@ -17,11 +17,8 @@ import {
   type UploadedFile,
 } from "../shared/uploads.js";
 
-export const attachmentIds = z
-  .array(z.string().uuid())
-  .max(MAX_MESSAGE_FILES)
-  .default([])
-  .transform((ids) => [...new Set(ids)]);
+import { AttachmentIds as attachmentIds } from "../shared/uploads.js";
+export { attachmentIds };
 export function uploadFile(
   owner: string,
   file: { originalname: string; mimetype: string; buffer: Buffer },

@@ -152,6 +152,8 @@ for (const engine of engines) {
           ]);
         }
         await context.addInitScript(() => {
+          // Exercise filters/cursors on browsers predating this optional API.
+          Reflect.deleteProperty(URLSearchParams.prototype, "size");
           const Original = window.WebSocket;
           window.__eventSockets = [];
           window.__workspaceUpdates = 0;
@@ -176,6 +178,20 @@ for (const engine of engines) {
           /\/api\/(?:agent-sources\/[^/]+\/)?events\?/,
           (route) => route.abort(),
         );
+        let legacyBootstraps = 0, legacyFeeds = 0;
+        if (remote) await context.route(url => url.pathname.startsWith("/api/agent-sources/") && /\/(bootstrap|feed)$/.test(url.pathname), async route => {
+          const response = await route.fetch();
+          if (!response.ok()) return route.fulfill({ response });
+          const body = await response.json();
+          if (new URL(route.request().url()).pathname.endsWith("/bootstrap")) {
+            legacyBootstraps++;
+            for (const key of ["teams", "environmentName", "identityProviders", "capabilities"]) delete body[key];
+          } else {
+            legacyFeeds++;
+            for (const item of body.items) delete item.pull;
+          }
+          await route.fulfill({ response, json: body });
+        });
         const working = await context.newPage(),
           done = await context.newPage();
         const errors = [];
@@ -185,6 +201,7 @@ for (const engine of engines) {
               errors.push(e.message);
           });
         await working.goto(fixture.origin + "/?filter=working");
+        assert.equal(await working.evaluate(() => "size" in new URLSearchParams()), false);
         const row = (page, text) =>
           page.locator(".inbox-results .inbox-card").filter({ hasText: text });
         await expect(row(working, "Local task"))
@@ -202,6 +219,9 @@ for (const engine of engines) {
           });
         if (remote) {
           await expect(row(working, "Remote task")).toHaveCount(1);
+          await expect(working.getByRole("region", { name: "Your agents" })).toContainText("@Remote");
+          assert.ok(legacyBootstraps > 0 && legacyFeeds > 0, "Linked catalogs and Feed pages with omitted optional fields must both reach the UI");
+          console.log(`PASS ${engine} linked legacy bootstrap metadata and unknown pull state remain readable`);
           const localSockets = () =>
             working.evaluate(
               () =>

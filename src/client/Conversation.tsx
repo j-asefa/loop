@@ -1,6 +1,8 @@
+import { workspaceApi, type ConversationPage, type RouteInput } from "../shared/workspace-api";
+import { readRoute, UnavailableResponse } from "./workspace-api";
 import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
+import { useSourceApi, useSourceId, useProjectionRead, useSourceRoute } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -44,10 +46,10 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { parse, retryAfter, isRateLimited, RATE_LIMITED, readInWorkspace } from "./api";
+import { parse, retryAfter, isRateLimited, RATE_LIMITED } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
-import { TranscriptHandoff, ProjectedMessage, type TranscriptEvent, type TranscriptRange } from "../shared/transcript-projection";
-import { eventScopes, type WorkspaceClock } from "../shared/workspace-events";
+import { TranscriptHandoff, ProjectedMessage, type TranscriptEvent } from "../shared/transcript-projection";
+import { eventScopes } from "../shared/workspace-events";
 import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
@@ -137,17 +139,7 @@ function MessageShell({
   );
 }
 
-type Transcript = {
-  projection?: WorkspaceClock;
-  range?: TranscriptRange;
-  conversation: any;
-  messages: ConversationMessage[];
-  next: string | null;
-  position_message_id?: string | null;
-  saved?: string[];
-  steerable_run_id?: string | null;
-  resumed?: boolean;
-};
+type Transcript = ConversationPage;
 
 export function Conversation(props: Parameters<typeof ConversationView>[0]) {
   const source = useSourceId();
@@ -214,6 +206,7 @@ function ConversationView({
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
   const api = useSourceApi();
+  const call = useSourceRoute();
   const read = useProjectionRead();
   // The thread's pull request, for the chip on its final message. "No PR
   // linked" is said only once the list is confirmed, and the chip opens the
@@ -437,7 +430,7 @@ function ConversationView({
     const snapshot = projection.begin();
     const recovery = initial ? undefined : missingMessages.current.keys().next().value;
     const recoveryCursor = recovery ? missingMessages.current.get(recovery) : undefined;
-    const readSnapshot = (path: string) => readInWorkspace<Transcript>(path, sourceId, readController.current!.signal, error => {
+    const readSnapshot = (query: RouteInput<typeof workspaceApi.conversation>["query"]) => readRoute(workspaceApi.conversation, { params: { id }, query }, sourceId, readController.current!.signal, error => {
       if (current === generation.current && owner === viewOwner() && isRateLimited(error)) {
         setLoadError("");
         setRateLimited(true);
@@ -445,11 +438,7 @@ function ConversationView({
     });
     if (initial) setLoading(true);
     try {
-      let fresh = await readSnapshot(
-        "/conversations/" +
-          id +
-          (initial ? anchor ? "?message=" + encodeURIComponent(anchor) : "?resume=1" : recovery ? "?message=" + encodeURIComponent(recovery) : ""),
-      );
+      let fresh = await readSnapshot(initial ? anchor ? { message: anchor } : { resume: "1" } : recovery ? { message: recovery } : {});
       if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner())
         return;
       if (initial && !anchor && typeof fresh.resumed !== "boolean" &&
@@ -457,7 +446,7 @@ function ConversationView({
         // Older linked servers ignore resume=1. Only those responses lack the
         // marker; keep their existing resume behavior until they are upgraded.
         fresh = await readSnapshot(
-          `/conversations/${id}?message=${encodeURIComponent(fresh.position_message_id)}`,
+          { message: fresh.position_message_id },
         );
         if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner()) return;
       }
@@ -551,6 +540,10 @@ function ConversationView({
           projection.reset(projection.epoch);
           initialRequest.current = true;
           request.queued = true;
+        } else if (e instanceof UnavailableResponse) {
+          snapshotFailures.current = 3;
+          setRateLimited(false);
+          setLoadError("Couldn’t load these messages. Try again.");
         } else if (isRateLimited(e)) {
           setLoadError("");
           setRateLimited(true);
@@ -1342,10 +1335,8 @@ function ConversationView({
                 const projection = transcriptHandoff.current;
                 const snapshot = projection.begin();
                 try {
-                  const older = await readInWorkspace<Transcript>(
-                    "/conversations/" + id + "?before=" + data.next,
-                    sourceId, readController.current!.signal,
-                  );
+                  const older = await readRoute(workspaceApi.conversation, { params: { id }, query: { before: data.next! } },
+                    sourceId, readController.current!.signal);
                   if (current !== generation.current) return;
                   if (older.projection) {
                     const rows = ProjectedMessage.array().parse(older.messages);
@@ -1561,7 +1552,7 @@ function ConversationView({
                         className="text-button"
                         onClick={async () => {
                           try {
-                            await api(`/runs/${m.run_id}/cancel`, {});
+                            await call(workspaceApi.runAction, { params: { id: m.run_id!, action: "cancel" }, body: {} });
                             onSubmitted();
                             setNotice("Queued message cancelled.");
                             await load();
@@ -1665,9 +1656,9 @@ function ConversationView({
                               crypto.randomUUID();
                             retryKeys.current.set(m.run_id!, key);
                             try {
-                              await api(`/runs/${m.run_id}/retry`, {
+                              await call(workspaceApi.runAction, { params: { id: m.run_id!, action: "retry" }, body: {
                                 idempotencyKey: key,
-                              });
+                              } });
                               onSubmitted();
                               await load();
                             } catch (e) {

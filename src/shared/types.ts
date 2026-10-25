@@ -17,17 +17,7 @@ export type Agent = {
 export type CreatedAgent = Agent & {
   initialRun?: { id: string; conversation_id: string | null };
 };
-export type Connection = {
-  id: string;
-  owner_id: string;
-  provider: Provider;
-  label: string;
-  secret: string;
-  status: string;
-  models: string;
-  metadata: string;
-  created_at: number;
-};
+export type Connection = import("zod").infer<typeof import("./workspace-api.js").PublicConnection>;
 export type Message = {
   id: string;
   owner_id: string;
@@ -64,12 +54,12 @@ export type Artifact = {
   version: number;
   created_at: number;
   updated_at: number;
-  name?: string;
-  provider?: Provider;
+  name?: string | null;
+  provider?: Provider | null;
 };
 export type Folder = {
   is_workspace?: boolean | number;
-  path?: string;
+  path?: string | null;
   id: string;
   name: string;
   parent_id: string | null;

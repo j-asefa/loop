@@ -204,7 +204,7 @@ export function ArtifactViewer({
       heading={
         <div className="result-header">
           <ResultIdentity
-            name={author}
+            name={author ?? undefined}
             model={
               card ? card.display.model || "" : runModelName(meta, connections)
             }

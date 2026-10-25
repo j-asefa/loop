@@ -1,4 +1,5 @@
-import { useSourceId, useSourceApi, useSourceCapabilities, useProjectionRead } from "./SourceContext";
+import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "../shared/workspace-api";
+import { useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization, apiInWorkspace } from "./api";
 import { RichText } from "./components";
@@ -144,13 +145,6 @@ export function WorkspaceConnection({
     </p>
   );
 }
-type Decision = {
-  id: string;
-  conversation_id: string;
-  name: string;
-  request: string;
-  state: string;
-};
 export function NativeDecisions({
   conversation,
   onConversation,
@@ -158,7 +152,7 @@ export function NativeDecisions({
   conversation?: string;
   onConversation?: (id: string) => void;
 }) {
-  const api = useProjectionRead();
+  const readContract = useProjectionRoute();
   const sourceId = useSourceId();
   const capabilities = useSourceCapabilities();
   const [items, setItems] = useState<Decision[]>([]);
@@ -167,10 +161,7 @@ export function NativeDecisions({
     let stopped = false, latest = 0;
     const load = () => {
       const request = ++latest;
-      void api<Decision[]>(
-        "/native/decisions" +
-          (conversation ? "?conversation=" + conversation : ""),
-      )
+      void readContract(workspaceApi.nativeDecisions, { query: { conversation } })
         .then((x) => {
           if (!stopped && request === latest) setItems(x);
         })
@@ -202,7 +193,7 @@ function DecisionCard({
   item: Decision;
   onConversation?: (id: string) => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const request = parse<Request>(item.request, {} as Request);
   const structured = parse<any>(request.detail, null);
   const toolApproval = codexToolApproval(structured);
@@ -219,7 +210,7 @@ function DecisionCard({
     [done, setDone] = useState(false);
   const lock = useRef(false);
   const [toolSettings, setToolSettings] = useState(false);
-  async function answer(value: Record<string, unknown>) {
+  async function answer(value: RouteInput<typeof workspaceApi.nativeAnswer>["body"]["answer"]) {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
@@ -241,10 +232,10 @@ function DecisionCard({
       old.digest === digest ? old.commandId : crypto.randomUUID();
     sessionStorage.setItem(storage, JSON.stringify({ commandId, digest }));
     try {
-      const r = await api("/native/decisions/" + item.id, {
+      const r = await call(workspaceApi.nativeAnswer, { params: { id: item.id }, body: {
         commandId,
         answer: value,
-      });
+      } });
       if (r.state !== "resolved")
         throw new Error(
           "Decision delivery is uncertain. Inspect the native session before sending another decision.",

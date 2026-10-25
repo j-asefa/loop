@@ -6,8 +6,10 @@ import { designFixture } from "./helpers/design-fixture.mjs";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { conversationFilesSmoke } from "./helpers/conversation-files-smoke.mjs";
+import { undiscoveredCapabilities } from "../src/agent-activities.ts";
 
 for (const engine of selectedEngines()) {
+  await localRequestRefusal(engine);
   await snapshotRecovery(engine);
   await httpEpochRecovery(engine);
   await anchoredLiveTail(engine);
@@ -137,6 +139,8 @@ for (const engine of selectedEngines()) {
       hasTouch: true,
       serviceWorkers: "block",
     });
+    // Older browsers support URLSearchParams without its later size property.
+    await context.addInitScript(() => { Reflect.deleteProperty(URLSearchParams.prototype, "size"); });
     page = await context.newPage();
     page.on("response", response => {
       const path = new URL(response.url()).pathname;
@@ -155,6 +159,7 @@ for (const engine of selectedEngines()) {
         errors.push(error.message);
     });
     await page.goto(`${fixture.base}/?conversation=${conversation.id}`);
+    assert.equal(await page.evaluate(() => "size" in new URLSearchParams()), false);
     const transcript = page.locator(".conversation-sheet .messages");
     await expect(
       transcript.getByText("History answer 239", { exact: true }),
@@ -455,7 +460,7 @@ for (const engine of selectedEngines()) {
       agentId: agent, conversationId: conversation.id, input: "Scheduled recovery sentinel",
       sendAt: Date.now() + 3_600_000, idempotencyKey: randomUUID(),
     });
-    let legacySource = true;
+    let legacySource = true, legacyMetadataReads = 0;
     const legacyReads = [];
     let linkedHold = false, linkedLimited = false, linkedMetadataFailure = false, linkedReplies = 0;
     let releaseLinked;
@@ -485,7 +490,12 @@ for (const engine of selectedEngines()) {
         upstream.searchParams.delete("resume"); // captured-base server behavior
       }
       const response = await route.fetch({ url: upstream.href });
-      if (upstream.pathname === path && response.ok()) {
+      if (legacySource && upstream.pathname === "/api/bootstrap" && response.ok()) {
+        legacyMetadataReads++;
+        const body = await response.json();
+        for (const key of ["teams", "environmentName", "identityProviders", "capabilities"]) delete body[key];
+        await route.fulfill({ response, json: body });
+      } else if (upstream.pathname === path && response.ok()) {
         const body = await response.json();
         if (legacySource) delete body.resumed;
         body.messages.forEach(message => { message.content = "Linked " + message.content; });
@@ -506,6 +516,8 @@ for (const engine of selectedEngines()) {
       "Only an older source without the resume marker needs the compatibility anchor read");
     await expect(transcript.getByText("Scheduled recovery sentinel", { exact: true })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Snapshot review status" })).toBeVisible();
+    await expect(composer).toHaveCount(1);
+    assert.ok(legacyMetadataReads > 0, "Linked thread metadata without optional bootstrap additions still hydrates its composer");
     legacySource = false;
     await closeThread();
     linkedHold = true;
@@ -816,6 +828,36 @@ async function anchoredLiveTail(engine) {
   }
 }
 
+async function localRequestRefusal(engine) {
+  const fixture = await designFixture();
+  let browser;
+  try {
+    const conversation = fixture.conversations.find(c => c.state === "completed");
+    browser = await engine.launch({ headless: true, executablePath: engine === chromium ? process.env.CHROMIUM_PATH || undefined : undefined });
+    const page = await browser.newPage({ serviceWorkers: "block" });
+    let submissions = 0;
+    page.on("request", request => { if (request.method() === "POST" && new URL(request.url()).pathname === "/api/runs") submissions++; });
+    await page.goto(fixture.base + "/?conversation=" + conversation.id);
+    const composer = page.locator(".composer-dock.thread-mode");
+    const draft = "too-long-fixture-".padEnd(30001, "x");
+    await composer.locator("textarea").fill(draft);
+    await composer.getByRole("button", { name: "Send reply", exact: true }).click();
+    await expect(composer.getByRole("alert")).toContainText("Too big: expected string to have <=30000 characters");
+    await expect(composer.getByRole("alert")).not.toContainText('"code"');
+    await expect(composer.locator("textarea")).toHaveValue(draft);
+    assert.equal(submissions, 0, "Local validation must refuse before transport");
+    const receipts = await page.evaluate(() => Object.values(sessionStorage).flatMap(value => {
+      try { const item = JSON.parse(value); return typeof item?.signature === "string" && item.signature.includes("too-long-fixture-") ? [item] : []; } catch { return []; }
+    }));
+    assert.ok(receipts.length > 0, "The real composer persisted its send receipt");
+    assert.ok(receipts.every(receipt => receipt.pending === false), "An unsent invalid request must not retain an uncertain intent");
+    console.log(`${engine.name()}: local validation preserves the draft, reports a readable refusal and clears pending intent without transport`);
+  } finally {
+    await browser?.close();
+    await fixture.close();
+  }
+}
+
 async function snapshotRecovery(engine) {
   const fixture = await designFixture();
   let browser;
@@ -842,6 +884,7 @@ async function snapshotRecovery(engine) {
     },conversation.id);
     const alert = page.locator(".conversation-sheet [role=alert]");
     await expect(alert).toContainText("Couldn’t load these messages");
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
     await page.waitForTimeout(1500);
     assert.equal(reads,1,"Invalid snapshots must stop instead of exhausting the request budget");
     malformed = false;
@@ -882,7 +925,7 @@ async function snapshotRecovery(engine) {
       if (++settingsReads === 1) return route.fulfill({status:503,body:"Temporary settings failure"});
       return route.fulfill({json:{generation:"fixture",settings:{revision:1,options:[{
         id:"mode",label:"Recovered session mode",type:"select",mutable:false,confirmed:"recovered",choices:[{value:"recovered",label:"Recovered"}],
-      }]},capabilities:{settings:{state:"supported",source:"fixture"}}}});
+      }]},commands:{commands:[],revision:0},capabilities:{...undiscoveredCapabilities("fixture"),settings:{state:"supported",source:"fixture"}}}});
     });
     await page.getByRole("button",{name:"Conversation options",exact:true}).click();
     await page.getByRole("button",{name:"Session settings",exact:true}).click();

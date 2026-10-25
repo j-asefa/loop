@@ -1,3 +1,6 @@
+import type { z } from "zod";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { route } from "./route.js";
 import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
@@ -337,10 +340,10 @@ app.get("/api/events", (req, res) =>
       .all(res.locals.owner, Number(req.query.after) || 0),
   ),
 );
-app.get("/api/runs", (req, res) => {
+app.get("/api" + workspaceApi.runs.path, route(workspaceApi.runs, (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
-  res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1"));
-});
+  res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1") as z.input<typeof workspaceApi.runs.response>);
+}));
 if (companionMode) app.use("/api", companion);
 app.use("/api", teams);
 app.use("/api", agentDefinitions);

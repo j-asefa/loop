@@ -1,3 +1,5 @@
+import { workspaceApi, type RouteInput } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
 import { DoneCardsReader } from "./feed-cards";
 import type { CardWindow } from "./card-pager";
 import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
@@ -166,7 +168,7 @@ export type FeedItem = {
   later: {
     id: string;
     due_at: number | null;
-    condition: string;
+    condition: string | null;
     surfaced_at: number | null;
   } | null;
   /** The specific thing this thread waits for, and the message holding it. */
@@ -1157,17 +1159,14 @@ export function Feed({
   const [needsOpen, setNeedsOpen] = useState(false);
   const needsRequest = useRef(0);
   const request = useRef(0);
-  const query = (before?: string, which: string = filter) => {
-    const q = new URLSearchParams({
-      filter: which,
-    });
-    if (which === "done") q.set("expand", "results");
-    if (project) q.set("folder", project);
-    if (agent) q.set("agent", agent);
-    if (teams) q.set("teams", teams);
-    if (before) q.set("before", before);
-    return "/feed?" + q;
-  };
+  const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => ({
+    filter: which,
+    ...(which === "done" ? { expand: "results" } : {}),
+    ...(project ? { folder: project } : {}),
+    ...(agent ? { agent } : {}),
+    ...(teams ? { teams } : {}),
+    ...(before ? { before } : {}),
+  });
   const inFlight = useRef(false);
   const sourcePages = useRef<{ key: string; pages: Map<string, Shown> }>({
     key: "",
@@ -1202,12 +1201,7 @@ export function Feed({
     const key = needsKey();
     const settled = await Promise.allSettled(
       activeSources.map(async (source) => {
-        const page = combined
-          ? await apiInWorkspace<{ items: FeedItem[] }>(
-              query(undefined, "needs"),
-              source.id,
-            )
-          : await api<{ items: FeedItem[] }>(query(undefined, "needs"));
+        const page = await callRoute(workspaceApi.feed, { query: query(undefined, "needs") }, combined ? source.id : scopedSource);
         return combined
           ? page.items.map((item) => ({
               ...item,
@@ -1322,7 +1316,7 @@ export function Feed({
             followup ||= reader.hasMore || !!(window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0));
             if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
             // Counters remain conversation-based operational Feed state.
-            const operational = await transport(query(undefined, "needs")) as Page;
+            const operational = await callRoute(workspaceApi.feed, { query: query(undefined, "needs") }, source);
             if (ticket === request.current && owner === viewOwner()) {
               reader.discardPrior = false;
               cacheView(cardKey + ":reset", undefined, owner);
@@ -1402,7 +1396,7 @@ export function Feed({
         const settled = await Promise.allSettled(
           pending.map(async (source) => {
             const incoming = await readPage(
-              (before) => apiInWorkspace<Page>(query(before), source.id),
+              (before) => callRoute(workspaceApi.feed, { query: query(before) }, source.id),
               source.id,
               append ? cursors[source.id] : undefined,
             );
@@ -1509,7 +1503,7 @@ export function Feed({
         };
       } else {
         result = await readPage(
-          (before) => api<Page>(query(before)),
+          (before) => callRoute(workspaceApi.feed, { query: query(before) }, scopedSource),
           scopedSource,
           append ? next || undefined : undefined,
         );
@@ -1622,7 +1616,7 @@ export function Feed({
   ) {
     const owner = viewOwner();
     try {
-      await apiInWorkspace(`/runs/${runId}/${action}`, sourceId, body);
+      await callRoute(workspaceApi.runAction, { params: { id: runId, action }, body }, sourceId);
       if (owner !== viewOwner()) return;
       if (action === "dismiss") {
         // Discard an older Needs read and remove exactly the acknowledged

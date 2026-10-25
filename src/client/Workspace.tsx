@@ -126,7 +126,7 @@ export function FolderForm({
               Desktop directory
               <input
                 name="path"
-                defaultValue={existing?.path}
+                defaultValue={existing?.path ?? undefined}
                 placeholder="/Users/you/projects/my-project"
                 maxLength={4096}
               />
@@ -416,7 +416,7 @@ export function Saved({
                 <span>
                   <strong>{a.title}</strong>
                   <small>
-                    <Badge provider={a.provider} />
+                    <Badge provider={a.provider ?? undefined} />
                     {a.kind} · {new Date(a.created_at).toLocaleDateString()}
                   </small>
                 </span>

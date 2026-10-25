@@ -154,19 +154,8 @@ export function savePosition(
 
 // ---------------------------------------------------------------------------
 // 2. Inbox
-export const FEED_FILTERS = [
-  "all",
-  // The Feed's default: every completed result, plus threads with nothing open.
-  "done",
-  "needs",
-  "working",
-  "queued",
-  "later",
-  // Project history: threads whose latest run finished, and threads with
-  // work still open (needs you, working or queued).
-  "outcomes",
-  "unfinished",
-] as const;
+export { FEED_FILTERS } from "../shared/workspace-api.js";
+import { FEED_FILTERS } from "../shared/workspace-api.js";
 // One Feed card's state, read from the columns migration 078 keeps current on
 // each conversation, plus what the card shows, fetched for the page only.
 type FeedRow = {

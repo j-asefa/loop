@@ -1,8 +1,10 @@
+import { workspaceApi, type RouteContract, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import { readRoute } from "./workspace-api";
 import { reactiveSource } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import type { Agent, Connection, Folder, RunView as Run } from "../shared/types";
-import { apiInWorkspace, readInWorkspace, retryAfter, parse } from "./api";
+import { apiInWorkspace, retryAfter, parse } from "./api";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
@@ -173,7 +175,7 @@ export function useAgentSources(
       }
       requests.clear();
     };
-    const readProjection = async <T,>(path: string, source: string): Promise<T> => {
+    const readProjection = async <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, source: string): Promise<RouteResponse<C>> => {
       const controller = new AbortController();
       const arm = (delay = 20_000) => {
         clearTimeout(requests.get(controller));
@@ -181,7 +183,7 @@ export function useAgentSources(
       };
       arm();
       try {
-        return await readInWorkspace<T>(path, source, controller.signal, error => arm(retryAfter(error) + 20_000));
+        return await readRoute(contract, input, source, controller.signal, error => arm(retryAfter(error) + 20_000));
       } finally {
         clearTimeout(requests.get(controller));
         requests.delete(controller);
@@ -273,17 +275,12 @@ export function useAgentSources(
             // A run signal must not certify stale metadata after a failed
             // bootstrap. Retry the full source until every part recovers.
             if (prior && !retryMetadata && options.changes?.get(source.id)?.size === 1 && options.changes.get(source.id)?.has("runs")) {
-              const runs = await readProjection<Run[]>("/runs?active=1", source.id);
+              const runs = await readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id);
               return { source, data: { ...prior, runs: project(source, { agents: [], connections: [], folders: [], runs }).runs } };
             }
             const [bootstrap, runs] = await Promise.all([
-              readProjection<{
-                environmentName?: string;
-                agents: Agent[];
-                connections: Connection[];
-                folders: Folder[];
-              }>("/bootstrap", source.id),
-              readProjection<Run[]>("/runs?active=1", source.id),
+              readProjection(workspaceApi.bootstrap, {}, source.id),
+              readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id),
             ]);
             if (!source.id && bootstrap.environmentName) {
               source.name = bootstrap.environmentName;

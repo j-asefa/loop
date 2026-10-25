@@ -1,21 +1,16 @@
+import { workspaceApi } from "../shared/workspace-api";
+import type { SessionControls } from "../shared/session-controls";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceApi, useSourceRead } from "./SourceContext";
+import { useSourceId, useSourceRoute, useSourceRouteRead } from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import type {
   ActivityCapabilities,
-  SettingsData,
   SettingValue,
   ActivityRecord,
 } from "../agent-activities";
 import { Sheet } from "./components";
-type Controls = {
-  readOnly?: boolean;
-  state?: string;
-  generation?: string;
-  settings: SettingsData;
-  capabilities: ActivityCapabilities;
-};
+type Controls = Pick<SessionControls, "state" | "settings" | "capabilities"> & { generation?: string | null; readOnly?: boolean };
 export function SessionActivityControls({
   conversationId,
   recorded,
@@ -27,8 +22,8 @@ export function SessionActivityControls({
     capabilityGeneration?: string;
   };
 }) {
-  const api = useSourceApi();
-  const read = useSourceRead();
+  const call = useSourceRoute();
+  const read = useSourceRouteRead();
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const [open, setOpen] = useState(false);
@@ -41,7 +36,6 @@ export function SessionActivityControls({
   const epoch = useRef(0),
     ticket = useRef(0),
     writing = useRef(false);
-  const path = `/conversations/${encodeURIComponent(conversationId)}/settings`;
   const saved = useRef(recorded);
   const commands = useRef(new Map<string, string>());
   saved.current = recorded;
@@ -75,8 +69,8 @@ export function SessionActivityControls({
     const own = epoch.current,
       request = ++ticket.current;
     try {
-      const response = await read<Controls>(path, controller.signal);
-      const next =
+      const response = await read(workspaceApi.session, { params: { id: conversationId } }, controller.signal);
+      const next: Controls =
         response.state !== "disconnected" &&
         response.capabilities.settings.state === "supported"
           ? response
@@ -155,15 +149,12 @@ export function SessionActivityControls({
     const commandId = commands.current.get(commandKey) || crypto.randomUUID();
     commands.current.set(commandKey, commandId);
     try {
-      const next = await api<Controls>(
-        `${path}/${encodeURIComponent(id)}`,
-        {
+      const next = await call(workspaceApi.setting, { params: { id: conversationId, setting: id }, body: {
           value,
           revision: data.settings.revision,
           generation: data.generation,
           commandId,
-        },
-        "PATCH",
+        } },
       );
       if (own === epoch.current) {
         commands.current.delete(commandKey);

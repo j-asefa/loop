@@ -1,3 +1,5 @@
+import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, ResultItem } from "../shared/workspace-api.js";
+import { route } from "./route.js";
 import { InvalidRow, parseConnectionControl, ConnectionModels, ConnectionMetadata, runResponse, messageResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -45,17 +47,15 @@ import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
 import { nextTurnConnection, submit } from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
-import { attachmentIds } from "./uploads.js";
 import { transition } from "./queue.js";
 
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
-import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { publicPreview } from "../preview-context.js";
 export const core = Router();
 core.use(viewportDiagnostics);
-core.get("/bootstrap", (_req, res) => {
+core.get(workspaceApi.bootstrap.path, route(workspaceApi.bootstrap, (_req, res) => {
   ensureWorkspaceProject(res.locals.owner);
   res.json({
     ...(publicPreview ? { preview: publicPreview } : {}),
@@ -63,24 +63,24 @@ core.get("/bootstrap", (_req, res) => {
     teams: listTeams(res.locals.owner),
     agents: db
       .prepare("SELECT * FROM agents WHERE owner_id=? ORDER BY created_at DESC")
-      .all(res.locals.owner),
+      .all(res.locals.owner) as z.input<typeof PublicAgent>[],
     connections: db
       .prepare(
         "SELECT id,provider,label,status,models,metadata FROM connections WHERE owner_id=?",
       )
-      .all(res.locals.owner),
+      .all(res.locals.owner) as z.input<typeof PublicConnection>[],
     folders: db
       .prepare(
         "SELECT f.*,p.path,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.owner_id=? ORDER BY f.name",
       )
-      .all(res.locals.owner),
+      .all(res.locals.owner) as z.input<typeof PublicFolder>[],
     identityProviders: process.env.GITHUB_CLIENT_ID ? ["github"] : [],
     capabilities: {
       codex: runtimeConfigured(),
       claudeLogin: runtimeConfigured(),
     },
   });
-});
+}));
 const connectionInput = z.object({
   provider: z.enum(["openai", "anthropic"]),
   label: z.string().trim().min(1).max(80),
@@ -469,36 +469,13 @@ core.get("/agents/:id", (req, res) => {
       .all(res.locals.owner, a.id),
   });
 });
-core.post("/runs", (req, res) => {
-  const d = z
-    .object({
-      agentId: z.string(),
-      conversationId: z.string().optional(),
-      replyToMessageId: z.string().min(1).max(150).optional(),
-      replyExcerpt: z
-        .string()
-        .trim()
-        .min(1)
-        .max(REPLY_EXCERPT_LIMIT)
-        .optional(),
-      input: z.string().trim().min(1).max(30000),
-      attachmentIds,
-      idempotencyKey: z.string().min(8).max(150),
-      folderId: z.string().min(1).nullable().optional(),
-      // Queue after the current run instead of steering it.
-      queue: z.boolean().optional(),
-    })
-    .refine((d) => !d.replyExcerpt || d.replyToMessageId, {
-      message: "Choose the message the excerpt comes from",
-      path: ["replyExcerpt"],
-    })
-    .parse(req.body);
-  const { queue, ...data } = d;
+core.post(workspaceApi.submit.path, route(workspaceApi.submit, (req, res) => {
+  const { queue, ...data } = req.body;
   res
     .status(202)
     .json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
-});
-core.post("/runs/:id/:action", async (req, res) => {
+}));
+core.post(workspaceApi.runAction.path, route(workspaceApi.runAction, async (req, res) => {
   const action = req.params.action;
   if (action === "dismiss" || action === "cancel") {
     res.json((action === "dismiss" ? dismissRun : cancelRun)(res.locals.owner, req.params.id));
@@ -569,32 +546,19 @@ core.post("/runs/:id/:action", async (req, res) => {
   )
     transition(run, "paused");
   res.json({ ok: true });
-});
-core.get("/results/updates", projectionSnapshot((req, res) => {
-  const number = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-  const options = z
-    .object({
-      after: number,
-      through: number,
-      agent: z.string().optional(),
-      folder: z.string().optional(),
-      view: z.enum(["all", "prompts", "files"]).default("all"),
-      saved: z
-        .enum(["1", "0"])
-        .optional()
-        .transform((v) => v === "1"),
-    })
-    .parse(req.query);
+}));
+core.get(workspaceApi.resultUpdates.path, projectionSnapshot(route(workspaceApi.resultUpdates, (req, res) => {
+  const options = { ...req.query, saved: req.query.saved === "1" };
   if (options.agent) owned("agents", options.agent, res.locals.owner);
   if (options.folder) owned("folders", options.folder, res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
   res.json(resultsUpdates(res.locals.owner, { ...options, teams }));
-}));
-core.get("/results", projectionSnapshot((req, res) => {
+})));
+core.get(workspaceApi.results.path, projectionSnapshot(route(workspaceApi.results, (req, res) => {
   const saved = req.query.saved === "1";
   const revision = resultsRevision(res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
-  const cursor = z.coerce.number().min(0).catch(0).parse(req.query.before),
+  const cursor = req.query.before,
     limit = 40;
   const params: unknown[] = [res.locals.owner];
   let where =
@@ -626,7 +590,7 @@ core.get("/results", projectionSnapshot((req, res) => {
     params.push(cursor);
   }
   if (!saved && req.query.view === "prompts") {
-    const values: any[] = [res.locals.owner];
+    const values: unknown[] = [res.locals.owner];
     let filter = "m.owner_id=? AND m.role='user'";
     if (teams.length) {
       filter += " AND c.team_id IN (" + teams.map(() => "?").join(",") + ")";
@@ -653,7 +617,7 @@ core.get("/results", projectionSnapshot((req, res) => {
       .prepare(
         `SELECT m.*,r.state run_state,r.error run_error,m.rowid cursor,c.agent_id,c.team_id,a.name,a.provider FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents a ON a.id=c.agent_id WHERE ${filter} ORDER BY m.rowid DESC LIMIT 40`,
       )
-      .all(...values) as (QueryRow<"messages"> & { cursor: number; run_state: string | null; run_error: string | null; agent_id: string | null; team_id: string | null; name: string | null; provider: string | null })[];
+      .all(...values) as z.input<typeof ResultItem>[];
     res.json({
       revision,
       items: rows,
@@ -669,13 +633,13 @@ core.get("/results", projectionSnapshot((req, res) => {
     .prepare(
       `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
     )
-    .all(...params, limit) as { cursor: number }[];
+    .all(...params, limit) as z.input<typeof ResultItem>[];
   res.json({
     revision,
     items,
     next: items.length === limit ? items.at(-1)!.cursor : null,
   });
-}));
+})));
 core.patch("/results/:id", (req, res) => {
   const item = ownedArtifact(req.params.id, res.locals.owner);
   const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
@@ -689,11 +653,11 @@ core.patch("/results/:id", (req, res) => {
     });
   res.json({ ok: true });
 });
-core.get("/conversations/:id", projectionSnapshot((req, res) => {
+core.get(workspaceApi.conversation.path, projectionSnapshot(route(workspaceApi.conversation, (req, res) => {
   const c = ownedConversation(req.params.id, res.locals.owner);
-  const before = z.string().max(512).optional().parse(req.query.before);
-  const anchor = z.string().max(150).optional().parse(req.query.message);
-  const resume = z.enum(["0", "1"]).optional().parse(req.query.resume);
+  const before = req.query.before;
+  const anchor = req.query.message;
+  const resume = req.query.resume;
   const returned = conversationReturnState(res.locals.owner, req.params.id);
   let page = conversationMessages(res.locals.owner, req.params.id, before, anchor);
   let resumed = false;
@@ -726,7 +690,7 @@ core.get("/conversations/:id", projectionSnapshot((req, res) => {
     ...returned,
     resumed,
   });
-}));
+})));
 core.get("/messages/:id", (req, res) =>
   res.json(messageResponse(ownedMessage(req.params.id, res.locals.owner))),
 );

@@ -1,3 +1,5 @@
+import { workspaceApi } from "../../shared/workspace-api.js";
+import { route } from "../route.js";
 import { runResponse } from "../row-schemas.js";
 
 import { teamFilter } from "../teams.js";
@@ -122,7 +124,7 @@ workflows.get("/runs/:id/steps", (req, res) => {
       .all(req.params.id),
   );
 });
-workflows.get("/approvals", (req, res) => {
+workflows.get(workspaceApi.approvals.path, route(workspaceApi.approvals, (req, res) => {
   const teams = teamFilter(req.query.teams, res.locals.owner);
   const filter = teams.length
     ? " AND json_extract(r.payload,'$.teamId') IN (" +
@@ -136,13 +138,10 @@ workflows.get("/approvals", (req, res) => {
           filter +
           " ORDER BY a.created_at",
       )
-      .all(res.locals.owner, ...teams),
+      .all(res.locals.owner, ...teams) as z.input<typeof workspaceApi.approvals.response>,
   );
-});
-workflows.post("/approvals/:id", async (req, res) => {
-  const d = z
-    .object({ decision: z.enum(["approve", "reject"]) })
-    .parse(req.body);
+}));
+workflows.post(workspaceApi.approval.path, route(workspaceApi.approval, async (req, res) => {
   const approval = ownedApproval(req.params.id, res.locals.owner);
-  res.json(decide(res.locals.owner, req.params.id, d.decision));
-});
+  res.json(decide(res.locals.owner, req.params.id, req.body.decision));
+}));

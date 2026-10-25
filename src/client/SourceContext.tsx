@@ -4,6 +4,8 @@ import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
 import { viewGeneration } from "./viewCache";
+import { callRoute, readRoute } from "./workspace-api";
+import type { RouteContract, RouteInput } from "../shared/workspace-api";
 
 const SourceContext = createContext<{
   sourceId: string;
@@ -57,9 +59,20 @@ export function useSourceRead() {
     readInWorkspace<T>(path, source, signal, onRetry), [source]);
 }
 
+export function useSourceRoute() {
+  const source = useSourceId();
+  return useMemo(() => <C extends RouteContract,>(contract: C, input: RouteInput<C>, signal?: AbortSignal) =>
+    callRoute(contract, input, source, signal), [source]);
+}
+export function useSourceRouteRead() {
+  const source = useSourceId();
+  return useMemo(() => <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, signal: AbortSignal, onRetry?: (error: unknown) => void) =>
+    readRoute(contract, input, source, signal, onRetry), [source]);
+}
+
 /** Signal-driven snapshots must recover from Retry-After even if no later
  * change arrives. Cancellation belongs to this owner/source view lifetime. */
-export function useProjectionRead(sourceId?: string) {
+function useProjectionScope(sourceId?: string) {
   const contextSource = useSourceId(), source = sourceId ?? contextSource;
   const generation = viewGeneration();
   const handle = useMemo(() => ({ controller: new AbortController(), source }), [source, generation]);
@@ -67,5 +80,14 @@ export function useProjectionRead(sourceId?: string) {
     if (handle.controller.signal.aborted) handle.controller = new AbortController();
     return () => handle.controller.abort();
   }, [handle]);
+  return handle;
+}
+export function useProjectionRead(sourceId?: string) {
+  const handle = useProjectionScope(sourceId);
   return useMemo(() => <T = any,>(path: string, source = handle.source) => readInWorkspace<T>(path, source, handle.controller.signal), [handle]);
+}
+export function useProjectionRoute(sourceId?: string) {
+  const handle = useProjectionScope(sourceId);
+  return useMemo(() => <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, source = handle.source) =>
+    readRoute(contract, input, source, handle.controller.signal), [handle]);
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Harness } from "../protocol.js";
-import { ACTIVITY_FEATURES, type Setting } from "../agent-activities.js";
+import { SessionControls as Controls, SessionCapabilities as Capabilities } from "./session-controls.js";
 
 // Private execution transport. Browser authorization remains at the HTTP host;
 // the authority independently resolves every object against the supplied owner.
@@ -54,53 +54,6 @@ const NativeCommand = z.strictObject({
     })
     .catchall(z.json())
     .optional(),
-});
-const SettingValue = z.union([z.string(), z.boolean(), z.number()]);
-// Controls expose the full adapter state, not a size-limited activity update.
-// The response envelope bounds total bytes without cutting model choices.
-const ControlSetting = z.object({
-  id: z.string(),
-  label: z.string().optional(),
-  description: z.string().nullable().optional(),
-  type: z.enum(["select", "boolean", "text"]).optional(),
-  choices: z
-    .array(
-      z.object({
-        value: z.string(),
-        label: z.string(),
-        description: z.string().optional(),
-      }),
-    )
-    .nullable()
-    .optional(),
-  confirmed: SettingValue.nullable().optional(),
-  requested: SettingValue.nullable().optional(),
-  rejected: z.string().nullable().optional(),
-  application: z.enum(["live", "next-turn", "new-session"]).optional(),
-  mutable: z.boolean().optional(),
-  reason: z.string().nullable().optional(),
-  provenance: z.string().optional(),
-}) satisfies z.ZodType<Setting>;
-const Capabilities = z.record(
-  z.enum(ACTIVITY_FEATURES),
-  z.strictObject({
-    state: z.enum(["supported", "unsupported", "undiscovered"]),
-    source: z.string(),
-    reason: z.string().optional(),
-  }),
-);
-const Controls = z.strictObject({
-  generation: z.string().nullable(),
-  state: z.string().optional(),
-  settings: z.strictObject({
-    options: z.array(ControlSetting),
-    revision: z.number().int().nonnegative(),
-  }),
-  commands: z.strictObject({
-    commands: z.array(JsonObject),
-    revision: z.number().int().nonnegative(),
-  }),
-  capabilities: Capabilities,
 });
 const Catalog = z.strictObject({
   available: z.boolean(),

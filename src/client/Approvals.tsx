@@ -1,4 +1,5 @@
-import { useSourceApi, useSourceId, useSourceRead } from "./SourceContext";
+import { workspaceApi, type Approval } from "../shared/workspace-api";
+import { useSourceId, useSourceRoute, useSourceRouteRead } from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
@@ -13,19 +14,8 @@ import {
 } from "lucide-react";
 import { isRateLimited, parse } from "./api";
 import { Avatar, Badge, RichText, Sheet } from "./components";
-import type { Provider } from "../shared/types";
 import { Tools } from "./Tools";
 
-type Approval = {
-  id: string;
-  run_id: string;
-  request: string;
-  expires_at: number;
-  conversation_id: string | null;
-  name: string | null;
-  provider: Provider;
-  input: string;
-};
 // GitHub writes from the official GitHub connection. The approval shows the
 // exact target and arguments; the broker refuses merges without a head SHA.
 const GITHUB_TITLES: Record<string, string> = {
@@ -111,8 +101,8 @@ export function Approvals({
   runId?: string;
   runIds?: string[];
 }) {
-  const api = useSourceApi();
-  const sourceId = useSourceId(), read = useSourceRead();
+  const call = useSourceRoute(), readContract = useSourceRouteRead();
+  const sourceId = useSourceId();
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");
@@ -143,7 +133,7 @@ export function Approvals({
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
-    void read<Approval[]>("/approvals?teams=" + encodeURIComponent(teams), controller.signal, (error) => {
+    void readContract(workspaceApi.approvals, { query: { teams } }, controller.signal, (error) => {
       if (current) { setRateLimited(isRateLimited(error)); setReadError(isRateLimited(error) ? "" : (error as Error).message); }
     })
       .then((fresh) => {
@@ -197,10 +187,10 @@ export function Approvals({
     setBusy(decision);
     setError("");
     try {
-      await api("/approvals/" + target.id, {
+      await call(workspaceApi.approval, { params: { id: target.id }, body: {
         decision,
         ...(detail.request.deliveryUnknown ? { confirmUnknown: true } : {}),
-      });
+      } });
       decided.current.add(target.id);
       setItems((old) => old.filter((item) => item.id !== target.id));
       setSelected(null);
@@ -235,7 +225,7 @@ export function Approvals({
             >
               <span className="approval-symbol">
                 {item.name ? (
-                  <Avatar name={item.name} provider={item.provider} />
+                  <Avatar name={item.name} provider={item.provider ?? undefined} />
                 ) : (
                   <ShieldCheck size={23} />
                 )}
@@ -304,7 +294,7 @@ export function Approvals({
                 setDismissing(item.id);
                 setError("");
                 try {
-                  await api(`/runs/${item.run_id}/dismiss`, {});
+                  await call(workspaceApi.runAction, { params: { id: item.run_id, action: "dismiss" }, body: {} });
                   decided.current.add(item.id);
                   setItems((old) => old.filter((a) => a.id !== item.id));
                   setNotice(
@@ -360,7 +350,7 @@ export function Approvals({
               </div>
             </div>
             <div className="approval-identity">
-              <Badge provider={selected.provider} />
+              <Badge provider={selected.provider ?? undefined} />
               <span>{selected.name ? "@" + selected.name : "Workflow"}</span>
               {detail.request.server && <span>{detail.request.server}</span>}
             </div>
