@@ -1,12 +1,14 @@
-import { runResponse } from "./row-schemas.js";
+import { MessageMetadata, artifactResponse, runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
+
+
 import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { owned, ownedFolder, ownedAgent, ownedArtifact, ownedConnection, ownedImport, ownedConversation, ownedMessage, Problem } from "./domain.js";
 import { projectFolders } from "./results.js";
 import { ensureWorkspaceProject, isWorkspaceProject } from "./workspace-project.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
@@ -17,10 +19,10 @@ import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
 import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
 import { stageImport } from "./imports.js";
-import { enqueue, type Run, transition } from "./queue.js";
+import { enqueue, RunIdentity, transition } from "./queue.js";
 import { checkoutDetail } from "./run-checkouts.js";
 import { runVerifications } from "./run-verifications.js";
-import type { Artifact, Agent, Message, Connection } from "../shared/types.js";
+
 export const workspace = Router();
 const fileUpload = multer({
   storage: multer.memoryStorage(),
@@ -98,10 +100,10 @@ workspace.post("/folders", (req, res) => {
     if (path)
       db.prepare("INSERT INTO project_paths VALUES(?,?)").run(folderId, path);
   }).immediate();
-  res.status(201).json(owned("folders", folderId, res.locals.owner));
+  res.status(201).json(ownedFolder(folderId, res.locals.owner));
 });
 workspace.patch("/folders/:id", (req, res) => {
-  const f = owned<any>("folders", req.params.id, res.locals.owner);
+  const f = ownedFolder(req.params.id, res.locals.owner);
   if (isWorkspaceProject(res.locals.owner, f.id))
     throw new Problem(400, "The default Workspace project cannot be renamed, moved, or assigned a directory.");
   const d = z
@@ -119,13 +121,15 @@ workspace.patch("/folders/:id", (req, res) => {
     .parse(req.body);
   if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
     d.parentId = null;
-  let p = d.parentId === undefined ? f.parent_id : d.parentId;
+  // A rename or directory edit does not change ancestry. Validate the chain
+  // only when changing the parent, including forms that resend the same ID.
+  let p = d.parentId === f.parent_id ? null : d.parentId ?? null;
   const visited = new Set([f.id]);
   while (p) {
     if (visited.has(p))
       throw new Problem(400, "Folders cannot contain themselves");
     visited.add(p);
-    p = owned<any>("folders", p, res.locals.owner).parent_id;
+    p = ownedFolder(p, res.locals.owner).parent_id;
   }
   const parent = d.parentId === undefined ? f.parent_id : d.parentId;
   if (
@@ -212,13 +216,13 @@ workspace.get("/runs/:id/files", (req, res) => {
   );
 });
 workspace.get("/artifacts/:id", (req, res) => {
-  const a = owned<Artifact>("artifacts", req.params.id, res.locals.owner);
+  const a = ownedArtifact(req.params.id, res.locals.owner);
   const agent = a.agent_id
     ? (db
         .prepare("SELECT name,provider FROM agents WHERE id=? AND owner_id=?")
         .get(a.agent_id, res.locals.owner) as object)
     : undefined;
-  res.json({ ...a, ...agent });
+  res.json({ ...artifactResponse(a), ...agent });
 });
 workspace.post("/artifacts", (req, res) => {
   const d = z
@@ -247,7 +251,7 @@ workspace.patch("/artifacts/:id", (req, res) => {
     })
     .parse(req.body);
   db.transaction(() => {
-    const a = owned<Artifact>("artifacts", req.params.id, res.locals.owner);
+    const a = ownedArtifact(req.params.id, res.locals.owner);
     if (a.version !== d.version)
       throw new Problem(409, "This item changed. Reopen it before editing.");
     db.prepare(
@@ -273,7 +277,7 @@ workspace.patch("/artifacts/:id", (req, res) => {
       );
     }
   }).immediate();
-  res.json(owned("artifacts", req.params.id, res.locals.owner));
+  res.json(artifactResponse(ownedArtifact(req.params.id, res.locals.owner)));
 });
 workspace.post("/artifacts/:id/move", (req, res) => {
   const d = z
@@ -341,11 +345,7 @@ workspace.post("/preferences", (req, res) => {
     })
     .parse(req.body);
   if (d.embeddingEnabled && d.connectionId) {
-    const c = owned<Connection>(
-      "connections",
-      d.connectionId || "",
-      res.locals.owner,
-    );
+    const c = ownedConnection(d.connectionId || "", res.locals.owner);
     if (c.provider !== "openai" || c.status !== "connected")
       throw new Problem(400, "Choose a connected OpenAI API account");
   }
@@ -386,7 +386,7 @@ workspace.get("/imports", (_req, res) =>
   ),
 );
 workspace.post("/imports/:id/start", (req, res) => {
-  const job = owned<any>("imports", req.params.id, res.locals.owner);
+  const job = ownedImport(req.params.id, res.locals.owner);
   const active = db
     .prepare(
       "SELECT * FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=? AND state IN ('queued','running','pausing','paused')",
@@ -408,31 +408,32 @@ workspace.post("/imports/:id/start", (req, res) => {
   res.json(runResponse(run));
 });
 workspace.post("/imports/:id/cancel", (req, res) => {
-  const job = owned<any>("imports", req.params.id, res.locals.owner);
-  const runs = db
+  owned("imports", req.params.id, res.locals.owner);
+  const jobId = req.params.id;
+  const runs = z.array(RunIdentity).parse(db
     .prepare(
-      "SELECT * FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=?",
+      "SELECT id,owner_id FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=?",
     )
-    .all(res.locals.owner, job.id) as Run[];
+    .all(res.locals.owner, jobId));
   runs.forEach((r) => transition(r, "cancelled"));
   db.prepare(
     "UPDATE imports SET status='cancelled' WHERE id=? AND status<>'completed'",
-  ).run(job.id);
+  ).run(jobId);
   res.json({ ok: true });
 });
 workspace.post("/conversations/:id/continue", (req, res) => {
-  const c = owned<any>("conversations", req.params.id, res.locals.owner);
+  const c = ownedConversation(req.params.id, res.locals.owner);
   const d = z
     .object({
       agentId: z.string(),
       messageIds: z.array(z.string()).min(1).max(200),
     })
     .parse(req.body);
-  const a = owned<Agent>("agents", d.agentId, res.locals.owner);
+  const a = ownedAgent(d.agentId, res.locals.owner);
   if (!a.connection_id)
     throw new Problem(409, "Choose an agent with a connected model");
   const messages = d.messageIds.map((mid) =>
-    owned<Message>("messages", mid, res.locals.owner),
+    ownedMessage(mid, res.locals.owner),
   );
   if (messages.some((m) => m.conversation_id !== c.id))
     throw new Problem(400, "Choose messages from this conversation only");
@@ -458,13 +459,13 @@ workspace.post("/conversations/:id/continue", (req, res) => {
         null,
         m.role,
         m.content,
-        JSON.stringify({
+        JSON.stringify(MessageMetadata.parse({
           sourceConversation: c.id,
           sourceMessage: m.id,
           selectedByUser: true,
-          attachments: JSON.parse(m.metadata).attachments || [],
-          original: JSON.parse(m.metadata),
-        }),
+          attachments: m.metadata.attachments || [],
+          original: m.metadata,
+        })),
         m.created_at,
       );
   }).immediate();

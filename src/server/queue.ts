@@ -1,3 +1,5 @@
+import { z } from "zod";
+export const RunIdentity = z.object({ id: z.string().min(1), owner_id: z.string().min(1) });
 import { queuedMailFailure, queuedMailReady } from "./agent-mail-policy.js";
 import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
@@ -148,7 +150,7 @@ export function deferUndispatched(run: Run, worker: string) {
   if (changed) emit(run.owner_id, run.id, "queued", { maintenance: true });
   return !!changed;
 }
-export function transition(run: Run, state: RunEventState, payload: RunEventPayload = {}) {
+export function transition(run: Pick<Run, "id" | "owner_id">, state: RunEventState, payload: RunEventPayload = {}) {
   const changed = transitionState(run, state, payload);
   // A run that ended gets its checkout captured off the transition path:
   // read-only Git on a worktree can take a moment and must not hold the
@@ -157,7 +159,7 @@ export function transition(run: Run, state: RunEventState, payload: RunEventPayl
     void completeCheckout(run.id).catch(() => {});
   return changed;
 }
-function transitionState(run: Run, state: RunEventState, payload: RunEventPayload) {
+function transitionState(run: Pick<Run, "id" | "owner_id">, state: RunEventState, payload: RunEventPayload) {
   return db
     .transaction(() => {
       const current = db

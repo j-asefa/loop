@@ -14,6 +14,7 @@ const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { saveArtifact } = await import("../src/server/artifacts");
+const { enqueue } = await import("../src/server/queue");
 const { teams } = await import("../src/server/teams");
 const { agentDefinitions } = await import("../src/server/agent-definitions");
 const { workspace } = await import("../src/server/workspace-routes");
@@ -42,7 +43,7 @@ afterAll(async () => {
 async function request(
   owner: string,
   path: string,
-  body: object,
+  body: object | undefined,
   method = "POST",
 ) {
   const response = await fetch(origin + path, {
@@ -278,4 +279,82 @@ it("rejects a damaged PR card before registering a watch and preserves the owner
     data: { error: expect.stringContaining(artifact) },
   });
   expect(count("pr_watches")).toEqual(before);
+});
+
+it("keeps artifact metadata serialized and rejects malformed edits before writing", async () => {
+  const f = fixture(), artifact = saveArtifact(f.owner, { title: "Original", content: "Body" });
+  db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run('{"historicalLabel":"kept"}', artifact);
+  const read = await request(f.owner, `/artifacts/${artifact}`, undefined, "GET");
+  expect(read).toMatchObject({ status: 200, data: { metadata: '{"historicalLabel":"kept"}' } });
+  const edited = await request(f.owner, `/artifacts/${artifact}`, { title: "Edited", version: read.data.version }, "PATCH");
+  expect(edited).toMatchObject({ status: 200, data: { title: "Edited", metadata: '{"historicalLabel":"kept"}' } });
+  db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run('{"reviewId":null}', artifact);
+  expect((await request("foreign", `/artifacts/${artifact}`, undefined, "GET")).status).toBe(404);
+  expect(await request(f.owner, `/artifacts/${artifact}`, undefined, "GET")).toMatchObject({ status: 409, data: { error: expect.stringContaining(artifact) } });
+  expect((await request(f.owner, `/artifacts/${artifact}`, { title: "Rejected", version: edited.data.version }, "PATCH")).status).toBe(409);
+  expect(db.prepare("SELECT title,version FROM artifacts WHERE id=?").get(artifact)).toEqual({ title: "Edited", version: edited.data.version });
+});
+
+it("validates continuation messages before creating a conversation and preserves historical metadata", async () => {
+  const f = fixture(), conversation = id(), message = id();
+  db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Original',?)").run(conversation, f.owner, f.manager.id, now());
+  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'assistant','Body',?,?)").run(message, f.owner, conversation, '{"historicalLabel":"kept"}', now());
+  const body = { agentId: f.member.id, messageIds: [message] };
+  expect((await request("foreign", `/conversations/${conversation}/continue`, body)).status).toBe(404);
+  const copied = await request(f.owner, `/conversations/${conversation}/continue`, body);
+  expect(copied.status).toBe(200);
+  const row = db.prepare("SELECT metadata FROM messages WHERE conversation_id=?").get(copied.data.id) as { metadata: string };
+  expect(JSON.parse(row.metadata)).toMatchObject({ sourceMessage: message, original: { historicalLabel: "kept" } });
+  const before = db.prepare("SELECT count(*) n FROM conversations").get();
+  db.prepare("UPDATE messages SET metadata=? WHERE id=?").run('{"reviewId":null}', message);
+  expect(await request(f.owner, `/conversations/${conversation}/continue`, body)).toMatchObject({ status: 409, data: { error: expect.stringContaining(message) } });
+  expect(db.prepare("SELECT count(*) n FROM conversations").get()).toEqual(before);
+});
+
+it("cancels import rows with damaged display and execution fields without enabling a restart", async () => {
+  const owner = id(), job = id();
+  db.prepare("INSERT INTO imports(id,owner_id,provider,digest,status,created_at) VALUES(?,?,'openai',?,'queued',?)").run(job, owner, id(), now());
+  const run = enqueue(owner, "Import", id(), { kind: "import", payload: { importId: job } });
+  const payload = JSON.stringify({ importId: job, reviewId: null });
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(payload, run.id);
+  db.prepare("UPDATE imports SET created_at='invalid-time' WHERE id=?").run(job);
+  expect((await request("foreign", `/imports/${job}/cancel`, {})).status).toBe(404);
+  expect((await request(owner, `/imports/${job}/start`, {})).status).toBe(409);
+  expect((await request(owner, `/imports/${job}/cancel`, {})).status).toBe(200);
+  expect(db.prepare("SELECT state,payload FROM runs WHERE id=?").get(run.id)).toEqual({ state: "cancelled", payload });
+  expect(db.prepare("SELECT status,created_at FROM imports WHERE id=?").get(job)).toEqual({ status: "cancelled", created_at: "invalid-time" });
+});
+
+it("rejects damaged folders before renaming and keeps owner denial intact", async () => {
+  const f = fixture();
+  db.prepare("UPDATE folders SET created_at='invalid-time' WHERE id=?").run(f.folder);
+  const body = { name: "Rejected" };
+  expect((await request("foreign", `/folders/${f.folder}`, body, "PATCH")).status).toBe(404);
+  expect(await request(f.owner, `/folders/${f.folder}`, body, "PATCH")).toMatchObject({ status: 409, data: { error: expect.stringContaining(f.folder) } });
+  expect(db.prepare("SELECT name FROM folders WHERE id=?").get(f.folder)).toEqual({ name: "Fixture" });
+});
+
+it("rejects damaged embedding connections before persisting preferences", async () => {
+  const f = fixture();
+  db.prepare("UPDATE connections SET models=? WHERE id=?").run('[{"id":"fixture","name":42}]', f.connection);
+  const body = { embeddingEnabled: true, connectionId: f.connection };
+  expect((await request("foreign", "/preferences", body)).status).toBe(404);
+  expect(await request(f.owner, "/preferences", body)).toMatchObject({ status: 409, data: { error: expect.stringContaining(f.connection) } });
+  expect(db.prepare("SELECT 1 FROM preferences WHERE owner_id=?").get(f.owner)).toBeUndefined();
+});
+
+it("renames a healthy descendant of a damaged folder while retaining reparent cycle checks", async () => {
+  const f = fixture(), child = id(), grandchild = id();
+  const insert = db.prepare("INSERT INTO folders(id,owner_id,kind,name,parent_id,created_at) VALUES(?,?,'project',?,?,?)");
+  insert.run(child, f.owner, "Child", f.folder, now());
+  insert.run(grandchild, f.owner, "Grandchild", child, now());
+  db.prepare("UPDATE folders SET created_at='invalid-time' WHERE id=?").run(f.folder);
+  expect((await request(f.owner, `/folders/${child}`, { name: "Renamed" }, "PATCH")).status).toBe(200);
+  expect(db.prepare("SELECT name,parent_id FROM folders WHERE id=?").get(child)).toEqual({ name: "Renamed", parent_id: f.folder });
+  // FolderForm sends the unchanged parent explicitly on every edit.
+  expect((await request(f.owner, `/folders/${child}`, { name: "Form rename", parentId: f.folder }, "PATCH")).status).toBe(200);
+  expect((await request(f.owner, `/folders/${child}`, { parentId: grandchild }, "PATCH")).status).toBe(400);
+  expect((await request(f.owner, `/folders/${child}`, { parentId: fixture().folder }, "PATCH")).status).toBe(404);
+  expect((await request(f.owner, `/folders/${child}`, { parentId: null }, "PATCH")).status).toBe(200);
+  expect(db.prepare("SELECT parent_id FROM folders WHERE id=?").get(child)).toEqual({ parent_id: null });
 });
