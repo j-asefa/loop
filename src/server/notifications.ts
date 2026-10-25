@@ -70,10 +70,41 @@ export function notificationKeys() {
     .immediate();
 }
 
+const preferencesSchema = z.object({
+  needsYou: z.boolean(),
+  completed: z.boolean(),
+  reminders: z.boolean(),
+  social: z.boolean(),
+});
+function devicePreferences(owner: string) {
+  const rows = db
+    .prepare(
+      `SELECT s.endpoint,COALESCE(p.needs_you,1) needsYou,
+    COALESCE(p.completed,1) completed,COALESCE(p.reminders,1) reminders,COALESCE(p.social,1) social
+    FROM push_subscriptions s LEFT JOIN push_preferences p ON p.subscription_id=s.id WHERE s.owner_id=?`,
+    )
+    .all(owner) as {
+    endpoint: string;
+    needsYou: number;
+    completed: number;
+    reminders: number;
+    social: number;
+  }[];
+  return rows.map((row) => ({
+    endpoint: row.endpoint,
+    preferences: {
+      needsYou: !!row.needsYou,
+      completed: !!row.completed,
+      reminders: !!row.reminders,
+      social: !!row.social,
+    },
+  }));
+}
 export const notifications = Router();
 notifications.get("/notifications", (_req, res) => {
   res.json({
     publicKey: notificationKeys().publicKey,
+    devices: devicePreferences(res.locals.owner),
     endpoints: (
       db
         .prepare("SELECT endpoint FROM push_subscriptions WHERE owner_id=?")
@@ -83,6 +114,7 @@ notifications.get("/notifications", (_req, res) => {
 });
 notifications.post("/notifications/subscriptions", (req, res) => {
   const subscription = subscriptionSchema.parse(req.body);
+  const preferences = preferencesSchema.optional().parse(req.body.preferences);
   const owner = res.locals.owner;
   db.transaction(() => {
     const existing = db
@@ -115,6 +147,23 @@ notifications.post("/notifications/subscriptions", (req, res) => {
       seal(JSON.stringify(subscription), owner),
       now(),
     );
+    if (preferences) {
+      const device = db
+        .prepare(
+          "SELECT id FROM push_subscriptions WHERE endpoint=? AND owner_id=?",
+        )
+        .get(subscription.endpoint, owner) as { id: string };
+      db.prepare(
+        `INSERT INTO push_preferences(subscription_id,needs_you,completed,reminders,social) VALUES(?,?,?,?,?)
+        ON CONFLICT(subscription_id) DO UPDATE SET needs_you=excluded.needs_you,completed=excluded.completed,reminders=excluded.reminders,social=excluded.social`,
+      ).run(
+        device.id,
+        Number(preferences.needsYou),
+        Number(preferences.completed),
+        Number(preferences.reminders),
+        Number(preferences.social),
+      );
+    }
   }).immediate();
   res.status(201).json({ ok: true });
 });

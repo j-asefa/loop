@@ -14,13 +14,21 @@ access to retired profiles and restoration. A team manager must be restored befo
 it can accept a new message. Deleting a team preserves its agents and history.
 Deletion uses one confirmation sheet, a bounded request and a retryable error state.
 
-Enable **Settings → Result notifications → Enable notifications** on each device.
+Enable **Settings → Notifications → Enable notifications** on each device.
 On iPhone, first add Loop to the Home Screen and open it there. The system permission
 request happens only after tapping Enable. This follows [WebKit's Home Screen Web
 Push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
 The app must be served over HTTPS (localhost is supported for development).
 
-The worker sends encrypted Web Push when a new completed agent result is published,
+Choose **Needs you**, **Completed work**, **Reminders** and **Social watches**
+independently on each device. Newly enabled devices start with only **Needs you**
+on: approvals, native questions, paused, failed or interrupted work, and scheduled
+messages that could not be sent. To receive only action alerts, leave the other
+three choices off. Existing subscriptions keep all categories enabled until you
+change them. Turning a category off discards its pending alerts; turning it back
+on does not replay history. Feed cards remain available regardless of these choices.
+
+With **Completed work** enabled, the worker sends encrypted Web Push when a new completed agent result is published,
 including while the app is closed. Notifications include the agent name and result
 title; tapping one opens that result. Earlier history, tool calls, imports and
 uploaded files do not trigger result alerts. Subscriptions and durable delivery

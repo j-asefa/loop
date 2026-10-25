@@ -483,3 +483,192 @@ it("result notifications name the thread and lead with the answer as plain text"
     resultNotification({ name: "forest", thread: null, title: "Summary", kind: "markdown", content: "   " }),
   ).toEqual({ title: "@forest · Summary", body: "Summary" });
 });
+
+it("device notification choices filter every category and discard pending alerts without replay", async () => {
+  const { enqueuePush } = await import("../src/server/mobile-return");
+  const needsOnly = {
+    needsYou: true,
+    completed: false,
+    reminders: false,
+    social: false,
+  };
+  const all = {
+    needsYou: true,
+    completed: true,
+    reminders: true,
+    social: true,
+  };
+  const first = makeSubscription(),
+    second = makeSubscription();
+  await api("/notifications/subscriptions", {
+    ...first,
+    preferences: needsOnly,
+  });
+  await api("/notifications/subscriptions", { ...second, preferences: all });
+  expect((await api("/notifications")).data.devices).toEqual(
+    expect.arrayContaining([
+      { endpoint: first.endpoint, preferences: needsOnly },
+      { endpoint: second.endpoint, preferences: all },
+    ]),
+  );
+  expect(
+    (await api("/notifications", undefined, undefined, "stranger")).data
+      .devices,
+  ).toEqual([]);
+  expect(
+    (
+      await api(
+        "/notifications/subscriptions",
+        { ...first, preferences: all },
+        "POST",
+        "stranger",
+      )
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await api("/notifications/subscriptions", {
+        ...first,
+        preferences: { ...all, completed: "false" },
+      })
+    ).status,
+  ).toBe(400);
+
+  const a = agent();
+  const run = submit("owner", {
+    agentId: a.id,
+    input: "Notification choices",
+    idempotencyKey: id(),
+  });
+  saveArtifact("owner", {
+    title: "A result",
+    content: "Finished",
+    agent: a.id,
+    run: run.id,
+    conversation: run.conversation_id,
+  });
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
+  enqueuePush("owner", "later-preference-test", {
+    title: "Reminder",
+    body: "Later",
+    url: "/",
+  });
+  enqueuePush(
+    "owner",
+    "feed-watch:preference-test",
+    { title: "Social", body: "Story", url: "/" },
+    "social",
+  );
+
+  // Production state transitions enqueue actionable alerts; no request data is exposed.
+  const questionRun = submit("owner", {
+    agentId: a.id,
+    input: "Question",
+    idempotencyKey: id(),
+  });
+  const decision = id();
+  db.prepare(
+    "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?)",
+  ).run(
+    decision,
+    questionRun.id,
+    questionRun.conversation_id,
+    "fixture",
+    "question",
+    '{"secret":"private question"}',
+    now(),
+  );
+  db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(
+    questionRun.id,
+  );
+  db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(
+    questionRun.id,
+  );
+  const approval = id();
+  db.prepare(
+    "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES(?,?,?,?,?,'pending',?,?)",
+  ).run(
+    approval,
+    "owner",
+    questionRun.id,
+    "fixture",
+    "private arguments",
+    now(),
+    now() + 60000,
+  );
+  const failed = submit("owner", {
+    agentId: a.id,
+    input: "Blocked work",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "UPDATE runs SET state='failed',error='private failure' WHERE id=?",
+  ).run(failed.id);
+
+  const received: Record<string, any[]> = {};
+  const send = vi.fn(async (subscription: any, raw: any) => {
+    (received[subscription.endpoint] ||= []).push(JSON.parse(raw));
+    return { statusCode: 201, body: "", headers: {} };
+  });
+  // Disable the second device before delivery, including already queued work.
+  await api("/notifications/subscriptions", {
+    ...second,
+    preferences: {
+      needsYou: false,
+      completed: false,
+      reminders: false,
+      social: false,
+    },
+  });
+  await api("/notifications/subscriptions", { ...second, preferences: all });
+  await deliverNotifications(send);
+  const payloads = received[first.endpoint];
+  expect(payloads.map((p) => p.tag)).toEqual(
+    expect.arrayContaining(["decision-" + decision, "approval-" + approval]),
+  );
+  expect(payloads).toHaveLength(3);
+  expect(JSON.stringify(payloads)).not.toContain("private");
+  expect(received[second.endpoint]).toBeUndefined();
+  await api("/notifications/subscriptions", { ...first, preferences: all });
+  await deliverNotifications(send);
+  expect(received[first.endpoint]).toHaveLength(3); // no replay of muted history
+  enqueuePush("owner", "later-enabled", {
+    title: "Reminder",
+    body: "Later",
+    url: "/",
+  });
+  await deliverNotifications(send);
+  expect(received[first.endpoint].at(-1).tag).toBe("later-enabled");
+  expect(received[second.endpoint].at(-1).tag).toBe("later-enabled");
+});
+
+it("Needs you alerts cover paused/interrupted work and failed scheduled messages", async () => {
+  const { createScheduledSend } = await import("../src/server/mobile-return");
+  const sub = makeSubscription();
+  await api("/notifications/subscriptions", {
+    ...sub,
+    preferences: { needsYou: true, completed: false, reminders: false, social: false },
+  });
+  const a = agent();
+  const run = submit("owner", { agentId: a.id, input: "Pause", idempotencyKey: id() });
+  db.prepare("UPDATE runs SET state='paused' WHERE id=?").run(run.id);
+  db.prepare("UPDATE runs SET state='interrupted' WHERE id=?").run(run.id);
+  const scheduled = createScheduledSend("owner", {
+    agentId: a.id, input: "Scheduled", sendAt: now() + 60000, idempotencyKey: id(),
+  });
+  db.prepare("UPDATE scheduled_sends SET state='failed',error='private failure' WHERE id=?").run(scheduled.row.id);
+  const alerts = db.prepare(`SELECT m.* FROM push_messages m JOIN push_subscriptions s ON s.id=m.subscription_id WHERE s.endpoint=? ORDER BY m.message_key`).all(sub.endpoint) as any[];
+  expect(alerts).toHaveLength(3);
+  expect(alerts.every((alert) => alert.category === "needsYou")).toBe(true);
+  expect(alerts.find((alert) => alert.message_key === "scheduled-" + scheduled.row.id)).toMatchObject({
+    url: "/?page=profile&later=scheduled&laterItem=" + scheduled.row.id,
+    title: "Needs you",
+  });
+  expect(JSON.stringify(alerts)).not.toContain("private failure");
+  await api("/notifications/subscriptions", {
+    ...sub,
+    preferences: { needsYou: false, completed: false, reminders: false, social: false },
+  });
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(run.id);
+  expect(db.prepare(`SELECT count(*) n FROM push_messages m JOIN push_subscriptions s ON s.id=m.subscription_id WHERE s.endpoint=?`).get(sub.endpoint)).toEqual({ n: 0 });
+});

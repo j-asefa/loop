@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Bell, BellOff, Info, TriangleAlert } from "lucide-react";
 import { api } from "./api";
+import {
+  defaultNotificationPreferences,
+  type NotificationPreferences,
+} from "../shared/notifications";
 import { SettingsList, SettingsNote, SettingsToggle } from "./SettingsUI";
 
 async function workerRegistration() {
@@ -31,6 +35,9 @@ export function Notifications() {
     "PushManager" in window &&
     "Notification" in window;
   const [enabled, setEnabled] = useState(false);
+  const [preferences, setPreferences] = useState<NotificationPreferences>(
+    defaultNotificationPreferences,
+  );
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,8 +50,15 @@ export function Notifications() {
     void (async () => {
       const registration = await workerRegistration();
       const subscription = await registration.pushManager.getSubscription();
-      const state = await api<{ endpoints: string[] }>("/notifications");
+      const state = await api<{
+        endpoints: string[];
+        devices: { endpoint: string; preferences: NotificationPreferences }[];
+      }>("/notifications");
       if (current) {
+        const device = state.devices.find(
+          (d) => d.endpoint === subscription?.endpoint,
+        );
+        if (device) setPreferences(device.preferences);
         setEnabled(
           !!subscription && state.endpoints.includes(subscription.endpoint),
         );
@@ -133,9 +147,36 @@ export function Notifications() {
           userVisibleOnly: true,
           applicationServerKey: key,
         });
-        await api("/notifications/subscriptions", subscription.toJSON());
+        await api("/notifications/subscriptions", {
+          ...subscription.toJSON(),
+          preferences,
+        });
         setEnabled(true);
       }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function updatePreference(
+    key: keyof NotificationPreferences,
+    value: boolean,
+  ) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const next = { ...preferences, [key]: value };
+    try {
+      const registration = await workerRegistration();
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription)
+        throw new Error("Enable notifications on this device again.");
+      await api("/notifications/subscriptions", {
+        ...subscription.toJSON(),
+        preferences: next,
+      });
+      setPreferences(next);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -158,19 +199,56 @@ export function Notifications() {
           <SettingsList>
             <SettingsToggle
               icon={enabled ? BellOff : Bell}
-              title="Result notifications"
-              description={
-                busy ? "Updating…" : "Even when Loop is closed"
-              }
+              title="Enable notifications"
+              description={busy ? "Updating…" : "Even when Loop is closed"}
               checked={enabled}
               disabled={!ready || busy}
               onChange={() => void toggle()}
             />
           </SettingsList>
+          {enabled && (
+            <>
+              <p className="settings-intro">
+                Choose what notifies you. For action-only alerts, leave just
+                Needs you on.
+              </p>
+              <SettingsList label="Notify me about">
+                {(
+                  [
+                    [
+                      "needsYou",
+                      "Needs you",
+                      "Approvals, questions, paused or failed work, and messages that could not be sent",
+                    ],
+                    [
+                      "completed",
+                      "Completed work",
+                      "New results from your agents",
+                    ],
+                    ["reminders", "Reminders", "Items returning from Later"],
+                    [
+                      "social",
+                      "Social watches",
+                      "New stories matching words you follow",
+                    ],
+                  ] as const
+                ).map(([key, title, description]) => (
+                  <SettingsToggle
+                    key={key}
+                    title={title}
+                    description={description}
+                    checked={preferences[key]}
+                    disabled={busy}
+                    onChange={(value) => void updatePreference(key, value)}
+                  />
+                ))}
+              </SettingsList>
+            </>
+          )}
           <p role="status" className="sr-only">
             {enabled
-              ? "Result notifications are on for this device."
-              : "Result notifications are off for this device."}
+              ? "Notifications are on for this device."
+              : "Notifications are off for this device."}
           </p>
           {permission === "denied" && (
             <SettingsNote

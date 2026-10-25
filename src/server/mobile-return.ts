@@ -1536,15 +1536,17 @@ export function enqueuePush(
   owner: string,
   key: string,
   message: { title: string; body: string; url: string },
+  category: "reminders" | "social" = "reminders",
 ) {
   db.prepare(
-    "INSERT OR IGNORE INTO push_messages(subscription_id,message_key,title,body,url,available_at) SELECT id,?,?,?,?,? FROM push_subscriptions WHERE owner_id=?",
+    "INSERT OR IGNORE INTO push_messages(subscription_id,message_key,title,body,url,available_at,category) SELECT id,?,?,?,?,?,? FROM push_subscriptions WHERE owner_id=?",
   ).run(
     key,
     message.title.slice(0, 120),
     message.body.slice(0, 140),
     message.url,
     now(),
+    category,
     owner,
   );
 }

@@ -100,6 +100,9 @@ LOOP_BROWSER=webkit npm run smoke:journey
 
 `smoke:history` opens a long transcript and verifies that older activity is fetched only when requested, historical file reviews remain available, and live updates keep their own cursor.
 
+Use `npm run smoke:workspace -- --notifications-only` to check notification opt-in,
+category defaults and persistence in both browser engines without the other workspace journeys.
+
 Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. Smoke scripts write generated screenshots to `docs/loop-v0/evidence/`; that path remains an output location, not a maintained legacy architecture guide. ACP browser evidence is generated under `docs/validation/evidence/`.
 
 `smoke:feed-events` runs Chromium and WebKit against compiled server and paired entrypoints, including a linked source discovered through a fixture Docker command. It blocks HTTP event polling while checking Working-to-Done transitions, retained history, updates during pending reads and reconnect catch-up, then blocks WebSockets to check HTTP fallback and connection status. A Chromium server case checks the HTTP request budget while two Done tabs receive sustained updates. The Files journey checks retained pages and scroll, updates during Load more, multi-page catch-up, failure recovery and source/filter isolation. It does not use a real Docker daemon or a provider.

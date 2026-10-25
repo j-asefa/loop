@@ -191,11 +191,16 @@ export function matchWatches(at = now()) {
         if (loud) return;
         // A public headline is what is already on the page it links to, so it
         // is safe on a lock screen; nothing else from Loop goes in it.
-        enqueuePush(watch.owner_id, `feed-watch:${watch.id}:${story.id}`, {
-          title: `“${watch.query}” · ${feed}`,
-          body: story.title,
-          url: `/?social=${encodeURIComponent(`${feed_id}:${story.id}`)}`,
-        });
+        enqueuePush(
+          watch.owner_id,
+          `feed-watch:${watch.id}:${story.id}`,
+          {
+            title: `“${watch.query}” · ${feed}`,
+            body: story.title,
+            url: `/?social=${encodeURIComponent(`${feed_id}:${story.id}`)}`,
+          },
+          "social",
+        );
       })();
       if (loud) held++;
       else pushed++;
@@ -209,6 +214,7 @@ export function matchWatches(at = now()) {
           body: `${held} more ${held === 1 ? "story" : "stories"} matched.`,
           url: "/?social=1",
         },
+        "social",
       );
   }
   return pushed;
