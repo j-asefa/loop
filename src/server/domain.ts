@@ -1,3 +1,4 @@
+import { AgentHandle as handle, AgentInput as agentInput } from "../shared/agent-contract-schemas.js";
 import { type Connection } from "./row-schemas.js";
 import * as rows from "./row-schemas.js";
 import { z } from "zod";
@@ -31,39 +32,7 @@ export function owned(table: string, recordId: string, owner: string): unknown {
   if (!record) throw new Problem(404, "Item not found");
   return record;
 }
-const reserved = new Set([
-  "admin",
-  "loop",
-  "support",
-  "system",
-  "everyone",
-  "all",
-  "api",
-  "new",
-  "deleted",
-  "settings",
-]);
-export const handle = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(
-    /^[a-z][a-z0-9-]{2,31}$/,
-    "Use 3–32 lowercase letters, numbers or hyphens, starting with a letter",
-  )
-  .refine((x) => !reserved.has(x), "This name is reserved");
-export const agentInput = z.object({
-  name: handle,
-  connectionId: z.string(),
-  model: z.string().min(1).max(150),
-  effort: z
-    .string()
-    .regex(/^[a-z][a-z0-9_-]{0,31}$/)
-    .nullable()
-    .optional(),
-  instructions: z.string().max(12000).default(""),
-  folderId: z.string().optional(),
-});
+export { AgentHandle as handle, AgentInput as agentInput } from "../shared/agent-contract-schemas.js";
 export function createAgent(owner: string, value: unknown) {
   const data = agentInput.parse(value);
   if (data.folderId) owned("folders", data.folderId, owner);

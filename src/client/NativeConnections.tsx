@@ -1,7 +1,9 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { useSourceRoute } from "./SourceContext";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { useState } from "react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { Sheet, Badge } from "./components";
 import type { Connection } from "../shared/types";
 export function NativeConnections({
@@ -13,6 +15,7 @@ export function NativeConnections({
   onChange: () => Promise<void>;
   onClose: () => void;
 }) {
+  const route = useSourceRoute();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [apiForm, setApiForm] = useState(false);
@@ -67,7 +70,7 @@ export function NativeConnections({
                     setBusy(true);
                     setError("");
                     try {
-                      await api(`/connections/${c.id}/refresh`, {});
+                      await route(workspaceApi.connectionRefresh, { params: { id: c.id }, body: {} });
                       await onChange();
                     } catch (e) {
                       setError((e as Error).message);
@@ -92,11 +95,11 @@ export function NativeConnections({
                 setBusy(true);
                 setError("");
                 try {
-                  await api("/connections", {
-                    provider: data.get("provider"),
-                    label: data.get("label"),
-                    secret: data.get("secret"),
-                  });
+                  const provider = data.get("provider");
+                  if (provider !== "openai" && provider !== "anthropic") throw new Error("Select an API provider");
+                  await route(workspaceApi.connectionCreate, { body: {
+                    provider, label: String(data.get("label") || ""), secret: String(data.get("secret") || ""),
+                  } });
                   form.reset();
                   setApiForm(false);
                   await onChange();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentCreateInput, AgentUpdateInput, ConnectionCreateInput, ConnectionReconnectInput, PublicModels, PublicConnectionRefresh, PublicHarnessCatalog, PublicPiConfiguration, PublicPiMutation, PublicPiInspection, PiTrustInput, PiFiltersInput, PiPreviewInput, PiInspectInput, PiRollbackInput, PiActionInput, PublicAgentMessages, PublicAgentTraces } from "./agent-contract-schemas.js";
 import { DoneDisplaySchema } from "./done-card.js";
 import { WorkspaceClock } from "./workspace-events.js";
 import { ProjectedMessage } from "./transcript-projection.js";
@@ -126,6 +127,8 @@ const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_
 export type RouteContract = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
   status?: number;
+  kind?: "stream";
+  contentType?: string;
   access: "session" | "card:results" | "card:cards";
 };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
@@ -140,6 +143,26 @@ export const workspaceApi = {
   cardTokens: endpoint({ ...base, method: "GET", path: "/card-tokens", response: z.array(CardTokenSchema) }),
   cardTokenCreate: endpoint({ ...base, method: "POST", path: "/card-tokens", body: CreateCardTokenSchema, response: CreatedCardTokenSchema, status: 201 }),
   cardTokenRevoke: endpoint({ ...base, method: "DELETE", path: "/card-tokens/:id", params: z.object({ id: Text.min(1) }), response: z.object({ ok: z.literal(true) }) }),
+  connectionCreate: endpoint({ ...base, method: "POST", path: "/connections", body: ConnectionCreateInput, response: PublicConnection.pick({ id: true }).extend(PublicModels.shape) }),
+  connectionRefresh: endpoint({ ...base, method: "POST", path: "/connections/:id/refresh", params: Id, body: z.unknown(), response: PublicConnectionRefresh }),
+  connectionModels: endpoint({ ...base, method: "GET", path: "/connections/:id/models", params: Id, response: PublicModels }),
+  connectionReconnect: endpoint({ ...base, method: "POST", path: "/connections/:id/reconnect", params: Id, body: ConnectionReconnectInput, response: Ok }),
+  connectionDisconnect: endpoint({ ...base, method: "DELETE", path: "/connections/:id", params: Id, body: z.unknown(), response: Ok }),
+  agentSuggestName: endpoint({ ...base, method: "GET", path: "/agents/suggest-name", response: z.object({ name: Text }) }),
+  agentCreate: endpoint({ ...base, method: "POST", path: "/agents", body: AgentCreateInput, response: PublicAgent.extend({ initialRun: z.object({ id: Text, conversation_id: MaybeText }).optional() }), status: 201 }),
+  agentUpdate: endpoint({ ...base, method: "PATCH", path: "/agents/:id", params: Id, body: AgentUpdateInput, response: PublicAgent }),
+  agentDetail: endpoint({ ...base, method: "GET", path: "/agents/:id", params: Id, response: z.object({ agent: PublicAgent, runs: z.array(PublicRun), conversations: z.array(PublicConversation) }) }),
+  agentHarness: endpoint({ ...base, method: "GET", path: "/agents/:id/harness", params: Id, query: z.object({ conversation: Text.uuid().optional() }), response: PublicHarnessCatalog }),
+  agentMessages: endpoint({ ...base, method: "GET", path: "/agents/:id/messages", params: Id, query: z.object({ before: Text.min(1).max(512).optional() }), response: PublicAgentMessages }),
+  agentTraces: endpoint({ ...base, method: "GET", path: "/agents/:id/traces", params: Id, query: z.object({ before: z.coerce.number<string>().int().positive().max(Number.MAX_SAFE_INTEGER).optional(), run: Text.min(1).max(100).optional(), q: Text.max(500).optional() }), response: PublicAgentTraces }),
+  agentTracesExport: endpoint({ ...base, method: "GET", path: "/agents/:id/traces/export", params: Id, query: z.object({ run: Text.min(1).max(100) }), kind: "stream", contentType: "application/json", response: z.custom<Blob>() }),
+  agentPiPackages: endpoint({ ...base, method: "GET", path: "/agents/:id/pi-packages", params: Id, response: PublicPiConfiguration }),
+  agentPiTrust: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-trust", params: Id, body: PiTrustInput, response: PublicPiConfiguration }),
+  agentPiFilters: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-filters", params: Id, body: PiFiltersInput, response: PublicPiMutation }),
+  agentPiPreview: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-prompt-preview", params: Id, body: PiPreviewInput, response: z.object({ token: Text, expanded: Text }) }),
+  agentPiInspect: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-inspect", params: Id, body: PiInspectInput, response: PublicPiInspection }),
+  agentPiRollback: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-rollback", params: Id, body: PiRollbackInput, response: PublicPiMutation }),
+  agentPiAction: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-packages", params: Id, body: PiActionInput, response: PublicPiMutation }),
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
   feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),

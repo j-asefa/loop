@@ -1,20 +1,13 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { useSourceRoute } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Reply } from "lucide-react";
 import type { Agent } from "../shared/types";
-import { api } from "./api";
+import type { RouteResponse } from "../shared/workspace-api";
 import { Empty, RichText } from "./components";
 import type { ComposerContext } from "./composerContext";
 
-type AgentMessage = {
-  id: string;
-  content: string;
-  created_at: number;
-  conversation_id: string | null;
-  final: number | boolean;
-  model?: string | null;
-  run_id?: string | null;
-};
-type Page = { items: AgentMessage[]; next: string | null };
+type Page = RouteResponse<typeof workspaceApi.agentMessages>;
 
 export function AgentMessages({
   agent,
@@ -27,6 +20,7 @@ export function AgentMessages({
   onConversation: (id: string) => void;
   onReply: (context: ComposerContext) => void;
 }) {
+  const route = useSourceRoute();
   const agentId = agent.id;
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [moreBusy, setMoreBusy] = useState(false);
@@ -61,12 +55,7 @@ export function AgentMessages({
     const cancel = () => request.abort();
     // Stop reads before WebKit tears down a document during navigation.
     window.addEventListener("pagehide", cancel);
-    void api<Page>(
-      `/agents/${agentId}/messages`,
-      undefined,
-      undefined,
-      request.signal,
-    )
+    void route(workspaceApi.agentMessages, { params: { id: agentId } }, request.signal)
       .then((page) => {
         if (active) {
           merge(page, true);
@@ -89,9 +78,7 @@ export function AgentMessages({
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
-      const page = await api<Page>(
-        `/agents/${agentId}/messages?before=${encodeURIComponent(next)}`,
-      );
+      const page = await route(workspaceApi.agentMessages, { params: { id: agentId }, query: { before: next } });
       merge(page);
       setError("");
     } catch (e) {

@@ -4,21 +4,9 @@ type Path =
   | `/agent-definitions/${string}`
   | `/agent-definitions/${string}/create`
   | `/agent-sources`
-  | `/agents`
   | `/agents/${string}`
-  | `/agents/${string}/harness`
   | `/agents/${string}/mail`
   | `/agents/${string}/mail/${string}/resume`
-  | `/agents/${string}/messages`
-  | `/agents/${string}/pi-package-filters`
-  | `/agents/${string}/pi-package-inspect`
-  | `/agents/${string}/pi-package-rollback`
-  | `/agents/${string}/pi-packages`
-  | `/agents/${string}/pi-prompt-preview`
-  | `/agents/${string}/pi-trust`
-  | `/agents/${string}/traces`
-  | `/agents/${string}/traces/export`
-  | `/agents/suggest-name`
   | `/artifacts`
   | `/artifacts/${string}`
   | `/artifacts/${string}/app`
@@ -34,11 +22,6 @@ type Path =
   | `/auth/sign-up/email`
   | `/build`
   | `/capabilities`
-  | `/connections`
-  | `/connections/${string}`
-  | `/connections/${string}/models`
-  | `/connections/${string}/reconnect`
-  | `/connections/${string}/refresh`
   | `/conversations/${string}/activities`
   | `/conversations/${string}/continue`
   | `/conversations/${string}/fork`

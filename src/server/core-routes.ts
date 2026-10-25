@@ -83,13 +83,8 @@ routes.on(workspaceApi.bootstrap, (_req, res) => {
     },
   });
 });
-const connectionInput = z.object({
-  provider: z.enum(["openai", "anthropic"]),
-  label: z.string().trim().min(1).max(80),
-  secret: z.string().trim().min(8).max(4096),
-});
-routes.legacy("POST /connections", async (req, res) => {
-  const d = connectionInput.parse(req.body);
+routes.on(workspaceApi.connectionCreate, async (req, res) => {
+  const d = req.body;
   let models;
   try {
     models = await adapter(d.provider).models(d.secret);
@@ -119,7 +114,7 @@ routes.legacy("POST /connections", async (req, res) => {
   ));
   res.json({ id: record, models });
 });
-routes.legacy("POST /connections/:id/refresh", async (req, res) => {
+routes.on(workspaceApi.connectionRefresh, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (isNativeConnection(c)) {
     const harness = c.metadata.loopHarness;
@@ -150,7 +145,7 @@ routes.legacy("POST /connections/:id/refresh", async (req, res) => {
     );
   }
 });
-routes.legacy("GET /connections/:id/models", async (req, res) => {
+routes.on(workspaceApi.connectionModels, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (c.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
@@ -195,9 +190,9 @@ routes.legacy("GET /connections/:id/models", async (req, res) => {
   );
   res.json({ models: catalog });
 });
-routes.legacy("POST /connections/:id/reconnect", async (req, res) => {
+routes.on(workspaceApi.connectionReconnect, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner),
-    secret = z.string().min(8).max(4096).parse(req.body.secret);
+    secret = req.body.secret;
   if (isSubscription(c))
     throw new Problem(
       400,
@@ -213,7 +208,7 @@ routes.legacy("POST /connections/:id/reconnect", async (req, res) => {
     throw new Problem(422, "Could not validate this API key");
   }
 });
-routes.legacy("DELETE /connections/:id", async (req, res) => {
+routes.on(workspaceApi.connectionDisconnect, async (req, res) => {
   const raw = owned("connections", req.params.id, res.locals.owner);
   let c: ReturnType<typeof parseConnectionControl> | undefined;
   try { c = parseConnectionControl(raw); }
@@ -226,13 +221,13 @@ routes.legacy("DELETE /connections/:id", async (req, res) => {
   if (c && isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
-routes.legacy("GET /agents/suggest-name", (_req, res) =>
+routes.on(workspaceApi.agentSuggestName, (_req, res) =>
   res.set("Cache-Control", "no-store").json({ name: suggestAgentName() }),
 );
-routes.legacy("POST /agents", (req, res) =>
-  res.status(201).json(createWithPrompt(res.locals.owner, req.body)),
+routes.on(workspaceApi.agentCreate, (req, res) =>
+  res.json(createWithPrompt(res.locals.owner, req.body)),
 );
-routes.legacy("PATCH /agents/:id", (req, res) => {
+routes.on(workspaceApi.agentUpdate, (req, res) => {
   const result = db
     .transaction(() => {
       const owner = res.locals.owner,
@@ -295,13 +290,9 @@ routes.legacy("PATCH /agents/:id", (req, res) => {
     .immediate();
   res.json(result);
 });
-routes.legacy("GET /agents/:id/harness", async (req, res) => {
+routes.on(workspaceApi.agentHarness, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const conversationId = z
-    .string()
-    .uuid()
-    .optional()
-    .parse(req.query.conversation);
+  const conversationId = req.query.conversation;
   const selected = conversationId
     ? ownedConversation(conversationId, res.locals.owner)
     : undefined;
@@ -333,104 +324,52 @@ routes.legacy("GET /agents/:id/harness", async (req, res) => {
   res.json(catalog);
 });
 // Mutations belong to the authority; configuration readback uses shared files/DB.
-routes.legacy("GET /agents/:id/pi-packages", async (req, res) => {
+routes.on(workspaceApi.agentPiPackages, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   res.json(nativeSessions.piConfiguration(agent));
 });
-routes.legacy("POST /agents/:id/pi-trust", async (req, res) => {
+routes.on(workspaceApi.agentPiTrust, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const { trusted, fingerprint } = z
-    .object({
-      trusted: z.boolean(),
-      fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-    })
-    .strict()
-    .parse(req.body);
+  const { trusted, fingerprint } = req.body;
   await executionRequest("pi.trust", { agentId: agent.id, trusted, fingerprint }, { owner: res.locals.owner });
   res.json(nativeSessions.piConfiguration(agent));
 });
-routes.legacy("POST /agents/:id/pi-package-filters", async (req, res) => {
+routes.on(workspaceApi.agentPiFilters, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const { source, scope, filters, settingsHash } = z
-    .object({
-      source: z.string().min(1).max(512),
-      scope: z.enum(["user", "project"]),
-      settingsHash: z.string().regex(/^[a-f0-9]{64}$/),
-      filters: z
-        .object({
-          extensions: z.array(z.string().max(300)).max(100).optional(),
-          skills: z.array(z.string().max(300)).max(100).optional(),
-          prompts: z.array(z.string().max(300)).max(100).optional(),
-          themes: z.array(z.string().max(300)).max(100).optional(),
-        })
-        .strict(),
-    })
-    .strict()
-    .parse(req.body);
+  const { source, scope, filters, settingsHash } = req.body;
   const result = await executionRequest("pi.filters", { agentId: agent.id, source, scope, filters, settingsHash }, { owner: res.locals.owner });
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
-routes.legacy("POST /agents/:id/pi-prompt-preview", async (req, res) => {
+routes.on(workspaceApi.agentPiPreview, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const input = z
-    .object({
-      name: z.string().min(1).max(100),
-      args: z.string().max(2000),
-      conversation: z.string().uuid().optional(),
-    })
-    .strict()
-    .parse(req.body);
+  const input = req.body;
   res.json(
     await executionRequest("pi.preview", { agentId: agent.id, name: input.name, args: input.args, conversationId: input.conversation }, { owner: res.locals.owner }),
   );
 });
-routes.legacy("POST /agents/:id/pi-package-inspect", async (req, res) => {
+routes.on(workspaceApi.agentPiInspect, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const { source } = z
-    .object({ source: z.string().min(1).max(512) })
-    .strict()
-    .parse(req.body);
+  const { source } = req.body;
   res.json(await executionRequest("pi.inspect", { agentId: agent.id, source }, { owner: res.locals.owner }));
 });
-routes.legacy("POST /agents/:id/pi-package-rollback", async (req, res) => {
+routes.on(workspaceApi.agentPiRollback, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const { source, scope } = z
-    .object({
-      source: z.string().min(1).max(512),
-      scope: z.enum(["user", "project"]),
-    })
-    .strict()
-    .parse(req.body);
+  const { source, scope } = req.body;
   const result = await executionRequest("pi.rollback", { agentId: agent.id, source, scope }, { owner: res.locals.owner });
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
-routes.legacy("POST /agents/:id/pi-packages", async (req, res) => {
+routes.on(workspaceApi.agentPiAction, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  const input = z
-    .object({
-      action: z.enum(["install", "remove", "update"]),
-      source: z.string().min(1).max(512),
-      scope: z.enum(["user", "project"]),
-    })
-    .strict()
-    .parse(req.body);
+  const input = req.body;
   const result = await executionRequest("pi.action", { agentId: agent.id, ...input }, { owner: res.locals.owner });
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
-routes.legacy("GET /agents/:id/traces", (req, res) => {
-  const before = z.coerce
-    .number()
-    .int()
-    .positive()
-    .max(Number.MAX_SAFE_INTEGER)
-    .optional()
-    .parse(req.query.before);
-  const runId = z.string().min(1).max(100).optional().parse(req.query.run);
-  const q = z.string().max(500).optional().parse(req.query.q);
+routes.on(workspaceApi.agentTraces, (req, res) => {
+  const { before, run: runId, q } = req.query;
   res.json(agentTraces(res.locals.owner, req.params.id, before, runId, q));
 });
-routes.legacy("GET /agents/:id/traces/export", (req, res) => {
-  const runId = z.string().min(1).max(100).parse(req.query.run);
+routes.on(workspaceApi.agentTracesExport, (req, res) => {
+  const runId = req.query.run;
   const data = runTraceExport(res.locals.owner, req.params.id, runId);
   res.attachment(`loop-run-${runId}-traces.json`).json(data);
 });
@@ -451,11 +390,11 @@ routes.legacy("GET /me/prompts", (req, res) => {
   const q = z.string().trim().max(200).optional().parse(req.query.q);
   res.json(personalHistory(res.locals.owner, before, q || undefined));
 });
-routes.legacy("GET /agents/:id/messages", (req, res) => {
-  const before = z.string().min(1).max(512).optional().parse(req.query.before);
+routes.on(workspaceApi.agentMessages, (req, res) => {
+  const before = req.query.before;
   res.json(agentMessages(res.locals.owner, req.params.id, before));
 });
-routes.legacy("GET /agents/:id", (req, res) => {
+routes.on(workspaceApi.agentDetail, (req, res) => {
   const a = ownedAgent(req.params.id, res.locals.owner);
   res.json({
     agent: a,
@@ -463,12 +402,12 @@ routes.legacy("GET /agents/:id", (req, res) => {
       .prepare(
         "SELECT * FROM runs WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
       )
-      .all(res.locals.owner, a.id),
+      .all(res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["runs"],
     conversations: db
       .prepare(
         "SELECT * FROM conversations WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
       )
-      .all(res.locals.owner, a.id),
+      .all(res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["conversations"],
   });
 });
 routes.on(workspaceApi.submit, (req, res) => {

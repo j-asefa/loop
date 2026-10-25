@@ -1,26 +1,10 @@
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceApi } from "./SourceContext";
+import { useSourceId, useSourceApi, useSourceRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "./components";
 
-type Command = {
-  name: string;
-  token: string;
-  kind: string;
-  description: string;
-  argumentHint?: string;
-  disabledReason?: string;
-  available?: boolean;
-  reason?: string;
-};
-type Catalog = {
-  available: boolean;
-  revision?: number;
-  generation?: string;
-  runtime?: string;
-  commands: Command[];
-  message?: string;
-};
+type Catalog = RouteResponse<typeof workspaceApi.agentHarness>;
 type Snippet = { id: string; title: string; content: string };
 /**
  * A snippet's own name, or nothing when its title is just the start of its
@@ -48,6 +32,7 @@ export function HarnessPicker({
   compact?: boolean;
 }) {
   const api = useSourceApi();
+  const route = useSourceRoute();
   const sourceId = useSourceId();
   const [snippets, setSnippets] = useState<Snippet[] | null>(null),
     [allSnippets, setAllSnippets] = useState(false);
@@ -91,11 +76,7 @@ export function HarnessPicker({
     const refresh = async () => {
       const own = ++request;
       try {
-        const result = await api<Catalog>(
-          `/agents/${agentId}/harness${conversationId
-              ? "?conversation=" + encodeURIComponent(conversationId)
-              : ""}`,
-        );
+        const result = await route(workspaceApi.agentHarness, { params: { id: agentId }, query: { conversation: conversationId || undefined } });
         if (current === generation.current && own === request) {
           setCatalog((old) =>
             old &&

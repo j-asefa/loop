@@ -35,7 +35,7 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
 
 it("accepts HTTP dates and never replays a rejected mutation", async () => {
   fetcher.mockResolvedValueOnce(limited(new Date(Date.now() + 60_000).toUTCString()));
-  const error = await apiInWorkspace("/agents", "", { input: "once" }).catch(error => error);
+  const error = await apiInWorkspace("/artifacts", "", { input: "once" }).catch(error => error);
   expect(error).toMatchObject({ status: 429, retryAfterMs: 60_000 });
   expect(error.message).not.toMatch(/retrying automatically/i);
   await vi.advanceTimersByTimeAsync(59_999);
@@ -80,7 +80,7 @@ it("keeps long deadlines without timer overflow and uses a bounded fallback for 
 it("preserves actionable domain 429 messages without imposing a destination cooldown", async () => {
   for (const method of ["GET", "POST"]) {
     fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: "This workspace has 100 pending runs. Cancel some first." }), { status: 429, headers: { "content-type": "application/json" } }));
-    const error = await apiInWorkspace("/agents", "", method === "POST" ? { input: "once" } : undefined, method).catch(error => error);
+    const error = await apiInWorkspace("/artifacts", "", method === "POST" ? { input: "once" } : undefined, method).catch(error => error);
     expect(error).toMatchObject({ status: 429, message: "This workspace has 100 pending runs. Cancel some first." });
     expect(error.retryAt).toBeUndefined();
     expect(retryAfter(error)).toBe(0);
@@ -167,7 +167,7 @@ it.each(["<html>Gateway unavailable</html>", ""])("retries non-JSON 503 reads (%
   expect(await outcome).toEqual({});
   expect(fetcher).toHaveBeenCalledTimes(2);
   fetcher.mockResolvedValueOnce(new Response(body, {status:503}));
-  await expect(apiInWorkspace("/agents", "", {input:"once"})).rejects.toMatchObject({status:503});
+  await expect(apiInWorkspace("/artifacts", "", {input:"once"})).rejects.toMatchObject({status:503});
   await vi.advanceTimersByTimeAsync(6000);
   expect(fetcher).toHaveBeenCalledTimes(3);
 });

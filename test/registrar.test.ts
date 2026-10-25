@@ -51,10 +51,10 @@ it("validates and projects through the registered HTTP handler", async () => {
 
 it("rejects duplicate legacy keys, including registrations in another registrar", () => {
   const core = registrar("core");
-  core.legacy("POST /connections", (_req, res) => res.json({ ok: true }));
-  expect(() => core.legacy("POST /connections", () => {})).toThrow("already registered");
-  expect(() => registrar("core").legacy("POST /connections", () => {})).toThrow("already registered");
-  expect(() => registrar("wrong-owner").legacy("GET /connections/:id/models", () => {})).toThrow("does not belong");
+  core.legacy("PUT /me/profile", (_req, res) => res.json({ ok: true }));
+  expect(() => core.legacy("PUT /me/profile", () => {})).toThrow("already registered");
+  expect(() => registrar("core").legacy("PUT /me/profile", () => {})).toThrow("already registered");
+  expect(() => registrar("wrong-owner").legacy("GET /me/profile", () => {})).toThrow("does not belong");
 });
 
 // These assertions are checked by the repository typecheck, never executed.

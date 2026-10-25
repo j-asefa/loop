@@ -4,6 +4,7 @@ import type { z } from "zod";
 import { Problem } from "../shared/problem.js";
 import type { RouteContract } from "../shared/workspace-api.js";
 
+type ResponseBody<C extends RouteContract> = C extends { kind: "stream" } ? unknown : z.input<C["response"]>;
 type Input<C extends RouteContract> = { params: z.output<C["params"]>; query: z.output<C["query"]>; body: z.output<C["body"]> };
 
 /** The same projection can run before bookkeeping that depends on valid output. */
@@ -16,12 +17,12 @@ export function projectResponse<C extends RouteContract>(contract: C, body: unkn
 /** Keep Express authorization/error middleware and synchronous snapshot transactions.
  * Inputs retain their ZodError -> Problem-shaped 400 handling. Bad server output is
  * a generic 500, never a request error or a dump of private data. */
-function route<C extends RouteContract>(contract: C, handler: (input: Input<C>, response: Response<z.input<C["response"]>>) => unknown): RequestHandler<Record<string, string>> {
+function route<C extends RouteContract>(contract: C, handler: (input: Input<C>, response: Response<ResponseBody<C>>) => unknown): RequestHandler<Record<string, string>> {
   return (req, res) => {
     const json = res.json;
     try {
       const input = { params: contract.params.parse(req.params), query: contract.query.parse(req.query), body: contract.body.parse(req.body) } as Input<C>;
-      res.json = body => json.call(res, projectResponse(contract, body));
+      if (contract.kind !== "stream") res.json = body => json.call(res, projectResponse(contract, body));
       res.status(contract.status ?? 200);
       const result = handler(input, res);
       if (result instanceof Promise) return result.finally(() => { res.json = json; });

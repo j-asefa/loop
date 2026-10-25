@@ -112,7 +112,7 @@ export async function apiInWorkspace<T = any>(
 ): Promise<T> {
   return requestInWorkspace<T>(path, sourceId, body, method, signal);
 }
-async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal): Promise<T> {
+async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream"): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
@@ -161,7 +161,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
     throw new Error("Sign in to Loop");
   }
   let parsed = true;
-  const data = await r.json().catch(() => {
+  const data = await (r.ok && kind === "stream" ? r.blob() : r.json()).catch(() => {
     parsed = false;
     return { error: "Connection unavailable. Try again." };
   });
@@ -201,10 +201,10 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
 export function readInWorkspace<T = any>(path: LegacyClientPath, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
   return readRequest<T>(path, sourceId, signal, onRetry);
 }
-async function readRequest<T>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
+async function readRequest<T>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, kind?: "stream"): Promise<T> {
   let failures = 0;
   for (;;) {
-    try { return await requestInWorkspace<T>(path, sourceId, undefined, "GET", signal); }
+    try { return await requestInWorkspace<T>(path, sourceId, undefined, "GET", signal, kind); }
     catch (error) {
       if (signal.aborted) throw error;
       const status = (error as {status?:number}).status;
@@ -251,8 +251,8 @@ function response<C extends RouteContract>(contract: C, value: unknown): RouteRe
   return parsed.data as RouteResponse<C>;
 }
 export async function callRoute<C extends RouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
-  return response(contract, await requestInWorkspace<unknown>(routePath(contract, input), sourceId, input.body, contract.method, signal));
+  return response(contract, await requestInWorkspace<unknown>(routePath(contract, input), sourceId, input.body, contract.method, signal, contract.kind));
 }
 export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<RouteResponse<C>> {
-  return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry));
+  return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind));
 }

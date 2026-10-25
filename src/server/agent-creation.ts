@@ -1,20 +1,12 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { AgentCreateInput } from "../shared/agent-contract-schemas.js";
 import { db, id, now } from "./db.js";
-import { ownedFolder, ownedAgent, ownedRun, agentInput, createAgent, Problem } from "./domain.js";
+import { ownedFolder, ownedAgent, ownedRun, createAgent, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
-import { attachmentIds } from "./uploads.js";
 import type { CreatedAgent } from "../shared/types.js";
 
-const input = agentInput.extend({
-  initialPrompt: z.string().trim().max(30000).default(""),
-  attachmentIds,
-  folderId: z.string().optional(),
-  idempotencyKey: z.string().min(8).max(150).optional(),
-});
-
 export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
-  const { idempotencyKey = id(), ...data } = input.parse(value);
+  const { idempotencyKey = id(), ...data } = AgentCreateInput.parse(value);
   // Keep the existing receipt serialization order when membership becomes an
   // agent field, so an acknowledgement lost before upgrade can still retry.
   const { folderId, attachmentIds: files, ...details } = data;

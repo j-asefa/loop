@@ -481,6 +481,30 @@ for (const engine of selectedEngines()) {
         fixture.db
           .prepare("UPDATE runs SET input=? WHERE id=?")
           .run(longPrompt, fixture.conversations[0].run);
+        // Older linked workspaces omit optional message/trace display metadata.
+        // Remove it from real production responses, then exercise the real views.
+        const removedMetadata = new Set();
+        const olderAgentResponse = async (route) => {
+          const response = await route.fetch();
+          assert(response.ok());
+          const body = await response.json();
+          const messages = new URL(route.request().url()).pathname.endsWith("/messages");
+          const keys = messages ? ["model", "run_id"] : ["trace_key", "run_error", "server", "invocation_state"];
+          for (const item of body.items) {
+            for (const key of keys) {
+              if (Object.hasOwn(item, key)) removedMetadata.add(key);
+              delete item[key];
+            }
+            if (messages) item.final = Boolean(item.final);
+          }
+          await route.fulfill({ response, json: body });
+        };
+        const agentHistory = url => /^\/api\/agents\/[^/]+\/(messages|traces)$/.test(url.pathname);
+        await page.route(agentHistory, olderAgentResponse);
+        await page.getByRole("tab", { name: "Messages", exact: true }).click();
+        const agentMessages = page.getByRole("region", { name: "Agent messages", exact: true });
+        await expect(agentMessages.locator(".feed-card").first()).toBeVisible();
+        await expect(agentMessages.getByRole("alert")).toHaveCount(0);
         await page.getByRole("tab", { name: "Traces", exact: true }).click();
         await page.locator(".trace-run").first().waitFor();
         const longRun = page.locator(".trace-run").filter({
@@ -523,6 +547,9 @@ for (const engine of selectedEngines()) {
           () => (document.documentElement.dataset.theme = "dark"),
         );
         await capture("traces-dark");
+        await expect(page.locator(".trace-list [role=alert]")).toHaveCount(0);
+        assert.deepEqual([...removedMetadata].sort(), ["model", "run_id", "trace_key", "run_error", "server", "invocation_state"].sort());
+        await page.unroute(agentHistory, olderAgentResponse);
         await page.evaluate(
           () => (document.documentElement.dataset.theme = "light"),
         );

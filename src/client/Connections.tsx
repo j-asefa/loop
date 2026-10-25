@@ -1,3 +1,6 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { capabilities } from "./capabilities";
 import { RuntimeHosts } from "./RuntimeHosts";
 import { NativeConnections } from "./NativeConnections";
@@ -351,12 +354,9 @@ function ServerConnections({
           ticket,
         );
       } else {
-        const result = await api<{ id?: string }>(
-          setup.account
-            ? `/connections/${setup.account.id}/reconnect`
-            : "/connections",
-          { provider: choice.api, label: accountLabel, secret: secret.trim() },
-        );
+        const result = setup.account
+          ? await callRoute(workspaceApi.connectionReconnect, { params: { id: setup.account.id }, body: { secret: secret.trim() } }, executionSourceId())
+          : await callRoute(workspaceApi.connectionCreate, { body: { provider: choice.api, label: accountLabel, secret: secret.trim() } }, executionSourceId());
         if (!current(ticket)) {
           await refresh(ticket);
           return;
@@ -365,7 +365,7 @@ function ServerConnections({
         setScreen({
           page: "connected",
           account: {
-            id: setup.account?.id || result.id!,
+            id: setup.account?.id || ("id" in result ? result.id : ""),
             brand: setup.brand,
             method: "api",
             label: accountLabel,
@@ -510,12 +510,8 @@ function ServerConnections({
                             onClick={() =>
                               perform(async (ticket) => {
                                 try {
-                                  await api(
-                                    sub
-                                      ? `/subscriptions/${account.id}/status`
-                                      : `/connections/${account.id}/refresh`,
-                                    {},
-                                  );
+                                  if (sub) await api(`/subscriptions/${account.id}/status`, {});
+                                  else await callRoute(workspaceApi.connectionRefresh, { params: { id: account.id }, body: {} }, executionSourceId());
                                 } finally {
                                   await refresh(ticket);
                                 }
@@ -532,11 +528,7 @@ function ServerConnections({
                             onClick={() =>
                               perform(async (ticket) => {
                                 try {
-                                  await api(
-                                    `/connections/${account.id}`,
-                                    {},
-                                    "DELETE",
-                                  );
+                                  await callRoute(workspaceApi.connectionDisconnect, { params: { id: account.id }, body: {} }, executionSourceId());
                                 } finally {
                                   await refresh(ticket);
                                 }

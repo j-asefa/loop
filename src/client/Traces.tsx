@@ -1,3 +1,6 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { useSourceRoute } from "./SourceContext";
+import type { RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
@@ -10,24 +13,8 @@ import { api, parse } from "./api";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
 
-type Trace = {
-  id: number;
-  trace_key?: string;
-  run_id: string;
-  kind: string;
-  title: string;
-  content: string;
-  metadata: string;
-  artifact_id: string | null;
-  created_at: number;
-  input: string;
-  run_state: string;
-  conversation_id: string | null;
-  run_error?: string | null;
-  server?: string | null;
-  invocation_state?: string | null;
-};
-type Page = { items: Trace[]; next: number | null };
+type Page = RouteResponse<typeof workspaceApi.agentTraces>;
+type Trace = Page["items"][number];
 type Props = {
   agentId: string;
   runId?: string;
@@ -84,6 +71,7 @@ function TraceList({
   onArtifact,
   query,
 }: Props & { query: string }) {
+  const route = useSourceRoute();
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -108,21 +96,13 @@ function TraceList({
           : page.next,
       };
     });
-  const filter =
-    (runId ? "&run=" + encodeURIComponent(runId) : "") +
-    (query ? "&q=" + encodeURIComponent(query) : "");
   useEffect(() => {
     // Finish paging before refreshing so an older response cannot overwrite
     // the cursor for a newly discovered gap.
     if (moreBusy) return;
     let current = true;
     const request = new AbortController();
-    void api<Page>(
-      `/agents/${agentId}/traces${filter.replace("&", "?")}`,
-      undefined,
-      undefined,
-      request.signal,
-    )
+    void route(workspaceApi.agentTraces, { params: { id: agentId }, query: { run: runId || undefined, q: query || undefined } }, request.signal)
       .then((page) => {
         if (!current) return;
         merge(page, true);
@@ -138,14 +118,12 @@ function TraceList({
       current = false;
       request.abort();
     };
-  }, [agentId, filter, revision, moreBusy]);
+  }, [agentId, runId, query, revision, moreBusy]);
   const earlier = async () => {
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
-      const page = await api<Page>(
-        `/agents/${agentId}/traces?before=${next}${filter}`,
-      );
+      const page = await route(workspaceApi.agentTraces, { params: { id: agentId }, query: { before: String(next), run: runId || undefined, q: query || undefined } });
       merge(page);
       setError("");
     } catch (e) {
@@ -158,12 +136,8 @@ function TraceList({
     saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
   const downloadRun = async (id: string) => {
     try {
-      saveJson(
-        `loop-run-${id}-traces.json`,
-        await api(
-          `/agents/${agentId}/traces/export?run=${encodeURIComponent(id)}`,
-        ),
-      );
+      const file = await route(workspaceApi.agentTracesExport, { params: { id: agentId }, query: { run: id } });
+      saveJson(`loop-run-${id}-traces.json`, JSON.parse(await file.text()));
     } catch (e) {
       setError((e as Error).message);
     }

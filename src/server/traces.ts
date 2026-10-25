@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import type { PublicAgentTrace } from "../shared/agent-contract-schemas.js";
 import { db, now } from "./db.js";
 import { ownedAgent, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
@@ -83,9 +85,7 @@ export function agentTraces(
       match,
       match,
       match,
-    ) as {
-    id: number;
-  }[];
+    ) as z.input<typeof PublicAgentTrace>[];
   return { items, next: items.length === 40 ? items.at(-1)!.id : null };
 }
 

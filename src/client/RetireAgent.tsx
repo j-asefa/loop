@@ -1,6 +1,8 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { useSourceRoute } from "./SourceContext";
 import { useState } from "react";
 import type { Agent } from "../shared/types";
-import { api } from "./api";
+
 import { Sheet } from "./components";
 
 export function RetireAgent({
@@ -12,6 +14,7 @@ export function RetireAgent({
   onClose: () => void;
   onChanged: (agent: Agent) => void;
 }) {
+  const route = useSourceRoute();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const retired = !!agent.retired_at;
@@ -43,10 +46,7 @@ export function RetireAgent({
             setError("");
             try {
               onChanged(
-                await api<Agent>(
-                  `/agents/${agent.id}`,
-                  { retired: !retired },
-                  "PATCH",
+                await route(workspaceApi.agentUpdate, { params: { id: agent.id }, body: { retired: !retired } },
                   AbortSignal.timeout(15000),
                 ),
               );

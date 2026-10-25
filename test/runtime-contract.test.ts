@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { workspaceApi } from "../src/shared/workspace-api";
 const root = mkdtempSync(join(tmpdir(), "loop-runtime-contract-"));
 const bin = join(root, "bin");
 mkdirSync(bin);
@@ -767,6 +768,8 @@ it("discovers native commands without a model turn and dispatches Claude slash p
           }),
         ]),
       });
+      // Preserve the complete production catalog, including Claude's models.
+      expect(workspaceApi.agentHarness.response.parse(catalog.events[0].result)).toEqual(catalog.events[0].result);
       expect(
         catalog.calls.some((c) => c.rpc?.method === "turn/start" || c.prompt),
       ).toBe(false);

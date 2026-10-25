@@ -1,71 +1,16 @@
-import { useSourceApi } from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { useSourceRoute } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Search, Sparkles } from "lucide-react";
 import { Sheet } from "./components";
 import { SettingsEmpty } from "./SettingsUI";
 import type { Agent } from "../shared/types";
 
-type Resource = {
-  name: string;
-  description: string;
-  kind: "skill" | "prompt" | "extension" | "tool";
-  token?: string;
-  active?: boolean;
-  scope?: string;
-  source?: string;
-  package?: string;
-  path?: string;
-};
-type Inventory = {
-  resources: Resource[];
-  packages: { path: string; name: string; resources: number }[];
-  model?: { provider?: string; id?: string; name?: string };
-  thinkingLevel?: string;
-  toolsTruncated?: boolean;
-  projectTrusted?: boolean;
-  diagnostics?: { kind: string; path?: string; event?: string }[];
-};
-type Catalog = {
-  available: boolean;
-  runtime?: string;
-  inventory?: Inventory;
-  message?: string;
-};
-type ConfiguredPackage = {
-  source: string;
-  scope: "user" | "project";
-  autoload?: boolean;
-  filters?: Record<string, string[]>;
-  settingsHash: string;
-  previousSource?: string;
-  resolvedSource?: string;
-};
-type Configuration = {
-  project: string;
-  trust: {
-    required: boolean;
-    trusted: boolean;
-    decision: string;
-    fingerprint: string;
-    paths: { path: string; kind: string }[];
-  };
-  packages: ConfiguredPackage[];
-  instructions: {
-    path: string;
-    role: string;
-    scope: string;
-    effective: boolean;
-  }[];
-};
-type Inspection = {
-  source: string;
-  inspected: boolean;
-  resolved?: string;
-  name?: string;
-  description?: string;
-  resources: Record<string, string[]>;
-  note?: string;
-};
+type Catalog = RouteResponse<typeof workspaceApi.agentHarness>;
+type Configuration = RouteResponse<typeof workspaceApi.agentPiPackages>;
+type ConfiguredPackage = Configuration["packages"][number];
+type Inspection = RouteResponse<typeof workspaceApi.agentPiInspect>;
+type Resource = NonNullable<Catalog["inventory"]>["resources"][number];
 
 export function PiCustomizations({
   agents,
@@ -82,7 +27,7 @@ export function PiCustomizations({
   onClose: () => void;
   onUse?: (agentId: string, token: string) => void;
 }) {
-  const api = useSourceApi();
+  const route = useSourceRoute();
   const piAgents = agents.filter(
     (agent) => agent.provider === "pi" && !agent.retired_at,
   );
@@ -121,7 +66,7 @@ export function PiCustomizations({
   useEffect(() => {
     if (!selected) return;
     let active = true;
-    void api<Configuration>(`/agents/${selected}/pi-packages`)
+    void route(workspaceApi.agentPiPackages, { params: { id: selected } })
       .then((result) => {
         if (active) {
           setPackages(result.packages);
@@ -138,10 +83,10 @@ export function PiCustomizations({
     setBusy(true);
     setError("");
     try {
-      const result = await api<Configuration>(`/agents/${selected}/pi-trust`, {
+      const result = await route(workspaceApi.agentPiTrust, { params: { id: selected }, body: {
         trusted,
         fingerprint: configuration.trust.fingerprint,
-      });
+      } });
       setConfiguration(result);
       setPackages(result.packages);
       setNotice(
@@ -160,9 +105,9 @@ export function PiCustomizations({
     setInspection(null);
     try {
       setInspection(
-        await api<Inspection>(`/agents/${selected}/pi-package-inspect`, {
+        await route(workspaceApi.agentPiInspect, { params: { id: selected }, body: {
           source: source.trim(),
-        }),
+        } }),
       );
     } catch (cause) {
       setError((cause as Error).message);
@@ -181,15 +126,12 @@ export function PiCustomizations({
           .map((x) => x.trim())
           .filter(Boolean);
     try {
-      const result = await api<Configuration>(
-        `/agents/${selected}/pi-package-filters`,
-        {
+      const result = await route(workspaceApi.agentPiFilters, { params: { id: selected }, body: {
           source: editing.source,
           scope: editing.scope,
           settingsHash: editing.settingsHash,
           filters: next,
-        },
-      );
+        } });
       setConfiguration(result);
       setPackages(result.packages);
       setEditing(null);
@@ -214,10 +156,7 @@ export function PiCustomizations({
     setBusy(true);
     setError("");
     try {
-      const result = await api<Configuration>(
-        `/agents/${selected}/pi-package-rollback`,
-        { source: pkg.source, scope: pkg.scope },
-      );
+      const result = await route(workspaceApi.agentPiRollback, { params: { id: selected }, body: { source: pkg.source, scope: pkg.scope } });
       setConfiguration(result);
       setPackages(result.packages);
       setNotice(
@@ -234,16 +173,13 @@ export function PiCustomizations({
     setBusy(true);
     setError("");
     try {
-      const result = await api<{ token: string; expanded: string }>(
-        `/agents/${selected}/pi-prompt-preview`,
-        {
+      const result = await route(workspaceApi.agentPiPreview, { params: { id: selected }, body: {
           name: resource.name,
           args: promptArgs,
           ...(conversationId && selected === agentId
             ? { conversation: conversationId }
             : {}),
-        },
-      );
+        } });
       setPreview(result);
     } catch (cause) {
       setError((cause as Error).message);
@@ -273,10 +209,7 @@ export function PiCustomizations({
     setError("");
     setNotice("");
     try {
-      const result = await api<Configuration>(
-        `/agents/${selected}/pi-packages`,
-        { action, source: packageSource, scope: packageScope },
-      );
+      const result = await route(workspaceApi.agentPiAction, { params: { id: selected }, body: { action, source: packageSource, scope: packageScope } });
       setPackages(result.packages);
       setConfiguration(result);
       setNotice(
@@ -298,11 +231,9 @@ export function PiCustomizations({
     let active = true;
     setCatalog(null);
     setError("");
-    const suffix =
-      conversationId && selected === agentId
-        ? `?conversation=${encodeURIComponent(conversationId)}`
-        : "";
-    void api<Catalog>(`/agents/${selected}/harness${suffix}`)
+    void route(workspaceApi.agentHarness, { params: { id: selected }, query: {
+      conversation: conversationId && selected === agentId ? conversationId : undefined,
+    } })
       .then((result) => active && setCatalog(result))
       .catch((cause) => active && setError((cause as Error).message));
     return () => {
@@ -609,7 +540,7 @@ export function PiCustomizations({
                       setEditing(pkg);
                       setFilters(
                         Object.fromEntries(
-                          ["extensions", "skills", "prompts", "themes"].map(
+                          (["extensions", "skills", "prompts", "themes"] as const).map(
                             (kind) => [kind, pkg.filters?.[kind]?.join("\n")],
                           ),
                         ),

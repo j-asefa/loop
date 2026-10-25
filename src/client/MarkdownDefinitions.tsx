@@ -1,3 +1,5 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
 import { useEffect, useRef, useState } from "react";
 import { apiInWorkspace, parse } from "./api";
 import { Sheet } from "./components";
@@ -447,13 +449,7 @@ export function CreateFromDefinition({
       : { key: catalogKey, entries: {} });
     for (const connectionId of JSON.parse(nativeIds) as string[]) {
       if (cached[connectionId]) continue;
-      void apiInWorkspace<{ models: ModelOption[] }>(
-        `/connections/${connectionId}/models`,
-        sourceId,
-        undefined,
-        undefined,
-        controller.signal,
-      ).then(
+      void callRoute(workspaceApi.connectionModels, { params: { id: connectionId } }, sourceId, controller.signal).then(
         ({ models: discovered }) => {
           if (controller.signal.aborted || owner !== viewOwner()) return;
           setCatalogState((current) => ({

@@ -1,4 +1,5 @@
-import { useSourceApi } from "./SourceContext";
+import { useSourceRoute } from "./SourceContext";
+import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Sheet } from "./components";
@@ -52,7 +53,7 @@ export function AgentModelSettings({
   onClose: () => void;
   onSaved: (agent: Agent) => void;
 }) {
-  const api = useSourceApi();
+  const route = useSourceRoute();
   const [selected, setSelected] = useState(agent);
   const [catalog, setCatalog] = useState<Record<string, ModelOption[]>>({});
   const [error, setError] = useState(""),
@@ -78,9 +79,7 @@ export function AgentModelSettings({
         .filter((c) => c.status === "connected")
         .map(async (connection) => {
           try {
-            const result = await api<{ models: ModelOption[] }>(
-              `/connections/${connection.id}/models`,
-            );
+            const result = await route(workspaceApi.connectionModels, { params: { id: connection.id } });
             if (current)
               setCatalog((old) => ({ ...old, [connection.id]: result.models }));
           } catch {
@@ -123,11 +122,7 @@ export function AgentModelSettings({
     setBusy(true);
     setError("");
     try {
-      const saved = await api<Agent>(
-        `/agents/${agent.id}`,
-        { connectionId, model, effort },
-        "PATCH",
-      );
+      const saved = await route(workspaceApi.agentUpdate, { params: { id: agent.id }, body: { connectionId, model, effort } });
       setSelected(saved);
       onSaved(saved);
     } catch (error) {

@@ -38,7 +38,7 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   const prefix = schemaName(name);
   // Clones give shared Empty/NoBody and repeated responses distinct IDs.
   // Cards response identities retain their existing inter-component references.
-  registry.add(cardNames[name] ? route.response : route.response.clone(), { id: prefix + "Response" });
+  registry.add(route.kind === "stream" ? z.string().meta({ format: "binary" }) : cardNames[name] ? route.response : route.response.clone(), { id: prefix + "Response" });
   inputs.add(route.params.clone(), { id: prefix + "Params" });
   inputs.add(route.query.clone(), { id: prefix + "Query" });
   inputs.add(route.body.clone(), { id: prefix + "Body" });
@@ -108,7 +108,7 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   const response = {
     description: "Successful response",
     content: {
-      "application/json": {
+      [route.kind === "stream" ? route.contentType ?? "application/octet-stream" : "application/json"]: {
         schema: { $ref: "#/components/schemas/" + prefix + "Response" },
       },
     },

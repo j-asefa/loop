@@ -1,3 +1,6 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import {
   runtimeSetupMessages,
   type RuntimeSetupState,
@@ -554,7 +557,7 @@ export function RuntimeSetup({
                   setEnabling(connection.id);
                   setError("");
                   try {
-                    await api(`/connections/${connection.id}/refresh`, {});
+                    await callRoute(workspaceApi.connectionRefresh, { params: { id: connection.id }, body: {} }, executionSourceId());
                     await onEnabled(metadata.loopHarness || metadata.flavor);
                   } catch (cause) {
                     setError((cause as Error).message);

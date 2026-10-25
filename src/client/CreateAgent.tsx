@@ -1,3 +1,5 @@
+import { workspaceApi } from "../shared/workspace-api";
+import { callRoute } from "./workspace-api";
 import { ConnectionPicker, ModelPicker } from "./ConnectionPicker";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
@@ -6,7 +8,7 @@ import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
-import { api, apiInWorkspace, parse } from "./api";
+import { parse } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet, Badge, providerName } from "./components";
 import type { Connection, CreatedAgent } from "../shared/types";
@@ -113,7 +115,7 @@ export function CreateAgent({
   useEffect(() => {
     let cancelled = false;
     if (!nameTouched) setLoadingName(true);
-    apiInWorkspace<{ name: string }>("/agents/suggest-name", source)
+    callRoute(workspaceApi.agentSuggestName, {}, source)
       .then((suggestion) => {
         if (!cancelled && !nameTouched) setSuggestedName(suggestion.name);
       })
@@ -140,10 +142,7 @@ export function CreateAgent({
     if (!nativeConnection) return;
     let current = true;
     setCatalog({ connectionId: nativeConnection });
-    void apiInWorkspace<{ models: ModelOption[] }>(
-      `/connections/${nativeConnection}/models`,
-      source,
-    ).then(
+    void callRoute(workspaceApi.connectionModels, { params: { id: nativeConnection } }, source).then(
       ({ models }) => {
         if (current) setCatalog({ connectionId: nativeConnection, models });
       },
@@ -209,7 +208,7 @@ export function CreateAgent({
       name: String(f.get("name") || "")
         .trim()
         .toLowerCase(),
-      connectionId: selected?.id,
+      connectionId: selected?.id || "",
       model: chosen,
       effort: effort || null,
       instructions: String(f.get("instructions") || ""),
@@ -228,10 +227,7 @@ export function CreateAgent({
     setBusy(true);
     setError("");
     try {
-      const a = await apiInWorkspace<CreatedAgent>("/agents", source, {
-        ...data,
-        idempotencyKey: request.current.key,
-      });
+      const a = await callRoute(workspaceApi.agentCreate, { body: { ...data, idempotencyKey: request.current.key } }, source);
       await onCreated(a, data.folderId || "", source);
     } catch (e) {
       setError((e as Error).message);

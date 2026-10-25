@@ -48,7 +48,7 @@ it("binds conversation actions and file URLs to their source across later naviga
   const fetch = vi.fn(async (_path: string, _init?: RequestInit) => ({
     ok: true,
     redirected: false,
-    json: async () => _path.includes("/native/decisions/") ? { state: "resolved" } : {},
+    json: async () => _path.includes("/native/decisions/") ? { state: "resolved" } : _path.includes("/connections/") ? { models: [] } : {},
   }));
   vi.stubGlobal("fetch", fetch);
   let captured!: ReturnType<typeof useSourceApi>;
@@ -87,10 +87,7 @@ it("binds conversation actions and file URLs to their source across later naviga
   expect(fetch.mock.calls[0][0]).toBe(
     "/api/agent-sources/docker%3Aalpha/runs/same/cancel",
   );
-  await captured("/connections/same/refresh", {
-    generation: 4,
-    decision: "approve",
-  });
+  await typed(workspaceApi.connectionRefresh, { params: { id: "same" }, body: { generation: 4, decision: "approve" } });
   expect(fetch.mock.calls[1][0]).toBe(
     "/api/agent-sources/docker%3Abeta/connections/same/refresh",
   );
