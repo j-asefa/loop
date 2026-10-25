@@ -12,6 +12,11 @@ const { conversationMessages, transcriptPageSql } =
   await import("../src/server/conversation-messages");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
+// Initialize the route graph with the fixture, so the HTTP case's timeout
+// covers requests and assertions instead of cold module transformation.
+const { core } = await import("../src/server/core-routes");
+const { savePosition } = await import("../src/server/mobile-return");
+const { Problem } = await import("../src/server/domain");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -362,9 +367,6 @@ it("persists idempotent public messages independently of traces and scopes their
 
 
 it("serves a saved-position page in one resume request while ordinary refreshes, anchors and cursors retain their meaning", async () => {
-  const { core } = await import("../src/server/core-routes");
-  const { savePosition } = await import("../src/server/mobile-return");
-  const { Problem } = await import("../src/server/domain");
   const conversation = thread();
   const ids = Array.from({ length: 125 }, () => message(conversation, null));
   savePosition("alice", conversation, { positionMessageId: ids[30] });

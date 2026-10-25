@@ -1,3 +1,4 @@
+import { FeedEntities } from "./feed-projection.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
@@ -94,6 +95,7 @@ export const FeedPage = z.object({
   items: z.array(FeedItem), next: MaybeText,
   summary: z.object({ needs: z.number(), working: z.number(), queued: z.number(), later_due: z.number(), social_unread: z.number().optional(), scheduled_failed: z.number().optional(), scheduled_pending: z.number().optional() }),
   projection: WorkspaceClock.optional(),
+  projectionRows: FeedEntities.optional(),
 });
 export type FeedPage = z.infer<typeof FeedPage>;
 // Older linked workspaces may omit the handoff, range and resume markers.
@@ -211,7 +213,7 @@ export const workspaceApi = {
   conversationUsage: endpoint({ ...base, method: "GET", path: "/conversations/:id/usage", params: Id, response: mobile.PublicUsage }),
   snippetList: endpoint({ ...base, method: "GET", path: "/snippets", response: mobile.PublicSnippets }),
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
-  feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams }), response: FeedPage }),
+  feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams, known: Text.optional() }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
   runs: endpoint({ ...base, method: "GET", path: "/runs", query: z.object({ teams: Teams, active: Text.optional() }), response: z.array(PublicRun) }),
   submit: endpoint({ ...base, method: "POST", path: "/runs", body: z.object({

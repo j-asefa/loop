@@ -3,7 +3,7 @@ import { workspaceApi } from "../shared/workspace-api.js";
 
 import { runResponse } from "./row-schemas.js";
 import { projectionSnapshot } from "./projection-snapshot.js";
-
+import { feedProjection } from "./feed-projection.js";
 import type { z } from "zod";
 import { teamFilter } from "./teams.js";
 import {
@@ -45,9 +45,10 @@ routes.on(workspaceApi.conversationPosition, (req, res) =>
   res.json(savePosition(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.feed, (req, res) => {
-  const selection = { ...req.query, teams: teamFilter(req.query.teams, res.locals.owner) };
+  const { known, ...query } = req.query;
+  const selection = { ...query, teams: teamFilter(query.teams, res.locals.owner) };
   const page = feed(res.locals.owner, selection);
-  res.json(page);
+  res.json(feedProjection(res.locals.owner, selection, page, known));
 }, { wrap: projectionSnapshot });
 routes.on(workspaceApi.feedUpdate, (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),

@@ -1,3 +1,5 @@
+import { pendingSourceRefreshSmoke } from "./helpers/feed-pending-refresh-smoke.mjs";
+import { sourceRetryFeedSmoke } from "./helpers/feed-source-retry-smoke.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -157,6 +159,7 @@ for (const engine of engines) {
           const Original = window.WebSocket;
           window.__eventSockets = [];
           window.__workspaceUpdates = 0;
+          window.__feedReconciledCursor = 0;
           window.WebSocket = class extends Original {
             constructor(...args) {
               super(...args);
@@ -170,7 +173,14 @@ for (const engine of engines) {
           };
           window.addEventListener(
             "loop-workspace-change",
-            () => window.__workspaceUpdates++,
+            event => {
+              window.__workspaceUpdates++;
+              if (event.detail?.changes?.some(change => change.source === "" && change.events.some(event =>
+                event.scope?.kind === "collection" && ["feed", "all"].includes(event.scope.id)))) {
+                const socket = window.__eventSockets.find(socket => ["/ws", "/api/events/ws"].includes(new URL(socket.url).pathname));
+                window.__feedReconciledCursor = Math.max(window.__feedReconciledCursor, socket?.__eventCursor ?? 0);
+              }
+            },
           );
         });
         // Passing this journey requires push: HTTP event polling cannot help.
@@ -217,11 +227,160 @@ for (const engine of engines) {
             );
             throw error;
           });
+        // A reset supersedes an in-flight read, not the source's health. Watch
+        // intermediate DOM mutations so even a brief false error is detected.
+        await working.waitForTimeout(2500);
+        const resetClock = (await (await fixture.request("/api/conversations/thread", {headers:fixture.browser})).json()).projection;
+        let heldFeed = false, releaseFeed;
+        const heldFeedGate = new Promise(resolve => {releaseFeed=resolve;});
+        const workingQuery = url => url.pathname === "/api/feed" && url.searchParams.get("filter") === "working";
+        await working.route(workingQuery, async route => {
+          if (heldFeed) return route.continue();
+          const response = await route.fetch(); heldFeed=true;
+          await heldFeedGate;
+          await route.fulfill({response});
+        });
+        await working.evaluate(() => {
+          window.__feedResetErrors=[];
+          window.__feedResetObserver=new MutationObserver(() => {
+            for(const alert of document.querySelectorAll('.inbox [role="alert"]'))
+              if(/could not refresh|load the Feed/i.test(alert.textContent)) window.__feedResetErrors.push(alert.textContent);
+          });
+          window.__feedResetObserver.observe(document.querySelector('.inbox'),{subtree:true,childList:true,characterData:true});
+          window.dispatchEvent(new CustomEvent("loop-workspace-change",{detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}]}}));
+        });
+        await expect.poll(() => heldFeed).toBe(true);
+        await working.evaluate(clock => {
+          const socket=window.__eventSockets.find(socket=>["/ws","/api/events/ws"].includes(new URL(socket.url).pathname) && socket.__resetFrame);
+          socket.onmessage(new MessageEvent("message",{data:JSON.stringify({...socket.__resetFrame,...clock,type:"reset"})}));
+        },resetClock);
+        const resumedFeed = working.waitForResponse(response => workingQuery(new URL(response.url())));
+        releaseFeed();
+        await (await resumedFeed).finished();
+        await working.waitForTimeout(700);
+        assert.deepEqual(await working.evaluate(() => {window.__feedResetObserver.disconnect();return window.__feedResetErrors;}),[]);
+        await working.unroute(workingQuery);
+        console.log(`PASS ${engine}/${mode} reset during Feed read does not report source failure`);
         if (remote) {
           await expect(row(working, "Remote task")).toHaveCount(1);
           await expect(working.getByRole("region", { name: "Your agents" })).toContainText("@Remote");
           assert.ok(legacyBootstraps > 0 && legacyFeeds > 0, "Linked catalogs and Feed pages with omitted optional fields must both reach the UI");
           console.log(`PASS ${engine} linked legacy bootstrap metadata and unknown pull state remain readable`);
+          const failedSource = await context.newPage();
+          const unavailable = "**/api/agent-sources/*/feed?*";
+          await failedSource.route(unavailable, route => route.fulfill({status:403,json:{error:"Fixture source unavailable"}}));
+          await failedSource.goto(fixture.origin + "/?filter=working");
+          const sourceError = failedSource.getByRole("alert").filter({hasText:"Some environments could not refresh. Showing their last loaded threads."});
+          await expect(sourceError).toBeVisible({timeout:revisionTimeout});
+          await expect(row(failedSource, "Remote task")).toHaveCount(0);
+          await failedSource.waitForTimeout(2500); // Let initial reset/coalescing work settle.
+          const localRefresh = failedSource.waitForResponse(response => {
+            const url = new URL(response.url());
+            return url.pathname === "/api/feed" && url.searchParams.get("filter") === "working";
+          });
+          await failedSource.evaluate(() => window.dispatchEvent(new CustomEvent("loop-workspace-change", {
+            detail: {sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}]},
+          })));
+          await (await localRefresh).finished();
+          await failedSource.waitForTimeout(400);
+          await expect(sourceError).toBeVisible();
+          await failedSource.unroute(unavailable);
+          await sourceError.getByRole("button", {name:"Try again",exact:true}).click();
+          await expect(row(failedSource, "Remote task")).toHaveCount(1, {timeout:revisionTimeout});
+          await expect(sourceError).toHaveCount(0);
+          await failedSource.close();
+          console.log(`PASS ${engine} scoped Feed refresh retains another source's failure until recovery`);
+          // A single refresh can include a healthy and an unavailable source.
+          // Only successful sources may replace their cached Needs rows.
+          for (const [source, label] of [[fixture,"Local"],[remote,"Remote"]]) {
+            source.db.transaction(() => {
+              source.db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('needs-thread',?,'agent',?,?)")
+                .run(source.owner,label+" approval task",Date.now());
+              source.db.prepare("INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('needs-run',?,'agent','needs-thread',?,'awaiting_approval','needs-run',?,?)")
+                .run(source.owner,label+" approval task",Date.now(),Date.now());
+              source.db.prepare("INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES('needs-approval',?,'needs-run','digest','{\"tool\":\"deploy\"}','pending',?,?)")
+                .run(source.owner,Date.now(),Date.now()+60_000);
+            })();
+          }
+          const needsPage = await context.newPage();
+          await needsPage.goto(fixture.origin + "/?filter=working");
+          const remoteNeed = needsPage.locator(".needs-stack .inbox-card").filter({hasText:"Remote approval task"});
+          await expect(remoteNeed).toHaveCount(1,{timeout:revisionTimeout});
+          await needsPage.waitForTimeout(2500);
+          const sourceIds = await needsPage.evaluate(() => window.__eventSockets.map(socket => {
+            const match = new URL(socket.url).pathname.match(/\/agent-sources\/([^/]+)\//);
+            return match ? decodeURIComponent(match[1]) : "";
+          }));
+          let failedNeeds = 0, localNeeds = 0;
+          const needsRoute = url => url.pathname.endsWith("/feed") && url.searchParams.get("filter") === "needs";
+          await needsPage.route(needsRoute, route => {
+            if (new URL(route.request().url()).pathname.includes("agent-sources")) {
+              failedNeeds++;
+              return route.fulfill({status:403,json:{error:"Fixture Needs unavailable"}});
+            }
+            localNeeds++;
+            return route.continue();
+          });
+          await needsPage.evaluate(sources => window.dispatchEvent(new CustomEvent("loop-workspace-change", {
+            detail:{sources,changes:sources.map(source => ({source,events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}))},
+          })),sourceIds);
+          await expect.poll(() => failedNeeds).toBeGreaterThan(0);
+          await expect.poll(() => localNeeds).toBeGreaterThan(0);
+          await needsPage.waitForTimeout(800);
+          await expect(remoteNeed).toHaveCount(1);
+          await needsPage.unroute(needsRoute);
+          // A local refresh must not cancel an independent remote Needs read.
+          // Hold a valid remote display response across the local completion.
+          let remoteNeedsHeld = false, releaseRemoteNeeds;
+          const remoteNeedsGate = new Promise(resolve => { releaseRemoteNeeds = resolve; });
+          await needsPage.route(needsRoute, async route => {
+            if (!new URL(route.request().url()).pathname.includes("agent-sources")) return route.continue();
+            const response = await route.fetch();
+            const body = await response.json();
+            body.items = body.items.map(item => item.conversation_id === "needs-thread"
+              ? { ...item, title: "Updated remote approval task" } : item);
+            remoteNeedsHeld = true;
+            await remoteNeedsGate;
+            await route.fulfill({ response, json: body });
+          });
+          const refreshNeedsSources = sources => needsPage.evaluate(sources =>
+            window.dispatchEvent(new CustomEvent("loop-workspace-change", {
+              detail: { sources, changes: sources.map(source => ({ source,
+                events: [{ type: "invalidate", scope: { kind: "collection", id: "feed" } }],
+              })) },
+            })), sources);
+          try {
+            const remoteFeed = needsPage.waitForResponse(response => {
+              const url = new URL(response.url());
+              return url.pathname.includes("agent-sources") && url.pathname.endsWith("/feed") && url.searchParams.get("filter") === "working";
+            });
+            await refreshNeedsSources(sourceIds.filter(Boolean));
+            await expect.poll(() => remoteNeedsHeld).toBe(true);
+            await (await remoteFeed).finished();
+            await needsPage.waitForTimeout(800);
+            const localNeedsRead = needsPage.waitForResponse(response => {
+              const url = new URL(response.url());
+              return url.pathname === "/api/feed" && url.searchParams.get("filter") === "needs";
+            });
+            await refreshNeedsSources([""]);
+            await (await localNeedsRead).finished();
+            releaseRemoteNeeds();
+            await expect(needsPage.locator(".needs-stack .inbox-card").filter({ hasText: "Updated remote approval task" })).toHaveCount(1);
+          } finally {
+            releaseRemoteNeeds();
+            await needsPage.unroute(needsRoute);
+          }
+          await needsPage.close();
+          await pendingSourceRefreshSmoke(context, fixture.origin, sourceIds.find(Boolean));
+          console.log(`PASS ${engine} local head refresh preserves queued remote Feed and Needs updates`);
+          await sourceRetryFeedSmoke(context, fixture.origin, sourceIds.find(Boolean));
+          console.log(`PASS ${engine} a retrying source preserves healthy Feed/Needs updates and recovers without another notification`);
+          for (const source of [fixture,remote]) source.db.transaction(() => {
+            source.db.prepare("DELETE FROM approvals WHERE id='needs-approval'").run();
+            source.db.prepare("DELETE FROM runs WHERE id='needs-run'").run();
+            source.db.prepare("DELETE FROM conversations WHERE id='needs-thread'").run();
+          })();
+          console.log(`PASS ${engine} mixed-source Needs refresh retains failed-source cards`);
           const localSockets = () =>
             working.evaluate(
               () =>
@@ -501,8 +660,21 @@ for (const engine of engines) {
             await expect(answer).toContainText(text.trim());
           }
           await thread.waitForTimeout(2500);
+          // This fixture writes through a separate raw SQLite connection. Its
+          // final Feed projection can emit a second coalesced notification.
+          // Establish that delivery and finish its reads before measuring quiet.
+          await expect.poll(() => fixture.db.prepare("SELECT count(*) n FROM feed_card_dirty WHERE owner_id=?").get(fixture.owner).n,
+            { timeout: revisionTimeout }).toBe(0);
+          const projectedCursor = fixture.db.prepare("SELECT COALESCE(max(id),0) cursor FROM events WHERE owner_id=? AND type='feed.card'").get(fixture.owner).cursor;
+          assert.ok(projectedCursor > 0, "streaming writes must publish Feed projection changes");
+          await expect.poll(() => thread.evaluate(() => window.__feedReconciledCursor),
+            { timeout: revisionTimeout }).toBeGreaterThanOrEqual(projectedCursor);
+          await thread.waitForLoadState("networkidle");
+          const quietUpdates = await thread.evaluate(() => window.__workspaceUpdates);
           idle = true;
           await thread.waitForTimeout(6500);
+          assert.equal(await thread.evaluate(() => window.__workspaceUpdates), quietUpdates,
+            "the quiet measurement must not include a pending workspace invalidation");
           assert.equal(transcriptReads.length, 0, "streaming transcript must not refetch its snapshot");
           const feedMode = await thread.evaluate(() => window.__eventSockets.find(socket => socket.__resetFrame?.v === 3)?.__resetFrame.capabilities.feed);
           assert.ok(["snapshot","delta"].includes(feedMode), "the source must declare its Feed delivery mode");

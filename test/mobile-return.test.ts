@@ -850,7 +850,7 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
     // Even a legacy client writing this obsolete flag cannot hide a thread.
     db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
     const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
-    const display = ({ projection, ...page }: any) => page;
+    const display = ({ projection, projectionRows, ...page }: any) => page;
     const before = await Promise.all(filters.map(async (filter) =>
       display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)));
     const done = (await api(w.owner, "/feed?filter=done&expand=results")).data;

@@ -73,7 +73,7 @@ it.each(cases)("%s matches its snapshot", async (name, path) => {
   resetStatements();
   const response = await app.fetch(path);
   counts[name] = statements();
-  const { projection, ...content } = await response.json();
+  const { projection, projectionRows, ...content } = await response.json();
   if (path !== "/api/feed/away?since=0") {
     expect(projection).toMatchObject({
       epoch: expect.any(String),
@@ -81,6 +81,19 @@ it.each(cases)("%s matches its snapshot", async (name, path) => {
       serverNow: expect.any(Number),
     });
     expect(projection.cursor).toBeGreaterThanOrEqual(0);
+  }
+  if (projectionRows) {
+    expect(projectionRows.delta).toBe(false);
+    expect(projectionRows.entities.map((row: any) => row.id)).toEqual(
+      content.items.map((row: any) =>
+        JSON.stringify([row.conversation_id, row.done_card_key ?? null]),
+      ),
+    );
+    for (const row of projectionRows.entities) {
+      expect(row.signature).toMatch(/^[a-f0-9]{32}$/);
+      expect(row.revision).toBeGreaterThanOrEqual(0);
+      expect(row.revision).toBeLessThanOrEqual(projection.cursor);
+    }
   }
   const body = { status: response.status, body: content };
   const file = join(folder, `${name}.json`);

@@ -1,6 +1,6 @@
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
-import { callRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
 import { DoneCardsReader } from "./feed-cards";
 import type { CardWindow } from "./card-pager";
 import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
@@ -63,7 +63,7 @@ import type {
   EnvironmentConnection,
   AgentSource,
 } from "./agentSources";
-import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { cacheView, cachedView, viewOwner, viewGeneration } from "./viewCache";
 import { Avatar, RichText, Sheet } from "./components";
 import {
   agentModelName,
@@ -95,6 +95,10 @@ import {
 } from "./threadView";
 import { notify } from "./toast";
 import { feedItemOrder, refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import { FeedProjectionReader } from "./feed-projection";
+import { FeedReadRecovery } from "./feed-read-recovery";
+import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
+import { listenWorkspaceChanges, workspaceChangeAffects, type WorkspaceChangeDetail } from "./workspace-changes";
 
 export type FeedFilter =
   | "all"
@@ -1063,6 +1067,24 @@ export function Feed({
     summary: Summary;
     sourceSummaries?: Record<string, Summary>;
   };
+  const generation = viewGeneration();
+  const readRecovery = useRef(new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>());
+  const recoverSource = useRef<(source: string) => void>(() => {});
+  const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>) => {
+    const { known: _known, ...page } = query;
+    const context = activeView.current;
+    return readRecovery.current.read(source, JSON.stringify(page),
+      (signal, onRetry) => readRoute(workspaceApi.feed, { query }, source, signal, onRetry),
+      () => {
+        if (generation === viewGeneration() && context === activeView.current)
+          recoverSource.current(source);
+      });
+  };
+  const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
+  const readProjectionPage = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>) => {
+    const read = (known?: string) => readSnapshot(source, { ...query, known });
+    return reactiveSource(source, "feed") ? projectionPages.current.read(source, JSON.stringify(query), read) : read();
+  };
   const combined = !!sources && !project && !teams && !agent;
   const activeSources = combined ? sources : [{ id: scopedSource, name: "" }];
   const sourceKey = JSON.stringify(
@@ -1141,6 +1163,7 @@ export function Feed({
   );
   const [needsOpen, setNeedsOpen] = useState(false);
   const needsRequest = useRef(0);
+  const needsSourceRequests = useRef(new Map<string, number>());
   const request = useRef(0);
   const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => ({
     filter: which,
@@ -1151,9 +1174,10 @@ export function Feed({
     ...(before ? { before } : {}),
   });
   const inFlight = useRef(false);
-  const sourcePages = useRef<{ key: string; pages: Map<string, Shown> }>({
+  const sourcePages = useRef<{ key: string; pages: Map<string, Shown>; failures: Set<string> }>({
     key: "",
     pages: new Map(),
+    failures: new Set(),
   });
   const deferredUnsaves = useRef(new Map<string, object>());
   const savedKey = (source: string, message: string) =>
@@ -1177,14 +1201,20 @@ export function Feed({
   const doneRefresh = useRef<{ key: string; sources: Map<string, DoneRefresh> }>({
     key: "", sources: new Map(),
   });
-  async function loadNeeds() {
+  async function loadNeeds(onlySources?: string[]) {
     if (hideFilters) return;
-    const ticket = ++needsRequest.current;
+    const ticketGeneration = needsRequest.current;
     const owner = viewOwner();
     const key = needsKey();
+    const requested = activeSources.filter(source => !onlySources || onlySources.includes(source.id));
+    const tickets = new Map(requested.map(source => {
+      const ticket = (needsSourceRequests.current.get(source.id) ?? 0) + 1;
+      needsSourceRequests.current.set(source.id, ticket);
+      return [source.id, ticket];
+    }));
     const settled = await Promise.allSettled(
-      activeSources.map(async (source) => {
-        const page = await callRoute(workspaceApi.feed, { query: query(undefined, "needs") }, combined ? source.id : scopedSource);
+      requested.map(async (source) => {
+        const page = await readSnapshot(combined ? source.id : scopedSource, query(undefined, "needs"));
         return combined
           ? page.items.map((item) => ({
               ...item,
@@ -1194,40 +1224,74 @@ export function Feed({
           : page.items;
       }),
     );
-    if (ticket !== needsRequest.current || owner !== viewOwner()) return;
+    if (ticketGeneration !== needsRequest.current || generation !== viewGeneration() || owner !== viewOwner()) return;
+    // A scoped refresh supersedes only its own source, not another source's
+    // slower successful read. Selection changes and actions still fence all.
+    const current = settled.flatMap((entry, index) => {
+      const source = requested[index].id;
+      return entry.status === "fulfilled" && tickets.get(source) === needsSourceRequests.current.get(source)
+        ? [{ source, items: entry.value }] : [];
+    });
     // The Feed's own error covers an unreachable source; keep what loaded.
-    if (settled.every((entry) => entry.status === "rejected")) return;
-    const loaded = settled
-      .flatMap((entry) => (entry.status === "fulfilled" ? entry.value : []))
-      .sort((a, b) => b.last_activity_at - a.last_activity_at);
+    if (!current.length) return;
+    const refreshed = new Set(current.map(entry => entry.source));
+    const selected = new Set(activeSources.map(source => source.id));
+    const retained = (cachedView<FeedItem[]>(key) ?? []).filter(item =>
+      selected.has(item.sourceId ?? scopedSource) && !refreshed.has(item.sourceId ?? scopedSource));
+    const loaded = [...retained, ...current
+      .flatMap(entry => entry.items)
+    ].sort((a, b) => b.last_activity_at - a.last_activity_at);
     cacheView(key, loaded, owner);
     setNeeds(loaded);
   }
-  const pendingRefresh = useRef<string | null>(null);
-  async function load(append = false, background = false) {
+  const pendingRefresh = useRef({ key: "", sources: new Set<string>() });
+  const headSources = useRef(new Set<string>());
+  function schedulePendingRefresh() {
+    clearTimeout(doneCatchup.current);
+    doneCatchup.current = undefined;
+    const owner = viewOwner(), context = JSON.stringify([owner, shownKey()]);
+    if (pendingRefresh.current.key !== context || !pendingRefresh.current.sources.size) return;
+    const ticket = request.current;
+    doneCatchup.current = setTimeout(() => {
+      if (ticket === request.current && owner === viewOwner() && activeView.current === context)
+        void load(false, true, [...pendingRefresh.current.sources]);
+    }, 100);
+  }
+  async function load(append = false, background = false, onlySources?: string[]) {
     const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // A completed action may still hold the load function for an old view.
     // Reject it before it can supersede the current view's request ticket.
-    if (activeView.current !== refreshContext) return;
+    if (generation !== viewGeneration() || activeView.current !== refreshContext) return;
     // Background refreshes never overlap; filter changes and actions always load.
     // Remember the final notification during a read, even if no later event
     // follows it (for example Working -> Done while Load more is pending).
+    if (pendingRefresh.current.key !== refreshContext) {
+      pendingRefresh.current = { key: refreshContext, sources: new Set() };
+      headSources.current.clear();
+    }
+    const requestedSources = activeSources
+      .filter(source => !onlySources || onlySources.includes(source.id))
+      .map(source => source.id);
+    const pending = pendingRefresh.current.sources;
     if (background && inFlight.current) {
-      pendingRefresh.current = refreshContext;
+      for (const source of requestedSources) pending.add(source);
       return;
     }
-    // An append does not reconcile the head. Preserve queued notifications,
-    // including a head read it supersedes, until a fresh head read consumes them.
-    if (append && inFlight.current) pendingRefresh.current = refreshContext;
-    else if (!append || pendingRefresh.current !== refreshContext) pendingRefresh.current = null;
-    if (!append) void loadNeeds();
+    // A superseded head read has not reconciled its sources. Appending cannot
+    // consume any head notification; a scoped head consumes only its sources.
+    if (inFlight.current) for (const source of headSources.current) pending.add(source);
+    headSources.current = new Set(append ? [] : requestedSources);
+    if (!append) {
+      for (const source of requestedSources) pending.delete(source);
+      void loadNeeds(requestedSources);
+    }
     clearTimeout(doneCatchup.current);
     inFlight.current = true;
-    let followup = false;
+    const followup = new Set<string>();
     const ticket = ++request.current;
     // The account this request is for; a late answer for another is dropped.
     const owner = viewOwner();
-    const isCurrent = () => ticket === request.current && owner === viewOwner() && activeView.current === refreshContext;
+    const isCurrent = () => ticket === request.current && generation === viewGeneration() && owner === viewOwner() && activeView.current === refreshContext;
     // Loading placeholders belong to the first read of a filter. An empty
     // result is loaded content too; polling must keep its empty state visible.
     try {
@@ -1296,7 +1360,7 @@ export function Feed({
           }
           if (window) {
             if (reader.discardPrior) priorItems = [];
-            followup ||= reader.hasMore || !!(window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0));
+            if (reader.hasMore || (window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0))) followup.add(source);
             if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
             // Counters remain conversation-based operational Feed state.
             const operational = await callRoute(workspaceApi.feed, { query: query(undefined, "needs") }, source);
@@ -1352,12 +1416,12 @@ export function Feed({
       if (combined) {
         const cursors: Record<string, string> =
           append && next ? JSON.parse(next) : {};
-        const pending = append
+        const pending = (append
           ? activeSources.filter((source) => cursors[source.id])
-          : activeSources;
+          : activeSources).filter(source => !onlySources || onlySources.includes(source.id));
         const key = pagesKey();
         if (sourcePages.current.key !== key) {
-          sourcePages.current = { key, pages: new Map() };
+          sourcePages.current = { key, pages: new Map(), failures: new Set() };
         }
         // Restore complete per-source pages before refresh or append, including
         // a source that disappeared and returned while this selection stayed open.
@@ -1372,6 +1436,8 @@ export function Feed({
           });
         }
         const activeIds = new Set(activeSources.map(source => source.id));
+        for (const id of sourcePages.current.failures)
+          if (!activeIds.has(id)) sourcePages.current.failures.delete(id);
         // Initial pages may be visible before a combined view can be cached.
         // Keep a bounded fallback when discovery temporarily removes a source.
         const inactive = [...sourcePages.current.pages.keys()].filter(id => !activeIds.has(id));
@@ -1379,7 +1445,7 @@ export function Feed({
         const settled = await Promise.allSettled(
           pending.map(async (source) => {
             const incoming = await readPage(
-              (before) => callRoute(workspaceApi.feed, { query: query(before) }, source.id),
+              (before) => readProjectionPage(source.id, query(before)),
               source.id,
               append ? cursors[source.id] : undefined,
             );
@@ -1403,12 +1469,24 @@ export function Feed({
           }),
         );
         if (!isCurrent()) return;
+        settled.forEach((entry, index) => {
+          const id = pending[index].id;
+          if (entry.status === "rejected") {
+            if (entry.reason?.name !== "AbortError") sourcePages.current.failures.add(id);
+          }
+          else sourcePages.current.failures.delete(id);
+        });
         const loaded = settled.flatMap((entry) =>
           entry.status === "fulfilled" ? [{ ...entry.value, page: {
             ...entry.value.page,
             items: pendingUnsaves(entry.value.page.items, entry.value.source.id),
           } }] : [],
         );
+        if(onlySources) for(const source of activeSources) {
+          if(onlySources.includes(source.id))continue;
+          const page=sourcePages.current.pages.get(source.id);
+          if(page)loaded.push({source,page});
+        }
         for (const { source, page } of loaded) {
           // The outage fallback must include pages appended by Load more.
           const earlier = append && filter !== "done" ? sourcePages.current.pages.get(source.id)?.items : undefined;
@@ -1420,9 +1498,11 @@ export function Feed({
               : page.items,
           });
         }
+        if (!loaded.length && settled.length && settled.every(entry => entry.status === "rejected" && entry.reason?.name === "AbortError"))
+          throw new DOMException("Feed read superseded", "AbortError");
         if (!loaded.length && settled.length)
           throw new Error("Couldn’t load the Feed from any environment.");
-        partialError = settled.some((entry) => entry.status === "rejected")
+        partialError = sourcePages.current.failures.size
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
         if (!append || filter === "done") {
@@ -1486,7 +1566,7 @@ export function Feed({
         };
       } else {
         result = await readPage(
-          (before) => callRoute(workspaceApi.feed, { query: query(before) }, scopedSource),
+          (before) => readProjectionPage(scopedSource, query(before)),
           scopedSource,
           append ? next || undefined : undefined,
         );
@@ -1528,17 +1608,18 @@ export function Feed({
       if (!append) setSummary(result.summary);
       setError(partialError);
     } catch (e) {
-      if (isCurrent()) setError((e as Error).message);
+      if (isCurrent() && (e as Error).name !== "AbortError") setError((e as Error).message);
     } finally {
       if (ticket === request.current) inFlight.current = false;
       if (isCurrent()) {
         markLoaded(shownKey());
-        if ((followup || pendingRefresh.current === refreshContext) && owner === viewOwner()) doneCatchup.current = setTimeout(() => {
-          if (ticket === request.current && owner === viewOwner()) void load(false, true);
-        }, 100);
+        headSources.current.clear();
+        for (const source of followup) pending.add(source);
+        schedulePendingRefresh();
       }
     }
   }
+  recoverSource.current = source => { void load(false, true, [source]); };
   const firstLoad = useRef(true);
   useEffect(() => {
     setNeedsOpen(false);
@@ -1559,15 +1640,29 @@ export function Feed({
       setNeeds(cachedView<FeedItem[]>(needsKey()) || []);
     }
     firstLoad.current = false;
+    // Subscribe before the first snapshot. Invalidations during a request are
+    // a bounded trailing read; each retained page owns its own delta cursor.
+    const stopFrames = activeSources.map(source => listenProjectionFrames(source.id, frame => {
+      if(frame.type !== "reset") return;
+      projectionPages.current.reset(source.id);
+      readRecovery.current.reset(source.id);
+      if (inFlight.current) pendingRefresh.current.sources.add(source.id);
+    }));
     void load();
     return () => {
+      stopFrames.forEach(stop=>stop());
+      readRecovery.current.reset();
       ++request.current;
       ++needsRequest.current;
+      needsSourceRequests.current.clear();
+      pendingRefresh.current = { key: "", sources: new Set() };
+      headSources.current.clear();
       inFlight.current = false;
     };
-  }, [filter, project, teams, agent, sourceKey]);
+  }, [filter, project, teams, agent, sourceKey, generation]);
   useEffect(() => {
-    void load(false, true);
+    const legacy=activeSources.filter(source=>!reactiveSource(source.id,"feed")).map(source=>source.id);
+    if(legacy.length)void load(false, true, legacy);
   }, [revision]);
   useEffect(() => {
     // Explicit refreshes supersede an older read: dropping one while polling
@@ -1579,18 +1674,25 @@ export function Feed({
     window.addEventListener("loop-social-read", update);
     // "Retry connection" asks every source-backed view to reload now.
     window.addEventListener("loop-source-refresh", update);
-    // Workspace events already bump `revision`; this is only a fallback.
-    const timer = setInterval(() => void load(false, true), 30_000);
+    const stopChanges = listenWorkspaceChanges("feed", event => {
+      const detail=(event as CustomEvent<WorkspaceChangeDetail>).detail;
+      const affected=activeSources.filter(source=>workspaceChangeAffects(event,"feed",source.id) &&
+        (reactiveSource(source.id,"feed") || !detail?.changes)).map(source=>source.id);
+      if(affected.length)void load(false,true,affected);
+    });
+    const stopFallback = surfaceFallback(activeSources.map(source=>source.id),"feed",30_000,
+      missing => void load(false,true,missing));
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-social-read", update);
       window.removeEventListener("loop-source-refresh", update);
-      clearInterval(timer);
+      stopFallback();
+      stopChanges();
       clearTimeout(doneCatchup.current);
     };
     // Re-arm with every input `load` reads, so the fallback refresh never
     // replaces the Feed using a stale filter or source list.
-  }, [filter, project, teams, agent, sourceKey]);
+  }, [filter, project, teams, agent, sourceKey, generation]);
   async function runAction(
     runId: string,
     ...command: [action: "reorder", sourceId: string, body: RouteInput<typeof workspaceApi.runReorder>["body"]]
@@ -1724,7 +1826,9 @@ export function Feed({
       if (active) {
         ++request.current;
         inFlight.current = false;
-        clearTimeout(doneCatchup.current);
+        for (const source of headSources.current) pendingRefresh.current.sources.add(source);
+        headSources.current.clear();
+        schedulePendingRefresh();
         setLoadedKey(shownKey());
       }
     }

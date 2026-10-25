@@ -117,3 +117,86 @@ it("replays bounded, whole append events after disconnect halfway through a larg
   projection.install(recovered.messages, recovered.projection.cursor, recovered.range, false);
   expect(projection.rows()[0].content).toBe(replacement);
 }, 15000);
+it("serves atomic per-page Feed deltas with upserts, removals, filter changes and owner isolation", async () => {
+  const { reduceFeedPage } = await import("../src/shared/feed-projection");
+  const f = fixture;
+  f.db
+    .prepare(
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('feed-agent',?,'Agent','agent','openai','fixture',1)",
+    )
+    .run(f.owner);
+  const create = (id: string, owner = f.owner) =>
+    f.db
+      .transaction(() => {
+        f.db
+          .prepare(
+            "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,'feed-agent',?,1)",
+          )
+          .run(id, owner, id);
+        f.db
+          .prepare(
+            "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'feed-agent',?,?,'running',?,1,1)",
+          )
+          .run(id, owner, id, id, id);
+        f.db
+          .prepare("UPDATE runs SET created_at=?,updated_at=? WHERE id=?")
+          .run(Date.now(), Date.now(), id);
+      })
+      .immediate();
+  create("feed-a");
+  create("feed-b");
+  const read = async (path: string) => {
+    const r = await f.request(path, { headers: f.browser });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.projection.cursor).toBe(
+      Number(r.headers.get("x-loop-change-cursor")),
+    );
+    return body;
+  };
+  const first = await read("/api/feed?filter=working");
+  expect(first.items.map((i: any) => i.conversation_id)).toContain("feed-a");
+  const token = (p: any) =>
+    encodeURIComponent(
+      JSON.stringify({
+        epoch: p.projection.epoch,
+        selection: p.projectionRows.selection,
+        entities: p.projectionRows.entities,
+      }),
+    );
+  f.db.prepare("UPDATE runs SET input='Edited' WHERE id='feed-a'").run();
+  const delta = await read("/api/feed?filter=working&known=" + token(first));
+  expect(delta.projectionRows.delta).toBe(true);
+  expect(delta.items.map((i: any) => i.conversation_id)).toEqual(["feed-a"]);
+  let shown = reduceFeedPage(first, delta);
+  expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
+  f.db.prepare("UPDATE runs SET state='completed' WHERE id='feed-a'").run();
+  const removed = await read("/api/feed?filter=working&known=" + token(shown));
+  expect(removed.projectionRows.removed).toContain(
+    JSON.stringify(["feed-a", null]),
+  );
+  shown = reduceFeedPage(shown, removed);
+  expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
+  const changedFilter = await read(
+    "/api/feed?filter=done&known=" + token(shown),
+  );
+  expect(changedFilter.projectionRows.delta).toBe(false);
+  const before = shown.projection.cursor;
+  expect(() =>
+    f.db
+      .transaction(() => {
+        f.db.prepare("DELETE FROM runs WHERE id='feed-b'").run();
+        throw Error("rollback");
+      })
+      .immediate(),
+  ).toThrow("rollback");
+  const unchanged = await read(
+    "/api/feed?filter=working&known=" + token(shown),
+  );
+  expect(unchanged.items).toEqual([]);
+  expect(unchanged.projection.cursor).toBe(before);
+  create("feed-private", "other-owner");
+  const isolated = await read("/api/feed?filter=working&known=" + token(shown));
+  expect(isolated.items).toEqual([]);
+  expect(isolated.projection.cursor).toBe(before);
+}, 15000);

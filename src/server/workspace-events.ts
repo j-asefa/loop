@@ -108,7 +108,7 @@ export function connectWorkspaceEvents(
     }
     if (!v3 && initial && !events.length) reset = true;
     const changed = initial || reset || events.length > 0;
-    const capabilities = { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" as const, deadlines: clockV3 };
+    const capabilities = { ...COMPLETE_WORKSPACE_CAPABILITIES, deadlines: clockV3 };
     const announce = initial && projectionV3;
     initial = false;
     const frame = changed
