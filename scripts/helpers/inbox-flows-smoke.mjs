@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { runReceipt } from "./run-receipt.mjs";
 
 // Core Feed journeys: open a thread, reply in place, save a message into
 // Later, jump through the outline and set a thread reminder.
@@ -141,7 +142,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     const accept = async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       requests.push(route.request().postDataJSON());
-      await route.fulfill({ json: { id: "inbox-flow-reply" } });
+      await route.fulfill({ json: runReceipt(route.request(), "inbox-flow-reply") });
     };
     await page.route("**/api/runs", accept);
     try {

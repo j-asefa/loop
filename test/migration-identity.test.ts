@@ -260,7 +260,9 @@ it("records historical completion by name at real startup and restarts without m
       .map((f) => f.replace(/^\d+-|\.sql$/g, ""))
       .sort(),
   );
-  expect(first.applied).toHaveLength(legacyMigrationNames.size);
+  expect(first.legacy.map((row: { version: number }) => row.version)).toEqual(
+    [...legacyMigrationNames.keys()].sort((a, b) => a - b),
+  );
   expect(first.applied).toEqual(
     expect.arrayContaining(
       [104, 105, 106].map((prefix) =>

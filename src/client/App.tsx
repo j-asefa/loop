@@ -1133,6 +1133,13 @@ export default function App() {
   const draftKey = draftId(conversation || GLOBAL_DRAFT);
   const draftOwner = useRef({ key: draftKey, owner: session?.user?.id });
   const draftLoadedFor = useRef<string | null>(null);
+  const pendingDraftSave = useRef<{
+    key: string;
+    owner: string | undefined;
+    text: string;
+    files: UploadedFile[];
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
   useLayoutEffect(() => {
     if (!session?.user?.id) {
       draftLoadedFor.current = null;
@@ -1162,15 +1169,27 @@ export default function App() {
     setUploading(false);
     draftLoadedFor.current = draftKey;
   }, [draftKey, session?.user?.id]);
-  useEffect(() => {
+  // Bind the pending save to the committed composer before it can send.
+  // Acceptance cancels it synchronously, before a passive cleanup could run.
+  useLayoutEffect(() => {
     if (draftLoadedFor.current !== draftKey) return;
-    const owner = ownerRef.current;
-    const timer = setTimeout(
-      () => writeThreadDraft(draftKey, draft, attachments, owner),
-      400,
-    );
-    return () => clearTimeout(timer);
-  }, [draft, attachments, draftKey]);
+    const owner = session?.user?.id;
+    const pending = {
+      key: draftKey,
+      owner,
+      text: draft,
+      files: attachments,
+      timer: setTimeout(() => {
+        if (pendingDraftSave.current === pending) pendingDraftSave.current = null;
+        writeThreadDraft(draftKey, draft, attachments, owner);
+      }, 400),
+    };
+    pendingDraftSave.current = pending;
+    return () => {
+      clearTimeout(pending.timer);
+      if (pendingDraftSave.current === pending) pendingDraftSave.current = null;
+    };
+  }, [draft, attachments, draftKey, session?.user?.id]);
   // Flush before reload/backgrounding even when the short typing debounce has
   // not fired. The captured owner/source prevents an unscoped session draft
   // from being restored into whichever conversation opens next.
@@ -1768,6 +1787,17 @@ export default function App() {
               : recipient.folder_id || undefined,
       };
       const settleAccepted = () => {
+        const pending = pendingDraftSave.current;
+        if (
+          pending?.key === draftKey &&
+          pending.owner === owner &&
+          pending.text === draft &&
+          JSON.stringify(pending.files.map((file) => file.id)) ===
+            JSON.stringify(attachments.map((file) => file.id))
+        ) {
+          clearTimeout(pending.timer);
+          pendingDraftSave.current = null;
+        }
         clearAcceptedDraft(draftKey, draft, attachments, owner);
         if (request.current.key === sentReceipt!.key)
           request.current = { signature: "", key: "" };

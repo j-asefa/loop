@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { teamDirectorySmoke } from "./team-directory-smoke.mjs";
+import { runReceipt } from "./run-receipt.mjs";
 
 export async function teamNavigationSmoke(page, fixture, engine, capture) {
   const teams = await fixture.api("/teams");
@@ -75,11 +76,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
   const send = async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     requests.push(route.request().postDataJSON());
-    await route.fulfill({
-      status: 202,
-      contentType: "application/json",
-      body: JSON.stringify({ id: "accepted" }),
-    });
+    await route.fulfill({ status: 202, json: runReceipt(route.request(), "accepted") });
   };
   try {
     await teamDirectorySmoke(page, fixture, second);

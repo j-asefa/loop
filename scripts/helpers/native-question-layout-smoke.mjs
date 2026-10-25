@@ -36,8 +36,16 @@ export async function nativeQuestionLayoutSmoke(page, fixture, capture) {
   });
   const decision = (questions, id = "layout-question") => ({
     id,
+    run_id: "layout-question-run",
     conversation_id: fixture.conversations[0].id,
+    generation: "layout-question-generation",
+    native_id: id,
+    command_id: null,
+    digest: null,
+    created_at: Date.now(),
     name: "winter",
+    provider: "codex",
+    input: "Review the question layout fixture",
     state: "pending",
     request: JSON.stringify({
       id,
@@ -49,42 +57,47 @@ export async function nativeQuestionLayoutSmoke(page, fixture, capture) {
   const card = page.locator(".conversation-sheet .native-decision").first();
   const send = card.getByRole("button", { name: "Send response", exact: true });
   async function reachable(control) {
-    await control.evaluate((element) =>
-      element.scrollIntoView({ block: "center", inline: "nearest" }),
-    );
-    await expect(control).toBeInViewport({ ratio: 1 });
-    const bounds = await control.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const composer = document
-        .querySelector(".conversation-composer")
-        .getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const body = document.querySelector(
-        ".conversation-sheet > .sheet-inner > .sheet-body",
+    // Navigation and composer metadata can change the pane after the first
+    // scroll. Retry the scroll and all reachability checks within the same
+    // five-second window; permanently clipped controls still fail.
+    await expect(async () => {
+      await control.evaluate((element) =>
+        element.scrollIntoView({ block: "center", inline: "nearest" }),
       );
-      const hit = document.elementFromPoint(
-        rect.x + rect.width / 2,
-        rect.y + rect.height / 2,
+      await expect(control).toBeInViewport({ ratio: 1, timeout: 200 });
+      const bounds = await control.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const composer = document
+          .querySelector(".conversation-composer")
+          .getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const body = document.querySelector(
+          ".conversation-sheet > .sheet-inner > .sheet-body",
+        );
+        const hit = document.elementFromPoint(
+          rect.x + rect.width / 2,
+          rect.y + rect.height / 2,
+        );
+        return {
+          visible:
+            rect.top >= viewport.offsetTop &&
+            rect.bottom <= viewport.offsetTop + viewport.height + 1 &&
+            rect.bottom <= composer.top + 1 &&
+            body.scrollTop === 0 &&
+            element.contains(hit),
+          control: rect.toJSON(),
+          composer: composer.toJSON(),
+          viewport: { top: viewport.offsetTop, height: viewport.height },
+          bodyScroll: body.scrollTop,
+          hit: hit?.outerHTML.slice(0, 300),
+        };
+      });
+      assert(
+        bounds.visible,
+        "Question controls must receive taps above the composer and keyboard without scrolling a clipped parent: " +
+          JSON.stringify(bounds),
       );
-      return {
-        visible:
-          rect.top >= viewport.offsetTop &&
-          rect.bottom <= viewport.offsetTop + viewport.height + 1 &&
-          rect.bottom <= composer.top + 1 &&
-          body.scrollTop === 0 &&
-          element.contains(hit),
-        control: rect.toJSON(),
-        composer: composer.toJSON(),
-        viewport: { top: viewport.offsetTop, height: viewport.height },
-        bodyScroll: body.scrollTop,
-        hit: hit?.outerHTML.slice(0, 300),
-      };
-    });
-    assert(
-      bounds.visible,
-      "Question controls must receive taps above the composer and keyboard without scrolling a clipped parent: " +
-        JSON.stringify(bounds),
-    );
+    }).toPass({ timeout: 5000 });
   }
   for (const [width, height] of [
     [390, 844],

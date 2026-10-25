@@ -70,8 +70,16 @@ for (const engine of selectedEngines()) {
           json: [
             {
               id: "layout-approval",
+              run_id: "layout-run",
               conversation_id: fixture.conversations[0].id,
+              generation: "layout-generation",
+              native_id: council ? "council-request" : "request",
+              command_id: null,
+              digest: null,
+              created_at: Date.now(),
               name: "winter",
+              provider: "pi",
+              input: "Review the layout fixture",
               state: "pending",
               request: JSON.stringify(
                 council

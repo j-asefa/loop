@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { seedCheckout } from "./checkout-fixture.mjs";
+import { runReceipt } from "./run-receipt.mjs";
 
 // Continuity journeys: resume unfinished work from the Feed, return to an
 // earlier point in a long thread and back, defer with Remind me and Send
@@ -601,7 +602,63 @@ export async function continuitySmoke(page, fixture, capture) {
     });
     const composerFiles = page.locator(".conversation-composer .attachment-list");
     await expect(composerFiles).toContainText("layout-context.txt");
+    // Hold the draft debounce until the accepted send clears storage. Releasing
+    // it in the next microtask models an overdue save before React's passive
+    // cleanup, without depending on browser or host speed.
+    await page.evaluate(({ owner, id }) => {
+      const originalSetTimeout = window.setTimeout;
+      const originalClearTimeout = window.clearTimeout;
+      const later = originalSetTimeout.bind(window);
+      const cancel = originalClearTimeout.bind(window);
+      const remove = Storage.prototype.removeItem;
+      const held = new Map();
+      const fileKey = `loop-draft-files:${owner}:${id}`;
+      let armed = true;
+      let captured = 0;
+      let released = false;
+      window.setTimeout = (callback, delay, ...args) => {
+        if (!armed || delay !== 400 || typeof callback !== "function")
+          return later(callback, delay, ...args);
+        const timer = later(() => {}, 60000);
+        held.set(timer, () => callback(...args));
+        captured++;
+        return timer;
+      };
+      window.clearTimeout = (timer) => {
+        held.delete(timer);
+        cancel(timer);
+      };
+      Storage.prototype.removeItem = function (key) {
+        remove.call(this, key);
+        if (this === localStorage && key === fileKey && armed) {
+          armed = false;
+          queueMicrotask(() => {
+            released = true;
+            for (const [timer, callback] of held) {
+              held.delete(timer);
+              cancel(timer);
+              callback();
+            }
+          });
+        }
+      };
+      window.__draftSaveRace = {
+        captured: () => captured,
+        released: () => released,
+        restore: () => {
+          window.setTimeout = originalSetTimeout;
+          window.clearTimeout = originalClearTimeout;
+          Storage.prototype.removeItem = remove;
+          for (const [timer, callback] of held) {
+            cancel(timer);
+            callback();
+          }
+          held.clear();
+        },
+      };
+    }, { owner, id: working.id });
     await page.locator("#composer").fill("Also check the mobile layout");
+    await expect.poll(() => page.evaluate(() => window.__draftSaveRace.captured())).toBeGreaterThan(0);
     await expect(page.locator(".composer-intent")).toContainText(
       "Send steers @",
     );
@@ -623,7 +680,18 @@ export async function continuitySmoke(page, fixture, capture) {
     await dismissToast();
     const queued = thread().locator(".queued-controls");
     await expect(queued).toContainText("stays held");
+    await expect.poll(() => page.evaluate(() => window.__draftSaveRace.released())).toBe(true);
     await expect(composerFiles).toHaveCount(0);
+    await expect(page.locator("#composer")).toHaveValue("");
+    await expect.poll(() => page.evaluate(({ owner, id }) => ({
+      text: localStorage.getItem(`loop-draft-text:${owner}:${id}`),
+      files: localStorage.getItem(`loop-draft-files:${owner}:${id}`),
+    }), { owner, id: working.id })).toEqual({ text: null, files: null });
+    await page.evaluate(() => window.__draftSaveRace.restore());
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(queued).toContainText("stays held");
+    await expect(composerFiles).toHaveCount(0);
+    await expect(page.locator("#composer")).toHaveValue("");
     await queued.getByRole("button", { name: "Move to draft" }).click();
     await expect(page.locator("#composer")).toHaveValue(
       "Also check the mobile layout",
@@ -635,7 +703,7 @@ export async function continuitySmoke(page, fixture, capture) {
     const capture200 = async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       resent.push(route.request().postDataJSON());
-      await route.fulfill({ json: { id: "continuity-resend" } });
+      await route.fulfill({ json: runReceipt(route.request(), "continuity-resend") });
     };
     await page.route("**/api/runs", capture200);
     try {
@@ -644,6 +712,7 @@ export async function continuitySmoke(page, fixture, capture) {
         .getByRole("button", { name: "Send reply", exact: true })
         .click();
       await expect.poll(() => resent.length).toBe(1);
+      await expect(page.locator("#composer")).toHaveValue("");
     } finally {
       await page.unroute("**/api/runs", capture200);
     }

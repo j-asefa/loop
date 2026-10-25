@@ -198,11 +198,16 @@ export async function resultFilesSmoke(page, fixture, capture) {
       const url = new URL(response.url());
       return url.pathname === "/api/runs" && url.searchParams.get("active") === "1";
     });
-    committedId = Number(fixture.db.prepare(
-      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'artifact.published',?,?)",
-    ).run(fixture.owner, original.run_id, JSON.stringify({ artifactId: original.id }), Date.now()).lastInsertRowid);
+    // A real run write emits the scoped collection invalidation. Legacy
+    // artifact events no longer require an unrelated run-list refresh.
+    assert.equal(fixture.db.prepare(
+      "UPDATE runs SET updated_at=updated_at+1 WHERE id=?",
+    ).run(original.run_id).changes, 1);
+    committedId = fixture.db.prepare(
+      "SELECT id FROM events WHERE run_id=? AND type='invalidate' AND json_extract(payload,'$.scope.id')='runs' ORDER BY id DESC LIMIT 1",
+    ).get(original.run_id).id;
     await delivered;
-    // The committed event triggers the real, coalesced workspace refresh.
+    // The committed invalidation triggers the real, coalesced workspace refresh.
     await (await refreshed).finished();
     await page.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),

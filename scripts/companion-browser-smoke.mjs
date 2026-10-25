@@ -176,8 +176,6 @@ try {
       billing: {
         mode: "subscription",
         description: "Native subscription sign-in; no API fallback.",
-        requiredAuth: "claude",
-        allowApiFallback: false,
       },
     }),
   );

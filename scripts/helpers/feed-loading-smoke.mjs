@@ -382,7 +382,8 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
       "An environment is temporarily unavailable. Its last loaded agents are still shown.",
       { exact: false },
     );
-    await expect(outage).toBeVisible();
+    // Metadata reads retry after two and four seconds before showing an outage.
+    await expect(outage).toBeVisible({ timeout: 10_000 });
     metadataFails = false;
     metadata = Promise.withResolvers();
     const beforeRetry = metadataReads;

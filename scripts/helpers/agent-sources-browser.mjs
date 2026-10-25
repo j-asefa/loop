@@ -1,5 +1,6 @@
 import { sourceConversationBrowser } from "./source-conversation-browser.mjs";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 
 // Exercises the production Feed and creation form with two independent API
@@ -46,6 +47,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         conversation_id: index === 0 ? "laptop-thread" : `remote-thread-${index}`,
         title: `Remote thread ${index}`,
         agent_id: agent.id,
+        connection_id: agent.connection_id,
         agent_name: agent.name,
         provider: agent.provider,
         project_id: null,
@@ -100,6 +102,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       conversation_id: "laptop-thread",
       title: "Laptop thread",
       agent_id: "laptop-agent",
+      connection_id: "laptop-connection",
       agent_name: "laptop-agent",
       provider: "codex",
       project_id: null,
@@ -193,8 +196,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       });
     if (match[2] === "uploads") {
       const file = {
-        id: `uploaded-${uploads.length}`,
-        objectId: `object-${uploads.length}`,
+        id: randomUUID(),
+        objectId: randomUUID(),
         name: `attachment-${uploads.length}.txt`,
         mime: "text/plain",
         size: 5,
@@ -301,7 +304,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       page.getByText(
         "Connection check unavailable. Showing your last connected environments.",
       ),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('.inbox-row[data-retained="yes"]')).toBeVisible();
     await expect(
       strip.getByRole("button", { name: /@remote-0/ }),

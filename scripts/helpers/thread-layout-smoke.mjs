@@ -66,6 +66,9 @@ export async function threadLayoutSmoke(page, capture) {
           recordUsage(1500, 400);
           await expect(usage).toHaveText("1.5k in · 400 out tokens", { timeout: 10000 });
           fixture.db.prepare("DELETE FROM events WHERE run_id=? AND type='native.usage'").run(usageRun);
+          // This fixture deletes append-only receipts directly. Refresh the
+          // empty state explicitly; there is no production receipt-delete signal.
+          await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
           await expect(usage).toHaveCount(0, { timeout: 10000 });
           recordUsage(1200, 300);
           await expect(usage).toHaveText("1.2k in · 300 out tokens", { timeout: 10000 });

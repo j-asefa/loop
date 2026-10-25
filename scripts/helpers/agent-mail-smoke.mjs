@@ -121,19 +121,23 @@ export async function agentMailSmoke(page, fixture, _engine, capture) {
   await expect(direct).toBeVisible();
   // Explicit error/retry and loading states.
   const endpoint = `${fixture.base}/api/agents/${a.id}/mail`;
-  await page.route(
-    endpoint,
-    (route) =>
-      route.fulfill({
-        status: 503,
-        json: { error: "Fixture source temporarily unavailable" },
-      }),
-    { times: 1 },
-  );
+  // Keep the outage through the bounded GET retries before testing manual recovery.
+  let failedReads = 0;
+  const unavailable = (route) => {
+    failedReads++;
+    return route.fulfill({
+      status: 503,
+      json: { error: "Fixture source temporarily unavailable" },
+    });
+  };
+  await page.route(endpoint, unavailable);
   await region.getByRole("button", { name: "Refresh mail" }).click();
   await expect(region.getByRole("alert")).toContainText(
     "temporarily unavailable",
+    { timeout: 10_000 },
   );
+  expect(failedReads).toBeGreaterThanOrEqual(3);
+  await page.unroute(endpoint, unavailable);
   await region.getByRole("button", { name: "Refresh mail" }).click();
   await expect(region.getByRole("alert")).toHaveCount(0);
   // A late read from the previous profile is discarded on navigation.

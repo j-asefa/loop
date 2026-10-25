@@ -602,6 +602,8 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
 }, 30_000);
 
 
+// These cases start an isolated compiled server, like the other endpoint tests.
+// Keep their fixture budget consistent; event polling retains its own bound.
 it.each(["secret", "routing"] as const)("revokes a connection with invalid %s through the compiled v3 endpoint", async (invalid) => {
   const f = await fixture("server");
   const socket = connect(f, "?v=3&clock=1");
@@ -617,4 +619,4 @@ it.each(["secret", "routing"] as const)("revokes a connection with invalid %s th
   expect(f.db.prepare("SELECT secret,status,metadata FROM connections WHERE id='status-connection'").get()).toEqual({ secret: "", status: "disconnected", metadata });
   expect(f.db.prepare("SELECT count(*) n FROM runs").get()).toEqual({ n: 0 });
   socket.socket.close();
-});
+}, 30_000);

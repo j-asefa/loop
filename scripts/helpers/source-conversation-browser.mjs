@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { runReceipt } from "./run-receipt.mjs";
 
 // The real app, with independent source APIs (no provider calls). Request
 // destinations and document identity are observed across actual user actions.
@@ -20,13 +22,22 @@ export async function sourceConversationBrowser(
   const snapshot = (record) => ({
     conversation: {
       id: record.thread.conversation_id,
+      owner_id: record.agent.owner_id,
       agent_id: record.agent.id,
       title: record.thread.title,
       origin: "loop",
+      external_id: null,
+      created_at: record.thread.last_activity_at,
+      team_id: null,
+      execution_backend: "native",
+      execution_connection_id: record.agent.connection_id,
+      project_id: null,
     },
     messages: [
       {
         id: record.thread.last_message.id,
+        owner_id: record.agent.owner_id,
+        conversation_id: record.thread.conversation_id,
         role: "assistant",
         content: record.thread.last_message.preview,
         metadata: "{}",
@@ -36,6 +47,7 @@ export async function sourceConversationBrowser(
       },
     ],
     next: null,
+    position_message_id: null,
     saved: [],
   });
   const handle = async (route) => {
@@ -69,7 +81,7 @@ export async function sourceConversationBrowser(
     }
     if (path === `messages/${record.thread.last_message.id}`)
       return fulfill(route, {
-        id: record.thread.last_message.id,
+        ...snapshot(record).messages[0],
         content: `Full reading view for ${record.agent.name}`,
       });
     if (path.endsWith("/activities"))
@@ -87,12 +99,12 @@ export async function sourceConversationBrowser(
     if (path === "uploads" && slowUploads) {
       const number = ++uploadNumber;
       await new Promise(resolve => setTimeout(resolve, 1000));
-      return fulfill(route, { id: `batch-${number}`, objectId: `batch-object-${number}`, name: `batch-${number}.txt`, mime: "text/plain", size: 5 });
+      return fulfill(route, { id: randomUUID(), objectId: randomUUID(), name: `batch-${number}.txt`, mime: "text/plain", size: 5 });
     }
     if (path === "uploads" && holdUpload) {
       const held = holdUpload; holdUpload = null;
       await held();
-      return fulfill(route, { id: "late-upload", objectId: "late-object", name: "late.txt", mime: "text/plain", size: 4 });
+      return fulfill(route, { id: randomUUID(), objectId: randomUUID(), name: "late.txt", mime: "text/plain", size: 4 });
     }
     if (path === "runs" && method === "POST") {
       if (refuseSend) return unavailable(route);
@@ -102,7 +114,7 @@ export async function sourceConversationBrowser(
         await held();
       }
       return fulfill(route, {
-        id: `accepted-${source}`,
+        ...runReceipt(route.request(), `accepted-${source}`),
         agent_id: record.agent.id,
         conversation_id: record.thread.conversation_id,
         state: "queued",
@@ -356,6 +368,7 @@ export async function sourceConversationBrowser(
       has: page.getByRole("button", { name: "Try again", exact: true }),
     })).toContainText(
       "Fixture connection interrupted",
+      { timeout: 10_000 },
     );
     offline = false;
     await dialog()
@@ -378,6 +391,7 @@ export async function sourceConversationBrowser(
       await page.goto(url.toString());
       await expect(dialog().getByRole("alert")).toContainText(
         "Fixture connection interrupted",
+        { timeout: 10_000 },
       );
       assert.equal(new URL(page.url()).searchParams.get(key), sources[0].id);
       offline = false;

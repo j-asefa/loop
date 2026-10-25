@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
+import { runReceipt } from "./helpers/run-receipt.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
@@ -364,14 +365,11 @@ for (const engine of selectedEngines()) {
         await page.route("**/api/runs", async (route) => {
           if (route.request().method() !== "POST") return route.continue();
           requests.push(route.request().postDataJSON());
+          if (requests.length > 1)
+            return route.fulfill({ json: runReceipt(route.request(), "accepted") });
           return route.fulfill({
-            status: requests.length === 1 ? 503 : 200,
-            contentType: "application/json",
-            body: JSON.stringify(
-              requests.length === 1
-                ? { error: "Fixture reply unavailable" }
-                : { id: "accepted" },
-            ),
+            status: 503,
+            json: { error: "Fixture reply unavailable" },
           });
         });
         await composer
