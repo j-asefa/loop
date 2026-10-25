@@ -22,6 +22,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Results stream (result cards and files, `/api/results`)   | [results.ts](../src/server/results.ts), [core-routes.ts](../src/server/core-routes.ts)                                         |
 | Your profile, sent prompts and decision history | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts) |
 | UI and shared contracts                                   | [client](../src/client), [shared](../src/shared), [workspace HTTP contracts](../src/shared/workspace-api.ts)                 |
+| Composer UI, draft lifecycle and sends | [app/Composer.tsx](../src/client/app/Composer.tsx) |
 
 ## Saved rows
 

@@ -132,6 +132,7 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
 
       // Reusing unchanged text must still display real agent updates, without
       // replacing the draft. This also exercises compact and full Markdown.
+      await input.evaluate((element) => element.setSelectionRange(7, 14));
       const update = `Updated while typing in the ${mode}.`;
       fixture.db
         .prepare("UPDATE messages SET content=? WHERE id=?")
@@ -148,6 +149,11 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
         scope.getByText(update, { exact: true }).first(),
       ).toBeVisible();
       await expect(input).toHaveValue(text);
+      await expect(input).toBeFocused();
+      expect(
+        await input.evaluate((element) => [element.selectionStart, element.selectionEnd]),
+        "A workspace refresh must preserve the composer's selected text",
+      ).toEqual([7, 14]);
       await capture("typing-" + mode);
     }
   } finally {
