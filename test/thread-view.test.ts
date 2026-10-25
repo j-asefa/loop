@@ -5,6 +5,7 @@ import {
   dayLabel,
   duration,
   feedNextAction,
+  feedReplyQuote,
   laterChoices,
   mergeActivityRecords,
   reminderReason,
@@ -153,6 +154,34 @@ describe("feed next actions", () => {
     expect(feedNextAction(null, "")).toBeNull();
     // Never claims a decision was made.
     expect(JSON.stringify(feedNextAction(approve, ""))).not.toMatch(/approved/i);
+  });
+});
+
+describe("feed reply quotes", () => {
+  const done = {
+    done_card_key: "run:r1",
+    agent_id: "a1",
+    origin: "app",
+    last_message: { id: "m1", role: "assistant", content: "The **result**", preview: "The result" },
+  };
+  it("quotes the result a Done card shows", () => {
+    expect(feedReplyQuote(done)).toEqual({
+      agentId: "a1",
+      messageId: "m1",
+      content: "The **result**",
+    });
+    expect(
+      feedReplyQuote({ ...done, last_message: { ...done.last_message, role: "user" } }),
+    ).toMatchObject({ messageId: "m1", mine: true });
+  });
+  it("replies to the thread unquoted when there is nothing to quote", () => {
+    expect(feedReplyQuote({ ...done, done_card_key: undefined })).toBeNull();
+    expect(feedReplyQuote({ ...done, agent_id: null })).toBeNull();
+    expect(feedReplyQuote({ ...done, origin: "chatgpt-import" })).toBeNull();
+    expect(feedReplyQuote({ ...done, last_message: null })).toBeNull();
+    expect(
+      feedReplyQuote({ ...done, last_message: { ...done.last_message, content: "  " } }),
+    ).toBeNull();
   });
 });
 

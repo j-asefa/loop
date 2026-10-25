@@ -86,6 +86,8 @@ import { shareLink } from "./Handoff";
 import { threadDraft, sourceDraftId } from "./drafts";
 import {
   feedNextAction,
+  feedReplyQuote,
+  type FeedReplyQuote,
   preview,
   relativeTime,
   runStatus,
@@ -1056,7 +1058,12 @@ export function Feed({
   emptyAction?: ReactNode;
   hideFilters?: boolean;
   connections?: EnvironmentConnection[];
-  onReply?: (conversation: string, sourceId?: string) => void;
+  /** A Done card passes the result it shows, to quote in the reply. */
+  onReply?: (
+    conversation: string,
+    sourceId?: string,
+    quote?: FeedReplyQuote,
+  ) => void;
   agent?: string;
   /** Open Later → Scheduled. */
   onScheduled?: () => void;
@@ -2012,7 +2019,11 @@ export function Feed({
         onOpen={() => onOpen(item.conversation_id, undefined, source)}
         onReply={() =>
           onReply
-            ? onReply(item.conversation_id, source)
+            ? onReply(
+                item.conversation_id,
+                source,
+                feedReplyQuote(item) ?? undefined,
+              )
             : onOpen(item.conversation_id, undefined, source)
         }
         onNext={(action) =>

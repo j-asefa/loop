@@ -719,7 +719,19 @@ export default function App() {
     });
   // Replies happen inside the thread: open it (at the quoted message) instead
   // of leaving it, so reading and answering stay in one place.
-  function beginReply(context: ComposerContext, text?: string) {
+  function beginReply(
+    context: ComposerContext,
+    text?: string,
+    source = actionSource,
+  ) {
+    const switching =
+      !!context.conversationId &&
+      (conversation !== context.conversationId ||
+        source !== conversationSource);
+    // Opening a thread from another source clears the composer's context, so
+    // open it before setting the reply.
+    if (switching)
+      setConversation(context.conversationId, context.messageId, source);
     setActiveArtifact(null);
     setContextArtifact(null);
     setReplyContext(context);
@@ -729,30 +741,27 @@ export default function App() {
     const url = new URL(location.href);
     url.searchParams.delete("artifact");
     history.replaceState(history.state, "", url.pathname + url.search);
-    const switching =
-      !!context.conversationId && conversation !== context.conversationId;
     const previous =
       text ??
       ((context.messageId &&
         sessionStorage.getItem(
-          "loop-message-reply-" + draftId(context.messageId),
+          "loop-message-reply-" + draftId(context.messageId, source),
         )) ||
         (context.artifactId &&
           sessionStorage.getItem(
-            "loop-result-reply-" + draftId(context.artifactId),
+            "loop-result-reply-" + draftId(context.artifactId, source),
           )) ||
         undefined);
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
-      if (previous !== undefined && !threadDraft(context.conversationId).text)
-        saveThreadDraft(context.conversationId, previous, []);
+      const key = draftId(context.conversationId, source);
+      if (previous !== undefined && !readThreadDraft(key).text)
+        writeThreadDraft(key, previous, [], session?.user?.id);
     } else if (text !== undefined) setDraft(text);
     else if (!draft.trim() && previous) setDraft(previous);
     setComposerExpanded(true);
-    if (context.conversationId && conversation !== context.conversationId) {
-      setConversation(context.conversationId, context.messageId, actionSource);
-      focusThreadComposer(context.conversationId);
-    } else if (context.conversationId) focusComposer();
+    if (switching) focusThreadComposer(context.conversationId);
+    else if (context.conversationId) focusComposer();
     else afterSheetsClose(focusComposer);
   }
   const replyRequest = useRef(0);
@@ -2358,9 +2367,16 @@ export default function App() {
                 sources={unified.feedSources}
                 sourcesLoading={unified.loading}
                 onOpen={openSourcedConversation}
-                onReply={(c, source) => {
-                  openSourcedConversation(c, undefined, source);
-                  focusThreadComposer(c);
+                onReply={(c, source, quote) => {
+                  if (!quote) {
+                    openSourcedConversation(c, undefined, source);
+                    return focusThreadComposer(c);
+                  }
+                  beginReply(
+                    { ...quote, conversationId: c },
+                    undefined,
+                    source ?? executionSourceId(),
+                  );
                 }}
                 connections={unified.connections}
                 onAgent={openSourcedAgent}

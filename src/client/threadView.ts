@@ -258,6 +258,37 @@ export function feedNextAction(
   return null;
 }
 
+export type FeedReplyQuote = {
+  agentId: string;
+  messageId: string;
+  content: string;
+  mine?: boolean;
+};
+/**
+ * What a Done card's Reply quotes: the result the card shows, so the reply
+ * answers that message rather than whatever the thread said last. Other
+ * cards, imported threads and empty messages reply to the thread unquoted.
+ */
+export function feedReplyQuote(item: {
+  done_card_key?: string;
+  agent_id: string | null;
+  origin: string;
+  last_message: { id: string; role: string; content?: string; preview: string } | null;
+}): FeedReplyQuote | null {
+  const message = item.last_message;
+  if (!item.done_card_key || !item.agent_id || item.origin.endsWith("-import") || !message)
+    return null;
+  if (!["assistant", "user"].includes(message.role)) return null;
+  const content = message.content ?? message.preview;
+  if (!content.trim()) return null;
+  return {
+    agentId: item.agent_id,
+    messageId: message.id,
+    content,
+    ...(message.role === "user" ? { mine: true } : {}),
+  };
+}
+
 /** Context for an editable follow-up on a captured Git diff. */
 export type ChangeContext = {
   projectName?: string;
