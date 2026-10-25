@@ -1,3 +1,6 @@
+import type { QueryRow } from "./query-records.js";
+import { agentPayload } from "./row-schemas.js";
+
 import { z } from "zod";
 import {
   reviewReadSchema,
@@ -12,7 +15,7 @@ import {
 import { memberRole } from "./agent-mail-policy.js";
 import { createHash } from "node:crypto";
 import { db, now, emit } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedApproval, ownedConnection, ownedRun, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import { transition, type Run } from "./queue.js";
 import { requestApproval } from "./approvals.js";
@@ -158,7 +161,7 @@ export function nativeBindings(
   run: Run,
   options: { plans?: boolean } = {},
 ): ToolBinding[] {
-  if (JSON.parse(run.payload).reviewId)
+  if (run.payload.reviewId)
     return [
       {
         name: "loop_review_read",
@@ -211,7 +214,7 @@ export function nativeBindings(
         .get(run.agent_id, run.owner_id) as
         { retired_at: number | null } | undefined)
     : undefined;
-  if (agent && !agent.retired_at && !JSON.parse(run.payload).execution) {
+  if (agent && !agent.retired_at && !run.payload.execution) {
     descriptions.loop_agents =
       "Discover other non-retired agents owned by this user on this Loop server. Search by name and paginate with nextOffset. Results include stable agentIds and runtime availability, not a guarantee that inference can start. No cross-server messaging.";
     descriptions.loop_message =
@@ -241,7 +244,7 @@ export async function invokeNative(
   // Only callers that advertised loop_plan (the API runtime) may invoke it.
   options: { plans?: boolean } = {},
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
-  if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+  if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   if (!nativeBindings(run, options).some((t) => t.tool === binding.tool))
     throw new Problem(403, "Native tool is unavailable to this agent");
@@ -252,7 +255,7 @@ export async function invokeNative(
       : JSON.stringify(args);
   const previous = db
     .prepare("SELECT * FROM native_calls WHERE run_id=? AND call_id=?")
-    .get(run.id, callId) as any;
+    .get(run.id, callId) as QueryRow<"native_calls"> | undefined;
   if (
     previous &&
     (previous.tool !== binding.tool || previous.arguments !== encoded)
@@ -280,7 +283,7 @@ export async function invokeNative(
       artifactId = published.artifactId;
       text = JSON.stringify(published);
     } catch (error) {
-      if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+      if (ownedRun(run.id, run.owner_id).state !== "running")
         throw error;
       isError = true;
       text = "File was not published: " + (error as Error).message;
@@ -344,7 +347,7 @@ export async function invokeNative(
         messageId: (
           db
             .prepare("SELECT message_id FROM agent_checkpoints WHERE run_id=?")
-            .get(run.id) as any
+            .get(run.id) as QueryRow<"agent_checkpoints"> | undefined
         )?.message_id,
       },
     });
@@ -353,16 +356,13 @@ export async function invokeNative(
     const d = install.parse(args);
     parseMcpConfig(d.config); // Validate before asking for approval.
     let approval = previous?.approval_id
-      ? owned<any>("approvals", previous.approval_id, run.owner_id)
+      ? ownedApproval(previous.approval_id, run.owner_id)
       : null;
     if (!approval) {
-      const preview = JSON.parse(d.config);
-      for (const server of Object.values(preview.mcpServers) as any[]) {
-        for (const field of ["env", "headers"])
-          if (server[field])
-            server[field] = Object.fromEntries(
-              Object.keys(server[field]).map((key) => [key, "[provided]"]),
-            );
+      const preview = { mcpServers: Object.fromEntries(parseMcpConfig(d.config)) };
+      for (const server of Object.values(preview.mcpServers)) {
+        if ("env" in server) server.env = Object.fromEntries(Object.keys(server.env).map(key => [key, "[provided]"]));
+        if ("headers" in server && server.headers) server.headers = Object.fromEntries(Object.keys(server.headers).map(key => [key, "[provided]"]));
       }
       approval = requestApproval(run, {
         type: "mcp_install",
@@ -382,21 +382,17 @@ export async function invokeNative(
     }
     if (approval.state !== "approved" || approval.expires_at < now())
       throw new Problem(403, "Installation approval is no longer valid");
-    const connection = owned<any>(
-      "connections",
-      JSON.parse(run.payload).connectionId,
-      run.owner_id,
-    );
+    const connection = ownedConnection(agentPayload(run).connectionId, run.owner_id);
     const installed = await installConfig(
       run.owner_id,
       d.config,
       run.agent_id!,
       run.id + ":" + callId,
       ["codex-app-server", "native-host"].includes(
-        JSON.parse(connection.metadata).runtimeKind,
+        connection.metadata.runtimeKind || "",
       )
         ? undefined
-        : JSON.parse(connection.metadata).runtimeHostId,
+        : connection.metadata.runtimeHostId,
     );
     text = JSON.stringify(installed);
     db.prepare(
@@ -456,10 +452,10 @@ export async function invokeNative(
               });
             })()
           : binding.tool === "loop_message"
-            ? sendMail(run, callId, args as any)
+            ? sendMail(run, callId, args)
             : binding.tool === "loop_agents"
-              ? agentDirectory(run, args as any)
-              : mailStatus(run, args as any),
+              ? agentDirectory(run, args)
+              : mailStatus(run, args),
       );
     } catch (error) {
       // Refusals (limits, recipients, threads) go back to the agent; a run
@@ -467,7 +463,7 @@ export async function invokeNative(
       if (
         !(error instanceof Problem) ||
         error.message === "Tool call identity was reused" ||
-        owned<Run>("runs", run.id, run.owner_id).state !== "running"
+        ownedRun(run.id, run.owner_id).state !== "running"
       )
         throw error;
       isError = true;
@@ -484,7 +480,7 @@ export async function invokeNative(
       // Refusals (team, repository, capture) go back to the agent.
       if (
         !(error instanceof Problem) ||
-        owned<Run>("runs", run.id, run.owner_id).state !== "running"
+        ownedRun(run.id, run.owner_id).state !== "running"
       )
         throw error;
       outcome = {
@@ -500,7 +496,7 @@ export async function invokeNative(
   } else {
     const { tasks, wait } = delegate.parse(args);
     const background = wait === false;
-    const teamId = JSON.parse(run.payload).teamId;
+    const teamId = run.payload.teamId;
     for (const task of tasks)
       if (
         !db
@@ -517,17 +513,17 @@ export async function invokeNative(
           .prepare(
             "SELECT d.*,r.state,r.result,r.error,r.agent_id,r.id FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? AND substr(d.call_id,1,?)=?",
           )
-          .all(run.id, callId.length + 1, callId + ":") as any[];
+          .all(run.id, callId.length + 1, callId + ":") as (QueryRow<"delegations"> & Pick<Run, "state" | "result" | "error" | "agent_id" | "id">)[];
         if (prior.length) return prior;
         if (existing.n + tasks.length > 16)
           throw new Problem(
             400,
             "This manager run reached its 16-task delegation budget",
           );
-        if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+        if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Manager is no longer running");
         return tasks.map((task, i) => {
-          const parent = JSON.parse(run.payload);
+          const parent = run.payload;
           const child = submit(run.owner_id, {
             agentId: task.agentId,
             input: task.input,

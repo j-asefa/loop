@@ -139,7 +139,7 @@ it("recovers retired connections only after account verification, preserving tea
     idempotencyKey: id(),
   });
   expect(next.conversation_id).toBe(team.conversation_id);
-  expect(JSON.parse(next.payload).execution).toBeUndefined();
+  expect(next.payload.execution).toBeUndefined();
 });
 it("leaves intentional disconnects disconnected and does not invoke their account probes", async () => {
   connection("codex", "disconnected");
@@ -168,4 +168,31 @@ it("keeps other harnesses usable when discovery fails and never substitutes a bi
     db.prepare("SELECT status FROM connections WHERE id='native-codex'").get(),
   ).toEqual({ status: "connected" });
   expect(nativeSessions.registration("codex").billing).toBe("subscription");
+});
+
+it("keeps an explicitly revoked damaged native connection disconnected on startup", async () => {
+  connection("codex", "connected", true);
+  db.prepare("UPDATE connections SET metadata=json_set(metadata,'$.permissionMode','bogus','$.nativeRecoveryRequired',json('true')) WHERE id='native-codex'").run();
+  const { default: express } = await import("express");
+  const { core } = await import("../src/server/core-routes");
+  const { errorHandler } = await import("../src/server/error-handler");
+  const app = express();
+  app.use((req, res, next) => { res.locals.owner = req.get("x-owner"); next(); });
+  app.use(core, errorHandler);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing fixture address");
+  try {
+    const url = `http://127.0.0.1:${address.port}/connections/native-codex`;
+    expect((await fetch(url, { method: "DELETE", headers: { "x-owner": "foreign" } })).status).toBe(404);
+    expect((await fetch(url, { method: "DELETE", headers: { "x-owner": OWNER } })).status).toBe(200);
+    const saved = db.prepare("SELECT metadata FROM connections WHERE id='native-codex'").get() as { metadata: string };
+    mocks();
+    await prepareLocalHarnesses(root, ["codex"]);
+    expect(probe).not.toHaveBeenCalled();
+    expect(Codex.prototype.start).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT status,secret FROM connections WHERE id='native-codex'").get()).toEqual({ status: "disconnected", secret: "" });
+    expect(JSON.parse(saved.metadata)).toEqual({ loopHarness: "codex", authMode: "subscription", permissionMode: "bogus" });
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });

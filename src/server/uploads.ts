@@ -1,3 +1,5 @@
+import { type Artifact } from "./row-schemas.js";
+
 import { z } from "zod";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -5,9 +7,9 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedFolder, ownedAgent, ownedArtifact, ownedObject, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
-import type { Artifact } from "../shared/types.js";
+
 import type { ChatMessage } from "./providers.js";
 import {
   MAX_MESSAGE_FILES,
@@ -27,8 +29,8 @@ export function uploadFile(
 ): UploadedFile {
   if (file.buffer.length > MAX_UPLOAD_BYTES)
     throw new Problem(413, "Files can be up to 25 MB each");
-  if (options.folderId) owned("folders", options.folderId, owner);
-  if (options.agentId) owned("agents", options.agentId, owner);
+  if (options.folderId) ownedFolder(options.folderId, owner);
+  if (options.agentId) ownedAgent(options.agentId, owner);
   const name =
     file.originalname
       .replaceAll("\\", "/")
@@ -90,7 +92,7 @@ function publishedFile(artifact: Artifact, owner: string) {
   const bytes = readFileSync(join(config.data, row.object_key));
   if (createHash("sha256").update(bytes).digest("base64") !== row.checksum)
     throw new Problem(409, "File integrity check failed");
-  const meta = JSON.parse(artifact.metadata);
+  const meta = artifact.metadata;
   return {
     artifact,
     object: {
@@ -104,18 +106,14 @@ function publishedFile(artifact: Artifact, owner: string) {
   };
 }
 export function uploadedFile(owner: string, fileId: string) {
-  const artifact = owned<Artifact>("artifacts", fileId, owner);
-  const meta = JSON.parse(artifact.metadata);
+  const artifact = ownedArtifact(fileId, owner);
+  const meta = artifact.metadata;
   // Archiving hides the file from workspace lists; accepted conversations and
   // retries still own their references. Ownership is checked for both records.
   if (!meta.upload && meta.uploaded) return publishedFile(artifact, owner);
   if (!meta.upload) throw new Problem(404, "Uploaded file not found");
-  const object = owned<{
-    id: string;
-    name: string;
-    mime: string;
-    bytes: Buffer;
-  }>("objects", meta.objectId, owner);
+  if (!meta.objectId) throw new Problem(409, `Artifact ${artifact.id} has no upload identity`);
+  const object = ownedObject(meta.objectId, owner);
   return { artifact, object, text: meta.text === true };
 }
 export function attachedFiles(owner: string, ids: string[]): UploadedFile[] {

@@ -79,17 +79,8 @@ const Json = z.unknown().refine((value) => {
     return false;
   }
 }, "Expected bounded JSON display data");
-export const RunEventState = z.enum([
-  "queued",
-  "running",
-  "pausing",
-  "paused",
-  "awaiting_approval",
-  "completed",
-  "failed",
-  "cancelled",
-  "interrupted",
-]);
+import { RunState } from "./run-state.js";
+export const RunEventState = RunState;
 export type RunEventState = z.infer<typeof RunEventState>;
 export const RunEventPayload = z.strictObject({
   message: Text.optional(),

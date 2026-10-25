@@ -298,11 +298,11 @@ it("queues three fresh read-only reviewers before the lead, preserves retries, a
     ).toContain("no longer executing");
     const followup = submit("alice", {
       agentId: team.manager_id,
-      conversationId: review.conversationId,
+      conversationId: review.conversationId!,
       input: "Explain the first finding",
       idempotencyKey: id(),
     });
-    expect(JSON.parse(followup.payload).reviewId).toBe(review.id);
+    expect(followup.payload.reviewId).toBe(review.id);
     expect(reviewContext(followup)).toContain("Fixture reviewer failure");
     transition(followup, "cancelled");
     const denied = await fetch(
@@ -507,7 +507,7 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
     expect(JSON.parse(run.payload).maxSeconds).toBe(600);
   }
   const claimed = claim("native-review-worker")!;
-  expect(JSON.parse(claimed.payload).reviewId).toBe(review.id);
+  expect(claimed.payload.reviewId).toBe(review.id);
   let prompt = "";
   const live = {
     generation: id(),

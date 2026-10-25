@@ -1,7 +1,7 @@
 import { reactiveSource } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
-import type { Agent, Connection, Folder, Run } from "../shared/types";
+import type { Agent, Connection, Folder, RunView as Run } from "../shared/types";
 import { apiInWorkspace, readInWorkspace, retryAfter, parse } from "./api";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";

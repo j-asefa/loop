@@ -10,7 +10,7 @@ import {
   SettingsSegmented,
   SettingsSteps,
 } from "./SettingsUI";
-import type { Agent, Folder, Run } from "../shared/types";
+import type { Agent, Folder, RunView as Run } from "../shared/types";
 export type SharedDraft = {
   url: string;
   title: string;

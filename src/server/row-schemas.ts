@@ -109,6 +109,14 @@ export type Run = z.infer<typeof RunRow>;
 export const RunControl = RunRow.pick({
   id: true, owner_id: true, state: true, worker_id: true, attention_dismissed_at: true,
 });
+// Notification delivery reads the stopped sender's outcome, never its execution
+// payload. The recipient still builds and validates its own fresh run.
+export const RunNotice = RunRow.pick({
+  id: true, owner_id: true, agent_id: true, conversation_id: true,
+  input: true, state: true, result: true, error: true,
+});
+export type RunNotice = z.infer<typeof RunNotice>;
+export function maybeRunNotice(value: unknown) { return value === undefined ? undefined : parseRecord(RunNotice, value, "runs"); }
 export function parseRun(value: unknown): Run {
   const raw = parseRecord(z.object({ id: Id, payload: z.unknown() }), value, "runs");
   // Unknown legacy display fields are retained on reads, never allowed on new
@@ -137,6 +145,16 @@ export function parseConnection(value: unknown) {
   return { ...row, metadata, models };
 }
 export type Connection = ReturnType<typeof parseConnection>;
+// Revocation needs the destination, never model catalogs, display fields or
+// the provider credential being revoked. It cannot construct an execution row.
+const ConnectionControlMetadata = ConnectionMetadata.pick({
+  loopHarness: true, authMode: true, runtimeHostId: true, runtimeKind: true, permissionMode: true,
+}).strip();
+export function parseConnectionControl(value: unknown) {
+  const row = parseRecord(ConnectionRecord.pick({ id: true, owner_id: true, provider: true, metadata: true }), value, "connections");
+  return { ...row, metadata: readJson(ConnectionControlMetadata, row.metadata, "connections", row.id, "metadata") };
+}
+export type ConnectionControl = ReturnType<typeof parseConnectionControl>;
 export function parseMessage(value: unknown) {
   const row = parseRecord(MessageRecord, value, "messages");
   return { ...row, metadata: readJson(MessageMetadata.passthrough(), row.metadata, "messages", row.id, "metadata") };
@@ -170,6 +188,11 @@ export function messageResponse<T extends Message>(row: T) { return { ...row, me
 export function artifactResponse<T extends Artifact>(row: T) { return { ...row, metadata: JSON.stringify(row.metadata) }; }
 
 export function readRunPayload(value: unknown, rowId: string) { return readJson(RunPayload.passthrough(), value, "runs", rowId, "payload"); }
+// A fresh turn carries only these separately validated fields from its
+// predecessor. Unrelated corrupt execution fields never become defaults.
+export function readRunFolder(value: unknown, rowId: string) { return readJson(RunPayload.pick({ folderId: true }).strip(), value, "runs", rowId, "payload").folderId; }
+export function readRunReviewId(value: unknown, rowId: string) { return readJson(RunPayload.pick({ reviewId: true }).strip(), value, "runs", rowId, "payload").reviewId; }
+export function readRunConnectionId(value: unknown, rowId: string) { return readJson(RunPayload.pick({ connectionId: true }).strip(), value, "runs", rowId, "payload").connectionId; }
 
 export function parseMcpConnection(value: unknown) {
   const row = parseRecord(McpConnectionRecord, value, "mcp_connections");

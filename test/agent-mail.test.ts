@@ -12,7 +12,7 @@ process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { createAgent, Problem, owned } = await import("../src/server/domain");
+const { createAgent, Problem, ownedRun } = await import("../src/server/domain");
 const { createTeam, deleteTeam, listTeams } =
   await import("../src/server/teams");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
@@ -98,7 +98,7 @@ function running(
   db.prepare(
     "UPDATE runs SET state='running',worker_id='fixture-worker' WHERE id=?",
   ).run(run.id);
-  return owned<Run>("runs", run.id, owner);
+  return ownedRun(run.id, owner);
 }
 function binding(run: Run, tool: string) {
   return nativeBindings(run).find((b) => b.tool === tool);
@@ -125,7 +125,7 @@ const mail = (mailId: string) =>
   db.prepare("SELECT * FROM agent_mail WHERE id=?").get(mailId) as any;
 const runOf = (runId: string) => {
   const row = db.prepare("SELECT owner_id FROM runs WHERE id=?").get(runId) as { owner_id: string };
-  return owned<Run>("runs", runId, row.owner_id);
+  return ownedRun(runId, row.owner_id);
 };
 const userMessage = (runId: string) =>
   db
@@ -1146,7 +1146,7 @@ it.each(["team", "direct"])(
     expect(received.input).toContain(
       scope === "team" ? "from a teammate" : "from another agent",
     );
-    expect(JSON.parse(received.payload).connectionId).toBe(codex.connection_id);
+    expect(received.payload.connectionId).toBe(codex.connection_id);
     db.prepare("UPDATE runs SET state='running' WHERE id=?").run(received.id);
     expect(
       readRunFile(runOf(received.id), file.artifactId, 0, 1000, "utf8").content,
@@ -1164,7 +1164,7 @@ it.each(["team", "direct"])(
     const final = db
       .prepare("SELECT run_id FROM agent_mail WHERE sender_run_id=?")
       .get(received.id) as any;
-    expect(JSON.parse(runOf(final.run_id).payload).connectionId).toBe(
+    expect(runOf(final.run_id).payload.connectionId).toBe(
       pi.connection_id,
     );
     db.prepare("UPDATE runs SET state='running' WHERE id=?").run(final.run_id);
@@ -1362,10 +1362,10 @@ it("binds two direct participants across teams and keeps their original conversa
       .get(row.recipient_conversation_id),
   ).toEqual({ team_id: null });
   const recipient = runOf(row.run_id);
-  expect(JSON.parse(recipient.payload)).toMatchObject({
+  expect(recipient.payload).toMatchObject({
     connectionId: b.connection_id,
   });
-  expect(JSON.parse(recipient.payload).teamId).toBeUndefined();
+  expect(recipient.payload.teamId).toBeUndefined();
   expect(recipient.input).not.toContain("on your team");
   const elsewhere = running(owner, a.id, { teamId: firstTeam.id });
   const replyRun = running(owner, b.id, {
@@ -1739,7 +1739,7 @@ it.each(["disconnected", "deleted"])(
       state: "refused",
       error: expect.stringContaining("provider selected"),
     });
-    expect(JSON.parse(runOf(target.id).payload).connectionId).toBe(
+    expect(runOf(target.id).payload.connectionId).toBe(
       recipient.connection_id,
     );
     transition(next, "completed");
@@ -2034,4 +2034,49 @@ it("arbitrates mail claims between independent worker processes and never replay
   });
   expect(statuses.messages[0].status).toBe("unconfirmed");
   expect(mail(receipts[1].messageId).requeued_run_id).toBeNull();
+});
+
+it.each(["models", "secret", "metadata"] as const)("isolates damaged teammate %s from healthy turns and directory discovery", async (column) => {
+  const owner = id(), { manager, coder, piWorker, team } = mixedTeam(owner);
+  const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
+  const bad = column === "models" ? '[{"id":"fixture","name":42}]'
+    : column === "secret" ? "bad-envelope" : '{"loopHarness":false}';
+  db.prepare(`UPDATE connections SET ${column}=? WHERE id=?`).run(bad, coder.connection_id);
+  const restore = withTestAdapter("openai", {
+    async models() { return []; },
+    async *stream() { yield { text: "Healthy teammate still works." }; },
+  });
+  try {
+    expect(await executeAgent(lead)).toBe(true);
+    const page = await toolResult(lead, "loop_agents", {});
+    expect(page.agents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentId: coder.id, runtime: "unavailable", availability: "unavailable", reason: expect.stringContaining(coder.connection_id!) }),
+      expect.objectContaining({ agentId: piWorker.id, availability: "available" }),
+    ]));
+    expect(await message(lead, { to: coder.id, body: "Unavailable" })).toEqual({ error: expect.stringContaining(coder.connection_id!) });
+    expect(db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(coder.id)).toEqual({ n: 0 });
+  } finally { restore(); }
+});
+
+it.each([["reviewId", null], ["connectionId", false], ["maxSeconds", 0]])("delivers exactly one failure notice for a rejected background child with invalid %s", (field, value) => {
+  const owner = id(), { manager, coder, team } = mixedTeam(owner);
+  const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
+  const child = submit(owner, { agentId: coder.id, teamId: team.id, input: "Background work", idempotencyKey: id() });
+  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,'{}',1)").run(lead.id, id(), child.id);
+  const payload = JSON.stringify({ ...child.payload, [String(field)]: value });
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(payload, child.id);
+  expect(claim("reject-invalid", (r) => r.id === child.id)).toBeUndefined();
+  expect(db.prepare("SELECT state,worker_id,error FROM runs WHERE id=?").get(child.id)).toEqual({ state: "failed", worker_id: null, error: expect.stringContaining(child.id) });
+  transition(lead, "completed");
+  sweepAgentMail();
+  sweepAgentMail(now() + 600000);
+  const notices = db.prepare("SELECT state,run_id FROM agent_mail WHERE owner_id=? AND kind='result'").all(owner) as { state: string; run_id: string }[];
+  expect(notices).toHaveLength(1);
+  expect(notices[0].state).toBe("sent");
+  const notice = runOf(notices[0].run_id);
+  expect(notice.conversation_id).toBe(lead.conversation_id);
+  expect(notice.input).toContain(child.id);
+  expect(notice.input).toContain("ended: failed");
+  expect(db.prepare("SELECT payload FROM runs WHERE id=?").get(child.id)).toEqual({ payload });
+  expect(db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(child.id)).toBeUndefined();
 });

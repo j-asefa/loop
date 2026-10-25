@@ -1,3 +1,6 @@
+import { ConnectionMetadata, ConnectionModels, requireSealedSecret, type Connection, type ConnectionControl } from "./row-schemas.js";
+
+
 import { writeConnectionStatus } from "./connection-status.js";
 import {
   diagnosticText,
@@ -20,10 +23,10 @@ import { HarnessError } from "../../runtime/harness.ts";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedArtifact, ownedConnection, Problem } from "./domain.js";
 import { adapter, type ChatInput, type Chunk } from "./providers.js";
 import { unseal } from "./secrets.js";
-import type { Connection } from "../shared/types.js";
+
 import { runtimeEndpoint } from "./runtime-hosts.js";
 import { runtimeGithubCredential } from "./runtime-github.js";
 import { redactCredentials } from "./mcp/redaction.js";
@@ -33,12 +36,12 @@ import {
   codexCapabilities,
 } from "./codex-app-server.js";
 
-export const isSubscription = (c: Connection) =>
-  JSON.parse(c.metadata).authMode === "subscription" || isNativeConnection(c);
+export const isSubscription = (c: Pick<Connection, "metadata">) =>
+  c.metadata.authMode === "subscription" || isNativeConnection(c);
 export const runtimeConfigured = () =>
   !!process.env.LOOP_RUNTIME_URL &&
   (process.env.LOOP_RUNTIME_TOKEN?.length || 0) >= 32;
-export const runtimeKey = (c: Connection) =>
+export const runtimeKey = (c: Pick<Connection, "id" | "owner_id">) =>
   createHash("sha256")
     .update(c.owner_id + "\0" + c.id)
     .digest("hex");
@@ -47,14 +50,14 @@ export const runtimeWorkspaceKey = (owner: string, agent: string) =>
     .update("agent\0" + owner + "\0" + agent)
     .digest("hex");
 async function request(
-  c: Connection,
+  c: ConnectionControl,
   action: string,
   extra: object = {},
   signal?: AbortSignal,
 ) {
   const endpoint = runtimeEndpoint(
     c.owner_id,
-    JSON.parse(c.metadata).runtimeHostId,
+    c.metadata.runtimeHostId,
     c.provider === "codex" ? "codex" : "claude",
   );
   if (endpoint.kind === "codex-app-server") {
@@ -105,12 +108,12 @@ async function request(
   return r;
 }
 export async function runtimeAction(
-  c: Connection,
+  c: ConnectionControl,
   action: string,
   extra: object = {},
   signal?: AbortSignal,
 ) {
-  const harness = JSON.parse(c.metadata).loopHarness;
+  const harness = c.metadata.loopHarness;
   if (harness) {
     if (!companionMode)
       throw new Problem(409, "Native harnesses require the companion profile.");
@@ -153,7 +156,7 @@ async function stageUpload(
   const cacheKey = [runtimeKey(c), input.workspaceKey ?? "", fileId].join(":");
   const cached = stagedUploads.get(cacheKey);
   if (cached) {
-    owned("artifacts", fileId, c.owner_id);
+    ownedArtifact(fileId, c.owner_id);
     const present = await runtimeAction(
       c,
       "write-upload",
@@ -255,7 +258,7 @@ export async function* subscriptionStream(
 ): AsyncGenerator<Chunk> {
   const endpoint = runtimeEndpoint(
     c.owner_id,
-    JSON.parse(c.metadata).runtimeHostId,
+    c.metadata.runtimeHostId,
     c.provider === "codex" ? "codex" : "claude",
   );
   if (endpoint.kind === "codex-app-server") {
@@ -364,11 +367,11 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
   try {
     yield* isSubscription(c)
       ? subscriptionStream(c, input)
-      : adapter(c.provider).stream(unseal(c.secret, c.owner_id), input);
+      : adapter(c.provider).stream(unseal(requireSealedSecret(c), c.owner_id), input);
   } catch (error) {
     // Only failures from the provider stream can invalidate its credentials.
     // MCP ownership and approvals are checked outside this boundary.
-    if ([401, 403].includes((error as any)?.status))
+    if (error && typeof error === "object" && "status" in error && (error.status === 401 || error.status === 403))
       writeConnectionStatus(c.id, () => db.prepare(
         "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
       ).run(c.id, c.owner_id));
@@ -376,7 +379,7 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
     if (error instanceof Problem || input.signal.aborted) throw error;
     const message = isSubscription(c)
       ? `The ${c.provider === "codex" ? "Codex" : "Claude"} runtime connection failed (${errorSummary(error, [], false)}). Check Traces for any saved progress.`
-      : `${c.provider === "anthropic" ? "Claude" : "OpenAI"} provider: ${errorSummary(error, [unseal(c.secret, c.owner_id)])}`;
+      : `${c.provider === "anthropic" ? "Claude" : "OpenAI"} provider: ${errorSummary(error, [unseal(requireSealedSecret(c), c.owner_id)])}`;
     throw new Problem(502, message, errorFacts(error));
   }
 }
@@ -415,7 +418,7 @@ subscriptions.post("/subscriptions", (req, res) => {
         owner,
         d.provider === "codex" ? "codex" : "anthropic",
         d.label,
-        JSON.stringify({
+        JSON.stringify(ConnectionMetadata.parse({
           authMode: "subscription",
           runtime: d.provider,
           runtimeHostId: d.runtimeHostId,
@@ -423,20 +426,16 @@ subscriptions.post("/subscriptions", (req, res) => {
           billing: "Subscription allowance",
           scope:
             "Official runtime sign-in; no API fallback. Past chats are imported separately.",
-        }),
+        })),
         now(),
       ));
-      return owned<Connection>("connections", key, owner);
+      return ownedConnection(key, owner);
     })
     .immediate();
   res.status(201).json({ id: record.id });
 });
 subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
-  const c = owned<Connection>(
-    "connections",
-    String(req.params.id),
-    res.locals.owner,
-  );
+  const c = ownedConnection(String(req.params.id), res.locals.owner);
   if (!isSubscription(c))
     throw new Problem(400, "This connection uses an API key");
   const action = z
@@ -472,7 +471,7 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
     throw error;
   }
   if (
-    owned<Connection>("connections", c.id, c.owner_id).status === "disconnected"
+    ownedConnection(c.id, c.owner_id).status === "disconnected"
   ) {
     res.json({ authenticated: false });
     return;
@@ -503,12 +502,12 @@ subscriptions.post("/subscriptions/:id/:action", async (req, res) => {
     writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
     ).run(
-      JSON.stringify(models),
+      JSON.stringify(ConnectionModels.parse(models)),
       JSON.stringify({
-        ...JSON.parse(c.metadata),
-        plan: result.plan,
-        limits: result.limits,
-        checkedAt: now(),
+        ...c.metadata,
+        // Preserve validated historical fields in place; only this status
+        // patch is new data and must pass the strict write schema.
+        ...ConnectionMetadata.parse({ plan: result.plan, limits: result.limits, checkedAt: now() }),
       }),
       c.id,
     ));

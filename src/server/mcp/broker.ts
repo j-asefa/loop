@@ -1,3 +1,5 @@
+import { QueryRecords, type QueryRow } from "../query-records.js";
+
 import { watchRun } from "../run-signal.js";
 import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
 import {
@@ -9,9 +11,9 @@ import Ajv from "ajv";
 import Ajv2019 from "ajv/dist/2019.js";
 import Ajv2020 from "ajv/dist/2020.js";
 import { db, id, now, emit } from "../db.js";
-import { owned, Problem } from "../domain.js";
-import type { Run } from "../queue.js";
-import { transition } from "../queue.js";
+import { ownedAgent, ownedMcpConnection, ownedApproval, ownedRun, Problem } from "../domain.js";
+import { type Run, transition } from "../queue.js";
+
 import { requestApproval } from "../approvals.js";
 import { saveArtifact } from "../artifacts.js";
 import { readSecret, type MCPConnection } from "./client.js";
@@ -40,7 +42,7 @@ const validators = {
   "2020-12": new Ajv2020(options),
 };
 export function toolBindings(owner: string, agent: string): ToolBinding[] {
-  owned("agents", agent, owner);
+  ownedAgent(agent, owner);
   return workspaceToolBindings(owner);
 }
 export function authorizeTool(
@@ -50,7 +52,7 @@ export function authorizeTool(
   toolName: string,
   args: unknown,
 ) {
-  owned("agents", agentId, owner);
+  ownedAgent(agentId, owner);
   return authorizeConnectionTool(owner, connectionId, toolName, args);
 }
 /** Validate a source-owned MCP call made through a delegated peer token. */
@@ -60,7 +62,7 @@ export function authorizeConnectionTool(
   toolName: string,
   args: unknown,
 ) {
-  const c = owned<MCPConnection>("mcp_connections", connectionId, owner);
+  const c = ownedMcpConnection(connectionId, owner);
   if (c.status !== "connected")
     throw new Problem(409, "Tool connection is disabled or needs reconnecting");
   const tool = JSON.parse(c.tools).find((t: any) => t.name === toolName);
@@ -123,7 +125,7 @@ export async function invokeTool(
   callId: string,
   args: Record<string, unknown>,
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
-  if (JSON.parse(run.payload).reviewId)
+  if (run.payload.reviewId)
     throw new Problem(
       403,
       "Snapshot reviews can only read their captured repository",
@@ -132,11 +134,7 @@ export async function invokeTool(
   const agentId = run.agent_id;
   // An unpinned merge is refused before approval and never sent. Returning a
   // tool error lets the agent re-read the PR and retry with the head SHA.
-  const target = owned<MCPConnection>(
-    "mcp_connections",
-    binding.connectionId,
-    run.owner_id,
-  );
+  const target = ownedMcpConnection(binding.connectionId, run.owner_id);
   const descriptor = JSON.parse(target.tools).find(
     (tool: any) => tool.name === binding.tool,
   );
@@ -158,7 +156,7 @@ export async function invokeTool(
   );
   let invocation = db
     .prepare("SELECT * FROM tool_invocations WHERE run_id=? AND call_id=?")
-    .get(run.id, callId) as any;
+    .get(run.id, callId) as QueryRow<"tool_invocations"> | undefined;
   if (
     invocation &&
     (invocation.connection_id !== connection.id ||
@@ -166,11 +164,14 @@ export async function invokeTool(
       invocation.args !== JSON.stringify(args))
   )
     throw new Problem(409, "Tool call identity was reused for different input");
-  if (invocation && ["completed", "failed"].includes(invocation.state))
+  if (invocation && ["completed", "failed"].includes(invocation.state)) {
+    if (invocation.result === null || invocation.artifact_id === null)
+      throw new Problem(409, `Tool invocation ${invocation.id} has no saved result`);
     return {
       result: JSON.parse(invocation.result),
       artifactId: invocation.artifact_id,
     };
+  }
   if (invocation && ["executing", "unknown"].includes(invocation.state))
     throw new Problem(
       409,
@@ -185,7 +186,7 @@ export async function invokeTool(
         mcpApprovalMode(run.owner_id) === "allow" &&
         !authorized.alwaysAsk;
       let approval = invocation?.approval_id
-        ? owned<any>("approvals", invocation.approval_id, run.owner_id)
+        ? ownedApproval(invocation.approval_id, run.owner_id)
         : null;
       if (!approval) {
         approval = requestApproval(
@@ -196,7 +197,7 @@ export async function invokeTool(
             server: connection.name,
             tool: binding.tool,
             arguments: args,
-            message: `Allow @${JSON.parse(run.payload).name || "agent"} to call ${displayTool} on ${connection.name}?`,
+            message: `Allow @${run.payload.name || "agent"} to call ${displayTool} on ${connection.name}?`,
             callId,
           },
           automaticallyAllowed,
@@ -216,9 +217,9 @@ export async function invokeTool(
           approval.id,
           now(),
         );
-        invocation = db
+        invocation = QueryRecords.tool_invocations.parse(db
           .prepare("SELECT * FROM tool_invocations WHERE id=?")
-          .get(invocationId);
+          .get(invocationId));
       }
       if (
         approval.state === "pending" &&
@@ -230,7 +231,7 @@ export async function invokeTool(
             "UPDATE approvals SET state='approved' WHERE id=? AND state='pending' AND expires_at>?",
           )
           .run(approval.id, now());
-        approval = owned<any>("approvals", approval.id, run.owner_id);
+        approval = ownedApproval(approval.id, run.owner_id);
         if (approved.changes) {
           emit(run.owner_id, run.id, "approval.auto_approved", {
             approvalId: approval.id,
@@ -260,7 +261,7 @@ export async function invokeTool(
           .prepare(
             "UPDATE tool_invocations SET state='executing' WHERE id=? AND state='pending'",
           )
-          .run(invocation.id);
+          .run(invocation!.id);
         if (!row.changes)
           throw new Problem(409, "Tool execution already started");
         db.prepare(
@@ -271,6 +272,7 @@ export async function invokeTool(
     })
     .immediate();
   if (approval.state === "pending") return { pending: approval.id };
+  const invocationId = QueryRecords.tool_invocations.parse(invocation).id;
   recordTrace(run, "tool:" + callId, {
     kind: "tool",
     title: binding.tool,
@@ -291,7 +293,7 @@ export async function invokeTool(
       binding.tool,
       args,
     );
-    const live = owned<Run>("runs", run.id, run.owner_id);
+    const live = ownedRun(run.id, run.owner_id);
     if (live.state !== "running")
       throw new Problem(409, "Run is no longer executing");
     phase = "calling";
@@ -307,7 +309,7 @@ export async function invokeTool(
         readSecret(connection),
         // OAuth may rotate credentials during a tool call.
         readSecret(
-          owned<MCPConnection>("mcp_connections", connection.id, run.owner_id),
+          ownedMcpConnection(connection.id, run.owner_id),
         ),
       ]);
     const encoded = JSON.stringify(redact(result));
@@ -332,19 +334,19 @@ export async function invokeTool(
           agent: run.agent_id,
           conversation: run.conversation_id,
           run: run.id,
-          folder: JSON.parse(run.payload).folderId,
+          folder: run.payload.folderId,
           metadata: {
             messageId: (
               db
                 .prepare(
                   "SELECT message_id FROM agent_checkpoints WHERE run_id=?",
                 )
-                .get(run.id) as any
+                .get(run.id) as QueryRow<"agent_checkpoints"> | undefined
             )?.message_id,
             connectionId: connection.id,
             tool: binding.tool,
             arguments: args,
-            invocationId: invocation.id,
+            invocationId: invocationId,
             fetchedAt: now(),
             toolResult: result,
             isError: toolFailed,
@@ -357,7 +359,7 @@ export async function invokeTool(
           toolFailed ? "failed" : "completed",
           JSON.stringify(result),
           artifactId,
-          invocation.id,
+          invocationId,
         );
         db.prepare(
           "UPDATE approvals SET state='completed',result=? WHERE id=?",
@@ -400,7 +402,7 @@ export async function invokeTool(
       const secrets = [
         readSecret(connection),
         readSecret(
-          owned<MCPConnection>("mcp_connections", connection.id, run.owner_id),
+          ownedMcpConnection(connection.id, run.owner_id),
         ),
       ];
       cause = diagnosticText(
@@ -441,7 +443,7 @@ export async function invokeTool(
         content: [{ type: "text", text: message }],
         failure,
       }),
-      invocation.id,
+      invocationId,
     );
     db.prepare(
       "UPDATE approvals SET state='unknown',result=? WHERE id=? AND state='executing'",

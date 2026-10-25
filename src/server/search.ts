@@ -1,10 +1,12 @@
 import type { QueryRow } from "./query-records.js";
+import { InvalidRow, requireSealedSecret } from "./row-schemas.js";
+import { ownedConnection } from "./domain.js";
 import { searchExcerpt } from "../shared/search-excerpt.js";
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
 import { db, now } from "./db.js";
 import { unseal } from "./secrets.js";
-import type { Connection } from "../shared/types.js";
+
 import { localEmbeddings, localModel } from "./local-embeddings.js";
 import { traceArtifactSql } from "./results.js";
 export type SearchDoc = {
@@ -27,7 +29,8 @@ const hash = (d: SearchDoc) =>
   createHash("sha256")
     .update(d.title + "\n" + d.content)
     .digest("hex");
-function embeddingConfig(owner: string) {
+type EmbeddingConfig = { id: string; owner_id: string; embedding_model: string | null; local?: true };
+function embeddingConfig(owner: string): EmbeddingConfig | undefined {
   const preference = db
     .prepare("SELECT * FROM preferences WHERE owner_id=?")
     .get(owner) as QueryRow<"preferences"> | undefined;
@@ -36,18 +39,19 @@ function embeddingConfig(owner: string) {
       id: "local",
       owner_id: owner,
       embedding_model: localModel,
-    } as Connection & { embedding_model: string };
+      local: true,
+    };
   return db
     .prepare(
-      "SELECT c.*,p.embedding_model FROM preferences p JOIN connections c ON c.id=p.embedding_connection AND c.owner_id=p.owner_id WHERE p.owner_id=? AND p.embedding_enabled=1 AND c.provider='openai' AND c.status='connected'",
+      "SELECT c.id,c.owner_id,p.embedding_model FROM preferences p JOIN connections c ON c.id=p.embedding_connection AND c.owner_id=p.owner_id WHERE p.owner_id=? AND p.embedding_enabled=1 AND c.provider='openai' AND c.status='connected'",
     )
-    .get(owner) as (Connection & { embedding_model: string }) | undefined;
+    .get(owner) as EmbeddingConfig | undefined;
 }
 // The selected shared corpus has one embedding owner (MemSearch). Existing
 // lexical search remains available; unrelated existing search keeps its backend.
 const eligibleText =
   "length(trim(d.title || ' ' || d.content))>0 AND NOT EXISTS(SELECT 1 FROM memory_sources ms WHERE ms.owner_id=d.owner_id AND (ms.kind||':'||ms.source_id)=d.id AND ms.eligible=1 AND ms.tombstone=0)";
-const configuration = (c: Connection & { embedding_model?: string }) =>
+const configuration = (c: EmbeddingConfig) =>
   JSON.stringify([c.id, c.embedding_model || modelDefault]);
 export function searchStatus(owner: string) {
   const preference = db
@@ -103,12 +107,14 @@ export function searchStatus(owner: string) {
   return { enabled: true, state, ...counts, pending, detail };
 }
 export async function embed(
-  c: Connection & { embedding_model?: string },
+  c: EmbeddingConfig,
   text: string[],
 ) {
+  if (c.local) return localEmbeddings(text);
+  const connection = ownedConnection(c.id, c.owner_id);
   if (c.embedding_model === localModel) return localEmbeddings(text);
   const result = await new OpenAI({
-    apiKey: unseal(c.secret, c.owner_id),
+    apiKey: unseal(requireSealedSecret(connection), connection.owner_id),
     maxRetries: 0,
     timeout: 20000,
   }).embeddings.create({
@@ -211,10 +217,10 @@ export async function indexPending() {
           }),
         )();
         status("ready");
-      } catch {
+      } catch (error) {
         status(
           "error",
-          c.embedding_model === localModel
+          error instanceof InvalidRow ? error.message : c.embedding_model === localModel
             ? "Local semantic indexing failed. Loop will retry automatically; keyword search is available."
             : "The embedding provider could not index your content. Check the API account in Search preferences; keyword search is available.",
         );
@@ -353,7 +359,10 @@ export async function search(
         c.embedding_model === localModel
           ? "Keyword + semantic results. Text stays on your Loop server."
           : "Keyword + semantic results. Embeddings and this query go to your selected OpenAI API account.";
-    } catch {
+    } catch (error) {
+      if (error instanceof InvalidRow)
+        db.prepare("INSERT OR REPLACE INTO search_index_status VALUES(?,?,?,?,?)")
+          .run(owner, configuration(c), "error", error.message, now());
       detail = "Semantic service unavailable; showing keyword results.";
     }
   }
@@ -403,7 +412,7 @@ export async function search(
                    AND m.role='assistant' AND json_extract(m.metadata,'$.progress') IS NOT 1 AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))
                  WHERE a.id=? AND a.owner_id=?`,
               )
-              .get(d.id.slice(9), owner) as any
+              .get(d.id.slice(9), owner) as { message_id: string } | undefined
           )?.message_id;
       const agent = d.agent_id
         ? db

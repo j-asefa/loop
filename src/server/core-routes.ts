@@ -1,5 +1,7 @@
-import { runResponse } from "./row-schemas.js";
+import { InvalidRow, parseConnectionControl, ConnectionModels, ConnectionMetadata, runResponse, messageResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
+
+
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { localArtifact } from "./published-files.js";
@@ -25,7 +27,7 @@ import { personalDecisions } from "./personal-decisions.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages } from "./conversation-messages.js";
-import { dismissRun } from "./run-attention.js";
+import { cancelRun, dismissRun } from "./run-attention.js";
 import { conversationReturnState } from "./mobile-return.js";
 import {
   isSubscription,
@@ -36,13 +38,7 @@ import {
 import { Router } from "express";
 import { z } from "zod";
 import { db, emit, id, now } from "./db.js";
-import {
-  owned,
-  renameAgent,
-  Problem,
-  agentInput,
-  validateEffort,
-} from "./domain.js";
+import { owned, ownedAgent, ownedConversation, ownedArtifact, ownedConnection, ownedMessage, ownedRun, renameAgent, Problem, agentInput, validateEffort } from "./domain.js";
 import { createWithPrompt } from "./agent-creation.js";
 import { suggestAgentName } from "./agent-names.js";
 import { adapter } from "./providers.js";
@@ -50,8 +46,8 @@ import { seal, unseal } from "./secrets.js";
 import { nextTurnConnection, submit } from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
 import { attachmentIds } from "./uploads.js";
-import { transition, type Run } from "./queue.js";
-import type { Agent, Connection, Message } from "../shared/types.js";
+import { transition } from "./queue.js";
+
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
@@ -111,20 +107,20 @@ core.post("/connections", async (req, res) => {
     d.label,
     seal(d.secret, res.locals.owner),
     "connected",
-    JSON.stringify(models),
-    JSON.stringify({
+    JSON.stringify(ConnectionModels.parse(models)),
+    JSON.stringify(ConnectionMetadata.parse({
       billing: "API-billed",
       scope:
         "Models available to this key; consumer chat history is not included",
-    }),
+    })),
     now(),
   ));
   res.json({ id: record, models });
 });
 core.post("/connections/:id/refresh", async (req, res) => {
-  const c = owned<Connection>("connections", req.params.id, res.locals.owner);
+  const c = ownedConnection(req.params.id, res.locals.owner);
   if (isNativeConnection(c)) {
-    const harness = JSON.parse(c.metadata).loopHarness;
+    const harness = c.metadata.loopHarness;
     return res.json(
       await executionRequest("runtime.refresh", { connectionId: c.id }, { owner: res.locals.owner }),
     );
@@ -140,7 +136,7 @@ core.post("/connections/:id/refresh", async (req, res) => {
     );
     writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET models=?,status='connected' WHERE id=?",
-    ).run(JSON.stringify(models), c.id));
+    ).run(JSON.stringify(ConnectionModels.parse(models)), c.id));
     res.json({ models });
   } catch {
     writeConnectionStatus(c.id, () => db.prepare(
@@ -153,16 +149,14 @@ core.post("/connections/:id/refresh", async (req, res) => {
   }
 });
 core.get("/connections/:id/models", async (req, res) => {
-  const c = owned<Connection>("connections", req.params.id, res.locals.owner);
+  const c = ownedConnection(req.params.id, res.locals.owner);
   if (c.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
   let models;
   if (isNativeConnection(c)) {
-    const harness = JSON.parse(c.metadata).loopHarness;
+    const harness = c.metadata.loopHarness;
     await executionRequest("runtime.refresh", { connectionId: c.id }, { owner: res.locals.owner });
-    models = JSON.parse(
-      owned<Connection>("connections", c.id, res.locals.owner).models,
-    );
+    models = ownedConnection(c.id, res.locals.owner).models;
   } else if (isSubscription(c)) {
     const result = await runtimeAction(c, "status");
     if (!result.authenticated)
@@ -194,13 +188,13 @@ core.get("/connections/:id/models", async (req, res) => {
     .max(300)
     .parse(models);
   db.prepare("UPDATE connections SET models=? WHERE id=?").run(
-    JSON.stringify(catalog),
+    JSON.stringify(ConnectionModels.parse(catalog)),
     c.id,
   );
   res.json({ models: catalog });
 });
 core.post("/connections/:id/reconnect", async (req, res) => {
-  const c = owned<Connection>("connections", req.params.id, res.locals.owner),
+  const c = ownedConnection(req.params.id, res.locals.owner),
     secret = z.string().min(8).max(4096).parse(req.body.secret);
   if (isSubscription(c))
     throw new Problem(
@@ -211,18 +205,23 @@ core.post("/connections/:id/reconnect", async (req, res) => {
     const models = await adapter(c.provider).models(secret);
     writeConnectionStatus(c.id, () => db.prepare(
       "UPDATE connections SET secret=?,models=?,status='connected' WHERE id=?",
-    ).run(seal(secret, res.locals.owner), JSON.stringify(models), c.id));
+    ).run(seal(secret, res.locals.owner), JSON.stringify(ConnectionModels.parse(models)), c.id));
     res.json({ ok: true });
   } catch {
     throw new Problem(422, "Could not validate this API key");
   }
 });
 core.delete("/connections/:id", async (req, res) => {
-  const c = owned<Connection>("connections", req.params.id, res.locals.owner);
-  writeConnectionStatus(c.id, () => db.prepare(
-    "UPDATE connections SET secret='',status='disconnected',metadata=json_remove(metadata,'$.retiredDirectRuntime','$.nativeRecoveryRequired') WHERE id=?",
-  ).run(req.params.id));
-  if (isSubscription(c)) await runtimeAction(c, "logout");
+  const raw = owned("connections", req.params.id, res.locals.owner);
+  let c: ReturnType<typeof parseConnectionControl> | undefined;
+  try { c = parseConnectionControl(raw); }
+  catch (error) { if (!(error instanceof InvalidRow)) throw error; }
+  // Revocation must work for an unavailable row, without using its invalid
+  // routing for an external logout or repairing it into an executable default.
+  writeConnectionStatus(req.params.id, () => db.prepare(
+    "UPDATE connections SET secret='',status='disconnected',metadata=CASE WHEN json_valid(metadata) THEN json_remove(metadata,'$.retiredDirectRuntime','$.nativeRecoveryRequired') ELSE metadata END WHERE id=? AND owner_id=?",
+  ).run(req.params.id, res.locals.owner));
+  if (c && isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
 core.get("/agents/suggest-name", (_req, res) =>
@@ -235,7 +234,7 @@ core.patch("/agents/:id", (req, res) => {
   const result = db
     .transaction(() => {
       const owner = res.locals.owner,
-        agent = owned<Agent>("agents", req.params.id, owner);
+        agent = ownedAgent(req.params.id, owner);
       if (req.body.retired !== undefined) {
         const retired = z.boolean().parse(req.body.retired);
         if (!retired && agent.retired_at != null)
@@ -263,11 +262,7 @@ core.patch("/agents/:id", (req, res) => {
         req.body.connectionId !== undefined ||
         req.body.effort !== undefined
       ) {
-        const c = owned<Connection>(
-          "connections",
-          z.string().parse(req.body.connectionId ?? agent.connection_id ?? ""),
-          owner,
-        );
+        const c = ownedConnection(z.string().parse(req.body.connectionId ?? agent.connection_id ?? ""), owner);
         if (c.status !== "connected")
           throw new Problem(409, "Reconnect this provider first");
         const model = z
@@ -282,7 +277,7 @@ core.patch("/agents/:id", (req, res) => {
               : null
             : req.body.effort,
         );
-        if (!JSON.parse(c.models).some((m: { id: string }) => m.id === model))
+        if (!c.models.some((m: { id: string }) => m.id === model))
           throw new Problem(400, "Model unavailable on this connection");
         validateEffort(c, model, effort);
         db.prepare(
@@ -293,20 +288,20 @@ core.patch("/agents/:id", (req, res) => {
             "UPDATE teams SET conversation_id=NULL WHERE owner_id=? AND manager_id=? AND deleted_at IS NULL",
           ).run(owner, agent.id);
       }
-      return owned("agents", agent.id, owner);
+      return ownedAgent(agent.id, owner);
     })
     .immediate();
   res.json(result);
 });
 core.get("/agents/:id/harness", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const conversationId = z
     .string()
     .uuid()
     .optional()
     .parse(req.query.conversation);
   const selected = conversationId
-    ? owned<any>("conversations", conversationId, res.locals.owner)
+    ? ownedConversation(conversationId, res.locals.owner)
     : undefined;
   // The picker can pair the open conversation with another agent's composer.
   // That conversation says nothing about this agent's next turn, so list the
@@ -337,11 +332,11 @@ core.get("/agents/:id/harness", async (req, res) => {
 });
 // Mutations belong to the authority; configuration readback uses shared files/DB.
 core.get("/agents/:id/pi-packages", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   res.json(nativeSessions.piConfiguration(agent));
 });
 core.post("/agents/:id/pi-trust", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const { trusted, fingerprint } = z
     .object({
       trusted: z.boolean(),
@@ -353,7 +348,7 @@ core.post("/agents/:id/pi-trust", async (req, res) => {
   res.json(nativeSessions.piConfiguration(agent));
 });
 core.post("/agents/:id/pi-package-filters", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source, scope, filters, settingsHash } = z
     .object({
       source: z.string().min(1).max(512),
@@ -374,7 +369,7 @@ core.post("/agents/:id/pi-package-filters", async (req, res) => {
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
 core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const input = z
     .object({
       name: z.string().min(1).max(100),
@@ -388,7 +383,7 @@ core.post("/agents/:id/pi-prompt-preview", async (req, res) => {
   );
 });
 core.post("/agents/:id/pi-package-inspect", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source } = z
     .object({ source: z.string().min(1).max(512) })
     .strict()
@@ -396,7 +391,7 @@ core.post("/agents/:id/pi-package-inspect", async (req, res) => {
   res.json(await executionRequest("pi.inspect", { agentId: agent.id, source }, { owner: res.locals.owner }));
 });
 core.post("/agents/:id/pi-package-rollback", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source, scope } = z
     .object({
       source: z.string().min(1).max(512),
@@ -408,7 +403,7 @@ core.post("/agents/:id/pi-package-rollback", async (req, res) => {
   res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
 });
 core.post("/agents/:id/pi-packages", async (req, res) => {
-  const agent = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const agent = ownedAgent(req.params.id, res.locals.owner);
   const input = z
     .object({
       action: z.enum(["install", "remove", "update"]),
@@ -459,7 +454,7 @@ core.get("/agents/:id/messages", (req, res) => {
   res.json(agentMessages(res.locals.owner, req.params.id, before));
 });
 core.get("/agents/:id", (req, res) => {
-  const a = owned<Agent>("agents", req.params.id, res.locals.owner);
+  const a = ownedAgent(req.params.id, res.locals.owner);
   res.json({
     agent: a,
     runs: db
@@ -504,26 +499,26 @@ core.post("/runs", (req, res) => {
     .json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
 });
 core.post("/runs/:id/:action", async (req, res) => {
-  const run = owned<Run>("runs", req.params.id, res.locals.owner);
   const action = req.params.action;
+  if (action === "dismiss" || action === "cancel") {
+    res.json((action === "dismiss" ? dismissRun : cancelRun)(res.locals.owner, req.params.id));
+    return;
+  }
+  const run = ownedRun(req.params.id, res.locals.owner);
   if (
     action === "pause" &&
     ["running", "awaiting_approval"].includes(run.state) &&
     (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) ||
       db
         .prepare(
-          `SELECT 1 FROM connections c WHERE c.id=json_extract(?,'$.connectionId') AND ${NATIVE_CONNECTION_SQL}`,
+          `SELECT 1 FROM connections c WHERE c.id=? AND c.owner_id=? AND ${NATIVE_CONNECTION_SQL}`,
         )
-        .get(run.payload))
+        .get(run.payload.connectionId ?? null, run.owner_id))
   )
     throw new Problem(
       409,
       "This harness cannot suspend an active native turn. Interrupt this run, then send a follow-up; other agents keep running.",
     );
-  if (action === "dismiss") {
-    res.json(dismissRun(res.locals.owner, run.id));
-    return;
-  }
   if (action === "resume" && run.state !== "paused")
     throw new Problem(
       409,
@@ -545,8 +540,8 @@ core.post("/runs/:id/:action", async (req, res) => {
         conversationId: run.conversation_id || undefined,
         input: run.input,
         idempotencyKey: d.idempotencyKey,
-        attachmentIds: JSON.parse(run.payload).attachmentIds || [],
-        replyTo: JSON.parse(run.payload).replyTo,
+        attachmentIds: run.payload.attachmentIds || [],
+        replyTo: run.payload.replyTo,
       })),
     );
     return;
@@ -558,55 +553,21 @@ core.post("/runs/:id/:action", async (req, res) => {
     return;
   }
   const next =
-    action === "cancel"
-      ? "cancelled"
-      : action === "pause"
-        ? run.state === "queued"
-          ? "paused"
-          : "pausing"
-        : action === "resume"
-          ? "queued"
-          : null;
+    action === "pause"
+      ? run.state === "queued"
+        ? "paused"
+        : "pausing"
+      : action === "resume"
+        ? "queued"
+        : null;
   if (!next || !transition(run, next))
     throw new Problem(409, "That action is not available in the current state");
-  if (action === "cancel") {
-    // Cancel nested delegations too: an agent-requested review delegates to
-    // its lead, which delegates to the reviewers.
-    const cancel = (parent: string) =>
-      (
-        db
-          .prepare(
-            "SELECT r.* FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
-          )
-          .all(parent) as Run[]
-      ).forEach((child) => {
-        transition(child, "cancelled");
-        cancel(child.id);
-      });
-    cancel(run.id);
-    // Results of its background delegations already waiting to be read.
-    (
-      db
-        .prepare(
-          "SELECT r.* FROM delegations d JOIN agent_mail m ON m.sender_run_id=d.child_run_id AND m.kind='result' JOIN runs r ON r.id=m.run_id WHERE d.parent_run_id=? AND d.background=1 AND r.state='queued'",
-        )
-        .all(run.id) as Run[]
-    ).forEach((result) => transition(result, "cancelled"));
-  }
   if (
     action === "pause" &&
-    (run as any).worker_id === null &&
+    run.worker_id === null &&
     run.state === "running"
   )
     transition(run, "paused");
-  if (action === "cancel" && run.kind === "workflow") {
-    const children = db
-      .prepare(
-        "SELECT r.* FROM workflow_steps s JOIN runs r ON r.id=s.child_run_id WHERE s.run_id=?",
-      )
-      .all(run.id) as Run[];
-    children.forEach((child) => transition(child, "cancelled"));
-  }
   res.json({ ok: true });
 });
 core.get("/results/updates", projectionSnapshot((req, res) => {
@@ -716,7 +677,7 @@ core.get("/results", projectionSnapshot((req, res) => {
   });
 }));
 core.patch("/results/:id", (req, res) => {
-  const item = owned<any>("artifacts", req.params.id, res.locals.owner);
+  const item = ownedArtifact(req.params.id, res.locals.owner);
   const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
   db.prepare(
     "UPDATE artifacts SET feed_hidden=? WHERE id=? AND owner_id=?",
@@ -729,7 +690,7 @@ core.patch("/results/:id", (req, res) => {
   res.json({ ok: true });
 });
 core.get("/conversations/:id", projectionSnapshot((req, res) => {
-  const c = owned("conversations", req.params.id, res.locals.owner);
+  const c = ownedConversation(req.params.id, res.locals.owner);
   const before = z.string().max(512).optional().parse(req.query.before);
   const anchor = z.string().max(150).optional().parse(req.query.message);
   const resume = z.enum(["0", "1"]).optional().parse(req.query.resume);
@@ -749,11 +710,14 @@ core.get("/conversations/:id", projectionSnapshot((req, res) => {
       if (!(error instanceof Problem) || error.status !== 404) throw error;
     }
   }
-  const active = activeRun(
-    res.locals.owner,
-    req.params.id,
-    (c as { agent_id: string | null }).agent_id ?? undefined,
-  );
+  let active: ReturnType<typeof activeRun>;
+  try {
+    active = activeRun(res.locals.owner, req.params.id, c.agent_id ?? undefined);
+  } catch (error) {
+    // The saved conversation stays readable so its unavailable run can be
+    // interrupted. Submitting/steering still requires the full parsed row.
+    if (!(error instanceof InvalidRow)) throw error;
+  }
   res.json({
     conversation: c,
     // The run a reply would steer now; null means a reply queues.
@@ -764,7 +728,7 @@ core.get("/conversations/:id", projectionSnapshot((req, res) => {
   });
 }));
 core.get("/messages/:id", (req, res) =>
-  res.json(owned<Message>("messages", req.params.id, res.locals.owner)),
+  res.json(messageResponse(ownedMessage(req.params.id, res.locals.owner))),
 );
 core.get("/messages", (req, res) => {
   const q = z
@@ -782,8 +746,8 @@ core.get("/messages", (req, res) => {
 
 core.get("/artifacts/:id/file", (req, res) => {
   const file = localArtifact(res.locals.owner, req.params.id);
-  const artifact = owned<any>("artifacts", req.params.id, res.locals.owner);
-  const name = JSON.parse(artifact.metadata).name || artifact.title;
+  const artifact = ownedArtifact(req.params.id, res.locals.owner);
+  const name = artifact.metadata.name || artifact.title;
   if (sendHtmlPreview(res, req.query.preview, { ...file, name })) return;
   const inline =
     req.query.preview === "1" &&

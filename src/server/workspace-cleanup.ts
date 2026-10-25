@@ -1,3 +1,4 @@
+import { parseConnection } from "./row-schemas.js";
 import { db } from "./db.js";
 import { companionMode } from "./profile.js";
 import {
@@ -7,7 +8,6 @@ import {
 } from "./subscriptions.js";
 import { runtimeEndpoint } from "./runtime-hosts.js";
 import { runtimeGithubCredential } from "./runtime-github.js";
-import type { Connection } from "../shared/types.js";
 
 // No model turn or inference cost. Storage maintenance needs no provider/GitHub
 // credential; retiring registered PRs additionally needs this owner's GitHub.
@@ -18,12 +18,13 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
     .prepare(
       "SELECT * FROM connections WHERE (status='connected' OR (status='disconnected' AND json_extract(metadata,'$.retiredDirectRuntime')=1)) AND provider IN ('codex','anthropic')",
     )
-    .all() as Connection[];
-  for (const connection of connections) {
+    .all();
+  for (const row of connections) {
     if (signal?.aborted) return;
     try {
+      const connection = parseConnection(row);
       if (!isSubscription(connection)) continue;
-      const metadata = JSON.parse(connection.metadata);
+      const metadata = connection.metadata;
       if (
         metadata.loopHarness ||
         runtimeEndpoint(

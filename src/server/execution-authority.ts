@@ -7,11 +7,11 @@ import { nativeSessions, OWNER } from "./native-sessions.js";
 import { nativeSignIns } from "./native-auth.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { db } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedConversation, ownedFolder, ownedAgent, ownedConnection, Problem } from "./domain.js";
 import { ExecutionProblem } from "../shared/problem.js";
 import { startWorker } from "./worker.js";
 import { nextTurnConnection, nextTurnFolder } from "./agent-runtime.js";
-import type { Agent, Connection } from "../shared/types.js";
+
 import { boundedExecutionJson } from "./execution-wire.js";
 import { executionCommand } from "./execution-commands.js";
 import {
@@ -40,15 +40,16 @@ type Handlers = {
     context: Context,
   ) => unknown | Promise<unknown>;
 };
-const agent = (id: string) => owned<Agent>("agents", id, OWNER);
+const agent = (id: string) => ownedAgent(id, OWNER);
 const handlers: Handlers = {
   "runtime.status": () => ({ nativeProcesses: nativeSessions.count }),
   "runtime.list": runtimeList,
   "runtime.register": ({ options }) => nativeSessions.enable(options),
   "runtime.enable": runtimeEnable,
   "runtime.refresh": ({ connectionId }) => {
-    const connection = owned<Connection>("connections", connectionId, OWNER);
-    const name = JSON.parse(connection.metadata).loopHarness;
+    const connection = ownedConnection(connectionId, OWNER);
+    const name = connection.metadata.loopHarness;
+    if (!name) throw new Problem(409, "Connection has no native harness");
     return nativeSessions.enable(nativeSessions.registration(name));
   },
   "auth.catalog": async (input) =>
@@ -84,11 +85,11 @@ const handlers: Handlers = {
       .prepare("SELECT conversation_id FROM native_decisions WHERE id=?")
       .get(decisionId) as { conversation_id: string } | undefined;
     if (!decision) throw new Problem(404, "Native decision not found.");
-    owned("conversations", decision.conversation_id, OWNER);
+    ownedConversation(decision.conversation_id, OWNER);
     return nativeSessions.answer(decisionId, commandId, answer);
   },
   "native.controls": ({ conversationId }) => {
-    owned("conversations", conversationId, OWNER);
+    ownedConversation(conversationId, OWNER);
     return nativeSessions.controls(conversationId);
   },
   "native.setting": ({
@@ -98,7 +99,7 @@ const handlers: Handlers = {
     revision,
     generation,
   }) => {
-    owned("conversations", conversationId, OWNER);
+    ownedConversation(conversationId, OWNER);
     return nativeSessions.setSetting(
       conversationId,
       setting,
@@ -110,11 +111,7 @@ const handlers: Handlers = {
   "native.catalog": ({ agentId, conversationId }) => {
     const selectedAgent = agent(agentId);
     const selected = conversationId
-      ? owned<{ id: string; agent_id: string }>(
-          "conversations",
-          conversationId,
-          OWNER,
-        )
+      ? ownedConversation(conversationId, OWNER)
       : undefined;
     const conversation =
       selected?.agent_id === agentId ? selected.id : undefined;
@@ -233,12 +230,12 @@ export class ExecutionAuthority {
       const input = operation.input.parse(request.input);
       // Refuse cross-owner identities before reserving a command ID. A typo
       // or an unauthorized probe must not poison a later authorized request.
-      if ("projectId" in input) owned("folders", input.projectId, OWNER);
-      if ("agentId" in input) owned("agents", input.agentId, OWNER);
+      if ("projectId" in input) ownedFolder(input.projectId, OWNER);
+      if ("agentId" in input) ownedAgent(input.agentId, OWNER);
       if ("conversationId" in input && input.conversationId)
-        owned("conversations", input.conversationId, OWNER);
+        ownedConversation(input.conversationId, OWNER);
       if ("connectionId" in input)
-        owned("connections", input.connectionId, OWNER);
+        ownedConnection(input.connectionId, OWNER);
       const run = async () => {
         entered = true;
         // The mapped handlers are checked against their individual inputs;

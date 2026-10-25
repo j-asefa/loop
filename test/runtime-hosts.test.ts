@@ -1,4 +1,3 @@
-import type { Connection } from "../src/shared/types";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +19,7 @@ const codex = await codexFixture();
 const { codexStream } = await import("../src/server/codex-app-server");
 const { core } = await import("../src/server/core-routes");
 const { installConfig } = await import("../src/server/mcp/install");
-const { Problem, owned } = await import("../src/server/domain");
+const { Problem, ownedConnection } = await import("../src/server/domain");
 it("keeps remote Codex work alive beyond the old deadline until the caller cancels", async () => {
   const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
   const clock = vi
@@ -224,11 +223,26 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
   );
   expect(login.data.login.url).toContain("claude.ai");
   expect(requests.at(-1).provider).toBe("claude");
+  const savedMetadata = { ...ownedConnection(connection.data.id, "alice").metadata, historicalDisplayLabel: "Workstation", plan: "Old plan", limits: { old: true } };
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(JSON.stringify(savedMetadata), connection.data.id);
   const status = await api(
     "/subscriptions/" + connection.data.id + "/status",
     {},
   );
+  expect(status.status).toBe(200);
   expect(status.data.authenticated).toBe(true);
+  expect(ownedConnection(connection.data.id, "alice").metadata).toMatchObject({
+    historicalDisplayLabel: "Workstation", runtimeHostId: host.data.id, checkedAt: expect.any(Number),
+  });
+  expect(ownedConnection(connection.data.id, "alice").metadata).not.toHaveProperty("plan");
+  expect(ownedConnection(connection.data.id, "alice").metadata).not.toHaveProperty("limits");
+  const beforeInvalid = requests.length;
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(JSON.stringify({ ...savedMetadata, loopHarness: false }), connection.data.id);
+  const refused = await api("/subscriptions/" + connection.data.id + "/status", {});
+  expect(refused.status).toBe(409);
+  expect(refused.data.error).toContain(connection.data.id);
+  expect(requests).toHaveLength(beforeInvalid);
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(JSON.stringify(savedMetadata), connection.data.id);
   expect(
     (
       await api(
@@ -242,6 +256,24 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
   expect(
     (await api("/runtime-hosts/" + host.data.id, {}, "DELETE")).status,
   ).toBe(409);
+});
+it.each(["models", "timestamp", "secret", "display", "routing"])("disconnects a connection with damaged %s using only validated logout routing", async damage => {
+  const owner = id();
+  const host = await api("/runtime-hosts", { name: "Logout fixture", url: brokerUrl, token }, "POST", owner);
+  const connection = await api("/subscriptions", { provider: "claude", label: "Logout fixture", runtimeHostId: host.data.id }, "POST", owner);
+  expect(connection.status).toBe(201);
+  const key = connection.data.id;
+  const before = requests.length;
+  if (damage === "models") db.prepare("UPDATE connections SET models='[{\"id\":\"fixture\",\"name\":42}]' WHERE id=?").run(key);
+  if (damage === "timestamp") db.prepare("UPDATE connections SET created_at='invalid-time' WHERE id=?").run(key);
+  if (damage === "secret") db.prepare("UPDATE connections SET secret='invalid-envelope' WHERE id=?").run(key);
+  if (damage === "display" || damage === "routing") db.prepare("UPDATE connections SET metadata=json_set(metadata,?,json('false')) WHERE id=?").run(damage === "display" ? "$.checkedAt" : "$.runtimeHostId", key);
+  expect((await api(`/connections/${key}`, {}, "DELETE", "bob")).status).toBe(404);
+  expect(requests).toHaveLength(before);
+  expect((await api(`/connections/${key}`, {}, "DELETE", owner)).status).toBe(200);
+  expect(db.prepare("SELECT secret,status FROM connections WHERE id=?").get(key)).toEqual({ secret: "", status: "disconnected" });
+  expect(requests).toHaveLength(before + Number(damage !== "routing"));
+  if (damage !== "routing") expect(requests.at(-1)).toMatchObject({ action: "logout", provider: "claude" });
 });
 it("rejects private runtime addresses without explicit administrator configuration", async () => {
   const result = await api("/runtime-hosts", {
@@ -302,7 +334,10 @@ it("pairs native hosts separately from isolated brokers and keeps their tools ou
     ).runtimeKind,
   ).toBe("native-host");
   await api(`/connections/${connection.data.id}`, {}, "DELETE");
-  await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE");
+  db.prepare("UPDATE runtime_hosts SET secret='invalid-envelope' WHERE id=?").run(host!.data.id);
+  expect(() => runtimeEndpoint("alice", host!.data.id, "claude")).toThrow(host!.data.id);
+  expect((await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE", "bob")).status).toBe(404);
+  expect((await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE")).status).toBe(200);
 });
 it("clears signing_in after a failed login so retry starts a new flow", async () => {
   const host = id(),
@@ -409,7 +444,7 @@ it("pairs Codex app-server, uses the host account, scopes access and never logs 
     authenticated: true,
     authMode: "subscription",
   });
-  const connection = owned<Connection>("connections", created.data.id, "alice");
+  const connection = ownedConnection(created.data.id, "alice");
   expect(connection.status).toBe("connected");
   const input = {
     model: "fixture",
@@ -574,7 +609,7 @@ it("discovers only the selected owner’s skills and dispatches native review an
     (await api(`/agents/${agent.data.id}/harness`, undefined, undefined, "bob"))
       .status,
   ).toBe(404);
-  const connection = owned<Connection>("connections", created.data.id, "alice");
+  const connection = ownedConnection(created.data.id, "alice");
   const run = async (content: string) => {
     const chunks = [];
     for await (const c of subscriptionStream(connection, {

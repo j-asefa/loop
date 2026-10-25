@@ -1,3 +1,4 @@
+import { ArtifactMetadata } from "./row-schemas.js";
 import { db, id, now } from "./db.js";
 export function saveArtifact(
   owner: string,
@@ -25,7 +26,7 @@ export function saveArtifact(
     data.title,
     data.kind || "markdown",
     data.content,
-    JSON.stringify(data.metadata || {}),
+    JSON.stringify(ArtifactMetadata.parse(data.metadata === undefined ? {} : data.metadata)),
     data.folder || null,
     time,
     time,

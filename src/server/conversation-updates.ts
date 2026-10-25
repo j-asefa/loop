@@ -1,3 +1,4 @@
+import { MessageMetadata } from "./row-schemas.js";
 import { db, id, now } from "./db.js";
 import type { Run } from "./queue.js";
 
@@ -8,7 +9,7 @@ export function recordConversationUpdate(
   data: { content?: string; metadata?: unknown },
 ) {
   const metadata = {
-    ...((data.metadata as Record<string, unknown>) || {}),
+    ...MessageMetadata.parse(data.metadata === undefined ? {} : data.metadata),
     progress: true,
   };
   return db
@@ -25,7 +26,7 @@ export function recordConversationUpdate(
     .get(
       id(),
       data.content || "",
-      JSON.stringify(metadata),
+      JSON.stringify(MessageMetadata.parse(metadata)),
       now(),
       key,
       run.id,

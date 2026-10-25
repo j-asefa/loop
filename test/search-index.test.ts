@@ -17,6 +17,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-search-index-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { seal } = await import("../src/server/secrets");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { indexPending, search, searchStatus } =
   await import("../src/server/search");
@@ -205,4 +206,24 @@ it("applies the same folder, kind, date and owner filters to keyword and semanti
   expect(
     (await search(owner, "Travel", { ...filters, from: now() + 1 })).items,
   ).toHaveLength(0);
+});
+
+
+it.each(["metadata", "secret"] as const)("records invalid saved embedding %s without contacting a provider", async (column) => {
+  const owner = id(), connection = id();
+  saveArtifact(owner, { title: "Unavailable provider", content: "A car" });
+  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?)")
+    .run(connection, owner, seal("fixture-key", owner), now());
+  db.prepare("INSERT INTO preferences VALUES(?,?,'fixture-embedding',1)").run(owner, connection);
+  if (column === "metadata") db.prepare("UPDATE connections SET metadata=? WHERE id=?").run('{"loopHarness":false}', connection);
+  else db.prepare("UPDATE connections SET secret=? WHERE id=?").run('not-a-sealed-envelope', connection);
+  const request = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected external effect"));
+  try {
+    advance(31000);
+    await indexPending();
+    expect(request).not.toHaveBeenCalled();
+    expect(searchStatus(owner)).toMatchObject({ state: "error", indexed: 0, detail: expect.stringContaining(connection) });
+    expect(db.prepare("SELECT count(*) n FROM embeddings WHERE owner_id=?").get(owner)).toEqual({ n: 0 });
+    expect((await search(owner, "Unavailable")).mode).toBe("keyword");
+  } finally { request.mockRestore(); }
 });

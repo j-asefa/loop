@@ -22,7 +22,7 @@ vi.mock("../src/server/mcp/client.js", async (original) => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { createAgent, owned, Problem } = await import("../src/server/domain");
+const { ownedMcpConnection,  createAgent, owned, Problem } = await import("../src/server/domain");
 const { mcp } = await import("../src/server/mcp/routes");
 const { catalog } = await import("../src/server/mcp/catalog-data");
 const { catalogSecret } = await import("../src/server/mcp/catalog");
@@ -92,7 +92,7 @@ async function api(
 const install = (name: string, body = {}, owner = "alice") =>
   api(`/mcp/catalog/${name}/install`, body, owner);
 const row = (connection: string) =>
-  owned<any>("mcp_connections", connection, "alice");
+  ownedMcpConnection(connection, "alice");
 it("publishes 150 unique sourced entries whose pinned configurations pass the normal MCP parser", async () => {
   const response = await api("/mcp/catalog");
   expect(response.status).toBe(200);
@@ -195,12 +195,16 @@ it("persists failures truthfully, retries without duplicates, and reuses saved c
   await api("/mcp/" + failed.data.id, { action: "disable" }, "alice", "PATCH");
   expect((await install("jina")).data.status).toBe("connected");
   expect(readSecret(row(failed.data.id)).token).toBe("secret-never-echo-this");
-  await api(
+  db.prepare("UPDATE mcp_connections SET secret='invalid-envelope' WHERE id=?").run(failed.data.id);
+  expect((await api("/mcp/" + failed.data.id, { action: "disconnect" }, "bob", "PATCH")).status).toBe(404);
+  const disconnected = await api(
     "/mcp/" + failed.data.id,
     { action: "disconnect" },
     "alice",
     "PATCH",
   );
+  expect(disconnected.status).toBe(200);
+  expect(row(failed.data.id).status).toBe("disconnected");
   expect((await install("jina")).status).toBe(400);
   expect(
     (await install("jina", { values: { token: "replacement" } })).data.id,

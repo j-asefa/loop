@@ -62,8 +62,8 @@ async function start(maxSeconds?: number, failure?: object) {
   const run = claim("duration-worker")!;
   expect(run.id).toBe(submitted.id);
   if (maxSeconds !== undefined) {
-    run.payload = JSON.stringify({ ...JSON.parse(run.payload), maxSeconds });
-    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(run.payload, run.id);
+    run.payload = { ...run.payload, maxSeconds };
+    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(JSON.stringify(run.payload), run.id);
   }
   let finish!: () => void;
   let signal!: AbortSignal;
@@ -71,7 +71,7 @@ async function start(maxSeconds?: number, failure?: object) {
   const began = new Promise<void>((resolve) => {
     ready = resolve;
   });
-  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+  const request = vi.fn(async (url: string, init: RequestInit) => {
     expect(url).toBe("http://runtime.fixture/runtime");
     signal = init.signal!;
     return new Response(
@@ -98,13 +98,14 @@ async function start(maxSeconds?: number, failure?: object) {
       }),
     );
   });
+  vi.stubGlobal("fetch", request);
   const result = executeAgent(run).then(
     (value) => ({ value, error: undefined }),
     (error) => ({ value: undefined, error }),
   );
-  await began;
+  await Promise.race([began, result]);
   await vi.advanceTimersByTimeAsync(0);
-  return { run, result, finish, signal };
+  return { run, result, finish, signal, request };
 }
 
 it("finishes a subscription run beyond 30 minutes without aborting its HTTP stream", async () => {
@@ -153,13 +154,10 @@ it("honors an explicit workflow time limit and reports the actual reason", async
   ).toEqual({ content: "Saved partial. " });
 });
 
-it("treats a legacy zero budget as the default instead of aborting immediately", async () => {
+it("rejects a saved zero execution budget before contacting the broker", async () => {
   const running = await start(0);
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(running.signal.aborted).toBe(false);
-  running.finish();
-  expect(await running.result).toEqual({ value: true, error: undefined });
-  transition(running.run, "completed");
+  expect(await running.result).toMatchObject({ error: { status: 409, message: expect.stringContaining(running.run.id) } });
+  expect(running.request).not.toHaveBeenCalled();
 });
 
 it("persists a typed broker idle timeout through the subscription client and worker", async () => {

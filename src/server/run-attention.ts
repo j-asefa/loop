@@ -1,16 +1,50 @@
+import { z } from "zod";
+
 import { db, emit, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
-import { transition, type Run } from "./queue.js";
+import { ownedRunControl, Problem } from "./domain.js";
+import { RunIdentity, transition } from "./queue.js";
+import type { RunEventPayload } from "../shared/workspace-events.js";
+
+// Call inside the root's transaction. A damaged child payload cannot prevent
+// healthy siblings from stopping, and a foreign link never grants authority.
+function cancelChildren(owner: string, root: string, reason: RunEventPayload = {}) {
+  const pending = [root], visited = new Set<string>();
+  while (pending.length) {
+    const parent = pending.pop()!;
+    if (visited.has(parent)) continue;
+    visited.add(parent);
+    db.prepare("UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'")
+      .run(owner, parent);
+    const children = z.array(RunIdentity).parse(db.prepare(`
+      SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=? AND r.id IN (
+        SELECT child_run_id FROM delegations WHERE parent_run_id=?
+        UNION SELECT child_run_id FROM workflow_steps WHERE run_id=? AND child_run_id IS NOT NULL
+        UNION SELECT m.run_id FROM delegations d JOIN agent_mail m
+          ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=?
+          JOIN runs result ON result.id=m.run_id AND result.owner_id=m.owner_id
+          WHERE d.parent_run_id=? AND d.background=1 AND result.state='queued'
+      )`).all(owner, parent, parent, owner, parent));
+    for (const child of children) {
+      transition(child, "cancelled", reason);
+      pending.push(child.id);
+    }
+  }
+}
+
+export function cancelRun(owner: string, runId: string) {
+  return db.transaction(() => {
+    const run = ownedRunControl(runId, owner);
+    if (!transition(run, "cancelled"))
+      throw new Problem(409, "That action is not available in the current state");
+    cancelChildren(owner, run.id);
+    return { ok: true };
+  }).immediate();
+}
 
 export function dismissRun(owner: string, runId: string) {
   return db
     .transaction(() => {
-      const run = owned<
-        Run & {
-          attention_dismissed_at: number | null;
-          worker_id: string | null;
-        }
-      >("runs", runId, owner);
+      const run = ownedRunControl(runId, owner);
       if (run.attention_dismissed_at) return { ok: true };
       const stopped = ["failed", "interrupted"].includes(run.state);
       const waiting =
@@ -22,24 +56,9 @@ export function dismissRun(owner: string, runId: string) {
           "This task has changed. Refresh before dismissing it.",
         );
       if (waiting) {
-        const pending = [run.id],
-          visited = new Set<string>();
-        while (pending.length) {
-          const id = pending.pop()!;
-          if (visited.has(id)) continue;
-          visited.add(id);
-          const task = owned<Run>("runs", id, owner);
-          transition(task, "cancelled", { reason: "Dismissed by you" });
-          db.prepare(
-            "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'",
-          ).run(owner, id);
-          const children = db
-            .prepare(
-              "SELECT child_run_id id FROM delegations WHERE parent_run_id=? UNION SELECT child_run_id id FROM workflow_steps WHERE run_id=? AND child_run_id IS NOT NULL",
-            )
-            .all(id, id) as { id: string }[];
-          pending.push(...children.map((c) => c.id));
-        }
+        const reason = { reason: "Dismissed by you" };
+        transition(run, "cancelled", reason);
+        cancelChildren(owner, run.id, reason);
       }
       db.prepare(
         "UPDATE runs SET attention_dismissed_at=? WHERE id=? AND owner_id=?",
@@ -73,7 +92,7 @@ export function listRuns(owner: string, teams: string[] = [], active = false) {
     )
     .all(owner, ...teams)
     .map((row) => {
-      const run = row as Run;
+      const run = z.object({ id: z.string() }).passthrough().parse(row);
       const { latest, artifact } = runPreview(owner, run.id);
       return {
         ...run,

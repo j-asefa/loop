@@ -223,9 +223,7 @@ it("routes a composer follow-up to the active conversation and exposes native de
     run.conversation_id!,
   ).messages;
   expect(
-    JSON.parse(
-      transcript.find((m) => m.content === "Another thought")!.metadata,
-    ).delivery,
+    JSON.parse(transcript.find((m) => m.content === "Another thought")!.metadata).delivery,
   ).toBe("failed");
   expect(
     db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(agent.id),
@@ -617,7 +615,7 @@ it.each([true, false])("cancels managed provider IO through the production route
 
 it.each([true, false])("aborts managed IO with a readable connection cause (bus=%s)", async (enabled) => {
   const { run } = start();
-  const connection = JSON.parse(run.payload).connectionId;
+  const connection = run.payload.connectionId;
   const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
   let signal: AbortSignal | undefined;
   const restore = withTestAdapter("openai", {

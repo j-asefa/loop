@@ -1,3 +1,7 @@
+import { MessageMetadata, parseMessages } from "./row-schemas.js";
+import type { QueryRow } from "./query-records.js";
+
+
 import { assertFeedApplied, projectionPage, projectionSummary, projectionDoneRows } from "./feed-card-read.js";
 import { nonemptyAnswer } from "./feed-answers.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
@@ -7,7 +11,7 @@ import { verificationSummary } from "./run-verifications.js";
 import { pullStatus } from "./pr-watches.js";
 import { z, ZodError } from "zod";
 import { db, emit, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedAgent, ownedFolder, ownedConversation, ownedMessage, ownedConnection, ownedRun, owned, Problem } from "./domain.js";
 import {
   resultOutputSql,
   fileArtifactSql,
@@ -22,7 +26,7 @@ import { messageReplyContext } from "./message-replies.js";
 import { REPLY_EXCERPT_LIMIT } from "../shared/replies.js";
 import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { savedStory, unreadCount } from "./news.js";
-import type { Agent, Message } from "../shared/types.js";
+
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../shared/uploads.js";
 
 /**
@@ -133,7 +137,7 @@ export function savePosition(
     .parse(body ?? {});
   return db
     .transaction(() => {
-      const c = owned<{ id: string }>("conversations", conversation, owner);
+      const c = ownedConversation(conversation, owner);
       if (positionMessageId) {
         const valid = conversationMessage(owner, c.id, positionMessageId);
         if (!valid)
@@ -339,7 +343,7 @@ function readFeed(
   },
   shadow = false,
 ) {
-  if (options.agent) owned("agents", options.agent, owner);
+  if (options.agent) ownedAgent(options.agent, owner);
   const filter = options.filter || "all";
   // Older open tabs key and paginate by conversation. Only clients that
   // understand independent result identities opt into the expanded collection.
@@ -347,7 +351,7 @@ function readFeed(
   const teams = options.teams?.length ? options.teams : undefined;
   let folders: (string | null)[] | undefined;
   if (options.folder) {
-    owned("folders", options.folder, owner);
+    ownedFolder(options.folder, owner);
     folders = projectFolders(owner, options.folder);
   }
   const cursor = options.before
@@ -531,7 +535,7 @@ export function setDoneCardHidden(
     .parse(body);
   return db
     .transaction(() => {
-      owned("conversations", conversation, owner);
+      ownedConversation(conversation, owner);
       const isRun = cardKey.startsWith("run:");
       const target = cardKey.slice(cardKey.indexOf(":") + 1);
       const record = db
@@ -741,7 +745,7 @@ function feedItem(
       ? []
       : (db
           .prepare(
-            "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
+            "SELECT id,input,created_at,state,worker_id,active_since FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
           )
           .all(owner, row.conversation_id) as QueuedRun[])
     ).map((queued) => ({
@@ -879,8 +883,8 @@ function resultFor(owner: string, messageId: string) {
 export function setSaved(owner: string, messageId: string, on: boolean) {
   return db
     .transaction(() => {
-      const message = owned<Message>("messages", messageId, owner);
-      if (JSON.parse(message.metadata).progress)
+      const message = ownedMessage(messageId, owner);
+      if (message.metadata.progress)
         throw new Problem(400, "Only saved messages can be kept");
       const result = resultFor(owner, messageId),
         savedAt = now();
@@ -922,7 +926,7 @@ export function listSaved(
   const cursor = options.before
     ? decode(options.before, savedCursor, "saved")
     : null;
-  if (options.folder) owned("folders", options.folder, owner);
+  if (options.folder) ownedFolder(options.folder, owner);
   const page = 30;
   // The same project and team scope as the results feed.
   const params = {
@@ -1073,7 +1077,7 @@ export function conversationOutline(
   conversation: string,
   q?: string,
 ) {
-  owned("conversations", conversation, owner);
+  ownedConversation(conversation, owner);
   if (q?.trim())
     return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
   const messages = db
@@ -1283,7 +1287,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
       .prepare(
         `SELECT c.id,c.title,${conversationFolder("c")} folder_id,a.name agent_name,a.provider FROM conversations c LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?`,
       )
-      .get(target, owner) as any;
+      .get(target, owner) as { id: string; title: string; folder_id: string | null; agent_name: string | null; provider: string | null } | undefined;
     if (!c) return null;
     const last = db
       .prepare(
@@ -1310,7 +1314,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
         FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
         LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE m.id=? AND m.owner_id=?`,
       )
-      .get(target, owner) as any;
+      .get(target, owner) as ({ id: string; title: string; folder_id: string | null; agent_name: string | null; provider: string | null } & { content: string; conversation_id: string }) | undefined;
     if (!m) return null;
     return {
       title: m.title as string,
@@ -1332,7 +1336,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
     .prepare(
       "SELECT a.id,a.title,substr(a.content,1,4000) content,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id,a.folder_id,g.name agent_name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id AND g.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=?",
     )
-    .get(target, owner) as any;
+    .get(target, owner) as ({ id: string; title: string; folder_id: string | null; agent_name: string | null; provider: string | null } & { content: string; conversation_id: string | null; message_id: string | null }) | undefined;
   if (!a) return null;
   return {
     title: a.title as string,
@@ -1394,7 +1398,7 @@ export function createLater(owner: string, body: unknown) {
           d.targetId,
           owner,
         );
-      if (d.projectId) owned("folders", d.projectId, owner);
+      if (d.projectId) ownedFolder(d.projectId, owner);
       const replaced = db
         .prepare(
           "SELECT id FROM later_items WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
@@ -1437,7 +1441,7 @@ export function snoozeLater(owner: string, itemId: string, body: unknown) {
       if (!item) throw new Problem(404, "Item not found");
       if (item.done_at !== null)
         throw new Problem(409, "This reminder is already done");
-      if (d.projectId) owned("folders", d.projectId, owner);
+      if (d.projectId) ownedFolder(d.projectId, owner);
       db.prepare(
         "UPDATE later_items SET condition=?,due_at=?,project_id=?,surfaced_at=NULL,snoozes=snoozes+1 WHERE id=? AND owner_id=? AND done_at IS NULL",
       ).run(
@@ -1528,7 +1532,7 @@ export function finishLater(owner: string, itemId: string) {
 }
 
 export function projectOpened(owner: string, project: string) {
-  owned("folders", project, owner);
+  ownedFolder(project, owner);
   return {
     surfaced: db
       .prepare(
@@ -1673,7 +1677,7 @@ export function createScheduledSend(owner: string, body: unknown) {
           .get(owner, d.idempotencyKey)
       )
         throw new Problem(409, "This request key belongs to different work");
-      const agent = owned<Agent>("agents", d.agentId, owner);
+      const agent = ownedAgent(d.agentId, owner);
       if (agent.retired_at)
         throw new Problem(
           409,
@@ -1682,15 +1686,11 @@ export function createScheduledSend(owner: string, body: unknown) {
       if (!agent.connection_id)
         throw new Problem(409, "Connect a provider to this agent first");
       if (d.conversationId) {
-        const c = owned<{ agent_id: string }>(
-          "conversations",
-          d.conversationId,
-          owner,
-        );
+        const c = ownedConversation(d.conversationId, owner);
         if (c.agent_id !== agent.id)
           throw new Problem(400, "This conversation belongs to another agent");
       }
-      if (d.folderId) owned("folders", d.folderId, owner);
+      if (d.folderId) ownedFolder(d.folderId, owner);
       const files = attachedFiles(owner, d.attachmentIds);
       if (d.replyToMessageId)
         messageReplyContext(
@@ -1755,7 +1755,7 @@ export function listScheduledSends(
   conversation?: string,
   failedBefore?: string,
 ) {
-  if (conversation) owned("conversations", conversation, owner);
+  if (conversation) ownedConversation(conversation, owner);
   const cursor = failedBefore
     ? decode(failedBefore, failedCursor, "scheduled")
     : null;
@@ -1974,20 +1974,11 @@ export function deliverScheduledSends(time = now()) {
 
 // ---------------------------------------------------------------------------
 // 7. Queue management
-type QueuedRun = Run & {
-  worker_id: string | null;
-  active_since?: number | null;
-  rowid?: number;
-};
+type QueuedRun = Pick<QueryRow<"runs">, "id" | "input" | "created_at" | "state" | "worker_id" | "active_since">;
 const perConversation = (r: string) =>
   `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
 const RANK_STEP = 1 / 1024;
-
-// Only a message that has never started can change. A paused-then-resumed
-// API run is queued again but keeps its checkpointed history (and possibly
-// pending tools), so editing it would change the transcript but not what the
-// model executes.
-function editable(run: QueuedRun) {
+function editable(run: Pick<Run, "id" | "worker_id" | "active_since"> & { state: string }) {
   return (
     run.state === "queued" &&
     run.worker_id === null &&
@@ -2003,7 +1994,7 @@ export function reorderRun(owner: string, runId: string, body: unknown) {
     .parse(body);
   return db
     .transaction(() => {
-      const run = owned<QueuedRun>("runs", runId, owner);
+      const run = ownedRun(runId, owner);
       if (run.state !== "queued" || !run.agent_id)
         throw new Problem(409, "Only queued work can be reordered");
       const peers = queuedPeers(owner, run.id);
@@ -2045,7 +2036,7 @@ export function editQueuedRun(owner: string, runId: string, body: unknown) {
     .parse(body);
   return db
     .transaction(() => {
-      const run = owned<QueuedRun>("runs", runId, owner);
+      const run = ownedRun(runId, owner);
       if (!editable(run))
         throw new Problem(
           409,
@@ -2085,7 +2076,7 @@ export function withdrawQueuedRun(
     .parse(body ?? {});
   return db
     .transaction(() => {
-      const run = owned<QueuedRun>("runs", runId, owner);
+      const run = ownedRun(runId, owner);
       if (
         run.kind !== "agent" ||
         !editable(run) ||
@@ -2101,7 +2092,7 @@ export function withdrawQueuedRun(
         );
       // The draft gets the message's files back too; if one is gone, the
       // message stays queued rather than come back without it.
-      const ids = (JSON.parse(run.payload).attachmentIds || []) as string[];
+      const ids = (run.payload.attachmentIds || []) as string[];
       const attachments = attachmentDescriptors(owner, ids);
       if (attachments.length !== ids.length)
         throw new Problem(
@@ -2135,8 +2126,8 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
     .parse(body);
   return db
     .transaction(() => {
-      const run = owned<QueuedRun>("runs", runId, owner);
-      const payload = JSON.parse(run.payload);
+      const run = ownedRun(runId, owner);
+      const payload = run.payload;
       const request = {
         agentId: d.agentId,
         input: run.input,
@@ -2187,15 +2178,10 @@ export function forkConversation(
     .parse(body);
   return db
     .transaction(() => {
-      const c = owned<{
-        id: string;
-        title: string;
-        agent_id: string | null;
-        project_id: string | null;
-      }>("conversations", conversation, owner);
+      const c = ownedConversation(conversation, owner);
       const agentId = d.agentId || c.agent_id;
       if (!agentId) throw new Problem(400, "Choose an agent for the fork");
-      const agent = owned<Agent>("agents", agentId, owner);
+      const agent = ownedAgent(agentId, owner);
       if (!agent.connection_id)
         throw new Problem(409, "Choose an agent with a connected model");
       const target = db
@@ -2206,7 +2192,7 @@ export function forkConversation(
         { seq: number; created_at: number } | undefined;
       if (!target)
         throw new Problem(404, "Message not found in this conversation");
-      const messages = db
+      const messages = parseMessages(db
         .prepare(
           `SELECT * FROM messages WHERE owner_id=? AND conversation_id=?
           AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0
@@ -2218,15 +2204,11 @@ export function forkConversation(
           target.created_at,
           target.created_at,
           target.seq,
-        ) as Message[];
+        ));
       const forkId = id();
       // Bind the fork to the selected agent's connection now, as a first send
       // to a new conversation would.
-      const connection = owned<{ id: string; metadata: string }>(
-        "connections",
-        agent.connection_id,
-        owner,
-      );
+      const connection = ownedConnection(agent.connection_id, owner);
       db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?)",
       ).run(
@@ -2244,7 +2226,7 @@ export function forkConversation(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
       );
       for (const m of messages) {
-        const metadata = JSON.parse(m.metadata);
+        const metadata = m.metadata;
         insert.run(
           id(),
           owner,
@@ -2252,7 +2234,7 @@ export function forkConversation(
           null,
           m.role,
           m.content,
-          JSON.stringify({
+          JSON.stringify(MessageMetadata.parse({
             sourceConversation: c.id,
             sourceMessage: m.id,
             forked: true,
@@ -2260,7 +2242,7 @@ export function forkConversation(
             selectedByUser: true,
             attachments: metadata.attachments || [],
             original: metadata,
-          }),
+          })),
           m.created_at,
         );
       }
@@ -2275,7 +2257,7 @@ type Tokens = { input_tokens: number; output_tokens: number };
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 export function conversationUsage(owner: string, conversation: string) {
-  owned("conversations", conversation, owner);
+  ownedConversation(conversation, owner);
   const events = db
     .prepare(
       // Start with this conversation's runs, then visit only their usage

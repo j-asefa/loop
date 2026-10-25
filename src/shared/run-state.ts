@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-// The state vocabulary and legal transition edges have one owner. Claiming a
-// queued run remains an atomic lease operation in queue.ts.
+// The state vocabulary and transition() edges have one owner. Atomic claim
+// (queued → running) and guarded deferUndispatched (running → queued) remain
+// lease operations in queue.ts. queued → failed rejects invalid, unleased
+// saved work before dispatch; an old worker cannot use it after lease release.
 export const RUN_TRANSITIONS = {
   queued: ["cancelled", "paused", "failed"],
   running: ["completed", "failed", "pausing", "cancelled", "interrupted", "awaiting_approval"],

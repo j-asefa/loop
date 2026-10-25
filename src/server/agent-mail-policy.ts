@@ -1,7 +1,8 @@
+import { maybeConnection } from "./row-schemas.js";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
 import { companionMode } from "./profile.js";
-import type { Agent, Connection } from "../shared/types.js";
+import type { Agent } from "../shared/types.js";
 
 /** A refusal that recovery cannot repair. Disconnection is deliberately absent. */
 export class MailRefusal extends Problem {}
@@ -38,15 +39,15 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       409,
       `@${agent.name} is retired and can't receive messages.`,
     );
-  const connection = db
+  const connection = maybeConnection(db
     .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
-    .get(agent.connection_id ?? null, owner) as Connection | undefined;
+    .get(agent.connection_id ?? null, owner));
   if (!connection)
     throw new MailRefusal(
       409,
       "This agent needs a provider connection before it can receive mail.",
     );
-  const meta = JSON.parse(connection.metadata);
+  const meta = connection.metadata;
   if (meta.backend === "hapi")
     throw new MailRefusal(
       409,
@@ -254,7 +255,7 @@ export function queuedMailFailure(runId: string): string | undefined {
 export function queuedMailReady(run: {
   id: string;
   owner_id: string;
-  payload: string;
+  payload: import("./row-schemas.js").RunPayload;
 }) {
   if (
     !db
@@ -266,7 +267,7 @@ export function queuedMailReady(run: {
     return true;
   const connection = db
     .prepare("SELECT status FROM connections WHERE id=? AND owner_id=?")
-    .get(JSON.parse(run.payload).connectionId, run.owner_id) as
+    .get(run.payload.connectionId, run.owner_id) as
     { status: string } | undefined;
   return connection?.status === "connected";
 }

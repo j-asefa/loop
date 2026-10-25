@@ -22,7 +22,13 @@ it("does not claim when an already-started scheduling tick resumes after quiesce
   const stop = startWorker();
   try {
     await expect.poll(() => entered).toBe(true);
+    const corrupt = enqueue("quiesce", "Already dispatched", "quiesce-corrupt", { kind: "diagnostic" });
+    const worker = db.prepare("SELECT id FROM worker_health LIMIT 1").get() as { id: string };
+    db.prepare("UPDATE runs SET state='running',worker_id=?,payload=? WHERE id=?")
+      .run(worker.id, '{"reviewId":null}', corrupt.id);
     stop.quiesce();
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(corrupt.id)).toEqual({ state: "interrupted" });
+    expect(db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(corrupt.id)).toBeUndefined();
     release();
     await stop();
     expect(db.prepare("SELECT state,worker_id FROM runs WHERE id=?").get(run.id)).toEqual({ state: "queued", worker_id: null });

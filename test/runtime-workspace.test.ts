@@ -1,4 +1,3 @@
-import type { Connection } from "../src/shared/types";
 import { it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,11 +11,11 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { owned } = await import("../src/server/domain");
+const { ownedConnection } = await import("../src/server/domain");
 function subscriptionConnection(provider: "codex" | "anthropic", metadata: object = {}) {
   db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('fixture','alice',?,'Fixture','','connected',?,?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,metadata=excluded.metadata")
     .run(provider, JSON.stringify({ authMode: "subscription", ...metadata }), now());
-  return owned<Connection>("connections", "fixture", "alice");
+  return ownedConnection("fixture", "alice");
 }
 const { runtimeGithubCredential } =
   await import("../src/server/runtime-github");
@@ -256,6 +255,10 @@ it("maintains owner-scoped managed storage without GitHub and only forwards allo
     ).run(key, owner, key, key, connection, now());
     return key;
   };
+  // One owner's damaged routing must not abort the maintenance batch for all
+  // later owners. It remains stored, but no cleanup request may use it.
+  const damaged = addConnection("damaged", "codex", { authMode: "subscription", loopHarness: null });
+  addAgent("damaged", damaged);
   const alice = addConnection("alice", "codex", { authMode: "subscription" });
   const agent = addAgent("alice", alice);
   addAgent("bob", alice); // Even a malformed cross-owner association cannot cross the boundary.

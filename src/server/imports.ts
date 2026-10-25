@@ -1,9 +1,11 @@
-import { transition } from "./queue.js";
+import { MessageMetadata } from "./row-schemas.js";
+import type { QueryRow } from "./query-records.js";
+import { z } from "zod";
+import { transition, type Run } from "./queue.js";
 import yauzl from "yauzl";
 import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
-import { Problem, owned } from "./domain.js";
-import type { Run } from "./queue.js";
+import { ownedImport, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
 export type ImportedMessage = {
   externalId: string;
@@ -55,7 +57,7 @@ function textParts(content: any): string {
 export function parseConversations(
   input: unknown,
 ): Omit<ParsedImport, "attachments"> {
-  const list = Array.isArray(input) ? input : (input as any)?.conversations;
+  const list = Array.isArray(input) ? input : (input && typeof input === "object" && "conversations" in input ? input.conversations : undefined);
   if (!Array.isArray(list) || !list.length)
     throw new Problem(
       422,
@@ -276,7 +278,7 @@ export async function stageImport(owner: string, bytes: Buffer, name: string) {
   const checksum = digest(bytes);
   const prior = db
     .prepare("SELECT * FROM imports WHERE owner_id=? AND digest=?")
-    .get(owner, checksum) as any;
+    .get(owner, checksum) as QueryRow<"imports"> | undefined;
   if (prior)
     return { ...prior, summary: JSON.parse(prior.summary), duplicate: true };
   const parsed = await readArchive(bytes, name);
@@ -317,12 +319,12 @@ export async function stageImport(owner: string, bytes: Buffer, name: string) {
     .immediate();
 }
 export async function executeImport(run: Run) {
-  const { importId } = JSON.parse(run.payload);
-  const job = owned<any>("imports", importId, run.owner_id),
+  const importId = z.string().min(1).parse(run.payload.importId);
+  const job = ownedImport(importId, run.owner_id),
     summary = JSON.parse(job.summary);
   const object = db
     .prepare("SELECT * FROM objects WHERE id=? AND owner_id=?")
-    .get(summary.objectId, run.owner_id) as any;
+    .get(summary.objectId, run.owner_id) as QueryRow<"objects"> | undefined;
   if (!object) throw new Error("Import file missing");
   const parsed = await readArchive(object.bytes, object.name);
   db.prepare("UPDATE imports SET status='running' WHERE id=?").run(importId);
@@ -399,7 +401,7 @@ export async function executeImport(run: Run) {
           null,
           m.role,
           m.content,
-          JSON.stringify({
+          JSON.stringify(MessageMetadata.parse({
             origin: "import",
             provider: parsed.provider,
             externalId: m.externalId,
@@ -407,7 +409,7 @@ export async function executeImport(run: Run) {
             activeBranch: m.active,
             importId,
             raw: m.raw,
-          }),
+          })),
           m.timestamp || c.timestamp || now(),
         );
         db.prepare("INSERT INTO import_messages VALUES(?,?,?,?)").run(

@@ -1,14 +1,15 @@
-import type { Connection } from "../shared/types.js";
+import { type Connection } from "./row-schemas.js";
+
 
 // Match the SQL predicate, including metadata that has a non-null marker.
 export const isNativeConnection = (connection: Pick<Connection, "metadata">) =>
-  JSON.parse(connection.metadata).loopHarness != null;
+  connection.metadata.loopHarness != null;
 
 // Only these harness adapters take input mid-turn; API and subscription
 // runtimes do too. Replies to other harnesses queue for the next turn.
 const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi", "muse"]);
 export const acceptsLiveInput = (connection: Pick<Connection, "metadata">) => {
-  const harness = JSON.parse(connection.metadata).loopHarness;
+  const harness = connection.metadata.loopHarness;
   return harness == null || LIVE_INPUT_HARNESSES.has(harness);
 };
 // The same rule for a run, from the connection it was started with (its

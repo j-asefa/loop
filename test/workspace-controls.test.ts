@@ -1,3 +1,4 @@
+import { parseConnection } from "../src/server/row-schemas.js";
 import { afterAll, expect, it } from "vitest";
 import express from "express";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -425,9 +426,9 @@ it("bounds API attachment payloads and keeps oversized files available through f
     },
   });
   try {
-    const connection = db
+    const connection = parseConnection(db
       .prepare("SELECT * FROM connections WHERE id=?")
-      .get(a.connection_id) as Connection;
+      .get(a.connection_id));
     const chunks = [];
     for await (const chunk of streamConnection(connection, input))
       chunks.push(chunk);
@@ -636,7 +637,7 @@ it("changes provider, model, and supported effort atomically, continuing existin
     idempotencyKey: id(),
   });
   expect(continued.conversation_id).toBe(run.conversation_id);
-  expect(JSON.parse(continued.payload)).toMatchObject({
+  expect(continued.payload).toMatchObject({
     connectionId: target,
     model: "fixture",
     effort: "xhigh",
@@ -650,7 +651,7 @@ it("changes provider, model, and supported effort atomically, continuing existin
   expect(
     db.prepare("SELECT conversation_id FROM teams WHERE id=?").get(team.id),
   ).toEqual({ conversation_id: fresh.conversation_id });
-  expect(JSON.parse(fresh.payload)).toMatchObject({
+  expect(fresh.payload).toMatchObject({
     connectionId: target,
     effort: "xhigh",
     teamId: team.id,

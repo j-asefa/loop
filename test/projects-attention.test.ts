@@ -133,7 +133,7 @@ it("uses the agent project for new work and retains the conversation project acr
     idempotencyKey: id(),
   };
   const original = submit("alice", input);
-  expect(JSON.parse(original.payload).folderId).toBe(first.id);
+  expect(original.payload.folderId).toBe(first.id);
   await api("/agents/" + a.id, { folderId: second.id }, "PATCH");
   expect(submit("alice", input).id).toBe(original.id);
   const reply = submit("alice", {
@@ -142,27 +142,27 @@ it("uses the agent project for new work and retains the conversation project acr
     input: "Continue",
     idempotencyKey: id(),
   });
-  expect(JSON.parse(reply.payload).folderId).toBe(first.id);
+  expect(reply.payload.folderId).toBe(first.id);
   const fresh = submit("alice", {
     agentId: a.id,
     input: "New project",
     idempotencyKey: id(),
   });
-  expect(JSON.parse(fresh.payload).folderId).toBe(second.id);
+  expect(fresh.payload.folderId).toBe(second.id);
   const inbox = submit("alice", {
     agentId: a.id,
     input: "Explicit inbox",
     folderId: null,
     idempotencyKey: id(),
   });
-  expect(JSON.parse(inbox.payload).folderId).toBeNull();
+  expect(inbox.payload.folderId).toBeNull();
   const inboxReply = submit("alice", {
     agentId: a.id,
     conversationId: inbox.conversation_id!,
     input: "Stay in inbox",
     idempotencyKey: id(),
   });
-  expect(JSON.parse(inboxReply.payload).folderId).toBeNull();
+  expect(inboxReply.payload.folderId).toBeNull();
   expect(
     belongsToProject("child", first.id, [
       { ...first, parent_id: null },

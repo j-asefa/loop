@@ -22,6 +22,10 @@ it("flushes dirty native items and completes after exceeding the display window"
   ).run();
   const queued = enqueue("owner", "test", "projection-test", {
     conversation: "conversation",
+    payload: {
+      agentId: "agent", name: "Fixture", provider: "codex", connectionId: "connection",
+      model: "fixture", instructions: "", folderId: null,
+    },
   });
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);
@@ -292,6 +296,10 @@ it("drops item events from a superseded session generation", () => {
   ).run();
   const queued = enqueue("owner", "test", "superseded-test", {
     conversation: "superseded",
+    payload: {
+      agentId: "agent", name: "Fixture", provider: "codex", connectionId: "connection",
+      model: "fixture", instructions: "", folderId: null,
+    },
   });
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);

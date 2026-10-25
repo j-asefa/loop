@@ -1,13 +1,16 @@
+import type { QueryRow } from "../query-records.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
+  CallToolResultSchema,
+  ToolSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { db, emit, id, now } from "../db.js";
-import { Problem, owned } from "../domain.js";
+import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { authorizeConnectionTool } from "./broker.js";
 import { connect, discover, readSecret, type MCPConnection } from "./client.js";
@@ -30,7 +33,7 @@ type Binding = {
   connectionId: string;
   tool: string;
   description: string;
-  inputSchema: unknown;
+  inputSchema: import("@modelcontextprotocol/sdk/types.js").Tool["inputSchema"];
   github: boolean;
   alwaysAsk: boolean;
 };
@@ -148,7 +151,7 @@ export async function installFederationPeer(
     db.prepare(
       "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,?,?,?,'needs_auth',?,?)",
     ).run(connectionId, owner, label, url, secret, metadata, now());
-  await discover(owned<MCPConnection>("mcp_connections", connectionId, owner));
+  await discover(ownedMcpConnection(connectionId, owner));
   return { id: connectionId, status: "connected" };
 }
 
@@ -180,7 +183,7 @@ function sourceBindings(owner: string): Binding[] {
     )
     .all(owner) as MCPConnection[];
   return rows.flatMap((connection) =>
-    (JSON.parse(connection.tools) as any[]).map((tool) => ({
+    ToolSchema.array().parse(JSON.parse(connection.tools)).map((tool) => ({
       name:
         "shared_" +
         hash(JSON.stringify([connection.id, tool.name])).slice(0, 24),
@@ -277,11 +280,14 @@ async function call(
     .prepare(
       "SELECT * FROM mcp_federation_calls WHERE peer_id=? AND run_key=? AND request_key=?",
     )
-    .get(peer.id, runKey, requestKey) as any;
+    .get(peer.id, runKey, requestKey) as QueryRow<"mcp_federation_calls"> | undefined;
   if (saved) {
     if (saved.tool_name !== name || saved.args !== encodedArgs)
       throw new Problem(409, "Shared tool call identity was reused");
-    if (saved.state === "completed") return JSON.parse(saved.result);
+    if (saved.state === "completed") {
+      if (saved.result === null) throw new Problem(409, `Shared tool call ${saved.id} has no saved result`);
+      return JSON.parse(saved.result);
+    }
     throw new Problem(
       409,
       "Shared tool outcome is uncertain; inspect it before retrying",
@@ -322,7 +328,7 @@ async function call(
     const clean = redactCredentials(response, [
       readSecret(connection),
       readSecret(
-        owned<MCPConnection>("mcp_connections", connection.id, peer.owner_id),
+        ownedMcpConnection(connection.id, peer.owner_id),
       ),
     ]);
     const result = JSON.stringify(clean);
@@ -372,7 +378,7 @@ export async function handleFederationMcp(
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: localFederationCatalog(peer.owner_id) as any,
+    tools: localFederationCatalog(peer.owner_id),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Each source run owns its request IDs. Never deduplicate two different
@@ -383,13 +389,13 @@ export async function handleFederationMcp(
       throw new Problem(400, "Shared tool run identity required");
     if (typeof callKey !== "string" || !callKey || callKey.length > 200)
       throw new Problem(400, "Shared tool call identity required");
-    return (await call(
+    return CallToolResultSchema.parse(await call(
       peer,
       runKey,
       callKey,
       request.params.name,
       request.params.arguments || {},
-    )) as any;
+    ));
   });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

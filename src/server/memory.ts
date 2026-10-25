@@ -1,9 +1,10 @@
 import type { QueryRow } from "./query-records.js";
+
 import { Router } from "express";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedArtifact, ownedConversation, ownedFolder, ownedMemorySource, ownedRun, Problem } from "./domain.js";
 import { createHash } from "node:crypto";
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -190,8 +191,9 @@ export async function indexMemory() {
     for (const job of jobs) {
       const s = db
         .prepare("SELECT * FROM memory_sources WHERE id=?")
-        .get(job.source_id) as any;
+        .get(job.source_id) as QueryRow<"memory_sources"> | undefined;
       try {
+        if (!s) throw new Error(`Memory source ${job.source_id} no longer exists`);
         await memoryIndex.request(
           "/source",
           {
@@ -218,7 +220,7 @@ export async function indexMemory() {
           "UPDATE memory_outbox SET attempts=attempts+1,next_attempt=? WHERE source_id=? AND revision=?",
         ).run(
           now() + Math.min(300000, 5000 * 2 ** Math.min(job.attempts, 6)),
-          s.id,
+          job.source_id,
           job.revision,
         );
       }
@@ -233,7 +235,7 @@ export function readMemory(
   revision?: number,
   project?: string | null,
 ) {
-  const s = owned<any>("memory_sources", sourceId, owner);
+  const s = ownedMemorySource(sourceId, owner);
   if (
     !eligible(s) ||
     (revision !== undefined && s.revision !== revision) ||
@@ -337,7 +339,7 @@ export async function searchMemory(
   return { mode, sources };
 }
 export async function recallForRun(run: Run) {
-  const p = JSON.parse(run.payload),
+  const p = run.payload,
     recall = await searchMemory(run.owner_id, p.folderId || null, run.input);
   const sources = recall.sources.filter(
     (s) =>
@@ -369,11 +371,7 @@ export async function recallForRun(run: Run) {
 }
 export const memoryRoutes = Router();
 memoryRoutes.get("/conversations/:id/memory", (req, res) => {
-  const conversation = owned<any>(
-    "conversations",
-    req.params.id,
-    res.locals.owner,
-  );
+  const conversation = ownedConversation(req.params.id, res.locals.owner);
   res.json({
     memoryIncluded: enabled(
       res.locals.owner,
@@ -395,7 +393,7 @@ memoryRoutes.get("/memory", async (_req, res) => {
         .prepare(
           "SELECT count(*) n FROM memory_outbox o JOIN memory_sources s ON s.id=o.source_id WHERE s.owner_id=?",
         )
-        .get(owner) as any
+        .get(owner) as { n: number }
     ).n,
     policies: db
       .prepare("SELECT scope,enabled FROM memory_policy WHERE owner_id=?")
@@ -413,9 +411,9 @@ memoryRoutes.put("/memory/policy", (req, res) => {
       .parse(req.body),
     owner = res.locals.owner;
   const [kind, key] = scope.split(":");
-  if (kind === "project") owned("folders", key, owner);
-  else if (kind === "conversation") owned("conversations", key, owner);
-  else if (kind === "artifact") owned("artifacts", key, owner);
+  if (kind === "project") ownedFolder(key, owner);
+  else if (kind === "conversation") ownedConversation(key, owner);
+  else if (kind === "artifact") ownedArtifact(key, owner);
   else if (scope !== "workspace")
     throw new Problem(400, "Unknown memory scope");
   db.transaction(() => {
@@ -444,13 +442,13 @@ memoryRoutes.put("/memory/policy", (req, res) => {
   res.json({ ok: true });
 });
 memoryRoutes.get("/memory/sources/:id", (req, res) => {
-  const s = owned<any>("memory_sources", req.params.id, res.locals.owner);
+  const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind === "note" && !s.tombstone)
     return res.json({ ...s, truncated: false });
   res.json(readMemory(res.locals.owner, req.params.id));
 });
 memoryRoutes.delete("/memory/sources/:id", (req, res) => {
-  const s = owned<any>("memory_sources", req.params.id, res.locals.owner);
+  const s = ownedMemorySource(req.params.id, res.locals.owner);
   db.transaction(() => {
     db.prepare(
       "UPDATE memory_sources SET tombstone=1,eligible=0,revision=revision+1 WHERE id=?",
@@ -469,7 +467,7 @@ memoryRoutes.post("/memory/notes", (req, res) => {
       projectId: z.string().nullable().default(null),
     })
     .parse(req.body);
-  if (d.projectId) owned("folders", d.projectId, res.locals.owner);
+  if (d.projectId) ownedFolder(d.projectId, res.locals.owner);
   const source = id();
   db.transaction(() =>
     putSource({
@@ -488,7 +486,7 @@ memoryRoutes.post("/memory/notes", (req, res) => {
   res.json({ id: digest(res.locals.owner + ":note:" + source) });
 });
 memoryRoutes.get("/runs/:id/memory", (req, res) => {
-  owned("runs", req.params.id, res.locals.owner);
+  ownedRun(req.params.id, res.locals.owner);
   res.json(
     db
       .prepare("SELECT * FROM memory_receipts WHERE run_id=?")
@@ -499,7 +497,7 @@ memoryRoutes.get("/runs/:id/memory", (req, res) => {
 });
 
 memoryRoutes.patch("/memory/notes/:id", (req, res) => {
-  const s = owned<any>("memory_sources", req.params.id, res.locals.owner);
+  const s = ownedMemorySource(req.params.id, res.locals.owner);
   const d = z
     .object({
       revision: z.number().int(),
@@ -515,7 +513,7 @@ memoryRoutes.patch("/memory/notes/:id", (req, res) => {
   res.json({ ok: true });
 });
 memoryRoutes.get("/memory/notes/:id/versions", (req, res) => {
-  const s = owned<any>("memory_sources", req.params.id, res.locals.owner);
+  const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind !== "note" || s.tombstone)
     throw new Problem(404, "Note unavailable");
   res.json(

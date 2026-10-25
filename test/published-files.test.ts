@@ -1,15 +1,5 @@
 import { afterAll, expect, it } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  linkSync,
-  truncateSync,
-  utimesSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync, truncateSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -108,7 +98,7 @@ function fixture() {
   )!;
   return {
     agent,
-    run: { ...run, state: "running" },
+    run: { ...run, state: "running" as const },
     binding,
     connection: db
       .prepare("SELECT * FROM connections WHERE id=?")

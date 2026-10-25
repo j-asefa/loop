@@ -2,7 +2,7 @@ import { companionMode } from "./profile.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { owned, ownedRuntimeHost, Problem } from "./domain.js";
 import { seal, unseal } from "./secrets.js";
 import {
   safeUrl,
@@ -74,7 +74,7 @@ export function runtimeEndpoint(
       fetch,
     };
   }
-  const host = owned<any>("runtime_hosts", hostId, owner),
+  const host = ownedRuntimeHost(hostId, owner),
     url = validate(host.url);
   const kind = host.kind as RuntimeEndpoint["kind"];
   if (kind === "codex-app-server" && service !== "codex")

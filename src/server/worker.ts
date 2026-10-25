@@ -1,3 +1,5 @@
+import { ConnectionMetadata, readJson } from "./row-schemas.js";
+
 import { errorFacts, errorSummary } from "../../runtime/diagnostics.ts";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import { recordTrace } from "./traces.js";
@@ -12,6 +14,7 @@ import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
 import {
   claim,
+  RunIdentity,
   deferUndispatched,
   recoverStale,
   transition,
@@ -55,12 +58,12 @@ export async function tick(
   const run = claim(workerId, (candidate) => {
     if (!accepting()) return false;
     assertExecutionGeneration(workerId);
-    const p = JSON.parse(candidate.payload);
+    const p = candidate.payload;
     const c = db
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
       .get(p.connectionId || "", candidate.owner_id) as
       { metadata: string } | undefined;
-    return !c || !harnessUpgrades.busy(JSON.parse(c.metadata).loopHarness);
+    return !c || !harnessUpgrades.busy(readJson(ConnectionMetadata.passthrough(), c.metadata, "connections", p.connectionId || "", "metadata").loopHarness || "");
   });
   if (!run) return false;
   const heartbeat = setInterval(
@@ -91,12 +94,15 @@ export async function tick(
       error instanceof Problem
         ? error.message
         : `The run stopped during ${phase} (${errorSummary(error, [], false)}). Open failure details to inspect the saved progress.`;
-    const updated = db
-      .prepare(
-        "UPDATE runs SET error=? WHERE id=? AND state IN ('running','pausing','awaiting_approval')",
-      )
-      .run(message, run.id);
-    if (updated.changes) {
+    // A released or replaced lease cannot fail its former work. Keep the
+    // lease check and failure transition atomic across API/worker processes.
+    db.transaction(() => {
+      const updated = db
+        .prepare(
+          "UPDATE runs SET error=? WHERE id=? AND owner_id=? AND worker_id=? AND state IN ('running','pausing','awaiting_approval')",
+        )
+        .run(message, run.id, run.owner_id, workerId);
+      if (!updated.changes) return;
       recordTrace(run, "run:failure", {
         kind: "tool",
         title: "Run failure",
@@ -113,12 +119,12 @@ export async function tick(
         },
       });
       emit(run.owner_id, run.id, "run.failed", { message, phase });
-    }
-    if (run.kind === "import")
-      db.prepare(
-        "UPDATE imports SET status='failed' WHERE id=? AND owner_id=?",
-      ).run(JSON.parse(run.payload).importId, run.owner_id);
-    transition(run, "failed");
+      if (run.kind === "import")
+        db.prepare(
+          "UPDATE imports SET status='failed' WHERE id=? AND owner_id=?",
+        ).run(run.payload.importId, run.owner_id);
+      transition(run, "failed");
+    }).immediate();
   } finally {
     clearInterval(heartbeat);
     await closeFinishedSessions();
@@ -295,9 +301,9 @@ export function startWorker() {
     if (scheduled) clearImmediate(scheduled);
     // Shutdown owns this transition before native IO is terminated; a
     // resulting pipe failure must not reclassify an interrupted turn as failed.
-    for (const run of db
-      .prepare("SELECT * FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')")
-      .all(workerId) as Run[])
+    for (const run of RunIdentity.array().parse(db
+      .prepare("SELECT id,owner_id FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')")
+      .all(workerId)))
       transition(run, "interrupted");
   };
   const stop = async () => {

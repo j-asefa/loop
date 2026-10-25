@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { YourAgents } from "../src/client/YourAgents";
-import type { Agent, Run } from "../src/shared/types";
+import type { Agent, RunView as Run } from "../src/shared/types";
 
 function agent(id: string, name: string): Agent {
   return {

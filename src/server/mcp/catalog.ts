@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { db, id, now } from "../db.js";
-import { owned, Problem } from "../domain.js";
+import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
 import { runtimeEndpoint } from "../runtime-hosts.js";
 import {
@@ -122,7 +122,7 @@ async function install(
         db.prepare("DELETE FROM oauth_states WHERE connection_id=?").run(
           connection,
         );
-      return owned<MCPConnection>("mcp_connections", connection, owner);
+      return ownedMcpConnection(connection, owner);
     })
     .immediate();
   if (c.status === "connected")
@@ -139,7 +139,7 @@ async function install(
         };
     }
     await discover(c);
-    const fresh = owned<MCPConnection>("mcp_connections", c.id, owner);
+    const fresh = ownedMcpConnection(c.id, owner);
     return {
       id: c.id,
       status: "connected",

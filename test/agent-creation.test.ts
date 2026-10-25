@@ -117,7 +117,7 @@ it("creates a first message, queues work, and keeps standing instructions for fu
   const run = claim("initial-worker")!;
   expect(run.id).toBe(result.data.initialRun.id);
   expect(run.input).toBe("Compare three research ideas.");
-  expect(JSON.parse(run.payload)).toMatchObject({
+  expect(run.payload).toMatchObject({
     instructions: input.instructions,
     effort: "high",
     folderId: project,
@@ -214,7 +214,7 @@ it("delivers uploaded files with the initial prompt and preserves them across re
   });
   const run = claim("initial-files-worker")!;
   expect(run.id).toBe(first.data.initialRun.id);
-  expect(JSON.parse(run.payload).attachmentIds).toEqual([text.id, image.id]);
+  expect(run.payload.attachmentIds).toEqual([text.id, image.id]);
   const message = db
     .prepare(
       "SELECT content,metadata FROM messages WHERE run_id=? AND role='user'",

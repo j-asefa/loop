@@ -1,10 +1,12 @@
+import { MessageMetadata, parseRun, parseRuns } from "./row-schemas.js";
+
 import { watchRun } from "./run-signal.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import type { RequestHandler } from "express";
 import { designPreview } from "../preview-context.js";
 import { db, changes, emit, id, now } from "./db.js";
 import { OWNER } from "./native-sessions.js";
-import { createAgent, owned, Problem } from "./domain.js";
+import { ownedConnection, ownedApproval, ownedRun, createAgent, Problem } from "./domain.js";
 import { seal } from "./secrets.js";
 import { saveArtifact } from "./artifacts.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
@@ -33,12 +35,8 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
   }
   const path = req.path;
   if (req.method === "GET" && /^\/connections\/[^/]+\/models$/.test(path)) {
-    const connection = owned<{ models: string }>(
-      "connections",
-      path.split("/")[2],
-      res.locals.owner,
-    );
-    res.json({ models: JSON.parse(connection.models) });
+    const connection = ownedConnection(path.split("/")[2], res.locals.owner);
+    res.json({ models: connection.models });
     return;
   }
   if (req.method === "GET" && path === "/workspace") {
@@ -96,14 +94,10 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
   // Resolve a sample approval locally, without entering the MCP/tool dispatch path.
   const approval = /^\/approvals\/([^/]+)$/.exec(path);
   if (approval && req.method === "POST") {
-    const row = owned<{ run_id: string; state: string }>(
-      "approvals",
-      approval[1],
-      res.locals.owner,
-    );
+    const row = ownedApproval(approval[1], res.locals.owner);
     if (!["approve", "reject"].includes(req.body?.decision))
       throw new Problem(400, "Choose approve or reject");
-    const run = owned<Run>("runs", row.run_id, res.locals.owner);
+    const run = ownedRun(row.run_id, res.locals.owner);
     if (row.state !== "pending" || run.state !== "awaiting_approval")
       throw new Problem(409, "This approval is no longer pending");
     db.transaction(() => {
@@ -141,7 +135,7 @@ function reply(run: Run, content: string, partial = false) {
     run.id,
     "assistant",
     content,
-    JSON.stringify({ preview: true, ...(partial ? { partial: true } : {}) }),
+    JSON.stringify(MessageMetadata.parse({ preview: true, ...(partial ? { partial: true } : {}) })),
     now(),
   );
   return message;
@@ -158,7 +152,7 @@ function finish(run: Run, content: string) {
     agent: run.agent_id,
     conversation: run.conversation_id,
     run: run.id,
-    folder: JSON.parse(run.payload).folderId,
+    folder: run.payload.folderId,
     metadata: { messageId: message, preview: true, model: MODEL },
   });
   db.prepare(
@@ -263,7 +257,7 @@ export function seedDesignPreview() {
         time,
         time,
       );
-      const run = db.prepare("SELECT * FROM runs WHERE id=?").get(runId) as Run;
+      const run = parseRun(db.prepare("SELECT * FROM runs WHERE id=?").get(runId));
       const turns = index === 0 ? 24 : 1;
       for (let turn = 0; turn < turns; turn++) {
         db.prepare(
@@ -289,7 +283,7 @@ export function seedDesignPreview() {
             runId,
             "assistant",
             content,
-            JSON.stringify({ preview: true, partial: state === "running" }),
+            JSON.stringify(MessageMetadata.parse({ preview: true, partial: state === "running" })),
             time + turn * 2000 + 1,
           );
       }
@@ -334,7 +328,7 @@ export function startDesignSimulation() {
     scheduled = setImmediate(() => { scheduled = undefined; tick(); });
   };
   const reconcile = () => {
-    const live = db.prepare("SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')").all(OWNER) as Run[];
+    const live = parseRuns(db.prepare("SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')").all(OWNER));
     const ids = new Set(live.map((run) => run.id));
     for (const [id, subscription] of watched) if (!ids.has(id)) {
       subscription.release(); watched.delete(id);
@@ -359,7 +353,7 @@ export function startDesignSimulation() {
               candidate.owner_id === OWNER &&
               candidate.kind === "agent" &&
               candidate.state === "queued" &&
-              (!JSON.parse(candidate.payload).previewFixture ||
+              (!candidate.payload.previewFixture ||
                 !!db
                   .prepare(
                     "SELECT 1 FROM events WHERE owner_id=? AND run_id=? AND type='queued' LIMIT 1",
@@ -369,13 +363,13 @@ export function startDesignSimulation() {
           if (!run) break;
           finish(run, REPLY);
         }
-        const steered = db
+        const steered = parseRuns(db
           .prepare(
             `SELECT * FROM runs WHERE owner_id=? AND state IN ('running','awaiting_approval')
             AND EXISTS(SELECT 1 FROM run_steering s WHERE s.owner_id=runs.owner_id AND s.run_id=runs.id AND s.state='pending')
             ORDER BY created_at LIMIT 10`,
           )
-          .all(OWNER) as Run[];
+          .all(OWNER));
         for (const run of steered) {
           if (run.state === "awaiting_approval") {
             new SteeringInbox(run).appendPending([]);

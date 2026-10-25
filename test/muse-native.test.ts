@@ -1,4 +1,3 @@
-import type { Connection } from "../src/shared/types";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +14,7 @@ writeFileSync(join(dir, "muse-credential.json"), JSON.stringify({ state: "accoun
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
-const { createAgent, owned } = await import("../src/server/domain");
+const { createAgent, ownedConnection } = await import("../src/server/domain");
 const { enqueue } = await import("../src/server/queue");
 const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
@@ -43,12 +42,12 @@ it("registers Muse Code as a live-input native connection and resumes its genera
     billing: "existing",
   });
   expect(registration.models.map((m: { id: string }) => m.id)).toContain("muse-spark-fixture");
-  const connection = owned<Connection>("connections", "native-muse", OWNER);
+  const connection = ownedConnection("native-muse", OWNER);
   expect(connection).toMatchObject({ provider: "muse", secret: "", status: "connected", owner_id: OWNER });
-  expect(harnessName(connection)).toBe("Muse Code");
+  expect(harnessName({ ...connection, metadata: JSON.stringify(connection.metadata), models: JSON.stringify(connection.models) })).toBe("Muse Code");
   // Replies during a turn reach Muse through turn/steer, not the queue.
   expect(acceptsLiveInput(connection)).toBe(true);
-  expect(JSON.parse(connection.metadata)).toMatchObject({ loopHarness: "muse", authMode: "native-existing" });
+  expect(connection.metadata).toMatchObject({ loopHarness: "muse", authMode: "native-existing" });
   // Registration checks the account and catalog only: no session, no prompt.
   expect(requests().some((r) => ["session/start", "turn/start"].includes(r.method))).toBe(false);
   const agent = createAgent(OWNER, {

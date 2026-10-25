@@ -6,7 +6,7 @@ import express from "express";
 import { z } from "zod";
 import { db } from "./db.js";
 import { config } from "./config.js";
-import { Problem, owned } from "./domain.js";
+import { ownedFolder, ownedConversation, Problem } from "./domain.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
 import { executionRequest } from "./execution-client.js";
 import { AuthHarness, RuntimeHarness, executionOperations } from "../shared/execution-authority.js";
@@ -78,7 +78,7 @@ companion.post("/workspace/projects", (req, res) => {
   res.status(201).json(nativeSessions.addProject(d.path, d.name));
 });
 companion.patch("/workspace/projects/:id", (req, res) => {
-  owned("folders", String(req.params.id), OWNER);
+  ownedFolder(String(req.params.id), OWNER);
   if (db.prepare("SELECT 1 FROM workspace_projects WHERE owner_id=? AND project_id=?").get(OWNER, req.params.id))
     throw new Problem(400, "Choose a named project for a local directory.");
   const { path } = z
@@ -109,7 +109,7 @@ companion.get("/native/decisions", (req, res) => {
     .uuid()
     .optional()
     .parse(req.query.conversation);
-  if (conversation) owned("conversations", conversation, OWNER);
+  if (conversation) ownedConversation(conversation, OWNER);
   res.json(
     db
       .prepare(
@@ -132,12 +132,12 @@ companion.post("/native/decisions/:id", async (req, res) => {
 });
 companion.get("/conversations/:id/settings", async (req, res) => {
   const conversation = z.string().uuid().parse(req.params.id);
-  owned("conversations", conversation, OWNER);
+  ownedConversation(conversation, OWNER);
   res.json(await executionRequest("native.controls", { conversationId: conversation }));
 });
 companion.patch("/conversations/:id/settings/:setting", async (req, res) => {
   const conversation = z.string().uuid().parse(req.params.id);
-  owned("conversations", conversation, OWNER);
+  ownedConversation(conversation, OWNER);
   const body = z
     .object({
       value: z.union([z.string().max(1000), z.boolean(), z.number()]),
@@ -155,11 +155,7 @@ companion.patch("/conversations/:id/settings/:setting", async (req, res) => {
   );
 });
 companion.get("/conversations/:id/native", (req, res, next) => {
-  const conversation = owned<any>(
-    "conversations",
-    String(req.params.id),
-    OWNER,
-  );
+  const conversation = ownedConversation(String(req.params.id), OWNER);
   const binding = db
     .prepare(
       "SELECT harness,project,model,state,updated_at FROM companion_sessions WHERE conversation_id=?",

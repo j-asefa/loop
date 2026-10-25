@@ -1,18 +1,14 @@
+import { QueryRecords, type QueryRow } from "../query-records.js";
+
+import { maybeRun, workflowPayload } from "../row-schemas.js";
 import { db, emit, id, now } from "../db.js";
-import { owned, Problem } from "../domain.js";
+import { ownedWorkflow, ownedApproval, ownedRun, Problem } from "../domain.js";
 import { enqueue, transition, type Run } from "../queue.js";
 import { saveArtifact } from "../artifacts.js";
 import { requestApproval } from "../approvals.js";
-import { compile, bind, interpolate, type Workflow } from "./compiler.js";
-import type { Snapshot } from "../agent-runtime.js";
-export type WorkflowPayload = {
-  workflowId: string;
-  version: number;
-  spec: Workflow;
-  inputs: Record<string, string>;
-  bindings: Record<string, Snapshot>;
-  startedAt?: number;
-};
+import { compile, bind, interpolate } from "./compiler.js";
+
+type WorkflowPayload = import("zod").infer<typeof import("../row-schemas.js").WorkflowPayload>;
 export function startWorkflow(
   owner: string,
   workflowId: string,
@@ -20,12 +16,12 @@ export function startWorkflow(
   inputs: Record<string, string>,
   key: string,
 ) {
-  const workflow = owned<any>("workflows", workflowId, owner);
+  const workflow = ownedWorkflow(workflowId, owner);
   const v = db
     .prepare(
       "SELECT * FROM workflow_versions WHERE workflow_id=? AND version=?",
     )
-    .get(workflow.id, version) as any;
+    .get(workflow.id, version) as QueryRow<"workflow_versions"> | undefined;
   if (!v) throw new Problem(404, "Workflow version not found");
   const spec = compile(v.source),
     resolved: Record<string, string> = {};
@@ -43,11 +39,11 @@ export function startWorkflow(
       throw new Problem(422, `Input ${name} is too large`);
     resolved[name] = value;
   }
-  const prior = db
+  const prior = maybeRun(db
     .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
-    .get(owner, key) as Run | undefined;
+    .get(owner, key));
   if (prior) {
-    const p = JSON.parse(prior.payload);
+    const p = prior.payload;
     if (
       prior.kind !== "workflow" ||
       p.workflowId !== workflowId ||
@@ -69,7 +65,7 @@ export function startWorkflow(
   });
 }
 export async function executeWorkflow(run: Run): Promise<boolean> {
-  const p = JSON.parse(run.payload) as WorkflowPayload;
+  const p = workflowPayload(run);
   const state = (
     db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
       state: string;
@@ -103,7 +99,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
     const step = p.spec.steps[position];
     let checkpoint = db
       .prepare("SELECT * FROM workflow_steps WHERE run_id=? AND step_id=?")
-      .get(run.id, step.id) as any;
+      .get(run.id, step.id) as QueryRow<"workflow_steps"> | undefined;
     if (checkpoint?.state === "completed") {
       outputs[step.id] = checkpoint.output || "";
       continue;
@@ -112,11 +108,11 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
       db.prepare(
         "INSERT INTO workflow_steps(run_id,step_id,position,state) VALUES(?,?,?,'pending')",
       ).run(run.id, step.id, position);
-      checkpoint = { state: "pending" };
+      checkpoint = QueryRecords.workflow_steps.parse(db.prepare("SELECT * FROM workflow_steps WHERE run_id=? AND step_id=?").get(run.id, step.id));
     }
     if (step.type === "agent") {
       if (checkpoint.child_run_id) {
-        const child = owned<Run>("runs", checkpoint.child_run_id, run.owner_id);
+        const child = ownedRun(checkpoint.child_run_id, run.owner_id);
         if (child.state === "completed") {
           db.prepare(
             "UPDATE workflow_steps SET state='completed',output=? WHERE run_id=? AND step_id=?",
@@ -188,7 +184,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
       return false;
     } else if (step.type === "approval") {
       let approval = checkpoint.approval_id
-        ? owned<any>("approvals", checkpoint.approval_id, run.owner_id)
+        ? ownedApproval(checkpoint.approval_id, run.owner_id)
         : null;
       if (!approval) {
         approval = requestApproval(run, {

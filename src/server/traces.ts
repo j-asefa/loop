@@ -1,5 +1,5 @@
 import { db, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedAgent, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
 
 // Older runtimes saved Claude's internal JSON-envelope tool and its receipt.
@@ -58,7 +58,7 @@ export function agentTraces(
   runId?: string,
   q?: string,
 ) {
-  owned("agents", agent, owner);
+  ownedAgent(agent, owner);
   const match = q ? traceMatch(q) : null;
   if (q && !match) return { items: [], next: null };
   const items = db
@@ -92,7 +92,7 @@ export function agentTraces(
 const exportLimit = 5000;
 // A complete public record of one run, final answer included, for download.
 export function runTraceExport(owner: string, agent: string, runId: string) {
-  const a = owned<{ id: string; name: string }>("agents", agent, owner);
+  const a = ownedAgent(agent, owner);
   const run = db
     .prepare(
       "SELECT id,input,state,error,conversation_id,created_at,updated_at FROM runs WHERE id=? AND owner_id=? AND agent_id=?",

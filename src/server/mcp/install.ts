@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, id, now } from "../db.js";
-import { owned, Problem } from "../domain.js";
+import { ownedAgent, ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
 import { discover, type MCPConnection } from "./client.js";
 import { safeUrl } from "./network.js";
@@ -78,7 +78,7 @@ export async function installConfig(
   runtimeHostId?: string,
 ) {
   const entries = parseMcpConfig(input);
-  if (agentId) owned("agents", agentId, owner);
+  if (agentId) ownedAgent(agentId, owner);
   if (entries.some(([, e]) => "command" in e))
     runtimeEndpoint(owner, runtimeHostId);
   const results = [];
@@ -122,11 +122,11 @@ export async function installConfig(
         }),
         now(),
       );
-      c = owned<MCPConnection>("mcp_connections", connection, owner);
+      c = ownedMcpConnection(connection, owner);
     }
     try {
       await discover(c);
-      const fresh = owned<MCPConnection>("mcp_connections", c.id, owner);
+      const fresh = ownedMcpConnection(c.id, owner);
       const tools = JSON.parse(fresh.tools) as { name: string }[];
       results.push({
         id: c.id,

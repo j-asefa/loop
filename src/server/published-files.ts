@@ -1,4 +1,6 @@
 import type { QueryRow } from "./query-records.js";
+import { agentPayload } from "./row-schemas.js";
+
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdirSync,
@@ -11,7 +13,7 @@ import { basename, join } from "node:path";
 import { z } from "zod";
 import { db, emit } from "./db.js";
 import { config } from "./config.js";
-import { owned, Problem } from "./domain.js";
+import { ownedArtifact, ownedConnection, ownedRun, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
 import { runtimeAction, runtimeWorkspaceKey } from "./subscriptions.js";
 import { companionMode } from "./profile.js";
@@ -22,7 +24,6 @@ import {
   readPublishedChunk,
 } from "../../runtime/published-files.ts";
 import type { Run } from "./queue.js";
-import type { Connection } from "../shared/types.js";
 
 export const publishFileSchema = z
   .object({
@@ -43,11 +44,11 @@ export function storePublishedFile(
   callId: string,
   file: { name: string; title: string; mime: string; bytes: Buffer },
 ) {
-  if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+  if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   if (file.bytes.length > MAX_PUBLISHED_BYTES)
     throw new Problem(413, "Published files can be up to 25 MB");
-  const snapshot = JSON.parse(run.payload);
+  const snapshot = agentPayload(run);
   const checksum = createHash("sha256").update(file.bytes).digest("base64");
   const key =
     "objects/" +
@@ -84,7 +85,7 @@ export function storePublishedFile(
     );
   return db
     .transaction(() => {
-      const live = owned<Run>("runs", run.id, run.owner_id);
+      const live = ownedRun(run.id, run.owner_id);
       if (live.state !== "running")
         throw new Problem(409, "Run is no longer executing");
       const prior = db
@@ -157,7 +158,7 @@ export async function publishRunFile(
   callId: string,
   args: z.infer<typeof publishFileSchema>,
 ) {
-  if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+  if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   const prior = db
     .prepare(
@@ -193,13 +194,9 @@ export async function publishRunFile(
       bytes,
     });
   }
-  const snapshot = JSON.parse(run.payload);
-  const connection = owned<Connection>(
-    "connections",
-    snapshot.connectionId,
-    run.owner_id,
-  );
-  const metadata = JSON.parse(connection.metadata);
+  const snapshot = agentPayload(run);
+  const connection = ownedConnection(snapshot.connectionId, run.owner_id);
+  const metadata = connection.metadata;
   const binding =
     companionMode && metadata.loopHarness
       ? (db
@@ -229,7 +226,7 @@ export async function publishRunFile(
     first: z.infer<typeof chunkSchema> | undefined;
   const chunks: Buffer[] = [];
   for (;;) {
-    if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+    if (ownedRun(run.id, run.owner_id).state !== "running")
       throw new Problem(409, "Run is no longer executing");
     const chunk = chunkSchema.parse(
       binding
@@ -270,7 +267,7 @@ export async function publishRunFile(
 }
 
 export function localArtifact(owner: string, artifactId: string) {
-  owned("artifacts", artifactId, owner);
+  ownedArtifact(artifactId, owner);
   const object = db
     .prepare(
       "SELECT * FROM artifact_objects WHERE artifact_id=? AND owner_id=?",

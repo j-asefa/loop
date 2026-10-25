@@ -1,4 +1,3 @@
-import type { Connection } from "../src/shared/types";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +12,7 @@ process.env.LOOP_TEST_GEMINI_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
-const { createAgent, owned } = await import("../src/server/domain");
+const { createAgent, ownedConnection } = await import("../src/server/domain");
 const { enqueue } = await import("../src/server/queue");
 const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
@@ -37,16 +36,16 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
     id: "gemini-fixture",
     name: "Gemini fixture",
   });
-  const connection = owned<Connection>("connections", "native-gemini", OWNER);
+  const connection = ownedConnection("native-gemini", OWNER);
   expect(connection).toMatchObject({
     provider: "gemini",
     secret: "",
     status: "connected",
     owner_id: OWNER,
   });
-  expect(harnessName(connection)).toBe("Gemini CLI");
+  expect(harnessName({ ...connection, metadata: JSON.stringify(connection.metadata), models: JSON.stringify(connection.models) })).toBe("Gemini CLI");
   expect(acceptsLiveInput(connection)).toBe(false);
-  expect(JSON.parse(connection.metadata)).toMatchObject({
+  expect(connection.metadata).toMatchObject({
     loopHarness: "gemini",
     authMode: "native-existing",
     capabilities: { billingVerified: false },
@@ -158,10 +157,10 @@ it("switches an existing Gemini conversation from an explicit model back to the 
     const nativeId = selected.binding.native_id;
     const defaultSession = await sessions.session({
       ...task,
-      payload: JSON.stringify({
-        ...JSON.parse(task.payload),
+      payload: {
+        ...task.payload,
         model: "native-default",
-      }),
+      },
     });
     expect(selected.closed).toBe(true);
     expect(defaultSession.generation).not.toBe(selected.generation);

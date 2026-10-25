@@ -1,3 +1,7 @@
+import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
+import { QueryRecords, type QueryRow } from "./query-records.js";
+
+
 import { watchRun } from "./run-signal.js";
 import { isNativeConnection } from "./native-connections.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
@@ -6,7 +10,7 @@ import { RunDeferred } from "./run-deferred.js";
 import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
 import { agentPermissionMode } from "./mcp/approval-policy.js";
-import type { PermissionMode } from "../shared/permission-modes.js";
+
 import {
   nativeBindings,
   invokeNative,
@@ -15,7 +19,7 @@ import {
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
 import { enqueue, type Run, transition } from "./queue.js";
-import { owned, Problem } from "./domain.js";
+import { ownedConversation, ownedFolder, ownedConnection, ownedAgent, ownedTeam, ownedRun, Problem } from "./domain.js";
 import {
   streamConnection,
   isSubscription,
@@ -37,31 +41,12 @@ import {
   steeringReceipt,
   SteeringInbox,
 } from "./steering.js";
-import type { Agent, Connection, Message } from "../shared/types.js";
+import type { Agent } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
 import { nativeSessions } from "./native-sessions.js";
 import { assertReviewIdentity, reviewContext } from "./review-access.js";
-export type Snapshot = {
-  agentId: string;
-  name: string;
-  provider: Agent["provider"];
-  connectionId: string;
-  model: string;
-  effort?: string | null;
-  /** The workspace's native harness approval level when the run was sent. */
-  permissionMode?: PermissionMode;
-  instructions: string;
-  folderId: string | null;
-  maxTokens?: number;
-  maxSeconds?: number;
-  source?: { url: string; title: string; excerpt: string };
-  teamId?: string;
-  reviewId?: string;
-  attachmentIds?: string[];
-  /** Internal durable mail scheduling identity. */
-  mailId?: string;
-  replyTo?: ReplyContext;
-};
+
+export type Snapshot = import("./row-schemas.js").AgentSnapshot;
 // The connection a conversation's next turn runs on: the agent's current one.
 // Shared by submit and command discovery so the catalog matches the turn.
 export function nextTurnConnection(
@@ -70,11 +55,7 @@ export function nextTurnConnection(
 ) {
   if (!agent.connection_id)
     throw new Problem(409, "Connect a provider to this agent first");
-  const connection = owned<Connection>(
-    "connections",
-    agent.connection_id,
-    owner,
-  );
+  const connection = ownedConnection(agent.connection_id, owner);
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect the provider to run this agent");
   return { connection };
@@ -90,12 +71,12 @@ export function nextTurnFolder(
   const previous = conversation
     ? (db
         .prepare(
-          "SELECT payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+          "SELECT id,payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
         )
-        .get(owner, conversation) as { payload: string } | undefined)
+        .get(owner, conversation) as { id: string; payload: string } | undefined)
     : undefined;
   return previous
-    ? (JSON.parse(previous.payload).folderId ?? null)
+    ? (readRunFolder(previous.payload, previous.id) ?? null)
     : agent.folder_id || null;
 }
 
@@ -140,15 +121,15 @@ export function submit(
       });
       const steered = steeringReceipt(owner, data.idempotencyKey, request);
       if (steered) return steered;
-      const agent = owned<Agent>("agents", data.agentId, owner);
+      const agent = ownedAgent(data.agentId, owner);
       let conversation = data.conversationId,
         teamId = data.teamId;
       if (data.steer && !conversation) {
-        const active = db
+        const active = parseRuns(db
           .prepare(
             "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC",
           )
-          .all(owner, agent.id) as Run[];
+          .all(owner, agent.id));
         if (active.length > 1)
           throw new Problem(
             409,
@@ -160,17 +141,17 @@ export function submit(
       const live = data.steer && conversation ? activeRun(owner, conversation, agent.id) : undefined;
       // Steering belongs to the running task, even if its agent now selects
       // another provider for future conversations.
-      const steeringConnection = live?.liveInput ? JSON.parse(live.run.payload).connectionId : undefined;
+      const steeringConnection = live?.liveInput ? live.run.payload.connectionId : undefined;
       if (conversation && !steeringConnection)
-        owned("conversations", conversation, owner);
+        ownedConversation(conversation, owner);
       const { connection } = nextTurnConnection(
         owner,
         steeringConnection ? { connection_id: steeringConnection } : agent,
       );
-      if (data.folderId) owned("folders", data.folderId, owner);
-      const prior = db
+      if (data.folderId) ownedFolder(data.folderId, owner);
+      const prior = maybeRun(db
         .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
-        .get(owner, data.idempotencyKey) as Run | undefined;
+        .get(owner, data.idempotencyKey));
       if (prior) {
         if (
           prior.input !== data.input ||
@@ -178,14 +159,14 @@ export function submit(
           (data.conversationId &&
             prior.conversation_id !== data.conversationId) ||
           (data.folderId !== undefined &&
-            JSON.parse(prior.payload).folderId !== data.folderId) ||
-          JSON.stringify(JSON.parse(prior.payload).attachmentIds || []) !==
+            prior.payload.folderId !== data.folderId) ||
+          JSON.stringify(prior.payload.attachmentIds || []) !==
             JSON.stringify(attachments.map((file) => file.id)) ||
-          JSON.parse(prior.payload).replyTo?.id !==
+          prior.payload.replyTo?.id !==
             (data.replyToMessageId || data.replyTo?.id) ||
           (!data.replyTo &&
             data.replyExcerpt?.trim() &&
-            JSON.parse(prior.payload).replyTo?.content?.trim() !==
+            prior.payload.replyTo?.content?.trim() !==
               data.replyExcerpt.trim())
         )
           throw new Problem(409, "This request key belongs to different work");
@@ -219,11 +200,7 @@ export function submit(
       let folderId =
         data.folderId === undefined ? agent.folder_id || null : data.folderId;
       if (conversation) {
-        const c = owned<{ agent_id: string; team_id: string | null }>(
-          "conversations",
-          conversation,
-          owner,
-        );
+        const c = ownedConversation(conversation, owner);
         if (c.agent_id !== agent.id)
           throw new Problem(400, "This conversation belongs to another agent");
         if (teamId && c.team_id !== teamId)
@@ -235,7 +212,7 @@ export function submit(
           folderId = nextTurnFolder(owner, agent, conversation);
       } else {
         if (teamId) {
-          const team = owned<any>("teams", teamId, owner);
+          const team = ownedTeam(teamId, owner);
           if (
             team.manager_id !== agent.id &&
             !db
@@ -262,15 +239,10 @@ export function submit(
             "UPDATE teams SET conversation_id=? WHERE id=? AND owner_id=? AND manager_id=? AND conversation_id IS NULL AND deleted_at IS NULL",
           ).run(conversation, teamId, owner, agent.id);
       }
-      const reviewId =
-        data.reviewId ||
-        (
-          db
-            .prepare(
-              "SELECT json_extract(payload,'$.reviewId') reviewId FROM runs WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1",
-            )
-            .get(conversation) as { reviewId?: string } | undefined
-        )?.reviewId;
+      const previousReview = db.prepare(
+        "SELECT id,payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY rowid DESC LIMIT 1",
+      ).get(owner, conversation) as { id: string; payload: string } | undefined;
+      const reviewId = data.reviewId || (previousReview ? readRunReviewId(previousReview.payload, previousReview.id) : undefined);
       if (
         !reviewId &&
         db
@@ -327,7 +299,7 @@ export function submit(
         if (active) {
           if (
             data.folderId !== undefined &&
-            (JSON.parse(active.payload).folderId || null) !== data.folderId
+            (active.payload.folderId || null) !== data.folderId
           )
             throw new Problem(
               409,
@@ -369,12 +341,12 @@ export function submit(
         run.id,
         "user",
         data.input,
-        JSON.stringify({
+        JSON.stringify(MessageMetadata.parse({
           attachments,
           replyTo,
           personal: data.personal === true,
           ...(data.automation ? { automation: data.automation } : {}),
-        }),
+        })),
         messageAt,
       );
       return run;
@@ -513,9 +485,7 @@ function apiCapabilities(
   });
 }
 export async function executeAgent(run: Run): Promise<boolean> {
-  const snapshot = JSON.parse(run.payload) as Snapshot & {
-    workflowRun?: string;
-  };
+  const snapshot = agentPayload(run);
   if (snapshot.reviewId) {
     assertReviewIdentity(
       run.owner_id,
@@ -524,11 +494,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       run.agent_id!,
     );
   }
-  const connection = owned<Connection>(
-    "connections",
-    snapshot.connectionId,
-    run.owner_id,
-  );
+  const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   if (connection.status !== "connected") {
     // Disconnection can race the atomic queue claim. Only a mail turn that
     // has not begun model/tool work can safely return to the queue here.
@@ -542,24 +508,24 @@ export async function executeAgent(run: Run): Promise<boolean> {
   }
   let cp = db
     .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
-    .get(run.id) as any;
+    .get(run.id) as QueryRow<"agent_checkpoints"> | undefined;
   if (!cp) {
-    const turns = db
+    const turns = parseMessages(db
       .prepare(
         `SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
       )
-      .all(run.conversation_id, run.owner_id, run.id, run.id) as Message[];
+      .all(run.conversation_id, run.owner_id, run.id, run.id));
     const history: ChatMessage[] = turns.map((m) => ({
       role: m.role as "user" | "assistant",
       content: attachmentPrompt(
         replyPrompt(
           m.content,
-          m.role === "user" ? JSON.parse(m.metadata).replyTo : undefined,
+          m.role === "user" ? m.metadata.replyTo : undefined,
         ),
-        JSON.parse(m.metadata).attachments || [],
+        m.metadata.attachments || [],
       ),
-      ...(JSON.parse(m.metadata).attachments?.length
-        ? { attachments: JSON.parse(m.metadata).attachments }
+      ...(m.metadata.attachments?.length
+        ? { attachments: m.metadata.attachments }
         : {}),
     }));
     if (snapshot.reviewId)
@@ -579,7 +545,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         run.owner_id,
         run.conversation_id,
         run.id,
-        JSON.stringify({ ...snapshot, partial: true }),
+        JSON.stringify(MessageMetadata.parse({ ...snapshot, partial: true })),
         now(),
       );
       const artifactId = saveArtifact(run.owner_id, {
@@ -595,9 +561,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
         "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,?)",
       ).run(run.id, messageId, artifactId, JSON.stringify(history));
     }).immediate();
-    cp = db
+    cp = QueryRecords.agent_checkpoints.parse(db
       .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
-      .get(run.id);
+      .get(run.id));
   }
   let history = JSON.parse(cp.history) as ChatMessage[],
     output = cp.output as string,
@@ -624,11 +590,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
     );
   });
   const persist = db.transaction((partial: boolean) => {
-    const metadata = JSON.stringify({
+    const metadata = JSON.stringify(MessageMetadata.parse({
       ...snapshot,
       messageId: cp.message_id,
       partial,
-    });
+    }));
     db.prepare("UPDATE messages SET content=?,metadata=? WHERE id=?").run(
       output,
       metadata,
@@ -775,7 +741,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
               invocation.binding.connectionId === "__loop__"
             ) {
               db.transaction(() => {
-                const state = owned<Run>("runs", run.id, run.owner_id).state;
+                const state = ownedRun(run.id, run.owner_id).state;
                 if (state === "running" || state === "pausing") {
                   db.prepare(
                     "UPDATE runs SET worker_id=NULL,heartbeat=NULL,active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,?-active_since) ELSE 0 END,active_since=NULL WHERE id=?",
@@ -869,11 +835,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         });
         return false;
       }
-      const currentConnection = owned<Connection>(
-        "connections",
-        snapshot.connectionId,
-        run.owner_id,
-      );
+      const currentConnection = ownedConnection(snapshot.connectionId, run.owner_id);
       if (currentConnection.status !== "connected")
         throw new Problem(409, "Provider was disconnected.");
       const bindings = snapshot.workflowRun
@@ -1038,7 +1000,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         continue;
       }
       signal.throwIfAborted();
-      if (owned<Run>("runs", run.id, run.owner_id).state === "cancelled") {
+      if (ownedRun(run.id, run.owner_id).state === "cancelled") {
         persist(true);
         return false;
       }
@@ -1134,7 +1096,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   } catch (error) {
     persist(true);
     if (signal.aborted) {
-      const current = owned<Run>("runs", run.id, run.owner_id);
+      const current = ownedRun(run.id, run.owner_id);
       if (current.state === "cancelled") return false;
       if (signal.reason instanceof Problem)
         throw signal.reason;

@@ -1,3 +1,7 @@
+import { ConnectionModels, ConnectionMetadata, MessageMetadata, agentPayload } from "./row-schemas.js";
+import type { QueryRow } from "./query-records.js";
+
+
 import { ExecutionRefused } from "./execution-refusal.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { watchRun } from "./run-signal.js";
@@ -31,7 +35,7 @@ import { basename, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { db, emit, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedConnection, ownedConversation, ownedRun, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordConversationUpdate } from "./conversation-updates.js";
 import { recordTrace } from "./traces.js";
@@ -516,8 +520,8 @@ export class NativeSessions {
     }
   }
   private piPackageContext(agent: any) {
-    const connection = owned<any>("connections", agent.connection_id, OWNER);
-    if (JSON.parse(connection.metadata).loopHarness !== "pi")
+    const connection = ownedConnection(agent.connection_id, OWNER);
+    if (connection.metadata.loopHarness !== "pi")
       throw new Problem(
         422,
         "Choose a direct Pi agent for Pi package management.",
@@ -945,7 +949,7 @@ export class NativeSessions {
         JSON.stringify(options),
         JSON.stringify(billing),
         JSON.stringify(capabilities),
-        JSON.stringify(models),
+        JSON.stringify(ConnectionModels.parse(models)),
         now(),
       );
       writeConnectionStatus("native-" + options.harness, () => db.prepare(
@@ -956,8 +960,8 @@ export class NativeSessions {
         options.harness === "claude" ? "anthropic" : options.harness,
         metadata.environmentName + " · " + labels[options.harness],
         "",
-        JSON.stringify(models),
-        JSON.stringify(metadata),
+        JSON.stringify(ConnectionModels.parse(models)),
+        JSON.stringify(ConnectionMetadata.parse(metadata)),
         now(),
       ));
       db.prepare(
@@ -1007,9 +1011,9 @@ export class NativeSessions {
         .prepare(
           "SELECT f.parent_id,p.path FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.id=? AND f.owner_id=?",
         )
-        .get(folder, OWNER) as any;
+        .get(folder, OWNER) as { parent_id: string | null; path: string | null } | undefined;
       if (row?.path) return this.directory(row.path);
-      folder = row?.parent_id;
+      folder = row?.parent_id ?? null;
     }
     throw new Problem(
       422,
@@ -1044,13 +1048,11 @@ export class NativeSessions {
   // keeping its project, so the catalog follows the same rule.
   async catalog(agent: any, conversation?: string) {
     const c = conversation
-      ? owned<any>("conversations", conversation, OWNER)
+      ? ownedConversation(conversation, OWNER)
       : undefined;
     if (c && c.agent_id !== agent.id)
       throw new Problem(400, "Conversation belongs to another agent");
-    const harness = JSON.parse(
-      owned<any>("connections", agent.connection_id, OWNER).metadata,
-    ).loopHarness as Harness;
+    const harness = ownedConnection(agent.connection_id, OWNER).metadata.loopHarness as Harness;
     const binding = conversation
       ? (db
           .prepare(
@@ -1131,13 +1133,9 @@ export class NativeSessions {
       throw new Problem(400, "Native work requires a conversation.");
     const conversation = run.conversation_id;
     const current = this.live.get(conversation);
-    const snapshot = JSON.parse(run.payload) as Snapshot;
-    const connection = owned<any>(
-      "connections",
-      snapshot.connectionId,
-      run.owner_id,
-    );
-    const harness = JSON.parse(connection.metadata).loopHarness as Harness;
+    const snapshot = agentPayload(run);
+    const connection = ownedConnection(snapshot.connectionId, run.owner_id);
+    const harness = connection.metadata.loopHarness as Harness;
     const registration = this.registration(harness);
     let binding = db
       .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
@@ -1695,7 +1693,7 @@ export class NativeSessions {
     live.flush = undefined;
     const checkpoint = db
       .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
-      .get(run.id) as any;
+      .get(run.id) as QueryRow<"agent_checkpoints"> | undefined;
     if (!checkpoint) return;
     let finalItem = !partial
       ? [...live.items.values()].findLast(
@@ -1727,13 +1725,13 @@ export class NativeSessions {
     // Progress remains durable in Messages/Traces. Publish only the last reply
     // after the harness confirms that the turn completed successfully.
     const output = finalItem?.text || "";
-    const metadata = JSON.stringify({
-      ...JSON.parse(run.payload),
+    const metadata = JSON.stringify(MessageMetadata.parse({
+      ...agentPayload(run),
       partial,
       native: true,
       messageId: checkpoint.message_id,
       finalNativeItemId: finalItem?.id,
-    });
+    }));
     db.transaction(() => {
       if (
         output !== checkpoint.output ||
@@ -1792,7 +1790,7 @@ export class NativeSessions {
     // A missing connection is reported by session() below.
     const connection = db
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
-      .get((JSON.parse(run.payload) as Snapshot).connectionId, run.owner_id) as
+      .get((agentPayload(run)).connectionId, run.owner_id) as
       { metadata: string } | undefined;
     if (
       connection &&
@@ -1809,7 +1807,7 @@ export class NativeSessions {
     const live = await this.session(run);
     if (live.run)
       throw new Problem(409, "This native conversation is already running.");
-    if (owned<Run>("runs", run.id, run.owner_id).state !== "running")
+    if (ownedRun(run.id, run.owner_id).state !== "running")
       return false;
     live.items.clear();
     live.requests.clear();
@@ -1818,7 +1816,7 @@ export class NativeSessions {
     clearTimeout(live.idle);
     live.run = run;
     live.cancelling = false;
-    const snapshot = JSON.parse(run.payload) as Snapshot;
+    const snapshot = agentPayload(run);
     // The native session keeps the snapshot context after the first review turn.
     const opensReview =
       snapshot.reviewId &&
@@ -1870,14 +1868,14 @@ export class NativeSessions {
     };
     watched.signal.addEventListener("abort", stop, { once: true });
     if (watched.signal.aborted) stop();
-    const deadline = (snapshot as any).maxSeconds
+    const deadline = snapshot.maxSeconds
       ? setTimeout(
           () =>
             void this.interrupt(
               run.id,
               "Workflow native turn reached its runtime budget.",
             ),
-          (snapshot as any).maxSeconds * 1000,
+          snapshot.maxSeconds * 1000,
         )
       : undefined;
     const steering = new SteeringInbox(run);
@@ -1911,7 +1909,7 @@ export class NativeSessions {
         );
       });
       const state = await complete;
-      const current = owned<Run>("runs", run.id, run.owner_id).state;
+      const current = ownedRun(run.id, run.owner_id).state;
       if (current === "cancelled") {
         recaptureAfterStop(run);
         return false;
@@ -1963,7 +1961,7 @@ export class NativeSessions {
   ) {
     const d = db
       .prepare("SELECT * FROM native_decisions WHERE id=?")
-      .get(decisionId) as any;
+      .get(decisionId) as QueryRow<"native_decisions"> | undefined;
     if (!d) throw new Problem(404, "Native decision not found.");
     const digest = createHash("sha256")
       .update(JSON.stringify(answer))
@@ -1974,7 +1972,7 @@ export class NativeSessions {
       return { state: d.state };
     }
     const live = this.live.get(d.conversation_id);
-    const run = owned<Run>("runs", d.run_id, OWNER);
+    const run = ownedRun(d.run_id, OWNER);
     if (
       !live ||
       live.closed ||
@@ -2109,14 +2107,14 @@ export class NativeSessions {
     db.transaction(() => {
       const runs = db
         .prepare(
-          "SELECT r.* FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loopHarness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
+          "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loopHarness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
         )
-        .all() as Run[];
+        .all() as Pick<Run, "id" | "owner_id">[];
       for (const run of runs) {
         db.prepare(
           "UPDATE runs SET state='interrupted',worker_id=NULL,error=?,updated_at=?,active_since=NULL WHERE id=?",
         ).run(
-          "Host stopped. Native outcome may be incomplete; review and send an explicit follow-up. No prompt was replayed.",
+          `Host stopped for run ${run.id}. Native outcome may be incomplete; review and send an explicit follow-up. No prompt was replayed.`,
           now(),
           run.id,
         );

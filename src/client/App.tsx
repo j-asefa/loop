@@ -162,7 +162,7 @@ import type {
   Artifact,
   Connection,
   Folder as FolderType,
-  Run,
+  RunView as Run,
   Team,
 } from "../shared/types";
 import "./style.css";

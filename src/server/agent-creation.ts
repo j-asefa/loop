@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { agentInput, createAgent, owned, Problem } from "./domain.js";
+import { ownedFolder, ownedAgent, ownedRun, agentInput, createAgent, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import { attachmentIds } from "./uploads.js";
-import type { Agent, CreatedAgent, Run } from "../shared/types.js";
+import type { CreatedAgent } from "../shared/types.js";
 
 const input = agentInput.extend({
   initialPrompt: z.string().trim().max(30000).default(""),
@@ -48,9 +48,9 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
             409,
             "This request key belongs to different agent details.",
           );
-        const agent = owned<Agent>("agents", receipt.agent_id, owner);
+        const agent = ownedAgent(receipt.agent_id, owner);
         const run = receipt.run_id
-          ? owned<Run>("runs", receipt.run_id, owner)
+          ? ownedRun(receipt.run_id, owner)
           : undefined;
         return {
           ...agent,
@@ -66,7 +66,7 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
       }
       if (files.length && !data.initialPrompt)
         throw new Problem(400, "Add an initial prompt for these files.");
-      if (data.folderId) owned("folders", data.folderId, owner);
+      if (data.folderId) ownedFolder(data.folderId, owner);
       const agent = createAgent(owner, data);
       const run = data.initialPrompt
         ? submit(owner, {

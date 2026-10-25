@@ -1,9 +1,11 @@
+import type { QueryRow } from "./query-records.js";
+
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedFolder, ownedTeam, ownedAgent, ownedRun, Problem } from "./domain.js";
 import { companionMode } from "./profile.js";
 import { submit } from "./agent-runtime.js";
 import {
@@ -11,7 +13,7 @@ import {
   snapshotFingerprint,
 } from "./review-snapshot.js";
 import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
-import type { Agent } from "../shared/types.js";
+
 import type { Run } from "./queue.js";
 
 const input = z.object({
@@ -26,7 +28,7 @@ function directory(owner: string, folderId: string) {
       409,
       "Local snapshot review requires a laptop workspace. Open the Loop workspace running beside your repository.",
     );
-  owned("folders", folderId, owner);
+  ownedFolder(folderId, owner);
   const mapping = db
     .prepare("SELECT path FROM project_paths WHERE folder_id=?")
     .get(folderId) as { path: string } | undefined;
@@ -90,26 +92,26 @@ function ensureCodeReview(
       .prepare(
         "SELECT id,request_hash FROM code_reviews WHERE owner_id=? AND request_key=?",
       )
-      .get(owner, d.idempotencyKey) as any;
+      .get(owner, d.idempotencyKey) as QueryRow<"code_reviews"> | undefined;
     if (prior && prior.request_hash !== hash)
       throw new Problem(409, "This request key belongs to a different review");
     return prior;
   };
   const prior = receipt();
   if (prior) return prior.id as string;
-  const team = owned<any>("teams", teamId, owner);
+  const team = ownedTeam(teamId, owner);
   if (team.deleted_at || team.preset_id !== "code-review")
     throw new Problem(409, "Choose a code review team");
-  const config = JSON.parse(team.preset_config);
-  const assignments = config.assignments as { role: string; agentId: string }[];
+  const config = z.object({ assignments: z.array(z.object({ role: z.string(), agentId: z.string().min(1) })) }).parse(JSON.parse(team.preset_config || "null"));
+  const assignments = config.assignments;
   if (assignments.length !== 4 || assignments[0].agentId !== team.manager_id)
     throw new Problem(409, "Review team configuration is incomplete");
   const requesterAgent =
-    requester && owned<any>("runs", requester.runId, owner).agent_id;
+    requester && ownedRun(requester.runId, owner).agent_id;
   for (const a of assignments) {
     if (a.agentId === requesterAgent)
       throw new Problem(409, "A reviewer cannot request its own team's review");
-    const agent = owned<Agent>("agents", a.agentId, owner);
+    const agent = ownedAgent(a.agentId, owner);
     if (agent.retired_at)
       throw new Problem(409, "Restore all reviewers before starting a review");
   }
@@ -187,7 +189,7 @@ export function reviewStatus(
   freshness = false,
 ) {
   const { record: r, snapshot: s } = reviewSnapshot(owner, reviewId);
-  const run = owned<any>("runs", r.run_id, owner);
+  const run = ownedRun(r.run_id, owner);
   const reviewers = db
     .prepare(
       "SELECT r.agent_id,r.state,r.error FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? ORDER BY d.call_id",
@@ -247,8 +249,8 @@ export function requestReview(
   callId: string,
   args: z.infer<typeof requestReviewSchema>,
 ): { pending: string } | { report: object; failed: boolean } {
-  const payload = JSON.parse(run.payload);
-  const team = owned<any>("teams", args.teamId, run.owner_id);
+  const payload = run.payload;
+  const team = ownedTeam(args.teamId, run.owner_id);
   const folderId = payload.folderId || team.folder_id;
   if (!folderId)
     throw new Problem(409, "This conversation has no project to review");
@@ -285,7 +287,7 @@ export function requestReview(
   if (!progress) throw new Problem(404, "Review not found");
   if (ACTIVE.includes(progress.state)) return { pending: callId };
   const status = reviewStatus(run.owner_id, reviewId);
-  const lead = owned<Run>("runs", progress.id, run.owner_id);
+  const lead = ownedRun(progress.id, run.owner_id);
   return {
     failed: status.state !== "completed",
     report: {

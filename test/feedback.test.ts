@@ -22,7 +22,7 @@ vi.mock("../src/server/local-embeddings.js", () => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { createAgent, owned, Problem } = await import("../src/server/domain");
+const { ownedArtifact,  createAgent, owned, Problem } = await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams, createTeam } = await import("../src/server/teams");
@@ -560,7 +560,7 @@ it("creates native diagrams without a provider or external MCP call", async () =
   });
   expect("result" in result).toBe(true);
   if ("result" in result)
-    expect(owned<any>("artifacts", result.artifactId, "feedback").kind).toBe(
+    expect(ownedArtifact(result.artifactId, "feedback").kind).toBe(
       "diagram",
     );
   await expect(

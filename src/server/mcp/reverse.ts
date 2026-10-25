@@ -2,12 +2,9 @@ import { watchRun } from "../run-signal.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ToolSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { db, emit, id, now } from "../db.js";
-import { Problem, owned } from "../domain.js";
+import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
 import { config } from "../config.js";
 import { discover, type MCPConnection } from "./client.js";
@@ -84,7 +81,7 @@ export async function installReverseCatalog(
     db.prepare(
       "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,?,?,?,'needs_auth',?,?)",
     ).run(key, owner, label, url, secret, metadata, now());
-  await discover(owned<MCPConnection>("mcp_connections", key, owner));
+  await discover(ownedMcpConnection(key, owner));
   return { id: key, status: "connected" };
 }
 
@@ -94,7 +91,7 @@ function catalog(owner: string, peerId: string) {
       "SELECT tools FROM mcp_reverse_catalog WHERE owner_id=? AND peer_id=?",
     )
     .get(owner, peerId) as { tools: string } | undefined;
-  return row ? (JSON.parse(row.tools) as any[]) : [];
+  return row ? ToolSchema.array().parse(JSON.parse(row.tools)) : [];
 }
 
 function queue(
@@ -306,7 +303,7 @@ export async function handleReverseMcp(
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: catalog(source.owner_id, source.peer_id) as any,
+    tools: catalog(source.owner_id, source.peer_id),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const runKey = req.headers["x-loop-run-id"];

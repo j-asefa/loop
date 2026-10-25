@@ -173,6 +173,19 @@ it("completes chat in an ordinary folder, resumes after restart and sends a foll
   ).toBeUndefined();
 });
 
+it("completes native output for a legacy payload without copying unknown fields", async () => {
+  const task = submit(chat, "legacy-payload");
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(JSON.stringify({ ...task.payload, historicalLabel: "Old label" }), task.id);
+  process.env.LOOP_TEST_GEMINI_SESSION_ID = "workspace-legacy-payload";
+  expect(await tick(execute)).toBe(true);
+  await completeCheckout(task.id);
+  expect(result(task)).toMatchObject({ state: "completed", result: "Fixture done", error: null });
+  expect(db.prepare("SELECT json_extract(payload,'$.historicalLabel') label FROM runs WHERE id=?").get(task.id)).toEqual({ label: "Old label" });
+  const outputs = db.prepare("SELECT metadata FROM messages WHERE run_id=? AND role='assistant' UNION ALL SELECT metadata FROM artifacts WHERE run_id=?").all(task.id, task.id) as { metadata: string }[];
+  expect(outputs.length).toBeGreaterThan(0);
+  for (const output of outputs) expect(JSON.parse(output.metadata)).not.toHaveProperty("historicalLabel");
+});
+
 it("keeps the selected ordinary folder when switching harnesses", async () => {
   expect(result(await run(chat, "switch-start")).state).toBe("completed");
   const task = await run(chat, "plain-switch", {

@@ -1,6 +1,8 @@
+import { MessageMetadata, parseRun } from "./row-schemas.js";
+
 import { watchRun } from "./run-signal.js";
 import { db, emit, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedRun, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
 import type { ChatMessage } from "./providers.js";
 import { attachmentPrompt } from "./uploads.js";
@@ -31,7 +33,7 @@ export function activeRun(owner: string, conversation: string, agent?: string) {
     | undefined;
   if (!run) return;
   const { live_input, ...active } = run;
-  return { run: active as Run, liveInput: live_input === 1 };
+  return { run: parseRun(active), liveInput: live_input === 1 };
 }
 
 export function steeringReceipt(owner: string, key: string, request: string) {
@@ -44,7 +46,7 @@ export function steeringReceipt(owner: string, key: string, request: string) {
   if (!prior) return;
   if (prior.request !== request)
     throw new Problem(409, "This request key belongs to different work");
-  return { ...owned<Run>("runs", prior.run_id, owner), steeringId: prior.id };
+  return { ...ownedRun(prior.run_id, owner), steeringId: prior.id };
 }
 
 export function saveSteering(
@@ -65,7 +67,7 @@ export function saveSteering(
     run.conversation_id,
     run.id,
     content,
-    JSON.stringify({ ...metadata, steeringId }),
+    JSON.stringify(MessageMetadata.parse({ ...metadata, steeringId })),
     messageAt,
   );
   db.prepare(

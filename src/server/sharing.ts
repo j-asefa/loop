@@ -2,7 +2,7 @@ import { runResponse } from "./row-schemas.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedFolder, ownedAgent, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { Agent } from "../shared/types.js";
 export const sharing = Router();
@@ -57,7 +57,7 @@ const shareSchema = z.object({
 });
 sharing.post("/share/preview", (req, res) => {
   const d = shareSchema.parse(req.body);
-  if (d.folderId) owned("folders", d.folderId, res.locals.owner);
+  if (d.folderId) ownedFolder(d.folderId, res.locals.owner);
   const agent = routeHandle(res.locals.owner, d.question);
   res.json({
     mode: agent ? "queue" : "create",
@@ -84,7 +84,7 @@ sharing.post("/share/send", (req, res) => {
   const agent =
     routed ||
     (d.newAgentId
-      ? owned<Agent>("agents", d.newAgentId, res.locals.owner)
+      ? ownedAgent(d.newAgentId, res.locals.owner)
       : null);
   if (!agent)
     throw new Problem(400, "Create an agent for this untagged request first.");
@@ -114,7 +114,7 @@ sharing.post("/routing/preview", (req, res) => {
       folderId: z.string().optional(),
     })
     .parse(req.body);
-  if (d.folderId) owned("folders", d.folderId, res.locals.owner);
+  if (d.folderId) ownedFolder(d.folderId, res.locals.owner);
   let agent = routeHandle(res.locals.owner, d.input);
   if (!agent)
     agent =

@@ -20,7 +20,7 @@ const git = (cwd: string, ...args: string[]) =>
   ).trim();
 
 const { db, id, now } = await import("../src/server/db");
-const { owned } = await import("../src/server/domain");
+const { ownedRun } = await import("../src/server/domain");
 const { agentWorktree } = await import("../src/server/agent-worktree");
 const {
   startCheckout,
@@ -61,7 +61,7 @@ function runFixture(conversation: string, state = "running", at = now()): Run {
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Change things',?,?,'{}',?,?)",
   ).run(runId, owner, agent, conversation, state, runId, at, at);
-  return owned<Run>("runs", runId, owner);
+  return ownedRun(runId, owner);
 }
 function bind(conversation: string, checkout: string) {
   db.prepare(

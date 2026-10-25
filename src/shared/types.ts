@@ -75,7 +75,8 @@ export type Folder = {
   parent_id: string | null;
   kind: "folder" | "project";
 };
-export type Run = {
+/** Public legacy wire projection; storage Run is server-only. */
+export type RunView = {
   id: string;
   agent_id: string | null;
   conversation_id: string | null;

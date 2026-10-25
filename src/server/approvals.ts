@@ -1,6 +1,8 @@
+import { ApprovalRecord } from "./row-schemas.js";
+
 import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedApproval, ownedRun, ownedRunControl, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
 import { recordPersonalDecision } from "./personal-decisions.js";
 export function requestApproval(
@@ -14,8 +16,8 @@ export function requestApproval(
     .prepare(
       "SELECT * FROM approvals WHERE owner_id=? AND run_id=? AND digest=?",
     )
-    .get(run.owner_id, run.id, digest) as any;
-  if (prior) return prior;
+    .get(run.owner_id, run.id, digest);
+  if (prior) return ApprovalRecord.parse(prior);
   const approvalId = id();
   const createdAt = now();
   db.transaction(() => {
@@ -36,7 +38,7 @@ export function requestApproval(
     autoApproved ? "approval.auto_approved" : "approval.requested",
     { approvalId, request },
   );
-  return owned<any>("approvals", approvalId, run.owner_id);
+  return ownedApproval(approvalId, run.owner_id);
 }
 export function decide(
   owner: string,
@@ -46,8 +48,10 @@ export function decide(
 ) {
   return db
     .transaction(() => {
-      const approval = owned<any>("approvals", approvalId, owner);
-      const run = owned<Run>("runs", approval.run_id, owner);
+      const approval = ownedApproval(approvalId, owner);
+      const run = decision === "reject"
+        ? ownedRunControl(approval.run_id, owner)
+        : ownedRun(approval.run_id, owner);
       if (approval.state !== "pending" || run.state !== "awaiting_approval")
         throw new Problem(409, "This approval is no longer pending");
       if (approval.expires_at < now())

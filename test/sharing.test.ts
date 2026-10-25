@@ -60,7 +60,7 @@ it("preserves shared context, idempotency and queues behind active work", () => 
     },
     second = submit("alice", data);
   expect(submit("alice", data).id).toBe(second.id);
-  expect(JSON.parse(second.payload).source).toEqual(source);
+  expect(second.payload.source).toEqual(source);
   expect(claim("fixture")).toBeUndefined();
   expect(() => sourceSchema.parse({ url: "javascript:alert(1)" })).toThrow();
 });

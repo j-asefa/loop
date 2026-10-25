@@ -1,5 +1,5 @@
-import { Problem, owned } from "../domain.js";
-import type { Agent, Connection } from "../../shared/types.js";
+import { ownedFolder, ownedAgent, ownedConnection, Problem } from "../domain.js";
+
 import type { Snapshot } from "../agent-runtime.js";
 import { workflowSchema, type Workflow } from "./schema.js";
 export { workflowSchema, type Workflow } from "./schema.js";
@@ -56,14 +56,10 @@ export function compile(source: string): Workflow {
 }
 export function bind(owner: string, spec: Workflow) {
   const snapshots: Record<string, Snapshot> = {};
-  if (spec.folderId) owned("folders", spec.folderId, owner);
+  if (spec.folderId) ownedFolder(spec.folderId, owner);
   for (const [role, agentId] of Object.entries(spec.agents)) {
-    const agent = owned<Agent>("agents", agentId, owner);
-    const connection = owned<Connection>(
-      "connections",
-      agent.connection_id || "",
-      owner,
-    );
+    const agent = ownedAgent(agentId, owner);
+    const connection = ownedConnection(agent.connection_id || "", owner);
     if (connection.status !== "connected")
       throw new Problem(409, `Reconnect @${agent.name} before running`);
     snapshots[role] = {

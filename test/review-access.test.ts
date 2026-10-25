@@ -10,7 +10,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-review-access-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
-const { createAgent, owned } = await import("../src/server/domain");
+const { createAgent, ownedRun } = await import("../src/server/domain");
 const { readReview, reviewRecord, reviewContext, assertReviewIdentity } = await import("../src/server/review-access");
 const { reviewStatus } = await import("../src/server/code-reviews");
 const { snapshotFingerprint } = await import("../src/server/review-snapshot");
@@ -38,7 +38,7 @@ function fixture(value = snapshot()) {
   db.prepare(`INSERT INTO code_reviews(id,owner_id,team_id,folder_id,request_key,request_hash,snapshot,fingerprint,run_id,created_at)
     VALUES(?,?,?,?,?,'fixture',?,?,?,?)`)
     .run(review, owner, team, folder, review, JSON.stringify(value), snapshotFingerprint(value), rid, now());
-  return { review, run: owned<Run>("runs", rid, owner) };
+  return { review, run: ownedRun(rid, owner) };
 }
 function observeReads() {
   const prepare = db.prepare.bind(db);

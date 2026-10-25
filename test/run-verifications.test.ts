@@ -9,7 +9,7 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 
 const { db, id, now } = await import("../src/server/db");
-const { owned } = await import("../src/server/domain");
+const { ownedRun } = await import("../src/server/domain");
 const {
   observeCompletedOutput,
   runVerifications,
@@ -43,7 +43,7 @@ function runFixture(conversation: string): Run {
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Check things','running',?,'{}',?,?)",
   ).run(runId, owner, agent, conversation, runId, now(), now());
-  return owned<Run>("runs", runId, owner);
+  return ownedRun(runId, owner);
 }
 function output(command: string, overrides: Partial<OutputData> = {}, text = "ok\n"): OutputData {
   return {

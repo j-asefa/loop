@@ -1,4 +1,6 @@
-import { runResponse } from "../row-schemas.js";
+import type { QueryRow } from "../query-records.js";
+import { McpConnectionRecord, parseRecord, runResponse } from "../row-schemas.js";
+
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -6,7 +8,7 @@ import {
   toolInvocationSchema,
 } from "../../shared/artifact-refresh.js";
 import { db, id, now } from "../db.js";
-import { owned, Problem } from "../domain.js";
+import { owned, ownedMcpConnection, ownedAgent, ownedFolder, ownedArtifact, ownedRun, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
 import { enqueue, transition, type Run } from "../queue.js";
 import {
@@ -196,15 +198,11 @@ mcp.post("/mcp", async (req, res) => {
   res
     .status(201)
     .json(
-      publicConnection(owned("mcp_connections", connection, res.locals.owner)),
+      publicConnection(ownedMcpConnection(connection, res.locals.owner)),
     );
 });
 mcp.post("/mcp/:id/test", async (req, res) => {
-  const c = owned<MCPConnection>(
-    "mcp_connections",
-    String(req.params.id),
-    res.locals.owner,
-  );
+  const c = ownedMcpConnection(String(req.params.id), res.locals.owner);
   try {
     if (readSecret(c).type === "oauth") {
       const a = await authorize(c);
@@ -214,7 +212,7 @@ mcp.post("/mcp/:id/test", async (req, res) => {
       }
     }
     await discover(c);
-    res.json(publicConnection(owned("mcp_connections", c.id, c.owner_id)));
+    res.json(publicConnection(ownedMcpConnection(c.id, c.owner_id)));
   } catch (e) {
     db.prepare("UPDATE mcp_connections SET status=? WHERE id=?").run(
       e instanceof ToolBudgetError ? "disabled" : "needs_auth",
@@ -224,17 +222,17 @@ mcp.post("/mcp/:id/test", async (req, res) => {
   }
 });
 mcp.patch("/mcp/:id", async (req, res) => {
-  const c = owned<MCPConnection>(
-      "mcp_connections",
-      String(req.params.id),
-      res.locals.owner,
-    ),
-    data = z
+  const raw = owned("mcp_connections", String(req.params.id), res.locals.owner);
+  const data = z
       .object({
         action: z.enum(["disable", "enable", "disconnect", "credentials"]),
         auth: secretSchema.optional(),
       })
       .parse(req.body);
+  // Disconnect never dispatches a tool or reuses the old credential.
+  const c = data.action === "disconnect"
+    ? parseRecord(McpConnectionRecord, raw, "mcp_connections")
+    : ownedMcpConnection(String(req.params.id), res.locals.owner);
   if (data.action === "disconnect") {
     db.transaction(() => {
       db.prepare(
@@ -262,7 +260,7 @@ mcp.patch("/mcp/:id", async (req, res) => {
     db.prepare("UPDATE mcp_connections SET status='disabled' WHERE id=?").run(
       c.id,
     );
-  res.json(publicConnection(owned("mcp_connections", c.id, c.owner_id)));
+  res.json(publicConnection(ownedMcpConnection(c.id, c.owner_id)));
 });
 mcp.get("/mcp/oauth/callback", async (req, res) => {
   const state = String(req.query.state || ""),
@@ -273,7 +271,7 @@ mcp.get("/mcp/oauth/callback", async (req, res) => {
         .prepare(
           "SELECT * FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
         )
-        .get(state, res.locals.owner, now()) as any;
+        .get(state, res.locals.owner, now()) as QueryRow<"oauth_states"> | undefined;
       if (!row)
         throw new Problem(
           403,
@@ -285,11 +283,7 @@ mcp.get("/mcp/oauth/callback", async (req, res) => {
     .immediate();
   if (!code || code.length > 4000)
     throw new Problem(400, "MCP sign-in was not completed");
-  const c = owned<MCPConnection>(
-    "mcp_connections",
-    saved.connection_id,
-    res.locals.owner,
-  );
+  const c = ownedMcpConnection(saved.connection_id, res.locals.owner);
   await authorize(c, code);
   await discover(c);
   res.redirect("/?tools=connected");
@@ -303,7 +297,7 @@ mcp.get("/agents/:id/tools", (req, res) => {
   );
 });
 mcp.put("/agents/:id/tools", (req, res) => {
-  owned("agents", String(req.params.id), res.locals.owner);
+  ownedAgent(String(req.params.id), res.locals.owner);
   throw new Problem(
     410,
     "MCP tools are now available to all agents. Manage connections in Settings → Tools & integrations.",
@@ -320,9 +314,9 @@ export function queueTool(
     folderId?: string;
   },
 ) {
-  const a = owned<any>("agents", data.agentId, owner);
+  const a = ownedAgent(data.agentId, owner);
   authorizeTool(owner, a.id, data.connectionId, data.tool, data.arguments);
-  if (data.folderId) owned("folders", data.folderId, owner);
+  if (data.folderId) ownedFolder(data.folderId, owner);
   return enqueue(owner, "Call " + data.tool, data.idempotencyKey, {
     kind: "mcp",
     agent: a.id,
@@ -333,8 +327,8 @@ const callSchema = toolInvocationSchema.extend({
   idempotencyKey: z.string().min(10).max(200),
 });
 mcp.post("/artifacts/:id/tool-call", (req, res) => {
-  const a = owned<any>("artifacts", String(req.params.id), res.locals.owner),
-    meta = JSON.parse(a.metadata);
+  const a = ownedArtifact(String(req.params.id), res.locals.owner),
+    meta = a.metadata;
   if (!a.agent_id || !meta.connectionId)
     throw new Problem(400, "This artifact has no tool context");
   const body = callSchema.parse(req.body);
@@ -348,8 +342,8 @@ mcp.post("/artifacts/:id/tool-call", (req, res) => {
   );
 });
 mcp.post("/artifacts/:id/refresh", (req, res) => {
-  const a = owned<any>("artifacts", String(req.params.id), res.locals.owner),
-    meta = JSON.parse(a.metadata);
+  const a = ownedArtifact(String(req.params.id), res.locals.owner),
+    meta = a.metadata;
   const source = artifactRefreshSource(a.agent_id, meta);
   if (!source) throw new Problem(400, "No refresh source is available");
   res.json(
@@ -366,7 +360,7 @@ mcp.post("/artifacts/:id/refresh", (req, res) => {
   );
 });
 export async function executeMcp(run: Run) {
-  const p = JSON.parse(run.payload),
+  const p = z.object({ tool: z.string().min(1), connectionId: z.string().min(1), arguments: z.record(z.string(), z.unknown()) }).parse(run.payload),
     out = await invokeTool(
       run,
       {
@@ -386,7 +380,7 @@ export async function executeMcp(run: Run) {
   );
   if (out.result.isError === true)
     throw new Problem(422, "Tool error: " + toolErrorMessage(out.result));
-  const state = owned<Run>("runs", run.id, run.owner_id).state;
+  const state = ownedRun(run.id, run.owner_id).state;
   if (state === "pausing") {
     transition(run, "paused");
     return false;
@@ -395,8 +389,8 @@ export async function executeMcp(run: Run) {
 }
 
 mcp.get("/artifacts/:id/app", (req, res) => {
-  const a = owned<any>("artifacts", String(req.params.id), res.locals.owner),
-    meta = JSON.parse(a.metadata);
+  const a = ownedArtifact(String(req.params.id), res.locals.owner),
+    meta = a.metadata;
   if (typeof meta.appResource?.html !== "string")
     throw new Problem(404, "App resource not found");
   res.setHeader(

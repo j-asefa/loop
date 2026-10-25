@@ -1,10 +1,11 @@
+import { type Connection } from "./row-schemas.js";
 import * as rows from "./row-schemas.js";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import type { Agent, Connection } from "../shared/types.js";
+
 import { Problem } from "../shared/problem.js";
 export { Problem } from "../shared/problem.js";
-export function owned<T>(table: string, recordId: string, owner: string): T {
+export function owned(table: string, recordId: string, owner: string): unknown {
   const tables = [
     "agents",
     "connections",
@@ -28,7 +29,7 @@ export function owned<T>(table: string, recordId: string, owner: string): T {
     .prepare(`SELECT * FROM ${table} WHERE id=? AND owner_id=?`)
     .get(recordId, owner);
   if (!record) throw new Problem(404, "Item not found");
-  return record as T;
+  return record;
 }
 const reserved = new Set([
   "admin",
@@ -66,10 +67,10 @@ export const agentInput = z.object({
 export function createAgent(owner: string, value: unknown) {
   const data = agentInput.parse(value);
   if (data.folderId) owned("folders", data.folderId, owner);
-  const connection = owned<Connection>("connections", data.connectionId, owner);
+  const connection = ownedConnection(data.connectionId, owner);
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
-  const models = JSON.parse(connection.models) as { id: string }[];
+  const models = connection.models as { id: string }[];
   if (!models.some((m) => m.id === data.model))
     throw new Problem(400, "Choose an available model from this connection");
   validateEffort(connection, data.model, data.effort);
@@ -98,7 +99,7 @@ export function createAgent(owner: string, value: unknown) {
         agentId,
         now(),
       );
-      return owned<Agent>("agents", agentId, owner);
+      return ownedAgent(agentId, owner);
     })
     .immediate();
 }
@@ -108,7 +109,7 @@ export function validateEffort(
   effort?: string | null,
 ) {
   const selected = (
-    JSON.parse(connection.models) as import("../shared/models.js").ModelOption[]
+    connection.models as import("../shared/models.js").ModelOption[]
   ).find((option) => option.id === model);
   if (
     effort &&
@@ -119,7 +120,7 @@ export function validateEffort(
 }
 export function renameAgent(owner: string, agentId: string, name: unknown) {
   const normalized = handle.parse(name);
-  const agent = owned<Agent>("agents", agentId, owner);
+  const agent = ownedAgent(agentId, owner);
   return db
     .transaction(() => {
       const occupied = db
@@ -144,6 +145,9 @@ export function renameAgent(owner: string, agentId: string, name: unknown) {
 
 export function ownedRun(recordId: string, owner: string) {
   return rows.parseRun(owned("runs", recordId, owner));
+}
+export function ownedRunNotice(recordId: string, owner: string) {
+  return rows.parseRecord(rows.RunNotice, owned("runs", recordId, owner), "runs");
 }
 export function ownedRunControl(recordId: string, owner: string) {
   const record = db.prepare("SELECT id,owner_id,state,worker_id,attention_dismissed_at FROM runs WHERE id=? AND owner_id=?")

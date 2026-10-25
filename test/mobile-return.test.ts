@@ -10,7 +10,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, emit } = await import("../src/server/db");
-const { createAgent, owned, Problem } = await import("../src/server/domain");
+const { ownedRun, ownedConversation,  createAgent, owned, Problem } = await import("../src/server/domain");
 const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
@@ -489,7 +489,7 @@ it("surfaces a native run interrupted while awaiting approval, without replay or
   const cid = conversation(w.owner, a.id, "Merge after review");
   const rid = run(w.owner, a.id, cid, "awaiting_approval");
   message(w.owner, cid, "user", "Merge the PR after approval", rid);
-  const pending = requestApproval(owned<any>("runs", rid, w.owner), {
+  const pending = requestApproval(ownedRun(rid, w.owner), {
     type: "mcp_tool", tool: "merge_pull_request", arguments: { expectedHeadSha: "a".repeat(40) },
   });
   db.prepare("INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,'stopped-host','digest','accepted',?)").run(rid, now());
@@ -522,7 +522,7 @@ it.each(["failed", "interrupted"])("ignores legacy pending approvals and native 
   const cid = conversation(w.owner, a.id);
   const rid = run(w.owner, a.id, cid, state);
   // Reproduce an older source's stale records, after terminal-state cleanup.
-  requestApproval(owned<any>("runs", rid, w.owner), { type: "mcp_tool", tool: "merge_pull_request" });
+  requestApproval(ownedRun(rid, w.owner), { type: "mcp_tool", tool: "merge_pull_request" });
   db.prepare("INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,created_at) VALUES(?,?,?,'old','decision','{}','pending',?)")
     .run(id(), rid, cid, now());
   const page = (await api(w.owner, "/feed?filter=needs")).data;
@@ -939,7 +939,7 @@ it("heads Working cards with the active task's prompt instead of the thread's fi
     expect(await card("done")).toMatchObject({ title, run: { id: first } });
   }
   // Only the card heading changes; the stored thread title stays available.
-  expect(owned<any>("conversations", cid, w.owner).title).toBe(title);
+  expect(ownedConversation(cid, w.owner).title).toBe(title);
   db.prepare("UPDATE runs SET input=? WHERE id=?").run("word ".repeat(100), active);
   expect((await card("working")).title).toHaveLength(200);
   db.prepare("UPDATE runs SET input='  ' WHERE id=?").run(active);
@@ -1000,7 +1000,7 @@ it("shows a working agent's output so far on its feed card", async () => {
   expect((await card()).run.automation).toBeUndefined();
   // The card's model badge uses the run's model, like its environment badge.
   expect((await card()).run.model).toBe("run-model");
-  recordConversationUpdate(owned("runs", live, w.owner) as any, "update-1", {
+  recordConversationUpdate(ownedRun(live, w.owner) as any, "update-1", {
     content: "Reading the diff and checking the queue changes.",
   });
   expect((await card()).live_preview).toBe(
@@ -1498,7 +1498,7 @@ it("keeps a highlighted excerpt with a scheduled reply", async () => {
     (db.prepare("SELECT payload FROM runs WHERE id=?").get(runId) as { payload: string }).payload,
   );
   expect(payload.replyTo).toMatchObject({ id: answer, content: "Second finding.", excerpt: true });
-  transition(owned("runs", runId, w.owner), "cancelled");
+  transition(ownedRun(runId, w.owner), "cancelled");
 });
 
 it("delivers a scheduled message to its chosen project, to no project, or to the agent's", async () => {
@@ -2017,7 +2017,7 @@ it("pages your explicit approvals through the profile API without mixing owners 
   const approvals = [];
   for (let i = 0; i < 53; i++) {
     db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
-    const approval = requestApproval(owned<any>("runs", rid, w.owner), {
+    const approval = requestApproval(ownedRun(rid, w.owner), {
       type: "mcp_tool", tool: "merge_pull_request", arguments: { pullNumber: i },
     });
     expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: i === 0 ? "reject" : "approve" })).status).toBe(200);
@@ -2026,8 +2026,8 @@ it("pages your explicit approvals through the profile API without mixing owners 
   // Equal timestamps still page each decision exactly once.
   db.prepare("UPDATE personal_decisions SET created_at=100 WHERE owner_id=?").run(w.owner);
   expect((await api(w.owner, `/approvals/${approvals[1]}`, "POST", { decision: "approve" })).status).toBe(409);
-  const auto = requestApproval(owned<any>("runs", rid, w.owner), { type: "mcp_tool", tool: "automatic" }, true);
-  const expired = requestApproval(owned<any>("runs", rid, w.owner), { type: "mcp_tool", tool: "expired" });
+  const auto = requestApproval(ownedRun(rid, w.owner), { type: "mcp_tool", tool: "automatic" }, true);
+  const expired = requestApproval(ownedRun(rid, w.owner), { type: "mcp_tool", tool: "expired" });
   db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
   db.prepare("UPDATE approvals SET expires_at=0 WHERE id=?").run(expired.id);
   expect((await api(w.owner, `/approvals/${expired.id}`, "POST", { decision: "approve" })).status).toBe(409);
@@ -2063,7 +2063,7 @@ it("bounds large workflow and tool request previews and resumes from any visible
     { type: "mcp_tool", tool: "large_message", message: huge },
   ]) {
     db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
-    const approval = requestApproval(owned<any>("runs", rid, w.owner), request);
+    const approval = requestApproval(ownedRun(rid, w.owner), request);
     expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: "approve" })).status).toBe(200);
   }
   const page = (await api(w.owner, "/me/decisions?kind=approval")).data;

@@ -1,9 +1,10 @@
 import { runResponse } from "../row-schemas.js";
+
 import { teamFilter } from "../teams.js";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "../db.js";
-import { owned, Problem } from "../domain.js";
+import { ownedWorkflow, ownedApproval, ownedRun, Problem } from "../domain.js";
 import { compile, bind } from "./compiler.js";
 import { startWorkflow } from "./runtime.js";
 import { saveArtifact } from "../artifacts.js";
@@ -38,7 +39,7 @@ workflows.post("/workflows", (req, res) => {
     .parse(req.body);
   const spec = compile(d.source);
   bind(res.locals.owner, spec);
-  const prior = d.id ? owned<any>("workflows", d.id, res.locals.owner) : null;
+  const prior = d.id ? ownedWorkflow(d.id, res.locals.owner) : null;
   if (prior && prior.version !== d.expectedVersion)
     throw new Problem(409, "Workflow changed. Reopen the latest version.");
   const workflowId = prior?.id || id(),
@@ -73,10 +74,10 @@ workflows.post("/workflows", (req, res) => {
       metadata: { workflowId, version, dsl: spec.dsl },
     });
   }).immediate();
-  res.json(owned("workflows", workflowId, res.locals.owner));
+  res.json(ownedWorkflow(workflowId, res.locals.owner));
 });
 workflows.get("/workflows/:id", (req, res) => {
-  const w = owned<any>("workflows", req.params.id, res.locals.owner);
+  const w = ownedWorkflow(req.params.id, res.locals.owner);
   res.json({
     ...w,
     versions: db
@@ -112,7 +113,7 @@ workflows.post("/workflows/:id/run", (req, res) => {
     );
 });
 workflows.get("/runs/:id/steps", (req, res) => {
-  owned("runs", req.params.id, res.locals.owner);
+  ownedRun(req.params.id, res.locals.owner);
   res.json(
     db
       .prepare(
@@ -142,10 +143,6 @@ workflows.post("/approvals/:id", async (req, res) => {
   const d = z
     .object({ decision: z.enum(["approve", "reject"]) })
     .parse(req.body);
-  const approval = owned<{ request: string }>(
-    "approvals",
-    req.params.id,
-    res.locals.owner,
-  );
+  const approval = ownedApproval(req.params.id, res.locals.owner);
   res.json(decide(res.locals.owner, req.params.id, d.decision));
 });

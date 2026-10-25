@@ -1,5 +1,5 @@
 import { ArrowUpRight } from "lucide-react";
-import type { Run } from "../shared/types";
+import type { RunView as Run } from "../shared/types";
 
 const labels: Record<string, string> = {
   queued: "Queued",

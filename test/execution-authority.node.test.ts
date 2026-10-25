@@ -1,3 +1,4 @@
+import { parseConnection } from "../src/server/row-schemas.js";
 import { inProcessExecution } from "./in-process-execution.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -295,9 +296,9 @@ test(
             (await api("/connections/native-claude/refresh", {})).name,
             "claude",
           );
-          const connection = db
+          const connection = parseConnection(db
             .prepare("SELECT * FROM connections WHERE id='native-claude'")
-            .get() as import("../src/shared/types.js").Connection;
+            .get());
           assert.equal(
             (await runtimeAction(connection, "status")).name,
             "claude",

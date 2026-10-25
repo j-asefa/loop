@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { afterAll, describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal, unseal } = await import("../src/server/secrets");
-const { createAgent, renameAgent, owned } =
+const { ownedAgent,  createAgent, renameAgent, owned } =
   await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
@@ -67,8 +67,8 @@ describe("durable agent contract", () => {
         model: "fixture-model",
       }),
     ).toThrow(/taken/);
-    expect(() => owned("agents", a.id, "bob")).toThrow("Item not found");
-    expect(owned<any>("agents", a.id, "alice").id).toBe(a.id);
+    expect(() => ownedAgent(a.id, "bob")).toThrow("Item not found");
+    expect(ownedAgent(a.id, "alice").id).toBe(a.id);
   });
   it("binds selected model, retains prior history, prevents duplicate retries, and saves final artifacts", async () => {
     const a = createAgent("alice", {
