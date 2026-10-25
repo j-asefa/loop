@@ -5,7 +5,7 @@ import { Problem } from "../shared/problem.js";
 import type { RouteContract } from "../shared/workspace-api.js";
 
 type ResponseBody<C extends RouteContract> = C extends { kind: "stream" } ? unknown : z.input<C["response"]>;
-type Input<C extends RouteContract> = { params: z.output<C["params"]>; query: z.output<C["query"]>; body: z.output<C["body"]> };
+type Input<C extends RouteContract> = { params: z.output<C["params"]>; query: z.output<C["query"]>; body: z.output<C["body"]> } & (C extends { multipart: true } ? { file: Express.Multer.File | undefined } : {});
 
 /** The same projection can run before bookkeeping that depends on valid output. */
 export function projectResponse<C extends RouteContract>(contract: C, body: unknown): z.output<C["response"]> {
@@ -21,7 +21,7 @@ function route<C extends RouteContract>(contract: C, handler: (input: Input<C>, 
   return (req, res) => {
     const json = res.json;
     try {
-      const input = { params: contract.params.parse(req.params), query: contract.query.parse(req.query), body: contract.body.parse(req.body) } as Input<C>;
+      const input = { params: contract.params.parse(req.params), query: contract.query.parse(req.query), body: contract.body.parse(req.body), ...(contract.multipart ? { file: req.file } : {}) } as Input<C>;
       if (contract.kind !== "stream") res.json = body => json.call(res, projectResponse(contract, body));
       res.status(contract.status ?? 200);
       const result = handler(input, res);
@@ -61,11 +61,11 @@ export function registrar(name: string, options: Options = {}) {
   const mount: RequestHandler = router;
   return {
     mount,
-    on<C extends RouteContract>(contract: C, handler: Parameters<typeof route<C>>[1], options: { wrap?: (handler: Handler) => Handler } = {}) {
+    on<C extends RouteContract>(contract: C, handler: Parameters<typeof route<C>>[1], options: { wrap?: (handler: Handler) => Handler; middleware?: readonly Handler[] } = {}) {
       const wrapped = route(contract, handler);
       const method = contract.method.toLowerCase() as "get" | "post" | "put" | "patch" | "delete";
       const registration = router.route(prefix + contract.path);
-      registration[method](options.wrap ? options.wrap(wrapped) : wrapped);
+      registration[method](...(options.middleware ?? []), options.wrap ? options.wrap(wrapped) : wrapped);
       if (!automaticOptions) registration.options(deferOptions);
     },
     legacy(key: keyof typeof LEGACY_ROUTES, ...handlers: [Handler, ...Handler[]]) {

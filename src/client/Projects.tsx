@@ -14,7 +14,6 @@ import {
   Users,
   Workflow,
 } from "lucide-react";
-import { api } from "./api";
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
@@ -502,33 +501,33 @@ export function ProjectSearchResults({
   onConversation: (conversation: string, message?: string) => void;
   onArtifact: (id: string) => void;
 }) {
-  const [result, setResult] = useState<{ items: any[] } | null>(null);
+  type SearchItem = RouteResponse<typeof workspaceApi.search>["items"][number];
+  const [result, setResult] = useState<RouteResponse<typeof workspaceApi.search> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!query.trim()) return;
     let active = true;
     setResult(null);
     setError("");
-    api<{ items: any[] }>(
-      `/search?${new URLSearchParams({ q: query, scope: "all", project })}`,
-    )
+    callRoute(workspaceApi.search, { query: { q: query, scope: "all", project } }, executionSourceId())
       .then((r) => active && setResult(r))
       .catch((e) => active && setError((e as Error).message));
     return () => {
       active = false;
     };
   }, [project, query]);
-  const groups: { key: string; items: any[] }[] = [];
+  const groups: { key: string; items: SearchItem[] }[] = [];
   for (const item of result?.items || []) {
     const key = item.conversation_id || item.id;
     const group = groups.find((g) => g.key === key);
     if (group) group.items.push(item);
     else groups.push({ key, items: [item] });
   }
-  const open = (r: any) =>
-    r.id.startsWith("message:")
-      ? onConversation(r.conversation_id, r.id.slice(8))
-      : onArtifact(r.id.slice(9));
+  const open = (r: SearchItem) => {
+    if (r.id.startsWith("message:")) {
+      if (r.conversation_id) onConversation(r.conversation_id, r.id.slice(8));
+    } else onArtifact(r.id.slice(9));
+  };
   if (error)
     return (
       <p className="error" role="alert">

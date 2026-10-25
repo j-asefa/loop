@@ -1,6 +1,8 @@
 import { SearchExcerpt } from "./SearchExcerpt";
 import { capabilities } from "./capabilities";
-import { sourceApiPath } from "./sourceRouting";
+import { executionSourceId } from "./sourceRouting";
+import { callRoute, routeUrl } from "./workspace-api";
+import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState, useRef, type FormEvent } from "react";
 import {
   Folder,
@@ -19,9 +21,9 @@ import {
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
-import { api, parse, authorizedFetch } from "./api";
+import { parse } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
-import { useSourceApi } from "./SourceContext";
+import { useSourceRoute } from "./SourceContext";
 import { Sheet, Empty, Badge } from "./components";
 import {
   SettingsList,
@@ -40,6 +42,9 @@ import type {
   Agent,
   Connection,
 } from "../shared/types";
+type SearchResults = RouteResponse<typeof workspaceApi.search>;
+type SearchItem = SearchResults["items"][number];
+
 export function FolderForm({
   folders,
   onClose,
@@ -70,25 +75,13 @@ export function FolderForm({
           setBusy(true);
           setError("");
           try {
-            const created = await api<FolderType>(
-              existing ? `/folders/${existing.id}` : "/folders",
-              {
-                path: f.get("path") || undefined,
-                name: f.get("name"),
-                kind: existing?.kind || kind,
-                parentId: f.get("parent") || null,
-              },
-              existing ? "PATCH" : "POST",
-            );
-            onCreated(
-              existing
-                ? {
-                    ...existing,
-                    name: String(f.get("name")),
-                    parent_id: String(f.get("parent") || "") || null,
-                  }
-                : created,
-            );
+            const body = { path: String(f.get("path") || "") || undefined, name: String(f.get("name") || ""), parentId: String(f.get("parent") || "") || null };
+            if (existing) {
+              await callRoute(workspaceApi.folderUpdate, { params: { id: existing.id }, body }, executionSourceId());
+              onCreated({ ...existing, name: String(f.get("name")), parent_id: body.parentId });
+            } else {
+              onCreated(await callRoute(workspaceApi.folderCreate, { body: { ...body, kind } }, executionSourceId()));
+            }
             onClose();
           } catch (e) {
             setError((e as Error).message);
@@ -153,13 +146,13 @@ export function FileSheet({
   onChanged,
   initialResult,
 }: {
-  initialResult?: any;
+  initialResult?: RouteResponse<typeof workspaceApi.artifactMove>;
   item: Artifact;
   folders: FolderType[];
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const owner = useRef(viewOwner());
   const alive = useRef(true);
   useEffect(() => {
@@ -171,15 +164,12 @@ export function FileSheet({
   const current = () => alive.current && owner.current === viewOwner();
   const [destination, setDestination] = useState(item.folder_id || ""),
     [command, setCommand] = useState(""),
-    [result, setResult] = useState<any>(initialResult || null),
+    [result, setResult] = useState<RouteResponse<typeof workspaceApi.artifactMove> | null>(initialResult || null),
     [error, setError] = useState("");
   async function move(natural = false) {
     if (!current()) return;
     try {
-      const r = await api(
-        `/artifacts/${item.id}/move`,
-        natural ? { command } : { folderId: destination || null },
-      );
+      const r = await call(workspaceApi.artifactMove, { params: { id: item.id }, body: natural ? { command } : { folderId: destination || null } });
       if (!current()) return;
       setResult(r);
       onChanged();
@@ -208,7 +198,7 @@ export function FileSheet({
               onClick={async () => {
                 if (!current()) return;
                 try {
-                  await api(`/operations/${result.operation}/undo`, {});
+                  await call(workspaceApi.operationUndo, { params: { id: result.operation }, body: {} });
                   if (!current()) return;
                   setResult(null);
                   onChanged();
@@ -299,7 +289,7 @@ export function Saved({
   initialView?: "recent" | "folders";
 }) {
   const [view, setView] = useState<string>(initialView),
-    [items, setItems] = useState<Artifact[]>([]),
+    [items, setItems] = useState<RouteResponse<typeof workspaceApi.artifactList>["items"]>([]),
     [next, setNext] = useState<number | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
@@ -310,12 +300,11 @@ export function Saved({
     if (!append && !items.length) setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams();
-      if (!embedded && view === "pinned") params.set("pinned", "1");
-      else if (embedded || view === "folders")
-        params.set("folder", folder || "inbox");
-      if (append && next) params.set("before", String(next));
-      const r = await api(`/artifacts?${params}`);
+      const query: RouteInput<typeof workspaceApi.artifactList>["query"] = {};
+      if (!embedded && view === "pinned") query.pinned = "1";
+      else if (embedded || view === "folders") query.folder = folder || "inbox";
+      if (append && next) query.before = String(next);
+      const r = await callRoute(workspaceApi.artifactList, { query }, executionSourceId());
       if (ticket !== request.current) return;
       setItems((prev) => (append ? [...prev, ...r.items] : r.items));
       setNext(r.next);
@@ -333,11 +322,7 @@ export function Saved({
   }, [folder, view, version]);
   async function pin(a: Artifact) {
     try {
-      await api(
-        `/artifacts/${a.id}`,
-        { pinned: !a.pinned, version: a.version },
-        "PATCH",
-      );
+      await callRoute(workspaceApi.artifactUpdate, { params: { id: a.id }, body: { pinned: !a.pinned, version: a.version } }, executionSourceId());
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -460,11 +445,11 @@ export function Saved({
   );
 }
 function SearchIndexStatus() {
-  const [status, setStatus] = useState<any>(null);
+  const [status, setStatus] = useState<RouteResponse<typeof workspaceApi.searchStatus> | null>(null);
   useEffect(() => {
     let active = true;
     const load = () =>
-      void api("/search/status")
+      void callRoute(workspaceApi.searchStatus, {}, executionSourceId())
         .then((value) => {
           if (active) setStatus(value);
         })
@@ -559,7 +544,7 @@ export function SearchWorkspace({
     folder: string;
     from: string;
     to: string;
-    result: any;
+    result: SearchResults | null;
     resultQuery: string;
   }>(shownKey);
   const [query, setQuery] = useState(shown?.query ?? ""),
@@ -568,7 +553,7 @@ export function SearchWorkspace({
     [folder, setFolder] = useState(shown?.folder ?? ""),
     [from, setFrom] = useState(shown?.from ?? ""),
     [to, setTo] = useState(shown?.to ?? ""),
-    [result, setResult] = useState<any>(shown?.result ?? null),
+    [result, setResult] = useState<SearchResults | null>(shown?.result ?? null),
     [resultQuery, setResultQuery] = useState(shown?.resultQuery ?? ""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -597,24 +582,24 @@ export function SearchWorkspace({
     setBusy(true);
     setError("");
     try {
-      const p = new URLSearchParams({ q: text, scope: "all", kind, agent, folder });
-      if (from) p.set("from", String(Date.parse(from)));
-      if (to) p.set("to", String(Date.parse(to) + 86400000 - 1));
-      if (append && result?.next) p.set("before", String(result.next));
-      const r = await api(`/search?${p}`);
+      const query: RouteInput<typeof workspaceApi.search>["query"] = { q: text, scope: "all", kind, agent, folder };
+      if (from) query.from = String(Date.parse(from));
+      if (to) query.to = String(Date.parse(to) + 86400000 - 1);
+      if (append && result?.next) query.before = String(result.next);
+      const r = await callRoute(workspaceApi.search, { query }, executionSourceId());
       if (request !== searchRequest.current) return;
       setResultQuery(text);
       if (!append) {
         rememberSearch(text.trim());
         setRecent(recentSearches());
       }
-      setResult((previous: any) =>
+      setResult(previous =>
         append
           ? {
               ...r,
               items: [
                 ...new Map(
-                  [...previous.items, ...r.items].map((item: any) => [
+                  [...(previous?.items ?? []), ...r.items].map(item => [
                     item.id,
                     item,
                   ]),
@@ -643,18 +628,18 @@ export function SearchWorkspace({
     return () => window.removeEventListener("loop-refresh", refresh);
   }, []);
   // One card per thread: a conversation and the results it produced share a card.
-  const groups: { key: string; items: any[] }[] = [];
+  const groups: { key: string; items: SearchItem[] }[] = [];
   for (const item of result?.items || []) {
     const key = item.conversation_id || item.id;
     const group = groups.find((g) => g.key === key);
     if (group) group.items.push(item);
     else groups.push({ key, items: [item] });
   }
-  async function openResult(r: any) {
+  async function openResult(r: SearchItem) {
     try {
-      if (r.message_id || r.id.startsWith("message:"))
-        onConversation(r.conversation_id, r.message_id || r.id.slice(8));
-      else onOpen(await api(`/artifacts/${r.id.slice(9)}`));
+      if (r.message_id || r.id.startsWith("message:")) {
+        if (r.conversation_id) onConversation(r.conversation_id, r.message_id || r.id.slice(8));
+      } else onOpen(await callRoute(workspaceApi.artifactDetail, { params: { id: r.id.slice(9) } }, executionSourceId()));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -835,7 +820,7 @@ export function SearchWorkspace({
                       {first.title}
                     </button>
                   </h3>
-                  {items.slice(0, 3).map((r: any) => (
+                  {items.slice(0, 3).map(r => (
                     <button
                       type="button"
                       key={r.id}
@@ -917,10 +902,10 @@ export function ImportJobRow({
   job,
   onReload,
 }: {
-  job: any;
+  job: Pick<RouteResponse<typeof workspaceApi.importList>[number], "id" | "provider" | "status" | "summary">;
   onReload: () => Promise<void> | void;
 }) {
-  const s = parse<any>(job.summary, {});
+  const s = parse<Partial<RouteResponse<typeof workspaceApi.importPreview>["summary"]>>(job.summary, {});
   const done = s.completed || 0;
   const total = s.conversations || 0;
   const running = ["running", "queued"].includes(job.status);
@@ -957,7 +942,7 @@ export function ImportJobRow({
         {running ? (
           <button
             onClick={async () => {
-              await api(`/imports/${job.id}/cancel`, {});
+              await callRoute(workspaceApi.importCancel, { params: { id: job.id }, body: {} }, executionSourceId());
               await onReload();
             }}
           >
@@ -967,7 +952,7 @@ export function ImportJobRow({
           job.status !== "completed" && (
             <button
               onClick={async () => {
-                await api(`/imports/${job.id}/start`, {});
+                await callRoute(workspaceApi.importStart, { params: { id: job.id }, body: {} }, executionSourceId());
                 await onReload();
               }}
             >
@@ -975,9 +960,9 @@ export function ImportJobRow({
             </button>
           )
         )}
-        <FileLink url={sourceApiPath("/api/objects/" + s.objectId)}>
+        {s.objectId && <FileLink url={routeUrl(workspaceApi.objectFile, { params: { id: s.objectId } }, executionSourceId())}>
           Original export
-        </FileLink>
+        </FileLink>}
       </div>
     </div>
   );
@@ -989,12 +974,12 @@ export function ImportSheet({
   onClose: () => void;
   onChange: () => void;
 }) {
-  const [jobs, setJobs] = useState<any[]>([]),
-    [preview, setPreview] = useState<any>(null),
+  const [jobs, setJobs] = useState<RouteResponse<typeof workspaceApi.importList>>([]),
+    [preview, setPreview] = useState<RouteResponse<typeof workspaceApi.importPreview> | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   async function load() {
-    setJobs(await api("/imports"));
+    setJobs(await callRoute(workspaceApi.importList, {}, executionSourceId()));
   }
   useEffect(() => {
     void load();
@@ -1006,12 +991,9 @@ export function ImportSheet({
     setBusy(true);
     setError("");
     try {
-      const r = await authorizedFetch(sourceApiPath("/api/imports/preview"), {
-        method: "POST",
-        body: new FormData(e.currentTarget),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error);
+      const file = new FormData(e.currentTarget).get("file");
+      if (!(file instanceof Blob)) throw new Error("Choose an export file");
+      const d = await callRoute(workspaceApi.importPreview, { body: {}, file }, executionSourceId());
       setPreview(d);
       await load();
     } catch (e) {
@@ -1071,7 +1053,7 @@ export function ImportSheet({
               className="primary"
               onClick={async () => {
                 try {
-                  await api(`/imports/${preview.id}/start`, {});
+                  await callRoute(workspaceApi.importStart, { params: { id: preview.id }, body: {} }, executionSourceId());
                   setPreview(null);
                   await load();
                   onChange();
@@ -1123,7 +1105,7 @@ export function SearchSettings({
     [connection, setConnection] = useState(""),
     [error, setError] = useState("");
   useEffect(() => {
-    void api("/preferences")
+    void callRoute(workspaceApi.preferences, {}, executionSourceId())
       .then((p) => {
         setEnabled(!!p.embedding_enabled);
         setConnection(p.embedding_connection || "");
@@ -1214,10 +1196,10 @@ export function SearchSettings({
         className="primary"
         onClick={async () => {
           try {
-            await api("/preferences", {
+            await callRoute(workspaceApi.preferencesUpdate, { body: {
               embeddingEnabled: enabled,
               connectionId: connection || null,
-            });
+            } }, executionSourceId());
             onClose();
           } catch (e) {
             setError((e as Error).message);

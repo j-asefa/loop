@@ -1,12 +1,10 @@
-import { routeUrl } from "./workspace-api";
-import { workspaceApi } from "../shared/workspace-api";
+import { callRoute, routeUrl } from "./workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceId } from "./SourceContext";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
 import { FilePreview } from "./FilePreview";
-import { authorizedFetch } from "./api";
-import { sourceApiPathAt } from "./sourceRouting";
 import { prepareImage, shouldPrepare } from "./imageUpload";
 import {
   MAX_MESSAGE_FILES,
@@ -69,7 +67,7 @@ export function AttachmentList({
           url={
             preview.published
               ? routeUrl(workspaceApi.artifactFile, { params: { id: preview.id } }, sourceId)
-              : sourceApiPathAt(`/api/objects/${preview.objectId}`, sourceId)
+              : routeUrl(workspaceApi.objectFile, { params: { id: preview.objectId } }, sourceId)
           }
           name={preview.name}
           mime={preview.mime}
@@ -177,37 +175,18 @@ export function UploadButton({
         if (controller.signal.aborted) return;
         if (file.size > MAX_UPLOAD_BYTES)
           throw new Error("Files can be up to 25 MB each.");
-        const form = new FormData();
-        form.append("file", file);
-        if (folderId) form.append("folderId", folderId);
-        if (agentId) form.append("agentId", agentId);
-        let response: Response;
+        let result: RouteResponse<typeof workspaceApi.uploadCreate>;
         timer = setTimeout(() => controller.abort(new DOMException("Upload timed out", "TimeoutError")), UPLOAD_TIMEOUT_MS);
         try {
-          response = await authorizedFetch(
-            sourceApiPathAt("/api/uploads", sourceId),
-            {
-              method: "POST",
-              body: form,
-              signal: controller.signal,
-            },
-          );
+          result = await callRoute(workspaceApi.uploadCreate, {
+            body: { folderId: folderId || undefined, agentId: agentId || undefined }, file,
+          }, sourceId, controller.signal);
         } catch (error) {
-          throw new Error(
-            (error as Error).name === "TimeoutError"
-              ? `Uploading ${file.name} timed out. Check the connection and try again.`
-              : `Uploading ${file.name} failed: the connection dropped. Try again.`,
-          );
+          if ((error as Error).name === "TimeoutError")
+            throw new Error(`Uploading ${file.name} timed out. Check the connection and try again.`);
+          throw error;
         }
-        const result = await response.json().catch(() => null);
         clearTimeout(timer);
-        // Loop always answers with JSON; anything else came from the network
-        // in between (a tunnel or proxy error page), so name its status.
-        if (!response.ok || !result)
-          throw new Error(
-            result?.error ||
-              `Upload failed (HTTP ${response.status}${response.statusText ? " " + response.statusText : ""}). Try again.`,
-          );
         if (mounted.current && pending.current === task && destinationRef.current === destination && !controller.signal.aborted) onUploaded(result);
       }
     } catch (error) {

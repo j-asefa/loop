@@ -2,7 +2,7 @@ import { workspaceApi, type ConversationPage, type RouteInput, type RouteRespons
 import { readRoute, UnavailableResponse } from "./workspace-api";
 import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceApi, useSourceId, useSourceRoute, useProjectionRoute } from "./SourceContext";
+import { useSourceId, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -204,7 +204,6 @@ function ConversationView({
   onWork?: (work: ThreadWork | null) => void;
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
-  const api = useSourceApi();
   const call = useSourceRoute();
   const readUsage = useProjectionRoute();
   // The thread's pull request, for the chip on its final message. "No PR
@@ -1138,12 +1137,12 @@ function ConversationView({
             onReuse: () => onUsePrompt(menuFor.content),
             onSnippet: async () => {
               try {
-                await api("/artifacts", {
+                await call(workspaceApi.artifactCreate, { body: {
                   title: "Snippet: " + preview(menuFor.content, 60),
                   content: menuFor.content,
                   kind: "markdown",
                   metadata: { snippet: true },
-                });
+                } });
                 onSubmitted();
                 notify({
                   text: "Saved as a snippet. Type / in any composer to insert it.",
@@ -1219,14 +1218,14 @@ function ConversationView({
       {verification && (
         <VerificationSheet
           runId={verification}
-          load={(runId) => api(`/runs/${runId}/verifications`)}
+          load={(runId) => call(workspaceApi.runVerifications, { params: { id: runId } })}
           onClose={() => setVerification(null)}
         />
       )}
       {checkout && (
         <CheckoutSheet
           runId={checkout}
-          load={(runId) => api(`/runs/${runId}/checkout`)}
+          load={(runId) => call(workspaceApi.runCheckout, { params: { id: runId } })}
           agentName={agent?.name}
           projectName={project?.name}
           onAsk={agent && !imported ? onUsePrompt : undefined}
@@ -1798,10 +1797,10 @@ function ConversationView({
                 setBusy(true);
                 setError("");
                 try {
-                  const r = await api(`/conversations/${id}/continue`, {
+                  const r = await call(workspaceApi.conversationContinue, { params: { id }, body: {
                     agentId: destination,
                     messageIds: included,
-                  });
+                  } });
                   setTransfer(false);
                   onContinue(r.id);
                   onSubmitted();

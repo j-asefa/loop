@@ -1,31 +1,29 @@
-import { fetchStream } from "./workspace-api";
+import { fetchStream, routeUrl } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
-import { legacyFilePath } from "./legacy-paths";
-import { sourceApiPathAt } from "./sourceRouting";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Download, File as FileIcon, Share2 } from "lucide-react";
-import { authorizedFetch } from "./api";
 import { Sheet } from "./components";
 import { isHtmlFile } from "../shared/file-preview";
 
-export function loopFileUrl(href?: string, source?: string) {
+export function loopFileUrl(href?: string, source?: string, preview?: "html") {
   if (!href) return;
   try {
     const url = new URL(href, location.href);
-    if (
-      url.origin === location.origin &&
-      /^\/api\/(?:agent-sources\/[^/]+\/)?(artifacts\/[^/]+\/file|objects\/[^/]+)$/.test(
-        url.pathname,
-      )
-    )
-      return source === undefined
-        ? url.pathname + url.search
-        : sourceApiPathAt(
-            url.pathname.replace(/^\/api\/agent-sources\/[^/]+\//, "/api/") +
-              url.search,
-            source,
-          );
+    if (url.origin !== location.origin) return;
+    const artifact = /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/]+)\/file$/.exec(url.pathname);
+    const object = /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/]+)$/.exec(url.pathname);
+    const target = artifact ?? object;
+    if (!target) return;
+    const query: Record<string, string | string[]> = Object.create(null);
+    for (const key of new Set(url.searchParams.keys())) {
+      const values = url.searchParams.getAll(key);
+      query[key] = values.length === 1 ? values[0] : values;
+    }
+    if (preview) query.preview = preview;
+    return routeUrl(artifact ? workspaceApi.artifactFile : workspaceApi.objectFile, {
+      params: { id: decodeURIComponent(target[2]) }, query,
+    }, source ?? decodeURIComponent(target[1] ?? ""));
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }
@@ -146,12 +144,14 @@ export function FilePreview({
     void (async () => {
       try {
         const artifact = /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/?#]+)\/file(?:\?[^#]*)?$/.exec(url);
-        const response = artifact
-          ? await fetchStream(workspaceApi.artifactFile, {
-              params: { id: decodeURIComponent(artifact[2]) },
-              query: { preview: new URL(url, location.href).searchParams.get("preview") ?? undefined },
-            }, decodeURIComponent(artifact[1] ?? ""), controller.signal)
-          : await authorizedFetch(legacyFilePath(url), { signal: controller.signal });
+        const object = /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/?#]+)(?:\?[^#]*)?$/.exec(url);
+        const target = artifact ?? object;
+        if (!target) throw new Error("File address is unavailable");
+        const previews = new URL(url, location.href).searchParams.getAll("preview");
+        const response = await fetchStream(artifact ? workspaceApi.artifactFile : workspaceApi.objectFile, {
+          params: { id: decodeURIComponent(target[2]) },
+          query: { preview: previews.length > 1 ? previews : previews[0] },
+        }, decodeURIComponent(target[1] ?? ""), controller.signal);
         if (response.redirected || response.status === 401)
           throw new Error("Sign in to Loop to open this file.");
         if (!response.ok)
@@ -165,10 +165,8 @@ export function FilePreview({
               "application/octet-stream"
             : responseType;
         const file = new File([blob], fileName, { type });
-        const localUrl = loopFileUrl(url);
-        const html = isHtmlFile(fileName, type) && localUrl;
-        const htmlUrl = html ? new URL(localUrl, location.href) : undefined;
-        htmlUrl?.searchParams.set("preview", "html");
+        const htmlUrl = isHtmlFile(fileName, type) ? loopFileUrl(url, undefined, "html") : undefined;
+        const html = !!htmlUrl;
         const image = [
           "image/png",
           "image/jpeg",
@@ -189,7 +187,7 @@ export function FilePreview({
           file,
           // HTML is a server-sandboxed document, never an app-origin blob or
           // srcdoc. The full file (including embedded assets) is preserved.
-          htmlUrl: htmlUrl ? htmlUrl.pathname + htmlUrl.search : undefined,
+          htmlUrl,
           imageUrl: image ? objectUrl(file) : undefined,
           videoUrl: ["video/mp4", "video/webm", "video/quicktime"].includes(
             type,

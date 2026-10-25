@@ -9,7 +9,9 @@ import {
   MessageSquare,
   Search,
 } from "lucide-react";
-import { api, parse } from "./api";
+import { parse } from "./api";
+import { callRoute } from "./workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
 
@@ -289,11 +291,11 @@ function TraceList({
                     {item.artifact_id && (
                       <button
                         onClick={async () => {
+                          const artifactId = item.artifact_id;
+                          if (!artifactId) return;
                           try {
                             onArtifact(
-                              await api<Artifact>(
-                                `/artifacts/${item.artifact_id}`,
-                              ),
+                              await callRoute(workspaceApi.artifactDetail, { params: { id: artifactId } }, executionSourceId()),
                             );
                           } catch (e) {
                             setError((e as Error).message);

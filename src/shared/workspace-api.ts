@@ -1,6 +1,8 @@
 import { FeedEntities } from "./feed-projection.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
+import * as library from "./library-contract-schemas.js";
+import { ProviderSchema as Provider } from "./provider-schema.js";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
 import { PersonalDecisionsQuery, PersonalDecisionsPageSchema } from "./personal-decisions.js";
 import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage } from "./personal-schemas.js";
@@ -16,7 +18,6 @@ import { CardTokenSchema, CreateCardTokenSchema } from "./card-token-schemas.js"
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 const Text = z.string(), MaybeText = Text.nullable(), Time = z.number();
-const Provider = z.enum(["openai", "anthropic", "codex", "pi", "opencode", "gemini", "muse", "grok", "acp"]);
 export const PublicAgent = z.object({
   id: Text, owner_id: Text, name: Text, normalized_name: Text.optional(), provider: Provider,
   connection_id: MaybeText, model: Text, effort: MaybeText.optional(), instructions: Text,
@@ -136,6 +137,8 @@ export type RouteContract = {
   // Other success statuses the handler writes (for example an accepted replay).
   additionalStatuses?: readonly number[];
   kind?: "stream";
+  // One file part named "file", plus the ordinary body schema's text fields.
+  multipart?: true;
   contentType?: string;
   access: "session" | "card:results" | "card:cards";
 };
@@ -212,6 +215,29 @@ export const workspaceApi = {
   conversationFork: endpoint({ ...base, method: "POST", path: "/conversations/:id/fork", params: Id, body: mobile.ConversationForkInput, response: z.object({ id: Text, agentId: Text }) }),
   conversationUsage: endpoint({ ...base, method: "GET", path: "/conversations/:id/usage", params: Id, response: mobile.PublicUsage }),
   snippetList: endpoint({ ...base, method: "GET", path: "/snippets", response: mobile.PublicSnippets }),
+  uploadCreate: endpoint({ ...base, method: "POST", path: "/uploads", multipart: true, body: library.UploadOptions, response: mobile.PublicUploadDescriptor, status: 201 }),
+  folderList: endpoint({ ...base, method: "GET", path: "/folders", response: z.array(PublicFolder) }),
+  folderCreate: endpoint({ ...base, method: "POST", path: "/folders", body: library.FolderCreateInput, response: PublicFolder, status: 201 }),
+  folderUpdate: endpoint({ ...base, method: "PATCH", path: "/folders/:id", params: Id, body: library.FolderUpdateInput, response: Ok }),
+  artifactList: endpoint({ ...base, method: "GET", path: "/artifacts", query: library.ArtifactListQuery, response: z.object({ items: z.array(PublicArtifact.extend({ cursor: z.number(), name: MaybeText, provider: Provider.nullable() })), next: z.number().nullable() }) }),
+  artifactDetail: endpoint({ ...base, method: "GET", path: "/artifacts/:id", params: Id, response: PublicArtifact }),
+  artifactCreate: endpoint({ ...base, method: "POST", path: "/artifacts", body: library.ArtifactCreateInput, response: z.object({ id: Text }), status: 201 }),
+  artifactUpdate: endpoint({ ...base, method: "PATCH", path: "/artifacts/:id", params: Id, body: library.ArtifactUpdateInput, response: PublicArtifact }),
+  artifactMove: endpoint({ ...base, method: "POST", path: "/artifacts/:id/move", params: Id, body: library.ArtifactMoveInput, response: z.object({ operation: Text, folderId: MaybeText, message: Text }) }),
+  runCheckout: endpoint({ ...base, method: "GET", path: "/runs/:id/checkout", params: Id, response: library.PublicCheckout }),
+  runVerifications: endpoint({ ...base, method: "GET", path: "/runs/:id/verifications", params: Id, response: z.array(library.PublicVerification) }),
+  runFiles: endpoint({ ...base, method: "GET", path: "/runs/:id/files", params: Id, response: z.array(z.object({ id: Text, title: Text, metadata: Text })) }),
+  operationUndo: endpoint({ ...base, method: "POST", path: "/operations/:id/undo", params: Id, body: z.unknown(), response: Ok.extend({ folderId: MaybeText }) }),
+  objectFile: endpoint({ ...base, method: "GET", path: "/objects/:id", params: Id, query: z.object({ preview: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>() }),
+  search: endpoint({ ...base, method: "GET", path: "/search", query: library.SearchQuery, response: library.PublicSearch }),
+  searchStatus: endpoint({ ...base, method: "GET", path: "/search/status", response: library.PublicSearchStatus }),
+  preferences: endpoint({ ...base, method: "GET", path: "/preferences", response: library.PublicPreferences }),
+  preferencesUpdate: endpoint({ ...base, method: "POST", path: "/preferences", body: library.PreferencesInput, response: Ok }),
+  importPreview: endpoint({ ...base, method: "POST", path: "/imports/preview", multipart: true, body: Empty, response: library.PublicImportPreview }),
+  importList: endpoint({ ...base, method: "GET", path: "/imports", response: z.array(library.PublicImport) }),
+  importStart: endpoint({ ...base, method: "POST", path: "/imports/:id/start", params: Id, body: z.unknown(), response: z.union([PublicRun, z.object({ status: z.literal("completed") })]) }),
+  importCancel: endpoint({ ...base, method: "POST", path: "/imports/:id/cancel", params: Id, body: z.unknown(), response: Ok }),
+  conversationContinue: endpoint({ ...base, method: "POST", path: "/conversations/:id/continue", params: Id, body: library.ContinueInput, response: z.object({ id: Text, agentId: Text }) }),
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
   feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams, known: Text.optional() }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
@@ -232,5 +258,5 @@ export const workspaceApi = {
 } as const;
 
 type Field<K extends string, S extends z.ZodType> = undefined extends z.input<S> ? { [P in K]?: z.input<S> } : {} extends z.input<S> ? { [P in K]?: z.input<S> } : { [P in K]: z.input<S> };
-export type RouteInput<C extends RouteContract> = Field<"params", C["params"]> & Field<"query", C["query"]> & Field<"body", C["body"]>;
+export type RouteInput<C extends RouteContract> = Field<"params", C["params"]> & Field<"query", C["query"]> & Field<"body", C["body"]> & (C extends { multipart: true } ? { file: Blob; filename?: string } : {});
 export type RouteResponse<C extends RouteContract> = z.output<C["response"]>;

@@ -318,28 +318,35 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     );
 
     // A superseded progressive read cannot put Done cards in Queued.
+    const refreshed = sources.map((source) =>
+      page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return url.pathname ===
+          `/api/agent-sources/${encodeURIComponent(source.id)}/${legacy ? "feed" : "v1/cards/changes"}` &&
+          (!legacy || url.searchParams.get("filter") === "done");
+      }),
+    );
     refresh = Promise.withResolvers();
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
+    const refreshRequests = await Promise.all(refreshed);
     await expect.poll(() => refreshReads).toBeGreaterThanOrEqual(2);
     await page.getByRole("tab", { name: /^Queued/ }).click();
     await expect(
       page.getByText("Nothing is queued.", { exact: true }),
     ).toBeVisible();
-    const refreshed = sources.map((source) =>
-      page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          url.pathname ===
-            `/api/agent-sources/${encodeURIComponent(source.id)}/${legacy ? "feed" : "v1/cards/changes"}` &&
-          (!legacy || url.searchParams.get("filter") === "done")
-        );
-      }),
-    );
+    // Selection changes can cancel these exact reads. Finish the held route
+    // handlers and observe completion or cancellation before checking the UI.
+    const delivered = Promise.all([...sourceRequests]);
     refresh.resolve();
     refresh = null;
-    await Promise.all(refreshed);
+    await delivered;
+    for (const request of refreshRequests) {
+      const response = await request.response();
+      if (response) await response.finished();
+      else expect(request.failure()).toBeTruthy();
+    }
     await page.evaluate(
       () =>
         new Promise((resolve) =>

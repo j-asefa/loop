@@ -50,11 +50,11 @@ it("validates and projects through the registered HTTP handler", async () => {
 });
 
 it("rejects duplicate legacy keys, including registrations in another registrar", () => {
-  const workspace = registrar("workspace");
-  workspace.legacy("POST /folders", (_req, res) => res.json({ ok: true }));
-  expect(() => workspace.legacy("POST /folders", () => {})).toThrow("already registered");
-  expect(() => registrar("workspace").legacy("POST /folders", () => {})).toThrow("already registered");
-  expect(() => registrar("wrong-owner").legacy("GET /folders", () => {})).toThrow("does not belong");
+  const workspace = registrar("memoryRoutes");
+  workspace.legacy("POST /memory/notes", (_req, res) => res.json({ ok: true }));
+  expect(() => workspace.legacy("POST /memory/notes", () => {})).toThrow("already registered");
+  expect(() => registrar("memoryRoutes").legacy("POST /memory/notes", () => {})).toThrow("already registered");
+  expect(() => registrar("wrong-owner").legacy("GET /memory", () => {})).toThrow("does not belong");
 });
 
 // These assertions are checked by the repository typecheck, never executed.

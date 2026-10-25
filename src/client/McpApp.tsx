@@ -1,4 +1,5 @@
-import { useSourceApi, useSourcePath } from "./SourceContext";
+import { workspaceApi } from "../shared/workspace-api";
+import { useSourceApi, useSourcePath, useSourceRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import {
   AppBridge,
@@ -12,6 +13,7 @@ export function McpApp({
   metadata?: any;
 }) {
   const api = useSourceApi();
+  const call = useSourceRoute();
   const sourceApiPath = useSourcePath();
   const frame = useRef<HTMLIFrameElement>(null),
     [status, setStatus] = useState("Loading isolated app…");
@@ -53,7 +55,7 @@ export function McpApp({
       setStatus("App connected. Requests still require your approval.");
       // Interactive app payload stays on its signed-in, source-bound route.
       // The public content contract carries only the capability flag.
-      void (metadata ? Promise.resolve(metadata) : api<{ metadata: string }>(`/artifacts/${artifactId}`).then(item => JSON.parse(item.metadata)))
+      void (metadata ? Promise.resolve(metadata) : call(workspaceApi.artifactDetail, { params: { id: artifactId } }).then(item => JSON.parse(item.metadata)))
         .then(async payload => {
           await bridge.sendToolInput({ arguments: payload.arguments || {} });
           await bridge.sendToolResult(payload.toolResult);

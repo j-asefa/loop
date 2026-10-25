@@ -1,4 +1,5 @@
 import { registrar } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
 import { MessageMetadata, artifactResponse, runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -30,48 +31,26 @@ const fileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 2, fieldSize: 200 },
 });
-routes.legacy("POST /uploads",
-  (req, res, next) =>
-    fileUpload.single("file")(req, res, (error) => {
-      next(
-        error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE"
-          ? new Problem(413, "Files can be up to 25 MB each")
-          : error,
-      );
-    }),
-  (req, res) => {
-    if (!req.file) throw new Problem(400, "Choose a file to upload");
-    const options = z
-      .object({
-        folderId: z.string().uuid().optional(),
-        agentId: z.string().uuid().optional(),
-      })
-      .parse(req.body);
-    res.status(201).json(uploadFile(res.locals.owner, req.file, options));
-  },
-);
-routes.legacy("GET /folders", (_req, res) => {
+routes.on(workspaceApi.uploadCreate, (req, res) => {
+  if (!req.file) throw new Problem(400, "Choose a file to upload");
+  res.status(201).json(uploadFile(res.locals.owner, req.file, req.body));
+}, { middleware: [(req, res, next) =>
+  fileUpload.single("file")(req, res, error => {
+    if (error) return next(error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE"
+      ? new Problem(413, "Files can be up to 25 MB each") : error);
+    next();
+  })],
+});
+routes.on(workspaceApi.folderList, (_req, res) => {
   ensureWorkspaceProject(res.locals.owner);
   res.json(
     db
       .prepare("SELECT f.*,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f WHERE f.owner_id=? ORDER BY f.name")
-      .all(res.locals.owner),
+      .all(res.locals.owner) as z.input<typeof workspaceApi.folderList.response>,
   );
 });
-routes.legacy("POST /folders", (req, res) => {
-  const d = z
-    .object({
-      name: z
-        .string()
-        .trim()
-        .min(1)
-        .max(80)
-        .refine((x) => !x.includes("/"), "Use a name without slashes"),
-      path: z.string().max(4096).optional(),
-      parentId: z.string().nullable().default(null),
-      kind: z.enum(["project", "folder"]).default("folder"),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.folderCreate, (req, res) => {
+  const d = req.body;
   if (d.parentId) owned("folders", d.parentId, res.locals.owner);
   if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
     d.parentId = null;
@@ -101,25 +80,13 @@ routes.legacy("POST /folders", (req, res) => {
     if (path)
       db.prepare("INSERT INTO project_paths VALUES(?,?)").run(folderId, path);
   }).immediate();
-  res.status(201).json(ownedFolder(folderId, res.locals.owner));
+  res.status(201).json(ownedFolder(folderId, res.locals.owner) as z.input<typeof workspaceApi.folderCreate.response>);
 });
-routes.legacy("PATCH /folders/:id", (req, res) => {
+routes.on(workspaceApi.folderUpdate, (req, res) => {
   const f = ownedFolder(req.params.id, res.locals.owner);
   if (isWorkspaceProject(res.locals.owner, f.id))
     throw new Problem(400, "The default Workspace project cannot be renamed, moved, or assigned a directory.");
-  const d = z
-    .object({
-      name: z
-        .string()
-        .trim()
-        .min(1)
-        .max(80)
-        .refine((x) => !x.includes("/"))
-        .optional(),
-      path: z.string().max(4096).optional(),
-      parentId: z.string().nullable().optional(),
-    })
-    .parse(req.body);
+  const d = req.body;
   if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
     d.parentId = null;
   // A rename or directory edit does not change ancestry. Validate the chain
@@ -164,7 +131,7 @@ routes.legacy("PATCH /folders/:id", (req, res) => {
   }).immediate();
   res.json({ ok: true });
 });
-routes.legacy("GET /artifacts", (req, res) => {
+routes.on(workspaceApi.artifactList, (req, res) => {
   let where = "a.owner_id=? AND a.archived=0";
   const args: unknown[] = [res.locals.owner];
   if (req.query.folder === "inbox") where += " AND a.folder_id IS NULL";
@@ -189,12 +156,12 @@ routes.legacy("GET /artifacts", (req, res) => {
     .prepare(
       `SELECT a.*,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,a.rowid AS cursor,g.name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY a.rowid DESC LIMIT 60`,
     )
-    .all(...args) as (QueryRow<"artifacts"> & { cursor: number; name: string | null; provider: string | null })[];
+    .all(...args) as z.input<typeof workspaceApi.artifactList.response>["items"];
   res.json({ items, next: items.length === 60 ? items.at(-1)!.cursor : null });
 });
 // The checkout Loop observed for a run: branch, commits, files and the patch
 // stored at capture time. Read-only; there is nothing to apply from here.
-routes.legacy("GET /runs/:id/checkout", (req, res) => {
+routes.on(workspaceApi.runCheckout, (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
   const detail = checkoutDetail(res.locals.owner, req.params.id);
   if (!detail) throw new Problem(404, "This run has no checkout record.");
@@ -202,21 +169,21 @@ routes.legacy("GET /runs/:id/checkout", (req, res) => {
 });
 // The verification commands Loop observed for a run, with their exits and
 // output tails. Observations of what the agent ran, not what tests exist.
-routes.legacy("GET /runs/:id/verifications", (req, res) => {
+routes.on(workspaceApi.runVerifications, (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
   res.json(runVerifications(res.locals.owner, req.params.id));
 });
-routes.legacy("GET /runs/:id/files", (req, res) => {
+routes.on(workspaceApi.runFiles, (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
   res.json(
     db
       .prepare(
         "SELECT a.id,a.title,a.metadata FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0 ORDER BY a.created_at,a.rowid",
       )
-      .all(res.locals.owner, req.params.id),
+      .all(res.locals.owner, req.params.id) as z.input<typeof workspaceApi.runFiles.response>,
   );
 });
-routes.legacy("GET /artifacts/:id", (req, res) => {
+routes.on(workspaceApi.artifactDetail, (req, res) => {
   const a = ownedArtifact(req.params.id, res.locals.owner);
   const agent = a.agent_id
     ? (db
@@ -225,32 +192,13 @@ routes.legacy("GET /artifacts/:id", (req, res) => {
     : undefined;
   res.json({ ...artifactResponse(a), ...agent });
 });
-routes.legacy("POST /artifacts", (req, res) => {
-  const d = z
-    .object({
-      title: z.string().min(1).max(180),
-      kind: z
-        .enum(["markdown", "code", "table", "diagram", "file", "workflow"])
-        .default("markdown"),
-      content: z.string().max(200000),
-      folder: z.string().optional(),
-      // Only the reusable-prompt flag is client-settable.
-      metadata: z.object({ snippet: z.literal(true) }).strict().optional(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.artifactCreate, (req, res) => {
+  const d = req.body;
   if (d.folder) owned("folders", d.folder, res.locals.owner);
   res.status(201).json({ id: saveArtifact(res.locals.owner, d) });
 });
-routes.legacy("PATCH /artifacts/:id", (req, res) => {
-  const d = z
-    .object({
-      title: z.string().min(1).max(180).optional(),
-      content: z.string().max(200000).optional(),
-      pinned: z.boolean().optional(),
-      archived: z.boolean().optional(),
-      version: z.number().int(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.artifactUpdate, (req, res) => {
+  const d = req.body;
   db.transaction(() => {
     const a = ownedArtifact(req.params.id, res.locals.owner);
     if (a.version !== d.version)
@@ -280,22 +228,17 @@ routes.legacy("PATCH /artifacts/:id", (req, res) => {
   }).immediate();
   res.json(artifactResponse(ownedArtifact(req.params.id, res.locals.owner)));
 });
-routes.legacy("POST /artifacts/:id/move", (req, res) => {
-  const d = z
-    .object({
-      folderId: z.string().nullable().optional(),
-      command: z.string().max(400).optional(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.artifactMove, (req, res) => {
+  const d = req.body;
   const folder = d.command
     ? naturalDestination(res.locals.owner, d.command)
     : (d.folderId ?? null);
   res.json(moveArtifact(res.locals.owner, req.params.id, folder));
 });
-routes.legacy("POST /operations/:id/undo", (req, res) =>
+routes.on(workspaceApi.operationUndo, (req, res) =>
   res.json(undoMove(res.locals.owner, req.params.id)),
 );
-routes.legacy("GET /objects/:id", (req, res) => {
+routes.on(workspaceApi.objectFile, (req, res) => {
   const o = db
     .prepare("SELECT * FROM objects WHERE id=? AND owner_id=?")
     .get(req.params.id, res.locals.owner) as QueryRow<"objects"> | undefined;
@@ -308,8 +251,8 @@ routes.legacy("GET /objects/:id", (req, res) => {
   );
   res.send(o.bytes);
 });
-routes.legacy("GET /search", async (req, res) => {
-  const q = z.string().min(1).max(500).parse(req.query.q);
+routes.on(workspaceApi.search, async (req, res) => {
+  const q = req.query.q;
   res.json(
     await search(res.locals.owner, q, {
       agent: typeof req.query.agent === "string" ? req.query.agent : undefined,
@@ -325,26 +268,21 @@ routes.legacy("GET /search", async (req, res) => {
       from: Number(req.query.from) || undefined,
       to: Number(req.query.to) || undefined,
       before: Number(req.query.before) || 0,
-    }),
+    }) as z.input<typeof workspaceApi.search.response>,
   );
 });
-routes.legacy("GET /search/status", (_req, res) =>
+routes.on(workspaceApi.searchStatus, (_req, res) =>
   res.json(searchStatus(res.locals.owner)),
 );
-routes.legacy("GET /preferences", (_req, res) =>
+routes.on(workspaceApi.preferences, (_req, res) =>
   res.json(
     db
       .prepare("SELECT * FROM preferences WHERE owner_id=?")
-      .get(res.locals.owner) || { embedding_enabled: 0 },
+      .get(res.locals.owner) as z.input<typeof workspaceApi.preferences.response> | undefined || { embedding_enabled: 0 },
   ),
 );
-routes.legacy("POST /preferences", (req, res) => {
-  const d = z
-    .object({
-      embeddingEnabled: z.boolean(),
-      connectionId: z.string().nullable(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.preferencesUpdate, (req, res) => {
+  const d = req.body;
   if (d.embeddingEnabled && d.connectionId) {
     const c = ownedConnection(d.connectionId || "", res.locals.owner);
     if (c.provider !== "openai" || c.status !== "connected")
@@ -371,22 +309,23 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 30 * 1024 * 1024, files: 1, fields: 2 },
 });
-routes.legacy("POST /imports/preview", upload.single("file"), async (req, res) => {
+routes.on(workspaceApi.importPreview, async (req, res) => {
   if (!req.file) throw new Problem(400, "Choose an export file");
   res.json(
-    await stageImport(res.locals.owner, req.file.buffer, req.file.originalname),
+    await stageImport(res.locals.owner, req.file.buffer, req.file.originalname) as z.input<typeof workspaceApi.importPreview.response>,
   );
+}, { middleware: [upload.single("file")],
 });
-routes.legacy("GET /imports", (_req, res) =>
+routes.on(workspaceApi.importList, (_req, res) =>
   res.json(
     db
       .prepare(
         "SELECT * FROM imports WHERE owner_id=? ORDER BY created_at DESC LIMIT 100",
       )
-      .all(res.locals.owner),
+      .all(res.locals.owner) as z.input<typeof workspaceApi.importList.response>,
   ),
 );
-routes.legacy("POST /imports/:id/start", (req, res) => {
+routes.on(workspaceApi.importStart, (req, res) => {
   const job = ownedImport(req.params.id, res.locals.owner);
   const active = db
     .prepare(
@@ -394,7 +333,7 @@ routes.legacy("POST /imports/:id/start", (req, res) => {
     )
     .get(res.locals.owner, job.id);
   if (active) {
-    res.json(active);
+    res.json(active as z.input<typeof workspaceApi.importStart.response>);
     return;
   }
   if (job.status === "completed") {
@@ -408,7 +347,7 @@ routes.legacy("POST /imports/:id/start", (req, res) => {
   db.prepare("UPDATE imports SET status='queued' WHERE id=?").run(job.id);
   res.json(runResponse(run));
 });
-routes.legacy("POST /imports/:id/cancel", (req, res) => {
+routes.on(workspaceApi.importCancel, (req, res) => {
   owned("imports", req.params.id, res.locals.owner);
   const jobId = req.params.id;
   const runs = z.array(RunIdentity).parse(db
@@ -422,14 +361,9 @@ routes.legacy("POST /imports/:id/cancel", (req, res) => {
   ).run(jobId);
   res.json({ ok: true });
 });
-routes.legacy("POST /conversations/:id/continue", (req, res) => {
+routes.on(workspaceApi.conversationContinue, (req, res) => {
   const c = ownedConversation(req.params.id, res.locals.owner);
-  const d = z
-    .object({
-      agentId: z.string(),
-      messageIds: z.array(z.string()).min(1).max(200),
-    })
-    .parse(req.body);
+  const d = req.body;
   const a = ownedAgent(d.agentId, res.locals.owner);
   if (!a.connection_id)
     throw new Problem(409, "Choose an agent with a connected model");

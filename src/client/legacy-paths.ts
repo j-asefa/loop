@@ -7,7 +7,6 @@ type Path =
   | `/agents/${string}`
   | `/agents/${string}/mail`
   | `/agents/${string}/mail/${string}/resume`
-  | `/artifacts`
   | `/artifacts/${string}`
   | `/artifacts/${string}/app`
   | `/artifacts/${string}/move`
@@ -22,12 +21,9 @@ type Path =
   | `/build`
   | `/capabilities`
   | `/conversations/${string}/activities`
-  | `/conversations/${string}/continue`
   | `/conversations/${string}/memory`
   | `/conversations/${string}/native`
   | `/events`
-  | `/folders`
-  | `/folders/${string}`
   | `/github/pulls`
   | `/github/pulls/${string}/${string}/${string}`
   | `/github/pulls/${string}/${string}/${string}/comments`
@@ -36,10 +32,6 @@ type Path =
   | `/github/pulls/${string}/${string}/${string}/files`
   | `/github/pulls/${string}/${string}/${string}/merge`
   | `/github/pulls/${string}/${string}/${string}/reviews`
-  | `/imports`
-  | `/imports/${string}/cancel`
-  | `/imports/${string}/start`
-  | `/imports/preview`
   | `/mcp`
   | `/mcp-sharing`
   | `/mcp/${string}`
@@ -61,28 +53,20 @@ type Path =
   | `/native/history/${string}/fork`
   | `/notifications`
   | `/notifications/subscriptions`
-  | `/objects/${string}`
-  | `/operations/${string}/undo`
   | `/pr-watches`
   | `/pr-watches/${string}`
   | `/pr-watches/${string}/resume`
-  | `/preferences`
   | `/results/${string}`
   | `/reviews/conversation/${string}`
   | `/routing/preview`
   | `/runs/${string}/activities`
-  | `/runs/${string}/checkout`
-  | `/runs/${string}/files`
   | `/runs/${string}/memory`
   | `/runs/${string}/steps`
-  | `/runs/${string}/verifications`
   | `/runs/${string}/withdraw`
   | `/runtime-hosts`
   | `/runtime-hosts/${string}`
   | `/scheduled-sends`
   | `/scheduled-sends/${string}`
-  | `/search`
-  | `/search/status`
   | `/share/preview`
   | `/share/send`
   | `/social`
@@ -128,7 +112,6 @@ type Path =
   | `/teams/${string}/threads/${string}/resume`
   | `/teams/from-preset`
   | `/ui/viewport-diagnostics`
-  | `/uploads`
   | `/v1/cards`
   | `/v1/cards/${string}`
   | `/v1/cards/changes`
@@ -151,10 +134,3 @@ type Path =
   | `/workspace/runtimes/${string}/upgrade/recover`;
 export type LegacyClientPath = Path | `${Path}?${string}`;
 export type LegacyFetchPath = `/api${LegacyClientPath}` | `/api/agent-sources/${string}${LegacyClientPath}`;
-
-/** Download URLs arrive in JSON, so narrow them at their existing file boundary. */
-export function legacyFilePath(path: string): LegacyFetchPath {
-  if (!/^\/api\/(?:agent-sources\/[^/]+\/)?objects\/[^/?#]+(?:\?.*)?$/.test(path))
-    throw new Error("File address is unavailable");
-  return path as LegacyFetchPath;
-}

@@ -41,7 +41,7 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   registry.add(route.kind === "stream" ? z.string().meta({ format: "binary" }) : cardNames[name] ? route.response : route.response.clone(), { id: prefix + "Response" });
   inputs.add(route.params.clone(), { id: prefix + "Params" });
   inputs.add(route.query.clone(), { id: prefix + "Query" });
-  inputs.add(route.body.clone(), { id: prefix + "Body" });
+  inputs.add(route.multipart ? route.body.extend({ file: z.string().meta({ format: "binary" }) }) : route.body.clone(), { id: prefix + "Body" });
 }
 function registeredSchemas(registry, io, sharedId) {
   const { schemas } = z.toJSONSchema(registry, {
@@ -170,9 +170,9 @@ for (const [name, route] of Object.entries(workspaceApi)) {
     ...(!noBody(route.body)
       ? {
           requestBody: {
-            required: !route.body.safeParse(undefined).success,
+            required: !!route.multipart || !route.body.safeParse(undefined).success,
             content: {
-              "application/json": {
+              [route.multipart ? "multipart/form-data" : "application/json"]: {
                 schema: { $ref: "#/components/schemas/" + prefix + "Body" },
               },
             },

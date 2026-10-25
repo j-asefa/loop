@@ -107,22 +107,23 @@ for (const engine of selectedEngines()) {
         observer.observe(element.parentElement, { childList: true });
       });
       // A failed refresh keeps the loaded list and says so.
-      await page.route(
-        "**/api/saved?*",
-        (route) =>
-          route.fulfill({
-            status: 503,
-            json: { error: "Temporary saved refresh failure" },
-          }),
-        { times: 1 },
-      );
+      const savedReads = (url) => /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname)
+        && url.searchParams.get("view") === "saved";
+      const failSaved = (route) => route.fulfill({
+        status: 503,
+        json: { error: "Temporary saved refresh failure" },
+      });
+      await page.route(savedReads, failSaved);
       await page.evaluate(() =>
         window.dispatchEvent(new Event("loop-later-change")),
       );
       await expect(page.getByRole("alert")).toHaveText(
         /Temporary saved refresh failure/,
+        // The existing GET helper retries after two and four seconds.
+        { timeout: 10000 },
       );
       await expect(card).toBeVisible();
+      await page.unroute(savedReads, failSaved);
       const saved = (await fixture.api("/saved")).items.find(
         (item) => item.kind === "result",
       ).result;

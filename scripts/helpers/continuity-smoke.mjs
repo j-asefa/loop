@@ -190,7 +190,7 @@ export async function continuitySmoke(page, fixture, capture) {
   // These totals intentionally disagree with the tool records above.
   seedCheckout(db, changeRun, {
     files: [
-      { path: "src/settings.tsx", additions: 1, deletions: 1, binary: false },
+      { path: "src/settings.tsx", additions: 1, deletions: 1, binary: false, filtered: true },
       { path: "src/shell-only.ts", additions: 3, deletions: 0, binary: false },
     ],
     patch: "diff --git a/src/settings.tsx b/src/settings.tsx\n--- a/src/settings.tsx\n+++ b/src/settings.tsx\n@@ -1 +1 @@\n-old\n+net result\n"
@@ -599,6 +599,19 @@ export async function continuitySmoke(page, fixture, capture) {
     requestWindow();
     // 6. Project history: search, outcomes, saved decisions and unfinished
     // work, keeping project scope through a thread and back.
+    let historicalSearch = false;
+    const searchWithoutLaterFields = async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      assert.ok(data.semantic, "The current production search includes indexing status");
+      assert.ok(data.items.length);
+      assert.ok(data.items.every(item => "message_id" in item));
+      delete data.semantic;
+      for (const item of data.items) delete item.message_id;
+      historicalSearch = true;
+      await route.fulfill({ response, json: data });
+    };
+    await page.route("**/api/search?**", searchWithoutLaterFields);
     await nav("Projects").click();
     const allProjects = page.getByRole("button", { name: "All projects", exact: true });
     if (await allProjects.isVisible()) await allProjects.click();
@@ -607,6 +620,8 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.getByLabel(`Search ${project.name}`).press("Enter");
     const projectHit = page.locator(".project-search-results .search-result");
     await expect(projectHit).toHaveCount(1);
+    assert.ok(historicalSearch, "Search renders the production response without older-source optional fields");
+    await page.unroute("**/api/search?**", searchWithoutLaterFields);
     await capture("continuity-project-search");
     await projectHit.locator(".search-hit").first().click();
     await expect(messageIn(longIds[30])).toBeInViewport();
@@ -781,6 +796,21 @@ export async function continuitySmoke(page, fixture, capture) {
 
     requestWindow();
     // 8. One Git review per run, even when tool reports disagree.
+    let historicalCheckout = false;
+    const checkoutWithoutLaterFields = async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      if (data.run_id === changeRun) {
+        assert.equal(data.summary.scope, "run");
+        assert.ok(data.files.some(file => file.filtered));
+        delete data.summary.scope;
+        for (const files of [data.files, data.committed?.files, data.working?.files])
+          for (const file of files || []) delete file.filtered;
+        historicalCheckout = true;
+      }
+      await route.fulfill({ response, json: data });
+    };
+    await page.route("**/api/runs/*/checkout", checkoutWithoutLaterFields);
     await page.goto(`${fixture.base}/?conversation=${changeConversation}`, {
       waitUntil: "networkidle",
     });
@@ -801,8 +831,16 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(dialog().locator(".pull-file-path")).toHaveText(["src/settings.tsx", "src/shell-only.ts"]);
     await expect(dialog()).toContainText("net result");
     await expect(dialog()).toContainText("shell three");
+    await expect(dialog()).toContainText("Historical comparison against the source checkout");
+    await expect(dialog()).not.toContainText("filtered content, compared raw");
+    assert.ok(historicalCheckout, "Checkout renders the production response without older-source optional fields");
+    await page.unroute("**/api/runs/*/checkout", checkoutWithoutLaterFields);
     await expect(dialog()).not.toContainText("theme.css");
     await capture("continuity-change-review");
+    await expect(dialog().getByRole("button", { name: "Ask to commit" })).toHaveCount(0);
+    await dialog().getByRole("button", { name: "Close", exact: true }).click();
+    await chip.click();
+    await expect(dialog()).toContainText("Changes during this run");
     await dialog().getByRole("button", { name: "Ask to commit" }).click();
     const prompt = await page.locator("#composer").inputValue();
     assert.match(prompt, /saved Git snapshot/);

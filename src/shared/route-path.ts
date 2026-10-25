@@ -12,7 +12,10 @@ function validateInput<C extends RouteContract>(contract: C, input: RouteInput<C
   try {
     const params = z.record(z.string(), z.string()).parse(contract.params.parse(input.params ?? {}));
     contract.query.parse(input.query ?? {});
-    contract.body.parse(input.body);
+    // A file-only form has an empty fields object when Multer receives it.
+    contract.body.parse(contract.multipart && input.body === undefined ? {} : input.body);
+    if (contract.multipart && (!("file" in input) || !(input.file instanceof Blob)))
+      throw new Problem(400, "Choose a file to upload");
     return params;
   } catch (error) {
     // Nothing reached transport. Match the server's validation refusal so send
@@ -30,7 +33,8 @@ export function routePath<C extends RouteContract>(contract: C, input: RouteInpu
   });
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(input.query ?? {})) {
-    if (value !== undefined) query.set(key, String(value));
+    if (Array.isArray(value)) for (const item of value) query.append(key, String(item));
+    else if (value !== undefined) query.set(key, String(value));
   }
   const serialized = query.toString();
   return (path + (serialized ? "?" + serialized : "")) as RoutePath<C["path"]>;

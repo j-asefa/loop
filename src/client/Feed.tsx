@@ -49,7 +49,6 @@ import {
   ChevronRight,
   ChevronUp,
 } from "lucide-react";
-import { apiInWorkspace } from "./api";
 import { CheckoutChip, CheckoutSheet } from "./Checkout";
 import { VerificationChip, VerificationSheet } from "./Verification";
 import { PullStateChip } from "./PullState";
@@ -2305,10 +2304,7 @@ export function Feed({
         <VerificationSheet
           runId={verification.runId}
           load={(runId) =>
-            apiInWorkspace(
-              `/runs/${runId}/verifications`,
-              verification.sourceId,
-            )
+            callRoute(workspaceApi.runVerifications, { params: { id: runId } }, verification.sourceId)
           }
           onClose={() => setVerification(null)}
         />
@@ -2317,7 +2313,7 @@ export function Feed({
         <CheckoutSheet
           runId={checkout.runId}
           load={(runId) =>
-            apiInWorkspace(`/runs/${runId}/checkout`, checkout.sourceId)
+            callRoute(workspaceApi.runCheckout, { params: { id: runId } }, checkout.sourceId)
           }
           onClose={() => setCheckout(null)}
         />

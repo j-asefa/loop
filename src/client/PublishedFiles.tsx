@@ -1,7 +1,7 @@
 import { routeUrl } from "./workspace-api";
-import { workspaceApi } from "../shared/workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceRead, useSourcePath } from "./SourceContext";
+import { useSourceId, useSourceRouteRead, useSourcePath } from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
@@ -10,7 +10,7 @@ import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
 import { isHtmlFile } from "../shared/file-preview";
-type Published = Pick<Artifact, "id" | "title" | "metadata"> &
+type Published = RouteResponse<typeof workspaceApi.runFiles>[number] &
   Partial<Pick<Artifact, "content">>;
 export function PublishedFile({
   item,
@@ -180,7 +180,7 @@ export function RunFiles({
   active?: boolean;
   previewImages?: boolean;
 }) {
-  const read = useSourceRead();
+  const read = useSourceRouteRead();
   const sourceId = useSourceId();
   const [files, setFiles] = useState<Published[]>([]),
     [error, setError] = useState(""),
@@ -199,7 +199,7 @@ export function RunFiles({
         return;
       }
       pending = true;
-      void read<Published[]>(`/runs/${runId}/files`, controller.signal, (error) => {
+      void read(workspaceApi.runFiles, { params: { id: runId } }, controller.signal, (error) => {
         // Keep the existing immediate error and manual retry while a bounded
         // transient GET retry is pending. Rate limits remain quiet.
         if (live && !isRateLimited(error)) setError((error as Error).message);

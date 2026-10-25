@@ -9,7 +9,7 @@ export function searchExcerpt(
   title: string,
   query: string,
   length = 320,
-) {
+): z.infer<typeof SearchExcerptSchema> {
   let text = content
     .replace(/```[^\n]*\n?/g, " ")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -42,3 +42,7 @@ export function searchExcerpt(
     (start + length < text.length ? "…" : "")
   );
 }
+import { z } from "zod";
+
+// Excerpts are plain text, not HTML or ranges into the original document.
+export const SearchExcerptSchema = z.string();

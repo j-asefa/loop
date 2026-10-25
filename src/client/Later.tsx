@@ -14,7 +14,7 @@ import {
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
-import { useSourceApi, useSourceId, useProjectionRoute, useSourceRoute } from "./SourceContext";
+import { useSourceId, useProjectionRoute, useSourceRoute } from "./SourceContext";
 import { useCards } from "./useCards";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact, cardMessage } from "./card-actions";
@@ -265,7 +265,6 @@ function SavedCollection({
   renderResult,
   searchLabel = "Search Saved",
 }: SavedListProps) {
-  const api = useSourceApi();
   const call = useSourceRoute();
   const source = useSourceId();
   const owner = viewOwner();
@@ -335,15 +334,11 @@ function SavedCollection({
             if (!messageId) throw new Error("Saved message is unavailable.");
             await call(workspaceApi.messageUnsave, { params: { id: messageId }, body: undefined });
           } else {
-            const current = await api<Artifact>(
-              `/artifacts/${item.card.source.artifact_id}`,
-            );
+            const artifactId = item.card.source.artifact_id;
+            if (!artifactId) throw new Error("Saved result is unavailable.");
+            const current = await call(workspaceApi.artifactDetail, { params: { id: artifactId } });
             if (viewOwner() !== owner) return;
-            await api(
-              `/artifacts/${current.id}`,
-              { pinned: false, version: current.version },
-              "PATCH",
-            );
+            await call(workspaceApi.artifactUpdate, { params: { id: current.id }, body: { pinned: false, version: current.version } });
           }
           pending.current.delete(item.card.id);
           if (alive.current) await currentLoad.current();

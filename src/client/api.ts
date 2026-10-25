@@ -130,7 +130,7 @@ export async function apiInWorkspace<T = any>(
 ): Promise<T> {
   return requestInWorkspace<T>(path, sourceId, body, method, signal);
 }
-async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream"): Promise<T> {
+async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream", multipart = false): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
@@ -149,8 +149,8 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   const r = await sendRequest(url, {
     signal,
     method: verb,
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: body && !multipart ? { "content-type": "application/json" } : undefined,
+    body: multipart ? body as FormData : body ? JSON.stringify(body) : undefined,
   }).catch((error) => {
     if (error instanceof TypeError && !signal?.aborted)
       throw new Error(
@@ -179,10 +179,13 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
     window.dispatchEvent(new Event("loop-auth-expired"));
     throw new Error("Sign in to Loop");
   }
+  // Multipart callers previously named the HTTP status when a tunnel or proxy
+  // returned an error page instead of Loop's JSON receipt.
+  const uploadFailure = `Upload failed (HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}). Try again.`;
   let parsed = true;
   const data = await (r.ok && kind === "stream" ? r.blob() : r.json()).catch(() => {
     parsed = false;
-    return { error: "Connection unavailable. Try again." };
+    return { error: multipart ? uploadFailure : "Connection unavailable. Try again." };
   });
   if (!r.ok || !parsed) {
     if (r.status === 401 && (!sourceId || /Pair this device/i.test(data?.error || ""))) {
@@ -191,7 +194,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
     }
     // The status lets callers tell a refusal (4xx) from an uncertain outcome.
     throw Object.assign(
-      new Error(data?.error || data?.message || "Request failed"),
+      new Error(data?.error || data?.message || (multipart ? uploadFailure : "Request failed")),
       {
         status: parsed || r.status === 429 || r.status >= 500 ? r.status : undefined,
         ...(["refused", "unknown", "completed"].includes(data?.executionOutcome)
@@ -270,7 +273,20 @@ function response<C extends RouteContract>(contract: C, value: unknown): RouteRe
   return parsed.data as RouteResponse<C>;
 }
 export async function callRoute<C extends RouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
-  return response(contract, await requestInWorkspace<unknown>(routePath(contract, input), sourceId, input.body, contract.method, signal, contract.kind));
+  const path = routePath(contract, input);
+  let body: unknown = input.body;
+  if (contract.multipart && "file" in input) {
+    // routePath validated the part before transport; conditional generic input
+    // types do not narrow together with their contract's marker.
+    const upload = input as RouteInput<C> & { file: Blob; filename?: string };
+    const form = new FormData();
+    for (const [key, value] of Object.entries(input.body ?? {}))
+      if (value !== undefined) form.append(key, String(value));
+    if (upload.filename === undefined) form.append("file", upload.file);
+    else form.append("file", upload.file, upload.filename);
+    body = form;
+  }
+  return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind, contract.multipart));
 }
 export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<RouteResponse<C>> {
   return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind));

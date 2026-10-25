@@ -29,57 +29,62 @@ export async function executionEnvironmentsSmoke(
       json: { ...data, environmentName: computer },
     });
   });
-  setEnvironment("laptop", "This laptop");
-  await page.goto(fixture.base + "/?filter=working");
-  const card = page.locator(".inbox-card").filter({ hasText: thread.title });
-  const strip = page.getByRole("region", { name: "Your agents", exact: true });
-  await expect(card.locator(".agent-environment.laptop")).toHaveText(computer);
-  await expect(strip.locator(".agent-shortcut-environment").first()).toHaveText(
-    computer,
-  );
-  const checkDestinations = async (names) => {
-    await strip.getByRole("button", { name: "New agent", exact: true }).click();
-    const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
-    for (const [id, name] of names) {
-      await expect(sheet.getByLabel("Run on")).toContainText(name);
-      await sheet.getByLabel("Run on").selectOption("laptop:" + id);
-      await expect(sheet.locator(".connection-details")).toContainText(name);
-    }
-    await expect(sheet).not.toContainText("This laptop");
-    await sheet.getByRole("button", { name: "Close", exact: true }).click();
-  };
-  await checkDestinations([[connection.id, computer]]);
-
-  computer = "Docker · research/loop";
-  setEnvironment("docker", computer);
-  const secondName = "Docker · research/app";
-  const secondId = "second-docker";
-  fixture.db
-    .prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?)",
-    )
-    .run(
-      secondId,
-      fixture.owner,
-      connection.provider,
-      secondName + " · Codex",
-      "",
-      connection.models,
-      JSON.stringify({ location: "docker", environmentName: secondName }),
-      Date.now(),
+  try {
+    setEnvironment("laptop", "This laptop");
+    await page.goto(fixture.base + "/?filter=working");
+    const card = page.locator(".inbox-card").filter({ hasText: thread.title });
+    const strip = page.getByRole("region", { name: "Your agents", exact: true });
+    await expect(card.locator(".agent-environment.laptop")).toHaveText(computer);
+    await expect(strip.locator(".agent-shortcut-environment").first()).toHaveText(
+      computer,
     );
-  // The current run still belongs to the first destination.
-  fixture.db
-    .prepare("UPDATE agents SET connection_id=? WHERE id=?")
-    .run(secondId, connection.agent_id);
-  await page.reload();
-  await expect(card.locator(".agent-environment.docker")).toHaveText(computer);
-  await expect(strip.locator(".agent-shortcut-environment").first()).toHaveText(
-    secondName,
-  );
-  await checkDestinations([
-    [connection.id, computer],
-    [secondId, secondName],
-  ]);
-  await capture("named-docker-environments");
+    const checkDestinations = async (names) => {
+      await strip.getByRole("button", { name: "New agent", exact: true }).click();
+      const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
+      for (const [id, name] of names) {
+        await expect(sheet.getByLabel("Run on")).toContainText(name);
+        await sheet.getByLabel("Run on").selectOption("laptop:" + id);
+        await expect(sheet.locator(".connection-details")).toContainText(name);
+      }
+      await expect(sheet).not.toContainText("This laptop");
+      await sheet.getByRole("button", { name: "Close", exact: true }).click();
+    };
+    await checkDestinations([[connection.id, computer]]);
+
+    computer = "Docker · research/loop";
+    setEnvironment("docker", computer);
+    const secondName = "Docker · research/app";
+    const secondId = "second-docker";
+    fixture.db
+      .prepare(
+        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?)",
+      )
+      .run(
+        secondId,
+        fixture.owner,
+        connection.provider,
+        secondName + " · Codex",
+        "",
+        connection.models,
+        JSON.stringify({ location: "docker", environmentName: secondName }),
+        Date.now(),
+      );
+    // The current run still belongs to the first destination.
+    fixture.db
+      .prepare("UPDATE agents SET connection_id=? WHERE id=?")
+      .run(secondId, connection.agent_id);
+    await page.reload();
+    await expect(card.locator(".agent-environment.docker")).toHaveText(computer);
+    await expect(strip.locator(".agent-shortcut-environment").first()).toHaveText(
+      secondName,
+    );
+    await checkDestinations([
+      [connection.id, computer],
+      [secondId, secondName],
+    ]);
+    await capture("named-docker-environments");
+  } finally {
+    // Complete bootstrap interceptions before the browser context is disposed.
+    await page.unrouteAll({ behavior: "wait" });
+  }
 }

@@ -92,7 +92,15 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
       await page.goto(fixture.base + "/?page=later");
       await page.getByRole("tab", { name: "Files", exact: true }).click();
       const library = page.getByRole("region", { name: "Your files", exact: true });
+      // Let the debounced query apply before opening a result. Applying a new
+      // filter replaces the old list, including a preview opened from it.
+      const searched = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname === "/api/me/files" && url.searchParams.get("q") === "prototype" && response.ok();
+      });
       await library.getByRole("searchbox", { name: "Search files" }).fill("prototype");
+      await searched;
+      await expect(library.getByRole("status")).toHaveCount(0);
       await library.getByLabel("Type", { exact: true }).selectOption("image");
       await expect(library.getByText("No files match your filters.")).toBeVisible();
       await library.getByLabel("Type", { exact: true }).selectOption("html");
