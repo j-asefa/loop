@@ -23,6 +23,10 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Your profile, sent prompts and decision history | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts) |
 | UI and shared contracts                                   | [client](../src/client), [shared](../src/shared)                                                                              |
 
+## Saved rows
+
+Team setup, saved agent definitions, artifact filing and PR-watch registration use the [owner-scoped row readers](../src/server/domain.ts) and [persisted schemas](../src/server/row-schemas.ts). They reject malformed known fields with the unavailable row's ID before changing configuration or organization. Historical top-level metadata extras remain readable; model catalog entries are strict, and only an absent model display name defaults to its model ID. Invalid present values are not repaired. The public response shapes remain separate from internal credential-bearing rows.
+
 ## Execution paths
 
 ### Agent sources and execution environments

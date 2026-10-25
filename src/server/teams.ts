@@ -1,13 +1,13 @@
 import type { QueryRow } from "./query-records.js";
+
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { createAgent, owned, Problem } from "./domain.js";
+import { ownedFolder, ownedTeam, ownedConversation, ownedAgent, ownedConnection, createAgent, Problem } from "./domain.js";
 import { createHash } from "node:crypto";
 import { suggestAgentName } from "./agent-names.js";
 import { TEAM_PRESETS } from "../shared/team-presets.js";
 import { startCodeReview, reviewStatus } from "./code-reviews.js";
-import type { Agent, Connection } from "../shared/types.js";
 
 export function listTeams(owner: string) {
   return (
@@ -37,7 +37,7 @@ export function teamFilter(value: unknown, owner: string) {
   const ids = [...new Set(z.string().max(2000).parse(value).split(","))];
   if (ids.length > 30) throw new Problem(400, "Choose up to 30 teams");
   ids.forEach((id) => {
-    if (owned<any>("teams", id, owner).deleted_at != null)
+    if (ownedTeam(id, owner).deleted_at != null)
       throw new Problem(404, "Team no longer exists");
   });
   return ids;
@@ -57,14 +57,14 @@ export function createTeam(owner: string, input: unknown) {
       "Choose different agents for the manager and workers",
     );
   for (const agent of [d.managerId, ...members]) {
-    const a = owned<Agent>("agents", agent, owner);
+    const a = ownedAgent(agent, owner);
     if (a.retired_at)
       throw new Problem(
         409,
         "Restore retired agents before adding them to a team",
       );
     const connection = a.connection_id
-      ? owned<any>("connections", a.connection_id, owner)
+      ? ownedConnection(a.connection_id, owner)
       : undefined;
     if (connection?.status !== "connected")
       throw new Problem(409, "Every team member needs a connected provider");
@@ -76,7 +76,7 @@ export function createTeam(owner: string, input: unknown) {
       db.prepare(
         "INSERT INTO teams(id,owner_id,name,manager_id,created_at) VALUES(?,?,?,?,?)",
       ).run(teamId, owner, d.name, d.managerId, now());
-      const manager = owned<Agent>("agents", d.managerId, owner);
+      const manager = ownedAgent(d.managerId, owner);
       db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,execution_connection_id,created_at) VALUES(?,?,?,?,?,?,?)",
       ).run(conversation, owner, d.managerId, d.name, teamId,
@@ -88,7 +88,7 @@ export function createTeam(owner: string, input: unknown) {
       members.forEach((a) =>
         db.prepare("INSERT INTO team_members VALUES(?,?)").run(teamId, a),
       );
-      return listTeams(owner).find((t) => t.id === teamId)!;
+      return { ...listTeams(owner).find((t) => t.id === teamId)!, conversation_id: conversation };
     })
     .immediate();
 }
@@ -144,10 +144,10 @@ export function createPresetTeam(owner: string, input: unknown) {
         )
       )
         throw new Problem(400, "Unknown preset role");
-      owned("folders", d.folderId, owner);
+      ownedFolder(d.folderId, owner);
       const agents = preset.roles.map((role) => {
         const chosen = d.roles[role.id] || d.selection;
-        owned<Connection>("connections", chosen.connectionId, owner);
+        ownedConnection(chosen.connectionId, owner);
         return {
           role: role.id,
           agent: createAgent(owner, {
@@ -192,7 +192,7 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
   const { agentId } = z.object({ agentId: z.string().min(1) }).parse(input);
   return db
     .transaction(() => {
-      const team = owned<any>("teams", teamId, owner);
+      const team = ownedTeam(teamId, owner);
       if (team.deleted_at != null)
         throw new Problem(404, "Team no longer exists");
       if (team.preset_id === "code-review")
@@ -202,12 +202,12 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
         );
       if (team.manager_id === agentId)
         throw new Problem(400, "The manager is already on this team");
-      const agent = owned<Agent>("agents", agentId, owner);
+      const agent = ownedAgent(agentId, owner);
       if (agent.retired_at)
         throw new Problem(409, "Restore this agent before adding it to a team");
       if (
         !agent.connection_id ||
-        owned<any>("connections", agent.connection_id, owner).status !==
+        ownedConnection(agent.connection_id, owner).status !==
           "connected"
       )
         throw new Problem(409, "This agent needs a connected provider");
@@ -262,7 +262,7 @@ export function setTeamFeedVisibility(owner: string, teamId: string, input: unkn
     .object({ hideResultsFromFeed: z.boolean() })
     .parse(input);
   return db.transaction(() => {
-    const team = owned<any>("teams", teamId, owner);
+    const team = ownedTeam(teamId, owner);
     if (team.deleted_at != null)
       throw new Problem(404, "Team no longer exists");
     db.prepare(
@@ -274,7 +274,7 @@ export function setTeamFeedVisibility(owner: string, teamId: string, input: unkn
 
 export function deleteTeam(owner: string, teamId: string) {
   db.transaction(() => {
-    owned("teams", teamId, owner);
+    ownedTeam(teamId, owner);
     db.prepare(
       "UPDATE teams SET deleted_at=COALESCE(deleted_at,?) WHERE id=? AND owner_id=?",
     ).run(now(), teamId, owner);
@@ -294,12 +294,12 @@ teams.post("/teams/:id/reviews", (req, res) =>
     .json(startCodeReview(res.locals.owner, req.params.id, req.body)),
 );
 teams.get("/reviews/conversation/:id", (req, res) => {
-  owned("conversations", req.params.id, res.locals.owner);
+  ownedConversation(req.params.id, res.locals.owner);
   const run = db
     .prepare(
       "SELECT json_extract(payload,'$.reviewId') reviewId FROM runs WHERE conversation_id=? AND owner_id=? ORDER BY rowid DESC LIMIT 1",
     )
-    .get(req.params.id, res.locals.owner) as any;
+    .get(req.params.id, res.locals.owner) as { reviewId: string | null } | undefined;
   res.json(
     run?.reviewId
       ? reviewStatus(

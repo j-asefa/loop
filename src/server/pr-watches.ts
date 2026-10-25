@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { ownedArtifact, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { Run } from "./queue.js";
 import type { OutputData } from "../agent-activities.js";
@@ -194,12 +194,7 @@ export function startWatch(owner: string, body: unknown) {
     .parse(body);
   return db
     .transaction(() => {
-      const artifact = owned<{
-        kind: string;
-        content: string;
-        conversation_id: string | null;
-        agent_id: string | null;
-      }>("artifacts", data.artifactId, owner);
+      const artifact = ownedArtifact(data.artifactId, owner);
       let card: PullRequestCard | undefined;
       try {
         card = JSON.parse(artifact.content);

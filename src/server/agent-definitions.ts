@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { db, now } from "./db.js";
-import { agentInput, createAgent, handle, owned, Problem } from "./domain.js";
+import { ownedAgent, ownedTeam, ownedConnection, agentInput, createAgent, handle, Problem } from "./domain.js";
 import { addTeamMember, createTeam, listTeams } from "./teams.js";
 import { parseDefinition } from "./definition-markdown.js";
 import {
@@ -12,8 +12,7 @@ import {
   type DefinitionRole,
   type DefinitionSummary,
 } from "../shared/agent-definitions.js";
-import type { Agent, Connection } from "../shared/types.js";
-import type { ModelOption } from "../shared/models.js";
+
 
 type StoredDefinition = DefinitionSummary & {
   owner_id: string;
@@ -163,7 +162,7 @@ export function createFromDefinition(
         if (teamId && !team && !agentId)
           throw new Problem(409, "This team was deleted; start a new creation");
         return {
-          ...(agentId ? { agent: owned<Agent>("agents", agentId, owner) } : {}),
+          ...(agentId ? { agent: ownedAgent(agentId, owner) } : {}),
           ...(team ? { team } : {}),
         };
       };
@@ -194,7 +193,7 @@ export function createFromDefinition(
         throw new Problem(400, "Unknown definition role");
       let folderId = data.folderId;
       if (data.teamId) {
-        const team = owned<any>("teams", data.teamId, owner);
+        const team = ownedTeam(data.teamId, owner);
         if (team.deleted_at != null)
           throw new Problem(404, "Team no longer exists");
         if (folderId === undefined) folderId = team.folder_id || undefined;
@@ -222,11 +221,9 @@ export function createFromDefinition(
           instructions: role.instructions,
           folderId: folderId || undefined,
         };
+        const connection = ownedConnection(settings.connectionId, owner);
         if (settings.effort) {
-          const connection = owned<Connection>(
-            "connections", settings.connectionId, owner,
-          );
-          const catalog = JSON.parse(connection.models) as ModelOption[];
+          const catalog = connection.models;
           const model = catalog.find((model) => model.id === settings.model);
           if (!model)
             throw new Problem(400, "Choose an available model from this connection");

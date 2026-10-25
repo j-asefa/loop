@@ -1,14 +1,14 @@
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
-import type { Artifact, Folder } from "../shared/types.js";
+import { ownedFolder, ownedArtifact, ownedOperation, Problem } from "./domain.js";
+import type { Folder } from "../shared/types.js";
 export function moveArtifact(
   owner: string,
   artifactId: string,
   folderId: string | null,
 ) {
   return db.transaction(() => {
-    const a = owned<Artifact>("artifacts", artifactId, owner);
-    if (folderId) owned("folders", folderId, owner);
+    const a = ownedArtifact(artifactId, owner);
+    if (folderId) ownedFolder(folderId, owner);
     const operation = id();
     db.prepare("INSERT INTO operations VALUES(?,?,?,?,?,0,?)").run(
       operation,
@@ -26,15 +26,15 @@ export function moveArtifact(
 }
 export function undoMove(owner: string, operationId: string) {
   return db.transaction(() => {
-    const op = owned<any>("operations", operationId, owner),
-      a = owned<Artifact>("artifacts", op.artifact_id, owner);
+    const op = ownedOperation(operationId, owner),
+      a = ownedArtifact(op.artifact_id, owner);
     if (op.undone || a.version !== op.expected_version)
       throw new Problem(
         409,
         "This item changed after that move. Choose its destination again.",
       );
     const previous = JSON.parse(op.previous);
-    if (previous.folder_id) owned("folders", previous.folder_id, owner);
+    if (previous.folder_id) ownedFolder(previous.folder_id, owner);
     db.prepare(
       "UPDATE artifacts SET folder_id=?,version=version+1,updated_at=? WHERE id=?",
     ).run(previous.folder_id, now(), a.id);
