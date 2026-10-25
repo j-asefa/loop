@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { ProfileInput } from "../shared/personal-schemas.js";
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
 import { personalPromptCount } from "./personal-history.js";
@@ -34,29 +34,6 @@ export function readProfile(owner: string) {
     },
   };
 }
-
-// Empty text clears a field (the name then falls back to the account's).
-const optional = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .transform((value) => value || null)
-    .nullable();
-const ProfileInput = z.object({
-  display_name: optional(80),
-  handle: z
-    .string()
-    .trim()
-    .transform((value) => value.replace(/^@/, "").toLowerCase())
-    .refine(
-      (value) => !value || /^[a-z0-9_]{2,30}$/.test(value),
-      "Use 2–30 letters, numbers or underscores for your handle",
-    )
-    .transform((value) => value || null)
-    .nullable(),
-  bio: optional(200),
-});
 
 export function saveProfile(owner: string, input: unknown) {
   const profile = ProfileInput.parse(input);

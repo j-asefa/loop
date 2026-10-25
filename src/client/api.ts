@@ -94,6 +94,24 @@ async function sendRequest(path: string, init: RequestInit = {}) {
     cache: "no-store",
   });
 }
+
+/** Browser href/src consumers use the same validated, source-bound address. */
+export function routeUrl<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string) {
+  return sourceApiPathAt(`/api${routePath(contract, input)}` as const, sourceId);
+}
+/** File previews also need attachment headers; their existing reader owns errors
+ * and bytes. Limit the raw response escape to explicitly declared streams. */
+export function fetchStream<C extends RouteContract & { method: "GET"; kind: "stream" }>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal) {
+  return sendRequest(routeUrl(contract, input, sourceId), { signal });
+}
+function sameWorkspaceRedirect(response: Response, requested: string) {
+  try {
+    const target = new URL(response.url), start = new URL(requested, location.href);
+    const source = (path: string) => /^\/api\/agent-sources\/([^/]+)\//.exec(path)?.[1] ?? "";
+    return response.ok && target.origin === start.origin && target.pathname.startsWith("/api/") &&
+      source(target.pathname) === source(start.pathname);
+  } catch { return false; }
+}
 export async function api<T = any>(
   path: LegacyClientPath,
   body?: unknown,
@@ -154,7 +172,8 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   }
   if (
     r.redirected &&
-    !r.headers.get("content-type")?.includes("application/json")
+    !r.headers.get("content-type")?.includes("application/json") &&
+    !(kind === "stream" && sameWorkspaceRedirect(r, url))
   ) {
     clearAuthorization();
     window.dispatchEvent(new Event("loop-auth-expired"));

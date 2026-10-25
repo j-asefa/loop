@@ -1,15 +1,13 @@
+import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useRef, useState } from "react";
 import {
-  useSourceApi,
+  useSourceRoute,
   useSourceCapabilities,
   useSourceId,
 } from "./SourceContext";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { viewGeneration } from "./viewCache";
-import {
-  PersonalDecisionsPageSchema,
-  type PersonalDecisionsPage,
-} from "../shared/personal-decisions";
+import type { PersonalDecisionsPage } from "../shared/personal-decisions";
 
 const empty: PersonalDecisionsPage = { items: [], next: null };
 const choiceLabel = (choice: string) => {
@@ -25,7 +23,7 @@ export function PersonalDecisions({
   kind: "approval" | "answer";
   onConversation: (id: string) => void;
 }) {
-  const api = useSourceApi(),
+  const call = useSourceRoute(),
     source = useSourceId(),
     supported = useSourceCapabilities().personalDecisions === true,
     generation = viewGeneration();
@@ -75,16 +73,9 @@ export function PersonalDecisions({
       try {
         let result: PersonalDecisionsPage;
         do {
-          const params = new URLSearchParams({ kind });
-          if (cursor) params.set("before", cursor);
-          result = PersonalDecisionsPageSchema.parse(
-            await api<unknown>(
-              `/me/decisions?${params}`,
-              undefined,
-              undefined,
-              controller.signal,
-            ),
-          );
+          result = await call(workspaceApi.personalDecisions, {
+            query: { kind, before: cursor },
+          }, controller.signal);
           if (stale()) return;
           const visible = boundary
             ? result.items.filter(
@@ -174,7 +165,7 @@ export function PersonalDecisions({
       stopMetadata();
       window.removeEventListener("loop-refresh", refresh);
     };
-  }, [api, source, supported, kind, generation]);
+  }, [call, source, supported, kind, generation]);
   if (!supported)
     return (
       <section

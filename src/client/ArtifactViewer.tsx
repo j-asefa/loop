@@ -1,7 +1,8 @@
+import { workspaceApi } from "../shared/workspace-api";
 import type { ResultCard } from "../shared/cards";
 import type { CardArtifact } from "./card-actions";
 import { CardBody } from "./ContentCard";
-import { useSourceApi, useSourcePath } from "./SourceContext";
+import { useSourceApi, useSourcePath, useSourceRoute } from "./SourceContext";
 import { viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
@@ -145,6 +146,7 @@ export function ArtifactViewer({
   onWorkflow: (source: string) => void;
   onReply: () => void;
 }) {
+  const call = useSourceRoute();
   const api = useSourceApi(),
     sourceApiPath = useSourcePath();
   const owner = useRef(viewOwner()),
@@ -228,11 +230,9 @@ export function ArtifactViewer({
                 <button
                   onClick={async () => {
                     try {
-                      await api(
-                        `/results/${item.id}`,
-                        { hidden: false },
-                        "PATCH",
-                      );
+                      await call(workspaceApi.resultUpdate, {
+                        params: { id: item.id }, body: { hidden: false },
+                      });
                       if (!current()) return;
                       onChanged();
                       onClose();

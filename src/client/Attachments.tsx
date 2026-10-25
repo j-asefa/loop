@@ -1,3 +1,5 @@
+import { routeUrl } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { useSourceId } from "./SourceContext";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
@@ -66,7 +68,7 @@ export function AttachmentList({
         <FilePreview
           url={
             preview.published
-              ? sourceApiPathAt(`/api/artifacts/${preview.id}/file`, sourceId)
+              ? routeUrl(workspaceApi.artifactFile, { params: { id: preview.id } }, sourceId)
               : sourceApiPathAt(`/api/objects/${preview.objectId}`, sourceId)
           }
           name={preview.name}

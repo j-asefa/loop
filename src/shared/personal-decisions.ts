@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export const PersonalDecisionsQuery = z.object({
+  kind: z.enum(["approval", "answer"]),
+  before: z.string().min(1).max(512).optional(),
+});
+
 export const PERSONAL_DECISION_DETAIL_LIMIT = 8192;
 export const PERSONAL_DECISION_RESPONSE_LIMIT = 8192;
 export const PERSONAL_DECISIONS_PAGE_LIMIT = 2 * 1024 * 1024;

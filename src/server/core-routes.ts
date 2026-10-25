@@ -1,5 +1,5 @@
 import { registrar } from "./registrar.js";
-import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, ResultItem } from "../shared/workspace-api.js";
+import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, PublicMessage, ResultItem } from "../shared/workspace-api.js";
 
 import { InvalidRow, parseConnectionControl, ConnectionModels, ConnectionMetadata, runResponse, messageResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
@@ -373,21 +373,20 @@ routes.on(workspaceApi.agentTracesExport, (req, res) => {
   const data = runTraceExport(res.locals.owner, req.params.id, runId);
   res.attachment(`loop-run-${runId}-traces.json`).json(data);
 });
-routes.legacy("GET /me/files", (req, res) => {
+routes.on(workspaceApi.personalFiles, (req, res) => {
   res.json(personalFiles(res.locals.owner, req.query));
 });
-routes.legacy("GET /me/decisions", (req, res) => {
+routes.on(workspaceApi.personalDecisions, (req, res) => {
   res.json(personalDecisions(res.locals.owner, req.query));
 });
-routes.legacy("GET /me/profile", (_req, res) => {
+routes.on(workspaceApi.personalProfile, (_req, res) => {
   res.json(readProfile(res.locals.owner));
 });
-routes.legacy("PUT /me/profile", (req, res) => {
+routes.on(workspaceApi.personalProfileUpdate, (req, res) => {
   res.json(saveProfile(res.locals.owner, req.body));
 });
-routes.legacy("GET /me/prompts", (req, res) => {
-  const before = z.string().min(1).max(512).optional().parse(req.query.before);
-  const q = z.string().trim().max(200).optional().parse(req.query.q);
+routes.on(workspaceApi.personalPrompts, (req, res) => {
+  const { before, q } = req.query;
   res.json(personalHistory(res.locals.owner, before, q || undefined));
 });
 routes.on(workspaceApi.agentMessages, (req, res) => {
@@ -579,9 +578,9 @@ routes.on(workspaceApi.results, (req, res) => {
     next: items.length === limit ? items.at(-1)!.cursor : null,
   });
 }, { wrap: projectionSnapshot });
-routes.legacy("PATCH /results/:id", (req, res) => {
+routes.on(workspaceApi.resultUpdate, (req, res) => {
   const item = ownedArtifact(req.params.id, res.locals.owner);
-  const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
+  const { hidden } = req.body;
   db.prepare(
     "UPDATE artifacts SET feed_hidden=? WHERE id=? AND owner_id=?",
   ).run(Number(hidden), item.id, res.locals.owner);
@@ -630,24 +629,21 @@ routes.on(workspaceApi.conversation, (req, res) => {
     resumed,
   });
 }, { wrap: projectionSnapshot });
-routes.legacy("GET /messages/:id", (req, res) =>
+routes.on(workspaceApi.messageDetail, (req, res) =>
   res.json(messageResponse(ownedMessage(req.params.id, res.locals.owner))),
 );
-routes.legacy("GET /messages", (req, res) => {
-  const q = z
-    .string()
-    .max(500)
-    .parse(req.query.q || "");
+routes.on(workspaceApi.messageSearch, (req, res) => {
+  const { q } = req.query;
   res.json(
     db
       .prepare(
         "SELECT * FROM messages WHERE owner_id=? AND instr(lower(content),lower(?))>0 ORDER BY created_at DESC LIMIT 50",
       )
-      .all(res.locals.owner, q),
+      .all(res.locals.owner, q) as z.input<typeof PublicMessage>[],
   );
 });
 
-routes.legacy("GET /artifacts/:id/file", (req, res) => {
+routes.on(workspaceApi.artifactFile, (req, res) => {
   const file = localArtifact(res.locals.owner, req.params.id);
   const artifact = ownedArtifact(req.params.id, res.locals.owner);
   const name = artifact.metadata.name || artifact.title;
@@ -670,7 +666,7 @@ routes.legacy("GET /artifacts/:id/file", (req, res) => {
   res.send(file.bytes);
 });
 
-routes.legacy("GET /artifacts/:id/download", (req, res) => {
+routes.on(workspaceApi.artifactDownload, (req, res) => {
   owned("artifacts", req.params.id, res.locals.owner);
   res.redirect(303, "/api/artifacts/" + req.params.id + "/file");
 });

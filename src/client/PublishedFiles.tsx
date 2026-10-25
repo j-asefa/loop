@@ -1,3 +1,5 @@
+import { routeUrl } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useSourceId, useSourceRead, useSourcePath } from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
@@ -74,7 +76,7 @@ function PublishedFileView({
   download?: string;
   display: Pick<ResultCard["display"], "filename" | "mime" | "text" | "size">;
 }) {
-  const sourceApiPath = useSourcePath();
+  const sourceApiPath = useSourcePath(), source = useSourceId();
   const [open, setOpen] = useState(false);
   const meta = {
     ...display,
@@ -86,7 +88,7 @@ function PublishedFileView({
     meta.mime,
   );
   const name = meta.name || title;
-  const url = sourceApiPath(download || "/api/artifacts/" + id + "/file");
+  const url = download ? sourceApiPath(download) : routeUrl(workspaceApi.artifactFile, { params: { id } }, source);
   return (
     <div className="published-file">
       {previewImages && image && (

@@ -10,7 +10,6 @@ type Path =
   | `/artifacts`
   | `/artifacts/${string}`
   | `/artifacts/${string}/app`
-  | `/artifacts/${string}/file`
   | `/artifacts/${string}/move`
   | `/artifacts/${string}/refresh`
   | `/artifacts/${string}/tool-call`
@@ -61,16 +60,12 @@ type Path =
   | `/mcp/native-candidates`
   | `/mcp/native-candidates/${string}/import`
   | `/mcp/preferences`
-  | `/me/decisions`
-  | `/me/files`
   | `/me/profile`
   | `/memory`
   | `/memory/notes`
   | `/memory/notes/${string}`
   | `/memory/policy`
   | `/memory/sources/${string}`
-  | `/messages`
-  | `/messages/${string}`
   | `/messages/${string}/saved`
   | `/native/history`
   | `/native/history/${string}`
@@ -177,7 +172,7 @@ export type LegacyFetchPath = `/api${LegacyClientPath}` | `/api/agent-sources/${
 
 /** Download URLs arrive in JSON, so narrow them at their existing file boundary. */
 export function legacyFilePath(path: string): LegacyFetchPath {
-  if (!/^\/api\/(?:agent-sources\/[^/]+\/)?(?:objects\/[^/?#]+|artifacts\/[^/?#]+\/file)(?:\?.*)?$/.test(path))
+  if (!/^\/api\/(?:agent-sources\/[^/]+\/)?objects\/[^/?#]+(?:\?.*)?$/.test(path))
     throw new Error("File address is unavailable");
   return path as LegacyFetchPath;
 }

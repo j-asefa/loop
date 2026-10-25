@@ -1,8 +1,11 @@
+import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
-import { useSourceApi, useSourceId } from "./SourceContext";
+import { useSourceRoute, useSourceId } from "./SourceContext";
 import { PublishedFile } from "./PublishedFiles";
 import type { PersonalFilesPage } from "../shared/personal-files";
+
+type FileType = NonNullable<NonNullable<RouteInput<typeof workspaceApi.personalFiles>["query"]>["type"]>;
 
 const empty: PersonalFilesPage = {
   items: [],
@@ -15,10 +18,10 @@ export function PersonalFiles({
 }: {
   onConversation: (id: string) => void;
 }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const source = useSourceId();
   const [search, setSearch] = useState("");
-  const [query, setQuery] = useState({
+  const [query, setQuery] = useState<{ q: string; agent: string; project: string; type: FileType }>({
     q: "",
     agent: "",
     project: "",
@@ -37,9 +40,6 @@ export function PersonalFiles({
   }, [search]);
   useEffect(() => {
     const controller = new AbortController();
-    const queryParams = new URLSearchParams();
-    for (const [key, value] of Object.entries(query))
-      if (value) queryParams.set(key, value);
     let current = empty;
     let busy = false;
     let pending = false;
@@ -76,14 +76,10 @@ export function PersonalFiles({
       let reads = 0;
       try {
         do {
-          const params = new URLSearchParams(queryParams);
-          if (cursor) params.set("before", String(cursor));
-          result = await api<PersonalFilesPage>(
-            `/me/files?${params}`,
-            undefined,
-            undefined,
-            controller.signal,
-          );
+          result = await call(workspaceApi.personalFiles, {
+            query: { ...query, q: query.q || undefined, agent: query.agent || undefined,
+              project: query.project || undefined, before: cursor ? String(cursor) : undefined },
+          }, controller.signal);
           if (controller.signal.aborted) return;
           reads++;
           if (cursor && result.next && result.next >= cursor)
@@ -145,9 +141,12 @@ export function PersonalFiles({
       window.removeEventListener("loop-refresh", refresh);
       stopChanges();
     };
-  }, [api, query, source]);
+  }, [call, query, source]);
   function filter(key: "agent" | "project" | "type", value: string) {
-    setQuery((old) => ({ ...old, [key]: value }));
+    if (key === "type") {
+      const parsed = workspaceApi.personalFiles.query.shape.type.safeParse(value);
+      if (parsed.success) setQuery(old => ({ ...old, type: parsed.data }));
+    } else setQuery(old => ({ ...old, [key]: value }));
   }
   return (
     <section className="personal-files" aria-label="Your files">

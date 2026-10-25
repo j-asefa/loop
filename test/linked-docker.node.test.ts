@@ -5,6 +5,8 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { callRoute, fetchStream } from "../src/client/workspace-api.js";
+import { workspaceApi } from "../src/shared/workspace-api.js";
 import { Host } from "../src/host.js";
 import { composeSourceId, linkedDockerWorkspaces } from "../src/linked-docker.js";
 import { WebSocket, WebSocketServer } from "ws";
@@ -55,6 +57,11 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     if (req.url === "/api/artifacts/a1/download") {
       res.writeHead(303, { location: "/api/artifacts/a1/file" });
       res.end();
+      return;
+    }
+    if (req.url === "/api/artifacts/a1/file") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": "attachment; filename=fixture.bin" });
+      res.end(Buffer.from([0, 255, 13, 10]));
       return;
     }
     if (req.url === "/api/artifacts/a1/app") {
@@ -253,6 +260,28 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       redirect.headers.get("location"),
       `/api/agent-sources/docker%3A${sourceId}/artifacts/a1/file`,
     );
+    // Exercise the production typed client through the paired source proxy,
+    // including its rewritten binary redirect and attachment headers.
+    const originalFetch = globalThis.fetch;
+    const oldLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const hostOrigin = host.origin;
+    Object.defineProperty(globalThis, "location", { configurable: true, value: { href: hostOrigin + "/", search: "" } });
+    Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() });
+    globalThis.fetch = (input, init) => originalFetch(new URL(String(input), hostOrigin), {
+      ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), cookie },
+    });
+    try {
+      const blob = await callRoute(workspaceApi.artifactDownload, { params: { id: "a1" } }, `docker:${sourceId}`);
+      assert.deepEqual(Buffer.from(await blob.arrayBuffer()), Buffer.from([0, 255, 13, 10]));
+      const file = await fetchStream(workspaceApi.artifactFile, { params: { id: "a1" } }, `docker:${sourceId}`);
+      assert.equal(file.headers.get("content-disposition"), "attachment; filename=fixture.bin");
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), Buffer.from([0, 255, 13, 10]));
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (oldLocation) Object.defineProperty(globalThis, "location", oldLocation); else Reflect.deleteProperty(globalThis, "location");
+      if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow); else Reflect.deleteProperty(globalThis, "window");
+    }
     // The Docker server's own policy replaces the Host page policy.
     const app = await fetch(base + "artifacts/a1/app", { headers: { cookie } });
     assert.equal(

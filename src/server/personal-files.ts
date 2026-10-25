@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { PersonalFilesQuery } from "../shared/personal-files.js";
 import { db } from "./db.js";
 import { projectFolders } from "./results.js";
 import { owned } from "./domain.js";
@@ -7,21 +7,13 @@ import type {
   PersonalFilesPage,
 } from "../shared/personal-files.js";
 
-const querySchema = z.object({
-  q: z.string().trim().max(200).default(""),
-  before: z.coerce.number().int().positive().optional(),
-  agent: z.string().uuid().optional(),
-  project: z.string().uuid().optional(),
-  type: z.enum(["all", "image", "video", "html", "other"]).default("all"),
-});
-
 // Only durable published bytes belong in this library. Feed hiding and
 // archiving do not delete a file, and must not make it disappear here.
 export function personalFiles(
   owner: string,
   input: unknown,
 ): PersonalFilesPage {
-  const query = querySchema.parse(input);
+  const query = PersonalFilesQuery.parse(input);
   const from = `FROM artifact_objects o
     JOIN artifacts a ON a.id=o.artifact_id AND a.owner_id=o.owner_id
     LEFT JOIN agents g ON g.id=a.agent_id AND g.owner_id=a.owner_id

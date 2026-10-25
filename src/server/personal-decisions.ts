@@ -4,6 +4,7 @@ import { Problem } from "./domain.js";
 import type { Request } from "../protocol.js";
 import {
   PersonalDecisionsPageSchema,
+  PersonalDecisionsQuery,
   PERSONAL_DECISION_DETAIL_LIMIT,
   PERSONAL_DECISION_RESPONSE_LIMIT,
   type PersonalDecision,
@@ -164,16 +165,11 @@ type Row = {
   conversation_title: string | null;
   agent_name: string | null;
 };
-const querySchema = z.object({
-  kind: z.enum(["approval", "answer"]),
-  before: z.string().min(1).max(512).optional(),
-});
-
 export function personalDecisions(
   owner: string,
   input: unknown,
 ): PersonalDecisionsPage {
-  const query = querySchema.parse(input);
+  const query = PersonalDecisionsQuery.parse(input);
   let cursor: [number, string] = [Number.MAX_SAFE_INTEGER, ""];
   if (query.before) {
     try {

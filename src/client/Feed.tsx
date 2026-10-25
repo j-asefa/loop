@@ -301,13 +301,8 @@ function FeedCard({
     if (!reading || !messageId || item.card || item.live_preview || awaitingUpdate) return;
     const controller = new AbortController();
     setReadError("");
-    void apiInWorkspace<{ id: string; content: string }>(
-      `/messages/${messageId}`,
-      item.sourceId ?? scopedSource,
-      undefined,
-      undefined,
-      controller.signal,
-    )
+    void callRoute(workspaceApi.messageDetail, { params: { id: messageId } },
+      item.sourceId ?? scopedSource, controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) setMessage(value);
       })

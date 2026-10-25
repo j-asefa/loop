@@ -1,3 +1,5 @@
+import { fetchStream } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { legacyFilePath } from "./legacy-paths";
 import { sourceApiPathAt } from "./sourceRouting";
 import { useEffect, useState, type ReactNode } from "react";
@@ -143,9 +145,13 @@ export function FilePreview({
     setSaveError("");
     void (async () => {
       try {
-        const response = await authorizedFetch(legacyFilePath(url), {
-          signal: controller.signal,
-        });
+        const artifact = /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/?#]+)\/file(?:\?[^#]*)?$/.exec(url);
+        const response = artifact
+          ? await fetchStream(workspaceApi.artifactFile, {
+              params: { id: decodeURIComponent(artifact[2]) },
+              query: { preview: new URL(url, location.href).searchParams.get("preview") ?? undefined },
+            }, decodeURIComponent(artifact[1] ?? ""), controller.signal)
+          : await authorizedFetch(legacyFilePath(url), { signal: controller.signal });
         if (response.redirected || response.status === 401)
           throw new Error("Sign in to Loop to open this file.");
         if (!response.ok)

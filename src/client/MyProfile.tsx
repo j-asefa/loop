@@ -2,19 +2,16 @@ import { readInWorkspace } from "./api";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";
 import { Avatar } from "./Avatar";
 import { ProfileCover } from "./ProfileCover";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { SHOW_LATER, type LaterSection, type ShowLater } from "./Later";
 
-export type MyProfileData = {
-  display_name: string | null;
-  handle: string | null;
-  bio: string | null;
-  counts: { messages: number; agents: number; projects: number };
-};
+export type MyProfileData = RouteResponse<typeof workspaceApi.personalProfile>;
 export type ProfileTab =
   | "messages"
   | "approvals"
@@ -239,11 +236,9 @@ function EditProfile({
     setBusy(true);
     try {
       onSaved(
-        await api<MyProfileData>(
-          "/me/profile",
-          { display_name: displayName, handle, bio },
-          "PUT",
-        ),
+        await callRoute(workspaceApi.personalProfileUpdate, {
+          body: { display_name: displayName, handle, bio },
+        }, executionSourceId()),
       );
     } catch (e) {
       setError((e as Error).message);

@@ -1,3 +1,5 @@
+import { routeUrl } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { useSourceId, useSourcePath } from "./SourceContext";
 import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
@@ -467,10 +469,10 @@ function ArtifactPreview({
   tool?: string;
   web?: ReturnType<typeof webPreview>;
 }) {
-  const sourceApiPath = useSourcePath();
+  const sourceApiPath = useSourcePath(), source = useSourceId();
   const imageFile =
     display.download === undefined
-      ? `/api/artifacts/${item.id}/file`
+      ? routeUrl(workspaceApi.artifactFile, { params: { id: item.id }, query: { preview: "1" } }, source)
       : display.download;
   if (
     display.uploaded &&
@@ -483,7 +485,7 @@ function ArtifactPreview({
       <img
         className="preview-image"
         src={sourceApiPath(
-          imageFile.startsWith("/api/artifacts/")
+          display.download !== undefined && imageFile.startsWith("/api/artifacts/")
             ? imageFile + "?preview=1"
             : imageFile,
         )}

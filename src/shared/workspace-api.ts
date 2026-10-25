@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
+import { PersonalDecisionsQuery, PersonalDecisionsPageSchema } from "./personal-decisions.js";
+import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage } from "./personal-schemas.js";
 import { AgentCreateInput, AgentUpdateInput, ConnectionCreateInput, ConnectionReconnectInput, PublicModels, PublicConnectionRefresh, PublicHarnessCatalog, PublicPiConfiguration, PublicPiMutation, PublicPiInspection, PiTrustInput, PiFiltersInput, PiPreviewInput, PiInspectInput, PiRollbackInput, PiActionInput, PublicAgentMessages, PublicAgentTraces } from "./agent-contract-schemas.js";
 import { DoneDisplaySchema } from "./done-card.js";
 import { WorkspaceClock } from "./workspace-events.js";
@@ -31,7 +34,7 @@ export const PublicTeam = z.object({
   preset_id: MaybeText.optional(), preset_version: z.number().nullable().optional(), preset_config: MaybeText.optional(), folder_id: MaybeText.optional(),
   hide_results_from_feed: z.number().optional(), paused_threads: z.number().optional(),
 });
-const PublicMessage = z.object({
+export const PublicMessage = z.object({
   id: Text, owner_id: Text, conversation_id: Text, run_id: MaybeText,
   role: z.enum(["user", "assistant", "system", "tool"]), content: Text, metadata: Text, created_at: Time,
   revision: z.number().optional(), update_key: MaybeText.optional(), transcript_ordinal: z.number().nullable().optional(),
@@ -163,6 +166,16 @@ export const workspaceApi = {
   agentPiInspect: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-inspect", params: Id, body: PiInspectInput, response: PublicPiInspection }),
   agentPiRollback: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-rollback", params: Id, body: PiRollbackInput, response: PublicPiMutation }),
   agentPiAction: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-packages", params: Id, body: PiActionInput, response: PublicPiMutation }),
+  messageSearch: endpoint({ ...base, method: "GET", path: "/messages", query: z.object({ q: Text.max(500).default("") }), response: z.array(PublicMessage) }),
+  messageDetail: endpoint({ ...base, method: "GET", path: "/messages/:id", params: Id, response: PublicMessage }),
+  resultUpdate: endpoint({ ...base, method: "PATCH", path: "/results/:id", params: Id, body: z.object({ hidden: z.boolean() }), response: Ok }),
+  artifactFile: endpoint({ ...base, method: "GET", path: "/artifacts/:id/file", params: Id, query: z.object({ preview: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>() }),
+  artifactDownload: endpoint({ ...base, method: "GET", path: "/artifacts/:id/download", params: Id, kind: "stream", response: z.custom<Blob>(), status: 303 }),
+  personalFiles: endpoint({ ...base, method: "GET", path: "/me/files", query: PersonalFilesQuery, response: PersonalFilesPage }),
+  personalDecisions: endpoint({ ...base, method: "GET", path: "/me/decisions", query: PersonalDecisionsQuery, response: PersonalDecisionsPageSchema }),
+  personalProfile: endpoint({ ...base, method: "GET", path: "/me/profile", response: PublicProfile }),
+  personalProfileUpdate: endpoint({ ...base, method: "PUT", path: "/me/profile", body: ProfileInput, response: PublicProfile }),
+  personalPrompts: endpoint({ ...base, method: "GET", path: "/me/prompts", query: PersonalPromptsQuery, response: PersonalPromptsPage }),
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
   feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
