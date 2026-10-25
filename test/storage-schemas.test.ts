@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { AgentRecord, ConnectionRecord, ConversationRecord } from "../src/server/storage-schemas.js";
 import { QueryRecords } from "../src/server/query-records.js";
+import { parseRun, parseConnection, parseMessage, parseArtifact, runResponse, messageResponse, artifactResponse } from "../src/server/row-schemas.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-storage-schemas-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -46,6 +47,12 @@ it("matches storage schemas to worker-produced rows without changing their seria
   expect(artifact.content).toBe(completed.result);
   expect(JSON.parse(message.metadata)).toMatchObject({ agentId: agent.id });
   expect(JSON.parse(artifact.metadata)).toMatchObject({ agentId: agent.id });
+  expect(parseRun(completed).payload).toEqual(JSON.parse(completed.payload));
+  expect(JSON.parse(runResponse(parseRun(completed)).payload)).toEqual(JSON.parse(completed.payload));
+  expect(parseConnection(db.prepare("SELECT * FROM connections WHERE id=?").get(connection)).models).toEqual([{ id: "fixture", name: "fixture" }]);
+  expect(JSON.parse(messageResponse(parseMessage(message)).metadata)).toEqual(JSON.parse(message.metadata));
+  expect(JSON.parse(artifactResponse(parseArtifact(artifact)).metadata)).toEqual(JSON.parse(artifact.metadata));
+  expect(QueryRecords.runs.parse(rawRun()).payload).toBe(initial.payload);
   expect(QueryRecords.agent_checkpoints.parse(db.prepare("SELECT * FROM agent_checkpoints WHERE run_id=?").get(queued.id))).toMatchObject({ message_id: message.id, artifact_id: artifact.id });
   captureMemory();
   const sources = QueryRecords.memory_sources.array().parse(db.prepare("SELECT * FROM memory_sources WHERE owner_id=?").all(owner));

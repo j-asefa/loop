@@ -577,7 +577,9 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
     );
     await expect.poll(() => linked.frames.at(-1)?.cursor).toBe(id);
     const frame = WorkspaceFrameV3.parse(linked.frames.at(-1));
-    expect(frame).toMatchObject({
+    // Pending Feed projections may share this batch; inspect progress events
+    // without depending on when the source's earlier projection flush ran.
+    expect({ ...frame, events: frame.type === "events" ? frame.events.filter(({ event }) => event.type === "progress") : [] }).toMatchObject({
       type: "events",
       events: [
         {
@@ -586,6 +588,7 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
         },
       ],
     });
+    expect(JSON.stringify(linked.frames)).not.toContain("Local only");
     const resumed = connect(paired,
       `?v=3&clock=1&projection=1&epoch=${frame.epoch}&cursor=${id}`,
       paired.browser,

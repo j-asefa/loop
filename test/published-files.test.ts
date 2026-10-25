@@ -144,6 +144,9 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
   const revision = resultsRevision("alice");
   const saved = await publish(f, { path, title: "Home screen" });
   expect(saved.result.isError).not.toBe(true);
+  const { parseArtifact } = await import("../src/server/row-schemas");
+  expect(parseArtifact(db.prepare("SELECT * FROM artifacts WHERE id=?").get(saved.artifactId)).metadata)
+    .toMatchObject({ uploaded: true, name: path, mime: "image/png", size: bytes.length });
   expect(saved.value).toMatchObject({
     name: path,
     mime: "image/png",

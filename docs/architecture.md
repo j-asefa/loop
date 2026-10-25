@@ -17,6 +17,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Companion execution authority | [execution-client.ts](../src/server/execution-client.ts), [execution-authority.ts](../src/server/execution-authority.ts), [process supervisor](../src/server/execution-process.ts), [ownership lock](../src/server/execution-ownership.ts), [wire contract](../src/shared/execution-authority.ts) |
 | Server subscription/native-host transport                 | [subscriptions.ts](../src/server/subscriptions.ts), [runtime-hosts.ts](../src/server/runtime-hosts.ts), [runtime](../runtime) |
 | Database and migrations                                   | [db.ts](../src/server/db.ts), [migrations](../migrations)                                                                     |
+| Persisted row contracts | [storage-schemas.ts](../src/server/storage-schemas.ts), [row-schemas.ts](../src/server/row-schemas.ts), [query-records.ts](../src/server/query-records.ts) |
 | Feed (thread list, `/api/feed`), reading position, Later and scheduled sends | [mobile-return.ts](../src/server/mobile-return.ts), [mobile-routes.ts](../src/server/mobile-routes.ts) |
 | Results stream (result cards and files, `/api/results`)   | [results.ts](../src/server/results.ts), [core-routes.ts](../src/server/core-routes.ts)                                         |
 | Your profile, sent prompts and decision history | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts) |
