@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
+import { request as httpRequest } from "node:http";
 import { z } from "zod";
 import { workspaceApi, PublicConnection } from "../src/shared/workspace-api";
 import { Problem, ExecutionProblem } from "../src/shared/problem";
 import { registrar } from "../src/server/registrar";
+import { cardTokenRequest } from "../src/shared/card-access";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-route-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
@@ -41,11 +43,28 @@ function fixture(who = owner) {
   return { connection, agent, run };
 }
 
+// fetch disallows GET bodies; raw HTTP exercises the NoBody refusal as well.
+async function requestWithBody(path: string, method: string, body: unknown) {
+  const payload = JSON.stringify(body);
+  return new Promise<{ status: number; data: unknown }>((resolve, reject) => {
+    const req = httpRequest(origin + "/api" + path, { method, headers: {
+      "content-type": "application/json", "content-length": String(Buffer.byteLength(payload)),
+    } }, res => {
+      const chunks: Buffer[] = [];
+      res.on("data", chunk => chunks.push(chunk));
+      res.on("error", reject);
+      res.on("end", () => resolve({ status: res.statusCode!, data: JSON.parse(Buffer.concat(chunks).toString()) }));
+    });
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+
 // The helper's error behavior is exercised through Express and the same error
 // middleware, including rejected async handlers and bad server output.
 const helper = express();
 helper.use(express.json());
-const contract = { method: "POST", path: "/input", params: z.object({}), query: z.object({}), body: z.object({ label: z.string() }), response: z.object({ label: z.string() }) } as const;
+const contract = { method: "POST", access: "session", path: "/input", params: z.object({}), query: z.object({}), body: z.object({ label: z.string() }), response: z.object({ label: z.string() }) } as const;
 const helperRoutes = registrar("test");
 helper.use(helperRoutes.mount);
 helperRoutes.on(contract, (req, res) => {
@@ -98,6 +117,41 @@ it("serves a credential-free bootstrap from the production HTTP app and retains 
   const session = await request("/auth/get-session");
   expect(session.data.user.id).toBe(owner);
   expect(session.headers.get("x-loop-change-epoch")).toEqual(expect.any(String));
+});
+
+it("serves all six Cards contracts from production writes and refuses invalid input before token changes", async () => {
+  const f = fixture();
+  const artifact = saveArtifact(owner, { title: "Contract card", content: "Published content", agent: f.agent.id, conversation: f.run.conversation_id });
+  const created = await request("/card-tokens", cardTokenRequest("Contract reader", "cards:read"));
+  expect(created.status).toBe(201);
+  const token = workspaceApi.cardTokenCreate.response.parse(created.data).token;
+  const listed = await request("/card-tokens?historically-ignored=yes");
+  expect(listed.status).toBe(200);
+  expect(workspaceApi.cardTokens.response.parse(listed.data).some(item => item.id === token.id)).toBe(true);
+  const list = await request("/v1/cards");
+  expect(list.status).toBe(200);
+  const page = workspaceApi.cardList.response.parse(list.data);
+  expect(page.items.some(item => item.card.id === "a:" + artifact)).toBe(true);
+  const changes = await request("/v1/cards/changes?after=" + encodeURIComponent(page.revision));
+  expect(changes.status).toBe(200);
+  workspaceApi.cardChanges.response.parse(changes.data);
+  const detail = await request("/v1/cards/a%3A" + artifact);
+  expect(detail.status).toBe(200);
+  expect(workspaceApi.cardDetail.response.parse(detail.data)).toMatchObject({ id: "a:" + artifact, content: "Published content" });
+  const before = db.prepare("SELECT * FROM card_tokens WHERE id=?").get(token.id);
+  for (const invalid of [
+    await request("/v1/cards?limit=0"),
+    await request("/v1/cards/changes"),
+    await request("/v1/cards/a%3A" + artifact + "?unknown=1"),
+    await requestWithBody("/card-tokens", "GET", {}),
+    await request("/card-tokens", { ...cardTokenRequest("Invalid", "cards:read"), extra: true }),
+    await request("/card-tokens/" + token.id, {}, "DELETE"),
+  ]) expect(invalid).toMatchObject({ status: 400, data: { error: expect.any(String) } });
+  expect(db.prepare("SELECT * FROM card_tokens WHERE id=?").get(token.id)).toEqual(before);
+  const revoked = await request("/card-tokens/" + token.id + "?historically-ignored=yes", undefined, "DELETE");
+  expect(revoked.status).toBe(200);
+  expect(workspaceApi.cardTokenRevoke.response.parse(revoked.data)).toEqual({ ok: true });
+  expect(db.prepare("SELECT revoked_at FROM card_tokens WHERE id=?").get(token.id)).toEqual({ revoked_at: expect.any(Number) });
 });
 
 it("keeps invalid run inputs side-effect free and preserves submit, replay and cancel wire responses", async () => {

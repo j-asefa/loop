@@ -33,8 +33,8 @@
     "smoke:social": "node scripts/social-browser-smoke.mjs",
     "smoke:reconnect": "node scripts/reconnect-browser-smoke.mjs",
     "feeds:check": "node --import tsx scripts/feed-liveness.mjs",
-    "cards:openapi": "node --import tsx scripts/cards-openapi.mjs",
-    "cards:check": "npm run cards:openapi -- --check",
+    "openapi": "node --import tsx scripts/openapi.mjs",
+    "openapi:check": "npm run openapi -- --check",
     "cards:example": "node --import tsx examples/cards-sync.ts"
   },
   "repository": {

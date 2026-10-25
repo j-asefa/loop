@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
-import { apiInWorkspace } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import {
   SettingsCommand,
   SettingsEmpty,
@@ -53,7 +54,7 @@ export function CardTokens({
   const load = async (clearError = true) => {
     const ticket = ++listRequest.current;
     try {
-      const list = await apiInWorkspace<CardToken[]>("/card-tokens", sourceId);
+      const list = await callRoute(workspaceApi.cardTokens, {}, sourceId);
       if (current() && ticket === listRequest.current) {
         setTokens(list);
         setLoaded(true);
@@ -132,10 +133,7 @@ export function CardTokens({
             setError("");
             setCreated(null);
             try {
-              const result = await apiInWorkspace<{
-                token: CardToken;
-                secret: string;
-              }>("/card-tokens", sourceId, draft);
+              const result = await callRoute(workspaceApi.cardTokenCreate, { body: draft }, sourceId);
               if (current()) {
                 receipt.current = undefined;
                 pending.delete(key);
@@ -263,12 +261,7 @@ export function CardTokens({
                       setBusy(true);
                       setError("");
                       try {
-                        await apiInWorkspace(
-                          `/card-tokens/${encodeURIComponent(token.id)}`,
-                          sourceId,
-                          undefined,
-                          "DELETE",
-                        );
+                        await callRoute(workspaceApi.cardTokenRevoke, { params: { id: token.id } }, sourceId);
                         if (current()) {
                           if (created?.token.id === token.id) setCreated(null);
                           if (receipt.current?.request_id === token.id) {

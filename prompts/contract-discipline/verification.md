@@ -17,7 +17,7 @@ Run focused Vitest files directly while iterating, for example `npx vitest run t
 
 | PR category | Also run | What it must show |
 | --- | --- | --- |
-| Every PR in this bundle | `npm run openapi:check` (PR 1 still uses `npm run cards:check`) | The generated document matches the executable contracts; the legacy list matches the mounted routes |
+| Every PR in this bundle | `npm run openapi:check` | The generated document matches the executable contracts; the legacy list matches the mounted routes |
 | Routes the browser shell loads (PR 3a, 3b, 4, 5, 9) | `npm run smoke:design`, `npm run smoke:history` | Bootstrap, Feed, thread open, Results and Files render with no console errors and no changed network shape |
 | Feed, Later, saved, scheduled sends (PR 4) | `npm run smoke:feed-events` | Working to Done transitions, saves and dismissals, scheduled-send status reads, the linked Docker source path |
 | Companion, runtimes, native decisions (PR 6) | `npm run smoke:companion`, then `LOOP_BROWSER=webkit npm run smoke:companion` | Pairing, runtime auth and upgrade flows, native decision answers |

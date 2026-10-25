@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cardReader } from "../shared/card-client";
+import { contractCardReader } from "../shared/card-client";
 import type { CardPage, CardSelection } from "../shared/cards";
-import { useProjectionRead, useSourceId } from "./SourceContext";
+import { useProjectionRoute, useSourceId } from "./SourceContext";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { CardPager, type CardWindow } from "./card-pager";
 import { surfaceFallback } from "./workspace-projections";
@@ -13,7 +13,7 @@ const noItems: CardPage["items"] = [];
  * Polling updates the loaded window; it never restarts pagination. */
 export function useCards(selection: CardSelection, revision = 0) {
   const source = useSourceId(),
-    read = useProjectionRead();
+    read = useProjectionRoute();
   const owner = viewOwner(),
     key = JSON.stringify([owner, source, selection]);
   const context = useMemo(() => ({ key, foreground: 0 }), [key]);
@@ -22,7 +22,7 @@ export function useCards(selection: CardSelection, revision = 0) {
   const current = useRef<typeof context | null>(context);
   current.current = context;
   const reader = useMemo(
-    () => cardReader((path) => read(path)),
+    () => contractCardReader((contract, input) => read(contract, input)),
     [read],
   );
   const pager = useRef(new CardPager());

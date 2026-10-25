@@ -1,6 +1,7 @@
-import { registrar } from "./registrar.js";
+import { json } from "express";
+import { registrar, projectResponse } from "./registrar.js";
 import { recordCardRead, tokenCardPage } from "./card-tokens.js";
-import { cardApi } from "../shared/card-api.js";
+import { workspaceApi } from "../shared/workspace-api.js";
 
 import { cardChanges, cardDetail, listCards } from "./cards.js";
 import { Problem } from "./domain.js";
@@ -24,37 +25,20 @@ const routes = registrar("cards", { strict: true, caseSensitive: true, middlewar
   if (route.kind !== "detail" && res.locals.cardScope && req.query.view === "done")
     throw new Problem(403, "Done requires an owner session");
   next();
-}]] });
+}],
+// Bearer dispatch reaches this router before the application's JSON parser.
+// Keep the same limit and enforce NoBody after the existing admission checks.
+["/v1/cards", json({ limit: "12mb" })]] });
 export const cards = routes.mount;
 
-routes.legacy("GET /v1/cards", (req, res) =>
-  res.json(
-    cardApi.list.response.parse(
-      tokenCardPage(
-        res.locals.owner,
-        res.locals.cardToken,
-        listCards(res.locals.owner, req.query),
-      ),
-    ),
-  ),
+routes.on(workspaceApi.cardList, ({ query }, res) =>
+  res.json(tokenCardPage(res.locals.owner, res.locals.cardToken, listCards(res.locals.owner, query))),
 );
-routes.legacy("GET /v1/cards/changes", (req, res) =>
-  res.json(
-    cardApi.changes.response.parse(
-      tokenCardPage(
-        res.locals.owner,
-        res.locals.cardToken,
-        cardChanges(res.locals.owner, req.query),
-      ),
-    ),
-  ),
+routes.on(workspaceApi.cardChanges, ({ query }, res) =>
+  res.json(tokenCardPage(res.locals.owner, res.locals.cardToken, cardChanges(res.locals.owner, query))),
 );
-routes.legacy("GET /v1/cards/:id", (req, res) => {
-  if (Object.keys(req.query).length)
-    throw new Problem(400, "Card detail does not accept query parameters");
-  const card = cardApi.detail.response.parse(
-    cardDetail(res.locals.owner, req.params.id, res.locals.cardScope),
-  );
+routes.on(workspaceApi.cardDetail, ({ params }, res) => {
+  const card = projectResponse(workspaceApi.cardDetail, cardDetail(res.locals.owner, params.id, res.locals.cardScope));
   if (res.locals.cardToken)
     recordCardRead(res.locals.owner, res.locals.cardToken, [card.id]);
   res.json(card);

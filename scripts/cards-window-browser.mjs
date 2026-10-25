@@ -128,7 +128,7 @@ try {
   {
     const context = await browser.newContext(),
       page = await context.newPage();
-    let releaseOld, releaseNew, startedOld, startedNew, deliveredOld;
+    let releaseOld, releaseNew, startedOld, startedNew, deliveredOld, oldRequest;
     const oldHeld = new Promise((resolve) => {
       releaseOld = resolve;
     });
@@ -152,6 +152,7 @@ try {
         });
       const request = ++lists;
       if (request === 1) {
+        oldRequest = route.request();
         startedOld();
         await oldHeld;
       }
@@ -179,14 +180,14 @@ try {
       .click();
     await newStarted;
     await expect(page.getByRole("status")).toHaveText("Loading cards");
-    const response = page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/v1/cards?") &&
-        response.request().method() === "GET",
-    );
+    // Source navigation may abort this request before the held response is
+    // released. Observe its completion or cancellation, never a newer read.
+    const response = oldRequest.response();
     releaseOld();
     await oldDelivered;
-    await (await response).finished();
+    const oldResponse = await response;
+    if (oldResponse) await oldResponse.finished();
+    else expect(oldRequest.failure()).toBeTruthy();
     await page.evaluate(
       () =>
         new Promise((resolve) =>

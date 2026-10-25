@@ -1,18 +1,13 @@
 import { z } from "zod";
-import {
-  CardSchema,
-  CardPageSchema,
-  CardChangesSchema,
-  CardListQuerySchema,
-  CardChangesQuerySchema,
-} from "./cards.js";
+import { workspaceApi, type RouteInput } from "./workspace-api.js";
+import { routePath, type RoutePath } from "./route-path.js";
 
-export type CardListInput = Partial<z.output<typeof CardListQuerySchema>>;
-export type CardChangesInput = Omit<
-  z.output<typeof CardChangesQuerySchema>,
-  "view"
-> &
-  Partial<Pick<z.output<typeof CardChangesQuerySchema>, "view">>;
+export type CardListInput = Partial<z.output<typeof workspaceApi.cardList.query>>;
+export type CardChangesInput = Omit<z.output<typeof workspaceApi.cardChanges.query>, "view"> &
+  Partial<Pick<z.output<typeof workspaceApi.cardChanges.query>, "view">>;
+type CardReadContract = typeof workspaceApi.cardList | typeof workspaceApi.cardChanges | typeof workspaceApi.cardDetail;
+export type CardReadTransport = <C extends CardReadContract>(contract: C, input: RouteInput<C>, signal?: AbortSignal) => Promise<unknown>;
+
 export class CardApiError extends Error {
   constructor(
     public status: number,
@@ -22,39 +17,28 @@ export class CardApiError extends Error {
     super(message);
   }
 }
-const parameters = (input: object) => {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(input))
-    if (value !== undefined) query.set(key, String(value));
-  return query.toString();
-};
-/** Use the same typed, validated reads with a cookie transport or an integration
- * token. The transport is fixed to one authorized source for its lifetime. */
-export function cardReader(
-  request: (path: `/v1/cards?${string}` | `/v1/cards/changes?${string}` | `/v1/cards/${string}`, signal?: AbortSignal) => Promise<unknown>,
-) {
+/** The transport captures one authorized source and its cancellation lifetime. */
+export function contractCardReader(request: CardReadTransport) {
   return {
     async list(input: CardListInput = {}, signal?: AbortSignal) {
-      return CardPageSchema.parse(
-        await request(`/v1/cards?${parameters(input)}`, signal),
-      );
+      return workspaceApi.cardList.response.parse(await request(workspaceApi.cardList, { query: input }, signal));
     },
     async changes(input: CardChangesInput, signal?: AbortSignal) {
-      return CardChangesSchema.parse(
-        await request(`/v1/cards/changes?${parameters(input)}`, signal),
-      );
+      return workspaceApi.cardChanges.response.parse(await request(workspaceApi.cardChanges, { query: input }, signal));
     },
     async detail(id: string, signal?: AbortSignal) {
-      return CardSchema.parse(
-        await request(
-          `/v1/cards/${encodeURIComponent(id)}`,
-          signal,
-        ),
-      );
+      return workspaceApi.cardDetail.response.parse(await request(workspaceApi.cardDetail, { params: { id } }, signal));
     },
   };
 }
-export type CardReader = ReturnType<typeof cardReader>;
+/** Compatibility for the protected App.tsx callers until reactive PR 12b.
+ * Paths still come from the same contracts; new browser callers use contracts. */
+export function cardReader(
+  request: (path: RoutePath<CardReadContract["path"]>, signal?: AbortSignal) => Promise<unknown>,
+) {
+  return contractCardReader((contract, input, signal) => request(routePath(contract, input), signal));
+}
+export type CardReader = ReturnType<typeof contractCardReader>;
 
 export function createCardClient({
   baseUrl,
@@ -84,9 +68,10 @@ export function createCardClient({
     throw new Error(
       "Provide a card token through the environment or a secret store",
     );
-  return cardReader(async (path, signal) => {
+  return contractCardReader(async (contract, input, signal) => {
+    const path = routePath(contract, input);
     const response = await send(base.origin + "/api" + path, {
-      method: "GET",
+      method: contract.method,
       signal,
       redirect: "error",
       credentials: "omit",

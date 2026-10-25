@@ -34,8 +34,6 @@ type Path =
   | `/auth/sign-up/email`
   | `/build`
   | `/capabilities`
-  | `/card-tokens`
-  | `/card-tokens/${string}`
   | `/connections`
   | `/connections/${string}`
   | `/connections/${string}/models`

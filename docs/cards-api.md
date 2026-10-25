@@ -230,9 +230,9 @@ from stored content versions and timestamps.
 
 ## Typed readers and the example
 
-The generated [OpenAPI document](cards-openapi.json) uses the same Zod schemas
-and route definitions as the runtime. Regenerate it with `npm run cards:openapi`;
-`npm run cards:check` fails when the checked-in document differs. GET and HEAD,
+The generated [OpenAPI document](openapi.json) uses the same Zod schemas
+and route definitions as the runtime. Regenerate it with `npm run openapi`;
+`npm run openapi:check` fails when the checked-in document differs. GET and HEAD,
 query parameters, result/message variants, token management and authentication
 alternatives are included. The session cookies and trusted standalone access
 boundary vary by deployment; a Cards bearer token always uses the same header.

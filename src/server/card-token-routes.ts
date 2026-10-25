@@ -1,5 +1,5 @@
 import { registrar } from "./registrar.js";
-import { cardApi } from "../shared/card-api.js";
+import { workspaceApi } from "../shared/workspace-api.js";
 
 import {
   createCardToken,
@@ -16,19 +16,13 @@ const routes = registrar("cardTokens", { strict: true, caseSensitive: true, midd
 }]] });
 export const cardTokens = routes.mount;
 
-routes.legacy("GET /card-tokens", (_req, res) =>
-  res.json(cardApi.tokens.response.parse(listCardTokens(res.locals.owner))),
+routes.on(workspaceApi.cardTokens, (_input, res) =>
+  res.json(listCardTokens(res.locals.owner)),
 );
-routes.legacy("POST /card-tokens", (req, res) =>
-  res
-    .status(cardApi.createToken.status)
-    .json(
-      cardApi.createToken.response.parse(
-        createCardToken(res.locals.owner, req.body),
-      ),
-    ),
+routes.on(workspaceApi.cardTokenCreate, ({ body }, res) =>
+  res.json(createCardToken(res.locals.owner, body)),
 );
-routes.legacy("DELETE /card-tokens/:id", (req, res) => {
-  revokeCardToken(res.locals.owner, req.params.id);
-  res.json(cardApi.revokeToken.response.parse({ ok: true }));
+routes.on(workspaceApi.cardTokenRevoke, ({ params }, res) => {
+  revokeCardToken(res.locals.owner, params.id);
+  res.json({ ok: true });
 });

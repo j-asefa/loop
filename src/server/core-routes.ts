@@ -473,9 +473,7 @@ routes.legacy("GET /agents/:id", (req, res) => {
 });
 routes.on(workspaceApi.submit, (req, res) => {
   const { queue, ...data } = req.body;
-  res
-    .status(202)
-    .json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
+  res.json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
 });
 routes.on(workspaceApi.runAction, async (req, res) => {
   const action = req.params.action;

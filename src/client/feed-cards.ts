@@ -1,5 +1,5 @@
 import { CardPager, type CardWindow } from "./card-pager";
-import { cardReader } from "../shared/card-client";
+import { contractCardReader } from "../shared/card-client";
 import type { CardSelection } from "../shared/cards";
 
 /** One source/owner/selection. Unsupported sources retain the legacy Done path. */
@@ -29,7 +29,7 @@ export class DoneCardsReader {
     return this.supported === false;
   }
   async load(
-    request: Parameters<typeof cardReader>[0],
+    request: Parameters<typeof contractCardReader>[0],
     selection: CardSelection,
     append: boolean,
     allowResync = true,
@@ -39,7 +39,7 @@ export class DoneCardsReader {
       this.supported = null;
       this.pager.reset(this.key);
     }
-    const reader = cardReader(request);
+    const reader = contractCardReader(request);
     const generation = this.generation;
     const effectiveAppend = append || this.pendingAppend;
     if (effectiveAppend) this.activeAppends++;

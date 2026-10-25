@@ -5,6 +5,8 @@ import { ProjectedMessage } from "./transcript-projection.js";
 import { SessionControls } from "./session-controls.js";
 import { AttachmentIds } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
+import { CardSchema, CardIdSchema, CardPageSchema, CardChangesSchema, CardListQuerySchema, CardChangesQuerySchema } from "./cards.js";
+import { CardTokenSchema, CreateCardTokenSchema } from "./card-token-schemas.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 const Text = z.string(), MaybeText = Text.nullable(), Time = z.number();
@@ -112,6 +114,9 @@ export const NativeDecision = z.object({
 });
 export type NativeDecision = z.infer<typeof NativeDecision>;
 
+export const CardErrorSchema = z.object({ error: z.string() });
+export const CreatedCardTokenSchema = z.object({ token: CardTokenSchema, secret: z.string() });
+
 const Empty = z.object({}), NoBody = z.undefined();
 const Id = z.object({ id: Text });
 const Teams = Text.max(2000).optional();
@@ -120,10 +125,21 @@ const ResultSelection = { agent: Text.optional(), folder: Text.optional(), teams
 const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export type RouteContract = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
+  status?: number;
+  access: "session" | "card:results" | "card:cards";
 };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
-const base = { params: Empty, query: Empty, body: NoBody };
+const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  // All three reads admit either grant; card:results names the minimum grant.
+  // The admission boundary still limits each grant's selections and excludes Done.
+  cardList: endpoint({ ...base, method: "GET", path: "/v1/cards", query: CardListQuerySchema, response: CardPageSchema, access: "card:results" }),
+  cardChanges: endpoint({ ...base, method: "GET", path: "/v1/cards/changes", query: CardChangesQuerySchema, response: CardChangesSchema, access: "card:results" }),
+  cardDetail: endpoint({ ...base, method: "GET", path: "/v1/cards/:id", params: z.object({ id: CardIdSchema }), query: z.strictObject({}, { error: "Card detail does not accept query parameters" }), response: CardSchema, access: "card:results" }),
+  // Management handlers historically ignore query parameters.
+  cardTokens: endpoint({ ...base, method: "GET", path: "/card-tokens", response: z.array(CardTokenSchema) }),
+  cardTokenCreate: endpoint({ ...base, method: "POST", path: "/card-tokens", body: CreateCardTokenSchema, response: CreatedCardTokenSchema, status: 201 }),
+  cardTokenRevoke: endpoint({ ...base, method: "DELETE", path: "/card-tokens/:id", params: z.object({ id: Text.min(1) }), response: z.object({ ok: z.literal(true) }) }),
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
   feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
@@ -131,7 +147,7 @@ export const workspaceApi = {
   submit: endpoint({ ...base, method: "POST", path: "/runs", body: z.object({
     agentId: Text, conversationId: Text.optional(), replyToMessageId: Text.min(1).max(150).optional(), replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
     input: Text.trim().min(1).max(30000), attachmentIds: AttachmentIds, idempotencyKey: Text.min(8).max(150), folderId: Text.min(1).nullable().optional(), queue: z.boolean().optional(),
-  }).refine(d => !d.replyExcerpt || d.replyToMessageId, { message: "Choose the message the excerpt comes from", path: ["replyExcerpt"] }), response: PublicRun }),
+  }).refine(d => !d.replyExcerpt || d.replyToMessageId, { message: "Choose the message the excerpt comes from", path: ["replyExcerpt"] }), response: PublicRun, status: 202 }),
   runAction: endpoint({ ...base, method: "POST", path: "/runs/:id/:action", params: Id.extend({ action: Text }), body: z.object({ idempotencyKey: Text.min(8).max(150).optional() }).optional(), response: z.union([PublicRun, Ok]) }),
   results: endpoint({ ...base, method: "GET", path: "/results", query: z.object({ ...ResultSelection, view: Text.optional(), saved: Text.optional(), before: z.coerce.number<string>().min(0).catch(0).default(0) }), response: ResultsPage }),
   resultUpdates: endpoint({ ...base, method: "GET", path: "/results/updates", query: z.object({ ...ResultSelection, after: NumberCursor, through: NumberCursor }), response: ResultsUpdates }),

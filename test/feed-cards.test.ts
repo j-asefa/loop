@@ -1,3 +1,5 @@
+import type { CardReadTransport } from "../src/shared/card-client";
+import { routePath } from "../src/shared/route-path";
 import { expect, it, vi } from "vitest";
 import { DoneCardsReader } from "../src/client/feed-cards";
 import { CardEntrySchema } from "../src/shared/cards";
@@ -91,7 +93,8 @@ it("retains two nonempty source windows through outage, append and recovery", as
     b = new DoneCardsReader("owner/b");
   let outage = false,
     delta = false;
-  const transport = (source: string) => async (path: string) => {
+  const transport = (source: string): CardReadTransport => async (contract, input) => {
+    const path = routePath(contract, input);
     if (outage && source === "b") throw failure(503);
     if (path.includes("/changes?"))
       return {
@@ -133,9 +136,10 @@ it("retains two nonempty source windows through outage, append and recovery", as
   const restored = new DoneCardsReader("owner/b", b.pager.snapshot()!);
   const requests: string[] = [];
   await restored.load(
-    async (path) => {
+    async (contract, input) => {
+      const path = routePath(contract, input);
       requests.push(path);
-      return transport("b")(path);
+      return transport("b")(contract, input);
     },
     selection,
     false,
@@ -163,8 +167,8 @@ it("re-probes an upgraded source and distinguishes invalid cursors from lost cap
       false,
     ),
   ).toBeNull();
-  const request = async (path: string) =>
-    path.includes("/changes?")
+  const request: CardReadTransport = async (contract, input) =>
+    routePath(contract, input).includes("/changes?")
       ? { revision: "new", items: [], removed: [], more: false }
       : { revision: "old", items: [entry("upgraded", 1)], next: "older" };
   expect(
@@ -172,9 +176,10 @@ it("re-probes an upgraded source and distinguishes invalid cursors from lost cap
   ).toBe("d:message:upgraded");
   await expect(
     reader.load(
-      async (path) => {
+      async (contract, input) => {
+        const path = routePath(contract, input);
         if (path.includes("before=")) throw failure(400);
-        return request(path);
+        return request(contract, input);
       },
       selection,
       true,
@@ -199,7 +204,8 @@ it("restarts once after a 409 revision reset without misclassifying it as an out
   const reader = new DoneCardsReader("owner/reset");
   let revisionExpired = false,
     pageReads = 0;
-  const request = async (path: string) => {
+  const request: CardReadTransport = async (contract, input) => {
+    const path = routePath(contract, input);
     if (path.includes("/changes?")) {
       if (revisionExpired) {
         revisionExpired = false;
@@ -218,9 +224,10 @@ it("restarts once after a 409 revision reset without misclassifying it as an out
   expect(pageReads).toBe(2);
   await expect(
     reader.load(
-      async (path) => {
+      async (contract, input) => {
+        const path = routePath(contract, input);
         if (path.includes("/changes?")) throw failure(409);
-        return request(path);
+        return request(contract, input);
       },
       selection,
       false,
@@ -232,8 +239,8 @@ it("replays pending Load more after an optimistic action invalidates its respons
   const reader = new DoneCardsReader("owner/action");
   const delta = { revision: "r", items: [], removed: [], more: false };
   await reader.load(
-    async (path) =>
-      path.includes("/changes?")
+    async (contract, input) =>
+      routePath(contract, input).includes("/changes?")
         ? delta
         : { revision: "r", items: [entry("first", 100)], next: "older" },
     selection,
@@ -241,8 +248,8 @@ it("replays pending Load more after an optimistic action invalidates its respons
   );
   let release!: (page: unknown) => void;
   const active = reader.load(
-    async (path) =>
-      path.includes("/changes?")
+    async (contract, input) =>
+      routePath(contract, input).includes("/changes?")
         ? delta
         : new Promise((resolve) => {
             release = resolve;
@@ -257,7 +264,8 @@ it("replays pending Load more after an optimistic action invalidates its respons
   await active;
   const paths: string[] = [];
   const result = await reader.load(
-    async (path) => {
+    async (contract, input) => {
+      const path = routePath(contract, input);
       paths.push(path);
       return path.includes("/changes?")
         ? delta
@@ -278,13 +286,14 @@ it("keeps concurrent callers on Cards while an expired revision resets the pager
   const delta = { revision: "r", items: [], removed: [], more: false };
   const page = { revision: "r", items: [entry("kept", 100)], next: null };
   await reader.load(
-    async (path) => (path.includes("/changes?") ? delta : page),
+    async (contract, input) => (routePath(contract, input).includes("/changes?") ? delta : page),
     selection,
     false,
   );
   let reject!: (error: unknown) => void;
   let expire = true;
-  const request = async (path: string) => {
+  const request: CardReadTransport = async (contract, input) => {
+    const path = routePath(contract, input);
     if (!path.includes("/changes?")) return page;
     if (expire) {
       expire = false;

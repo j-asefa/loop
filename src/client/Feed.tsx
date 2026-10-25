@@ -1,3 +1,4 @@
+import type { CardReadTransport } from "../shared/card-client";
 import type { LegacyClientPath } from "./legacy-paths";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
@@ -1278,7 +1279,7 @@ export function Feed({
             if (doneCards.current.size > 40) doneCards.current.delete(doneCards.current.keys().next().value!);
           }
           const combined = sources && !project && !teams && !agent;
-          const transport = (path: LegacyClientPath) => combined ? apiInWorkspace(path, source) : api(path);
+          const transport: CardReadTransport = (contract, input, signal) => callRoute(contract, input, combined ? source : scopedSource, signal);
           const boundary = reader.pager.snapshot()?.boundary;
           const catchUp = boundary && priorItems.some(item => compareCardOrder(order(item), boundary) < 0);
           const resetVersion = reader.resetVersion;

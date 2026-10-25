@@ -8,12 +8,12 @@ import { Problem } from "../src/shared/problem";
 
 const routes = registrar("registrar-test", { strict: true, caseSensitive: true });
 const contract = {
-  method: "POST", path: "/input", params: z.object({}), query: z.object({}),
-  body: z.object({ label: z.string() }), response: z.object({ label: z.string() }),
+  method: "POST", access: "session", path: "/input", params: z.object({}), query: z.object({}),
+  status: 201, body: z.object({ label: z.string() }), response: z.object({ label: z.string() }),
 } as const;
 routes.on(contract, ({ body }, res) => {
   const projection = { ...body, privateColumn: "secret" };
-  res.status(201).json(projection);
+  res.json(projection);
 });
 routes.on({ ...contract, path: "/bad-output" }, async (_input, res) => {
   await Promise.resolve();

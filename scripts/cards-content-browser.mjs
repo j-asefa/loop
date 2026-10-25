@@ -113,8 +113,11 @@ try {
           );
           await page.goto(fixture.origin + "/?agent=writer");
           const cards = page.locator("[data-card-id]");
+          // The existing read helper exhausts two- and four-second retries
+          // before surfacing a persistent server failure.
           await expect(page.getByRole("alert")).toContainText(
             "Temporary Cards read failure",
+            { timeout: 10000 },
           );
           await page
             .getByRole("button", { name: "Try again", exact: true })
