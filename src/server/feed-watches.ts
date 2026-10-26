@@ -1,6 +1,7 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
-import { z } from "zod";
+import { WatchInput as watchInput } from "../shared/social-contract-schemas.js";
 import { db, id, now } from "./db.js";
 import { Problem } from "./domain.js";
 import { enqueuePush } from "./mobile-return.js";
@@ -13,7 +14,6 @@ import { matchesWatch, watchTerms } from "../shared/news.js";
 // crash between them can neither lose nor repeat one.
 
 const PER_OWNER = 25;
-const MAX_QUERY = 200;
 /** Stories considered per watch per pass, newest first. */
 const PER_PASS = 50;
 // A busy watch must not empty your battery: three an hour, then one line
@@ -33,12 +33,6 @@ export type FeedWatch = {
   matches: number;
   last_match_at: number | null;
 };
-
-const watchInput = z.object({
-  query: z.string().min(2).max(MAX_QUERY),
-  feeds: z.array(z.string().min(1).max(120)).max(200).nullish(),
-  enabled: z.boolean().default(true),
-});
 
 export const listWatches = (owner: string) =>
   db
@@ -237,19 +231,19 @@ const announced = (watchId: string) =>
 
 const routes = registrar("feedWatches");
 export const feedWatches = routes.mount;
-routes.legacy("GET /social/watches", (_req, res) => {
+routes.on(workspaceApi.socialWatches, (_req, res) => {
   res.json({ watches: listWatches(res.locals.owner) });
 });
-routes.legacy("POST /social/watches", (req, res) => {
+routes.on(workspaceApi.socialWatchCreate, (req, res) => {
   res.status(201).json(saveWatch(res.locals.owner, req.body));
 });
-routes.legacy("POST /social/watches/preview", (req, res) => {
+routes.on(workspaceApi.socialWatchPreview, (req, res) => {
   res.json(previewWatch(res.locals.owner, req.body));
 });
-routes.legacy("PATCH /social/watches/:id", (req, res) => {
+routes.on(workspaceApi.socialWatchUpdate, (req, res) => {
   res.json(saveWatch(res.locals.owner, req.body, req.params.id));
 });
-routes.legacy("DELETE /social/watches/:id", (req, res) => {
+routes.on(workspaceApi.socialWatchDelete, (req, res) => {
   removeWatch(res.locals.owner, req.params.id);
   res.json({ watches: listWatches(res.locals.owner) });
 });

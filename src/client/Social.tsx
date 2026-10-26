@@ -1,5 +1,4 @@
-import type { LegacyClientPath } from "./legacy-paths";
-import { useProjectionRead } from "./SourceContext";
+import { useProjectionRoute } from "./SourceContext";
 import {
   useCallback,
   useEffect,
@@ -29,7 +28,12 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api } from "./api";
+import { callRoute, readRoute, routeUrl } from "./workspace-api";
+import {
+  workspaceApi,
+  type RouteInput,
+  type RouteResponse,
+} from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { surfaceFallback, reactiveSource } from "./workspace-projections";
 import { Sheet } from "./components";
@@ -193,7 +197,11 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
     setBusy(address);
     setError("");
     try {
-      await api("/social/sources", { url: address }, "PUT");
+      await callRoute(
+        workspaceApi.socialSourceAdd,
+        { body: { url: address } },
+        "",
+      );
       setUrl("");
       setChoices([]);
       onAdded();
@@ -211,9 +219,11 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
     setError("");
     setChoices([]);
     try {
-      const { candidates } = await api<{
-        candidates: { url: string; title: string }[];
-      }>("/social/sources/discover", { url: address }, "POST");
+      const { candidates } = await callRoute(
+        workspaceApi.socialSourceDiscover,
+        { body: { url: address } },
+        "",
+      );
       // One feed and it is the address itself: just add it.
       if (candidates.length === 1 && candidates[0].url === address)
         return void (await add(address));
@@ -229,10 +239,11 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
     setBusy("opml");
     setError("");
     try {
-      const { added, skipped } = await api<{
-        added: number;
-        skipped: { url: string; reason: string }[];
-      }>("/social/opml", { opml: await file.text() }, "POST");
+      const { added, skipped } = await callRoute(
+        workspaceApi.socialOpmlImport,
+        { body: { opml: await file.text() } },
+        "",
+      );
       onAdded();
       notify({
         text: `Added ${plural(added, "feed")}${
@@ -310,7 +321,11 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
             }}
           />
         </label>
-        <a className="text-button" href="/api/social/opml" download>
+        <a
+          className="text-button"
+          href={routeUrl(workspaceApi.socialOpmlExport, {}, "")}
+          download
+        >
           <Download size={16} />
           Export OPML
         </a>
@@ -472,32 +487,14 @@ type Shown = SocialResponse & {
   mutes: string[];
 };
 
-export type FeedDigest = {
-  id: string;
-  agent_id: string;
-  conversation_id: string | null;
-  feeds: string | null;
-  minute_of_day: number;
-  zone: string;
-  unread_only: number;
-  enabled: number;
-  last_run_at: number | null;
-  last_error: string | null;
-};
+export type FeedDigest = RouteResponse<typeof workspaceApi.socialDigestCreate>;
 
 const clock = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(
     minute % 60,
   ).padStart(2, "0")}`;
 
-export type FeedWatch = {
-  id: string;
-  query: string;
-  feeds: string | null;
-  enabled: number;
-  matches: number;
-  last_match_at: number | null;
-};
+export type FeedWatch = RouteResponse<typeof workspaceApi.socialWatchCreate>;
 
 /** Words to keep out of Social, and whether feed pictures load at all. */
 function HideSheet({
@@ -513,9 +510,13 @@ function HideSheet({
 }) {
   const [phrase, setPhrase] = useState("");
   const [error, setError] = useState("");
-  async function change(path: LegacyClientPath, body: unknown, method: string) {
+  async function change(phrase: string, hide: boolean) {
     try {
-      const next = await api<{ mutes: string[] }>(path, body, method);
+      const next = await callRoute(
+        hide ? workspaceApi.socialMute : workspaceApi.socialUnmute,
+        { body: { phrase } },
+        "",
+      );
       onChanged(next);
       setPhrase("");
     } catch (e) {
@@ -537,16 +538,13 @@ function HideSheet({
             placeholder='crypto, or "live blog"'
             value={phrase}
             onChange={(e) => setPhrase(e.target.value)}
-            onKeyDown={(e) =>
-              e.key === "Enter" &&
-              void change("/social/mutes", { phrase }, "POST")
-            }
+            onKeyDown={(e) => e.key === "Enter" && void change(phrase, true)}
           />
           <button
             type="button"
             className="secondary"
             disabled={!phrase.trim()}
-            onClick={() => void change("/social/mutes", { phrase }, "POST")}
+            onClick={() => void change(phrase, true)}
           >
             Hide
           </button>
@@ -559,9 +557,7 @@ function HideSheet({
             type="button"
             className="chip"
             aria-label={`Stop hiding ${word}`}
-            onClick={() =>
-              void change("/social/mutes", { phrase: word }, "DELETE")
-            }
+            onClick={() => void change(word, false)}
           >
             {word} ✕
           </button>
@@ -575,7 +571,11 @@ function HideSheet({
             const on = e.target.checked;
             onChanged({ images: on });
             try {
-              await api("/social/preferences", { images: on }, "PUT");
+              await callRoute(
+                workspaceApi.socialPreferencesUpdate,
+                { body: { images: on } },
+                "",
+              );
             } catch (err) {
               onChanged({ images: !on });
               setError((err as Error).message);
@@ -600,7 +600,7 @@ function HideSheet({
  * caught, so it can be judged before it is made.
  */
 function WatchSheet({ onClose }: { onClose: () => void }) {
-  const readSnapshot = useProjectionRead("");
+  const readSnapshot = useProjectionRoute("");
   const [watches, setWatches] = useState<FeedWatch[]>([]);
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<
@@ -610,8 +610,9 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   async function load() {
     try {
-      const { watches: list } = await readSnapshot<{ watches: FeedWatch[] }>(
-        "/social/watches",
+      const { watches: list } = await readSnapshot(
+        workspaceApi.socialWatches,
+        {},
       );
       setWatches(list);
     } catch (e) {
@@ -628,9 +629,11 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const { stories } = await api<{
-        stories: { feed: string; title: string; url: string }[];
-      }>("/social/watches/preview", { query }, "POST");
+      const { stories } = await callRoute(
+        workspaceApi.socialWatchPreview,
+        { body: { query } },
+        "",
+      );
       setPreview(stories);
     } catch (e) {
       setError((e as Error).message);
@@ -642,7 +645,7 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError("");
     try {
-      await api("/social/watches", { query }, "POST");
+      await callRoute(workspaceApi.socialWatchCreate, { body: { query } }, "");
       setQuery("");
       setPreview(null);
       await load();
@@ -653,12 +656,18 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   }
-  async function change(watch: FeedWatch, body: Record<string, unknown>) {
+  async function change(
+    watch: FeedWatch,
+    body: Partial<RouteInput<typeof workspaceApi.socialWatchUpdate>["body"]>,
+  ) {
     try {
-      await api(
-        `/social/watches/${watch.id}`,
-        { query: watch.query, enabled: !!watch.enabled, ...body },
-        "PATCH",
+      await callRoute(
+        workspaceApi.socialWatchUpdate,
+        {
+          params: { id: watch.id },
+          body: { query: watch.query, enabled: !!watch.enabled, ...body },
+        },
+        "",
       );
       await load();
     } catch (e) {
@@ -693,7 +702,11 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
               type="button"
               className="text-button"
               onClick={async () => {
-                await api(`/social/watches/${watch.id}`, undefined, "DELETE");
+                await callRoute(
+                  workspaceApi.socialWatchDelete,
+                  { params: { id: watch.id } },
+                  "",
+                );
                 await load();
               }}
             >
@@ -775,7 +788,7 @@ function DigestSheet({
   agents: { id: string; name: string; retired_at?: number | null }[];
   onClose: () => void;
 }) {
-  const readSnapshot = useProjectionRead("");
+  const readSnapshot = useProjectionRoute("");
   const [digests, setDigests] = useState<FeedDigest[]>([]);
   const [access, setAccess] = useState(false);
   const [agent, setAgent] = useState("");
@@ -788,8 +801,8 @@ function DigestSheet({
   async function load() {
     try {
       const [list, preferences] = await Promise.all([
-        readSnapshot<{ digests: FeedDigest[] }>("/social/digests"),
-        readSnapshot<{ agent_access: boolean }>("/social/preferences"),
+        readSnapshot(workspaceApi.socialDigests, {}),
+        readSnapshot(workspaceApi.socialPreferences, {}),
       ]);
       setDigests(list.digests);
       setAccess(preferences.agent_access);
@@ -807,16 +820,18 @@ function DigestSheet({
     setBusy(true);
     setError("");
     try {
-      await api(
-        "/social/digests",
+      await callRoute(
+        workspaceApi.socialDigestCreate,
         {
-          agentId: agent,
-          minuteOfDay: hours * 60 + minutes,
-          zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          feeds: chosen.length ? chosen : null,
-          unreadOnly,
+          body: {
+            agentId: agent,
+            minuteOfDay: hours * 60 + minutes,
+            zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            feeds: chosen.length ? chosen : null,
+            unreadOnly,
+          },
         },
-        "POST",
+        "",
       );
       setChosen([]);
       await load();
@@ -827,21 +842,27 @@ function DigestSheet({
       setBusy(false);
     }
   }
-  async function change(digest: FeedDigest, body: Record<string, unknown>) {
+  async function change(
+    digest: FeedDigest,
+    body: Partial<RouteInput<typeof workspaceApi.socialDigestUpdate>["body"]>,
+  ) {
     try {
-      await api(
-        `/social/digests/${digest.id}`,
+      await callRoute(
+        workspaceApi.socialDigestUpdate,
         {
-          agentId: digest.agent_id,
-          conversationId: digest.conversation_id,
-          feeds: digest.feeds ? JSON.parse(digest.feeds) : null,
-          minuteOfDay: digest.minute_of_day,
-          zone: digest.zone,
-          unreadOnly: !!digest.unread_only,
-          enabled: !!digest.enabled,
-          ...body,
+          params: { id: digest.id },
+          body: {
+            agentId: digest.agent_id,
+            conversationId: digest.conversation_id,
+            feeds: digest.feeds ? JSON.parse(digest.feeds) : null,
+            minuteOfDay: digest.minute_of_day,
+            zone: digest.zone,
+            unreadOnly: !!digest.unread_only,
+            enabled: !!digest.enabled,
+            ...body,
+          },
         },
-        "PATCH",
+        "",
       );
       await load();
     } catch (e) {
@@ -850,7 +871,11 @@ function DigestSheet({
   }
   async function remove(digest: FeedDigest) {
     try {
-      await api(`/social/digests/${digest.id}`, undefined, "DELETE");
+      await callRoute(
+        workspaceApi.socialDigestDelete,
+        { params: { id: digest.id } },
+        "",
+      );
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -871,10 +896,10 @@ function DigestSheet({
             const allowed = e.target.checked;
             setAccess(allowed);
             try {
-              await api(
-                "/social/preferences",
-                { agent_access: allowed },
-                "PUT",
+              await callRoute(
+                workspaceApi.socialPreferencesUpdate,
+                { body: { agent_access: allowed } },
+                "",
               );
             } catch (err) {
               setAccess(!allowed);
@@ -1001,7 +1026,7 @@ export function Social({
   onAsk?: (text: string) => void;
   agents?: { id: string; name: string; retired_at?: number | null }[];
 }) {
-  const readSnapshot = useProjectionRead("");
+  const readSnapshot = useProjectionRoute("");
   const KEY = "social";
   const cached = cachedView<Shown>(KEY);
   const [view, setView] = useState<Shown | null>(cached || null);
@@ -1052,20 +1077,20 @@ export function Social({
   const request = useRef(0);
   const fillIn = useRef<ReturnType<typeof setTimeout>>(undefined);
   async function load(options: { force?: boolean; polls?: number } = {}) {
-    const only =
-      (unread.current ? "&unread=1" : "") + (muted.current ? "&muted=1" : "");
     const ticket = ++request.current;
     const owner = viewOwner();
     clearTimeout(fillIn.current);
     try {
       const [{ added, own }, social, preferences] = await Promise.all([
-        readSnapshot<{ added: string[]; own: FeedEntry[] }>("/social/feeds"),
-        readSnapshot<SocialResponse>(
-          `/social?refresh=${options.force ? 1 : 0}${only}`,
-        ),
-        readSnapshot<{ images: boolean; mutes: string[] }>(
-          "/social/preferences",
-        ),
+        readSnapshot(workspaceApi.socialFeeds, {}),
+        readSnapshot(workspaceApi.socialList, {
+          query: {
+            refresh: options.force ? "1" : "0",
+            unread: unread.current ? "1" : undefined,
+            muted: muted.current ? "1" : undefined,
+          },
+        }),
+        readSnapshot(workspaceApi.socialPreferences, {}),
       ]);
       if (ticket !== request.current || owner !== viewOwner()) return;
       const next = { ...social, added, own, ...preferences };
@@ -1109,10 +1134,10 @@ export function Social({
         },
     );
     try {
-      const { unread } = await api<{ unread: number }>(
-        "/social/read",
-        { stories: ids },
-        read ? "POST" : "DELETE",
+      const { unread } = await callRoute(
+        read ? workspaceApi.socialRead : workspaceApi.socialUnreadSet,
+        { body: { stories: ids } },
+        "",
       );
       setView((old) => old && { ...old, unread });
       // Refresh any other reader of the owner’s unread count.
@@ -1142,10 +1167,10 @@ export function Social({
       );
     }
     try {
-      const { unread } = await api<{ unread: number }>(
-        "/social/dismiss",
-        { stories: ids },
-        removed ? "POST" : "DELETE",
+      const { unread } = await callRoute(
+        removed ? workspaceApi.socialDismiss : workspaceApi.socialRestore,
+        { body: { stories: ids } },
+        "",
       );
       setView((old) => old && { ...old, unread });
       void load();
@@ -1164,10 +1189,10 @@ export function Social({
   }
   async function readEverything() {
     try {
-      const { unread } = await api<{ unread: number }>(
-        "/social/read-all",
-        {},
-        "POST",
+      const { unread } = await callRoute(
+        workspaceApi.socialReadAll,
+        { body: {} },
+        "",
       );
       setFound(
         (old) => old?.map((story) => ({ ...story, read: true })) ?? null,
@@ -1194,12 +1219,16 @@ export function Social({
     const controller = new AbortController();
     const owner = viewOwner();
     const timer = setTimeout(() => {
-      void api<SocialResponse>(
-        `/social/search?q=${encodeURIComponent(query)}${
-          chosenFeed ? `&feed=${encodeURIComponent(chosenFeed)}` : ""
-        }${unreadOnly ? "&unread=1" : ""}`,
-        undefined,
-        undefined,
+      void readRoute(
+        workspaceApi.socialSearch,
+        {
+          query: {
+            q: query,
+            feed: chosenFeed || undefined,
+            unread: unreadOnly ? "1" : undefined,
+          },
+        },
+        "",
         controller.signal,
       )
         .then(({ stories }) => {
@@ -1219,10 +1248,10 @@ export function Social({
   async function removeOwn(feed: FeedEntry) {
     setBusy(feed.id);
     try {
-      const { own } = await api<{ own: FeedEntry[] }>(
-        `/social/sources/${feed.id}`,
-        undefined,
-        "DELETE",
+      const { own } = await callRoute(
+        workspaceApi.socialSourceDelete,
+        { params: { id: feed.id } },
+        "",
       );
       setView((old) => old && { ...old, own });
       void load();
@@ -1236,10 +1265,10 @@ export function Social({
     const adding = !view?.added.includes(feed.id);
     setBusy(feed.id);
     try {
-      const { added } = await api<{ added: string[] }>(
-        `/social/feeds/${feed.id}`,
-        undefined,
-        adding ? "PUT" : "DELETE",
+      const { added } = await callRoute(
+        adding ? workspaceApi.socialFeedAdd : workspaceApi.socialFeedDelete,
+        { params: { id: feed.id } },
+        "",
       );
       if (adding && !view?.added.length && !view?.own.length) setPicking(true);
       setView((old) => old && { ...old, added });
@@ -1643,9 +1672,11 @@ export function Social({
                           // Through Loop, not from the publisher: the page's own
                           // policy allows no third-party images, and a feed's
                           // picture should not tell its site who is reading.
-                          src={`/api/social/image?story=${encodeURIComponent(
-                            story.id,
-                          )}`}
+                          src={routeUrl(
+                            workspaceApi.socialImage,
+                            { query: { story: story.id } },
+                            "",
+                          )}
                           alt=""
                           loading="lazy"
                           decoding="async"

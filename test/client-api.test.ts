@@ -92,16 +92,30 @@ it("keeps Social on the paired app while an agent source owns its conversations"
     .fn()
     .mockImplementation((path: string) =>
       Promise.resolve(
-        Response.json(path === "/session" ? { csrf: "fixture" } : { ok: true }),
+        Response.json(
+          path === "/session"
+            ? { csrf: "fixture" }
+            : path === "/api/social/unread"
+              ? { unread: 0 }
+              : path === "/api/social/feeds"
+                ? { added: [], own: [] }
+                : path === "/api/social/feeds/hackernews"
+                  ? { added: ["hackernews"] }
+                  : { ok: true },
+        ),
       ),
     );
   vi.stubGlobal("fetch", fetcher);
-  await api("/social");
-  await api("/social/feeds");
-  await api("/social/feeds/hackernews", undefined, "PUT");
+  await callRoute(workspaceApi.socialUnread, {}, `docker:${id}`);
+  await callRoute(workspaceApi.socialFeeds, {}, `docker:${id}`);
+  await callRoute(
+    workspaceApi.socialFeedAdd,
+    { params: { id: "hackernews" } },
+    `docker:${id}`,
+  );
   await api("/workflows");
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
-    "/api/social",
+    "/api/social/unread",
     "/api/social/feeds",
     "/session",
     "/api/social/feeds/hackernews",

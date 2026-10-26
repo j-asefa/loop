@@ -1,9 +1,8 @@
-import { readInWorkspace } from "./api";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { callRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";
@@ -76,8 +75,8 @@ export function MyProfile({
     const load = async () => {
       const current = ++ticket;
       try {
-        const result = await readInWorkspace<{ unread: number }>(
-          "/social/unread",
+        const result = await readRoute(
+          workspaceApi.socialUnread, {},
           "",
           controller.signal,
         );

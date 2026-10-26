@@ -1,6 +1,6 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
-import { z } from "zod";
 import { db, now, emit } from "./db.js";
 import { Problem } from "./domain.js";
 
@@ -1040,10 +1040,10 @@ export async function socialStories(
 
 const routes = registrar("news");
 export const news = routes.mount;
-routes.legacy("GET /social/unread", (_req, res) => {
+routes.on(workspaceApi.socialUnread, (_req, res) => {
   res.json({ unread: unreadCount(res.locals.owner) });
 });
-routes.legacy("GET /social", async (req, res) => {
+routes.on(workspaceApi.socialList, async (req, res) => {
   res.json(
     await socialStories(res.locals.owner, Date.now(), {
       force: req.query.refresh === "1",
@@ -1056,11 +1056,11 @@ routes.legacy("GET /social", async (req, res) => {
     }),
   );
 });
-routes.legacy("GET /social/search", (req, res) => {
+routes.on(workspaceApi.socialSearch, (req, res) => {
   res.json(
     searchStories(res.locals.owner, {
-      q: z.string().max(200).default("").parse(req.query.q),
-      feed: z.string().max(120).optional().parse(req.query.feed),
+      q: req.query.q,
+      feed: req.query.feed,
       unread: req.query.unread === "1",
     }),
   );
@@ -1071,11 +1071,8 @@ routes.legacy("GET /social/search", (req, res) => {
  * publisher never sees who is reading. Only the address stored on a story of
  * a feed this owner follows is ever fetched.
  */
-routes.legacy("GET /social/image", async (req, res) => {
-  const { story } = ownedStory(
-    res.locals.owner,
-    z.string().min(3).max(600).parse(req.query.story),
-  );
+routes.on(workspaceApi.socialImage, async (req, res) => {
+  const { story } = ownedStory(res.locals.owner, req.query.story);
   if (!story.image) throw new Problem(404, "No picture there.");
   const { type, bytes } = await imageBytes(story.image);
   res
@@ -1088,75 +1085,66 @@ routes.legacy("GET /social/image", async (req, res) => {
     })
     .send(Buffer.from(bytes));
 });
-routes.legacy("GET /social/mutes", (_req, res) => {
+routes.on(workspaceApi.socialMutes, (_req, res) => {
   res.json({ mutes: mutes(res.locals.owner) });
 });
-routes.legacy("POST /social/mutes", (req, res) => {
-  const { phrase } = z.object({ phrase: z.string().max(80) }).parse(req.body);
+routes.on(workspaceApi.socialMute, (req, res) => {
+  const { phrase } = req.body;
   res.json({ mutes: muteWords(res.locals.owner, phrase) });
 });
-routes.legacy("DELETE /social/mutes", (req, res) => {
-  const { phrase } = z.object({ phrase: z.string().max(80) }).parse(req.body);
+routes.on(workspaceApi.socialUnmute, (req, res) => {
+  const { phrase } = req.body;
   res.json({ mutes: unmuteWords(res.locals.owner, phrase) });
 });
-const storyIds = z.object({
-  stories: z.array(z.string().min(3).max(600)).max(200),
-});
-routes.legacy("POST /social/read", (req, res) => {
-  const { stories } = storyIds.parse(req.body);
+routes.on(workspaceApi.socialRead, (req, res) => {
+  const { stories } = req.body;
   res.json({ unread: markRead(res.locals.owner, stories, true) });
 });
-routes.legacy("DELETE /social/read", (req, res) => {
-  const { stories } = storyIds.parse(req.body);
+routes.on(workspaceApi.socialUnreadSet, (req, res) => {
+  const { stories } = req.body;
   res.json({ unread: markRead(res.locals.owner, stories, false) });
 });
-routes.legacy("POST /social/dismiss", (req, res) => {
-  const { stories } = storyIds.parse(req.body);
+routes.on(workspaceApi.socialDismiss, (req, res) => {
+  const { stories } = req.body;
   res.json({ unread: dismissStories(res.locals.owner, stories, true) });
 });
-routes.legacy("DELETE /social/dismiss", (req, res) => {
-  const { stories } = storyIds.parse(req.body);
+routes.on(workspaceApi.socialRestore, (req, res) => {
+  const { stories } = req.body;
   res.json({ unread: dismissStories(res.locals.owner, stories, false) });
 });
-routes.legacy("GET /social/preferences", (_req, res) => {
+routes.on(workspaceApi.socialPreferences, (_req, res) => {
   res.json(feedPreferences(res.locals.owner));
 });
-routes.legacy("PUT /social/preferences", (req, res) => {
-  const change = z
-    .object({
-      agent_access: z.boolean().optional(),
-      images: z.boolean().optional(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.socialPreferencesUpdate, (req, res) => {
+  const change = req.body;
   res.json(setFeedPreferences(res.locals.owner, change));
 });
-routes.legacy("POST /social/read-all", (req, res) => {
-  const feed = z.string().max(120).optional().parse(req.body?.feed);
+routes.on(workspaceApi.socialReadAll, (req, res) => {
+  const feed = req.body?.feed;
   res.json({ unread: markAllRead(res.locals.owner, feed) });
 });
-routes.legacy("GET /social/feeds", (_req, res) => {
+routes.on(workspaceApi.socialFeeds, (_req, res) => {
   res.json({
     added: addedFeeds(res.locals.owner),
     own: ownSources(res.locals.owner),
   });
 });
 // Feeds an owner adds by address, rather than from the catalog.
-routes.legacy("POST /social/sources/discover", async (req, res) => {
+routes.on(workspaceApi.socialSourceDiscover, async (req, res) => {
   res.json(await discover(req.body));
 });
-routes.legacy("PUT /social/sources", async (req, res) => {
+routes.on(workspaceApi.socialSourceAdd, async (req, res) => {
   res.status(201).json(await addSource(res.locals.owner, req.body));
 });
-routes.legacy("DELETE /social/sources/:id", (req, res) => {
+routes.on(workspaceApi.socialSourceDelete, (req, res) => {
   removeSource(res.locals.owner, req.params.id);
   res.json({ own: ownSources(res.locals.owner) });
 });
-routes.legacy("POST /social/opml", (req, res) => {
-  const document =
-    typeof req.body === "string" ? req.body : String(req.body?.opml ?? "");
+routes.on(workspaceApi.socialOpmlImport, (req, res) => {
+  const document = String(req.body?.opml ?? "");
   res.json(importOpml(res.locals.owner, document));
 });
-routes.legacy("GET /social/opml", (_req, res) => {
+routes.on(workspaceApi.socialOpmlExport, (_req, res) => {
   res
     .type("application/xml")
     .set("content-disposition", 'attachment; filename="loop-feeds.opml"')
@@ -1167,14 +1155,14 @@ routes.legacy("GET /social/opml", (_req, res) => {
       ),
     );
 });
-routes.legacy("PUT /social/feeds/:id", (req, res) => {
+routes.on(workspaceApi.socialFeedAdd, (req, res) => {
   const feed = catalogFeed(req.params.id);
   db.prepare(
     "INSERT OR IGNORE INTO feed_subscriptions(owner_id, feed_id, created_at) VALUES(?,?,?)",
   ).run(res.locals.owner, feed.id, now());
   res.json({ added: addedFeeds(res.locals.owner) });
 });
-routes.legacy("DELETE /social/feeds/:id", (req, res) => {
+routes.on(workspaceApi.socialFeedDelete, (req, res) => {
   const feed = catalogFeed(req.params.id);
   db.prepare(
     "DELETE FROM feed_subscriptions WHERE owner_id=? AND feed_id=?",

@@ -5,6 +5,7 @@ import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
 import * as teams from "./team-contract-schemas.js";
+import * as social from "./social-contract-schemas.js";
 import { PublicMailThreads, PublicMailResume } from "./agent-mail.js";
 import * as companion from "./companion-contract-schemas.js";
 import { ProviderSchema as Provider } from "./provider-schema.js";
@@ -153,6 +154,37 @@ export type RouteContract = {
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  socialUnread: endpoint({ ...base, method: "GET", path: "/social/unread", response: z.object({ unread: z.number() }) }),
+  socialList: endpoint({ ...base, method: "GET", path: "/social", query: social.SocialQuery, response: social.PublicSocial }),
+  socialSearch: endpoint({ ...base, method: "GET", path: "/social/search", query: social.SocialSearchQuery, response: z.object({ stories: z.array(social.PublicSocialStory) }) }),
+  socialImage: endpoint({ ...base, method: "GET", path: "/social/image", query: z.object({ story: Text.min(3).max(600) }), kind: "stream", response: z.custom<Blob>() }),
+  socialMutes: endpoint({ ...base, method: "GET", path: "/social/mutes", response: z.object({ mutes: z.array(Text) }) }),
+  socialMute: endpoint({ ...base, method: "POST", path: "/social/mutes", body: social.MuteInput, response: z.object({ mutes: z.array(Text) }) }),
+  socialUnmute: endpoint({ ...base, method: "DELETE", path: "/social/mutes", body: social.MuteInput, response: z.object({ mutes: z.array(Text) }) }),
+  socialRead: endpoint({ ...base, method: "POST", path: "/social/read", body: social.StoryIds, response: z.object({ unread: z.number() }) }),
+  socialUnreadSet: endpoint({ ...base, method: "DELETE", path: "/social/read", body: social.StoryIds, response: z.object({ unread: z.number() }) }),
+  socialDismiss: endpoint({ ...base, method: "POST", path: "/social/dismiss", body: social.StoryIds, response: z.object({ unread: z.number() }) }),
+  socialRestore: endpoint({ ...base, method: "DELETE", path: "/social/dismiss", body: social.StoryIds, response: z.object({ unread: z.number() }) }),
+  socialPreferences: endpoint({ ...base, method: "GET", path: "/social/preferences", response: social.PublicPreferences }),
+  socialPreferencesUpdate: endpoint({ ...base, method: "PUT", path: "/social/preferences", body: social.PreferenceInput, response: social.PublicPreferences }),
+  socialReadAll: endpoint({ ...base, method: "POST", path: "/social/read-all", body: social.ReadAllInput, response: z.object({ unread: z.number() }) }),
+  socialFeeds: endpoint({ ...base, method: "GET", path: "/social/feeds", response: z.object({ added: z.array(Text), own: z.array(social.PublicFeedEntry) }) }),
+  socialSourceDiscover: endpoint({ ...base, method: "POST", path: "/social/sources/discover", body: social.SourceDiscoveryInput, response: z.object({ candidates: z.array(z.object({ url: Text, title: Text })) }) }),
+  socialSourceAdd: endpoint({ ...base, method: "PUT", path: "/social/sources", body: social.SourceInput, response: social.PublicFeedEntry, status: 201 }),
+  socialSourceDelete: endpoint({ ...base, method: "DELETE", path: "/social/sources/:id", params: Id, body: z.unknown(), response: z.object({ own: z.array(social.PublicFeedEntry) }) }),
+  socialOpmlImport: endpoint({ ...base, method: "POST", path: "/social/opml", body: social.OpmlInput, response: z.object({ added: z.number(), skipped: z.array(z.object({ url: Text, reason: Text })) }) }),
+  socialOpmlExport: endpoint({ ...base, method: "GET", path: "/social/opml", kind: "stream", contentType: "application/xml", response: z.custom<Blob>() }),
+  socialFeedAdd: endpoint({ ...base, method: "PUT", path: "/social/feeds/:id", params: Id, body: z.unknown(), response: z.object({ added: z.array(Text) }) }),
+  socialFeedDelete: endpoint({ ...base, method: "DELETE", path: "/social/feeds/:id", params: Id, body: z.unknown(), response: z.object({ added: z.array(Text) }) }),
+  socialWatches: endpoint({ ...base, method: "GET", path: "/social/watches", response: z.object({ watches: z.array(social.PublicWatch) }) }),
+  socialWatchCreate: endpoint({ ...base, method: "POST", path: "/social/watches", body: social.WatchInput, response: social.PublicWatch, status: 201 }),
+  socialWatchPreview: endpoint({ ...base, method: "POST", path: "/social/watches/preview", body: social.WatchInput, response: social.PublicWatchPreview }),
+  socialWatchUpdate: endpoint({ ...base, method: "PATCH", path: "/social/watches/:id", params: Id, body: social.WatchInput, response: social.PublicWatch }),
+  socialWatchDelete: endpoint({ ...base, method: "DELETE", path: "/social/watches/:id", params: Id, body: z.unknown(), response: z.object({ watches: z.array(social.PublicWatch) }) }),
+  socialDigests: endpoint({ ...base, method: "GET", path: "/social/digests", response: z.object({ digests: z.array(social.PublicDigest) }) }),
+  socialDigestCreate: endpoint({ ...base, method: "POST", path: "/social/digests", body: social.DigestInput, response: social.PublicDigest, status: 201 }),
+  socialDigestUpdate: endpoint({ ...base, method: "PATCH", path: "/social/digests/:id", params: Id, body: social.DigestInput, response: social.PublicDigest }),
+  socialDigestDelete: endpoint({ ...base, method: "DELETE", path: "/social/digests/:id", params: Id, body: z.unknown(), response: z.object({ digests: z.array(social.PublicDigest) }) }),
   teamList: endpoint({ ...base, method: "GET", path: "/teams", response: z.array(PublicTeam) }),
   teamPresets: endpoint({ ...base, method: "GET", path: "/team-presets", response: z.array(teams.PublicTeamPreset) }),
   teamCreate: endpoint({ ...base, method: "POST", path: "/teams", body: teams.TeamCreateInput, response: PublicTeam, status: 201 }),

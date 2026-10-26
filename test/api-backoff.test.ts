@@ -1,4 +1,4 @@
-import { readRoute } from "../src/client/workspace-api";
+import { callRoute, readRoute } from "../src/client/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { apiInWorkspace, readInWorkspace, retryAfter } from "../src/client/api";
@@ -44,7 +44,8 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
   expect(fetcher).toHaveBeenCalledTimes(1);
   await read("docker:two");
   await read();
-  await read("docker:one", "/social/feeds"); // routed locally
+  fetcher.mockResolvedValueOnce(Response.json({ added: [], own: [] }));
+  await callRoute(workspaceApi.socialFeeds, {}, "docker:one"); // routed locally
   expect(fetcher).toHaveBeenCalledTimes(4);
   await vi.advanceTimersByTimeAsync(5000);
   await read("docker:one");
@@ -192,8 +193,8 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
   target.addEventListener("loop-workspace-clock", (event) =>
     received.push((event as CustomEvent).detail),
   );
-  const response = (epoch: string) =>
-    Response.json([], {
+  const response = (epoch: string, body: unknown = []) =>
+    Response.json(body, {
       headers: {
         "x-loop-change-epoch": epoch,
         "x-loop-change-cursor": "19",
@@ -203,7 +204,8 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
     });
   fetcher.mockImplementation(async () => response("epoch"));
   await read("docker:one");
-  await read("docker:one", "/social");
+  fetcher.mockResolvedValueOnce(response("epoch", { unread: 0 }));
+  await callRoute(workspaceApi.socialUnread, {}, "docker:one");
   expect(received.map((value) => value.source)).toEqual(["docker:one", ""]);
   expect(received[0].clock).toEqual({
     epoch: "epoch",

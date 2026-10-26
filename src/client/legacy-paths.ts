@@ -53,26 +53,6 @@ type Path =
   | `/scheduled-sends`
   | `/scheduled-sends/${string}`
   | `/share/preview`
-  | `/social`
-  | `/social/digests`
-  | `/social/digests/${string}`
-  | `/social/dismiss`
-  | `/social/feeds`
-  | `/social/feeds/${string}`
-  | `/social/image`
-  | `/social/mutes`
-  | `/social/opml`
-  | `/social/preferences`
-  | `/social/read`
-  | `/social/read-all`
-  | `/social/search`
-  | `/social/sources`
-  | `/social/sources/${string}`
-  | `/social/sources/discover`
-  | `/social/unread`
-  | `/social/watches`
-  | `/social/watches/${string}`
-  | `/social/watches/preview`
   | `/subscriptions/${string}/native-auth`
   | `/subscriptions/${string}/native-auth/cancel`
   | `/subscriptions/${string}/native-auth/input`

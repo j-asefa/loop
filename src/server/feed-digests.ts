@@ -1,6 +1,7 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
-import { z } from "zod";
+import { DigestInput as digestInput } from "../shared/social-contract-schemas.js";
 import { db, id, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
@@ -30,16 +31,6 @@ export type FeedDigest = {
   last_error: string | null;
   created_at: number;
 };
-
-const digestInput = z.object({
-  agentId: z.string().min(1).max(150),
-  conversationId: z.string().min(1).max(150).nullish(),
-  feeds: z.array(z.string().min(1).max(120)).max(200).nullish(),
-  minuteOfDay: z.number().int().min(0).max(1439),
-  zone: z.string().min(1).max(60),
-  unreadOnly: z.boolean().default(true),
-  enabled: z.boolean().default(true),
-});
 
 /** A zone name Intl knows. Anything else would silently never come due. */
 function validZone(zone: string) {
@@ -239,16 +230,16 @@ export function runDueDigests(at = now()) {
 
 const routes = registrar("feedDigests");
 export const feedDigests = routes.mount;
-routes.legacy("GET /social/digests", (_req, res) => {
+routes.on(workspaceApi.socialDigests, (_req, res) => {
   res.json({ digests: listDigests(res.locals.owner) });
 });
-routes.legacy("POST /social/digests", (req, res) => {
+routes.on(workspaceApi.socialDigestCreate, (req, res) => {
   res.status(201).json(saveDigest(res.locals.owner, req.body));
 });
-routes.legacy("PATCH /social/digests/:id", (req, res) => {
+routes.on(workspaceApi.socialDigestUpdate, (req, res) => {
   res.json(saveDigest(res.locals.owner, req.body, req.params.id));
 });
-routes.legacy("DELETE /social/digests/:id", (req, res) => {
+routes.on(workspaceApi.socialDigestDelete, (req, res) => {
   removeDigest(res.locals.owner, req.params.id);
   res.json({ digests: listDigests(res.locals.owner) });
 });

@@ -1,8 +1,12 @@
+import {
+  SourceInput,
+  SourceDiscoveryInput,
+} from "../shared/social-contract-schemas.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
-import { MAX_URL, download, feedUrl, pageText } from "./feed-fetch.js";
+import { download, feedUrl, pageText } from "./feed-fetch.js";
 import { attribute } from "./syndication.js";
 import { feedById, type FeedEntry } from "../shared/news.js";
 
@@ -92,14 +96,7 @@ const siteOf = (url: URL) => url.hostname.replace(/^(www|feeds|rss)\./, "");
 
 /** Reads a feed once to name it, then keeps it for this owner. */
 export async function addSource(owner: string, body: unknown) {
-  const input = z
-    .object({
-      url: z.string().min(8).max(MAX_URL),
-      title: z.string().max(MAX_TITLE).optional(),
-      category: z.string().max(40).optional(),
-      kind: z.enum(["article", "post", "story", "video", "release"]).optional(),
-    })
-    .parse(body);
+  const input = SourceInput.parse(body);
   const url = feedUrl(input.url);
   const id = sourceId(url);
   if (feedById.has(id)) throw new Problem(409, "That feed is in the catalog.");
@@ -180,9 +177,7 @@ export function removeSource(owner: string, id: string) {
  * One request: the candidates themselves are not read until one is added.
  */
 export async function discover(body: unknown) {
-  const { url: asked } = z
-    .object({ url: z.string().min(8).max(MAX_URL) })
-    .parse(body);
+  const { url: asked } = SourceDiscoveryInput.parse(body);
   const url = feedUrl(asked);
   const entry: FeedEntry = {
     id: sourceId(url),

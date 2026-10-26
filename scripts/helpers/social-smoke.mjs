@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 
@@ -392,6 +393,46 @@ export async function socialSmoke(page, fixture, shot) {
     "The catalog must offer its feeds",
   );
   await shot("social-catalog");
+  // OPML keeps its original XML in the existing JSON envelope. An empty
+  // import exercises the browser receipt without fetching any public feed.
+  const xml = '<opml version="2.0"><body></body></opml>';
+  const importRequests = [];
+  const imported = (request) => {
+    if (
+      new URL(request.url()).pathname === "/api/social/opml" &&
+      request.method() === "POST"
+    )
+      importRequests.push(request.postDataJSON());
+  };
+  page.on("request", imported);
+  try {
+    await catalog.locator('input[type="file"]').setInputFiles({
+      name: "subscriptions.opml",
+      mimeType: "application/xml",
+      buffer: Buffer.from(xml),
+    });
+    await expect(
+      page.getByText("Added 0 feeds.", { exact: true }),
+    ).toBeVisible();
+    assert.deepEqual(
+      importRequests,
+      [{ opml: xml }],
+      "One explicit OPML import, without rewriting XML",
+    );
+    const downloadEvent = page.waitForEvent("download");
+    await catalog.getByRole("link", { name: "Export OPML" }).click();
+    const download = await downloadEvent;
+    assert.equal(download.suggestedFilename(), "loop-feeds.opml");
+    const exported = await readFile(await download.path(), "utf8");
+    assert(
+      exported.includes("<opml") &&
+        exported.includes("https://news.ycombinator.com/rss"),
+      "Export contains the followed production subscription",
+    );
+    await shot("social-opml");
+  } finally {
+    page.off("request", imported);
+  }
   await page.getByRole("button", { name: "Close" }).click();
 
   // Following a word previews against what is stored before creating a watch.
@@ -413,6 +454,67 @@ export async function socialSmoke(page, fixture, shot) {
     ["rust"],
     "Following a word must create a watch",
   );
+  await watches.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(
+    watches.getByRole("button", { name: "Resume", exact: true }),
+  ).toBeVisible();
+  await watches.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(
+    watches.getByRole("button", { name: "Pause", exact: true }),
+  ).toBeVisible();
+  await watches.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(watches.locator(".digest-row")).toHaveCount(0);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  await page.getByRole("button", { name: "Digest", exact: true }).click();
+  const digests = page.getByRole("dialog", { name: "Digest", exact: true });
+  const access = digests.getByRole("checkbox", {
+    name: /Let agents read your feeds/,
+  });
+  await expect(access).not.toBeChecked();
+  await digests
+    .getByRole("combobox", { name: "Agent", exact: true })
+    .selectOption({ index: 1 });
+  await digests.getByLabel("Time", { exact: true }).fill("09:30");
+  await digests
+    .getByRole("button", { name: "Schedule digest", exact: true })
+    .click();
+  await expect(digests.locator(".digest-row")).toHaveCount(1);
+  assert.equal(
+    fixture.db
+      .prepare("SELECT minute_of_day FROM feed_digests WHERE owner_id=?")
+      .get(fixture.owner).minute_of_day,
+    570,
+  );
+  await digests.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(
+    digests.getByRole("button", { name: "Resume", exact: true }),
+  ).toBeVisible();
+  await digests.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(
+    digests.getByRole("button", { name: "Pause", exact: true }),
+  ).toBeVisible();
+  await shot("social-digest");
+  await digests.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(digests.locator(".digest-row")).toHaveCount(0);
+  await access.check();
+  await expect
+    .poll(
+      () =>
+        fixture.db
+          .prepare("SELECT agent_access FROM feed_preferences WHERE owner_id=?")
+          .get(fixture.owner)?.agent_access,
+    )
+    .toBe(1);
+  await access.uncheck();
+  await expect
+    .poll(
+      () =>
+        fixture.db
+          .prepare("SELECT agent_access FROM feed_preferences WHERE owner_id=?")
+          .get(fixture.owner)?.agent_access,
+    )
+    .toBe(0);
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await search.fill("postgres");
   await cards.first().waitFor();
