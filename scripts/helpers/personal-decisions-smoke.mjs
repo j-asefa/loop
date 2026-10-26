@@ -4,16 +4,42 @@ import { expect } from "@playwright/test";
 import { closeSheets } from "./browser-ui.mjs";
 
 export async function personalDecisionsSmoke(page, fixture, engine, capture) {
+  const checkLayout = async (card, width) => {
+    assert(
+      await card.evaluate((node) => {
+        const author = node
+          .querySelector(".identity strong")
+          .getBoundingClientRect();
+        const content = node
+          .querySelector(".card-content")
+          .getBoundingClientRect();
+        const action = node
+          .querySelector(".preview-open")
+          .getBoundingClientRect();
+        return (
+          Math.abs(author.left - content.left) <= 1 &&
+          action.height >= 44 &&
+          node.scrollWidth <= node.clientWidth
+        );
+      }),
+      `History must align with its author and keep a touch-sized action at ${width}px`,
+    );
+  };
   const approval = (await fixture.api("/approvals"))[0];
   await fixture.api(`/approvals/${approval.id}`, { decision: "approve" });
   const run = fixture.db
     .prepare("SELECT * FROM runs WHERE id=?")
     .get(approval.run_id);
   const started = Date.now();
+  const longQuestion =
+    "Which environment should we deploy to while the canary rollout is running? Keep staging available until the review is complete.";
+  const freeTextAnswer =
+    "Keep staging available for review.\nRun the canary in parallel.";
   const seed = (
     index,
     state = "resolved",
     response = { environment: ["Staging", "Canary"], token: null },
+    kind = "answer",
   ) => {
     const id = randomUUID();
     fixture.db
@@ -28,15 +54,29 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
             run.id,
             run.conversation_id,
             id,
-            JSON.stringify({
-              kind: "question",
-              title: `Shipping preferences ${index}`,
-              detail: "A long request " + "x".repeat(10_000),
-              questions: [
-                { id: "environment", title: "Which environment?" },
-                { id: "token", title: "Access token", secret: true },
-              ],
-            }),
+            JSON.stringify(
+              kind === "approval"
+                ? {
+                    kind: "approval",
+                    title: "Publish release notes",
+                    detail:
+                      "Publish the release notes before the canary review is complete.",
+                    choices: ["allow", "deny"],
+                  }
+                : {
+                    kind: "question",
+                    title: `Shipping preferences ${index}`,
+                    detail: "A long request " + "x".repeat(10_000),
+                    questions: [
+                      {
+                        id: "environment",
+                        title:
+                          index === 51 ? longQuestion : "Which environment?",
+                      },
+                      { id: "token", title: "Access token", secret: true },
+                    ],
+                  },
+            ),
             state,
             randomUUID(),
             started + index,
@@ -44,13 +84,14 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
         fixture.db
           .prepare(
             `INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,response_truncated,created_at)
-        VALUES(?,?,?,?,'answer',?,?,?)`,
+        VALUES(?,?,?,?,?,?,?,?)`,
           )
           .run(
             "native:" + id,
             run.owner_id,
             run.id,
             id,
+            kind,
             response && JSON.stringify(response),
             Number(index === 51),
             started + index,
@@ -59,7 +100,16 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
       .immediate();
   };
   for (let i = 0; i < 52; i++)
-    seed(i, i === 50 ? "unknown" : "resolved", i === 49 ? null : undefined);
+    seed(
+      i,
+      i === 50 ? "unknown" : "resolved",
+      i === 49
+        ? null
+        : i === 48
+          ? { environment: [freeTextAnswer], token: null }
+          : undefined,
+    );
+  seed(52, "resolved", { choice: "deny" }, "approval");
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(fixture.base + "/?page=profile&profileTab=approvals");
@@ -70,21 +120,90 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
     await expect(
       history.getByText("Your choice: Approved", { exact: true }),
     ).toBeVisible();
-    await history.getByText("Request details", { exact: true }).click();
-    await expect(history.locator("pre")).toContainText("pullNumber");
+    const approvalCard = history
+      .locator("article")
+      .filter({ hasText: "Your choice: Approved" });
+    const deniedCard = history
+      .locator("article")
+      .filter({ hasText: "Your choice: Deny" });
+    await expect(deniedCard).toContainText("Publish release notes");
+    await expect(
+      deniedCard.locator(".personal-decision-outcome svg"),
+    ).toHaveClass(/lucide-x/);
+    await expect(
+      approvalCard.getByRole("img", { name: / avatar$/ }),
+    ).toBeVisible();
+    await expect(approvalCard.locator("time")).toHaveAttribute("title", /\d/);
+    const approvedColor = await approvalCard
+      .locator(".personal-decision-outcome")
+      .evaluate((node) => getComputedStyle(node).color);
+    await expect(approvalCard.locator("details")).not.toHaveAttribute("open");
+    const summary = approvalCard.locator("summary");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(approvalCard.locator("pre")).toContainText("pullNumber");
+    await page.keyboard.press("Enter");
+    await expect(approvalCard.locator("details")).not.toHaveAttribute("open");
+    await checkLayout(approvalCard, width);
+    await summary.evaluate((node) => node.blur());
+    await history.evaluate((node) => node.scrollIntoView({ block: "start" }));
+    await capture(`personal-approvals-${width}`);
     await page.getByRole("tab", { name: "Answers", exact: true }).click();
     await expect(history.locator("article")).toHaveCount(50);
     const newest = history.locator("article").first();
     await expect(newest).toContainText("Shipping preferences 51");
-    await expect(newest).toContainText("Staging, Canary");
     await expect(newest).toContainText(
       "Long responses are shortened in history.",
     );
     await expect(newest).toContainText("Secret response — not saved");
+    await expect(newest.locator("dt").first()).toContainText(longQuestion);
+    await expect(newest.locator("dd").first()).toContainText("You answered");
+    await expect(newest.locator("dd").first().getByRole("listitem")).toHaveText(
+      ["Staging", "Canary"],
+    );
+    await expect(newest.locator(".personal-decision-outcome")).toHaveText(
+      "Answered",
+    );
+    await expect(newest.locator(".personal-decision-outcome")).toHaveCSS(
+      "color",
+      approvedColor,
+    );
+    await expect(newest.locator("dd").first()).toHaveCSS(
+      "border-left-color",
+      approvedColor,
+    );
+    const unconfirmed = history.locator("article").nth(1);
+    await expect(
+      unconfirmed.locator(".personal-decision-outcome"),
+    ).not.toHaveCSS("color", approvedColor);
+    await expect(unconfirmed.locator("dd").first()).toContainText(
+      "Your response",
+    );
+    await expect(newest.locator("dd").nth(1)).not.toContainText("You answered");
+    const missing = history.locator("article").nth(2).locator("dd").first();
+    await expect(missing).toHaveText("Response not recorded");
+    const freeText = history.locator("article").nth(3).locator("dd").first();
+    await expect(freeText).toContainText("You answered");
+    await expect(freeText.locator("p")).toHaveText(freeTextAnswer);
     await expect(history).toContainText("Delivery was not confirmed");
     await expect(history).toContainText(
       "The response text was not saved for this older request.",
     );
+    await expect(
+      history.locator("article").nth(2).locator("time"),
+    ).toContainText("Requested");
+    await checkLayout(newest, width);
+    await history.evaluate((node) => node.scrollIntoView({ block: "start" }));
+    await capture(`personal-answers-${width}`);
+    if (width === 390) {
+      await page.evaluate(
+        () => (document.documentElement.dataset.theme = "dark"),
+      );
+      await capture("personal-answers-dark");
+      await page.evaluate(
+        () => (document.documentElement.dataset.theme = "light"),
+      );
+    }
     await newest.getByText("Request details", { exact: true }).click();
     await expect(newest).toContainText(
       "Long request details are shortened in history",
@@ -95,7 +214,16 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
       ),
       "History must fit the viewport",
     );
-    await capture(`personal-answers-${width}`);
+    assert(
+      await newest
+        .locator("pre")
+        .evaluate(
+          (node) =>
+            node.scrollWidth <= node.clientWidth &&
+            node.scrollHeight > node.clientHeight,
+        ),
+      "Long request details must wrap and scroll inside their preview",
+    );
     await history
       .getByRole("button", { name: "Load more answers", exact: true })
       .click();

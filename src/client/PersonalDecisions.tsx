@@ -1,13 +1,24 @@
 import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowUpRight,
+  Check,
+  ChevronRight,
+  MessageSquare,
+  X,
+} from "lucide-react";
+import { Avatar } from "./Avatar";
+import {
   useSourceRoute,
   useSourceCapabilities,
   useSourceId,
 } from "./SourceContext";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { viewGeneration } from "./viewCache";
-import type { PersonalDecisionsPage } from "../shared/personal-decisions";
+import type {
+  PersonalDecision,
+  PersonalDecisionsPage,
+} from "../shared/personal-decisions";
 
 const empty: PersonalDecisionsPage = { items: [], next: null };
 const choiceLabel = (choice: string) => {
@@ -15,6 +26,41 @@ const choiceLabel = (choice: string) => {
   if (choice === "reject") return "Denied";
   return choice.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 };
+
+function DecisionOutcome({ item }: { item: PersonalDecision }) {
+  const approved = ["approve", "allow", "accept", "once", "confirm"].includes(
+    item.choice || "",
+  );
+  const denied = ["reject", "deny", "decline", "cancel"].includes(
+    item.choice || "",
+  );
+  const answered = item.kind === "answer" && item.state === "resolved";
+  const Icon = denied ? X : approved || answered ? Check : MessageSquare;
+  return (
+    <span
+      className={
+        "personal-decision-outcome" +
+        (approved
+          ? " approved"
+          : denied
+            ? " denied"
+            : answered
+              ? " answered"
+              : "")
+      }
+    >
+      <Icon size={12} aria-hidden="true" />
+      {item.choice && <span className="sr-only">Your choice: </span>}
+      {item.choice
+        ? choiceLabel(item.choice)
+        : item.state === "deciding"
+          ? "Sending"
+          : answered
+            ? "Answered"
+            : "Response sent"}
+    </span>
+  );
+}
 
 export function PersonalDecisions({
   kind,
@@ -194,89 +240,147 @@ export function PersonalDecisions({
       </p>
       {page.items.map((item) => (
         <article className="feed-card personal-decision" key={item.id}>
-          <div className="personal-decision-meta">
-            <span className="eyebrow">
-              {item.kind === "approval"
-                ? "Approval decision"
-                : item.state === "resolved"
-                  ? "Answered"
-                  : "Response sent"}
-            </span>
-            <time
-              className="field-hint"
-              dateTime={new Date(item.created_at).toISOString()}
-            >
-              {!item.response_recorded && "Requested "}
-              {new Date(item.created_at).toLocaleString()}
-            </time>
+          <div className="card-byline">
+            <div className="identity">
+              <Avatar name={item.agent_name || "Workflow"} />
+              <span>
+                <strong>{item.agent_name || "Workflow"}</strong>
+                <span className="subline">
+                  <time
+                    dateTime={new Date(item.created_at).toISOString()}
+                    title={new Date(item.created_at).toLocaleString()}
+                    aria-label={`${!item.response_recorded ? "Requested " : ""}${new Date(item.created_at).toLocaleString()}`}
+                  >
+                    {!item.response_recorded && "Requested "}
+                    {new Date(item.created_at).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </time>
+                </span>
+              </span>
+            </div>
           </div>
-          <h3>{item.title}</h3>
-          <p className="field-hint">
-            {item.agent_name ? "@" + item.agent_name : "Workflow"}
-            {item.conversation_title && " · " + item.conversation_title}
-          </p>
-          {item.choice && (
-            <p className="personal-decision-choice">
-              Your choice: {choiceLabel(item.choice)}
-            </p>
-          )}
-          {!!item.answers.length && (
-            <dl className="personal-decision-answers">
-              {item.answers.map((answer, index) => (
-                <div key={index}>
-                  <dt>{answer.question}</dt>
-                  <dd>
-                    {answer.secret
-                      ? "Secret response — not saved"
-                      : answer.values === null
-                        ? item.response_truncated && item.response_recorded
-                          ? "Not included in this preview"
-                          : "Response not recorded"
-                        : answer.values.length
-                          ? answer.values.join(", ")
-                          : "No answer provided"}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {item.response_truncated && (
-            <p className="field-hint">
-              Long responses are shortened in history.
-            </p>
-          )}
-          {!item.response_recorded && (
-            <p className="field-hint">
-              The response text was not saved for this older request.
-            </p>
-          )}
-          {item.state !== "resolved" && (
-            <p className="note" role="status">
-              {item.state === "deciding"
-                ? "Sending response…"
-                : "Delivery was not confirmed. Check the conversation for what happened next."}
-            </p>
-          )}
-          {item.detail && (
-            <details>
-              <summary>Request details</summary>
-              <pre>{item.detail}</pre>
-              {item.detail_truncated && (
-                <p className="field-hint">
-                  Long request details are shortened in history. Open the
-                  conversation for the full request when available.
-                </p>
-              )}
-            </details>
-          )}
-          {item.conversation_id && (
-            <button
-              className="text-button"
-              onClick={() => onConversation(item.conversation_id!)}
-            >
-              Open conversation
-            </button>
-          )}
+          <div className="card-content">
+            <div className="personal-decision-meta">
+              <span className="eyebrow">
+                {item.kind === "approval" ? "Approval" : "Answer"}
+              </span>
+              <DecisionOutcome item={item} />
+            </div>
+            <h2>{item.title}</h2>
+            {!!item.answers.length && (
+              <dl className="personal-decision-answers">
+                {item.answers.map((answer, index) => {
+                  const values = answer.secret ? null : answer.values;
+                  const hasAnswer = values !== null && values.length > 0;
+                  return (
+                    <div key={index}>
+                      <dt>
+                        <span className="personal-decision-question-label">
+                          Question
+                        </span>
+                        {answer.question}
+                      </dt>
+                      <dd
+                        className={
+                          hasAnswer
+                            ? "personal-decision-response" +
+                              (item.state === "resolved" ? " answered" : "")
+                            : "personal-decision-unavailable"
+                        }
+                      >
+                        {hasAnswer ? (
+                          <>
+                            <span className="personal-decision-answer-label">
+                              {item.state === "resolved"
+                                ? "You answered"
+                                : "Your response"}
+                            </span>
+                            {values.length === 1 ? (
+                              <p className="personal-decision-answer-value">
+                                {values[0]}
+                              </p>
+                            ) : (
+                              <ul className="personal-decision-answer-values">
+                                {values.map((value, valueIndex) => (
+                                  <li
+                                    className="personal-decision-answer-value"
+                                    key={valueIndex}
+                                  >
+                                    {value}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </>
+                        ) : answer.secret ? (
+                          "Secret response — not saved"
+                        ) : answer.values === null ? (
+                          item.response_truncated && item.response_recorded ? (
+                            "Not included in this preview"
+                          ) : (
+                            "Response not recorded"
+                          )
+                        ) : (
+                          "No answer provided"
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            )}
+            {item.response_truncated && (
+              <p className="field-hint">
+                Long responses are shortened in history.
+              </p>
+            )}
+            {!item.response_recorded && (
+              <p className="field-hint">
+                The response text was not saved for this older request.
+              </p>
+            )}
+            {item.state !== "resolved" && (
+              <p className="note" role="status">
+                {item.state === "deciding"
+                  ? "Sending response…"
+                  : "Delivery was not confirmed. Check the conversation for what happened next."}
+              </p>
+            )}
+            {item.conversation_title && (
+              <p
+                className="personal-decision-context"
+                title={item.conversation_title}
+              >
+                {item.conversation_title}
+              </p>
+            )}
+            {item.detail && (
+              <details className="personal-decision-details">
+                <summary>
+                  <ChevronRight size={14} aria-hidden="true" />
+                  Request details
+                </summary>
+                <pre>{item.detail}</pre>
+                {item.detail_truncated && (
+                  <p className="field-hint">
+                    Long request details are shortened in history. Open the
+                    conversation for the full request when available.
+                  </p>
+                )}
+              </details>
+            )}
+            {item.conversation_id && (
+              <button
+                className="text-button preview-open"
+                onClick={() => onConversation(item.conversation_id!)}
+              >
+                Open conversation <ArrowUpRight size={14} aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </article>
       ))}
       {loading && <p role="status">Loading history…</p>}
