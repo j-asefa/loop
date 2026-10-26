@@ -385,7 +385,12 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   expect(
     nativeBindings({ ...run, agent_id: lead.id }).map((b) => b.tool),
   ).not.toContain("loop_request_review");
-  const request = { teamId: team.id, scope: "branch", base: "main" };
+  const request = {
+    teamId: team.id,
+    scope: "branch",
+    base: "main",
+    wait: true,
+  };
   expect(await invokeNative(run, binding(run), "ask", request)).toEqual({
     pending: "ask",
   });
@@ -444,6 +449,83 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   expect(done.result.isError).toBeUndefined();
   expect(report.report).toBe("Consolidated fixture report");
   expect(report.reviewers).toHaveLength(3);
+  // New default returns promptly and persists one recoverable request.
+  const asyncRun = start(worktree);
+  // Simulate an old pending call persisted before the wait option existed.
+  const legacyArgs = JSON.stringify({ teamId: team.id, scope: "branch", base: "main" });
+  expect(await invokeNative(asyncRun, binding(asyncRun), "async", request)).toEqual({ pending: "async" });
+  const legacyReview = db.prepare("SELECT c.id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=?")
+    .get(asyncRun.id) as { id: string };
+  db.prepare("UPDATE native_calls SET arguments=? WHERE run_id=? AND call_id=?")
+    .run(legacyArgs, asyncRun.id, "async");
+  const accepted = (await invokeNative(asyncRun, binding(asyncRun), "async", {
+    teamId: team.id,
+    scope: "branch",
+    base: "main",
+  })) as any;
+  const receipt = JSON.parse(accepted.result.content[0].text);
+  expect(receipt.reviewId).toBe(legacyReview.id);
+  expect(receipt.state).toBe("queued");
+  const replay = (await invokeNative(asyncRun, binding(asyncRun), "async", {
+    teamId: team.id,
+    scope: "branch",
+    base: "main",
+  })) as any;
+  expect(JSON.parse(replay.result.content[0].text).reviewId).toBe(
+    receipt.reviewId,
+  );
+  expect((db.prepare("SELECT background FROM delegations WHERE parent_run_id=?").get(asyncRun.id) as any).background).toBe(1);
+  // Completing ordinary delegated work must resume the requester even while
+  // the asynchronous review is still queued.
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
+  const ordinary = start(worktree);
+  db.prepare("UPDATE runs SET state='completed',worker_id=NULL WHERE id=?").run(ordinary.id);
+  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,'{}',0)")
+    .run(asyncRun.id, "ordinary", ordinary.id);
+  db.prepare("UPDATE runs SET worker_id=NULL WHERE id=?").run(asyncRun.id);
+  expect(claim("resume-requester", candidate => candidate.id === asyncRun.id)?.id).toBe(asyncRun.id);
+  const later = start(worktree);
+  const statusBinding = nativeBindings(later).find(
+    (b) => b.tool === "loop_review_status",
+  )!;
+  const read = async (r: any, args: Record<string, unknown>) => {
+    const value = (await invokeNative(r, statusBinding, id(), args)) as any;
+    return {
+      error: value.result.isError,
+      body: JSON.parse(value.result.content[0].text),
+    };
+  };
+  expect(
+    (await read(later, {})).body.reviews.some(
+      (r: any) => r.reviewId === receipt.reviewId,
+    ),
+  ).toBe(true);
+  expect((await read(later, { reviewId: receipt.reviewId })).body.state).toBe(
+    "queued",
+  );
+  expect(
+    (
+      await read(
+        { ...later, agent_id: lead.id },
+        { reviewId: receipt.reviewId },
+      )
+    ).error,
+  ).toBe(true);
+  await expect(
+    read({ ...later, owner_id: "bob" }, { reviewId: receipt.reviewId }),
+  ).rejects.toThrow("Item not found");
+  db.prepare(
+    "UPDATE runs SET state='failed',error='Reviewer unavailable' WHERE id=(SELECT run_id FROM code_reviews WHERE id=?)",
+  ).run(receipt.reviewId);
+  db.prepare(
+    "UPDATE runs SET state='cancelled' WHERE id IN (SELECT d.child_run_id FROM delegations d JOIN code_reviews c ON c.run_id=d.parent_run_id WHERE c.id=?)",
+  ).run(receipt.reviewId);
+  const failure = await read(later, { reviewId: receipt.reviewId });
+  expect(failure.error).toBe(true);
+  expect(failure.body.error).toBe("Reviewer unavailable");
+  const recovered = await read(later, { reviewId: review.id });
+  expect(recovered.body.report).toBe("Consolidated fixture report");
+  expect(recovered.body.reviewers).toHaveLength(3);
 
   const stranger = mkdtempSync(join(dir, "stranger-"));
   execFileSync("git", ["init"], { cwd: stranger });
@@ -458,7 +540,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   expect(refused.result.content[0].text).toMatch(/not part of this project/);
 
   const cancelled = start(worktree);
-  await invokeNative(cancelled, binding(cancelled), "ask", request);
+  await invokeNative(cancelled, binding(cancelled), "ask", { ...request, wait: false });
   const response = await fetch(`${url}/runs/${cancelled.id}/cancel`, {
     method: "POST",
     headers: { "x-owner": "alice", "content-type": "application/json" },

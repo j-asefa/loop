@@ -9,7 +9,11 @@ export const reviewReadSchema = z.object({
   version: z.enum(["current", "before"]).default("current"),
   offset: z.number().int().nonnegative().default(0),
 });
+export const reviewStatusSchema = z.object({
+  reviewId: z.string().min(1).max(200).optional(),
+});
 export const requestReviewSchema = z.object({
+  wait: z.boolean().optional(),
   teamId: z.string().min(1).max(200),
   scope: z.enum(["uncommitted", "staged", "branch"]).default("branch"),
   base: z.string().trim().min(1).max(200).default("main"),

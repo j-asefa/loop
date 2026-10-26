@@ -72,7 +72,7 @@ function ensureCodeReview(
   teamId: string,
   value: unknown,
   // Agent-requested reviews capture the requester's own checkout and record
-  // the requesting run as the lead's waiting parent in the same transaction.
+  // the requesting run as the lead's parent in the same transaction.
   requester?: { path: string; runId: string; callId: string },
 ) {
   const d = input.parse(value);
@@ -159,8 +159,8 @@ function ensureCodeReview(
         manager.id,
         reviewId,
       );
-      // The requester waits on the lead like a foreground delegation, so the
-      // queue resumes it and cancelling it cancels the review.
+      // Start with a foreground link; requestReview promotes nonblocking
+      // requests to background before returning. Both retain cancellation.
       if (requester)
         db.prepare(
           "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
@@ -277,6 +277,11 @@ export function requestReview(
       callId,
     },
   );
+  // Async reviews preserve cancellation/provenance without blocking ordinary
+  // delegation resumption or live steering. Also upgrades old pending receipts.
+  if (!args.wait)
+    db.prepare("UPDATE delegations SET background=1 WHERE parent_run_id=? AND call_id=?")
+      .run(run.id, callId + ":review");
   // Waiting calls poll frequently. Keep captured repository contents out of
   // this path: snapshots can be many megabytes and never change while waiting.
   const progress = db
@@ -285,9 +290,32 @@ export function requestReview(
     )
     .get(reviewId, run.owner_id) as { id: string; state: string } | undefined;
   if (!progress) throw new Problem(404, "Review not found");
-  if (ACTIVE.includes(progress.state)) return { pending: callId };
+  if (ACTIVE.includes(progress.state) && args.wait) return { pending: callId };
+  return agentReviewReport(run, reviewId);
+}
+
+function agentReviewReport(
+  run: Run,
+  reviewId: string,
+): { report: object; failed: boolean } {
+  const record = db
+    .prepare(
+      "SELECT c.run_id,r.state FROM code_reviews c JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?",
+    )
+    .get(reviewId, run.owner_id) as
+    { run_id: string; state: string } | undefined;
+  if (!record) throw new Problem(404, "Review not found");
+  if (ACTIVE.includes(record.state))
+    return {
+      failed: false,
+      report: {
+        reviewId,
+        state: record.state,
+        note: "Review is still running. Use loop_review_status with this reviewId later to retrieve the report. Do not submit another review of the same snapshot or busy-wait.",
+      },
+    };
   const status = reviewStatus(run.owner_id, reviewId);
-  const lead = ownedRun(progress.id, run.owner_id);
+  const lead = ownedRun(record.run_id, run.owner_id);
   return {
     failed: status.state !== "completed",
     report: {
@@ -302,6 +330,36 @@ export function requestReview(
       report: (lead.result || "").slice(0, 16000),
       error: lead.error,
       note: "The review covers only the captured snapshot; edits made after capture are not reviewed and no tests were run. Fix confirmed findings and request another review before opening the pull request.",
+    },
+  };
+}
+
+// Durable delegation provenance authorizes recovery across turns, without
+// granting access to another agent's reviews (even for the same owner).
+export function requestedReviewStatus(run: Run, reviewId?: string) {
+  const reviews = db
+    .prepare(
+      `SELECT c.id AS reviewId,r.state,c.fingerprint,c.created_at AS createdAt FROM code_reviews c
+    JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id
+    JOIN delegations d ON d.child_run_id=c.run_id
+    JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=c.owner_id
+    WHERE c.owner_id=? AND p.agent_id=? AND (? IS NULL OR c.id=?)
+    ORDER BY c.created_at DESC,c.id LIMIT 10`,
+    )
+    .all(run.owner_id, run.agent_id, reviewId ?? null, reviewId ?? null) as {
+    reviewId: string;
+    state: string;
+    fingerprint: string;
+    createdAt: number;
+  }[];
+  if (reviewId) {
+    if (!reviews.length) throw new Problem(404, "Requested review not found");
+    return agentReviewReport(run, reviewId);
+  }
+  return {
+    failed: false,
+    report: {
+      reviews,
     },
   };
 }

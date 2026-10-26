@@ -6,6 +6,7 @@ import {
   reviewReadSchema,
   readReview,
   requestReviewSchema,
+  reviewStatusSchema,
 } from "./review-access.js";
 import {
   messageSchema,
@@ -28,7 +29,11 @@ import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { PublishReply } from "../shared/steering-replies.js";
 import { publishReply } from "./steering-replies.js";
 import { applyActivity } from "./activities.js";
-import { requestableReviewTeams, requestReview } from "./code-reviews.js";
+import {
+  requestableReviewTeams,
+  requestReview,
+  requestedReviewStatus,
+} from "./code-reviews.js";
 import {
   MAIL_LIMITS,
   agentDirectory,
@@ -159,6 +164,7 @@ const schemas = {
   loop_message: messageSchema,
   loop_message_status: statusSchema,
   loop_request_review: requestReviewSchema,
+  loop_review_status: reviewStatusSchema,
 };
 export function nativeBindings(
   run: Run,
@@ -196,12 +202,14 @@ export function nativeBindings(
     loop_install_mcp:
       "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
   };
+  descriptions.loop_review_status =
+    "Read the status and consolidated report of reviews requested by this agent, including earlier turns. Pass reviewId, or omit it to recover the ten most recent requests after a timeout. Running is not approval. Check later without busy-waiting; never start a duplicate review just to retrieve its result.";
   const reviewTeams = run.agent_id
     ? requestableReviewTeams(run.owner_id, run.agent_id)
     : [];
   if (reviewTeams.length)
     descriptions.loop_request_review =
-      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. This call waits for the consolidated report, which can take several minutes. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
+      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. By default this call returns a reviewId immediately; use loop_review_status later to retrieve the consolidated report. Optional wait:true blocks until completion and may exceed your harness timeout; recover with loop_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
       JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
     const workers = db
@@ -493,10 +501,16 @@ export async function invokeNative(
           ? "Message was not sent: "
           : "Status unavailable: ") + error.message;
     }
-  } else if (binding.tool === "loop_request_review") {
+  } else if (
+    binding.tool === "loop_request_review" ||
+    binding.tool === "loop_review_status"
+  ) {
     let outcome: ReturnType<typeof requestReview>;
     try {
-      outcome = requestReview(run, callId, requestReviewSchema.parse(args));
+      outcome =
+        binding.tool === "loop_review_status"
+          ? requestedReviewStatus(run, reviewStatusSchema.parse(args).reviewId)
+          : requestReview(run, callId, requestReviewSchema.parse(args));
     } catch (error) {
       // Refusals (team, repository, capture) go back to the agent.
       if (
@@ -506,7 +520,12 @@ export async function invokeNative(
         throw error;
       outcome = {
         failed: true,
-        report: { error: "Review was not started: " + error.message },
+        report: {
+          error:
+            (binding.tool === "loop_review_status"
+              ? "Review status unavailable: "
+              : "Review was not started: ") + error.message,
+        },
       };
     }
     if ("pending" in outcome) return outcome;

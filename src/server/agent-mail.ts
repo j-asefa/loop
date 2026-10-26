@@ -1287,12 +1287,14 @@ function attempt(key: string, time: number, work: () => void) {
 
 /** Worker pass: deliver background delegation results, requeue stranded steering. */
 export function sweepAgentMail(time = now()) {
+  // Snapshot reviews are retrieved through loop_review_status, not team mail.
   const finished = db
     .prepare(
       `SELECT p.owner_id,d.parent_run_id,d.child_run_id,c.state FROM delegations d
        JOIN runs c ON c.id=d.child_run_id JOIN runs p ON p.id=d.parent_run_id
        JOIN teams t ON t.id=json_extract(p.payload,'$.teamId') AND t.owner_id=p.owner_id AND t.deleted_at IS NULL
        WHERE d.background=1 AND c.state IN ${FINISHED}
+         AND json_extract(c.payload,'$.reviewId') IS NULL
          AND p.state<>'cancelled'
          AND NOT EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=p.owner_id AND m.idempotency_key='result:'||d.child_run_id||':'||c.state)
        ORDER BY c.updated_at LIMIT 200`,
