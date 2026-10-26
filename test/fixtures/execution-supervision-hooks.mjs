@@ -13,7 +13,12 @@ if (dir && !process.argv[1]?.endsWith("/execution-worker.js")) {
       unlinkSync(fail);
       writeFileSync(join(dir, "fork-failed"), "EAGAIN");
       const child = new childProcess.ChildProcess();
-      queueMicrotask(() => child.emit("error", Object.assign(new Error("fixture fork EAGAIN"), { code: "EAGAIN" })));
+      queueMicrotask(() =>
+        child.emit(
+          "error",
+          Object.assign(new Error("fixture fork EAGAIN"), { code: "EAGAIN" }),
+        ),
+      );
       return child; // A failed spawn emits error without exit.
     }
     return fork.apply(this, args);
@@ -25,19 +30,30 @@ if (dir && process.argv[1]?.endsWith("/execution-worker.js")) {
   let held = 0;
   process.on = function (event, callback) {
     if (event !== "message") return on.call(this, event, callback);
-    return on.call(this, event, message => {
+    return on.call(this, event, (message) => {
       const later = (path, done) => {
         const deadline = Date.now() + 20_000;
         const timer = setInterval(() => {
           if (existsSync(path) && Date.now() < deadline) return;
-          clearInterval(timer); done();
+          clearInterval(timer);
+          done();
         }, 10);
       };
-      if (message.type === "lifecycle" && message.action === "schedule" && existsSync(join(dir, "fail-schedule"))) {
+      if (
+        message.type === "lifecycle" &&
+        message.action === "schedule" &&
+        existsSync(join(dir, "fail-schedule"))
+      ) {
         unlinkSync(join(dir, "fail-schedule"));
         writeFileSync(join(dir, "schedule-held"), String(process.pid));
         later(join(dir, "hold-schedule"), () => {
-          if (process.connected) process.send({ type: "ack", requestId: message.requestId, generation: message.generation, ok: false });
+          if (process.connected)
+            process.send({
+              type: "ack",
+              requestId: message.requestId,
+              generation: message.generation,
+              ok: false,
+            });
         });
         return;
       }
@@ -49,7 +65,11 @@ if (dir && process.argv[1]?.endsWith("/execution-worker.js")) {
           return;
         }
       }
-      if (message.type === "request" && message.request.method === "runtime.status" && existsSync(join(dir, "hold-requests"))) {
+      if (
+        message.type === "request" &&
+        message.request.method === "runtime.status" &&
+        existsSync(join(dir, "hold-requests"))
+      ) {
         writeFileSync(join(dir, "held-requests"), String(++held));
         later(join(dir, "hold-requests"), () => callback(message));
         return;

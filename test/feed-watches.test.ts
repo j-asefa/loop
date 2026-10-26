@@ -278,11 +278,20 @@ it("preserves explicit feed scope when pausing and resuming a watch", async () =
   await call("/social/feeds/hackernews", "PUT", undefined, owner);
   const watch = saveWatch(owner, { query: "rust", feeds: ["hackernews"] });
   for (const enabled of [false, true]) {
-    const result = await call(`/social/watches/${watch.id}`, "PATCH", { query: "rust", enabled }, owner);
+    const result = await call(
+      `/social/watches/${watch.id}`,
+      "PATCH",
+      { query: "rust", enabled },
+      owner,
+    );
     expect(result.status).toBe(200);
-    expect(JSON.parse(saveWatch(owner, { query: "rust", enabled }, watch.id).feeds!)).toEqual(["hackernews"]);
+    expect(
+      JSON.parse(saveWatch(owner, { query: "rust", enabled }, watch.id).feeds!),
+    ).toEqual(["hackernews"]);
   }
-  expect(saveWatch(owner, { query: "rust", feeds: null }, watch.id).feeds).toBeNull();
+  expect(
+    saveWatch(owner, { query: "rust", feeds: null }, watch.id).feeds,
+  ).toBeNull();
 });
 
 it("previews matching stories behind fifty newer nonmatches", async () => {
@@ -290,9 +299,18 @@ it("previews matching stories behind fifty newer nonmatches", async () => {
   let payload = feedWith(["Kubernetes storage"]);
   restore = withNewsFixture(async () => new Response(payload));
   await call("/social/feeds/hackernews", "PUT", undefined, owner);
-  await socialStories(owner, Date.now(), {wait:true});
-  payload = feedWith(Array.from({length:50}, (_,i) => `New unrelated headline ${i}`));
-  await socialStories(owner, Date.now()+60000, {force:true,wait:true});
-  const result = await call("/social/watches/preview", "POST", {query:"kubernetes"}, owner);
-  expect(result.data.stories.map((story: any) => story.title)).toContain("Kubernetes storage");
+  await socialStories(owner, Date.now(), { wait: true });
+  payload = feedWith(
+    Array.from({ length: 50 }, (_, i) => `New unrelated headline ${i}`),
+  );
+  await socialStories(owner, Date.now() + 60000, { force: true, wait: true });
+  const result = await call(
+    "/social/watches/preview",
+    "POST",
+    { query: "kubernetes" },
+    owner,
+  );
+  expect(result.data.stories.map((story: any) => story.title)).toContain(
+    "Kubernetes storage",
+  );
 });

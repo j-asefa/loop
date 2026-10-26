@@ -41,7 +41,16 @@ afterAll(async () => {
   }
 });
 
-const filters = ["all", "done", "needs", "working", "queued", "later", "outcomes", "unfinished"];
+const filters = [
+  "all",
+  "done",
+  "needs",
+  "working",
+  "queued",
+  "later",
+  "outcomes",
+  "unfinished",
+];
 const scopes: Record<string, string> = {
   none: "",
   folder: "&folder=proj",
@@ -54,12 +63,10 @@ const feedPath = "/api/feed";
 const resultsPath = "/api/results";
 const cases: [string, string][] = [
   ...filters.flatMap((filter) =>
-    Object.entries(scopes).map(
-      ([scope, query]): [string, string] => [
-        `feed-${filter}-${scope}`,
-        `${feedPath}?filter=${filter}${filter === "done" ? "&expand=results" : ""}${query}`,
-      ],
-    ),
+    Object.entries(scopes).map(([scope, query]): [string, string] => [
+      `feed-${filter}-${scope}`,
+      `${feedPath}?filter=${filter}${filter === "done" ? "&expand=results" : ""}${query}`,
+    ]),
   ),
   ["feed-away", `${feedPath}/away?since=0`],
   ["results-all", `${resultsPath}?view=all`],

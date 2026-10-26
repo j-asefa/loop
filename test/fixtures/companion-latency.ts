@@ -9,8 +9,11 @@ gitProject(project);
 const { WorkspaceHost } = await import("../../src/workspace-host.js");
 const { db } = await import("../../src/server/db.js");
 const options = {
-  harness: "codex" as const, version: "fixture", project,
-  executable: resolve("test/harness.mjs"), billing: "existing" as const,
+  harness: "codex" as const,
+  version: "fixture",
+  project,
+  executable: resolve("test/harness.mjs"),
+  billing: "existing" as const,
 };
 const host = new WorkspaceHost(directory, options);
 await host.start(options);

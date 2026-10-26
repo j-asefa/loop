@@ -270,26 +270,67 @@ it("stops a digest whose agent is gone, and reports anything else", async () => 
     unreadOnly: false,
   });
   db.prepare("DELETE FROM agents WHERE id=?").run(agent);
-  const before = (db.prepare("SELECT last_event_id n FROM change_watermark WHERE owner_id='zoe'").get() as { n: number }).n;
+  const before = (
+    db
+      .prepare(
+        "SELECT last_event_id n FROM change_watermark WHERE owner_id='zoe'",
+      )
+      .get() as { n: number }
+  ).n;
   runDueDigests(Date.now());
   const after = db
     .prepare("SELECT * FROM feed_digests WHERE id=?")
     .get(digest.id) as any;
   expect(after.enabled).toBe(0);
   expect(after.last_error).toBeTruthy();
-  expect(db.prepare("SELECT type,subject_kind,subject_id FROM events WHERE owner_id='zoe' AND id>?").all(before))
-    .toEqual([{ type: "invalidate", subject_kind: "collection", subject_id: "social" }]);
+  expect(
+    db
+      .prepare(
+        "SELECT type,subject_kind,subject_id FROM events WHERE owner_id='zoe' AND id>?",
+      )
+      .all(before),
+  ).toEqual([
+    { type: "invalidate", subject_kind: "collection", subject_id: "social" },
+  ]);
 });
 
 it("signals actual digest-worker success and empty results without duplicate status events", async () => {
   const owner = "digest-signals";
   const agent = await workspace(owner);
   db.prepare("UPDATE feed_digests SET enabled=0").run();
-  const digest = saveDigest(owner, { agentId: agent, minuteOfDay: 0, zone: "UTC", unreadOnly: false });
-  const tip = () => (db.prepare("SELECT last_event_id n FROM change_watermark WHERE owner_id=?").get(owner) as { n: number }).n;
-  const signals = (after: number) => (db.prepare("SELECT type,payload FROM events WHERE owner_id=? AND id>? AND subject_kind='collection' AND subject_id='social'")
-    .all(owner, after) as { type: string; payload: string }[]).map(row => parseEmission(null, row.type, JSON.parse(row.payload), { kind: "collection", id: "social" }))
-    .filter(event => event.type === "invalidate" && eventScopes(event).some(scope => scope.id === "social"));
+  const digest = saveDigest(owner, {
+    agentId: agent,
+    minuteOfDay: 0,
+    zone: "UTC",
+    unreadOnly: false,
+  });
+  const tip = () =>
+    (
+      db
+        .prepare(
+          "SELECT last_event_id n FROM change_watermark WHERE owner_id=?",
+        )
+        .get(owner) as { n: number }
+    ).n;
+  const signals = (after: number) =>
+    (
+      db
+        .prepare(
+          "SELECT type,payload FROM events WHERE owner_id=? AND id>? AND subject_kind='collection' AND subject_id='social'",
+        )
+        .all(owner, after) as { type: string; payload: string }[]
+    )
+      .map((row) =>
+        parseEmission(null, row.type, JSON.parse(row.payload), {
+          kind: "collection",
+          id: "social",
+        }),
+      )
+      .filter(
+        (event) =>
+          event.type === "invalidate" &&
+          eventScopes(event).some((scope) => scope.id === "social"),
+      );
   const at = Date.now();
   let before = tip();
   expect(runDueDigests(at)).toBe(1);
@@ -299,7 +340,11 @@ it("signals actual digest-worker success and empty results without duplicate sta
   expect(tip()).toBe(before);
   expect(runDueDigests(at + 86400_000)).toBe(0); // Nothing new still updates last_run_at.
   expect(signals(before)).toHaveLength(1);
-  expect(db.prepare("SELECT last_run_at,last_error FROM feed_digests WHERE id=?").get(digest.id)).toEqual({ last_run_at: at + 86400_000, last_error: null });
+  expect(
+    db
+      .prepare("SELECT last_run_at,last_error FROM feed_digests WHERE id=?")
+      .get(digest.id),
+  ).toEqual({ last_run_at: at + 86400_000, last_error: null });
 });
 
 it("will not schedule a digest for someone else's agent or feed", async () => {
@@ -357,18 +402,40 @@ it("manages digests over its own routes", async () => {
   ).toEqual([]);
 });
 
-
 it("keeps a selected-feed digest enabled after a feed is unfollowed", async () => {
   const owner = "unfollow-digest";
   const agent = await workspace(owner);
   db.prepare("UPDATE feed_digests SET enabled=0").run();
-  const digest = saveDigest(owner, { agentId: agent, feeds: ["hackernews"], minuteOfDay: 0, zone: "UTC", unreadOnly: false });
+  const digest = saveDigest(owner, {
+    agentId: agent,
+    feeds: ["hackernews"],
+    minuteOfDay: 0,
+    zone: "UTC",
+    unreadOnly: false,
+  });
   await call("/social/feeds/hackernews", "DELETE", undefined, owner);
   expect(digestPrompt(digest, Date.now())).toBeNull();
-  const edit = { agentId: agent, feeds: ["hackernews"], minuteOfDay: 30, zone: "UTC", enabled: false };
-  const paused = await call(`/social/digests/${digest.id}`, "PATCH", edit, owner);
+  const edit = {
+    agentId: agent,
+    feeds: ["hackernews"],
+    minuteOfDay: 30,
+    zone: "UTC",
+    enabled: false,
+  };
+  const paused = await call(
+    `/social/digests/${digest.id}`,
+    "PATCH",
+    edit,
+    owner,
+  );
   expect(paused.status).toBe(200);
-  expect(saveDigest(owner, { ...edit, enabled: true }, digest.id).feeds).toBe('["hackernews"]');
+  expect(saveDigest(owner, { ...edit, enabled: true }, digest.id).feeds).toBe(
+    '["hackernews"]',
+  );
   runDueDigests(Date.now());
-  expect(db.prepare("SELECT enabled,last_error FROM feed_digests WHERE id=?").get(digest.id)).toEqual({ enabled: 1, last_error: null });
+  expect(
+    db
+      .prepare("SELECT enabled,last_error FROM feed_digests WHERE id=?")
+      .get(digest.id),
+  ).toEqual({ enabled: 1, last_error: null });
 });

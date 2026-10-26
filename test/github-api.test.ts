@@ -15,7 +15,8 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { Agent, setGlobalDispatcher } = await import("undici");
 setGlobalDispatcher(new Agent());
 const { db } = await import("../src/server/db");
-const { githubRest, withGithubFixture } = await import("../src/server/github-api");
+const { githubRest, withGithubFixture } =
+  await import("../src/server/github-api");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -25,11 +26,25 @@ it("decodes GitHub's gzipped HTTP/2 responses with the production fetch", async 
   // GitHub answers over HTTP/2 and compresses larger responses, such as a
   // pull request's files. Node's built-in fetch on undici's dispatcher loses
   // the encoding there; this local server does the same over TLS.
-  execFileSync("openssl", [
-    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-    "-subj", "/CN=127.0.0.1",
-    "-keyout", join(dir, "key.pem"), "-out", join(dir, "cert.pem"),
-  ], { stdio: "ignore" });
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "1",
+      "-subj",
+      "/CN=127.0.0.1",
+      "-keyout",
+      join(dir, "key.pem"),
+      "-out",
+      join(dir, "cert.pem"),
+    ],
+    { stdio: "ignore" },
+  );
   const github = createSecureServer({
     key: readFileSync(join(dir, "key.pem")),
     cert: readFileSync(join(dir, "cert.pem")),
@@ -50,7 +65,10 @@ it("decodes GitHub's gzipped HTTP/2 responses with the production fetch", async 
   const verify = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   try {
-    const { data } = await githubRest<any[]>("token", "/repos/acme/api/pulls/42/files");
+    const { data } = await githubRest<any[]>(
+      "token",
+      "/repos/acme/api/pulls/42/files",
+    );
     expect(data).toEqual([{ filename: "src/limit.ts" }]);
   } finally {
     if (verify === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;

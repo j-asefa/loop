@@ -328,7 +328,9 @@ it("retains previous turns across activity pages and ignores overlapping older s
   const oldTurn = item("old", 5);
   const newTurn = item("new", 6);
   const previous = mergeActivities([], { items: [oldTurn] });
-  const merged = mergeActivities(previous, { items: [newTurn, item("old", 3)] });
+  const merged = mergeActivities(previous, {
+    items: [newTurn, item("old", 3)],
+  });
   expect(merged).toEqual([oldTurn, newTurn]);
   expect(previous).toEqual([oldTurn]);
   expect(mergeActivities(merged, { items: [item("old", 7)] })).toEqual([
@@ -442,7 +444,13 @@ it("incremental durable broker cards replace legacy cards without merging distin
     run: "r",
     sequence: 0,
     legacy: true,
-    record: reduceActivity(undefined, { v: 1, id: "tool:b", kind: "tool", source: { transport: "api", origin: "trace" }, patch: {} }).record!,
+    record: reduceActivity(undefined, {
+      v: 1,
+      id: "tool:b",
+      kind: "tool",
+      source: { transport: "api", origin: "trace" },
+      patch: {},
+    }).record!,
   };
   const durable = {
     key: "durable",
@@ -451,7 +459,10 @@ it("incremental durable broker cards replace legacy cards without merging distin
     sequence: 2,
     legacy: false,
     record: reduceActivity(undefined, {
-      v: 1, id: "b", kind: "tool", source: { transport: "api", origin: "broker" },
+      v: 1,
+      id: "b",
+      kind: "tool",
+      source: { transport: "api", origin: "broker" },
       patch: { links: { trace: "tool:b" } },
     }).record!,
   };

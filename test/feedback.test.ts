@@ -22,7 +22,8 @@ vi.mock("../src/server/local-embeddings.js", () => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { ownedArtifact,  createAgent, owned, Problem } = await import("../src/server/domain");
+const { ownedArtifact, createAgent, owned, Problem } =
+  await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams, createTeam } = await import("../src/server/teams");
@@ -101,7 +102,9 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
   ).run(c, "feedback", a.id, "Conversation", now());
-  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+  ).run(
     m,
     "feedback",
     c,
@@ -158,16 +161,9 @@ it("loads an older deep-linked message and paginates before its window", async (
     for (let i = 0; i < 160; i++) {
       const m = id();
       messages.push(m);
-      db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
-        m,
-        "feedback",
-        c,
-        null,
-        "assistant",
-        "Message " + i,
-        "{}",
-        now(),
-      );
+      db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(m, "feedback", c, null, "assistant", "Message " + i, "{}", now());
     }
   })();
   const result = (await api("/conversations/" + c + "?message=" + messages[72]))
@@ -560,9 +556,7 @@ it("creates native diagrams without a provider or external MCP call", async () =
   });
   expect("result" in result).toBe(true);
   if ("result" in result)
-    expect(ownedArtifact(result.artifactId, "feedback").kind).toBe(
-      "diagram",
-    );
+    expect(ownedArtifact(result.artifactId, "feedback").kind).toBe("diagram");
   await expect(
     invokeNative(run, binding, "unsafe", {
       title: "Unsafe",

@@ -145,12 +145,28 @@ it("renders GitHub PR results as cards only for the official GitHub connection",
 
 it("accepts only a successful create result for the requested repository", () => {
   const args = { owner: "acme", repo: "api" };
-  const result = { content: [{ type: "text", text: JSON.stringify(restPull) }] };
+  const result = {
+    content: [{ type: "text", text: JSON.stringify(restPull) }],
+  };
   expect(createdPullRequest(result, args)?.number).toBe(42);
-  expect(createdPullRequest({ ...result, isError: true }, args)).toBeUndefined();
-  expect(createdPullRequest(result, { ...args, repo: "other" })).toBeUndefined();
-  expect(createdPullRequest({ content: [{ type: "text", text: restPull.html_url }] }, args)).toBeUndefined();
-  expect(createdPullRequest({ structuredContent: { ...restPull, state: "closed" } }, args)).toBeUndefined();
+  expect(
+    createdPullRequest({ ...result, isError: true }, args),
+  ).toBeUndefined();
+  expect(
+    createdPullRequest(result, { ...args, repo: "other" }),
+  ).toBeUndefined();
+  expect(
+    createdPullRequest(
+      { content: [{ type: "text", text: restPull.html_url }] },
+      args,
+    ),
+  ).toBeUndefined();
+  expect(
+    createdPullRequest(
+      { structuredContent: { ...restPull, state: "closed" } },
+      args,
+    ),
+  ).toBeUndefined();
 });
 
 it("requires a full head SHA for merges", () => {
@@ -229,10 +245,30 @@ const githubFixture = async () => {
   );
   server.registerTool(
     "create_pull_request",
-    { inputSchema: { owner: z.string(), repo: z.string(), title: z.string(), head: z.string(), base: z.string() } },
+    {
+      inputSchema: {
+        owner: z.string(),
+        repo: z.string(),
+        title: z.string(),
+        head: z.string(),
+        base: z.string(),
+      },
+    },
     async (args) => {
       calls.push({ tool: "create_pull_request", args });
-      return { content: [{ type: "text", text: JSON.stringify({ ...restPull, number: 43, title: args.title, html_url: "https://github.com/acme/api/pull/43" }) }] };
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              ...restPull,
+              number: 43,
+              title: args.title,
+              html_url: "https://github.com/acme/api/pull/43",
+            }),
+          },
+        ],
+      };
     },
   );
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -320,70 +356,108 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-it.each(["ask", "allow", "switch-to-allow"])("merges under the %s policy while refusing an unpinned merge", async (policy) => {
-  calls.length = 0;
-  pull = { ...restPull };
-  setMcpApprovalMode("alice", policy === "allow" ? "allow" : "ask");
-  const run = submit("alice", {
-    agentId: agent.id,
-    input: "Squash and merge https://github.com/acme/api/pull/42",
-    idempotencyKey: "github-merge-" + policy,
-  });
-  const approvals = () =>
-    db.prepare("SELECT * FROM approvals WHERE run_id=? ORDER BY created_at,rowid")
-      .all(run.id) as any[];
-  await tick(execute);
-  expect(seenInstructions.at(-1)).toContain(GITHUB_GUIDANCE);
-  expect(seenInstructions.at(-1)).toContain("acme/api#42");
-  if (policy !== "allow") {
-    decide("alice", approvals()[0].id, "approve");
-    await tick(execute);
-    expect(calls.map((c) => c.tool)).toEqual(["pull_request_read"]);
-    expect(approvals()[1].state).toBe("pending");
-    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
-      state: "awaiting_approval",
+it.each(["ask", "allow", "switch-to-allow"])(
+  "merges under the %s policy while refusing an unpinned merge",
+  async (policy) => {
+    calls.length = 0;
+    pull = { ...restPull };
+    setMcpApprovalMode("alice", policy === "allow" ? "allow" : "ask");
+    const run = submit("alice", {
+      agentId: agent.id,
+      input: "Squash and merge https://github.com/acme/api/pull/42",
+      idempotencyKey: "github-merge-" + policy,
     });
-    if (policy === "switch-to-allow")
-      expect(setMcpApprovalMode("alice", "allow").resumed).toBe(1);
-    else decide("alice", approvals()[1].id, "approve");
+    const approvals = () =>
+      db
+        .prepare(
+          "SELECT * FROM approvals WHERE run_id=? ORDER BY created_at,rowid",
+        )
+        .all(run.id) as any[];
     await tick(execute);
-  }
-  const card = db.prepare("SELECT * FROM artifacts WHERE run_id=? AND kind='github_pr'")
-    .get(run.id) as any;
-  expect(JSON.parse(card.content).pulls[0]).toMatchObject({
-    number: 42, headSha: HEAD, state: "open",
-  });
-  // The unpinned merge never created an approval or reached GitHub. Allow
-  // dispatches the pinned merge once, without waiting for a separate decision.
-  expect(approvals()).toHaveLength(2);
-  expect(JSON.parse(approvals()[1].request)).toMatchObject({
-    tool: "merge_pull_request", arguments: { expectedHeadSha: HEAD },
-  });
-  expect(approvals()[1].state).toBe("completed");
-  expect(calls.map((c) => c.tool)).toEqual(["pull_request_read", "merge_pull_request"]);
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
-    state: "completed",
-  });
-  expect(await tick(execute)).toBe(false);
-  expect(calls.filter((c) => c.tool === "merge_pull_request")).toHaveLength(1);
-  const history = JSON.parse((db.prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
-    .get(run.id) as any).history);
-  const unpinned = history.find((m: any) => m.role === "tool" && m.toolCallId === "merge-unpinned");
-  expect(JSON.parse(unpinned.content)).toMatchObject({ isError: true });
-  expect(unpinned.content).toContain("expectedHeadSha");
-});
+    expect(seenInstructions.at(-1)).toContain(GITHUB_GUIDANCE);
+    expect(seenInstructions.at(-1)).toContain("acme/api#42");
+    if (policy !== "allow") {
+      decide("alice", approvals()[0].id, "approve");
+      await tick(execute);
+      expect(calls.map((c) => c.tool)).toEqual(["pull_request_read"]);
+      expect(approvals()[1].state).toBe("pending");
+      expect(
+        db.prepare("SELECT state FROM runs WHERE id=?").get(run.id),
+      ).toEqual({
+        state: "awaiting_approval",
+      });
+      if (policy === "switch-to-allow")
+        expect(setMcpApprovalMode("alice", "allow").resumed).toBe(1);
+      else decide("alice", approvals()[1].id, "approve");
+      await tick(execute);
+    }
+    const card = db
+      .prepare("SELECT * FROM artifacts WHERE run_id=? AND kind='github_pr'")
+      .get(run.id) as any;
+    expect(JSON.parse(card.content).pulls[0]).toMatchObject({
+      number: 42,
+      headSha: HEAD,
+      state: "open",
+    });
+    // The unpinned merge never created an approval or reached GitHub. Allow
+    // dispatches the pinned merge once, without waiting for a separate decision.
+    expect(approvals()).toHaveLength(2);
+    expect(JSON.parse(approvals()[1].request)).toMatchObject({
+      tool: "merge_pull_request",
+      arguments: { expectedHeadSha: HEAD },
+    });
+    expect(approvals()[1].state).toBe("completed");
+    expect(calls.map((c) => c.tool)).toEqual([
+      "pull_request_read",
+      "merge_pull_request",
+    ]);
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual(
+      {
+        state: "completed",
+      },
+    );
+    expect(await tick(execute)).toBe(false);
+    expect(calls.filter((c) => c.tool === "merge_pull_request")).toHaveLength(
+      1,
+    );
+    const history = JSON.parse(
+      (
+        db
+          .prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
+          .get(run.id) as any
+      ).history,
+    );
+    const unpinned = history.find(
+      (m: any) => m.role === "tool" && m.toolCallId === "merge-unpinned",
+    );
+    expect(JSON.parse(unpinned.content)).toMatchObject({ isError: true });
+    expect(unpinned.content).toContain("expectedHeadSha");
+  },
+);
 
 it("does not retry a merge against a changed head even when Allow is selected", async () => {
   calls.length = 0;
   pull = { ...restPull, head: { ...restPull.head, sha: "b".repeat(40) } };
   setMcpApprovalMode("alice", "allow");
-  const run = submit("alice", { agentId: agent.id, input: "Merge the reviewed head", idempotencyKey: "changed-head" });
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "Merge the reviewed head",
+    idempotencyKey: "changed-head",
+  });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   const binding = {
-    name: "merge_pull_request", connectionId: gh, tool: "merge_pull_request",
-    description: "Merge a pull request", inputSchema: {},
+    name: "merge_pull_request",
+    connectionId: gh,
+    tool: "merge_pull_request",
+    description: "Merge a pull request",
+    inputSchema: {},
   };
-  const args = { owner: "acme", repo: "api", pullNumber: 42, expectedHeadSha: HEAD };
+  const args = {
+    owner: "acme",
+    repo: "api",
+    pullNumber: 42,
+    expectedHeadSha: HEAD,
+  };
   const first = await invokeTool(run, binding, "merge-changed", args);
   expect(first).toMatchObject({ result: { isError: true } });
   expect(await invokeTool(run, binding, "merge-changed", args)).toEqual(first);
@@ -393,21 +467,40 @@ it("does not retry a merge against a changed head even when Allow is selected", 
 });
 
 it("starts one watch for a PR created by the official GitHub tool", async () => {
-  const run = submit("alice", { agentId: agent.id, input: "Create a PR", idempotencyKey: "github-create" });
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "Create a PR",
+    idempotencyKey: "github-create",
+  });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   setMcpApprovalMode("alice", "allow");
-  const args = { owner: "acme", repo: "api", title: "New PR", head: "feature", base: "main" };
+  const args = {
+    owner: "acme",
+    repo: "api",
+    title: "New PR",
+    head: "feature",
+    base: "main",
+  };
   const binding = {
-    name: "create_pull_request", connectionId: gh, tool: "create_pull_request",
-    description: "Create a pull request", inputSchema: {},
+    name: "create_pull_request",
+    connectionId: gh,
+    tool: "create_pull_request",
+    description: "Create a pull request",
+    inputSchema: {},
   };
   const first = await invokeTool(run, binding, "create", args);
   expect(first).toHaveProperty("result");
   const second = await invokeTool(run, binding, "create", args);
   expect(second).toEqual(first);
-  const watches = db.prepare("SELECT * FROM pr_watches WHERE owner_id='alice' AND number=43").all() as any[];
+  const watches = db
+    .prepare("SELECT * FROM pr_watches WHERE owner_id='alice' AND number=43")
+    .all() as any[];
   expect(watches).toHaveLength(1);
-  expect(watches[0]).toMatchObject({ conversation_id: run.conversation_id, agent_id: agent.id, state: "watching" });
+  expect(watches[0]).toMatchObject({
+    conversation_id: run.conversation_id,
+    agent_id: agent.id,
+    state: "watching",
+  });
 });
 
 it("refuses unpinned merges at dispatch, but not on other servers", () => {

@@ -7,9 +7,9 @@ import { nativeSessions } from "../../dist/server/native-sessions.js";
 const server = app.listen(0, "127.0.0.1", () => {
   process.send({ port: server.address().port });
 });
-process.on("message", async message => {
+process.on("message", async (message) => {
   if (message !== "close") return;
-  await new Promise(resolve => server.close(resolve));
+  await new Promise((resolve) => server.close(resolve));
   await closeExecution();
   await nativeSessions.close();
   db.close();

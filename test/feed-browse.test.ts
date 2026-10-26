@@ -409,21 +409,62 @@ it("cancels a chunked image as soon as it exceeds the byte budget", async () => 
   expect(cancelled).toBe(true);
 });
 
-
 it("rejects insecure JSON Feed image attachments", () => {
-  const parsed = parseFeed(JSON.stringify({ version: "https://jsonfeed.org/version/1.1", title: "Feed", items: [
-    { id: "one", url: "https://example.com/one", title: "One", attachments: [{ mime_type: "image/png", url: "http://example.com/picture.png" }] },
-    { id: "two", url: "https://example.com/two", title: "Two", attachments: [{ mime_type: "image/png", url: "https://example.com/picture.png" }] },
-  ] }), "https://example.com/feed");
-  expect(parsed.stories.map(story => story.image)).toEqual([null, "https://example.com/picture.png"]);
+  const parsed = parseFeed(
+    JSON.stringify({
+      version: "https://jsonfeed.org/version/1.1",
+      title: "Feed",
+      items: [
+        {
+          id: "one",
+          url: "https://example.com/one",
+          title: "One",
+          attachments: [
+            { mime_type: "image/png", url: "http://example.com/picture.png" },
+          ],
+        },
+        {
+          id: "two",
+          url: "https://example.com/two",
+          title: "Two",
+          attachments: [
+            { mime_type: "image/png", url: "https://example.com/picture.png" },
+          ],
+        },
+      ],
+    }),
+    "https://example.com/feed",
+  );
+  expect(parsed.stories.map((story) => story.image)).toEqual([
+    null,
+    "https://example.com/picture.png",
+  ]);
 });
 
-
 it("counts the same unread article once across followed feeds", async () => {
-  restore = withNewsFixture(async () => new Response(rss([["Shared story", "Summary"]])));
-  expect((await call("/social/feeds/lobsters", "PUT", undefined, "duplicate-reader")).status).toBe(200);
-  expect((await call("/social/feeds/hackernews", "PUT", undefined, "duplicate-reader")).status).toBe(200);
-  const page = await call("/social?unread=1", "GET", undefined, "duplicate-reader");
+  restore = withNewsFixture(
+    async () => new Response(rss([["Shared story", "Summary"]])),
+  );
+  expect(
+    (await call("/social/feeds/lobsters", "PUT", undefined, "duplicate-reader"))
+      .status,
+  ).toBe(200);
+  expect(
+    (
+      await call(
+        "/social/feeds/hackernews",
+        "PUT",
+        undefined,
+        "duplicate-reader",
+      )
+    ).status,
+  ).toBe(200);
+  const page = await call(
+    "/social?unread=1",
+    "GET",
+    undefined,
+    "duplicate-reader",
+  );
   expect(page.data.stories).toHaveLength(1);
   expect(page.data.unread).toBe(1);
 });
