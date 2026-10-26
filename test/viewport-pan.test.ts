@@ -109,7 +109,12 @@ it("rechecks a late Safari viewport restoration, then stops sampling while idle"
     const doc = new EventTarget();
     let height = 494;
     const seen: number[] = [];
-    const stop = watchViewport(win, doc, () => seen.push(height), () => {});
+    const stop = watchViewport(
+      win,
+      doc,
+      () => seen.push(height),
+      () => {},
+    );
     doc.dispatchEvent(new Event("focusout"));
     expect(seen).toEqual([494]);
     vi.advanceTimersByTime(200);
@@ -132,23 +137,43 @@ it("rechecks a late Safari viewport restoration, then stops sampling while idle"
 it("moves the bottom bars down to what you see when Safari's layout viewport ends above it", async () => {
   const { viewportDrop } = await import("../src/client/Pwa");
   // Panned 372px after the keyboard closed: bars move down 372px.
-  expect(viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, false)).toBe(372);
+  expect(
+    viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, false),
+  ).toBe(372);
   // Layout viewport left at the keyboard's height (after an app switch).
-  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 560, false)).toBe(372);
+  expect(
+    viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 560, false),
+  ).toBe(372);
   // Nothing to correct when they line up.
-  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 932, false)).toBe(0);
+  expect(
+    viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 932, false),
+  ).toBe(0);
   // A stale keyboard height after blur leaves the bars where they are.
-  expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 932, false)).toBe(0);
+  expect(
+    viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 932, false),
+  ).toBe(0);
   // The window restored its full height, but both the visual viewport and
   // the actual navigation layer still retain their keyboard measurements.
-  expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 582, false, 0, 932)).toBe(350);
-  expect(viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 582, true, 0, 932)).toBe(0);
-  expect(viewportDrop({ offsetTop: 350, height: 582, scale: 1 }, 932, false, 0, 932)).toBe(0);
+  expect(
+    viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 582, false, 0, 932),
+  ).toBe(350);
+  expect(
+    viewportDrop({ offsetTop: 0, height: 582, scale: 1 }, 582, true, 0, 932),
+  ).toBe(0);
+  expect(
+    viewportDrop({ offsetTop: 350, height: 582, scale: 1 }, 932, false, 0, 932),
+  ).toBe(0);
   // While typing or pinch-zoomed, never.
-  expect(viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, true)).toBe(0);
-  expect(viewportDrop({ offsetTop: 372, height: 466, scale: 2 }, 932, false)).toBe(0);
+  expect(
+    viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, true),
+  ).toBe(0);
+  expect(
+    viewportDrop({ offsetTop: 372, height: 466, scale: 2 }, 932, false),
+  ).toBe(0);
   expect(viewportDrop(undefined, 932, false)).toBe(0);
-  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 0, false)).toBe(0);
+  expect(viewportDrop({ offsetTop: 0, height: 932, scale: 1 }, 0, false)).toBe(
+    0,
+  );
 });
 
 it("walks a panned sheet to the gap its own CSS rule leaves, then stops", async () => {

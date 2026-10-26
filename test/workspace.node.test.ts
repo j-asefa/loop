@@ -110,48 +110,87 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       );
     });
     const bootstrap = await api("/bootstrap");
-    assert(bootstrap.environmentName, "Bootstrap reports the execution computer's name");
-    if (platform() === "linux") assert.equal(bootstrap.environmentName, hostname());
-    const nativeConnection = bootstrap.connections.find((c: any) => c.id === "native-codex");
-    assert.equal(JSON.parse(nativeConnection.metadata).environmentName, bootstrap.environmentName);
-    assert.equal(nativeConnection.label, bootstrap.environmentName + " · Codex");
+    assert(
+      bootstrap.environmentName,
+      "Bootstrap reports the execution computer's name",
+    );
+    if (platform() === "linux")
+      assert.equal(bootstrap.environmentName, hostname());
+    const nativeConnection = bootstrap.connections.find(
+      (c: any) => c.id === "native-codex",
+    );
+    assert.equal(
+      JSON.parse(nativeConnection.metadata).environmentName,
+      bootstrap.environmentName,
+    );
+    assert.equal(
+      nativeConnection.label,
+      bootstrap.environmentName + " · Codex",
+    );
     const a = bootstrap.folders.find((f: any) => f.path === projectA);
     assert(a, "Bootstrap includes the canonical project directory");
-    await t.test("named Docker companion reports the same name across authenticated APIs", async () => {
-      const beforeContainer = process.env.LOOP_COMPANION_CONTAINER;
-      const beforeName = process.env.LOOP_ENVIRONMENT_NAME;
-      try {
-        process.env.LOOP_COMPANION_CONTAINER = "1";
-        process.env.LOOP_ENVIRONMENT_NAME = "research/loop-companion";
-        await nativeSessions.enable(options);
-        const named = await api("/bootstrap");
-        const connection = named.connections.find((c: any) => c.id === nativeConnection.id);
-        assert.equal(named.environmentName, "Docker · research/loop-companion");
-        assert.equal(JSON.parse(connection.metadata).location, "docker");
-        assert.equal(JSON.parse(connection.metadata).environmentName, named.environmentName);
-        assert.equal(connection.label, named.environmentName + " · Codex");
-        assert.equal((await api("/workspace/runtimes")).computer, named.environmentName);
-        process.env.LOOP_ENVIRONMENT_NAME = "development";
-        await nativeSessions.enable(options);
-        const renamed = await api("/bootstrap");
-        assert.equal(renamed.environmentName, "Docker · development");
-        assert.equal(renamed.connections.find((c: any) => c.id === nativeConnection.id).label, "Docker · development · Codex");
-      } finally {
-        if (beforeContainer === undefined) delete process.env.LOOP_COMPANION_CONTAINER;
-        else process.env.LOOP_COMPANION_CONTAINER = beforeContainer;
-        if (beforeName === undefined) delete process.env.LOOP_ENVIRONMENT_NAME;
-        else process.env.LOOP_ENVIRONMENT_NAME = beforeName;
-        await nativeSessions.enable(options);
-      }
-    });
+    await t.test(
+      "named Docker companion reports the same name across authenticated APIs",
+      async () => {
+        const beforeContainer = process.env.LOOP_COMPANION_CONTAINER;
+        const beforeName = process.env.LOOP_ENVIRONMENT_NAME;
+        try {
+          process.env.LOOP_COMPANION_CONTAINER = "1";
+          process.env.LOOP_ENVIRONMENT_NAME = "research/loop-companion";
+          await nativeSessions.enable(options);
+          const named = await api("/bootstrap");
+          const connection = named.connections.find(
+            (c: any) => c.id === nativeConnection.id,
+          );
+          assert.equal(
+            named.environmentName,
+            "Docker · research/loop-companion",
+          );
+          assert.equal(JSON.parse(connection.metadata).location, "docker");
+          assert.equal(
+            JSON.parse(connection.metadata).environmentName,
+            named.environmentName,
+          );
+          assert.equal(connection.label, named.environmentName + " · Codex");
+          assert.equal(
+            (await api("/workspace/runtimes")).computer,
+            named.environmentName,
+          );
+          process.env.LOOP_ENVIRONMENT_NAME = "development";
+          await nativeSessions.enable(options);
+          const renamed = await api("/bootstrap");
+          assert.equal(renamed.environmentName, "Docker · development");
+          assert.equal(
+            renamed.connections.find((c: any) => c.id === nativeConnection.id)
+              .label,
+            "Docker · development · Codex",
+          );
+        } finally {
+          if (beforeContainer === undefined)
+            delete process.env.LOOP_COMPANION_CONTAINER;
+          else process.env.LOOP_COMPANION_CONTAINER = beforeContainer;
+          if (beforeName === undefined)
+            delete process.env.LOOP_ENVIRONMENT_NAME;
+          else process.env.LOOP_ENVIRONMENT_NAME = beforeName;
+          await nativeSessions.enable(options);
+        }
+      },
+    );
     await t.test(
       "paired app discovers host runtimes and preserves billing and executable boundaries",
       async () => {
         const runtimeList = await api("/workspace/runtimes");
         assert.equal(runtimeList.computer, bootstrap.environmentName);
         assert.equal(runtimeList.online, true);
-        assert.deepEqual(runtimeList.runtimes.map((r: any) => r.name).sort(),
-          ["claude", "codex", "gemini", "grok", "muse", "opencode", "pi"]);
+        assert.deepEqual(runtimeList.runtimes.map((r: any) => r.name).sort(), [
+          "claude",
+          "codex",
+          "gemini",
+          "grok",
+          "muse",
+          "opencode",
+          "pi",
+        ]);
         assert.equal(
           runtimeList.runtimes.find((r: any) => r.name === "codex")
             .authentication,
@@ -493,8 +532,14 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         ).id,
         fork.id,
       );
-      const imported = db.prepare("SELECT n.*,c.agent_id FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id WHERE c.id=?").get(fork.id) as any;
-      const commands = await api(`/agents/${imported.agent_id}/harness?conversation=${fork.id}`);
+      const imported = db
+        .prepare(
+          "SELECT n.*,c.agent_id FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id WHERE c.id=?",
+        )
+        .get(fork.id) as any;
+      const commands = await api(
+        `/agents/${imported.agent_id}/harness?conversation=${fork.id}`,
+      );
       assert.equal(commands.runtime, "Codex");
       assert.equal(imported.worktree_agent_id, imported.agent_id);
       assert.equal(imported.worktree_source, projectB);
@@ -507,12 +552,25 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           input: "Continue the fork",
           idempotencyKey: randomUUID(),
         });
-        await until(() => ["completed", "failed", "interrupted"].includes(state(continued.id)));
+        await until(() =>
+          ["completed", "failed", "interrupted"].includes(state(continued.id)),
+        );
         assert.equal(state(continued.id), "completed");
-        const saved = db.prepare("SELECT native_id,project FROM companion_sessions WHERE conversation_id=?").get(fork.id) as any;
+        const saved = db
+          .prepare(
+            "SELECT native_id,project FROM companion_sessions WHERE conversation_id=?",
+          )
+          .get(fork.id) as any;
         assert.equal(saved.native_id, imported.native_id);
         assert.equal(saved.project, imported.project);
-        assert.equal((db.prepare("SELECT directory FROM run_checkouts WHERE run_id=?").get(continued.id) as any).directory, imported.project);
+        assert.equal(
+          (
+            db
+              .prepare("SELECT directory FROM run_checkouts WHERE run_id=?")
+              .get(continued.id) as any
+          ).directory,
+          imported.project,
+        );
       } finally {
         delete process.env.LOOP_TEST_REQUIRE_RESUME_CWD;
       }

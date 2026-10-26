@@ -66,19 +66,49 @@ it("deduplicates repeated uploads and safely restarts import work", async () => 
   );
 });
 it("projects supported imported fractional timestamps without rejecting their snapshots", async () => {
-  const { ProjectedMessage } = await import("../src/shared/transcript-projection");
-  const { conversationMessages } = await import("../src/server/conversation-messages");
-  const bytes = Buffer.from(JSON.stringify([{ id: "fractional", mapping: {
-    one: { message: { id: "one", author: {role:"user"}, content: {parts:["Imported"]}, create_time: 1699999999123.456 } },
-  } }]));
-  const imported = await stageImport("fractional-owner", bytes, "conversations.json");
-  const run = enqueue("fractional-owner", "Import", "fractional-import", {kind:"import",payload:{importId:imported.id}});
+  const { ProjectedMessage } =
+    await import("../src/shared/transcript-projection");
+  const { conversationMessages } =
+    await import("../src/server/conversation-messages");
+  const bytes = Buffer.from(
+    JSON.stringify([
+      {
+        id: "fractional",
+        mapping: {
+          one: {
+            message: {
+              id: "one",
+              author: { role: "user" },
+              content: { parts: ["Imported"] },
+              create_time: 1699999999123.456,
+            },
+          },
+        },
+      },
+    ]),
+  );
+  const imported = await stageImport(
+    "fractional-owner",
+    bytes,
+    "conversations.json",
+  );
+  const run = enqueue("fractional-owner", "Import", "fractional-import", {
+    kind: "import",
+    payload: { importId: imported.id },
+  });
   const claimed = claim("fractional-importer")!;
   expect(claimed.id).toBe(run.id);
   await executeImport(claimed);
   transition(claimed, "completed");
-  const row = db.prepare("SELECT conversation_id FROM messages WHERE owner_id='fractional-owner'").get() as {conversation_id:string};
-  const messages = conversationMessages("fractional-owner", row.conversation_id).messages;
+  const row = db
+    .prepare(
+      "SELECT conversation_id FROM messages WHERE owner_id='fractional-owner'",
+    )
+    .get() as { conversation_id: string };
+  const messages = conversationMessages(
+    "fractional-owner",
+    row.conversation_id,
+  ).messages;
   expect(messages[0].created_at).toBe(1699999999123.456);
   expect(ProjectedMessage.array().safeParse(messages).success).toBe(true);
 });
@@ -129,7 +159,9 @@ it("performs tenant-scoped FTS retrieval across 10,000 messages", () => {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
   ).run(c, "scale-user", null, "Scale fixture", "fixture", null, now());
-  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)");
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+  );
   const begin = performance.now();
   db.transaction(() => {
     for (let i = 0; i < 10000; i++)

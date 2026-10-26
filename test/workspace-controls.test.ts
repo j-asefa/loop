@@ -426,9 +426,9 @@ it("bounds API attachment payloads and keeps oversized files available through f
     },
   });
   try {
-    const connection = parseConnection(db
-      .prepare("SELECT * FROM connections WHERE id=?")
-      .get(a.connection_id));
+    const connection = parseConnection(
+      db.prepare("SELECT * FROM connections WHERE id=?").get(a.connection_id),
+    );
     const chunks = [];
     for await (const chunk of streamConnection(connection, input))
       chunks.push(chunk);

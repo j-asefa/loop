@@ -25,7 +25,15 @@ afterAll(async () => {
 
 it("leaves held prompts queued while an unrelated runtime progresses, then executes the original identity", async () => {
   const queued = enqueue("local-workspace", "prompt", "maintenance", {
-    payload: { agentId: "maintenance-fixture", name: "Fixture", provider: "openai", folderId: null, connectionId: "codex", model: "native-default", instructions: "" },
+    payload: {
+      agentId: "maintenance-fixture",
+      name: "Fixture",
+      provider: "openai",
+      folderId: null,
+      connectionId: "codex",
+      model: "native-default",
+      instructions: "",
+    },
   });
   const unrelated = enqueue("other-owner", "unrelated", "unrelated", {
     kind: "diagnostic",
@@ -60,7 +68,15 @@ it("leaves held prompts queued while an unrelated runtime progresses, then execu
 
 it("returns a run claimed immediately before maintenance to the queue without failure", async () => {
   const queued = enqueue("local-workspace", "race", "race", {
-    payload: { agentId: "maintenance-fixture", name: "Fixture", provider: "openai", folderId: null, connectionId: "codex", model: "native-default", instructions: "" },
+    payload: {
+      agentId: "maintenance-fixture",
+      name: "Fixture",
+      provider: "openai",
+      folderId: null,
+      connectionId: "codex",
+      model: "native-default",
+      instructions: "",
+    },
   });
   await tick(async (run) => {
     const release = harnessUpgrades.reserve("codex");
@@ -91,19 +107,35 @@ it("never defers a run with an uncertain native dispatch or a cancelled run", ()
   expect(deferUndispatched(claimed, "fixture")).toBe(false);
 });
 
-it.each([false, true])("does not let a late worker failure end released work (reclaimed: %s)", async reclaimed => {
-  const queued = enqueue("late-worker", "Unsent work", "late-" + reclaimed, { kind: "diagnostic" });
-  await tick(async run => {
-    expect(run.id).toBe(queued.id);
-    const lease = db.prepare("SELECT worker_id FROM runs WHERE id=?").get(run.id) as { worker_id: string };
-    expect(deferUndispatched(run, lease.worker_id)).toBe(true);
-    if (reclaimed) expect(claim("replacement-worker")?.id).toBe(run.id);
-    throw new Error("Late failure from the released attempt");
-  });
-  expect(outcome(queued)).toMatchObject({ state: reclaimed ? "running" : "queued", error: null });
-  expect(db.prepare("SELECT worker_id FROM runs WHERE id=?").get(queued.id))
-    .toEqual({ worker_id: reclaimed ? "replacement-worker" : null });
-  expect(db.prepare("SELECT count(*) n FROM events WHERE run_id=? AND type IN ('failed','run.failed')").get(queued.id))
-    .toEqual({ n: 0 });
-  db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(queued.id);
-});
+it.each([false, true])(
+  "does not let a late worker failure end released work (reclaimed: %s)",
+  async (reclaimed) => {
+    const queued = enqueue("late-worker", "Unsent work", "late-" + reclaimed, {
+      kind: "diagnostic",
+    });
+    await tick(async (run) => {
+      expect(run.id).toBe(queued.id);
+      const lease = db
+        .prepare("SELECT worker_id FROM runs WHERE id=?")
+        .get(run.id) as { worker_id: string };
+      expect(deferUndispatched(run, lease.worker_id)).toBe(true);
+      if (reclaimed) expect(claim("replacement-worker")?.id).toBe(run.id);
+      throw new Error("Late failure from the released attempt");
+    });
+    expect(outcome(queued)).toMatchObject({
+      state: reclaimed ? "running" : "queued",
+      error: null,
+    });
+    expect(
+      db.prepare("SELECT worker_id FROM runs WHERE id=?").get(queued.id),
+    ).toEqual({ worker_id: reclaimed ? "replacement-worker" : null });
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) n FROM events WHERE run_id=? AND type IN ('failed','run.failed')",
+        )
+        .get(queued.id),
+    ).toEqual({ n: 0 });
+    db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(queued.id);
+  },
+);

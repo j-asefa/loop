@@ -15,9 +15,11 @@ const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
-const { resultsRevision, resultsUpdates } = await import("../src/server/results");
+const { resultsRevision, resultsUpdates } =
+  await import("../src/server/results");
 const { recordTrace, agentTraces } = await import("../src/server/traces");
-const { recordConversationUpdate } = await import("../src/server/conversation-updates");
+const { recordConversationUpdate } =
+  await import("../src/server/conversation-updates");
 const { listRuns } = await import("../src/server/run-attention");
 const { search } = await import("../src/server/search");
 const { saveArtifact } = await import("../src/server/artifacts");
@@ -87,12 +89,16 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
           resultsUpdates("alice", { after, through: 0, agent: a.id }).items,
         ).toEqual([]);
         // The public projection flushes within one 250ms batch, not per token.
-        await expect.poll(
-          () => listRuns("alice", [], true).find((r) => r.id === run.id)?.preview_artifact,
-          { timeout: 2000, interval: 10 },
-        ).toMatchObject({
-          content: expect.stringContaining(`source ${round + 1}`),
-        });
+        await expect
+          .poll(
+            () =>
+              listRuns("alice", [], true).find((r) => r.id === run.id)
+                ?.preview_artifact,
+            { timeout: 2000, interval: 10 },
+          )
+          .toMatchObject({
+            content: expect.stringContaining(`source ${round + 1}`),
+          });
         yield {
           toolCall: {
             id: `source-${round}`,
@@ -176,7 +182,8 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     expect(conversation.messages[0].role).toBe("user");
     const exported = await get(`/agents/${a.id}/traces/export?run=${run.id}`);
     expect(exported.messages.at(-1)).toMatchObject({
-      role: "assistant", content: "Final heliotrope answer.",
+      role: "assistant",
+      content: "Final heliotrope answer.",
     });
     expect(exported.traces.every((t: any) => t.kind === "tool")).toBe(true);
     expect(conversation.messages.at(-1).content).toBe(
@@ -219,9 +226,7 @@ it("pages public agent messages and links final responses by message identity in
   recordConversationUpdate(run, "empty", {
     content: "  ",
   });
-  db.prepare("UPDATE messages SET created_at=2000 WHERE run_id=?").run(
-    run.id,
-  );
+  db.prepare("UPDATE messages SET created_at=2000 WHERE run_id=?").run(run.id);
   recordConversationUpdate(run, "answer", {
     content: "Streaming answer",
   });
@@ -479,9 +484,9 @@ it("hides already-saved Claude formatting receipts from traces and Running previ
       listRuns("alice", [], true).find((r) => r.id === run.id)
         ?.preview_artifact,
     ).toMatchObject({ content: "Checking the existing review" });
-    db.prepare("DELETE FROM messages WHERE run_id=? AND update_key IS NOT NULL").run(
-      run.id,
-    );
+    db.prepare(
+      "DELETE FROM messages WHERE run_id=? AND update_key IS NOT NULL",
+    ).run(run.id);
     expect(
       listRuns("alice", [], true).find((r) => r.id === run.id)
         ?.preview_artifact,
@@ -952,9 +957,11 @@ it("exports a whole run's public traces, including its final answer", async () =
     ["turn:2", "Done"],
   ]);
   expect(data.traces[1].metadata).toEqual({ state: "completed" });
-  expect(data.messages).toEqual(expect.arrayContaining([
-    expect.objectContaining({ role: "user", content: run.input }),
-  ]));
+  expect(data.messages).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: run.input }),
+    ]),
+  );
   const denied = [
     [`/agents/${a.id}/traces/export?run=${run.id}`, "bob"],
     [`/agents/${foreign.id}/traces/export?run=${run.id}`, "bob"],
@@ -997,27 +1004,59 @@ it("indexes traces saved before the search migration", () => {
 it("shows Codex commentary wrapped in Loop's reply envelope as its text", () => {
   const messages = new Map();
   const envelope = (kind: string, text: string) =>
-    JSON.stringify({ kind, text, tool: kind === "tool" ? "x" : null, arguments: "{}" });
+    JSON.stringify({
+      kind,
+      text,
+      tool: kind === "tool" ? "x" : null,
+      arguments: "{}",
+    });
   const update = envelope("answer", "Checking the PR heads.");
   expect(
     codexTrace(
-      { method: "item/started", params: { item: { id: "m", type: "agentMessage", phase: "commentary", text: "" } } },
+      {
+        method: "item/started",
+        params: {
+          item: {
+            id: "m",
+            type: "agentMessage",
+            phase: "commentary",
+            text: "",
+          },
+        },
+      },
       messages,
     ),
   ).toBeUndefined();
   // Half an envelope is not shown while it streams.
   expect(
     codexTrace(
-      { method: "item/agentMessage/delta", params: { itemId: "m", delta: update.slice(0, 30) } },
+      {
+        method: "item/agentMessage/delta",
+        params: { itemId: "m", delta: update.slice(0, 30) },
+      },
       messages,
     ),
   ).toBeUndefined();
   expect(
     codexTrace(
-      { method: "item/completed", params: { item: { id: "m", type: "agentMessage", phase: "commentary", text: update } } },
+      {
+        method: "item/completed",
+        params: {
+          item: {
+            id: "m",
+            type: "agentMessage",
+            phase: "commentary",
+            text: update,
+          },
+        },
+      },
       messages,
     ),
-  ).toMatchObject({ kind: "message", title: "Agent update", content: "Checking the PR heads." });
+  ).toMatchObject({
+    kind: "message",
+    title: "Agent update",
+    content: "Checking the PR heads.",
+  });
   // A tool request, the final answer, and a phaseless envelope (the final
   // answer on older hosts) are not updates.
   for (const item of [
@@ -1026,29 +1065,57 @@ it("shows Codex commentary wrapped in Loop's reply envelope as its text", () => 
     { text: update },
   ])
     expect(
-      codexTrace({ method: "item/completed", params: { item: { id: "n", type: "agentMessage", ...item } } }),
+      codexTrace({
+        method: "item/completed",
+        params: { item: { id: "n", type: "agentMessage", ...item } },
+      }),
     ).toBeUndefined();
   expect(
     codexTrace({
       method: "item/completed",
-      params: { item: { id: "p", type: "agentMessage", phase: "commentary", text: "Reading the diff." } },
+      params: {
+        item: {
+          id: "p",
+          type: "agentMessage",
+          phase: "commentary",
+          text: "Reading the diff.",
+        },
+      },
     }),
   ).toMatchObject({ content: "Reading the diff." });
   // Commentary that merely starts with "{" is shown once complete.
   expect(
     codexTrace({
       method: "item/completed",
-      params: { item: { id: "q", type: "agentMessage", phase: "commentary", text: "{a, b} are both set." } },
+      params: {
+        item: {
+          id: "q",
+          type: "agentMessage",
+          phase: "commentary",
+          text: "{a, b} are both set.",
+        },
+      },
     }),
   ).toMatchObject({ content: "{a, b} are both set." });
   // Claude writing the envelope as text gets the same treatment.
   expect(
     claudeTraces({
       type: "assistant",
-      message: { id: "c", content: [{ type: "text", text: update }, { type: "text", text: envelope("tool", "") }] },
+      message: {
+        id: "c",
+        content: [
+          { type: "text", text: update },
+          { type: "text", text: envelope("tool", "") },
+        ],
+      },
     }),
   ).toEqual([
-    { id: "c:text:0", kind: "message", title: "Agent update", content: "Checking the PR heads." },
+    {
+      id: "c:text:0",
+      kind: "message",
+      title: "Agent update",
+      content: "Checking the PR heads.",
+    },
   ]);
 });
 
@@ -1064,33 +1131,69 @@ it("unwraps updates saved as Loop's reply envelope", () => {
     const insert = legacy.prepare(
       "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,created_at) VALUES('o','r',?,?,'Agent update',?,1)",
     );
-    insert.run("a", "message", JSON.stringify({ kind: "answer", text: "Verifying each finding.", tool: null, arguments: "{}" }));
-    insert.run("b", "message", JSON.stringify({ kind: "tool", text: "", tool: "loop_read_file", arguments: "{}" }));
+    insert.run(
+      "a",
+      "message",
+      JSON.stringify({
+        kind: "answer",
+        text: "Verifying each finding.",
+        tool: null,
+        arguments: "{}",
+      }),
+    );
+    insert.run(
+      "b",
+      "message",
+      JSON.stringify({
+        kind: "tool",
+        text: "",
+        tool: "loop_read_file",
+        arguments: "{}",
+      }),
+    );
     insert.run("c", "message", "Plain update.");
     insert.run("d", "message", '{"other":"json"}');
-    insert.run("e", "tool", JSON.stringify({ kind: "answer", text: "tool output" }));
-    legacy.exec(readFileSync("migrations/046-unwrap-trace-envelopes.sql", "utf8"));
+    insert.run(
+      "e",
+      "tool",
+      JSON.stringify({ kind: "answer", text: "tool output" }),
+    );
+    legacy.exec(
+      readFileSync("migrations/046-unwrap-trace-envelopes.sql", "utf8"),
+    );
     expect(
-      legacy.prepare("SELECT trace_key,content FROM run_traces ORDER BY trace_key").all(),
+      legacy
+        .prepare("SELECT trace_key,content FROM run_traces ORDER BY trace_key")
+        .all(),
     ).toEqual([
       { trace_key: "a", content: "Verifying each finding." },
       { trace_key: "b", content: "" },
       { trace_key: "c", content: "Plain update." },
       { trace_key: "d", content: '{"other":"json"}' },
-      { trace_key: "e", content: JSON.stringify({ kind: "answer", text: "tool output" }) },
+      {
+        trace_key: "e",
+        content: JSON.stringify({ kind: "answer", text: "tool output" }),
+      },
     ]);
     // The trace search index follows the rewritten text.
     expect(
-      legacy.prepare("SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'verifying'").all(),
+      legacy
+        .prepare(
+          "SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'verifying'",
+        )
+        .all(),
     ).toHaveLength(1);
     expect(
-      legacy.prepare("SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'arguments'").all(),
+      legacy
+        .prepare(
+          "SELECT rowid FROM trace_fts WHERE trace_fts MATCH 'arguments'",
+        )
+        .all(),
     ).toHaveLength(0);
   } finally {
     legacy.close();
   }
 });
-
 
 it("keeps native lifecycle events and tool rows out of conversation pages while retaining tool traces", async () => {
   const a = agent();
@@ -1109,7 +1212,10 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
     },
   ];
   for (let i = 0; i < 65; i++) {
-    const n = {role:"tool", content:JSON.stringify(bodies[i % bodies.length])};
+    const n = {
+      role: "tool",
+      content: JSON.stringify(bodies[i % bodies.length]),
+    };
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,'{}',?)",
     ).run(id(), run.conversation_id, run.id, n.role, n.content, now());
@@ -1202,7 +1308,7 @@ it("opens a conversation anchored on a row the transcript hides", async () => {
   });
   const hidden = id();
   db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,NULL,'tool','{\"type\":\"tool-call\"}','{\"native\":{\"type\":\"tool-call\"}}',?)",
+    'INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,\'alice\',?,NULL,\'tool\',\'{"type":"tool-call"}\',\'{"native":{"type":"tool-call"}}\',?)',
   ).run(hidden, run.conversation_id, now());
   const page = await get(
     `/conversations/${run.conversation_id}?message=${hidden}`,
@@ -1212,7 +1318,10 @@ it("opens a conversation anchored on a row the transcript hides", async () => {
   );
   expect(page.messages.some((m: any) => m.id === hidden)).toBe(false);
   expect(
-    (await fetch(`${base}/conversations/${run.conversation_id}?message=${id()}`))
-      .status,
+    (
+      await fetch(
+        `${base}/conversations/${run.conversation_id}?message=${id()}`,
+      )
+    ).status,
   ).toBe(404);
 });

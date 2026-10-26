@@ -329,7 +329,12 @@ it("backs off fallback reads and reconnect attempts until Retry-After without lo
   const s = subscribe();
   s.socket.frame(17, "limited", "reset");
   s.socket.close();
-  s.read.mockRejectedValueOnce(Object.assign(new Error("busy"), { status: 429, retryAt: Date.now() + 12_000 }));
+  s.read.mockRejectedValueOnce(
+    Object.assign(new Error("busy"), {
+      status: 429,
+      retryAt: Date.now() + 12_000,
+    }),
+  );
   await vi.advanceTimersByTimeAsync(1800);
   expect(s.read).toHaveBeenCalledTimes(1);
   Socket.instances.at(-1)!.close();
@@ -343,16 +348,53 @@ it("backs off fallback reads and reconnect attempts until Retry-After without lo
   expect(Socket.instances.length).toBeGreaterThan(attempts);
 });
 
-
-function clockFrame(s: ReturnType<typeof subscribe>, next: number | null, cursor = 1, epoch = "clock", serverNow = 1000) {
-  s.socket.onmessage?.({ data: JSON.stringify({ v: 3, type: "reset", epoch, cursor,
-    build: "fixture", buildIdentity: null, capabilities: { ...PARTIAL_WORKSPACE_CAPABILITIES, deadlines: true },
-    serverNow, nextDeadline: next }) });
+function clockFrame(
+  s: ReturnType<typeof subscribe>,
+  next: number | null,
+  cursor = 1,
+  epoch = "clock",
+  serverNow = 1000,
+) {
+  s.socket.onmessage?.({
+    data: JSON.stringify({
+      v: 3,
+      type: "reset",
+      epoch,
+      cursor,
+      build: "fixture",
+      buildIdentity: null,
+      capabilities: { ...PARTIAL_WORKSPACE_CAPABILITIES, deadlines: true },
+      serverNow,
+      nextDeadline: next,
+    }),
+  });
 }
-function deadlineEvent(s: ReturnType<typeof subscribe>, next: number | null, cursor: number, serverNow = 1000) {
-  s.socket.onmessage?.({ data: JSON.stringify({ v: 3, type: "events", epoch: "clock", cursor,
-    events: [{ id: cursor, event: { type: "deadline", subject: { kind: "collection", id: "all" },
-      scope: { kind: "collection", id: "all" }, serverNow, nextDeadline: next } }] }) });
+function deadlineEvent(
+  s: ReturnType<typeof subscribe>,
+  next: number | null,
+  cursor: number,
+  serverNow = 1000,
+) {
+  s.socket.onmessage?.({
+    data: JSON.stringify({
+      v: 3,
+      type: "events",
+      epoch: "clock",
+      cursor,
+      events: [
+        {
+          id: cursor,
+          event: {
+            type: "deadline",
+            subject: { kind: "collection", id: "all" },
+            scope: { kind: "collection", id: "all" },
+            serverNow,
+            nextDeadline: next,
+          },
+        },
+      ],
+    }),
+  });
 }
 it("uses server-relative deadlines despite clock skew, replaces timers, and learns the second expiry", async () => {
   const s = subscribe();
@@ -363,10 +405,12 @@ it("uses server-relative deadlines despite clock skew, replaces timers, and lear
   expect(s.changed).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(s.changed).toHaveBeenCalledTimes(1);
-  expect(s.changed.mock.calls[0][0]).toEqual(expect.arrayContaining([
-    { type: "invalidate", scope: { kind: "collection", id: "approvals" } },
-    { type: "invalidate", scope: { kind: "collection", id: "pulls" } },
-  ]));
+  expect(s.changed.mock.calls[0][0]).toEqual(
+    expect.arrayContaining([
+      { type: "invalidate", scope: { kind: "collection", id: "approvals" } },
+      { type: "invalidate", scope: { kind: "collection", id: "pulls" } },
+    ]),
+  );
   deadlineEvent(s, 4000, 2, 2000);
   await vi.advanceTimersByTimeAsync(500);
   deadlineEvent(s, 5000, 3, 2500); // extend earliest; original timer is replaced
@@ -382,14 +426,41 @@ it("uses server-relative deadlines despite clock skew, replaces timers, and lear
 });
 it("keeps source/epoch/owner deadline generations separate and rejects stale snapshot clocks", async () => {
   setViewOwner("clock-owner");
-  const one = subscribe(undefined, "one"), two = subscribe(undefined, "two");
-  clockFrame(one, 2000); clockFrame(two, 3000);
-  one.changed.mockClear(); two.changed.mockClear();
-  window.dispatchEvent(new CustomEvent("loop-workspace-clock", { detail: { source: "one", generation: viewGeneration(),
-    clock: { epoch: "clock", cursor: 2, serverNow: 1000, nextDeadline: 4000 } } }));
+  const one = subscribe(undefined, "one"),
+    two = subscribe(undefined, "two");
+  clockFrame(one, 2000);
+  clockFrame(two, 3000);
+  one.changed.mockClear();
+  two.changed.mockClear();
+  window.dispatchEvent(
+    new CustomEvent("loop-workspace-clock", {
+      detail: {
+        source: "one",
+        generation: viewGeneration(),
+        clock: {
+          epoch: "clock",
+          cursor: 2,
+          serverNow: 1000,
+          nextDeadline: 4000,
+        },
+      },
+    }),
+  );
   // An older HTTP response must not restore the superseded earlier deadline.
-  window.dispatchEvent(new CustomEvent("loop-workspace-clock", { detail: { source: "one", generation: viewGeneration(),
-    clock: { epoch: "clock", cursor: 1, serverNow: 1100, nextDeadline: 1200 } } }));
+  window.dispatchEvent(
+    new CustomEvent("loop-workspace-clock", {
+      detail: {
+        source: "one",
+        generation: viewGeneration(),
+        clock: {
+          epoch: "clock",
+          cursor: 1,
+          serverNow: 1100,
+          nextDeadline: 1200,
+        },
+      },
+    }),
+  );
   await vi.advanceTimersByTimeAsync(2000);
   expect(one.changed).not.toHaveBeenCalled();
   expect(two.changed).toHaveBeenCalledTimes(1);
@@ -406,8 +477,17 @@ it("keeps source/epoch/owner deadline generations separate and rejects stale sna
 });
 it("coalesces every advertised scope without losing the conversation or refreshing another source", () => {
   const queue = new WorkspaceChangeQueue();
-  queue.add("one", [{ type: "invalidate", subject: { kind: "message", id: "m" },
-    scope: { kind: "collection", id: "feed" }, scopes: [{ kind: "collection", id: "saved" }, { kind: "conversation", id: "thread" }] }]);
+  queue.add("one", [
+    {
+      type: "invalidate",
+      subject: { kind: "message", id: "m" },
+      scope: { kind: "collection", id: "feed" },
+      scopes: [
+        { kind: "collection", id: "saved" },
+        { kind: "conversation", id: "thread" },
+      ],
+    },
+  ]);
   expect(queue.drain().changes?.[0].events).toEqual([
     { type: "invalidate", scope: { kind: "collection", id: "feed" } },
     { type: "invalidate", scope: { kind: "collection", id: "saved" } },
@@ -419,23 +499,44 @@ it("resets projections and cursors on an HTTP-only epoch replacement and rejects
   const s = subscribe(undefined, "one");
   clockFrame(s, 20_000, 10, "old");
   const obsoleteFrame = s.socket.onmessage;
-  s.socket.close(); s.changed.mockClear(); s.frame.mockClear();
-  const received = (requestId: number, epoch: string, nextDeadline: number) => window.dispatchEvent(new CustomEvent("loop-workspace-clock", {
-    detail: { source: "one", generation: viewGeneration(), requestId, clock: { epoch, cursor: 1, serverNow: 1000, nextDeadline } },
-  }));
+  s.socket.close();
+  s.changed.mockClear();
+  s.frame.mockClear();
+  const received = (requestId: number, epoch: string, nextDeadline: number) =>
+    window.dispatchEvent(
+      new CustomEvent("loop-workspace-clock", {
+        detail: {
+          source: "one",
+          generation: viewGeneration(),
+          requestId,
+          clock: { epoch, cursor: 1, serverNow: 1000, nextDeadline },
+        },
+      }),
+    );
   received(2, "replacement", 1500);
-  expect(s.frame).toHaveBeenCalledExactlyOnceWith({v:3,type:"reset",epoch:"replacement",cursor:1,
-    serverNow:1000,nextDeadline:1500,capabilities:PARTIAL_WORKSPACE_CAPABILITIES});
+  expect(s.frame).toHaveBeenCalledExactlyOnceWith({
+    v: 3,
+    type: "reset",
+    epoch: "replacement",
+    cursor: 1,
+    serverNow: 1000,
+    nextDeadline: 1500,
+    capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+  });
   expect(s.changed).toHaveBeenCalledExactlyOnceWith();
   received(1, "old", 20_000);
-  obsoleteFrame?.({data:JSON.stringify({v:2,type:"reset",epoch:"old",cursor:20})});
+  obsoleteFrame?.({
+    data: JSON.stringify({ v: 2, type: "reset", epoch: "old", cursor: 20 }),
+  });
   expect(s.frame).toHaveBeenCalledTimes(1);
   s.changed.mockClear();
   await vi.advanceTimersByTimeAsync(500);
   expect(s.changed).toHaveBeenCalledTimes(1);
-  expect(s.changed.mock.calls[0][0]).toEqual(expect.arrayContaining([
-    { type: "invalidate", scope: { kind: "collection", id: "approvals" } },
-  ]));
+  expect(s.changed.mock.calls[0][0]).toEqual(
+    expect.arrayContaining([
+      { type: "invalidate", scope: { kind: "collection", id: "approvals" } },
+    ]),
+  );
   const replacement = Socket.instances.at(-1)!;
   expect(replacement.url.searchParams.get("epoch")).toBe("replacement");
   expect(replacement.url.searchParams.get("cursor")).toBe("1");
@@ -679,19 +780,28 @@ it("routes Social unread changes to Feed and run changes to usage without refres
   expect(workspaceChangeAffects(event, "metadata", "one")).toBe(false);
 });
 
-
 it("negotiates Feed snapshots separately from transcript, Results and workspace controls", async () => {
-  const {publishProjectionFrame, reactiveSource, surfaceFallback} = await import("../src/client/workspace-projections");
-  const {COMPLETE_WORKSPACE_CAPABILITIES} = await import("../src/shared/workspace-events");
-  publishProjectionFrame("feed-snapshot",{v:3,type:"reset",epoch:"split",cursor:1,build:"fixture",buildIdentity:null,
-    capabilities:{...COMPLETE_WORKSPACE_CAPABILITIES,feed:"snapshot"}});
-  expect(reactiveSource("feed-snapshot","transcript")).toBe(true);
-  expect(reactiveSource("feed-snapshot","results")).toBe(true);
-  expect(reactiveSource("feed-snapshot","workspace")).toBe(true);
-  expect(reactiveSource("feed-snapshot","feed")).toBe(false);
-  const feed = vi.fn(), workspace = vi.fn();
-  stops.push(surfaceFallback(["feed-snapshot"],"feed",5000,feed));
-  stops.push(surfaceFallback(["feed-snapshot"],"workspace",5000,workspace));
+  const { publishProjectionFrame, reactiveSource, surfaceFallback } =
+    await import("../src/client/workspace-projections");
+  const { COMPLETE_WORKSPACE_CAPABILITIES } =
+    await import("../src/shared/workspace-events");
+  publishProjectionFrame("feed-snapshot", {
+    v: 3,
+    type: "reset",
+    epoch: "split",
+    cursor: 1,
+    build: "fixture",
+    buildIdentity: null,
+    capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" },
+  });
+  expect(reactiveSource("feed-snapshot", "transcript")).toBe(true);
+  expect(reactiveSource("feed-snapshot", "results")).toBe(true);
+  expect(reactiveSource("feed-snapshot", "workspace")).toBe(true);
+  expect(reactiveSource("feed-snapshot", "feed")).toBe(false);
+  const feed = vi.fn(),
+    workspace = vi.fn();
+  stops.push(surfaceFallback(["feed-snapshot"], "feed", 5000, feed));
+  stops.push(surfaceFallback(["feed-snapshot"], "workspace", 5000, workspace));
   await vi.advanceTimersByTimeAsync(5000);
   expect(feed).toHaveBeenCalledExactlyOnceWith(["feed-snapshot"]);
   expect(workspace).not.toHaveBeenCalled();
