@@ -55,7 +55,8 @@ async function http(owner: string, path: string, body?: object) {
     `http://127.0.0.1:${(server.address() as any).port}${path}`,
     {
       method: body ? "POST" : "GET",
-      headers: { "content-type": "application/json", "x-owner": owner },
+      // Synchronous fixture setup can outlast a pooled socket's keep-alive timeout.
+      headers: { "content-type": "application/json", "x-owner": owner, connection: "close" },
       body: body ? JSON.stringify(body) : undefined,
     },
   );
@@ -460,6 +461,17 @@ it("steers only runtimes that take live input, and never a manager waiting on it
   expect(mail((question as any).messageId).recipient_conversation_id).toBe(
     team.conversation_id,
   );
+  const direct = await message(child, {
+    to: manager.id,
+    body: "Direct question",
+    scope: "direct",
+    interrupt: true,
+  });
+  expect(direct).toMatchObject({ delivery: "queued" });
+  expect(mail((direct as any).messageId)).toMatchObject({
+    recipient_conversation_id: team.conversation_id,
+    steering_id: null,
+  });
 });
 
 it("pauses a thread at the pair limit, holds what follows, and sends it in order on Resume", async () => {
@@ -1769,7 +1781,7 @@ it("rechecks queued team membership but preserves independent direct mail", () =
 });
 
 it.each(["codex", "claude", "pi", "opencode", "acp"])(
-  "steers only a bound live %s run, with the running connection's capability",
+  "selects the running %s conversation for direct interrupts, using its connection's capability",
   (harnessName) => {
     const owner = "direct-steer-" + harnessName;
     const a = agent(owner, "sender"),
@@ -1798,15 +1810,428 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
     expect(sent.delivery).toBe(
       ["codex", "claude", "pi"].includes(harnessName) ? "steered" : "queued",
     );
-    const unbound = sendMail(source, "other-thread", {
+    const automatic = sendMail(source, "other-thread", {
       to: b.id,
       body: "Other",
       interrupt: true,
     });
-    expect(unbound.delivery).toBe("queued");
-    expect(mail(unbound.messageId).recipient_conversation_id).not.toBe(
+    expect(automatic.delivery).toBe(sent.delivery);
+    expect(mail(automatic.messageId).recipient_conversation_id).toBe(
       target.conversation_id,
     );
+  },
+);
+
+it("uses a new direct interrupt's destination as the thread's default, including team conversations", () => {
+  const owner = "direct-interrupt-first-binding";
+  const sender = agent(owner, "sender"),
+    recipient = agent(owner, "recipient", harness("codex")),
+    worker = agent(owner, "worker");
+  const team = createTeam(owner, {
+    name: "Recipient team",
+    managerId: recipient.id,
+    members: [worker.id],
+  });
+  const source = running(owner, sender.id, {}),
+    target = running(owner, recipient.id, {
+      conversationId: team.conversation_id!,
+    });
+  const urgent = sendMail(source, "interrupt", {
+    to: recipient.id,
+    body: "Current task",
+    interrupt: true,
+  });
+  expect(urgent.delivery).toBe("steered");
+  expect(
+    db
+      .prepare("SELECT scope,team_id FROM agent_threads WHERE id=?")
+      .get(urgent.threadId),
+  ).toEqual({ scope: "direct", team_id: null });
+  expect(
+    db
+      .prepare(
+        "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
+      )
+      .get(urgent.threadId, recipient.id),
+  ).toEqual({ conversation_id: target.conversation_id });
+  const ordinary = sendMail(source, "ordinary", {
+    to: recipient.id,
+    body: "Later",
+    threadId: urgent.threadId,
+  });
+  expect(mail(ordinary.messageId)).toMatchObject({
+    recipient_conversation_id: target.conversation_id,
+    steering_id: null,
+  });
+});
+
+it("establishes an empty direct binding from the earlier ordinary message before releasing an interrupt", () => {
+  const owner = "direct-interrupt-empty-binding";
+  const sender = agent(owner, "sender"),
+    recipient = agent(owner, "recipient", harness("codex"));
+  const source = running(owner, sender.id, {}),
+    target = running(owner, recipient.id, {});
+  db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+    recipient.connection_id,
+  );
+  const ordinary = sendMail(source, "ordinary", {
+    to: recipient.id,
+    body: "Later",
+  });
+  expect(ordinary.delivery).toBe("pending");
+  expect(mail(ordinary.messageId).recipient_conversation_id).toBeNull();
+  const urgent = sendMail(source, "interrupt", {
+    to: recipient.id,
+    body: "Now",
+    threadId: ordinary.threadId,
+    interrupt: true,
+  });
+  expect(urgent.delivery).toBe("pending");
+  expect(mail(urgent.messageId).recipient_conversation_id).toBe(
+    target.conversation_id,
+  );
+  db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+    recipient.connection_id,
+  );
+  sweepAgentMail(now() + 600000);
+  const bound = mail(ordinary.messageId).recipient_conversation_id;
+  expect(bound).toEqual(expect.any(String));
+  expect(bound).not.toBe(target.conversation_id);
+  // Each sweep releases only the earliest pending message in a thread.
+  expect(mail(urgent.messageId).state).toBe("pending");
+  sweepAgentMail(now() + 1200000);
+  expect(mail(urgent.messageId)).toMatchObject({
+    delivery: "steered",
+    run_id: target.id,
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
+      )
+      .get(ordinary.threadId, recipient.id),
+  ).toEqual({ conversation_id: bound });
+});
+
+it.each(["hapi", "review"])(
+  "refuses an automatically selected %s conversation instead of choosing another task",
+  (backend) => {
+    const owner = "direct-interrupt-ineligible-" + backend;
+    const sender = agent(owner, "sender"),
+      recipient = agent(owner, "recipient", harness("codex"));
+    const source = running(owner, sender.id, {});
+    const eligible = running(owner, recipient.id, {});
+    const target = running(owner, recipient.id, {});
+    if (backend === "hapi")
+      db.prepare(
+        "UPDATE conversations SET execution_backend='hapi' WHERE id=?",
+      ).run(target.conversation_id);
+    else
+      db.prepare(
+        "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE id=?",
+      ).run(target.id);
+    expect(() =>
+      sendMail(source, "interrupt", {
+        to: recipient.id,
+        body: "Now",
+        interrupt: true,
+      }),
+    ).toThrow(/Send without interrupt or specify another conversationId/);
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM agent_mail WHERE owner_id=?")
+        .get(owner),
+    ).toEqual({ n: 0 });
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM run_steering WHERE owner_id=?")
+        .get(owner),
+    ).toEqual({ n: 0 });
+    expect(
+      sendMail(source, "ordinary", { to: recipient.id, body: "Later" })
+        .delivery,
+    ).toBe("queued");
+    const explicit = sendMail(source, "explicit", {
+      to: recipient.id,
+      body: "Eligible task",
+      interrupt: true,
+      conversationId: eligible.conversation_id!,
+    });
+    expect(explicit.delivery).toBe("steered");
+    expect(mail(explicit.messageId).run_id).toBe(eligible.id);
+  },
+);
+
+it.each(["pending", "held"])(
+  "refuses %s interrupts when the selected destination becomes unusable",
+  (state) => {
+    const owner = "direct-interrupt-obsolete-" + state;
+    const sender = agent(owner, "sender"),
+      recipient = agent(owner, "recipient", harness("codex"));
+    const source = running(owner, sender.id, {}),
+      target = running(owner, recipient.id, {});
+    const ordinary = sendMail(source, "ordinary", {
+      to: recipient.id,
+      body: "Later",
+    });
+    if (state === "held")
+      db.prepare("UPDATE agent_threads SET paused_at=? WHERE id=?").run(
+        now(),
+        ordinary.threadId,
+      );
+    else
+      db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+        recipient.connection_id,
+      );
+    const urgent = sendMail(source, "interrupt", {
+      to: recipient.id,
+      body: "Now",
+      threadId: ordinary.threadId,
+      interrupt: true,
+    });
+    expect(urgent.delivery).toBe(state);
+    db.prepare(
+      "UPDATE conversations SET execution_backend='hapi' WHERE id=?",
+    ).run(target.conversation_id);
+    db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+      recipient.connection_id,
+    );
+    if (state === "held")
+      expect(resumeThread(owner, null, urgent.threadId)).toEqual({
+        released: 0,
+        refused: 1,
+        held: 0,
+      });
+    else sweepAgentMail(now() + 600000);
+    expect(mail(urgent.messageId)).toMatchObject({
+      state: "refused",
+      run_id: null,
+      steering_id: null,
+      recipient_conversation_id: target.conversation_id,
+    });
+    const normal = sendMail(source, "normal-reply", {
+      to: recipient.id,
+      body: "Original destination",
+      threadId: ordinary.threadId,
+    });
+    expect(mail(normal.messageId).recipient_conversation_id).toBe(
+      mail(ordinary.messageId).recipient_conversation_id,
+    );
+  },
+);
+
+it("interrupts the current conversation from an existing direct thread without moving ordinary replies", async () => {
+  const owner = "direct-interrupt-reply";
+  const sender = agent(owner, "sender"),
+    recipient = agent(owner, "recipient", harness("codex"));
+  const source = running(owner, sender.id, {}),
+    target = running(owner, recipient.id, {});
+  const first = sendMail(source, "queued", {
+    to: recipient.id,
+    body: "Hold merges",
+  });
+  const original = mail(first.messageId).recipient_conversation_id;
+  expect(first.delivery).toBe("queued");
+  expect(original).not.toBe(target.conversation_id);
+
+  const input = {
+    to: recipient.id,
+    body: "Hold merges now",
+    threadId: first.threadId,
+    interrupt: true,
+  };
+  const call = id();
+  const urgent = await message(source, input, call);
+  if ("error" in urgent) throw new Error(urgent.error);
+  expect(urgent).toMatchObject({
+    threadId: first.threadId,
+    delivery: "steered",
+  });
+  expect(mail(urgent.messageId)).toMatchObject({
+    run_id: target.id,
+    recipient_conversation_id: target.conversation_id,
+    steering_id: expect.any(String),
+  });
+  const followUp = sendMail(source, "ordinary", {
+    to: recipient.id,
+    body: "When you are done",
+    threadId: first.threadId,
+  });
+  expect(mail(followUp.messageId).recipient_conversation_id).toBe(original);
+  expect(
+    db
+      .prepare(
+        "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
+      )
+      .get(first.threadId, recipient.id),
+  ).toEqual({ conversation_id: original });
+
+  transition(target, "completed");
+  running(owner, recipient.id, {});
+  // A retried tool call keeps its original delivery even after the active task changes.
+  expect(await message(source, input, call)).toEqual(urgent);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM run_steering WHERE owner_id=?")
+      .get(owner),
+  ).toEqual({ n: 1 });
+});
+
+it("selects the newest running conversation, ignores queued work, and honors explicit interrupt destinations", () => {
+  const owner = "direct-interrupt-selection";
+  const sender = agent(owner, "sender"),
+    recipient = agent(owner, "recipient", harness("codex"));
+  const source = running(owner, sender.id, {});
+  const older = running(owner, recipient.id, {}),
+    newer = running(owner, recipient.id, {});
+  // Equal timestamps still select the last-created running task deterministically.
+  db.prepare("UPDATE runs SET created_at=? WHERE id IN (?,?)").run(
+    now(),
+    older.id,
+    newer.id,
+  );
+  const queued = submit(owner, {
+    agentId: recipient.id,
+    input: "Later",
+    idempotencyKey: id(),
+  });
+  const automatic = sendMail(source, "automatic", {
+    to: recipient.id,
+    body: "Current task",
+    interrupt: true,
+  });
+  expect(mail(automatic.messageId)).toMatchObject({
+    run_id: newer.id,
+    steering_id: expect.any(String),
+  });
+  const explicit = sendMail(source, "explicit", {
+    to: recipient.id,
+    body: "This task",
+    interrupt: true,
+    threadId: automatic.threadId,
+    conversationId: older.conversation_id!,
+  });
+  expect(mail(explicit.messageId)).toMatchObject({
+    run_id: older.id,
+    steering_id: expect.any(String),
+  });
+  const explicitQueue = sendMail(source, "explicit-queue", {
+    to: recipient.id,
+    body: "This queued task",
+    interrupt: true,
+    conversationId: queued.conversation_id!,
+  });
+  expect(explicitQueue.delivery).toBe("queued");
+  expect(mail(explicitQueue.messageId)).toMatchObject({
+    recipient_conversation_id: queued.conversation_id,
+    steering_id: null,
+  });
+  const foreign = agent("other-interrupt-owner", "foreign", harness("codex"));
+  const foreignRun = running("other-interrupt-owner", foreign.id, {});
+  for (const conversationId of [
+    source.conversation_id,
+    foreignRun.conversation_id,
+  ])
+    expect(() =>
+      sendMail(source, "invalid-" + conversationId, {
+        to: recipient.id,
+        body: "Wrong destination",
+        interrupt: true,
+        threadId: automatic.threadId,
+        conversationId: conversationId!,
+      }),
+    ).toThrow(/bound conversation is unavailable/);
+});
+
+it.each(["completed", "paused", "awaiting_approval"] as const)(
+  "uses normal routing for direct interrupts when the recipient's only task is %s",
+  (state) => {
+    const owner = "direct-interrupt-inactive-" + state;
+    const sender = agent(owner, "sender"),
+      recipient = agent(owner, "recipient", harness("codex"));
+    const source = running(owner, sender.id, {}),
+      target = running(owner, recipient.id, {});
+    if (state === "paused") transition(target, "pausing");
+    transition(runOf(target.id), state);
+    const sent = sendMail(source, "interrupt", {
+      to: recipient.id,
+      body: "Next task",
+      interrupt: true,
+    });
+    expect(sent.delivery).toBe(state === "completed" ? "new_turn" : "queued");
+    expect(mail(sent.messageId).steering_id).toBeNull();
+    expect(mail(sent.messageId).recipient_conversation_id).not.toBe(
+      target.conversation_id,
+    );
+    const reply = sendMail(source, "interrupt-reply", {
+      to: recipient.id,
+      body: "Same destination",
+      interrupt: true,
+      threadId: sent.threadId,
+    });
+    expect(mail(reply.messageId).recipient_conversation_id).toBe(
+      mail(sent.messageId).recipient_conversation_id,
+    );
+  },
+);
+
+it.each(["pending", "held"])(
+  "keeps an interrupt's selected destination when %s mail is released",
+  (state) => {
+    const owner = "direct-interrupt-" + state;
+    const sender = agent(owner, "sender"),
+      recipient = agent(owner, "recipient", harness("codex"));
+    const source = running(owner, sender.id, {}),
+      target = running(owner, recipient.id, {});
+    const first = sendMail(source, "ordinary", {
+      to: recipient.id,
+      body: "When free",
+    });
+    if (state === "held")
+      db.prepare("UPDATE agent_threads SET paused_at=? WHERE id=?").run(
+        now(),
+        first.threadId,
+      );
+    else
+      db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+        recipient.connection_id,
+      );
+    const input = {
+      to: recipient.id,
+      body: "For the current task",
+      interrupt: true,
+      threadId: first.threadId,
+    };
+    const accepted = sendMail(source, "interrupt", input);
+    expect(accepted.delivery).toBe(state);
+    expect(mail(accepted.messageId).recipient_conversation_id).toBe(
+      target.conversation_id,
+    );
+    transition(target, "completed");
+    db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+      recipient.connection_id,
+    );
+    const next = running(owner, recipient.id, {});
+    if (state === "held") resumeThread(owner, null, accepted.threadId);
+    else sweepAgentMail(now() + 600000);
+    const delivered = mail(accepted.messageId);
+    expect(delivered).toMatchObject({
+      state: "sent",
+      delivery: "queued",
+      steering_id: null,
+      recipient_conversation_id: target.conversation_id,
+    });
+    expect(delivered.run_id).not.toBe(next.id);
+    expect(sendMail(source, "interrupt", input).messageId).toBe(
+      accepted.messageId,
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) n FROM runs WHERE owner_id=? AND idempotency_key=?",
+        )
+        .get(owner, `mail:${source.id}:interrupt`),
+    ).toEqual({ n: 1 });
   },
 );
 

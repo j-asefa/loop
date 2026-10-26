@@ -418,6 +418,22 @@ function steerable(owner: string, conversation: string, recipient: string) {
     .get(found.run.id);
 }
 
+// Resolve direct interrupts when accepting the message, before holding or
+// dispatching it. Recovery must keep that destination if the active task changes.
+function currentConversation(owner: string, recipient: string) {
+  return (
+    db
+      .prepare(
+        `SELECT r.conversation_id FROM runs r
+         JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id AND c.agent_id=r.agent_id
+         WHERE r.owner_id=? AND r.agent_id=? AND r.kind='agent' AND r.state='running'
+           AND NOT EXISTS(SELECT 1 FROM agent_checkpoints p WHERE p.run_id=r.id AND p.stage='done')
+         ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1`,
+      )
+      .get(owner, recipient) as { conversation_id: string } | undefined
+  )?.conversation_id;
+}
+
 // What the recipient's model reads. Agent input is never the user's.
 function wrap(
   team: Team | undefined,
@@ -556,17 +572,20 @@ function dispatch(
       "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
     )
     .get(thread.id, recipient.id) as { conversation_id: string | null };
+  const destination = mail.recipient_conversation_id ?? binding.conversation_id;
+  if (thread.scope === "direct" && destination)
+    mailConversation(mail.owner_id, recipient.id, destination);
   const routed =
     thread.scope === "direct"
       ? {
-          conversationId: binding.conversation_id || undefined,
+          conversationId: destination || undefined,
           active:
-            !!binding.conversation_id &&
+            !!destination &&
             !!db
               .prepare(
                 `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND state IN ${ACTIVE}`,
               )
-              .get(mail.owner_id, recipient.id, binding.conversation_id),
+              .get(mail.owner_id, recipient.id, destination),
         }
       : route(team!, recipient.id, thread, senderRun, preferParent);
   const steer =
@@ -861,7 +880,7 @@ export function sendMail(
             { conversation_id: string | null } | undefined;
           if (
             thread.scope !== "direct" ||
-            bound?.conversation_id !== args.conversationId
+            (!args.interrupt && bound?.conversation_id !== args.conversationId)
           )
             throw new Problem(
               409,
@@ -891,8 +910,6 @@ export function sendMail(
           throw new Problem(409, "Agent mail needs a sender conversation.");
         if (scope === "direct") {
           mailConversation(run.owner_id, run.agent_id!, run.conversation_id);
-          if (args.conversationId)
-            mailConversation(run.owner_id, recipient.id, args.conversationId);
         }
         thread = createThread(
           scope === "team" ? activeTeam : undefined,
@@ -907,6 +924,31 @@ export function sendMail(
       if (thread.scope === "team") {
         join(thread.id, run.agent_id!, run.conversation_id);
         join(thread.id, recipient.id, null);
+      }
+      let destination = (
+        db
+          .prepare(
+            "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
+          )
+          .get(thread.id, recipient.id) as { conversation_id: string | null }
+      ).conversation_id;
+      if (thread.scope === "direct") {
+        const automatic =
+          args.interrupt && !args.conversationId
+            ? currentConversation(run.owner_id, recipient.id)
+            : undefined;
+        destination = args.conversationId ?? automatic ?? destination;
+        if (destination) {
+          try {
+            mailConversation(run.owner_id, recipient.id, destination);
+          } catch (error) {
+            if (!automatic || !(error instanceof MailRefusal)) throw error;
+            throw new MailRefusal(
+              error.status,
+              "The recipient's current running conversation cannot accept agent mail. Send without interrupt or specify another conversationId.",
+            );
+          }
+        }
       }
       if (
         count(
@@ -927,13 +969,7 @@ export function sendMail(
         sender_run_id: run.id,
         sender_conversation_id: run.conversation_id,
         recipient_agent_id: recipient.id,
-        recipient_conversation_id: (
-          db
-            .prepare(
-              "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
-            )
-            .get(thread.id, recipient.id) as { conversation_id: string | null }
-        ).conversation_id,
+        recipient_conversation_id: destination,
         body: args.body,
         file_ids: JSON.stringify(files),
         interrupt: args.interrupt ? 1 : 0,

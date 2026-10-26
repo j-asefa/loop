@@ -16,7 +16,7 @@ export const messageSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Deliver into the recipient's bound running task now, where its runtime takes live input. By default the message waits until that task finishes.",
+      "Deliver into the recipient's running task where live input is supported. Direct messages select its most recent running conversation, even with threadId; conversationId overrides this. Otherwise normal routing and queuing apply.",
     ),
   fileIds: z
     .array(z.string().uuid())
@@ -38,7 +38,7 @@ export const messageSchema = z.object({
     .max(200)
     .optional()
     .describe(
-      "Select the recipient's conversation for a new direct thread. Replies keep the stored binding.",
+      "Select a direct recipient conversation. With interrupt, overrides automatic selection even in an existing thread; otherwise replies keep their stored destination.",
     ),
 });
 export const directorySchema = z.object({
