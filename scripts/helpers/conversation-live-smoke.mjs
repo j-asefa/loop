@@ -32,7 +32,15 @@ export async function conversationLiveSmoke(page, capture) {
          VALUES(?,?,?,?,?,'assistant',?,'{"progress":true}',?)
          ON CONFLICT(owner_id,run_id,update_key) DO UPDATE SET content=excluded.content`,
         )
-        .run(randomUUID(), fixture.owner, conversation.id, conversation.run, key, content, Date.now());
+        .run(
+          randomUUID(),
+          fixture.owner,
+          conversation.id,
+          conversation.run,
+          key,
+          content,
+          Date.now(),
+        );
       changed();
       return fixture.db
         .prepare("SELECT id FROM messages WHERE run_id=? AND update_key=?")
@@ -64,44 +72,67 @@ export async function conversationLiveSmoke(page, capture) {
       .get(conversation.run).content;
     assert.ok(feedPreview.trim(), "The running fixture has a result preview");
     const connection = fixture.db
-      .prepare("SELECT c.id,c.metadata FROM agents a JOIN connections c ON c.id=a.connection_id WHERE a.id=?")
+      .prepare(
+        "SELECT c.id,c.metadata FROM agents a JOIN connections c ON c.id=a.connection_id WHERE a.id=?",
+      )
       .get(agent);
-    const setEnvironment = (location) => fixture.db
-      .prepare("UPDATE connections SET metadata=json_set(metadata,'$.location',?) WHERE id=?")
-      .run(location, connection.id);
-    const workingCard = page.locator(".inbox-card").filter({ hasText: conversation.title });
+    const setEnvironment = (location) =>
+      fixture.db
+        .prepare(
+          "UPDATE connections SET metadata=json_set(metadata,'$.location',?) WHERE id=?",
+        )
+        .run(location, connection.id);
+    const workingCard = page
+      .locator(".inbox-card")
+      .filter({ hasText: conversation.title });
     // The badge fixture changes a connection other fixture agents share;
     // restore it even when an assertion fails.
     try {
       setEnvironment("laptop");
-      fixture.db.prepare(
-        "UPDATE artifacts SET content='' WHERE id=(SELECT artifact_id FROM agent_checkpoints WHERE run_id=?)",
-      ).run(conversation.run);
+      fixture.db
+        .prepare(
+          "UPDATE artifacts SET content='' WHERE id=(SELECT artifact_id FROM agent_checkpoints WHERE run_id=?)",
+        )
+        .run(conversation.run);
       // A running thread is under Working, not Done.
       await page.goto(fixture.base + "/?filter=working", {
         waitUntil: "networkidle",
       });
-      await expect(workingCard.locator(".inbox-awaiting-update")).toContainText("Waiting for agent update");
+      await expect(workingCard.locator(".inbox-awaiting-update")).toContainText(
+        "Waiting for agent update",
+      );
       await expect(workingCard.locator(".inbox-you")).toHaveCount(0);
       const bootstrap = await fixture.api("/bootstrap");
-      await expect(workingCard.locator(".agent-environment.laptop")).toHaveText(bootstrap.environmentName);
+      await expect(workingCard.locator(".agent-environment.laptop")).toHaveText(
+        bootstrap.environmentName,
+      );
       // Feed metadata uses the neutral design.css style. The environment is
       // distinguished by its visible label and icon, not a background color.
-      await expect(workingCard.locator(".agent-environment .lucide-laptop")).toBeVisible();
+      await expect(
+        workingCard.locator(".agent-environment .lucide-laptop"),
+      ).toBeVisible();
       setEnvironment("docker");
       await page.reload();
-      await expect(workingCard.locator(".agent-environment.docker")).toHaveText("Docker");
-      await expect(workingCard.locator(".agent-environment .lucide-container")).toBeVisible();
+      await expect(workingCard.locator(".agent-environment.docker")).toHaveText(
+        "Docker",
+      );
+      await expect(
+        workingCard.locator(".agent-environment .lucide-container"),
+      ).toBeVisible();
     } finally {
-      fixture.db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(connection.metadata, connection.id);
-      fixture.db.prepare(
-        "UPDATE artifacts SET content=? WHERE id=(SELECT artifact_id FROM agent_checkpoints WHERE run_id=?)",
-      ).run(feedPreview, conversation.run);
+      fixture.db
+        .prepare("UPDATE connections SET metadata=? WHERE id=?")
+        .run(connection.metadata, connection.id);
+      fixture.db
+        .prepare(
+          "UPDATE artifacts SET content=? WHERE id=(SELECT artifact_id FROM agent_checkpoints WHERE run_id=?)",
+        )
+        .run(feedPreview, conversation.run);
     }
     await page.reload();
-    await expect(
-      workingCard.locator(".live-preview"),
-    ).toContainText(feedPreview.replaceAll("**", ""));
+    await expect(workingCard.locator(".live-preview")).toContainText(
+      feedPreview.replaceAll("**", ""),
+    );
     await page.goto(`${fixture.base}/?conversation=${conversation.id}`);
     const transcript = page.locator(".conversation-sheet .messages");
     await expect(

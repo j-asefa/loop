@@ -79,7 +79,10 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
     );
   }
   releaseName();
-  const start = sheet.getByRole("button", { name: "Start chatting", exact: true });
+  const start = sheet.getByRole("button", {
+    name: "Start chatting",
+    exact: true,
+  });
   await expect(start).toBeEnabled();
   assert.equal(requests, 0, "Opening the screen does not create an agent");
   assert.equal(count(), before);

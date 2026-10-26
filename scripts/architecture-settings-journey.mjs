@@ -7,7 +7,9 @@ export async function architectureSettingsJourney(page) {
   await openSettings(page);
   await page.getByRole("button", { name: /Execution environments/ }).click();
   await expect(page.getByText("No machines added")).toBeVisible();
-  await expect(page.getByRole("dialog", {name:"Runtime machines",exact:true})).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Runtime machines", exact: true }),
+  ).toBeVisible();
   for (const width of [320, 390, 1024]) {
     await page.setViewportSize({ width, height: 844 });
     assert.equal(

@@ -38,7 +38,10 @@ export async function isolatedBrowserEnv() {
 }
 
 export async function openChatOptions(page) {
-  const options = page.getByRole("button", { name: "Chat options", exact: true });
+  const options = page.getByRole("button", {
+    name: "Chat options",
+    exact: true,
+  });
   if ((await options.getAttribute("aria-expanded")) !== "true")
     await options.click();
 }

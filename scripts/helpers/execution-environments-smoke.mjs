@@ -33,13 +33,20 @@ export async function executionEnvironmentsSmoke(
     setEnvironment("laptop", "This laptop");
     await page.goto(fixture.base + "/?filter=working");
     const card = page.locator(".inbox-card").filter({ hasText: thread.title });
-    const strip = page.getByRole("region", { name: "Your agents", exact: true });
-    await expect(card.locator(".agent-environment.laptop")).toHaveText(computer);
-    await expect(strip.locator(".agent-shortcut-environment").first()).toHaveText(
+    const strip = page.getByRole("region", {
+      name: "Your agents",
+      exact: true,
+    });
+    await expect(card.locator(".agent-environment.laptop")).toHaveText(
       computer,
     );
+    await expect(
+      strip.locator(".agent-shortcut-environment").first(),
+    ).toHaveText(computer);
     const checkDestinations = async (names) => {
-      await strip.getByRole("button", { name: "New agent", exact: true }).click();
+      await strip
+        .getByRole("button", { name: "New agent", exact: true })
+        .click();
       const sheet = page.getByRole("dialog", { name: "New chat" });
       await sheet.getByText("Customize", { exact: true }).click();
       for (const [id, name] of names) {
@@ -75,10 +82,12 @@ export async function executionEnvironmentsSmoke(
       .prepare("UPDATE agents SET connection_id=? WHERE id=?")
       .run(secondId, connection.agent_id);
     await page.reload();
-    await expect(card.locator(".agent-environment.docker")).toHaveText(computer);
-    await expect(strip.locator(".agent-shortcut-environment").first()).toHaveText(
-      secondName,
+    await expect(card.locator(".agent-environment.docker")).toHaveText(
+      computer,
     );
+    await expect(
+      strip.locator(".agent-shortcut-environment").first(),
+    ).toHaveText(secondName);
     await checkDestinations([
       [connection.id, computer],
       [secondId, secondName],

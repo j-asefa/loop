@@ -13,7 +13,9 @@ export async function agentCreationJourney(page, api) {
   await page.reload();
   const button = (name) => page.getByRole("button", { name, exact: true });
   const open = async () => {
-    await page.getByRole("button", { name: /^(New agent|Start chatting)$/ }).click();
+    await page
+      .getByRole("button", { name: /^(New agent|Start chatting)$/ })
+      .click();
     await page
       .getByRole("dialog", { name: "New chat", exact: true })
       .getByText("Customize", { exact: true })

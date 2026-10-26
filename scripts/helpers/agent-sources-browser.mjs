@@ -153,7 +153,9 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     return discoveryFailed ? unavailable(route) : fulfill(route, sources);
   };
   const visible = (route, thread) =>
-    ["needs", "queued"].includes(new URL(route.request().url()).searchParams.get("filter"))
+    ["needs", "queued"].includes(
+      new URL(route.request().url()).searchParams.get("filter"),
+    )
       ? []
       : [thread];
   const localBootstrap = (route) =>
@@ -215,7 +217,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     if (match[2].startsWith("objects/"))
       return route.fulfill({ contentType: "text/plain", body: "hello" });
     if (match[2] === "agents" && route.request().method() === "POST") {
-      creations.push({ source: decodeURIComponent(match[1]), ...route.request().postDataJSON() });
+      creations.push({
+        source: decodeURIComponent(match[1]),
+        ...route.request().postDataJSON(),
+      });
       // Keep the form open to test retries without dispatching a real run.
       return unavailable(route);
     }
@@ -252,7 +257,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       strip.getByRole("button", { name: /@laptop-agent/ }),
     ).toContainText(computer);
     await expect(
-      page.locator(".inbox-card").filter({ hasText: "Laptop thread" }).locator(".card-environment"),
+      page
+        .locator(".inbox-card")
+        .filter({ hasText: "Laptop thread" })
+        .locator(".card-environment"),
     ).toHaveText(computer);
     await expect(
       page.locator(".inbox-row").filter({ hasText: "Laptop thread" }),
@@ -284,17 +292,20 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     // arrives. Previously the Feed dropped that event and never read the
     // failing source, depending on timing in Chromium CI.
     const inboxStarted = new Promise((started) => {
-      holdNextInbox = () => new Promise((release) => {
-        releaseInbox = release;
-        started();
-      });
+      holdNextInbox = () =>
+        new Promise((release) => {
+          releaseInbox = release;
+          started();
+        });
     });
     const remoteReads = sources.map((source) =>
       page.waitForResponse((response) => {
         const url = new URL(response.url());
-        return url.pathname ===
-          `/api/agent-sources/${encodeURIComponent(source.id)}/feed` &&
-          response.ok();
+        return (
+          url.pathname ===
+            `/api/agent-sources/${encodeURIComponent(source.id)}/feed` &&
+          response.ok()
+        );
       }),
     );
     await page.evaluate(() =>
@@ -395,24 +406,44 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     const dockerRunner = `${sources[0].id}:${records.get(sources[0].id).connection.id}`;
     await destinations.selectOption(dockerRunner);
     await sheet.getByLabel("Unique name").fill("docker-files");
-    await sheet.getByLabel("First message", { exact: true }).fill("Read these files");
-    await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeEnabled();
+    await sheet
+      .getByLabel("First message", { exact: true })
+      .fill("Read these files");
+    await expect(
+      sheet.getByRole("button", { name: "Add attachments", exact: true }),
+    ).toBeEnabled();
     await sheet.getByLabel("Attach files", { exact: true }).setInputFiles({
-      name: "brief.txt", mimeType: "text/plain", buffer: Buffer.from("hello"),
+      name: "brief.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("hello"),
     });
-    await expect(sheet.getByRole("list", { name: "Attached files" })).toContainText("attachment-0.txt");
+    await expect(
+      sheet.getByRole("list", { name: "Attached files" }),
+    ).toContainText("attachment-0.txt");
     assert.equal(uploads[0].source, sources[0].id);
-    await sheet.getByRole("button", { name: "Preview attachment-0.txt" }).click();
+    await sheet
+      .getByRole("button", { name: "Preview attachment-0.txt" })
+      .click();
     await expect(page.locator(".file-preview-content pre")).toHaveText("hello");
-    await page.locator("dialog[open]").last().getByRole("button", { name: "Close", exact: true }).click();
+    await page
+      .locator("dialog[open]")
+      .last()
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await destinations.selectOption(`laptop:${local.connection.id}`);
     await expect(sheet.locator(".connection-details")).toContainText(computer);
     await expect(sheet).not.toContainText("This laptop");
-    await expect(sheet.getByRole("button", { name: "Start chatting" })).toBeDisabled();
-    await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeDisabled();
+    await expect(
+      sheet.getByRole("button", { name: "Start chatting" }),
+    ).toBeDisabled();
+    await expect(
+      sheet.getByRole("button", { name: "Add attachments", exact: true }),
+    ).toBeDisabled();
     await destinations.selectOption(dockerRunner);
     await sheet.getByRole("button", { name: "Start chatting" }).click();
-    await expect(sheet.getByRole("alert")).toContainText("Fixture connection interrupted");
+    await expect(sheet.getByRole("alert")).toContainText(
+      "Fixture connection interrupted",
+    );
     assert.deepEqual(creations[0].attachmentIds, [uploads[0].file.id]);
     assert.equal(creations[0].source, sources[0].id);
     await sheet.getByRole("button", { name: "Start chatting" }).click();
@@ -421,7 +452,13 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
 
     await sheet.getByRole("button", { name: "Close", exact: true }).click();
     await page.waitForFunction(() => history.state?.loopSheet !== true);
-    await sourceConversationBrowser(page, workspaceUrl, { sources, records, local, fulfill, unavailable });
+    await sourceConversationBrowser(page, workspaceUrl, {
+      sources,
+      records,
+      local,
+      fulfill,
+      unavailable,
+    });
 
     // On a Docker source page, the laptop's empty source id still means the
     // laptop: opening its card leaves the Docker source.

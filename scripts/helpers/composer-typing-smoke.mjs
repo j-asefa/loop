@@ -151,7 +151,10 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
       await expect(input).toHaveValue(text);
       await expect(input).toBeFocused();
       expect(
-        await input.evaluate((element) => [element.selectionStart, element.selectionEnd]),
+        await input.evaluate((element) => [
+          element.selectionStart,
+          element.selectionEnd,
+        ]),
         "A workspace refresh must preserve the composer's selected text",
       ).toEqual([7, 14]);
       await capture("typing-" + mode);

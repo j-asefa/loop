@@ -89,7 +89,9 @@ async function createAgent(name, provider, connection, prompt, beforeCreate) {
     .getByText("Customize", { exact: true })
     .click();
   const dialog = page.getByRole("dialog", { name: "New chat" });
-  await dialog.getByLabel("Provider", { exact: true }).selectOption({ label: provider });
+  await dialog
+    .getByLabel("Provider", { exact: true })
+    .selectOption({ label: provider });
   await dialog.getByLabel("Run on").selectOption(`laptop:${connection}`);
   await expect(dialog.getByLabel("Run on")).toHaveValue(`laptop:${connection}`);
   await dialog.getByLabel("Unique name").fill(name);

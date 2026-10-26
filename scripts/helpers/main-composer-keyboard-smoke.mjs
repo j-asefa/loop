@@ -19,11 +19,15 @@ export async function mainComposerKeyboardSmoke(page, fixture, capture) {
   });
   const files = dock.getByRole("list", { name: "Attached files" });
   await expect(files).toContainText("mobile-screenshot.txt");
-  await dock.getByRole("button", { name: "Clear message", exact: true }).click();
+  await dock
+    .getByRole("button", { name: "Clear message", exact: true })
+    .click();
   await expect(input).toHaveValue("");
   await expect(input).toBeFocused();
   await expect(files).toContainText("mobile-screenshot.txt");
-  await expect(dock.getByRole("button", { name: "Clear message", exact: true })).toHaveCount(0);
+  await expect(
+    dock.getByRole("button", { name: "Clear message", exact: true }),
+  ).toHaveCount(0);
   await input.fill("Keep my attached draft visible.");
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
