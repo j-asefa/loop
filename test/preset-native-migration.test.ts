@@ -64,9 +64,9 @@ it.each(["main", "native-preview", "fresh"])(
         );
         expect(JSON.parse(result)).toEqual({
           versions: readdirSync("migrations")
-            .filter(name => name.endsWith(".sql"))
-            .map(name => Number(name.split("-")[0]))
-            .filter(version => version >= 70)
+            .filter((name) => name.endsWith(".sql"))
+            .map((name) => Number(name.split("-")[0]))
+            .filter((version) => version >= 70)
             .sort((a, b) => a - b),
           presets: true,
           reviews: true,

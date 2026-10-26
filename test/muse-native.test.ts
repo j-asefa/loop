@@ -10,7 +10,10 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_TEST_MUSE_DIR = dir;
 process.env.LOOP_TEST_MUSE_LOG = join(dir, "requests");
-writeFileSync(join(dir, "muse-credential.json"), JSON.stringify({ state: "accountLogin" }));
+writeFileSync(
+  join(dir, "muse-credential.json"),
+  JSON.stringify({ state: "accountLogin" }),
+);
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
@@ -41,15 +44,33 @@ it("registers Muse Code as a live-input native connection and resumes its genera
     project: dir,
     billing: "existing",
   });
-  expect(registration.models.map((m: { id: string }) => m.id)).toContain("muse-spark-fixture");
+  expect(registration.models.map((m: { id: string }) => m.id)).toContain(
+    "muse-spark-fixture",
+  );
   const connection = ownedConnection("native-muse", OWNER);
-  expect(connection).toMatchObject({ provider: "muse", secret: "", status: "connected", owner_id: OWNER });
-  expect(harnessName({ ...connection, metadata: JSON.stringify(connection.metadata), models: JSON.stringify(connection.models) })).toBe("Muse Code");
+  expect(connection).toMatchObject({
+    provider: "muse",
+    secret: "",
+    status: "connected",
+    owner_id: OWNER,
+  });
+  expect(
+    harnessName({
+      ...connection,
+      metadata: JSON.stringify(connection.metadata),
+      models: JSON.stringify(connection.models),
+    }),
+  ).toBe("Muse Code");
   // Replies during a turn reach Muse through turn/steer, not the queue.
   expect(acceptsLiveInput(connection)).toBe(true);
-  expect(connection.metadata).toMatchObject({ loopHarness: "muse", authMode: "native-existing" });
+  expect(connection.metadata).toMatchObject({
+    loopHarness: "muse",
+    authMode: "native-existing",
+  });
   // Registration checks the account and catalog only: no session, no prompt.
-  expect(requests().some((r) => ["session/start", "turn/start"].includes(r.method))).toBe(false);
+  expect(
+    requests().some((r) => ["session/start", "turn/start"].includes(r.method)),
+  ).toBe(false);
   const agent = createAgent(OWNER, {
     name: "muse-agent",
     connectionId: connection.id,
@@ -63,24 +84,38 @@ it("registers Muse Code as a live-input native connection and resumes its genera
   const task = enqueue(OWNER, "Fixture", "muse-run", {
     conversation: "muse-conversation",
     agent: agent.id,
-    payload: { agentId: agent.id, name: agent.name, provider: "muse", folderId: null, connectionId: connection.id, model: "muse-spark-fixture", instructions: "Fixture instructions" },
+    payload: {
+      agentId: agent.id,
+      name: agent.name,
+      provider: "muse",
+      folderId: null,
+      connectionId: connection.id,
+      model: "muse-spark-fixture",
+      instructions: "Fixture instructions",
+    },
   });
   const first = await sessions.session(task);
   expect(first.binding.harness).toBe("muse");
   const saved = db
-    .prepare("SELECT native_id,generation FROM companion_sessions WHERE conversation_id='muse-conversation'")
+    .prepare(
+      "SELECT native_id,generation FROM companion_sessions WHERE conversation_id='muse-conversation'",
+    )
     .get() as any;
   expect(saved.native_id).toBe("01a16dbe-0000-7000-8000-000000000001");
   await sessions.dispose(first);
   const resumed = await sessions.session(task);
   expect(resumed.generation).not.toBe(saved.generation);
-  expect(requests().find((r) => r.method === "session/resume")?.params.sessionId).toBe(saved.native_id);
+  expect(
+    requests().find((r) => r.method === "session/resume")?.params.sessionId,
+  ).toBe(saved.native_id);
   // Neither creation nor resume replays work.
   expect(requests().filter((r) => r.method === "turn/start")).toEqual([]);
   await resumed.adapter.prompt("Explicit follow-up after restart");
   await until(() => requests().some((r) => r.method === "turn/start"));
   expect(
-    requests().filter((r) => r.method === "turn/start").map((r) => r.params.input[0].text),
+    requests()
+      .filter((r) => r.method === "turn/start")
+      .map((r) => r.params.input[0].text),
   ).toEqual(["Fixture instructions\n\nExplicit follow-up after restart"]);
   await sessions.dispose(resumed);
 });

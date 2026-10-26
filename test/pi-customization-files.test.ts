@@ -157,9 +157,11 @@ it("previews Pi positional defaults, quoted arguments and slices", () => {
 it("reads prompt bodies the way Pi's extractFrontmatter does", () => {
   expect(piPromptBody("\uFEFF---\ndescription: x\n---\nBody")).toBe("Body");
   expect(piPromptBody("---\ndescription: x\n---")).toBe("");
-  expect(piPromptBody("---\r\ndescription: x\r\n---\r\n\r\nLine one\r\nLine two\r\n")).toBe(
-    "Line one\nLine two",
-  );
+  expect(
+    piPromptBody(
+      "---\r\ndescription: x\r\n---\r\n\r\nLine one\r\nLine two\r\n",
+    ),
+  ).toBe("Line one\nLine two");
   expect(piPromptBody("No frontmatter\r\n")).toBe("No frontmatter\n");
 });
 
@@ -171,13 +173,16 @@ it("runs Pi package commands past a large output and reports Pi's error line", a
   await expect(
     runPi(
       process.execPath,
-      ["-e", `console.error("npm warn deprecated"); console.error("Error: Path does not exist: /p/foo"); process.exit(1)`],
+      [
+        "-e",
+        `console.error("npm warn deprecated"); console.error("Error: Path does not exist: /p/foo"); process.exit(1)`,
+      ],
       { cwd: tmpdir() },
     ),
   ).rejects.toThrow("Error: Path does not exist: /p/foo");
-  expect(piErrorLine("Error: clone https://user:token@example.com/r.git failed")).toBe(
-    "Error: clone https://example.com/r.git failed",
-  );
+  expect(
+    piErrorLine("Error: clone https://user:token@example.com/r.git failed"),
+  ).toBe("Error: clone https://example.com/r.git failed");
 });
 
 it("inspects a local package without executing it and records an npm recovery pin", async () => {

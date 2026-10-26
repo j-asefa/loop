@@ -18,7 +18,9 @@ process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 gitProject(dir);
 const { db, changes } = await import("../src/server/db");
-db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)").run();
+db.prepare(
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)",
+).run();
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
@@ -59,9 +61,13 @@ function submit(conversation: string, harness: string, key: string) {
     "INSERT OR IGNORE INTO conversations(id,owner_id,title,created_at) VALUES(?,'local-workspace','Recovery',0)",
   ).run(conversation);
   return enqueue("local-workspace", "Check the review", key, {
-    conversation, agent: "worktree-fixture",
+    conversation,
+    agent: "worktree-fixture",
     payload: {
-      agentId: "worktree-fixture", name: "Fixture", provider: harness === "claude" ? "anthropic" : harness, folderId: null,
+      agentId: "worktree-fixture",
+      name: "Fixture",
+      provider: harness === "claude" ? "anthropic" : harness,
+      folderId: null,
       connectionId: `native-${harness}`,
       model: "fixture",
       instructions: "",
@@ -90,7 +96,9 @@ it("keeps the user run open across injected Claude results and saves its actual 
     "it belongs to a different native session",
     "it belongs to a child tool session",
   ])
-    expect(dropped.filter((line) => line.includes(reason)).length).toBeGreaterThan(0);
+    expect(
+      dropped.filter((line) => line.includes(reason)).length,
+    ).toBeGreaterThan(0);
   expect(
     db.prepare("SELECT state,result,error FROM runs WHERE id=?").get(run.id),
   ).toEqual({ state: "completed", result: "Fixture done", error: null });
@@ -126,7 +134,16 @@ it("reports a Codex writer conflict without dispatch, takeover or raw native err
   const run = submit("codex-busy", "codex", "codex-busy");
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'private-native-thread','idle',0,'old',?,'worktree-fixture')",
-  ).run("codex-busy", agentWorktree(dir, dir, {ownerId:"local-workspace",agentId:"worktree-fixture",environmentId:dir,projectId:dir}), dir);
+  ).run(
+    "codex-busy",
+    agentWorktree(dir, dir, {
+      ownerId: "local-workspace",
+      agentId: "worktree-fixture",
+      environmentId: dir,
+      projectId: dir,
+    }),
+    dir,
+  );
   expect(await tick(execute)).toBe(true);
   const result = db
     .prepare("SELECT state,error FROM runs WHERE id=?")
@@ -177,7 +194,16 @@ it("recognises a reworded Codex writer conflict instead of leaking the native er
   const run = submit("codex-reworded", "codex", "codex-reworded");
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'other-native-thread','idle',0,'old',?,'worktree-fixture')",
-  ).run("codex-reworded", agentWorktree(dir, dir, {ownerId:"local-workspace",agentId:"worktree-fixture",environmentId:dir,projectId:dir}), dir);
+  ).run(
+    "codex-reworded",
+    agentWorktree(dir, dir, {
+      ownerId: "local-workspace",
+      agentId: "worktree-fixture",
+      environmentId: dir,
+      projectId: dir,
+    }),
+    dir,
+  );
   expect(await tick(execute)).toBe(true);
   const result = db
     .prepare("SELECT state,error FROM runs WHERE id=?")
@@ -193,34 +219,60 @@ it("recognises a reworded Codex writer conflict instead of leaking the native er
   ).toBeUndefined();
 });
 
-
-it.each([true, false])("interrupts a native turn through the cancel route (bus=%s)", async (enabled) => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  const { core } = await import("../src/server/core-routes");
-  const app = express();
-  app.use(express.json(), (_req, res, next) => { res.locals.owner = "local-workspace"; next(); });
-  app.use(core);
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
-  const run = submit(`cancel-${enabled}`, "codex", `cancel-${enabled}`);
-  db.prepare("UPDATE runs SET input='wait' WHERE id=?").run(run.id);
-  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
-  let finished = false;
-  const work = tick(execute).finally(() => { finished = true; });
-  try {
-    await until(() => (db.prepare("SELECT state FROM native_dispatch WHERE run_id=?").get(run.id) as any)?.state === "accepted");
-    const started = Date.now();
-    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
-    expect(response.status).toBe(200);
-    await until(() => finished, 2400);
-    await work;
-    expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
-    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "cancelled" });
-    expect(db.prepare("SELECT count(*) n FROM native_dispatch WHERE run_id=?").get(run.id)).toEqual({ n: 1 });
-  } finally {
-    bus?.mockRestore();
-    await nativeSessions.interrupt(run.id);
-    await work;
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
-}, 10000);
+it.each([true, false])(
+  "interrupts a native turn through the cancel route (bus=%s)",
+  async (enabled) => {
+    process.env.LOOP_TEST_HARNESS = "codex";
+    const { core } = await import("../src/server/core-routes");
+    const app = express();
+    app.use(express.json(), (_req, res, next) => {
+      res.locals.owner = "local-workspace";
+      next();
+    });
+    app.use(core);
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const run = submit(`cancel-${enabled}`, "codex", `cancel-${enabled}`);
+    db.prepare("UPDATE runs SET input='wait' WHERE id=?").run(run.id);
+    const bus = enabled
+      ? undefined
+      : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+    let finished = false;
+    const work = tick(execute).finally(() => {
+      finished = true;
+    });
+    try {
+      await until(
+        () =>
+          (
+            db
+              .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+              .get(run.id) as any
+          )?.state === "accepted",
+      );
+      const started = Date.now();
+      const response = await fetch(
+        `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
+        { method: "POST" },
+      );
+      expect(response.status).toBe(200);
+      await until(() => finished, 2400);
+      await work;
+      expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
+      expect(
+        db.prepare("SELECT state FROM runs WHERE id=?").get(run.id),
+      ).toEqual({ state: "cancelled" });
+      expect(
+        db
+          .prepare("SELECT count(*) n FROM native_dispatch WHERE run_id=?")
+          .get(run.id),
+      ).toEqual({ n: 1 });
+    } finally {
+      bus?.mockRestore();
+      await nativeSessions.interrupt(run.id);
+      await work;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  },
+  10000,
+);

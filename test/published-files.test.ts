@@ -1,5 +1,14 @@
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync, truncateSync, utimesSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+  linkSync,
+  truncateSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -29,7 +38,8 @@ const { runtimeKey, runtimeWorkspaceKey } =
   await import("../src/server/subscriptions");
 const { core } = await import("../src/server/core-routes");
 const { workspace: routes } = await import("../src/server/workspace-routes");
-const { resultsRevision, resultsUpdates } = await import("../src/server/results");
+const { resultsRevision, resultsUpdates } =
+  await import("../src/server/results");
 const { agentMessages } = await import("../src/server/agent-messages");
 const requests: any[] = [];
 let changeTransfer: ((chunk: any) => any) | undefined;
@@ -135,8 +145,16 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
   const saved = await publish(f, { path, title: "Home screen" });
   expect(saved.result.isError).not.toBe(true);
   const { parseArtifact } = await import("../src/server/row-schemas");
-  expect(parseArtifact(db.prepare("SELECT * FROM artifacts WHERE id=?").get(saved.artifactId)).metadata)
-    .toMatchObject({ uploaded: true, name: path, mime: "image/png", size: bytes.length });
+  expect(
+    parseArtifact(
+      db.prepare("SELECT * FROM artifacts WHERE id=?").get(saved.artifactId),
+    ).metadata,
+  ).toMatchObject({
+    uploaded: true,
+    name: path,
+    mime: "image/png",
+    size: bytes.length,
+  });
   expect(saved.value).toMatchObject({
     name: path,
     mime: "image/png",
@@ -239,7 +257,9 @@ it("makes small text files downloadable, with safe names and no inline active co
   });
   expect(artifact.content).toBe("<script>alert(1)</script>");
   const messagesId = id();
-  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+  ).run(
     messagesId,
     "alice",
     f.run.conversation_id,
@@ -482,45 +502,82 @@ it("reads files through the real runtime entry without launching a provider", ()
 it("lists durable profile files independently of feed visibility, with private filters and pagination", async () => {
   const f = fixture();
   const project = id();
-  db.prepare("INSERT INTO folders(id,owner_id,name,kind,created_at) VALUES(?,'alice','File library project','project',?)").run(project, now());
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,name,kind,created_at) VALUES(?,'alice','File library project','project',?)",
+  ).run(project, now());
   const ids: string[] = [];
   for (let i = 0; i < 42; i++) {
-    const saved = await publish(f, { title: `library-${i}.html`, content: `<h1>${i}</h1>` });
+    const saved = await publish(f, {
+      title: `library-${i}.html`,
+      content: `<h1>${i}</h1>`,
+    });
     ids.push(saved.artifactId);
   }
-  db.prepare("UPDATE artifacts SET feed_hidden=1,archived=1,folder_id=? WHERE agent_id=?").run(project, f.agent.id);
+  db.prepare(
+    "UPDATE artifacts SET feed_hidden=1,archived=1,folder_id=? WHERE agent_id=?",
+  ).run(project, f.agent.id);
   const child = id();
-  db.prepare("INSERT INTO folders(id,owner_id,name,kind,parent_id,created_at) VALUES(?,'alice','Deliverables','folder',?,?)").run(child, project, now());
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,name,kind,parent_id,created_at) VALUES(?,'alice','Deliverables','folder',?,?)",
+  ).run(child, project, now());
   db.prepare("UPDATE artifacts SET folder_id=? WHERE id=?").run(child, ids[0]);
   const url = `/me/files?agent=${f.agent.id}`;
   const first = await (await request(url)).json();
   expect(first.items).toHaveLength(40);
-  expect(first.items.map((file: any) => file.id)).toEqual(ids.slice(2).reverse());
-  expect(first.items[0]).toMatchObject({ agent_name: f.agent.name, project_name: "File library project", conversation_id: f.run.conversation_id });
-  expect(JSON.parse(first.items[0].metadata)).toMatchObject({ name: "library-41.html", mime: "text/html" });
+  expect(first.items.map((file: any) => file.id)).toEqual(
+    ids.slice(2).reverse(),
+  );
+  expect(first.items[0]).toMatchObject({
+    agent_name: f.agent.name,
+    project_name: "File library project",
+    conversation_id: f.run.conversation_id,
+  });
+  expect(JSON.parse(first.items[0].metadata)).toMatchObject({
+    name: "library-41.html",
+    mime: "text/html",
+  });
   const second = await (await request(`${url}&before=${first.next}`)).json();
-  expect(second.items.map((file: any) => file.id)).toEqual(ids.slice(0, 2).reverse());
+  expect(second.items.map((file: any) => file.id)).toEqual(
+    ids.slice(0, 2).reverse(),
+  );
   expect(second.next).toBeNull();
-  const nested = await (await request(`${url}&q=library-0&project=${project}`)).json();
+  const nested = await (
+    await request(`${url}&q=library-0&project=${project}`)
+  ).json();
   expect(nested.items.map((file: any) => file.id)).toEqual([ids[0]]);
   expect(nested.projects.map((folder: any) => folder.id)).toContain(project);
-  const search = await (await request(`${url}&q=LIBRARY-41&type=html&project=${project}`)).json();
+  const search = await (
+    await request(`${url}&q=LIBRARY-41&type=html&project=${project}`)
+  ).json();
   expect(search.items.map((file: any) => file.id)).toEqual([ids[41]]);
   expect((await (await request(`${url}&type=image`)).json()).items).toEqual([]);
   const other = await (await request("/me/files", "bob")).json();
   expect(other).toEqual({ items: [], next: null, agents: [], projects: [] });
   expect((await request(url, "bob")).status).toBe(404);
-  expect((await request(`/me/files?project=${project}`, "bob")).status).toBe(404);
+  expect((await request(`/me/files?project=${project}`, "bob")).status).toBe(
+    404,
+  );
   expect((await request("/me/files?before=-1")).status).toBe(400);
   expect((await request(`/artifacts/${ids[41]}/file`, "bob")).status).toBe(404);
-  expect(await (await request(`/artifacts/${ids[41]}/file`)).text()).toBe("<h1>41</h1>");
+  expect(await (await request(`/artifacts/${ids[41]}/file`)).text()).toBe(
+    "<h1>41</h1>",
+  );
 });
 
 it("publishes video MIME types for playback and library filtering", async () => {
   const f = fixture();
-  const saved = await publish(f, { title: "clip.mp4", content: "video fixture" });
+  const saved = await publish(f, {
+    title: "clip.mp4",
+    content: "video fixture",
+  });
   expect(saved.value.mime).toBe("video/mp4");
-  const page = await (await request(`/me/files?agent=${f.agent.id}&type=video`)).json();
+  const page = await (
+    await request(`/me/files?agent=${f.agent.id}&type=video`)
+  ).json();
   expect(page.items.map((file: any) => file.id)).toEqual([saved.artifactId]);
-  expect((await request(saved.value.downloadUrl.replace('/api', ''))).headers.get("content-type")).toContain("video/mp4");
+  expect(
+    (await request(saved.value.downloadUrl.replace("/api", ""))).headers.get(
+      "content-type",
+    ),
+  ).toContain("video/mp4");
 });

@@ -12,7 +12,8 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_PROFILE = "companion";
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
-const { createAuthDriver, setGeminiSignInScreenWait } = await import("../src/native-auth/drivers.js");
+const { createAuthDriver, setGeminiSignInScreenWait } =
+  await import("../src/native-auth/drivers.js");
 after(async () => {
   db.close();
   await rm(dir, { recursive: true, force: true });
@@ -202,7 +203,15 @@ test("out-of-band completion clears an obsolete prompt and selects validate thei
   }
 });
 
-for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"]) {
+for (const name of [
+  "codex",
+  "claude",
+  "pi",
+  "opencode",
+  "gemini",
+  "muse",
+  "grok",
+]) {
   test(`${name}: native sign-in protocol and credential storage without any model session`, async () => {
     const project = join(dir, name);
     await mkdir(project);
@@ -214,7 +223,9 @@ for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse", "grok
     );
     const auth = new NativeSignIns(createAuthDriver);
     const opts = {
-      name, executable, project,
+      name,
+      executable,
+      project,
       env: { HOME: project, LOOP_TEST_CLEAN_ENV: "1" },
     };
     const priorHostOnly = process.env.LOOP_TEST_HOST_ONLY;
@@ -312,7 +323,12 @@ test("Gemini ends a sign-in on a rejected code without authenticating or relayin
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
-  const opts = { name: "gemini", executable, project, env: { ...process.env, HOME: project } };
+  const opts = {
+    name: "gemini",
+    executable,
+    project,
+    env: { ...process.env, HOME: project },
+  };
   try {
     await auth.start(opts, "google", "oauth", randomUUID());
     await until(() => !!auth.status("gemini").attempt?.prompt);
@@ -343,7 +359,11 @@ test("Muse stores an API key through its own account API and signs out", async (
     name: "muse",
     executable,
     project,
-    env: { ...process.env, LOOP_TEST_AUTH_DIR: project, LOOP_TEST_MUSE_SILENT_KEY: "1" },
+    env: {
+      ...process.env,
+      LOOP_TEST_AUTH_DIR: project,
+      LOOP_TEST_MUSE_SILENT_KEY: "1",
+    },
   });
   try {
     assert.equal((await driver.providers())[0].configured, false);
@@ -360,7 +380,8 @@ test("Muse stores an API key through its own account API and signs out", async (
     });
     assert.deepEqual(prompts, ["secret"]);
     assert.equal(
-      JSON.parse(await readFile(join(project, "muse-credential.json"), "utf8")).key,
+      JSON.parse(await readFile(join(project, "muse-credential.json"), "utf8"))
+        .key,
       "fixture-super-private-provider-key",
     );
     assert.equal((await driver.providers())[0].configured, true);
@@ -382,12 +403,20 @@ test("Gemini with cached Google credentials completes without a code", async () 
   );
   setGeminiSignInScreenWait(200);
   const auth = new NativeSignIns(createAuthDriver);
-  const opts = { name: "gemini", executable, project, env: { ...process.env, HOME: project } };
+  const opts = {
+    name: "gemini",
+    executable,
+    project,
+    env: { ...process.env, HOME: project },
+  };
   try {
     await auth.start(opts, "google", "oauth", randomUUID());
     await until(() => auth.status("gemini").attempt?.state === "complete");
     assert.equal(auth.status("gemini").attempt?.prompt, undefined);
-    assert.match(await readFile(join(project, "auth-audit"), "utf8"), /gemini:authenticate/);
+    assert.match(
+      await readFile(join(project, "auth-audit"), "utf8"),
+      /gemini:authenticate/,
+    );
   } finally {
     setGeminiSignInScreenWait(15000);
     await auth.close();
@@ -405,7 +434,12 @@ test("Gemini relays the fresh URL when its sign-in screen opens after the cached
   );
   setGeminiSignInScreenWait(100);
   const auth = new NativeSignIns(createAuthDriver);
-  const opts = { name: "gemini", executable, project, env: { ...process.env, HOME: project } };
+  const opts = {
+    name: "gemini",
+    executable,
+    project,
+    env: { ...process.env, HOME: project },
+  };
   try {
     await auth.start(opts, "google", "oauth", randomUUID());
     // Gemini read Loop's initialize frame as a bad code and asked again.
@@ -414,7 +448,10 @@ test("Gemini relays the fresh URL when its sign-in screen opens after the cached
     assert.equal(new URL(attempt.url!).hostname, "accounts.google.com");
     auth.answer("gemini", attempt.id, attempt.prompt!.id, "fixture-code");
     await until(() => auth.status("gemini").attempt?.state === "complete");
-    assert.match(await readFile(join(project, "auth-audit"), "utf8"), /gemini:authenticate/);
+    assert.match(
+      await readFile(join(project, "auth-audit"), "utf8"),
+      /gemini:authenticate/,
+    );
   } finally {
     setGeminiSignInScreenWait(15000);
     await auth.close();
@@ -431,7 +468,12 @@ test("Gemini refuses an authorization URL carrying credentials without crashing"
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
-  const opts = { name: "gemini", executable, project, env: { ...process.env, HOME: project } };
+  const opts = {
+    name: "gemini",
+    executable,
+    project,
+    env: { ...process.env, HOME: project },
+  };
   try {
     await auth.start(opts, "google", "oauth", randomUUID());
     await until(() => auth.status("gemini").attempt?.state === "failed");
