@@ -76,7 +76,10 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
   const send = async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     requests.push(route.request().postDataJSON());
-    await route.fulfill({ status: 202, json: runReceipt(route.request(), "accepted") });
+    await route.fulfill({
+      status: 202,
+      json: runReceipt(route.request(), "accepted"),
+    });
   };
   try {
     await teamDirectorySmoke(page, fixture, second);

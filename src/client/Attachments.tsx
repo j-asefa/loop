@@ -66,8 +66,16 @@ export function AttachmentList({
         <FilePreview
           url={
             preview.published
-              ? routeUrl(workspaceApi.artifactFile, { params: { id: preview.id } }, sourceId)
-              : routeUrl(workspaceApi.objectFile, { params: { id: preview.objectId } }, sourceId)
+              ? routeUrl(
+                  workspaceApi.artifactFile,
+                  { params: { id: preview.id } },
+                  sourceId,
+                )
+              : routeUrl(
+                  workspaceApi.objectFile,
+                  { params: { id: preview.objectId } },
+                  sourceId,
+                )
           }
           name={preview.name}
           mime={preview.mime}
@@ -100,7 +108,11 @@ export function UploadButton({
 }) {
   const scopedSource = useSourceId();
   const sourceId = requestedSource ?? scopedSource;
-  const destination = JSON.stringify([sourceId, agentId ?? null, folderId ?? null]);
+  const destination = JSON.stringify([
+    sourceId,
+    agentId ?? null,
+    folderId ?? null,
+  ]);
   // iOS already offers Photo Library, Camera and Files in its native picker.
   // It cannot bypass that menu for an image input, so skip our duplicate sheet.
   // iPadOS can identify as a Mac when requesting desktop websites.
@@ -113,7 +125,10 @@ export function UploadButton({
   const destinationRef = useRef(destination);
   destinationRef.current = destination;
   const mounted = useRef(true);
-  const pending = useRef<{ controller: AbortController; finish: () => void } | null>(null);
+  const pending = useRef<{
+    controller: AbortController;
+    finish: () => void;
+  } | null>(null);
   useLayoutEffect(() => {
     mounted.current = true;
     setBusy(false);
@@ -156,14 +171,17 @@ export function UploadButton({
     }
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const task = { controller, finish: () => {
-      clearTimeout(timer);
-      if (pending.current !== task) return;
-      pending.current = null;
-      locked.current = false;
-      if (mounted.current) setBusy(false);
-      onBusy?.(false);
-    } };
+    const task = {
+      controller,
+      finish: () => {
+        clearTimeout(timer);
+        if (pending.current !== task) return;
+        pending.current = null;
+        locked.current = false;
+        if (mounted.current) setBusy(false);
+        onBusy?.(false);
+      },
+    };
     pending.current = task;
     locked.current = true;
     setBusy(true);
@@ -176,21 +194,45 @@ export function UploadButton({
         if (file.size > MAX_UPLOAD_BYTES)
           throw new Error("Files can be up to 25 MB each.");
         let result: RouteResponse<typeof workspaceApi.uploadCreate>;
-        timer = setTimeout(() => controller.abort(new DOMException("Upload timed out", "TimeoutError")), UPLOAD_TIMEOUT_MS);
+        timer = setTimeout(
+          () =>
+            controller.abort(
+              new DOMException("Upload timed out", "TimeoutError"),
+            ),
+          UPLOAD_TIMEOUT_MS,
+        );
         try {
-          result = await callRoute(workspaceApi.uploadCreate, {
-            body: { folderId: folderId || undefined, agentId: agentId || undefined }, file,
-          }, sourceId, controller.signal);
+          result = await callRoute(
+            workspaceApi.uploadCreate,
+            {
+              body: {
+                folderId: folderId || undefined,
+                agentId: agentId || undefined,
+              },
+              file,
+            },
+            sourceId,
+            controller.signal,
+          );
         } catch (error) {
           if ((error as Error).name === "TimeoutError")
-            throw new Error(`Uploading ${file.name} timed out. Check the connection and try again.`);
+            throw new Error(
+              `Uploading ${file.name} timed out. Check the connection and try again.`,
+            );
           throw error;
         }
         clearTimeout(timer);
-        if (mounted.current && pending.current === task && destinationRef.current === destination && !controller.signal.aborted) onUploaded(result);
+        if (
+          mounted.current &&
+          pending.current === task &&
+          destinationRef.current === destination &&
+          !controller.signal.aborted
+        )
+          onUploaded(result);
       }
     } catch (error) {
-      if (mounted.current && pending.current === task) setError((error as Error).message);
+      if (mounted.current && pending.current === task)
+        setError((error as Error).message);
     } finally {
       task.finish();
     }

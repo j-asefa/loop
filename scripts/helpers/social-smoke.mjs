@@ -68,14 +68,24 @@ export function seedFeeds(db, owner) {
 export async function socialSmoke(page, fixture, shot) {
   const { total, titles } = seedFeeds(fixture.db, fixture.owner);
   await page.goto(fixture.base + "/?page=profile&profileTab=messages");
-  await expect(page.getByRole("tab", { name: "Messages", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tab", { name: /^Social/ }).locator(".chip-count")).toHaveText(String(total));
+  await expect(
+    page.getByRole("tab", { name: "Messages", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("tab", { name: /^Social/ }).locator(".chip-count"),
+  ).toHaveText(String(total));
   await expect(page.locator(".news-card")).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole("tab", { name: /^Social/ }).locator(".chip-count")).toHaveText(String(total));
+  await expect(
+    page.getByRole("tab", { name: /^Social/ }).locator(".chip-count"),
+  ).toHaveText(String(total));
   // Explicit Later links outrank the previously selected profile tab.
-  await page.goto(fixture.base + "/?page=profile&profileTab=messages&later=reminders");
-  await expect(page.getByRole("tab", { name: "Reminders", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.goto(
+    fixture.base + "/?page=profile&profileTab=messages&later=reminders",
+  );
+  await expect(
+    page.getByRole("tab", { name: "Reminders", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
   await page.goto(fixture.base + "/?filter=social");
   const social = page.getByRole("list", { name: "Social" });
   await page.waitForSelector(".news-card");
@@ -199,10 +209,19 @@ export async function socialSmoke(page, fixture, shot) {
     "Search must find the story by a word in its title",
   );
   const searchTitle = await cards.first().locator("h2 a").innerText();
-  await cards.first().getByRole("button", { name: `Mark ${searchTitle} read`, exact: true }).click();
-  await page.getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true }).waitFor();
-  await page.getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true }).click();
-  await page.getByRole("button", { name: `Mark ${searchTitle} read`, exact: true }).waitFor();
+  await cards
+    .first()
+    .getByRole("button", { name: `Mark ${searchTitle} read`, exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: `Mark ${searchTitle} read`, exact: true })
+    .waitFor();
   await search.fill("");
   await page.waitForFunction(
     (n) => document.querySelectorAll(".news-card").length === n,
@@ -212,15 +231,31 @@ export async function socialSmoke(page, fixture, shot) {
   // Even a transport that ignores abort cannot paint a stale search result.
   await page.evaluate(() => {
     window.__socialFetch = window.fetch;
-    window.fetch = (input, init) => String(input).includes("/social/search?q=delayed")
-      ? new Promise(resolve => { window.__releaseSearch = () => resolve(new Response(JSON.stringify({ stories: [] }), { headers: { "content-type": "application/json" } })); })
-      : window.__socialFetch(input, init);
+    window.fetch = (input, init) =>
+      String(input).includes("/social/search?q=delayed")
+        ? new Promise((resolve) => {
+            window.__releaseSearch = () =>
+              resolve(
+                new Response(JSON.stringify({ stories: [] }), {
+                  headers: { "content-type": "application/json" },
+                }),
+              );
+          })
+        : window.__socialFetch(input, init);
   });
   await search.fill("delayed");
-  await page.waitForFunction(() => typeof window.__releaseSearch === "function");
+  await page.waitForFunction(
+    () => typeof window.__releaseSearch === "function",
+  );
   await search.fill("");
-  await page.evaluate(() => { window.__releaseSearch(); window.fetch = window.__socialFetch; });
-  await page.waitForFunction(n => document.querySelectorAll(".news-card").length === n, total);
+  await page.evaluate(() => {
+    window.__releaseSearch();
+    window.fetch = window.__socialFetch;
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".news-card").length === n,
+    total,
+  );
 
   // Unread-only hides what was just read.
   await page.getByRole("button", { name: "Unread", exact: true }).click();
@@ -382,19 +417,41 @@ export async function socialSmoke(page, fixture, shot) {
   await search.fill("postgres");
   await cards.first().waitFor();
   await page.getByRole("button", { name: "Unread", exact: true }).click();
-  await cards.first().getByRole("button", { name: `Mark ${searchTitle} read`, exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll(".news-card").length === 0);
+  await cards
+    .first()
+    .getByRole("button", { name: `Mark ${searchTitle} read`, exact: true })
+    .click();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".news-card").length === 0,
+  );
   await page.getByRole("button", { name: "Unread", exact: true }).click();
-  await page.getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true }).click();
-  await page.getByRole("button", { name: "Mark all read", exact: true }).click();
-  await page.getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Mark all read", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true })
+    .waitFor();
   assert.equal(await cards.first().getAttribute("data-unread"), null);
 
   // Notification links also accept catalog IDs that begin with a digit.
-  fixture.db.prepare("INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES(?, '404-media', ?)").run(fixture.owner, Date.now());
-  fixture.db.exec("INSERT INTO feed_state(feed_id,title,home,fetched_at,failures,stories) SELECT '404-media',title,home,fetched_at,failures,stories FROM feed_state WHERE feed_id='lobsters'");
-  fixture.db.exec("INSERT INTO feed_stories(feed_id,story_id,url,title,summary,story,published_at,first_seen_at,fetched_at) SELECT '404-media',story_id,'https://example.com/404',title,summary,json_set(story,'$.url','https://example.com/404'),published_at,first_seen_at,fetched_at FROM feed_stories WHERE feed_id='lobsters'");
-  await page.goto(fixture.base + "/?social=" + encodeURIComponent("404-media:s3"));
-  await page.locator('.news-card[data-focused="true"][data-story="404-media:s3"]').waitFor();
-
+  fixture.db
+    .prepare(
+      "INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES(?, '404-media', ?)",
+    )
+    .run(fixture.owner, Date.now());
+  fixture.db.exec(
+    "INSERT INTO feed_state(feed_id,title,home,fetched_at,failures,stories) SELECT '404-media',title,home,fetched_at,failures,stories FROM feed_state WHERE feed_id='lobsters'",
+  );
+  fixture.db.exec(
+    "INSERT INTO feed_stories(feed_id,story_id,url,title,summary,story,published_at,first_seen_at,fetched_at) SELECT '404-media',story_id,'https://example.com/404',title,summary,json_set(story,'$.url','https://example.com/404'),published_at,first_seen_at,fetched_at FROM feed_stories WHERE feed_id='lobsters'",
+  );
+  await page.goto(
+    fixture.base + "/?social=" + encodeURIComponent("404-media:s3"),
+  );
+  await page
+    .locator('.news-card[data-focused="true"][data-story="404-media:s3"]')
+    .waitFor();
 }

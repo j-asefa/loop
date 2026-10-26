@@ -65,18 +65,20 @@ export function directActivityUpdate(
           files: [
             {
               path: activity.path.slice(0, 4096),
-              ...(activity.oldPath && { oldPath: activity.oldPath.slice(0, 4096) }),
+              ...(activity.oldPath && {
+                oldPath: activity.oldPath.slice(0, 4096),
+              }),
               // The extractor's explicit operation (Codex add/delete/move)
               // wins; otherwise infer only from explicit null content.
               operation: activity.operation
                 ? activity.operation
                 : activity.oldPath
-                ? "rename"
-                : activity.before === null
-                  ? "create"
-                  : activity.after === null
-                    ? "delete"
-                    : "modify",
+                  ? "rename"
+                  : activity.before === null
+                    ? "create"
+                    : activity.after === null
+                      ? "delete"
+                      : "modify",
               ...(activity.patch !== undefined && { patch: activity.patch }),
               ...(activity.before !== undefined && { before: activity.before }),
               ...(activity.after !== undefined && { after: activity.after }),

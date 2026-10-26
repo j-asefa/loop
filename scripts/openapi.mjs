@@ -1,7 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { workspaceApi, CardErrorSchema } from "../src/shared/workspace-api.ts";
-import { PublicRuntimeAuth, PublicUpgradeView } from "../src/shared/companion-contract-schemas.ts";
+import {
+  PublicRuntimeAuth,
+  PublicUpgradeView,
+} from "../src/shared/companion-contract-schemas.ts";
 import { ActivityRecordSchema } from "../src/agent-activities.ts";
 import {
   ResultCardSchema,
@@ -12,20 +15,26 @@ import {
 import { CardTokenSchema } from "../src/shared/card-access.ts";
 // Request schemas describe accepted input (including transforms); responses
 // describe projected output. Both are populated only from workspaceApi.
-const registry = z.registry(), inputs = z.registry();
+const registry = z.registry(),
+  inputs = z.registry();
 // These published component names survive the registry merge. Operation IDs
 // follow workspaceApi's stable keys; this map is only a schema-name alias.
 const cardNames = {
-  cardList: "list", cardChanges: "changes", cardDetail: "detail",
-  cardTokens: "tokens", cardTokenCreate: "createToken", cardTokenRevoke: "revokeToken",
+  cardList: "list",
+  cardChanges: "changes",
+  cardDetail: "detail",
+  cardTokens: "tokens",
+  cardTokenCreate: "createToken",
+  cardTokenRevoke: "revokeToken",
 };
-const schemaName = name => cardNames[name] ?? name;
-const noBody = body => body instanceof z.ZodUndefined;
+const schemaName = (name) => cardNames[name] ?? name;
+const noBody = (body) => body instanceof z.ZodUndefined;
 const jsonOptions = {
   target: "draft-2020-12",
   // No JSON value satisfies NoBody. Keep its registered schema explicit while
   // omitting requestBody from the operation; other unsupported schemas fail.
-  unrepresentable: ({ zodSchema }) => zodSchema instanceof z.ZodUndefined ? { not: {} } : "throw",
+  unrepresentable: ({ zodSchema }) =>
+    zodSchema instanceof z.ZodUndefined ? { not: {} } : "throw",
 };
 for (const [id, schema] of Object.entries({
   ResultCard: ResultCardSchema,
@@ -44,15 +53,28 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   const prefix = schemaName(name);
   // Clones give shared Empty/NoBody and repeated responses distinct IDs.
   // Cards response identities retain their existing inter-component references.
-  registry.add(route.kind === "stream" ? z.string().meta({ format: "binary" }) : cardNames[name] ? route.response : route.response.clone(), { id: prefix + "Response" });
+  registry.add(
+    route.kind === "stream"
+      ? z.string().meta({ format: "binary" })
+      : cardNames[name]
+        ? route.response
+        : route.response.clone(),
+    { id: prefix + "Response" },
+  );
   inputs.add(route.params.clone(), { id: prefix + "Params" });
   inputs.add(route.query.clone(), { id: prefix + "Query" });
-  inputs.add(route.multipart ? route.body.extend({ file: z.string().meta({ format: "binary" }) }) : route.body.clone(), { id: prefix + "Body" });
+  inputs.add(
+    route.multipart
+      ? route.body.extend({ file: z.string().meta({ format: "binary" }) })
+      : route.body.clone(),
+    { id: prefix + "Body" },
+  );
 }
 function registeredSchemas(registry, io, sharedId) {
   const { schemas } = z.toJSONSchema(registry, {
-    ...jsonOptions, io,
-    uri: id => "#/components/schemas/" + (id === "__shared" ? sharedId : id),
+    ...jsonOptions,
+    io,
+    uri: (id) => "#/components/schemas/" + (id === "__shared" ? sharedId : id),
   });
   // Zod uses a shared resource for recursive JSON. Give input/output resources
   // distinct names and turn resource fragments into document JSON pointers.
@@ -63,7 +85,10 @@ function registeredSchemas(registry, io, sharedId) {
   function references(value) {
     if (!value || typeof value !== "object") return;
     if (typeof value.$ref === "string")
-      value.$ref = value.$ref.replace(/^(#\/components\/schemas\/[^#]+)#\//, "$1/");
+      value.$ref = value.$ref.replace(
+        /^(#\/components\/schemas\/[^#]+)#\//,
+        "$1/",
+      );
     for (const child of Object.values(value)) references(child);
   }
   for (const schema of Object.values(schemas)) {
@@ -114,14 +139,17 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   const response = {
     description: "Successful response",
     content: {
-      [route.kind === "stream" ? route.contentType ?? "application/octet-stream" : "application/json"]: {
+      [route.kind === "stream"
+        ? (route.contentType ?? "application/octet-stream")
+        : "application/json"]: {
         schema: { $ref: "#/components/schemas/" + prefix + "Response" },
       },
     },
   };
   const errorStatuses = [400, 401, 403, 429, 500];
   if (cardRead) errorStatuses.push(404);
-  if (name === "cardChanges" || name === "cardTokenCreate") errorStatuses.push(409);
+  if (name === "cardChanges" || name === "cardTokenCreate")
+    errorStatuses.push(409);
   if (name === "cardTokenRevoke") errorStatuses.push(404);
   const errors = Object.fromEntries(
     errorStatuses
@@ -171,12 +199,18 @@ for (const [name, route] of Object.entries(workspaceApi)) {
       { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
     ],
     ...(cardRead
-      ? { "x-card-grants": route.access === "card:results" ? ["results:read", "cards:read"] : ["cards:read"] }
+      ? {
+          "x-card-grants":
+            route.access === "card:results"
+              ? ["results:read", "cards:read"]
+              : ["cards:read"],
+        }
       : {}),
     ...(!noBody(route.body)
       ? {
           requestBody: {
-            required: !!route.multipart || !route.body.safeParse(undefined).success,
+            required:
+              !!route.multipart || !route.body.safeParse(undefined).success,
             content: {
               [route.multipart ? "multipart/form-data" : "application/json"]: {
                 schema: { $ref: "#/components/schemas/" + prefix + "Body" },
@@ -185,7 +219,14 @@ for (const [name, route] of Object.entries(workspaceApi)) {
           },
         }
       : {}),
-    responses: { ...Object.fromEntries([route.status ?? 200, ...(route.additionalStatuses ?? [])].map(status => [status, response])), ...errors },
+    responses: {
+      ...Object.fromEntries(
+        [route.status ?? 200, ...(route.additionalStatuses ?? [])].map(
+          (status) => [status, response],
+        ),
+      ),
+      ...errors,
+    },
   };
   paths[path] ||= {};
   paths[path][method] = operation;
@@ -251,11 +292,25 @@ const document = {
 function formatDocument(value, depth = 0) {
   if (depth >= 3 || !value || typeof value !== "object" || Array.isArray(value))
     return JSON.stringify(value);
-  const entries = Object.entries(value).filter(([, child]) => child !== undefined);
+  const entries = Object.entries(value).filter(
+    ([, child]) => child !== undefined,
+  );
   if (!entries.length) return "{}";
-  return "{\n" + entries.map(([key, child]) =>
-    " ".repeat(depth + 1) + JSON.stringify(key) + ": " + formatDocument(child, depth + 1),
-  ).join(",\n") + "\n" + " ".repeat(depth) + "}";
+  return (
+    "{\n" +
+    entries
+      .map(
+        ([key, child]) =>
+          " ".repeat(depth + 1) +
+          JSON.stringify(key) +
+          ": " +
+          formatDocument(child, depth + 1),
+      )
+      .join(",\n") +
+    "\n" +
+    " ".repeat(depth) +
+    "}"
+  );
 }
 const output = formatDocument(document) + "\n";
 const target = new URL("../docs/openapi.json", import.meta.url);

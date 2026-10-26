@@ -51,32 +51,56 @@ function githubFileApproval(params: any) {
   const approval = codexToolApproval(params);
   if (!approval) return;
   const meta = params._meta;
-  const generated = /^Allow the github MCP server to run tool "([^"]+)"\?$/i.exec(approval.message);
-  const name = typeof meta.tool_name === "string"
-    ? meta.tool_name
-    : generated?.[1] || approval.tool;
+  const generated =
+    /^Allow the github MCP server to run tool "([^"]+)"\?$/i.exec(
+      approval.message,
+    );
+  const name =
+    typeof meta.tool_name === "string"
+      ? meta.tool_name
+      : generated?.[1] || approval.tool;
   if (typeof name !== "string") return;
-  const namespaced = /^(?:github[./]|mcp__github__)/.test(name) ||
+  const namespaced =
+    /^(?:github[./]|mcp__github__)/.test(name) ||
     /^(?:github[./]|mcp__github__)/.test(approval.tool || "");
-  if (!namespaced && approval.server.toLowerCase() !== "github" && !generated) return;
+  if (!namespaced && approval.server.toLowerCase() !== "github" && !generated)
+    return;
   const tool = name.replace(/^(?:github[./]|mcp__github__)/, "");
-  if (!["create_tree", "push_files", "create_blob", "create_or_update_file",
-    "create_or_update_file_contents"].includes(tool)) return;
+  if (
+    ![
+      "create_tree",
+      "push_files",
+      "create_blob",
+      "create_or_update_file",
+      "create_or_update_file_contents",
+    ].includes(tool)
+  )
+    return;
   const args = approval.arguments;
   if (!args || typeof args !== "object" || Array.isArray(args)) return;
   const display = structuredClone(params);
   const projected = display._meta.tool_params;
-  const files = tool === "create_tree" ? projected.tree
-    : tool === "push_files" ? projected.files : [projected];
+  const files =
+    tool === "create_tree"
+      ? projected.tree
+      : tool === "push_files"
+        ? projected.files
+        : [projected];
   if (!Array.isArray(files)) return;
   // Many individually small files (including JSON escaping) can exceed the
   // display budget together. Keep small contents visible when they still fit.
-  const smallBytes = files.reduce((total, file) =>
-    typeof file?.content === "string" && Buffer.byteLength(file.content) <= 2048
-      ? total + Buffer.byteLength(JSON.stringify(file.content)) : total, 0);
+  const smallBytes = files.reduce(
+    (total, file) =>
+      typeof file?.content === "string" &&
+      Buffer.byteLength(file.content) <= 2048
+        ? total + Buffer.byteLength(JSON.stringify(file.content))
+        : total,
+    0,
+  );
   let changed = false;
   for (const file of files) {
-    if (!file || typeof file !== "object" || typeof file.content !== "string") continue;
+    if (!file || typeof file !== "object" || typeof file.content !== "string")
+      continue;
     const bytes = Buffer.byteLength(file.content);
     if (bytes <= 2048 && smallBytes <= 8000) continue;
     const digest = createHash("sha256").update(file.content).digest("hex");

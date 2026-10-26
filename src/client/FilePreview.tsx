@@ -11,8 +11,14 @@ export function loopFileUrl(href?: string, source?: string, preview?: "html") {
   try {
     const url = new URL(href, location.href);
     if (url.origin !== location.origin) return;
-    const artifact = /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/]+)\/file$/.exec(url.pathname);
-    const object = /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/]+)$/.exec(url.pathname);
+    const artifact =
+      /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/]+)\/file$/.exec(
+        url.pathname,
+      );
+    const object =
+      /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/]+)$/.exec(
+        url.pathname,
+      );
     const target = artifact ?? object;
     if (!target) return;
     const query: Record<string, string | string[]> = Object.create(null);
@@ -21,9 +27,14 @@ export function loopFileUrl(href?: string, source?: string, preview?: "html") {
       query[key] = values.length === 1 ? values[0] : values;
     }
     if (preview) query.preview = preview;
-    return routeUrl(artifact ? workspaceApi.artifactFile : workspaceApi.objectFile, {
-      params: { id: decodeURIComponent(target[2]) }, query,
-    }, source ?? decodeURIComponent(target[1] ?? ""));
+    return routeUrl(
+      artifact ? workspaceApi.artifactFile : workspaceApi.objectFile,
+      {
+        params: { id: decodeURIComponent(target[2]) },
+        query,
+      },
+      source ?? decodeURIComponent(target[1] ?? ""),
+    );
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }
@@ -143,15 +154,28 @@ export function FilePreview({
     setSaveError("");
     void (async () => {
       try {
-        const artifact = /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/?#]+)\/file(?:\?[^#]*)?$/.exec(url);
-        const object = /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/?#]+)(?:\?[^#]*)?$/.exec(url);
+        const artifact =
+          /^\/api\/(?:agent-sources\/([^/]+)\/)?artifacts\/([^/?#]+)\/file(?:\?[^#]*)?$/.exec(
+            url,
+          );
+        const object =
+          /^\/api\/(?:agent-sources\/([^/]+)\/)?objects\/([^/?#]+)(?:\?[^#]*)?$/.exec(
+            url,
+          );
         const target = artifact ?? object;
         if (!target) throw new Error("File address is unavailable");
-        const previews = new URL(url, location.href).searchParams.getAll("preview");
-        const response = await fetchStream(artifact ? workspaceApi.artifactFile : workspaceApi.objectFile, {
-          params: { id: decodeURIComponent(target[2]) },
-          query: { preview: previews.length > 1 ? previews : previews[0] },
-        }, decodeURIComponent(target[1] ?? ""), controller.signal);
+        const previews = new URL(url, location.href).searchParams.getAll(
+          "preview",
+        );
+        const response = await fetchStream(
+          artifact ? workspaceApi.artifactFile : workspaceApi.objectFile,
+          {
+            params: { id: decodeURIComponent(target[2]) },
+            query: { preview: previews.length > 1 ? previews : previews[0] },
+          },
+          decodeURIComponent(target[1] ?? ""),
+          controller.signal,
+        );
         if (response.redirected || response.status === 401)
           throw new Error("Sign in to Loop to open this file.");
         if (!response.ok)
@@ -165,7 +189,9 @@ export function FilePreview({
               "application/octet-stream"
             : responseType;
         const file = new File([blob], fileName, { type });
-        const htmlUrl = isHtmlFile(fileName, type) ? loopFileUrl(url, undefined, "html") : undefined;
+        const htmlUrl = isHtmlFile(fileName, type)
+          ? loopFileUrl(url, undefined, "html")
+          : undefined;
         const html = !!htmlUrl;
         const image = [
           "image/png",

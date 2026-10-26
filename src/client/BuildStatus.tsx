@@ -21,11 +21,13 @@ export function BrowserBuildStatus() {
       const timeout = setTimeout(() => controller.abort(), 30_000);
       try {
         const response = await apiInWorkspace<{ serving: unknown }>(
-          "/build", "", undefined, undefined, controller.signal,
+          "/build",
+          "",
+          undefined,
+          undefined,
+          controller.signal,
         );
-        const serving = BuildIdentity.safeParse(
-          response.serving,
-        );
+        const serving = BuildIdentity.safeParse(response.serving);
         if (!stopped && generation === request && serving.success) {
           const updated = browserNeedsReload(runningBuild, serving.data);
           if (updated !== null) setConnection({ updated });

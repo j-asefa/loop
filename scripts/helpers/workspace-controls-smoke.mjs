@@ -64,9 +64,13 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   // Model/effort and upload submission are API behavior in this fixture. A
   // historical direct Codex connection is no longer a runnable destination.
   const created = await fixture.api("/connections", {
-    provider: "openai", label: "Workspace API", secret: "fixture-workspace-models",
+    provider: "openai",
+    label: "Workspace API",
+    secret: "fixture-workspace-models",
   });
-  const connection = fixture.db.prepare("SELECT * FROM connections WHERE id=?").get(created.id);
+  const connection = fixture.db
+    .prepare("SELECT * FROM connections WHERE id=?")
+    .get(created.id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(fixture.base);
   // The Feed tab carries the Running tab's badge: agents working right now.
@@ -124,11 +128,11 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
       "aria-label",
       "11 agents running",
     );
-    navRuns = base.filter(
-      (run) => !["running", "pausing"].includes(run.state),
-    );
+    navRuns = base.filter((run) => !["running", "pausing"].includes(run.state));
     await page.reload();
-    await expect(page.locator(".inbox-results .inbox-card").first()).toBeVisible();
+    await expect(
+      page.locator(".inbox-results .inbox-card").first(),
+    ).toBeVisible();
     await expect(inboxNav.locator("small")).toHaveCount(0);
   } finally {
     await page.unroute(runPattern, counts);

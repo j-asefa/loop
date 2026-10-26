@@ -107,12 +107,14 @@ for (const engine of selectedEngines()) {
         observer.observe(element.parentElement, { childList: true });
       });
       // A failed refresh keeps the loaded list and says so.
-      const savedReads = (url) => /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname)
-        && url.searchParams.get("view") === "saved";
-      const failSaved = (route) => route.fulfill({
-        status: 503,
-        json: { error: "Temporary saved refresh failure" },
-      });
+      const savedReads = (url) =>
+        /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname) &&
+        url.searchParams.get("view") === "saved";
+      const failSaved = (route) =>
+        route.fulfill({
+          status: 503,
+          json: { error: "Temporary saved refresh failure" },
+        });
       await page.route(savedReads, failSaved);
       await page.evaluate(() =>
         window.dispatchEvent(new Event("loop-later-change")),

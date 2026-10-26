@@ -251,10 +251,15 @@ export class Codex implements Adapter {
       .request(
         this.options.resume ? "thread/resume" : "thread/start",
         this.options.resume
-          // Codex retains the full context. Loop already persists its display
-          // history; copying every old turn (including file data) into this
-          // single response can exceed the transport's bounded frame size.
-          ? { threadId: this.options.resume, cwd: this.options.project, excludeTurns: true, ...extras }
+          ? // Codex retains the full context. Loop already persists its display
+            // history; copying every old turn (including file data) into this
+            // single response can exceed the transport's bounded frame size.
+            {
+              threadId: this.options.resume,
+              cwd: this.options.project,
+              excludeTurns: true,
+              ...extras,
+            }
           : { cwd: this.options.project, ...extras },
       )
       .catch((error) => {
@@ -343,7 +348,11 @@ export class Codex implements Adapter {
     this.displayControls.confirmNextTurn();
     // Lifecycle notifications can finish the turn before this response resumes
     // our await. The response must not resurrect that completed native turn.
-    if (this.turnRevision === revision && !this.turn && r.turn.status === "inProgress")
+    if (
+      this.turnRevision === revision &&
+      !this.turn &&
+      r.turn.status === "inProgress"
+    )
       this.turn = r.turn.id;
   }
   async steer(text: string) {
@@ -377,8 +386,8 @@ export class Codex implements Adapter {
       this.asyncQuestions.delete(id);
       const text =
         "Answers to your questions:\n" +
-        question.questions!
-          .map((q) => `${q.title}\n${JSON.stringify(answer[q.id])}`)
+        question
+          .questions!.map((q) => `${q.title}\n${JSON.stringify(answer[q.id])}`)
           .join("\n\n");
       if (this.turn) await this.steer(text);
       else await this.prompt(text);
@@ -632,13 +641,20 @@ export class Codex implements Adapter {
         this.tokenTotal &&
         (total.input_tokens < this.tokenTotal.input_tokens ||
           total.output_tokens < this.tokenTotal.output_tokens)
-      ) return;
+      )
+        return;
       this.tokenTotal = total;
       this.emit({
         type: "usage",
         usage: {
-          input_tokens: Math.max(0, total.input_tokens - this.tokenBaseline.input_tokens),
-          output_tokens: Math.max(0, total.output_tokens - this.tokenBaseline.output_tokens),
+          input_tokens: Math.max(
+            0,
+            total.input_tokens - this.tokenBaseline.input_tokens,
+          ),
+          output_tokens: Math.max(
+            0,
+            total.output_tokens - this.tokenBaseline.output_tokens,
+          ),
         },
       });
     }

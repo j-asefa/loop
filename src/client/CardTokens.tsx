@@ -133,7 +133,11 @@ export function CardTokens({
             setError("");
             setCreated(null);
             try {
-              const result = await callRoute(workspaceApi.cardTokenCreate, { body: draft }, sourceId);
+              const result = await callRoute(
+                workspaceApi.cardTokenCreate,
+                { body: draft },
+                sourceId,
+              );
               if (current()) {
                 receipt.current = undefined;
                 pending.delete(key);
@@ -261,7 +265,11 @@ export function CardTokens({
                       setBusy(true);
                       setError("");
                       try {
-                        await callRoute(workspaceApi.cardTokenRevoke, { params: { id: token.id } }, sourceId);
+                        await callRoute(
+                          workspaceApi.cardTokenRevoke,
+                          { params: { id: token.id } },
+                          sourceId,
+                        );
                         if (current()) {
                           if (created?.token.id === token.id) setCreated(null);
                           if (receipt.current?.request_id === token.id) {

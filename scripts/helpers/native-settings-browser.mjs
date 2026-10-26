@@ -82,7 +82,9 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
   await page.route("**/api" + path + "/mode", seed, { times: 1 });
   try {
     await page.goto(host.origin + "/?conversation=" + run.conversation_id);
-    await page.getByRole("button", { name: "Conversation options", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Conversation options", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Session settings", exact: true })
       .click();

@@ -83,7 +83,10 @@ const PlanStep = z
     // `positional: true`; never derived from the step text.
     id: Id,
     positional: z.boolean().optional(),
-    title: z.string().min(1).max(ACTIVITY_LIMITS.title * 4),
+    title: z
+      .string()
+      .min(1)
+      .max(ACTIVITY_LIMITS.title * 4),
     status: PlanStepStatus,
     priority: z.enum(["high", "medium", "low"]).optional(),
   })
@@ -145,11 +148,7 @@ const ToolPatch = z
     // Replaces the previous content list when present.
     content: z.array(ToolContent).max(ACTIVITY_LIMITS.toolContent).optional(),
     error: Text.nullable().optional(),
-    locations: z
-      .array(Path)
-      .max(ACTIVITY_LIMITS.files)
-      .nullable()
-      .optional(),
+    locations: z.array(Path).max(ACTIVITY_LIMITS.files).nullable().optional(),
     // Invocation identities for de-duplication with broker/native records.
     links: z
       .object({
@@ -236,7 +235,11 @@ export type OutputData = {
   terminal?: string;
   command?: string;
   cwd?: string;
-  chunks: { stream: "stdout" | "stderr" | "combined"; text: string; index: number }[];
+  chunks: {
+    stream: "stdout" | "stderr" | "combined";
+    text: string;
+    index: number;
+  }[];
   // Separate streams unless a source only reports combined output.
   streams: "separate" | "combined";
   status: "running" | "exited" | "failed" | "unknown";
@@ -252,7 +255,11 @@ export type OutputData = {
     upstream?: boolean;
   };
   nextIndex: number;
-  pending: { stream: "stdout" | "stderr" | "combined"; text: string; index: number }[];
+  pending: {
+    stream: "stdout" | "stderr" | "combined";
+    text: string;
+    index: number;
+  }[];
 };
 
 // ---- Session settings ---------------------------------------------------
@@ -394,53 +401,128 @@ export type ActivityRecord<K extends ActivityKind = ActivityKind> = {
 
 // Public, reduced records reuse the ingest field schemas, without applying
 // per-update array limits to catalogs accumulated across several updates.
-const retained = <T extends z.ZodType>(field: z.ZodOptional<z.ZodNullable<T>>) =>
-  field.unwrap().unwrap().optional();
+const retained = <T extends z.ZodType>(
+  field: z.ZodOptional<z.ZodNullable<T>>,
+) => field.unwrap().unwrap().optional();
 const recordedChunk = OutputChunk.strip().required({ index: true });
 const recordBase = {
-  v: z.literal(ACTIVITY_VERSION), id: z.string(), source: ActivitySource.strip(),
-  generation: base.generation, revision: z.number(), fieldSeq: z.record(z.string(), z.number()),
-  partial: z.boolean(), replayed: z.boolean(),
+  v: z.literal(ACTIVITY_VERSION),
+  id: z.string(),
+  source: ActivitySource.strip(),
+  generation: base.generation,
+  revision: z.number(),
+  fieldSeq: z.record(z.string(), z.number()),
+  partial: z.boolean(),
+  replayed: z.boolean(),
 };
 export const ActivityRecordSchema = z.discriminatedUnion("kind", [
-  z.object({ ...recordBase, kind: z.literal("plan"), data: z.object({
-    steps: z.array(PlanStep.strip()), explanation: retained(PlanPatch.shape.explanation), revision: z.number(),
-  }) }),
-  z.object({ ...recordBase, kind: z.literal("tool"), data: z.object({
-    // Legacy traces predate update limits; their display title and trace key
-    // are retained by recordTrace/legacyTools without those ingestion caps.
-    title: z.string().optional(), category: retained(ToolPatch.shape.category),
-    status: ToolStatus, input: retained(ToolPatch.shape.input),
-    content: z.array(z.discriminatedUnion("type", [ToolContent.options[0].strip(), ToolContent.options[1].strip(), ToolContent.options[2].strip(), ToolContent.options[3].strip(), ToolContent.options[4].strip()])),
-    error: retained(ToolPatch.shape.error), locations: retained(ToolPatch.shape.locations),
-    links: ToolPatch.shape.links.unwrap().strip().extend({ trace: z.string().optional() }),
-  }) }),
-  z.object({ ...recordBase, kind: z.literal("file_change"), data: z.object({
-    tool: retained(FileChangePatch.shape.tool), state: FileChangePatch.shape.state.unwrap(),
-    files: z.array(FileEntry.strip().extend({ content: FileEntry.shape.content.unwrap() })),
-  }) }),
-  z.object({ ...recordBase, kind: z.literal("output"), data: z.object({
-    tool: retained(OutputPatch.shape.tool), terminal: retained(OutputPatch.shape.terminal),
-    command: retained(OutputPatch.shape.command), cwd: retained(OutputPatch.shape.cwd),
-    chunks: z.array(recordedChunk), streams: z.enum(["separate", "combined"]),
-    status: OutputPatch.shape.status.unwrap(), exitCode: retained(OutputPatch.shape.exitCode),
-    signal: retained(OutputPatch.shape.signal), unavailable: retained(OutputPatch.shape.unavailable),
-    truncated: z.object({ droppedBytes: z.number(), droppedChunks: z.number(), floor: z.number(), upstream: z.boolean().optional() }),
-    nextIndex: z.number(), pending: z.array(recordedChunk),
-  }) }),
-  z.object({ ...recordBase, kind: z.literal("settings"), data: z.object({
-    options: z.array(Setting.strip().extend({ choices: Setting.shape.choices.unwrap().unwrap().element.strip().array().nullable().optional() })),
-    revision: z.number(),
-  }) }),
-  z.object({ ...recordBase, kind: z.literal("commands"), data: z.object({
-    // Defaults belong to ingestion, never to a fetched display record.
-    commands: z.array(CatalogCommand.strip().extend({
-      description: CatalogCommand.shape.description.unwrap(), available: CatalogCommand.shape.available.unwrap(),
-    })), revision: z.number(),
-  }) }),
+  z.object({
+    ...recordBase,
+    kind: z.literal("plan"),
+    data: z.object({
+      steps: z.array(PlanStep.strip()),
+      explanation: retained(PlanPatch.shape.explanation),
+      revision: z.number(),
+    }),
+  }),
+  z.object({
+    ...recordBase,
+    kind: z.literal("tool"),
+    data: z.object({
+      // Legacy traces predate update limits; their display title and trace key
+      // are retained by recordTrace/legacyTools without those ingestion caps.
+      title: z.string().optional(),
+      category: retained(ToolPatch.shape.category),
+      status: ToolStatus,
+      input: retained(ToolPatch.shape.input),
+      content: z.array(
+        z.discriminatedUnion("type", [
+          ToolContent.options[0].strip(),
+          ToolContent.options[1].strip(),
+          ToolContent.options[2].strip(),
+          ToolContent.options[3].strip(),
+          ToolContent.options[4].strip(),
+        ]),
+      ),
+      error: retained(ToolPatch.shape.error),
+      locations: retained(ToolPatch.shape.locations),
+      links: ToolPatch.shape.links
+        .unwrap()
+        .strip()
+        .extend({ trace: z.string().optional() }),
+    }),
+  }),
+  z.object({
+    ...recordBase,
+    kind: z.literal("file_change"),
+    data: z.object({
+      tool: retained(FileChangePatch.shape.tool),
+      state: FileChangePatch.shape.state.unwrap(),
+      files: z.array(
+        FileEntry.strip().extend({ content: FileEntry.shape.content.unwrap() }),
+      ),
+    }),
+  }),
+  z.object({
+    ...recordBase,
+    kind: z.literal("output"),
+    data: z.object({
+      tool: retained(OutputPatch.shape.tool),
+      terminal: retained(OutputPatch.shape.terminal),
+      command: retained(OutputPatch.shape.command),
+      cwd: retained(OutputPatch.shape.cwd),
+      chunks: z.array(recordedChunk),
+      streams: z.enum(["separate", "combined"]),
+      status: OutputPatch.shape.status.unwrap(),
+      exitCode: retained(OutputPatch.shape.exitCode),
+      signal: retained(OutputPatch.shape.signal),
+      unavailable: retained(OutputPatch.shape.unavailable),
+      truncated: z.object({
+        droppedBytes: z.number(),
+        droppedChunks: z.number(),
+        floor: z.number(),
+        upstream: z.boolean().optional(),
+      }),
+      nextIndex: z.number(),
+      pending: z.array(recordedChunk),
+    }),
+  }),
+  z.object({
+    ...recordBase,
+    kind: z.literal("settings"),
+    data: z.object({
+      options: z.array(
+        Setting.strip().extend({
+          choices: Setting.shape.choices
+            .unwrap()
+            .unwrap()
+            .element.strip()
+            .array()
+            .nullable()
+            .optional(),
+        }),
+      ),
+      revision: z.number(),
+    }),
+  }),
+  z.object({
+    ...recordBase,
+    kind: z.literal("commands"),
+    data: z.object({
+      // Defaults belong to ingestion, never to a fetched display record.
+      commands: z.array(
+        CatalogCommand.strip().extend({
+          description: CatalogCommand.shape.description.unwrap(),
+          available: CatalogCommand.shape.available.unwrap(),
+        }),
+      ),
+      revision: z.number(),
+    }),
+  }),
 ]) satisfies z.ZodType<ActivityRecord>;
 
-export type ActivityCapabilityState = "supported" | "unsupported" | "undiscovered";
+export type ActivityCapabilityState =
+  "supported" | "unsupported" | "undiscovered";
 export type ActivityCapability = {
   state: ActivityCapabilityState;
   // Where this answer came from: "loop", "codex app-server 0.x", "acp initialize", ...
@@ -526,7 +608,8 @@ function clip(text: string, max: number) {
   if (bytes(text) <= max) return text;
   // Trim by bytes without splitting a UTF-16 surrogate pair.
   let out = text.slice(0, max);
-  while (bytes(out) > max) out = out.slice(0, -Math.max(1, (bytes(out) - max) >> 1));
+  while (bytes(out) > max)
+    out = out.slice(0, -Math.max(1, (bytes(out) - max) >> 1));
   if (/[\uD800-\uDBFF]$/.test(out)) out = out.slice(0, -1);
   return out;
 }
@@ -536,7 +619,9 @@ function boundFiles(files: FileEntry[]): FileEntry[] {
   let budget: number = ACTIVITY_LIMITS.diffBytes;
   return files.map((file) => {
     const size =
-      bytes(file.patch || "") + bytes(file.before || "") + bytes(file.after || "");
+      bytes(file.patch || "") +
+      bytes(file.before || "") +
+      bytes(file.after || "");
     if (file.content !== "available" || size <= budget) {
       budget -= size;
       return file;
@@ -686,7 +771,12 @@ export function reduceActivity(
     const last = record.fieldSeq[field];
     if (!live && previous && !previous.replayed && last !== undefined)
       return false;
-    if (last !== undefined && sameGeneration && update.seq !== undefined && seq < last)
+    if (
+      last !== undefined &&
+      sameGeneration &&
+      update.seq !== undefined &&
+      seq < last
+    )
       return false;
     record.fieldSeq[field] = update.seq ?? last ?? 0;
     return true;
@@ -718,7 +808,11 @@ export function reduceActivity(
     case "tool": {
       const patch = update.patch as z.output<typeof ToolPatch>;
       const data = record.data;
-      set(data, "title", patch.title && clip(patch.title, ACTIVITY_LIMITS.title));
+      set(
+        data,
+        "title",
+        patch.title && clip(patch.title, ACTIVITY_LIMITS.title),
+      );
       set(data, "category", patch.category);
       set(data, "input", patch.input);
       set(data, "error", patch.error);
@@ -765,7 +859,11 @@ export function reduceActivity(
       set(data, "unavailable", patch.unavailable);
       if (patch.replace && accept("replace")) {
         data = record.data = addOutput(
-          { ...(empty("output") as OutputData), ...pick(data), streams: "separate" },
+          {
+            ...(empty("output") as OutputData),
+            ...pick(data),
+            streams: "separate",
+          },
           patch.replace.map((c, i) => ({ ...c, index: i })),
         );
       }
@@ -815,7 +913,8 @@ export function reduceActivity(
   }
   if (live) record.replayed = false;
   const { revision: _a, fieldSeq: _b, ...after } = record;
-  const before = previous && (({ revision, fieldSeq, ...rest }) => rest)(previous);
+  const before =
+    previous && (({ revision, fieldSeq, ...rest }) => rest)(previous);
   if (previous && JSON.stringify(after) === JSON.stringify(before))
     return { changed: false, record: previous, reason: "no change" };
   record.revision = (previous?.revision || 0) + 1;
@@ -825,9 +924,26 @@ export function reduceActivity(
 }
 
 function pick(data: OutputData) {
-  const { tool, terminal, command, cwd, exitCode, signal, unavailable, status } =
-    data;
-  return { tool, terminal, command, cwd, exitCode, signal, unavailable, status };
+  const {
+    tool,
+    terminal,
+    command,
+    cwd,
+    exitCode,
+    signal,
+    unavailable,
+    status,
+  } = data;
+  return {
+    tool,
+    terminal,
+    command,
+    cwd,
+    exitCode,
+    signal,
+    unavailable,
+    status,
+  };
 }
 
 // Fold an ordered update log into records keyed by activityKey(update, turn).

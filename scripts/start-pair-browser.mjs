@@ -58,8 +58,10 @@ try {
   await setup
     .getByRole("button", { name: "Enable Codex", exact: true })
     .click();
-  await page.getByRole("dialog", { name: "New chat", exact: true })
-    .getByText("Customize", { exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true })
+    .click();
   await expect(page.getByLabel("Run on")).toBeVisible();
   await page.getByLabel("Unique name").fill("start-browser");
   await page

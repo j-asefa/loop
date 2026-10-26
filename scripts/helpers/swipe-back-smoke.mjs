@@ -91,7 +91,10 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === "/api/bootstrap") refreshes++;
     });
-    const feedHeading = page.getByRole("heading", { name: "Feed", exact: true });
+    const feedHeading = page.getByRole("heading", {
+      name: "Feed",
+      exact: true,
+    });
     const pulled = page.waitForRequest(
       (request) => new URL(request.url()).pathname === "/api/bootstrap",
     );
@@ -156,7 +159,9 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     // Put a thread title on screen, then preserve that reading position.
     // Card height changes as the Feed gains source previews and actions.
     const visibleTitle = page.locator(".inbox-results .inbox-row h2").first();
-    await visibleTitle.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "instant" }));
+    await visibleTitle.evaluate((el) =>
+      el.scrollIntoView({ block: "center", behavior: "instant" }),
+    );
     await expect(visibleTitle).toBeInViewport();
     const readingPosition = await page.evaluate(() => scrollY);
     await visibleTitle.click();
@@ -305,7 +310,9 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       .textContent();
     await capture("your-agents-scrolled");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".profile-head h1")).toHaveText(lastName.replace(/^@/, ""));
+    await expect(page.locator(".profile-head h1")).toHaveText(
+      lastName.replace(/^@/, ""),
+    );
 
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     await nav("Projects").tap();

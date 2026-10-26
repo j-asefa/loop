@@ -84,7 +84,9 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     }
     await avatarButton.click();
     await settled();
-    await expect(page.locator(".profile-head h1")).toHaveText(name.replace(/^@/, ""));
+    await expect(page.locator(".profile-head h1")).toHaveText(
+      name.replace(/^@/, ""),
+    );
     await expect(page.locator(".profile-head h1")).toBeInViewport({ ratio: 1 });
     await page.waitForLoadState("networkidle");
     await page.goto(fixture.base + "/?conversation=" + conversation.id, {
@@ -138,9 +140,10 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
       waitUntil: "networkidle",
     });
     await page.setViewportSize({ width: 390, height: 600 });
-    await expect(
-      show.getByRole("tab", { name: /^Queued/ }),
-    ).toHaveAttribute("aria-selected", "true");
+    await expect(show.getByRole("tab", { name: /^Queued/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await page.evaluate(() =>
       window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }),
     );
@@ -169,7 +172,9 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     assert(
       !fixture.db.prepare("SELECT 1 FROM handles WHERE name=?").get(suggestion),
     );
-    await dialog().getByLabel("Provider", { exact: true }).selectOption("anthropic");
+    await dialog()
+      .getByLabel("Provider", { exact: true })
+      .selectOption("anthropic");
     await dialog()
       .getByLabel("First message", { exact: true })
       .fill("A first task");

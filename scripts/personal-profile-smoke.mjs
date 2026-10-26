@@ -19,8 +19,11 @@ try {
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) SELECT ?,owner_id,conversation_id,run_id,role,content,metadata,created_at-? FROM messages WHERE id=?",
       )
       .run("personal-history-smoke-" + index, index + 1, seed.id);
-  const fullPrompt = "Review the complete design. ".repeat(65) + "End of the full prompt.";
-  fixture.db.prepare("UPDATE messages SET content=? WHERE id=?").run(fullPrompt, seed.id);
+  const fullPrompt =
+    "Review the complete design. ".repeat(65) + "End of the full prompt.";
+  fixture.db
+    .prepare("UPDATE messages SET content=? WHERE id=?")
+    .run(fullPrompt, seed.id);
   const expected = fixture.db
     .prepare("SELECT COUNT(*) n FROM messages WHERE role='user'")
     .get().n;
@@ -79,10 +82,10 @@ try {
         .filter({ visible: true })
         .click();
       await page.locator(".personal-profile-head").scrollIntoViewIfNeeded();
-      await expect(
-        page.locator(".personal-profile-head h1"),
-      ).toBeVisible();
-      await expect(page.locator(".workspace-content h1:visible")).toHaveCount(1);
+      await expect(page.locator(".personal-profile-head h1")).toBeVisible();
+      await expect(page.locator(".workspace-content h1:visible")).toHaveCount(
+        1,
+      );
       await loadHistory();
     }
     await page.reload();

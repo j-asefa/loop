@@ -27,45 +27,67 @@ export function CheckoutChip({
   onOpen: () => void;
   compact?: boolean;
 }) {
-  const historical = compact && summary.state === "captured" && summary.scope !== "run";
+  const historical =
+    compact && summary.state === "captured" && summary.scope !== "run";
   const description = compact
     ? historical
       ? "Historical checkout comparison; changes during this run were not captured"
       : summary.state === "captured"
-      ? [
-          summary.files
-            ? `${summary.files} ${summary.files === 1 ? "file" : "files"} +${summary.additions} −${summary.deletions}`
-            : "No tracked changes",
-          summary.untracked ? `${summary.untracked} untracked` : "",
-        ].filter(Boolean).join(" · ")
-      : summary.state === "failed" ? "Diff unavailable" : "Diff pending"
+        ? [
+            summary.files
+              ? `${summary.files} ${summary.files === 1 ? "file" : "files"} +${summary.additions} −${summary.deletions}`
+              : "No tracked changes",
+            summary.untracked ? `${summary.untracked} untracked` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : summary.state === "failed"
+          ? "Diff unavailable"
+          : "Diff pending"
     : checkoutLine({
         ...summary,
         branch: readableText(summary.branch),
       });
-  const count = (value: number) => new Intl.NumberFormat("en", {
-    notation: "compact", maximumFractionDigits: 1,
-  }).format(value);
-  const line = historical ? "Earlier checkout" : compact && summary.state === "captured"
-    ? summary.additions || summary.deletions
-      ? <>
-          <span className="diff-add-count">+{count(summary.additions)}</span>
-          {" "}
-          <span className="diff-remove-count">−{count(summary.deletions)}</span>
-        </>
-      : summary.files
-        ? `${count(summary.files)} ${summary.files === 1 ? "file" : "files"}`
-        : summary.untracked ? `${count(summary.untracked)} new` : "No changes"
-    : compact ? description : checkoutParts({ ...summary, branch: readableText(summary.branch) }).map((part, index) => (
+  const count = (value: number) =>
+    new Intl.NumberFormat("en", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(value);
+  const line = historical ? (
+    "Earlier checkout"
+  ) : compact && summary.state === "captured" ? (
+    summary.additions || summary.deletions ? (
+      <>
+        <span className="diff-add-count">+{count(summary.additions)}</span>{" "}
+        <span className="diff-remove-count">−{count(summary.deletions)}</span>
+      </>
+    ) : summary.files ? (
+      `${count(summary.files)} ${summary.files === 1 ? "file" : "files"}`
+    ) : summary.untracked ? (
+      `${count(summary.untracked)} new`
+    ) : (
+      "No changes"
+    )
+  ) : compact ? (
+    description
+  ) : (
+    checkoutParts({ ...summary, branch: readableText(summary.branch) }).map(
+      (part, index) => (
         <Fragment key={index}>
           {index > 0 && " · "}
-          {typeof part === "string" ? part : <>
-            {part.files} {part.files === 1 ? "file" : "files"}{" "}
-            <span className="diff-add-count">+{part.additions}</span>{" "}
-            <span className="diff-remove-count">−{part.deletions}</span>
-          </>}
+          {typeof part === "string" ? (
+            part
+          ) : (
+            <>
+              {part.files} {part.files === 1 ? "file" : "files"}{" "}
+              <span className="diff-add-count">+{part.additions}</span>{" "}
+              <span className="diff-remove-count">−{part.deletions}</span>
+            </>
+          )}
         </Fragment>
-      ));
+      ),
+    )
+  );
   const Icon = compact ? FileDiff : GitBranch;
   return (
     <button
@@ -131,11 +153,18 @@ export function CheckoutSheet({
       clearTimeout(timer);
     };
   }, [runId]);
-  const chunks = detail?.patch ? patchByFile(detail.patch) : new Map<string, string>();
-  const prompts = detail ? changePrompts(detail.files.map((file) => file.path), {
-    projectName,
-    runStartedAt: [detail.started_at],
-  }) : null;
+  const chunks = detail?.patch
+    ? patchByFile(detail.patch)
+    : new Map<string, string>();
+  const prompts = detail
+    ? changePrompts(
+        detail.files.map((file) => file.path),
+        {
+          projectName,
+          runStartedAt: [detail.started_at],
+        },
+      )
+    : null;
   const ask = (prompt: string) => {
     onClose();
     onAsk?.(prompt);
@@ -143,9 +172,13 @@ export function CheckoutSheet({
   const notes: string[] = [];
   if (detail) {
     if (detail.summary?.scope === "run")
-      notes.push("Changes during this run. Pre-existing tracked edits are excluded; untracked entries list new paths only.");
+      notes.push(
+        "Changes during this run. Pre-existing tracked edits are excluded; untracked entries list new paths only.",
+      );
     else if (detail.state === "captured")
-      notes.push("Historical comparison against the source checkout. These totals include earlier repository changes and do not measure this run's edits.");
+      notes.push(
+        "Historical comparison against the source checkout. These totals include earlier repository changes and do not measure this run's edits.",
+      );
     if (detail.start_dirty || detail.start_untracked)
       notes.push(
         "The checkout already had changes before this run started, so this record brackets an interval rather than proving which run made each change.",
@@ -180,12 +213,17 @@ export function CheckoutSheet({
         <>
           <div className="changes-head">
             <p className="changes-total">
-              {readableText(detail.summary ? checkoutLine(detail.summary) : detail.branch)}
+              {readableText(
+                detail.summary ? checkoutLine(detail.summary) : detail.branch,
+              )}
             </p>
             <p className="changes-meta">
               Observed by Loop
-              {detail.ended_at ? ` at ${when(detail.ended_at)}` : ` from ${when(detail.started_at)}`}
-              {" · "}base {readableText(detail.base_ref ?? "unknown")} <code>{short(detail.base_sha)}</code>
+              {detail.ended_at
+                ? ` at ${when(detail.ended_at)}`
+                : ` from ${when(detail.started_at)}`}
+              {" · "}base {readableText(detail.base_ref ?? "unknown")}{" "}
+              <code>{short(detail.base_sha)}</code>
               {" · "}start <code>{short(detail.start_head)}</code>
               {detail.end_head && (
                 <>
@@ -199,28 +237,41 @@ export function CheckoutSheet({
               </p>
             ))}
           </div>
-          {detail.state === "captured" && !detail.files.length && !detail.untracked.length && (
-            <p className="field-hint">No tracked changes against the base.</p>
-          )}
+          {detail.state === "captured" &&
+            !detail.files.length &&
+            !detail.untracked.length && (
+              <p className="field-hint">No tracked changes against the base.</p>
+            )}
           <div className="pull-files">
             {detail.files.map((f) => (
-              <details key={f.path} className="pull-file" open={detail.files.length <= 3}>
+              <details
+                key={f.path}
+                className="pull-file"
+                open={detail.files.length <= 3}
+              >
                 <summary>
                   <span className="pull-file-path">{f.path}</span>
                   {f.binary ? (
                     <span className="field-hint">binary</span>
                   ) : (
-                    <PullChangeCounts additions={f.additions} deletions={f.deletions} />
+                    <PullChangeCounts
+                      additions={f.additions}
+                      deletions={f.deletions}
+                    />
                   )}
                   {f.filtered && (
-                    <span className="field-hint">filtered content, compared raw</span>
+                    <span className="field-hint">
+                      filtered content, compared raw
+                    </span>
                   )}
                 </summary>
                 {chunks.get(f.path) ? (
                   <Patch patch={chunks.get(f.path)!} />
                 ) : (
                   <p className="field-hint">
-                    {f.binary ? "Binary content is not shown." : "This file's diff is not in the stored patch."}
+                    {f.binary
+                      ? "Binary content is not shown."
+                      : "This file's diff is not in the stored patch."}
                   </p>
                 )}
               </details>
@@ -228,7 +279,9 @@ export function CheckoutSheet({
           </div>
           {detail.untracked.length > 0 && (
             <>
-              <p className="changes-meta">Untracked files (content not captured)</p>
+              <p className="changes-meta">
+                Untracked files (content not captured)
+              </p>
               <ul className="checkout-untracked">
                 {detail.untracked.map((path) => (
                   <li key={path}>
@@ -238,25 +291,42 @@ export function CheckoutSheet({
               </ul>
             </>
           )}
-          {onAsk && prompts && detail.state === "captured" && detail.summary?.scope === "run" && detail.files.length > 0 && (
-            <>
-              <div className="changes-actions">
-                <button type="button" className="primary" onClick={() => ask(prompts.commit)}>
-                  Ask to commit
-                </button>
-                <button type="button" className="secondary" onClick={() => ask(prompts.pr)}>
-                  Ask for a PR
-                </button>
-                <button type="button" className="secondary danger" onClick={() => ask(prompts.revert)}>
-                  Ask to revert
-                </button>
-              </div>
-              <p className="field-hint">
-                Fills in an editable prompt asking @{agentName || "the agent"} to check the full diff first.
-                Nothing is sent until you send it.
-              </p>
-            </>
-          )}
+          {onAsk &&
+            prompts &&
+            detail.state === "captured" &&
+            detail.summary?.scope === "run" &&
+            detail.files.length > 0 && (
+              <>
+                <div className="changes-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => ask(prompts.commit)}
+                  >
+                    Ask to commit
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => ask(prompts.pr)}
+                  >
+                    Ask for a PR
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary danger"
+                    onClick={() => ask(prompts.revert)}
+                  >
+                    Ask to revert
+                  </button>
+                </div>
+                <p className="field-hint">
+                  Fills in an editable prompt asking @{agentName || "the agent"}{" "}
+                  to check the full diff first. Nothing is sent until you send
+                  it.
+                </p>
+              </>
+            )}
         </>
       )}
     </Sheet>

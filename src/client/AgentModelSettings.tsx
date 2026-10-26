@@ -79,7 +79,9 @@ export function AgentModelSettings({
         .filter((c) => c.status === "connected")
         .map(async (connection) => {
           try {
-            const result = await route(workspaceApi.connectionModels, { params: { id: connection.id } });
+            const result = await route(workspaceApi.connectionModels, {
+              params: { id: connection.id },
+            });
             if (current)
               setCatalog((old) => ({ ...old, [connection.id]: result.models }));
           } catch {
@@ -122,7 +124,10 @@ export function AgentModelSettings({
     setBusy(true);
     setError("");
     try {
-      const saved = await route(workspaceApi.agentUpdate, { params: { id: agent.id }, body: { connectionId, model, effort } });
+      const saved = await route(workspaceApi.agentUpdate, {
+        params: { id: agent.id },
+        body: { connectionId, model, effort },
+      });
       setSelected(saved);
       onSaved(saved);
     } catch (error) {
