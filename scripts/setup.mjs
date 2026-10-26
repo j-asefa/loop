@@ -40,12 +40,28 @@ if (
           ? revisions(readFileSync(ignoreFile, "utf8"))
           : [],
       );
-      const additions = revisions(
+      const requested = revisions(
         readFileSync(
           new URL("../.git-blame-ignore-revs", import.meta.url),
           "utf8",
         ),
       ).filter((revision) => !existing.has(revision));
+      // Shallow clones may not have the recorded formatting commits yet.
+      // An unavailable revision makes git blame fail even for unrelated files.
+      const additions = requested.filter(
+        (revision) =>
+          /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(revision) &&
+          spawnSync("git", ["cat-file", "-e", `${revision}^{commit}`], {
+            cwd: repository,
+            stdio: "ignore",
+            env: { ...process.env, GIT_NO_LAZY_FETCH: "1" },
+          }).status === 0,
+      );
+      if (additions.length !== requested.length) {
+        console.warn(
+          `Skipped ${requested.length - additions.length} unavailable formatting revisions; rerun npm run setup after fetching history.`,
+        );
+      }
       // Append in one write: stale worktrees cannot remove newer revisions,
       // and concurrent setups may only duplicate entries (which Git accepts).
       // A leading newline also handles a preexisting file without a final one.

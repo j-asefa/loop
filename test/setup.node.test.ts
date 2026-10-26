@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
   copyFileSync,
@@ -29,6 +30,70 @@ function runSetup(root: string) {
     encoding: "utf8",
   });
 }
+
+test("setup keeps blame usable in a shallow clone and adds revisions after fetching history", () => {
+  const root = mkdtempSync(join(tmpdir(), "loop-setup-shallow-"));
+  const repository = join(root, "repository");
+  const shallow = join(root, "shallow");
+  try {
+    mkdirSync(repository);
+    git(repository, "init", "-q");
+    git(repository, "config", "user.email", "fixture@example.invalid");
+    git(repository, "config", "user.name", "Setup fixture");
+    writeFileSync(join(repository, "example.ts"), "const value=1;\n");
+    git(repository, "add", "example.ts");
+    git(repository, "commit", "-qm", "Initial source");
+    const initial = git(repository, "rev-parse", "HEAD");
+    writeFileSync(join(repository, "example.ts"), "const value = 1;\n");
+    git(repository, "commit", "-qam", "Format source");
+    const formatting = git(repository, "rev-parse", "HEAD");
+    installSetup(repository);
+    writeFileSync(
+      join(repository, ".git-blame-ignore-revs"),
+      `${formatting}\n`,
+    );
+    git(repository, "add", "scripts/setup.mjs", ".git-blame-ignore-revs");
+    git(repository, "commit", "-qm", "Configure setup");
+    git(
+      root,
+      "clone",
+      "--quiet",
+      "--depth=1",
+      pathToFileURL(repository).href,
+      shallow,
+    );
+    assert.equal(git(shallow, "rev-parse", "--is-shallow-repository"), "true");
+    assert.notEqual(
+      spawnSync("git", ["cat-file", "-e", formatting], {
+        cwd: shallow,
+        stdio: "ignore",
+      }).status,
+      0,
+    );
+    assert.match(runSetup(shallow), /Git blame ignores/);
+    const configured = git(
+      shallow,
+      "config",
+      "--local",
+      "blame.ignoreRevsFile",
+    );
+    assert.equal(readFileSync(configured, "utf8").trim(), "");
+    assert.match(
+      git(shallow, "blame", "--porcelain", "example.ts"),
+      /const value = 1/,
+    );
+
+    git(shallow, "fetch", "--unshallow", "origin");
+    runSetup(shallow);
+    assert.equal(readFileSync(configured, "utf8").trim(), formatting);
+    assert.match(
+      git(shallow, "blame", "--porcelain", "example.ts"),
+      new RegExp(initial),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("setup preserves the environment and shared revision history across linked worktrees", async () => {
   const root = mkdtempSync(join(tmpdir(), "loop-setup-git-"));
