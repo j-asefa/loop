@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { Bell, BellOff, Info, TriangleAlert } from "lucide-react";
-import { api } from "./api";
+import { callRoute, readRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
+import { PushSubscription } from "../shared/team-contract-schemas";
+import { executionSourceId } from "./sourceRouting";
 import {
   defaultNotificationPreferences,
   type NotificationPreferences,
@@ -35,6 +38,7 @@ export function Notifications() {
     "PushManager" in window &&
     "Notification" in window;
   const [enabled, setEnabled] = useState(false);
+  const [categoriesSupported, setCategoriesSupported] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPreferences>(
     defaultNotificationPreferences,
   );
@@ -47,15 +51,19 @@ export function Notifications() {
   useEffect(() => {
     if (!supported) return;
     let current = true;
+    const controller = new AbortController();
     void (async () => {
       const registration = await workerRegistration();
       const subscription = await registration.pushManager.getSubscription();
-      const state = await api<{
-        endpoints: string[];
-        devices: { endpoint: string; preferences: NotificationPreferences }[];
-      }>("/notifications");
+      const state = await readRoute(
+        workspaceApi.notifications,
+        {},
+        executionSourceId(),
+        controller.signal,
+      );
       if (current) {
-        const device = state.devices.find(
+        setCategoriesSupported(state.devices !== undefined);
+        const device = state.devices?.find(
           (d) => d.endpoint === subscription?.endpoint,
         );
         if (device) setPreferences(device.preferences);
@@ -72,6 +80,7 @@ export function Notifications() {
     });
     return () => {
       current = false;
+      controller.abort();
     };
   }, [supported]);
   async function toggle() {
@@ -118,18 +127,22 @@ export function Notifications() {
       let subscription = await registration.pushManager.getSubscription();
       if (enabled) {
         if (subscription) {
-          await api(
-            "/notifications/subscriptions",
-            { endpoint: subscription.endpoint },
-            "DELETE",
+          await callRoute(
+            workspaceApi.notificationUnsubscribe,
+            { body: { endpoint: subscription.endpoint } },
+            executionSourceId(),
           );
           await subscription.unsubscribe();
         }
         setEnabled(false);
       } else {
-        const { publicKey } = await api<{ publicKey: string }>(
-          "/notifications",
+        const { publicKey, devices } = await readRoute(
+          workspaceApi.notifications,
+          {},
+          executionSourceId(),
+          new AbortController().signal,
         );
+        setCategoriesSupported(devices !== undefined);
         const key = Uint8Array.from(
           atob(publicKey.replaceAll("-", "+").replaceAll("_", "/")),
           (c) => c.charCodeAt(0),
@@ -147,10 +160,16 @@ export function Notifications() {
           userVisibleOnly: true,
           applicationServerKey: key,
         });
-        await api("/notifications/subscriptions", {
-          ...subscription.toJSON(),
-          preferences,
-        });
+        await callRoute(
+          workspaceApi.notificationSubscribe,
+          {
+            body: {
+              ...PushSubscription.parse(subscription.toJSON()),
+              ...(devices === undefined ? {} : { preferences }),
+            },
+          },
+          executionSourceId(),
+        );
         setEnabled(true);
       }
     } catch (e) {
@@ -172,10 +191,16 @@ export function Notifications() {
       const subscription = await registration.pushManager.getSubscription();
       if (!subscription)
         throw new Error("Enable notifications on this device again.");
-      await api("/notifications/subscriptions", {
-        ...subscription.toJSON(),
-        preferences: next,
-      });
+      await callRoute(
+        workspaceApi.notificationSubscribe,
+        {
+          body: {
+            ...PushSubscription.parse(subscription.toJSON()),
+            preferences: next,
+          },
+        },
+        executionSourceId(),
+      );
       setPreferences(next);
     } catch (e) {
       setError((e as Error).message);
@@ -206,7 +231,7 @@ export function Notifications() {
               onChange={() => void toggle()}
             />
           </SettingsList>
-          {enabled && (
+          {enabled && categoriesSupported && (
             <>
               <p className="settings-intro">
                 Choose what notifies you. For action-only alerts, leave just

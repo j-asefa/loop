@@ -1,3 +1,9 @@
+import type { z } from "zod";
+import type {
+  PublicMailThreads,
+  ToolMailStatus,
+} from "../shared/agent-mail.js";
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 import {
   readRunConnectionId,
@@ -1081,7 +1087,10 @@ function describe(mail: Mail, agentId: string | null) {
 }
 
 /** loop_message_status: delivery state of the agent's own threads. */
-export function mailStatus(run: Run, input: unknown) {
+export function mailStatus(
+  run: Run,
+  input: unknown,
+): z.infer<typeof ToolMailStatus> {
   const args = statusSchema.parse(input);
   run = assertMailRun(run);
   const team = teamOf(run);
@@ -1435,7 +1444,7 @@ export function teamMessages(owner: string, teamId: string) {
   return describeThreads(threads);
 }
 
-function describeThreads(threads: Thread[]) {
+function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
   return {
     threads: threads.map((thread) => ({
       id: thread.id,
@@ -1487,10 +1496,10 @@ function describeThreads(threads: Thread[]) {
 
 const routes = registrar("agentMail");
 export const agentMail = routes.mount;
-routes.legacy("GET /teams/:id/messages", (req, res) =>
+routes.on(workspaceApi.teamMessages, (req, res) =>
   res.json(teamMessages(res.locals.owner, req.params.id)),
 );
-routes.legacy("POST /teams/:id/threads/:threadId/resume", (req, res) =>
+routes.on(workspaceApi.teamThreadResume, (req, res) =>
   res.json(resumeThread(res.locals.owner, req.params.id, req.params.threadId)),
 );
 
@@ -1505,10 +1514,10 @@ export function agentMessages(owner: string, agentId: string) {
       .all(owner, agentId) as Thread[],
   );
 }
-routes.legacy("GET /agents/:id/mail", (req, res) =>
+routes.on(workspaceApi.agentMail, (req, res) =>
   res.json(agentMessages(res.locals.owner, req.params.id)),
 );
-routes.legacy("POST /agents/:id/mail/:threadId/resume", (req, res) => {
+routes.on(workspaceApi.agentMailResume, (req, res) => {
   const owner = res.locals.owner;
   ownedAgent(req.params.id, owner);
   if (

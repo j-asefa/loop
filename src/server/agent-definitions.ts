@@ -1,4 +1,5 @@
-import { registrar } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { registrar, projectResponse } from "./registrar.js";
 import { createHash } from "node:crypto";
 
 import { z } from "zod";
@@ -7,15 +8,12 @@ import {
   ownedAgent,
   ownedTeam,
   ownedConnection,
-  agentInput,
   createAgent,
-  handle,
   Problem,
 } from "./domain.js";
 import { addTeamMember, createTeam, listTeams } from "./teams.js";
 import { parseDefinition } from "./definition-markdown.js";
 import {
-  MAX_DEFINITION_BYTES,
   type AgentDefinition,
   type DefinitionCreation,
   type DefinitionRole,
@@ -37,22 +35,13 @@ function detail(row: StoredDefinition): AgentDefinition {
   const { owner_id: _, ...data } = row;
   return { ...data, spec: parseDefinition(row.markdown) };
 }
-const version = z.number().int().positive();
-const saveInput = z
-  .object({
-    markdown: z.string().max(MAX_DEFINITION_BYTES),
-    version: z.number().int().nonnegative(),
-    kind: z.enum(["agent", "team"]).optional(),
-  })
-  .strict();
-
 export function saveDefinition(
   owner: string,
   definitionId: string,
   input: unknown,
 ) {
   z.uuid().parse(definitionId);
-  const data = saveInput.parse(input);
+  const data = workspaceApi.definitionSave.body.parse(input);
   const spec = parseDefinition(data.markdown);
   if (data.kind && spec.kind !== data.kind)
     throw new Problem(400, `Choose a ${data.kind} definition for this library`);
@@ -106,36 +95,13 @@ export function saveDefinition(
     .immediate();
 }
 
-const choice = z
-  .object({
-    connectionId: z.string().min(1),
-    model: agentInput.shape.model.optional(),
-    effort: agentInput.shape.effort,
-  })
-  .strict();
-const createInput = z
-  .object({
-    version,
-    selection: choice,
-    folderId: z.string().min(1).nullable().optional(),
-    teamId: z.string().min(1).optional(),
-    name: z.string().trim().min(1).max(80).optional(),
-    roles: z
-      .record(
-        z.string(),
-        choice.partial().extend({ name: handle.optional() }).strict(),
-      )
-      .default({}),
-    idempotencyKey: z.string().min(8).max(150),
-  })
-  .strict();
-
 export function createFromDefinition(
   owner: string,
   definitionId: string,
   input: unknown,
 ): DefinitionCreation {
-  const { idempotencyKey, ...data } = createInput.parse(input);
+  const { idempotencyKey, ...data } =
+    workspaceApi.definitionCreate.body.parse(input);
   const hash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -287,23 +253,23 @@ export function createFromDefinition(
 
 const routes = registrar("agentDefinitions");
 export const agentDefinitions = routes.mount;
-routes.legacy("GET /agent-definitions", (_req, res) => {
+routes.on(workspaceApi.definitionList, (_req, res) => {
   res.json(
     db
       .prepare(
         "SELECT id,kind,name,description,version,created_at,updated_at FROM agent_definitions WHERE owner_id=? ORDER BY updated_at DESC,id",
       )
-      .all(res.locals.owner),
+      .all(res.locals.owner) as DefinitionSummary[],
   );
 });
-routes.legacy("GET /agent-definitions/:id", (req, res) =>
+routes.on(workspaceApi.definitionRead, (req, res) =>
   res.json(detail(stored(res.locals.owner, req.params.id))),
 );
-routes.legacy("PUT /agent-definitions/:id", (req, res) =>
+routes.on(workspaceApi.definitionSave, (req, res) =>
   res.json(saveDefinition(res.locals.owner, req.params.id, req.body)),
 );
-routes.legacy("DELETE /agent-definitions/:id", (req, res) => {
-  const data = z.object({ version }).strict().parse(req.body);
+routes.on(workspaceApi.definitionDelete, (req, res) => {
+  const data = req.body;
   db.transaction(() => {
     const row = stored(res.locals.owner, req.params.id);
     if (row.version !== data.version)
@@ -318,8 +284,13 @@ routes.legacy("DELETE /agent-definitions/:id", (req, res) => {
   }).immediate();
   res.json({ ok: true });
 });
-routes.legacy("POST /agent-definitions/:id/create", (req, res) =>
+routes.on(workspaceApi.definitionCreate, (req, res) =>
   res
     .status(201)
-    .json(createFromDefinition(res.locals.owner, req.params.id, req.body)),
+    .json(
+      projectResponse(
+        workspaceApi.definitionCreate,
+        createFromDefinition(res.locals.owner, req.params.id, req.body),
+      ),
+    ),
 );

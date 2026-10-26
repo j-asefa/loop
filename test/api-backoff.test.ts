@@ -1,3 +1,5 @@
+import { readRoute } from "../src/client/workspace-api";
+import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { apiInWorkspace, readInWorkspace, retryAfter } from "../src/client/api";
 import { setViewOwner } from "../src/client/viewCache";
@@ -149,8 +151,9 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
   await expect(pending).resolves.toEqual({});
   expect(fetcher).toHaveBeenCalledTimes(2);
   fetcher.mockResolvedValueOnce(limited("60"));
-  const cancelled = readInWorkspace(
-    "/reviews/conversation/thread",
+  const cancelled = readRoute(
+    workspaceApi.reviewStatus,
+    { params: { id: "thread" } },
     "",
     controller.signal,
   ).catch((error) => error);

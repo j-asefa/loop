@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
-import { api } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Connection, Folder, Team } from "../shared/types";
 
@@ -138,10 +140,16 @@ export function PresetTeamForm({
           receipt.current = { body: encoded, key: crypto.randomUUID() };
         try {
           onCreated(
-            await api<Team>("/teams/from-preset", {
-              ...body,
-              idempotencyKey: receipt.current.key,
-            }),
+            await callRoute(
+              workspaceApi.teamFromPreset,
+              {
+                body: {
+                  ...body,
+                  idempotencyKey: receipt.current.key,
+                },
+              },
+              executionSourceId(),
+            ),
           );
         } catch (e) {
           setError((e as Error).message);

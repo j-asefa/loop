@@ -1,30 +1,14 @@
-import { registrar } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { registrar, projectResponse } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 
-import { z } from "zod";
 import { db } from "./db.js";
 import { ownedFolder, ownedAgent, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { Agent } from "../shared/types.js";
 const routes = registrar("sharing");
 export const sharing = routes.mount;
-export const sourceSchema = z.object({
-  url: z
-    .string()
-    .max(3000)
-    .refine((v) => {
-      try {
-        const u = new URL(v);
-        return (
-          ["https:", "http:"].includes(u.protocol) && !u.username && !u.password
-        );
-      } catch {
-        return false;
-      }
-    }, "Use an HTTP or HTTPS source link"),
-  title: z.string().max(300).default(""),
-  excerpt: z.string().max(12000).default(""),
-});
+export { SharedSource as sourceSchema } from "../shared/team-contract-schemas.js";
 export function routeHandle(owner: string, text: string) {
   const match = text.trim().match(/^@([^\s]+)(?:\s|$)/);
   if (!match) return null;
@@ -51,37 +35,28 @@ export function routeHandle(owner: string, text: string) {
     );
   return agent;
 }
-const shareSchema = z.object({
-  question: z.string().trim().min(1).max(20000),
-  source: sourceSchema.optional(),
-  sharedText: z.string().max(12000).optional(),
-  folderId: z.string().optional(),
-});
-routes.legacy("POST /share/preview", (req, res) => {
-  const d = shareSchema.parse(req.body);
+routes.on(workspaceApi.sharePreview, (req, res) => {
+  const d = req.body;
   if (d.folderId) ownedFolder(d.folderId, res.locals.owner);
   const agent = routeHandle(res.locals.owner, d.question);
-  res.json({
-    mode: agent ? "queue" : "create",
-    agent: agent
-      ? {
-          id: agent.id,
-          name: agent.name,
-          provider: agent.provider,
-          model: agent.model,
-          effort: agent.effort,
-        }
-      : null,
-    source: d.source,
-  });
+  res.json(
+    projectResponse(workspaceApi.sharePreview, {
+      mode: agent ? "queue" : "create",
+      agent: agent
+        ? {
+            id: agent.id,
+            name: agent.name,
+            provider: agent.provider,
+            model: agent.model,
+            effort: agent.effort,
+          }
+        : null,
+      source: d.source,
+    }),
+  );
 });
-routes.legacy("POST /share/send", (req, res) => {
-  const d = shareSchema
-      .extend({
-        newAgentId: z.string().optional(),
-        idempotencyKey: z.string().min(10).max(150),
-      })
-      .parse(req.body),
+routes.on(workspaceApi.shareSend, (req, res) => {
+  const d = req.body,
     routed = routeHandle(res.locals.owner, d.question);
   const agent =
     routed ||
@@ -109,13 +84,8 @@ routes.legacy("POST /share/send", (req, res) => {
   );
 });
 
-routes.legacy("POST /routing/preview", (req, res) => {
-  const d = z
-    .object({
-      input: z.string().min(1).max(30000),
-      folderId: z.string().optional(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.routingPreview, (req, res) => {
+  const d = req.body;
   if (d.folderId) ownedFolder(d.folderId, res.locals.owner);
   let agent = routeHandle(res.locals.owner, d.input);
   if (!agent)

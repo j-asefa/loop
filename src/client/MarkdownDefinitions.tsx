@@ -1,7 +1,7 @@
 import { workspaceApi } from "../shared/workspace-api";
-import { callRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
 import { useEffect, useRef, useState } from "react";
-import { apiInWorkspace, parse } from "./api";
+import { parse } from "./api";
 import { Sheet } from "./components";
 import { viewOwner } from "./viewCache";
 import {
@@ -48,15 +48,23 @@ export function MarkdownDefinitions({
   useEffect(() => {
     const controller = new AbortController();
     const owner = viewOwner();
-    apiInWorkspace<DefinitionSummary[]>(
-      "/agent-definitions",
+    readRoute(
+      workspaceApi.definitionList,
+      {},
       sourceId,
-      undefined,
-      undefined,
       controller.signal,
+      (failure) => {
+        // Keep refresh failures visible while the bounded GET recovery runs;
+        // a successful save/delete remains authoritative during that wait.
+        if (!controller.signal.aborted && owner === viewOwner())
+          setError((failure as Error).message);
+      },
     )
       .then((rows) => {
-        if (!controller.signal.aborted && owner === viewOwner()) setItems(rows);
+        if (!controller.signal.aborted && owner === viewOwner()) {
+          setItems(rows);
+          setError("");
+        }
       })
       .catch((e) => {
         if (!controller.signal.aborted && owner === viewOwner()) {
@@ -70,6 +78,27 @@ export function MarkdownDefinitions({
       });
     return () => controller.abort();
   }, [sourceId, revision]);
+  const reads = useRef(new Set<AbortController>());
+  useEffect(
+    () => () => {
+      for (const controller of reads.current) controller.abort();
+    },
+    [sourceId],
+  );
+  async function readDefinition(id: string) {
+    const controller = new AbortController();
+    reads.current.add(controller);
+    try {
+      return await readRoute(
+        workspaceApi.definitionRead,
+        { params: { id } },
+        sourceId,
+        controller.signal,
+      );
+    } finally {
+      reads.current.delete(controller);
+    }
+  }
   async function action(work: () => Promise<() => void>) {
     if (locked.current) return;
     locked.current = true;
@@ -148,15 +177,17 @@ export function MarkdownDefinitions({
           onSubmit={(event) => {
             event.preventDefault();
             void action(async () => {
-              const saved = await apiInWorkspace<AgentDefinition>(
-                `/agent-definitions/${editing.id}`,
-                sourceId,
+              const saved = await callRoute(
+                workspaceApi.definitionSave,
                 {
-                  markdown: editing.markdown,
-                  version: editing.version,
-                  kind,
+                  params: { id: editing.id },
+                  body: {
+                    markdown: editing.markdown,
+                    version: editing.version,
+                    kind,
+                  },
                 },
-                "PUT",
+                sourceId,
               );
               return () => {
                 const { markdown: _markdown, spec: _spec, ...summary } = saved;
@@ -260,11 +291,7 @@ export function MarkdownDefinitions({
                     className="primary"
                     onClick={() =>
                       void action(async () => {
-                        const definition =
-                          await apiInWorkspace<AgentDefinition>(
-                            `/agent-definitions/${item.id}`,
-                            sourceId,
-                          );
+                        const definition = await readDefinition(item.id);
                         if (definition.kind !== kind)
                           throw new Error(
                             "The definition type changed. Reload the library.",
@@ -280,11 +307,7 @@ export function MarkdownDefinitions({
                     disabled={busy}
                     onClick={() =>
                       void action(async () => {
-                        const definition =
-                          await apiInWorkspace<AgentDefinition>(
-                            `/agent-definitions/${item.id}`,
-                            sourceId,
-                          );
+                        const definition = await readDefinition(item.id);
                         return () => setEditing(definition);
                       })
                     }
@@ -296,11 +319,7 @@ export function MarkdownDefinitions({
                     disabled={busy}
                     onClick={() =>
                       void action(async () => {
-                        const definition =
-                          await apiInWorkspace<AgentDefinition>(
-                            `/agent-definitions/${item.id}`,
-                            sourceId,
-                          );
+                        const definition = await readDefinition(item.id);
                         return () => download(definition);
                       })
                     }
@@ -313,11 +332,13 @@ export function MarkdownDefinitions({
                     onClick={() =>
                       void action(async () => {
                         try {
-                          await apiInWorkspace(
-                            `/agent-definitions/${item.id}`,
+                          await callRoute(
+                            workspaceApi.definitionDelete,
+                            {
+                              params: { id: item.id },
+                              body: { version: item.version },
+                            },
                             sourceId,
-                            { version: item.version },
-                            "DELETE",
                           );
                         } catch (error) {
                           const failure = error as Error & { status?: number };
@@ -552,10 +573,13 @@ export function CreateFromDefinition({
           if (receipt.current.body !== encoded)
             receipt.current = { body: encoded, key: crypto.randomUUID() };
           try {
-            const result = await apiInWorkspace<DefinitionCreation>(
-              `/agent-definitions/${definition.id}/create`,
+            const result = await callRoute(
+              workspaceApi.definitionCreate,
+              {
+                params: { id: definition.id },
+                body: { ...body, idempotencyKey: receipt.current.key },
+              },
               sourceId,
-              { ...body, idempotencyKey: receipt.current.key },
             );
             if (
               alive.current &&

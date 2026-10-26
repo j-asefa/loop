@@ -138,13 +138,17 @@ for (const [name, route] of Object.entries(workspaceApi)) {
     parameters.push({ name: key, in: "path", required: true, schema });
   const response = {
     description: "Successful response",
-    content: {
-      [route.kind === "stream"
-        ? (route.contentType ?? "application/octet-stream")
-        : "application/json"]: {
-        schema: { $ref: "#/components/schemas/" + prefix + "Response" },
-      },
-    },
+    ...(route.status === 204
+      ? {}
+      : {
+          content: {
+            [route.kind === "stream"
+              ? (route.contentType ?? "application/octet-stream")
+              : "application/json"]: {
+              schema: { $ref: "#/components/schemas/" + prefix + "Response" },
+            },
+          },
+        }),
   };
   const errorStatuses = [400, 401, 403, 429, 500];
   if (cardRead) errorStatuses.push(404);

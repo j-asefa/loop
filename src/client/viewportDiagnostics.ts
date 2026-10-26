@@ -1,4 +1,5 @@
-import { authorizedFetch } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 
 /** Opt-in, short-lived physical-device capture. No text, URLs, IDs or form
  * values: only viewport geometry, element bounds and numeric CSS flags. */
@@ -7,7 +8,9 @@ export function startViewportDiagnostics() {
     return;
   const session = crypto.randomUUID();
   const started = performance.now();
-  let batch: unknown[] = [];
+  let batch: RouteInput<
+    typeof workspaceApi.viewportDiagnostics
+  >["body"]["samples"] = [];
   const box = (el: Element | null) => {
     if (!el) return [];
     const r = el.getBoundingClientRect();
@@ -16,11 +19,11 @@ export function startViewportDiagnostics() {
   const flush = () => {
     if (!batch.length) return;
     const samples = batch.splice(0);
-    void authorizedFetch("/api/ui/viewport-diagnostics", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ session, samples }),
-    }).catch(() => {});
+    void callRoute(
+      workspaceApi.viewportDiagnostics,
+      { body: { session, samples } },
+      "",
+    ).catch(() => {});
   };
   const capture = () => {
     const v = visualViewport;

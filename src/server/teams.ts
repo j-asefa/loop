@@ -1,4 +1,5 @@
-import { registrar } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { registrar, projectResponse } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
 
 import { z } from "zod";
@@ -51,13 +52,7 @@ export function teamFilter(value: unknown, owner: string) {
   return ids;
 }
 export function createTeam(owner: string, input: unknown) {
-  const d = z
-    .object({
-      name: z.string().trim().min(1).max(80),
-      managerId: z.string(),
-      members: z.array(z.string()).min(1).max(8),
-    })
-    .parse(input);
+  const d = workspaceApi.teamCreate.body.parse(input);
   const members = [...new Set(d.members)];
   if (members.includes(d.managerId))
     throw new Problem(
@@ -112,21 +107,7 @@ export function createTeam(owner: string, input: unknown) {
 }
 
 export function createPresetTeam(owner: string, input: unknown) {
-  const selection = z.object({
-    connectionId: z.string(),
-    model: z.string().min(1),
-    effort: z.string().nullable().optional(),
-  });
-  const d = z
-    .object({
-      presetId: z.string(),
-      name: z.string().trim().min(1).max(80),
-      folderId: z.string().min(1),
-      selection,
-      roles: z.record(z.string(), selection).default({}),
-      idempotencyKey: z.string().min(8).max(150),
-    })
-    .parse(input);
+  const d = workspaceApi.teamFromPreset.body.parse(input);
   const { idempotencyKey, ...details } = d;
   const hash = createHash("sha256")
     .update(
@@ -207,7 +188,7 @@ export function createPresetTeam(owner: string, input: unknown) {
     .immediate();
 }
 export function addTeamMember(owner: string, teamId: string, input: unknown) {
-  const { agentId } = z.object({ agentId: z.string().min(1) }).parse(input);
+  const { agentId } = workspaceApi.teamMemberAdd.body.parse(input);
   return db
     .transaction(() => {
       const team = ownedTeam(teamId, owner);
@@ -280,9 +261,8 @@ export function setTeamFeedVisibility(
   teamId: string,
   input: unknown,
 ) {
-  const { hideResultsFromFeed } = z
-    .object({ hideResultsFromFeed: z.boolean() })
-    .parse(input);
+  const { hideResultsFromFeed } =
+    workspaceApi.teamFeedVisibility.body.parse(input);
   return db
     .transaction(() => {
       const team = ownedTeam(teamId, owner);
@@ -307,19 +287,24 @@ export function deleteTeam(owner: string, teamId: string) {
     ).run(teamId, owner);
   }).immediate();
 }
-routes.legacy("GET /teams", (_req, res) =>
+routes.on(workspaceApi.teamList, (_req, res) =>
   res.json(listTeams(res.locals.owner)),
 );
-routes.legacy("GET /team-presets", (_req, res) => res.json(TEAM_PRESETS));
-routes.legacy("POST /teams/from-preset", (req, res) =>
+routes.on(workspaceApi.teamPresets, (_req, res) => res.json([...TEAM_PRESETS]));
+routes.on(workspaceApi.teamFromPreset, (req, res) =>
   res.status(201).json(createPresetTeam(res.locals.owner, req.body)),
 );
-routes.legacy("POST /teams/:id/reviews", (req, res) =>
+routes.on(workspaceApi.teamReview, (req, res) =>
   res
     .status(201)
-    .json(startCodeReview(res.locals.owner, req.params.id, req.body)),
+    .json(
+      projectResponse(
+        workspaceApi.teamReview,
+        startCodeReview(res.locals.owner, req.params.id, req.body),
+      ),
+    ),
 );
-routes.legacy("GET /reviews/conversation/:id", (req, res) => {
+routes.on(workspaceApi.reviewStatus, (req, res) => {
   ownedConversation(req.params.id, res.locals.owner);
   const run = db
     .prepare(
@@ -328,25 +313,28 @@ routes.legacy("GET /reviews/conversation/:id", (req, res) => {
     .get(req.params.id, res.locals.owner) as
     { reviewId: string | null } | undefined;
   res.json(
-    run?.reviewId
-      ? reviewStatus(
-          res.locals.owner,
-          run.reviewId,
-          req.query.freshness === "true",
-        )
-      : null,
+    projectResponse(
+      workspaceApi.reviewStatus,
+      run?.reviewId
+        ? reviewStatus(
+            res.locals.owner,
+            run.reviewId,
+            req.query.freshness === "true",
+          )
+        : null,
+    ),
   );
 });
-routes.legacy("POST /teams", (req, res) =>
+routes.on(workspaceApi.teamCreate, (req, res) =>
   res.status(201).json(createTeam(res.locals.owner, req.body)),
 );
-routes.legacy("POST /teams/:id/members", (req, res) =>
+routes.on(workspaceApi.teamMemberAdd, (req, res) =>
   res.json(addTeamMember(res.locals.owner, req.params.id, req.body)),
 );
-routes.legacy("PATCH /teams/:id/feed-visibility", (req, res) =>
+routes.on(workspaceApi.teamFeedVisibility, (req, res) =>
   res.json(setTeamFeedVisibility(res.locals.owner, req.params.id, req.body)),
 );
-routes.legacy("DELETE /teams/:id", (req, res) => {
+routes.on(workspaceApi.teamDelete, (req, res) => {
   deleteTeam(res.locals.owner, req.params.id);
   res.json({ ok: true });
 });

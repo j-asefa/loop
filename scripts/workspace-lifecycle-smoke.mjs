@@ -6,6 +6,9 @@ import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
+import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
+import { markdownDefinitionsSmoke } from "./helpers/markdown-definitions-smoke.mjs";
+
 const notificationsOnly = process.argv.includes("--notifications-only");
 const evidence = process.env.LOOP_LIFECYCLE_EVIDENCE;
 if (evidence) mkdirSync(evidence, { recursive: true });
@@ -514,6 +517,91 @@ for (const engine of selectedEngines()) {
       "Notifications are off for this device.",
     );
     assert.deepEqual((await fixture.api("/notifications")).endpoints, []);
+    // Sources before notification categories returned publicKey/endpoints only.
+    // Preserve device opt-in without offering unsupported category controls.
+    const notificationEndpoint = fixture.base + "/api/notifications";
+    let legacyNotifications = 0;
+    const withoutDevices = async (route) => {
+      const response = await route.fetch();
+      assert.equal(response.ok(), true);
+      const body = await response.json();
+      delete body.devices;
+      legacyNotifications++;
+      await route.fulfill({ response, json: body });
+    };
+    await page.route(notificationEndpoint, withoutDevices);
+    try {
+      await page.goto(fixture.base);
+      await accountMenu("Notifications");
+      await expect(resultNotifications()).toBeEnabled();
+      await resultNotifications().click();
+      await expect(dialog().getByRole("status")).toHaveText(
+        "Notifications are on for this device.",
+      );
+      await expect(dialog().getByRole("checkbox")).toHaveCount(1);
+      await expect(dialog().getByRole("alert")).toHaveCount(0);
+      assert.ok(legacyNotifications >= 2);
+      if (evidence)
+        await page.screenshot({
+          path: `${evidence}/${engine.name()}-notifications-older-response.png`,
+        });
+      await resultNotifications().click();
+      await expect(dialog().getByRole("status")).toHaveText(
+        "Notifications are off for this device.",
+      );
+      assert.deepEqual((await fixture.api("/notifications")).endpoints, []);
+    } finally {
+      await page.unroute(notificationEndpoint, withoutDevices);
+    }
+    if (!notificationsOnly) {
+      const capture = async (name) => {
+        if (evidence)
+          await page.screenshot({
+            path: `${evidence}/${engine.name()}-${name}.png`,
+          });
+      };
+      await teamPresetsSmoke(page, fixture, engine, capture);
+      await markdownDefinitionsSmoke(page, fixture, engine, capture);
+      // The sharing projection originally omitted effort. Retain the actual
+      // route's selected agent and allow previewing without that display field.
+      const shareEndpoint = fixture.base + "/api/share/preview";
+      let legacyShares = 0;
+      const withoutEffort = async (route) => {
+        const response = await route.fetch();
+        assert.equal(response.ok(), true);
+        const body = await response.json();
+        assert.equal(body.agent.id, fixture.agents[0].id);
+        delete body.agent.effort;
+        legacyShares++;
+        await route.fulfill({ response, json: body });
+      };
+      await page.route(shareEndpoint, withoutEffort);
+      try {
+        await page.goto(
+          fixture.base +
+            "/?share=1&question=" +
+            encodeURIComponent(`@${fixture.agents[0].name} Review this source`),
+        );
+        const share = page.getByRole("dialog", {
+          name: "Bring it into Loop",
+          exact: true,
+        });
+        await share
+          .getByRole("button", { name: "Preview route", exact: true })
+          .click();
+        await expect(share).toContainText(
+          `Queue for @${fixture.agents[0].name}`,
+        );
+        await expect(
+          share.getByRole("button", { name: "Send after review", exact: true }),
+        ).toBeEnabled();
+        await expect(share.getByRole("alert")).toHaveCount(0);
+        assert.equal(legacyShares, 1);
+        await capture("sharing-older-response");
+      } finally {
+        await page.unroute(shareEndpoint, withoutEffort);
+      }
+    }
     assert.deepEqual(errors, []);
     console.log(
       `${engine.name()}: ${notificationsOnly ? "notification categories, persistence and opt-in" : "bookmark feed stability, filters, team deletion recovery, retirement/restore, phone notification opt-in"} passed`,

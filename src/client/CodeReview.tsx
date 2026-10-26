@@ -1,21 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
-import { useSourceApi, useSourceRead } from "./SourceContext";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
+import { useSourceRoute, useSourceRouteRead } from "./SourceContext";
 import { Sheet } from "./components";
 import type { Folder, Team } from "../shared/types";
 
-type Status = {
-  id: string;
-  conversationId: string;
-  scope: string;
-  state: string;
-  fingerprint: string;
-  changed: string[];
-  omitted: string[];
-  current: boolean | null;
-  freshnessError: string | null;
-  reviewers: { agent_id: string; state: string; error: string | null }[];
-};
+type Status = RouteResponse<typeof workspaceApi.teamReview>;
 export function StartCodeReview({
   teams,
   folders,
@@ -40,7 +31,7 @@ export function StartCodeReview({
   const [folderId, setFolderId] = useState(
     initialFolder || choices.find((t) => t.id === teamId)?.folder_id || "",
   );
-  const [scope, setScope] = useState("uncommitted"),
+  const [scope, setScope] = useState<Status["scope"]>("uncommitted"),
     [base, setBase] = useState("main");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -74,10 +65,17 @@ export function StartCodeReview({
           if (receipt.current.body !== encoded)
             receipt.current = { body: encoded, key: crypto.randomUUID() };
           try {
-            const r = await api<Status>(`/teams/${teamId}/reviews`, {
-              ...body,
-              idempotencyKey: receipt.current.key,
-            });
+            const r = await callRoute(
+              workspaceApi.teamReview,
+              {
+                params: { id: teamId },
+                body: {
+                  ...body,
+                  idempotencyKey: receipt.current.key,
+                },
+              },
+              executionSourceId(),
+            );
             onStarted(r.conversationId);
           } catch (e) {
             setError((e as Error).message);
@@ -131,7 +129,10 @@ export function StartCodeReview({
         </label>
         <label>
           Changes
-          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value as Status["scope"])}
+          >
             <option value="uncommitted">Uncommitted changes</option>
             <option value="staged">Staged changes</option>
             <option value="branch">Branch against a base</option>
@@ -171,16 +172,17 @@ export function CodeReviewStatus({
   conversationId: string;
   revision: number;
 }) {
-  const sourceApi = useSourceApi();
-  const read = useSourceRead();
+  const sourceRoute = useSourceRoute();
+  const read = useSourceRouteRead();
   const [review, setReview] = useState<Status | null>(null),
     [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    read<Status | null>(
-      `/reviews/conversation/${conversationId}`,
+    read(
+      workspaceApi.reviewStatus,
+      { params: { id: conversationId } },
       controller.signal,
     )
       .then((r) => {
@@ -244,9 +246,10 @@ export function CodeReviewStatus({
           setError("");
           try {
             setReview(
-              await sourceApi<Status>(
-                `/reviews/conversation/${conversationId}?freshness=true`,
-              ),
+              await sourceRoute(workspaceApi.reviewStatus, {
+                params: { id: conversationId },
+                query: { freshness: "true" },
+              }),
             );
           } catch (e) {
             setError((e as Error).message);

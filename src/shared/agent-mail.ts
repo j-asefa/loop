@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 // Messages Loop submits on your behalf, not typed by you: a watched pull
 // request, a Social feed digest, or another agent's message or delegated
 // result.
@@ -24,19 +26,87 @@ export function automationLabel(
   return "You";
 }
 
-export type MailStatus =
-  | "pending"
-  | "held"
-  | "not_delivered"
-  | "steering"
-  | "steered"
-  | "unconfirmed"
-  | "queued"
-  | "reading"
-  | "handled"
-  | "failed"
-  | "cancelled"
-  | "interrupted";
+export const MailStatusSchema = z.enum([
+  "pending",
+  "held",
+  "not_delivered",
+  "steering",
+  "steered",
+  "unconfirmed",
+  "queued",
+  "reading",
+  "handled",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+export type MailStatus = z.infer<typeof MailStatusSchema>;
+const Text = z.string();
+const ThreadFields = { scope: z.enum(["direct", "team"]), subject: Text };
+const MessageFields = {
+  kind: z.enum(["message", "result"]),
+  status: MailStatusSchema,
+};
+export const PublicMailMessage = z.object({
+  ...MessageFields,
+  id: Text,
+  from: Text,
+  to: Text,
+  preview: Text,
+  created_at: z.number(),
+  // Recipient navigation was added with direct mail in 3ae55ca7.
+  error: Text.nullable(),
+  files: z.number(),
+  conversation_id: Text.nullable().optional(),
+});
+export const PublicMailThread = z.object({
+  ...ThreadFields,
+  // The original team-mail HTTP projection did not return scope (3ae55ca7).
+  scope: ThreadFields.scope.optional(),
+  id: Text,
+  paused_at: z.number().nullable(),
+  paused_reason: Text.nullable(),
+  updated_at: z.number(),
+  participants: z.array(Text),
+  messages: z.array(PublicMailMessage),
+});
+export type MailThread = z.infer<typeof PublicMailThread>;
+export const PublicMailThreads = z.object({
+  threads: z.array(PublicMailThread),
+});
+export const PublicMailResume = z.object({
+  released: z.number(),
+  refused: z.number(),
+  held: z.number(),
+});
+// The tool's existing privacy-filtered view keeps handles/ISO dates and redacted
+// previews; the browser uses owner-visible IDs/timestamps. Share semantic fields
+// without changing either wire format or granting the agent the owner's view.
+const ToolMailMessage = z.object({
+  ...MessageFields,
+  messageId: Text,
+  from: Text,
+  to: Text,
+  sentAt: Text,
+  preview: Text.nullable(),
+  error: Text.optional(),
+});
+const ToolMailThread = z.object({
+  ...ThreadFields,
+  threadId: Text,
+  paused: z.boolean(),
+});
+export const ToolMailStatus = z.union([
+  ToolMailThread.extend({
+    pausedReason: Text.optional(),
+    messages: z.array(ToolMailMessage),
+  }),
+  z.object({
+    threads: z.array(
+      ToolMailThread.extend({ last: ToolMailMessage.optional() }),
+    ),
+  }),
+]);
 
 export const MAIL_STATUS_LABELS: Record<MailStatus, string> = {
   pending: "Waiting for recipient availability",

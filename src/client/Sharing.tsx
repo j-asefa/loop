@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
 import { Check, Info, Share, WifiOff } from "lucide-react";
-import { api } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";
 import {
   SettingsList,
@@ -91,7 +93,9 @@ export function ShareSheet({
   onClose: () => void;
   onSent: (run: Run) => void;
 }) {
-  const [preview, setPreview] = useState<any>(null),
+  const [preview, setPreview] = useState<RouteResponse<
+      typeof workspaceApi.sharePreview
+    > | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const key = useRef({ signature: "", key: "" });
@@ -111,7 +115,13 @@ export function ShareSheet({
   async function review() {
     setError("");
     try {
-      setPreview(await api("/share/preview", payload));
+      setPreview(
+        await callRoute(
+          workspaceApi.sharePreview,
+          { body: payload },
+          executionSourceId(),
+        ),
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -200,10 +210,16 @@ export function ShareSheet({
                   if (key.current.signature !== signature)
                     key.current = { signature, key: crypto.randomUUID() };
                   onSent(
-                    await api("/share/send", {
-                      ...body,
-                      idempotencyKey: key.current.key,
-                    }),
+                    await callRoute(
+                      workspaceApi.shareSend,
+                      {
+                        body: {
+                          ...body,
+                          idempotencyKey: key.current.key,
+                        },
+                      },
+                      executionSourceId(),
+                    ),
                   );
                 } catch (e) {
                   setError((e as Error).message);

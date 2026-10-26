@@ -1,32 +1,10 @@
-import type { LegacyClientPath } from "./legacy-paths";
 import { useEffect, useRef, useState } from "react";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { ArrowUpRight } from "lucide-react";
-import { apiInWorkspace, readInWorkspace } from "./api";
+import { callRoute, readRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import type { Agent } from "../shared/types";
-import { MAIL_STATUS_LABELS, type MailStatus } from "../shared/agent-mail";
-
-type MailThread = {
-  id: string;
-  scope: "direct" | "team";
-  subject: string;
-  paused_at: number | null;
-  paused_reason: string | null;
-  updated_at: number;
-  participants: string[];
-  messages: {
-    id: string;
-    kind: "message" | "result";
-    from: string;
-    to: string;
-    preview: string;
-    created_at: number;
-    status: MailStatus;
-    error: string | null;
-    files: number;
-    conversation_id: string | null;
-  }[];
-};
+import { MAIL_STATUS_LABELS, type MailThread } from "../shared/agent-mail";
 
 type Props = {
   target: { kind: "agent" | "team"; id: string };
@@ -61,23 +39,11 @@ function MailThreadsView({
   const active = useRef(false);
   const generation = useRef(0);
   const requests = useRef(new Set<AbortController>());
-  const path: `/teams/${string}/messages` | `/agents/${string}/mail` =
-    target.kind === "team"
-      ? `/teams/${target.id}/messages`
-      : `/agents/${target.id}/mail`;
-  const request = async <T,>(url: LegacyClientPath, body?: object) => {
+  const request = async <T,>(work: (signal: AbortSignal) => Promise<T>) => {
     const controller = new AbortController();
     requests.current.add(controller);
     try {
-      if (body === undefined)
-        return await readInWorkspace<T>(url, sourceId, controller.signal);
-      return await apiInWorkspace<T>(
-        url,
-        sourceId,
-        body,
-        undefined,
-        controller.signal,
-      );
+      return await work(controller.signal);
     } finally {
       requests.current.delete(controller);
     }
@@ -86,7 +52,16 @@ function MailThreadsView({
     const current = ++generation.current;
     setLoading(true);
     try {
-      const response = await request<{ threads: MailThread[] }>(path);
+      const response = await request((signal) =>
+        readRoute(
+          target.kind === "team"
+            ? workspaceApi.teamMessages
+            : workspaceApi.agentMail,
+          { params: { id: target.id } },
+          sourceId,
+          signal,
+        ),
+      );
       if (active.current && current === generation.current) {
         setThreads(response.threads);
         setError("");
@@ -118,15 +93,16 @@ function MailThreadsView({
     setResuming(threadId);
     setNotice("");
     try {
-      const url: LegacyClientPath =
-        target.kind === "team"
-          ? `/teams/${target.id}/threads/${threadId}/resume`
-          : `${path}/${threadId}/resume`;
-      const result = await request<{
-        released: number;
-        refused: number;
-        held: number;
-      }>(url, {});
+      const result = await request((signal) =>
+        callRoute(
+          target.kind === "team"
+            ? workspaceApi.teamThreadResume
+            : workspaceApi.agentMailResume,
+          { params: { id: target.id, threadId }, body: {} },
+          sourceId,
+          signal,
+        ),
+      );
       if (!active.current) return;
       setNotice(
         `${result.released} released, ${result.refused} refused, ${result.held} still held.`,
@@ -177,8 +153,11 @@ function MailThreadsView({
             <header>
               <strong>{thread.subject}</strong>
               <small>
-                {(thread.scope === "direct" ? "Direct · " : "Team · ") +
-                  thread.participants.map(name).join(" · ")}
+                {(thread.scope === "direct"
+                  ? "Direct · "
+                  : thread.scope === "team"
+                    ? "Team · "
+                    : "") + thread.participants.map(name).join(" · ")}
               </small>
             </header>
             {thread.paused_at && (

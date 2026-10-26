@@ -1,3 +1,4 @@
+import { ReviewInput } from "../shared/team-contract-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
 import { z } from "zod";
@@ -19,12 +20,6 @@ import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
 
 import type { Run } from "./queue.js";
 
-const input = z.object({
-  folderId: z.string().min(1),
-  scope: z.enum(["uncommitted", "staged", "branch"]),
-  base: z.string().trim().min(1).max(200).default("main"),
-  idempotencyKey: z.string().min(8).max(150),
-});
 function directory(owner: string, folderId: string) {
   if (!companionMode)
     throw new Problem(
@@ -78,7 +73,7 @@ function ensureCodeReview(
   // the requesting run as the lead's parent in the same transaction.
   requester?: { path: string; runId: string; callId: string },
 ) {
-  const d = input.parse(value);
+  const d = ReviewInput.parse(value);
   const hash = createHash("sha256")
     .update(
       JSON.stringify({

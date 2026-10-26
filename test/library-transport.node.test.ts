@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   callRoute,
   clearAuthorization,
@@ -167,6 +167,39 @@ test("typed multipart and runtime routes use the compiled app directly and throu
           },
         });
       };
+      // Diagnostics has no JSON body on success. Exercise the typed caller over
+      // both real transports, preserving one submission and the empty 204.
+      const beforeDiagnostics = requests.filter((path) =>
+        path.endsWith("/ui/viewport-diagnostics"),
+      ).length;
+      assert.equal(
+        await callRoute(
+          workspaceApi.viewportDiagnostics,
+          {
+            body: {
+              session: randomUUID(),
+              samples: [
+                {
+                  elapsed: 1,
+                  viewport: Array(9).fill(0),
+                  dialog: [],
+                  header: [],
+                  input: [],
+                  body: [],
+                  flags: Array(8).fill(0),
+                },
+              ],
+            },
+          },
+          source,
+        ),
+        undefined,
+      );
+      assert.equal(
+        requests.filter((path) => path.endsWith("/ui/viewport-diagnostics"))
+          .length,
+        beforeDiagnostics + 1,
+      );
       const runtime = await callRoute(
         workspaceApi.runtimeHostCreate,
         {

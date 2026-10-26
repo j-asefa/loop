@@ -130,7 +130,7 @@ export async function apiInWorkspace<T = any>(
 ): Promise<T> {
   return requestInWorkspace<T>(path, sourceId, body, method, signal);
 }
-async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream", multipart = false): Promise<T> {
+async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream", multipart = false, empty = false): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
@@ -183,7 +183,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   // returned an error page instead of Loop's JSON receipt.
   const uploadFailure = `Upload failed (HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}). Try again.`;
   let parsed = true;
-  const data = await (r.ok && kind === "stream" ? r.blob() : r.json()).catch(() => {
+  const data = await (empty && r.status === 204 ? Promise.resolve(undefined) : r.ok && kind === "stream" ? r.blob() : r.json()).catch(() => {
     parsed = false;
     return { error: multipart ? uploadFailure : "Connection unavailable. Try again." };
   });
@@ -286,7 +286,7 @@ export async function callRoute<C extends RouteContract>(contract: C, input: Rou
     else form.append("file", upload.file, upload.filename);
     body = form;
   }
-  return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind, contract.multipart));
+  return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind, contract.multipart, contract.status === 204));
 }
 export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<RouteResponse<C>> {
   return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind));

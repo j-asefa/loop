@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { callRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { Avatar, Sheet } from "./components";
 import {
   Check,
@@ -49,10 +50,10 @@ function TeamFeedVisibility({
           setBusy(true);
           setError("");
           try {
-            const updated = await api<Team>(
-              `/teams/${team.id}/feed-visibility`,
-              { hideResultsFromFeed: !show },
-              "PATCH",
+            const updated = await callRoute(
+              workspaceApi.teamFeedVisibility,
+              { params: { id: team.id }, body: { hideResultsFromFeed: !show } },
+              source,
               AbortSignal.timeout(15000),
             );
             if (owner === viewOwner() && source === executionSourceId())
@@ -184,9 +185,14 @@ export function TeamDirectory({
                   setBusy(true);
                   setError("");
                   try {
-                    await api(`/teams/${adding.id}/members`, {
-                      agentId: agent.id,
-                    });
+                    await callRoute(
+                      workspaceApi.teamMemberAdd,
+                      {
+                        params: { id: adding.id },
+                        body: { agentId: agent.id },
+                      },
+                      executionSourceId(),
+                    );
                     onChanged();
                     setAdding(null);
                   } catch (e) {
@@ -652,10 +658,10 @@ export function TeamFilter({
                 setBusy(true);
                 setError("");
                 try {
-                  await api(
-                    `/teams/${deleting.id}`,
-                    undefined,
-                    "DELETE",
+                  await callRoute(
+                    workspaceApi.teamDelete,
+                    { params: { id: deleting.id } },
+                    executionSourceId(),
                     AbortSignal.timeout(15000),
                   );
                   onDeleted(deleting.id);
@@ -774,7 +780,11 @@ export function CreateTeam({
               setError("");
               try {
                 onCreated(
-                  await api("/teams", { name, managerId: manager, members }),
+                  await callRoute(
+                    workspaceApi.teamCreate,
+                    { body: { name, managerId: manager, members } },
+                    executionSourceId(),
+                  ),
                 );
               } catch (e) {
                 setError((e as Error).message);

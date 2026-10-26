@@ -1,48 +1,14 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 import { plainPreview } from "../shared/text.js";
 
-import { z } from "zod";
 import webpush from "web-push";
 import { db, id, now } from "./db.js";
 import { seal, unseal } from "./secrets.js";
 import { Problem } from "./domain.js";
 
-// Subscriptions are browser-issued URLs, not arbitrary outbound webhooks.
-export function pushEndpoint(value: string) {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      !url.username &&
-      !url.password &&
-      !url.port &&
-      !url.hash &&
-      (url.hostname === "fcm.googleapis.com" ||
-        url.hostname === "updates.push.services.mozilla.com" ||
-        url.hostname.endsWith(".push.apple.com") ||
-        url.hostname.endsWith(".notify.windows.com"))
-    );
-  } catch {
-    return false;
-  }
-}
-const endpointSchema = z
-  .string()
-  .max(4096)
-  .refine(pushEndpoint, "Unsupported phone notification service");
-const subscriptionSchema = z.object({
-  endpoint: endpointSchema,
-  keys: z.object({
-    p256dh: z
-      .string()
-      .regex(/^[A-Za-z0-9_-]{87}=?$/)
-      .refine((value) => {
-        const key = Buffer.from(value, "base64url");
-        return key.length === 65 && key[0] === 4;
-      }),
-    auth: z.string().regex(/^[A-Za-z0-9_-]{22}(==)?$/),
-  }),
-});
+import { PushSubscription as subscriptionSchema } from "../shared/team-contract-schemas.js";
+export { pushEndpoint } from "../shared/team-contract-schemas.js";
 
 export function notificationKeys() {
   return db
@@ -71,12 +37,6 @@ export function notificationKeys() {
     .immediate();
 }
 
-const preferencesSchema = z.object({
-  needsYou: z.boolean(),
-  completed: z.boolean(),
-  reminders: z.boolean(),
-  social: z.boolean(),
-});
 function devicePreferences(owner: string) {
   const rows = db
     .prepare(
@@ -103,7 +63,7 @@ function devicePreferences(owner: string) {
 }
 const routes = registrar("notifications");
 export const notifications = routes.mount;
-routes.legacy("GET /notifications", (_req, res) => {
+routes.on(workspaceApi.notifications, (_req, res) => {
   res.json({
     publicKey: notificationKeys().publicKey,
     devices: devicePreferences(res.locals.owner),
@@ -114,9 +74,9 @@ routes.legacy("GET /notifications", (_req, res) => {
     ).map((s) => s.endpoint),
   });
 });
-routes.legacy("POST /notifications/subscriptions", (req, res) => {
+routes.on(workspaceApi.notificationSubscribe, (req, res) => {
   const subscription = subscriptionSchema.parse(req.body);
-  const preferences = preferencesSchema.optional().parse(req.body.preferences);
+  const preferences = req.body.preferences;
   const owner = res.locals.owner;
   db.transaction(() => {
     const existing = db
@@ -169,8 +129,8 @@ routes.legacy("POST /notifications/subscriptions", (req, res) => {
   }).immediate();
   res.status(201).json({ ok: true });
 });
-routes.legacy("DELETE /notifications/subscriptions", (req, res) => {
-  const { endpoint } = z.object({ endpoint: endpointSchema }).parse(req.body);
+routes.on(workspaceApi.notificationUnsubscribe, (req, res) => {
+  const { endpoint } = req.body;
   db.prepare(
     "DELETE FROM push_subscriptions WHERE endpoint=? AND owner_id=?",
   ).run(endpoint, res.locals.owner);

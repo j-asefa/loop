@@ -258,6 +258,8 @@ export async function markdownDefinitionsSmoke(
     .getByRole("textbox", { name: "Markdown definition", exact: true })
     .fill(markdown + "Do not duplicate findings.\n");
   // Save/delete responses are authoritative even if a later list refresh fails.
+  // The first failure must remain visible during bounded GET recovery (the
+  // two retries take six seconds, longer than this assertion's normal bound).
   await page.route("**/api/agent-definitions", (route) =>
     route.fulfill({
       status: 503,

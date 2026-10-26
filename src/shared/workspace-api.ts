@@ -4,6 +4,8 @@ import { ReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
+import * as teams from "./team-contract-schemas.js";
+import { PublicMailThreads, PublicMailResume } from "./agent-mail.js";
 import * as companion from "./companion-contract-schemas.js";
 import { ProviderSchema as Provider } from "./provider-schema.js";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
@@ -151,6 +153,31 @@ export type RouteContract = {
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  teamList: endpoint({ ...base, method: "GET", path: "/teams", response: z.array(PublicTeam) }),
+  teamPresets: endpoint({ ...base, method: "GET", path: "/team-presets", response: z.array(teams.PublicTeamPreset) }),
+  teamCreate: endpoint({ ...base, method: "POST", path: "/teams", body: teams.TeamCreateInput, response: PublicTeam, status: 201 }),
+  teamFromPreset: endpoint({ ...base, method: "POST", path: "/teams/from-preset", body: teams.TeamPresetInput, response: PublicTeam, status: 201 }),
+  teamMemberAdd: endpoint({ ...base, method: "POST", path: "/teams/:id/members", params: Id, body: z.object({ agentId: Text.min(1) }), response: PublicTeam }),
+  teamFeedVisibility: endpoint({ ...base, method: "PATCH", path: "/teams/:id/feed-visibility", params: Id, body: z.object({ hideResultsFromFeed: z.boolean() }), response: PublicTeam }),
+  teamDelete: endpoint({ ...base, method: "DELETE", path: "/teams/:id", params: Id, body: z.unknown(), response: Ok }),
+  teamReview: endpoint({ ...base, method: "POST", path: "/teams/:id/reviews", params: Id, body: teams.ReviewInput, response: teams.PublicReview, status: 201 }),
+  reviewStatus: endpoint({ ...base, method: "GET", path: "/reviews/conversation/:id", params: Id, query: z.object({ freshness: Text.optional() }), response: teams.PublicReview.nullable() }),
+  teamMessages: endpoint({ ...base, method: "GET", path: "/teams/:id/messages", params: Id, response: PublicMailThreads }),
+  teamThreadResume: endpoint({ ...base, method: "POST", path: "/teams/:id/threads/:threadId/resume", params: Id.extend({ threadId: Text }), body: z.unknown(), response: PublicMailResume }),
+  agentMail: endpoint({ ...base, method: "GET", path: "/agents/:id/mail", params: Id, response: PublicMailThreads }),
+  agentMailResume: endpoint({ ...base, method: "POST", path: "/agents/:id/mail/:threadId/resume", params: Id.extend({ threadId: Text }), body: z.unknown(), response: PublicMailResume }),
+  definitionList: endpoint({ ...base, method: "GET", path: "/agent-definitions", response: z.array(teams.PublicDefinitionSummary) }),
+  definitionRead: endpoint({ ...base, method: "GET", path: "/agent-definitions/:id", params: Id, response: teams.PublicDefinition }),
+  definitionSave: endpoint({ ...base, method: "PUT", path: "/agent-definitions/:id", params: z.object({ id: Text.uuid() }), body: teams.DefinitionSaveInput, response: teams.PublicDefinition }),
+  definitionDelete: endpoint({ ...base, method: "DELETE", path: "/agent-definitions/:id", params: Id, body: z.strictObject({ version: teams.DefinitionVersion }), response: Ok }),
+  definitionCreate: endpoint({ ...base, method: "POST", path: "/agent-definitions/:id/create", params: Id, body: teams.DefinitionCreateInput, response: z.union([z.object({ agent: PublicAgent, team: PublicTeam.optional() }), z.object({ team: PublicTeam })]), status: 201 }),
+  sharePreview: endpoint({ ...base, method: "POST", path: "/share/preview", body: teams.ShareInput, response: teams.PublicSharePreview }),
+  shareSend: endpoint({ ...base, method: "POST", path: "/share/send", body: teams.ShareSendInput, response: PublicRun }),
+  routingPreview: endpoint({ ...base, method: "POST", path: "/routing/preview", body: teams.RoutingInput, response: z.object({ agent: PublicAgent.nullable(), reason: Text }) }),
+  notifications: endpoint({ ...base, method: "GET", path: "/notifications", response: teams.PublicNotifications }),
+  notificationSubscribe: endpoint({ ...base, method: "POST", path: "/notifications/subscriptions", body: teams.NotificationSubscriptionInput, response: Ok, status: 201 }),
+  notificationUnsubscribe: endpoint({ ...base, method: "DELETE", path: "/notifications/subscriptions", body: z.object({ endpoint: teams.PushEndpoint }), response: Ok }),
+  viewportDiagnostics: endpoint({ ...base, method: "POST", path: "/ui/viewport-diagnostics", body: teams.ViewportInput, response: NoBody, status: 204 }),
   subscriptionAction: endpoint({ ...base, method: "POST", path: "/subscriptions/:id/:action", params: companion.SubscriptionActionParams, body: z.unknown(), response: companion.PublicSubscriptionAction }),
   subscriptionCreate: endpoint({ ...base, method: "POST", path: "/subscriptions", body: companion.SubscriptionCreateInput, response: z.object({ id: Text }), status: 201 }),
   workspace: endpoint({ ...base, method: "GET", path: "/workspace", response: companion.PublicWorkspace }),

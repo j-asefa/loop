@@ -1,12 +1,7 @@
 /** Named browser migration exceptions; no arbitrary string path is accepted. */
 type Path =
-  | `/agent-definitions`
-  | `/agent-definitions/${string}`
-  | `/agent-definitions/${string}/create`
   | `/agent-sources`
   | `/agents/${string}`
-  | `/agents/${string}/mail`
-  | `/agents/${string}/mail/${string}/resume`
   | `/artifacts/${string}`
   | `/artifacts/${string}/app`
   | `/artifacts/${string}/move`
@@ -46,13 +41,10 @@ type Path =
   | `/memory/notes/${string}`
   | `/memory/policy`
   | `/memory/sources/${string}`
-  | `/notifications`
-  | `/notifications/subscriptions`
   | `/pr-watches`
   | `/pr-watches/${string}`
   | `/pr-watches/${string}/resume`
   | `/results/${string}`
-  | `/reviews/conversation/${string}`
   | `/routing/preview`
   | `/runs/${string}/activities`
   | `/runs/${string}/memory`
@@ -61,7 +53,6 @@ type Path =
   | `/scheduled-sends`
   | `/scheduled-sends/${string}`
   | `/share/preview`
-  | `/share/send`
   | `/social`
   | `/social/digests`
   | `/social/digests/${string}`
@@ -90,16 +81,6 @@ type Path =
   | `/subscriptions/${string}/native-auth/status`
   | `/subscriptions/${string}/upgrade`
   | `/subscriptions/${string}/upgrade/recover`
-  | `/team-presets`
-  | `/teams`
-  | `/teams/${string}`
-  | `/teams/${string}/feed-visibility`
-  | `/teams/${string}/members`
-  | `/teams/${string}/messages`
-  | `/teams/${string}/reviews`
-  | `/teams/${string}/threads/${string}/resume`
-  | `/teams/from-preset`
-  | `/ui/viewport-diagnostics`
   | `/v1/cards`
   | `/v1/cards/${string}`
   | `/v1/cards/changes`
