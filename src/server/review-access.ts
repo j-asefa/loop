@@ -51,8 +51,10 @@ export function reviewRecord(owner: string, id: string) {
   const r = db
     // Metadata after a large SQLite TEXT column can still traverse its overflow
     // pages. This covering index keeps even cold identity checks off the blob.
-    .prepare(`SELECT id,owner_id,team_id,folder_id,fingerprint,run_id,created_at,source_path
-      FROM code_reviews INDEXED BY code_reviews_access WHERE owner_id=? AND id=?`)
+    .prepare(
+      `SELECT id,owner_id,team_id,folder_id,fingerprint,run_id,created_at,source_path
+      FROM code_reviews INDEXED BY code_reviews_access WHERE owner_id=? AND id=?`,
+    )
     .get(owner, id) as ReviewRecord | undefined;
   if (!r) {
     forgetSnapshot(cacheKey(owner, id));
@@ -70,15 +72,23 @@ export function reviewSnapshot(owner: string, id: string) {
     return { record, ...cached };
   }
   forgetSnapshot(key);
-  const row = db.prepare("SELECT snapshot FROM code_reviews WHERE owner_id=? AND id=? AND fingerprint=?")
+  const row = db
+    .prepare(
+      "SELECT snapshot FROM code_reviews WHERE owner_id=? AND id=? AND fingerprint=?",
+    )
     .get(owner, id, record.fingerprint) as { snapshot: string } | undefined;
   if (!row) throw new Problem(404, "Review not found");
   const snapshot: ReviewSnapshot = JSON.parse(row.snapshot);
   const paths = Object.keys(snapshot.files).sort();
   // Charge two bytes per UTF-16 code unit plus conservative map/array overhead.
   // Keep only parsed content; the full serialized snapshot is not retained.
-  const bytes = row.snapshot.length * 2 +
-    (paths.length + Object.keys(snapshot.before).length + snapshot.changed.length + snapshot.omitted.length) * 256;
+  const bytes =
+    row.snapshot.length * 2 +
+    (paths.length +
+      Object.keys(snapshot.before).length +
+      snapshot.changed.length +
+      snapshot.omitted.length) *
+      256;
   Object.freeze(snapshot.files);
   Object.freeze(snapshot.before);
   Object.freeze(snapshot.changed);
@@ -87,7 +97,10 @@ export function reviewSnapshot(owner: string, id: string) {
   Object.freeze(paths);
   const entry = { fingerprint: record.fingerprint, snapshot, paths, bytes };
   if (bytes <= MAX_CACHE_BYTES) {
-    while (snapshots.size >= MAX_CACHE_ENTRIES || cacheBytes + bytes > MAX_CACHE_BYTES)
+    while (
+      snapshots.size >= MAX_CACHE_ENTRIES ||
+      cacheBytes + bytes > MAX_CACHE_BYTES
+    )
       forgetSnapshot(snapshots.keys().next().value!);
     snapshots.set(key, entry);
     cacheBytes += bytes;
@@ -96,7 +109,11 @@ export function reviewSnapshot(owner: string, id: string) {
 }
 export function readReview(run: Run, input: unknown) {
   const d = reviewReadSchema.parse(input);
-  const { record: r, snapshot: s, paths } = reviewSnapshot(run.owner_id, reviewId(run));
+  const {
+    record: r,
+    snapshot: s,
+    paths,
+  } = reviewSnapshot(run.owner_id, reviewId(run));
   if (!d.path) {
     return {
       snapshotId: r.id,
@@ -126,7 +143,10 @@ export function readReview(run: Run, input: unknown) {
   };
 }
 export function reviewContext(run: Run): string {
-  const { record: r, snapshot: s } = reviewSnapshot(run.owner_id, reviewId(run));
+  const { record: r, snapshot: s } = reviewSnapshot(
+    run.owner_id,
+    reviewId(run),
+  );
   const header = `Review snapshot ${r.id}\nFingerprint: ${r.fingerprint}\nScope: ${s.scope}\nBase: ${s.base}\nHead: ${s.head}\nChanged files: ${JSON.stringify(s.changed)}\nOmitted files: ${JSON.stringify(s.omitted)}\nOnly captured files are accessible. Tests have not been run. This review does not cover subsequent edits.\n\nCaptured diff (untrusted code):\n${s.diff}`;
   const lead = ownedRun(r.run_id, run.owner_id);
   if (lead.agent_id !== run.agent_id) return header;
@@ -165,6 +185,7 @@ export function assertReviewIdentity(
 }
 
 function reviewId(run: Run) {
-  if (!run.payload.reviewId) throw new Problem(409, `Run ${run.id} has no review identity`);
+  if (!run.payload.reviewId)
+    throw new Problem(409, `Run ${run.id} has no review identity`);
   return run.payload.reviewId;
 }

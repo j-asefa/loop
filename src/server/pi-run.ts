@@ -37,7 +37,9 @@ export function runPi(
         reject(
           new Error(
             piErrorLine(tail) ||
-              (signal ? `Pi stopped (${signal}).` : `Pi exited with code ${code}.`),
+              (signal
+                ? `Pi stopped (${signal}).`
+                : `Pi exited with code ${code}.`),
           ),
         );
     });

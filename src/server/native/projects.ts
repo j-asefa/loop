@@ -2,12 +2,14 @@ import { ConnectionModels, ConnectionMetadata } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import { writeConnectionStatus } from "../connection-status.js";
 import { harnessUpgrades } from "../harness-upgrades.js";
-import { verifyAgentWorkspace, type AgentWorkspace } from "../agent-worktree.js";
+import {
+  verifyAgentWorkspace,
+  type AgentWorkspace,
+} from "../agent-worktree.js";
 import { realpathSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { db, id, now } from "../db.js";
 import { ownedConnection, ownedConversation, Problem } from "../domain.js";
-
 
 import { nativeStartupFailure } from "./startup-failure.js";
 import { type Adapter, type Options } from "../../adapters/types.js";
@@ -83,7 +85,8 @@ export class NativeProjects {
     return promise;
   }
   private async probe(options: Options) {
-    if (this.context.isStopped()) throw new ExecutionRefused(409, "Workspace is stopping");
+    if (this.context.isStopped())
+      throw new ExecutionRefused(409, "Workspace is stopping");
     if (options.harness === "acp") {
       const existing = db
         .prepare("SELECT options FROM harnesses WHERE name='acp'")
@@ -116,7 +119,11 @@ export class NativeProjects {
     } catch (error) {
       // Path validation precedes adapter creation and any native command.
       if (error instanceof Problem)
-        throw new ExecutionRefused(error.status, error.message, error.diagnostic);
+        throw new ExecutionRefused(
+          error.status,
+          error.message,
+          error.diagnostic,
+        );
       throw new ExecutionRefused(
         422,
         "Could not resolve the native executable or project directory. Restore the path and retry.",
@@ -133,11 +140,16 @@ export class NativeProjects {
       // This is a prompt-free verification adapter, before registration writes.
       // Disposal below must complete before a failed probe becomes retryable.
       const failure = nativeStartupFailure(labels[options.harness], error);
-      throw new ExecutionRefused(failure.status, failure.message, failure.diagnostic);
+      throw new ExecutionRefused(
+        failure.status,
+        failure.message,
+        failure.diagnostic,
+      );
     } finally {
       await native.dispose();
     }
-    if (this.context.isStopped()) throw new ExecutionRefused(409, "Workspace is stopping");
+    if (this.context.isStopped())
+      throw new ExecutionRefused(409, "Workspace is stopping");
     const models = [
       native.defaultModelOption || {
         id: "native-default",
@@ -180,18 +192,22 @@ export class NativeProjects {
         JSON.stringify(ConnectionModels.parse(models)),
         now(),
       );
-      writeConnectionStatus("native-" + options.harness, () => db.prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,status='connected',models=excluded.models,metadata=excluded.metadata",
-      ).run(
-        "native-" + options.harness,
-        OWNER,
-        options.harness === "claude" ? "anthropic" : options.harness,
-        metadata.environmentName + " · " + labels[options.harness],
-        "",
-        JSON.stringify(ConnectionModels.parse(models)),
-        JSON.stringify(ConnectionMetadata.parse(metadata)),
-        now(),
-      ));
+      writeConnectionStatus("native-" + options.harness, () =>
+        db
+          .prepare(
+            "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,status='connected',models=excluded.models,metadata=excluded.metadata",
+          )
+          .run(
+            "native-" + options.harness,
+            OWNER,
+            options.harness === "claude" ? "anthropic" : options.harness,
+            metadata.environmentName + " · " + labels[options.harness],
+            "",
+            JSON.stringify(ConnectionModels.parse(models)),
+            JSON.stringify(ConnectionMetadata.parse(metadata)),
+            now(),
+          ),
+      );
       db.prepare(
         "UPDATE agents SET connection_id=? WHERE connection_id IS NULL AND id IN (SELECT agent_id FROM conversations c JOIN companion_sessions n ON n.conversation_id=c.id WHERE n.harness=?)",
       ).run("native-" + options.harness, options.harness);
@@ -239,7 +255,8 @@ export class NativeProjects {
         .prepare(
           "SELECT f.parent_id,p.path FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.id=? AND f.owner_id=?",
         )
-        .get(folder, OWNER) as { parent_id: string | null; path: string | null } | undefined;
+        .get(folder, OWNER) as
+        { parent_id: string | null; path: string | null } | undefined;
       if (row?.path) return this.directory(row.path);
       folder = row?.parent_id ?? null;
     }
@@ -275,17 +292,14 @@ export class NativeProjects {
   // use. session() rebinds a chat to the agent's current harness while
   // keeping its project, so the catalog follows the same rule.
   async catalog(agent: any, conversation?: string) {
-    const c = conversation
-      ? ownedConversation(conversation, OWNER)
-      : undefined;
+    const c = conversation ? ownedConversation(conversation, OWNER) : undefined;
     if (c && c.agent_id !== agent.id)
       throw new Problem(400, "Conversation belongs to another agent");
-    const harness = ownedConnection(agent.connection_id, OWNER).metadata.loopHarness as Harness;
+    const harness = ownedConnection(agent.connection_id, OWNER).metadata
+      .loopHarness as Harness;
     const binding = conversation
       ? (db
-          .prepare(
-            "SELECT * FROM companion_sessions WHERE conversation_id=?",
-          )
+          .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
           .get(conversation) as Binding | undefined)
       : undefined;
     const options = this.registration(harness);
@@ -313,7 +327,9 @@ export class NativeProjects {
         };
     }
     const projectTrust =
-      harness === "pi" ? this.context.projectTrust(project).override : undefined;
+      harness === "pi"
+        ? this.context.projectTrust(project).override
+        : undefined;
     // Commands & skills polls every few seconds. Share one recent probe per
     // harness, project and trust decision instead of starting a process each
     // time; Pi configuration changes clear it.

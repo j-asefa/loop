@@ -1,12 +1,24 @@
 import { z } from "zod";
-export const RunIdentity = z.object({ id: z.string().min(1), owner_id: z.string().min(1) });
-import { maybeRun, parseRun, InvalidRow, RunPayload, type Run } from "./row-schemas.js";
+export const RunIdentity = z.object({
+  id: z.string().min(1),
+  owner_id: z.string().min(1),
+});
+import {
+  maybeRun,
+  parseRun,
+  InvalidRow,
+  RunPayload,
+  type Run,
+} from "./row-schemas.js";
 import { queuedMailFailure, queuedMailReady } from "./agent-mail-policy.js";
 import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
 import { completeCheckout, TERMINAL_STATES } from "./run-checkouts.js";
-import type { RunEventState, RunEventPayload } from "../shared/workspace-events.js";
+import type {
+  RunEventState,
+  RunEventPayload,
+} from "../shared/workspace-events.js";
 
 export type { Run } from "./row-schemas.js";
 import { RunState, legalRunTransition } from "../shared/run-state.js";
@@ -21,12 +33,16 @@ export function enqueue(
     payload?: unknown;
   } = {},
 ) {
-  const payload = RunPayload.parse(options.payload === undefined ? {} : options.payload);
+  const payload = RunPayload.parse(
+    options.payload === undefined ? {} : options.payload,
+  );
   return db
     .transaction(() => {
-      const prior = maybeRun(db
-        .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
-        .get(owner, key));
+      const prior = maybeRun(
+        db
+          .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
+          .get(owner, key),
+      );
       if (prior) {
         if (
           prior.input !== input ||
@@ -83,19 +99,24 @@ export function claim(
       // working and receives each result as a message.
       // Refuse obsolete mail even when another conversation would prevent its
       // claim. Otherwise it can remain a permanent queue barrier.
-      const mailRuns = checkedRuns(db.prepare(
-        `SELECT DISTINCT r.* FROM agent_mail m JOIN runs r ON ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id) AND m.owner_id=r.owner_id
+      const mailRuns = checkedRuns(
+        db
+          .prepare(
+            `SELECT DISTINCT r.* FROM agent_mail m JOIN runs r ON ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id) AND m.owner_id=r.owner_id
          WHERE r.state='queued' AND r.worker_id IS NULL
          AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
          AND NOT EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=r.id)`,
-      ).all());
+          )
+          .all(),
+      );
       for (const queued of mailRuns) {
         const failure = queuedMailFailure(queued.id);
         if (failure) transition(queued, "cancelled", { message: failure });
       }
-      const candidates = checkedRuns(db
-        .prepare(
-          `WITH candidates AS (
+      const candidates = checkedRuns(
+        db
+          .prepare(
+            `WITH candidates AS (
  SELECT runs.rowid AS queue_order, runs.*,
    (json_extract(runs.payload,'$.mailId') IS NOT NULL OR EXISTS(SELECT 1 FROM agent_mail m WHERE (m.run_id=runs.id AND m.steering_id IS NULL) OR m.requeued_run_id=runs.id)) AS is_mail,
    EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(runs.payload,'$.connectionId')
@@ -111,11 +132,13 @@ SELECT r.* FROM candidates r WHERE
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
  ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`,
-        )
-        .all());
+          )
+          .all(),
+      );
       const run = candidates.find((candidate) => {
-        try { return queuedMailReady(candidate) && available(candidate); }
-        catch (error) {
+        try {
+          return queuedMailReady(candidate) && available(candidate);
+        } catch (error) {
           if (!(error instanceof InvalidRow)) throw error;
           rejectInvalidRun(candidate, error);
           return false;
@@ -147,7 +170,11 @@ export function deferUndispatched(run: Run, worker: string) {
   if (changed) emit(run.owner_id, run.id, "queued", { maintenance: true });
   return !!changed;
 }
-export function transition(run: Pick<Run, "id" | "owner_id">, state: RunEventState, payload: RunEventPayload = {}) {
+export function transition(
+  run: Pick<Run, "id" | "owner_id">,
+  state: RunEventState,
+  payload: RunEventPayload = {},
+) {
   const changed = transitionState(run, state, payload);
   // A run that ended gets its checkout captured off the transition path:
   // read-only Git on a worktree can take a moment and must not hold the
@@ -156,13 +183,18 @@ export function transition(run: Pick<Run, "id" | "owner_id">, state: RunEventSta
     void completeCheckout(run.id).catch(() => {});
   return changed;
 }
-function transitionState(run: Pick<Run, "id" | "owner_id">, state: RunEventState, payload: RunEventPayload) {
+function transitionState(
+  run: Pick<Run, "id" | "owner_id">,
+  state: RunEventState,
+  payload: RunEventPayload,
+) {
   return db
     .transaction(() => {
       const current = db
         .prepare("SELECT state FROM runs WHERE id=?")
         .get(run.id) as { state: string };
-      if (!legalRunTransition(RunState.parse(current.state), state)) return false;
+      if (!legalRunTransition(RunState.parse(current.state), state))
+        return false;
       const time = now();
       db.prepare(
         `UPDATE runs SET state=?,updated_at=?,
@@ -178,18 +210,24 @@ function transitionState(run: Pick<Run, "id" | "owner_id">, state: RunEventState
       // The capture request is durable with the transition: if the process
       // stops before the capture claims it, reconciliation finds it.
       if (TERMINAL_STATES.includes(state))
-        db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(run.id);
+        db.prepare(
+          "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
+        ).run(run.id);
       emit(run.owner_id, run.id, state, payload);
       return true;
     })
     .immediate();
 }
 export function recoverStale() {
-  const stale = z.array(RunIdentity).parse(db
-    .prepare(
-      "SELECT * FROM runs WHERE state IN ('running','pausing') AND worker_id IS NOT NULL AND heartbeat<?",
-    )
-    .all(now() - 60000));
+  const stale = z
+    .array(RunIdentity)
+    .parse(
+      db
+        .prepare(
+          "SELECT * FROM runs WHERE state IN ('running','pausing') AND worker_id IS NOT NULL AND heartbeat<?",
+        )
+        .all(now() - 60000),
+    );
   for (const run of stale)
     transition(run, "interrupted", {
       message:
@@ -200,9 +238,10 @@ export function recoverStale() {
 // Reject saved execution data before availability checks or a lease can expose
 // it to an executor. A bad record cannot block unrelated queued conversations.
 function checkedRuns(values: unknown[]): Run[] {
-  return values.flatMap(value => {
-    try { return [parseRun(value)]; }
-    catch (error) {
+  return values.flatMap((value) => {
+    try {
+      return [parseRun(value)];
+    } catch (error) {
       if (!(error instanceof InvalidRow)) throw error;
       const identity = RunIdentity.parse(value);
       rejectInvalidRun(identity, error);
@@ -210,10 +249,20 @@ function checkedRuns(values: unknown[]): Run[] {
     }
   });
 }
-function rejectInvalidRun(run: Pick<Run, "id" | "owner_id">, error: InvalidRow) {
-  const changed = db.prepare("UPDATE runs SET error=? WHERE id=? AND owner_id=? AND worker_id IS NULL AND state IN ('queued','running','pausing')").run(error.message, run.id, run.owner_id).changes;
+function rejectInvalidRun(
+  run: Pick<Run, "id" | "owner_id">,
+  error: InvalidRow,
+) {
+  const changed = db
+    .prepare(
+      "UPDATE runs SET error=? WHERE id=? AND owner_id=? AND worker_id IS NULL AND state IN ('queued','running','pausing')",
+    )
+    .run(error.message, run.id, run.owner_id).changes;
   if (changed) {
-    emit(run.owner_id, run.id, "run.failed", { message: error.message, phase: "saved row validation" });
+    emit(run.owner_id, run.id, "run.failed", {
+      message: error.message,
+      phase: "saved row validation",
+    });
     transition(run, "failed");
   }
 }

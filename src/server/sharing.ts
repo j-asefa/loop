@@ -85,9 +85,7 @@ routes.legacy("POST /share/send", (req, res) => {
     routed = routeHandle(res.locals.owner, d.question);
   const agent =
     routed ||
-    (d.newAgentId
-      ? ownedAgent(d.newAgentId, res.locals.owner)
-      : null);
+    (d.newAgentId ? ownedAgent(d.newAgentId, res.locals.owner) : null);
   if (!agent)
     throw new Problem(400, "Create an agent for this untagged request first.");
   const input =
@@ -98,14 +96,16 @@ routes.legacy("POST /share/send", (req, res) => {
         ? "\n\nUser-shared text:\n" + d.sharedText
         : "");
   res.json(
-    runResponse(submit(res.locals.owner, {
-      agentId: agent.id,
-      personal: true,
-      input,
-      folderId: d.folderId,
-      idempotencyKey: d.idempotencyKey,
-      source: d.source,
-    })),
+    runResponse(
+      submit(res.locals.owner, {
+        agentId: agent.id,
+        personal: true,
+        input,
+        folderId: d.folderId,
+        idempotencyKey: d.idempotencyKey,
+        source: d.source,
+      }),
+    ),
   );
 });
 

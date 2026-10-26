@@ -10,13 +10,24 @@ export const ConversationPull = z.object({
   changedFiles: z.number().optional(),
   additions: z.number().optional(),
   deletions: z.number().optional(),
-  review: z.enum(["approved", "changes_requested", "review_required"]).optional(),
+  review: z
+    .enum(["approved", "changes_requested", "review_required"])
+    .optional(),
   requested: z.array(z.string()).optional(),
-  reviews: z.array(z.object({
-    author: z.string(),
-    state: z.enum(["approved", "changes_requested", "commented", "dismissed"]),
-    headSha: z.string().optional(),
-  })).optional(),
+  reviews: z
+    .array(
+      z.object({
+        author: z.string(),
+        state: z.enum([
+          "approved",
+          "changes_requested",
+          "commented",
+          "dismissed",
+        ]),
+        headSha: z.string().optional(),
+      }),
+    )
+    .optional(),
   reviewsOmitted: z.boolean().optional(),
   fetchedAt: z.number().optional(),
   error: z.string().optional(),

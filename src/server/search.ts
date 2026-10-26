@@ -29,7 +29,12 @@ const hash = (d: SearchDoc) =>
   createHash("sha256")
     .update(d.title + "\n" + d.content)
     .digest("hex");
-type EmbeddingConfig = { id: string; owner_id: string; embedding_model: string | null; local?: true };
+type EmbeddingConfig = {
+  id: string;
+  owner_id: string;
+  embedding_model: string | null;
+  local?: true;
+};
 function embeddingConfig(owner: string): EmbeddingConfig | undefined {
   const preference = db
     .prepare("SELECT * FROM preferences WHERE owner_id=?")
@@ -82,7 +87,8 @@ export function searchStatus(owner: string) {
     .prepare(
       "SELECT * FROM search_index_status WHERE owner_id=? AND configuration=?",
     )
-    .get(owner, c ? configuration(c) : "") as QueryRow<"search_index_status"> | undefined;
+    .get(owner, c ? configuration(c) : "") as
+    QueryRow<"search_index_status"> | undefined;
   const state = !c
     ? "needs_connection"
     : !pending
@@ -106,10 +112,7 @@ export function searchStatus(owner: string) {
               : "Preparing semantic search with the selected API account. Keyword search is available while your content is indexed.";
   return { enabled: true, state, ...counts, pending, detail };
 }
-export async function embed(
-  c: EmbeddingConfig,
-  text: string[],
-) {
+export async function embed(c: EmbeddingConfig, text: string[]) {
   if (c.local) return localEmbeddings(text);
   const connection = ownedConnection(c.id, c.owner_id);
   if (c.embedding_model === localModel) return localEmbeddings(text);
@@ -152,7 +155,8 @@ export async function indexPending() {
         .prepare(
           "SELECT * FROM search_index_status WHERE owner_id=? AND configuration=?",
         )
-        .get(owner_id, configuration(c)) as QueryRow<"search_index_status"> | undefined;
+        .get(owner_id, configuration(c)) as
+        QueryRow<"search_index_status"> | undefined;
       if (previous?.state === "error" && now() - previous.updated_at < 30000)
         continue;
       const status = (state: string, error: string | null = null) =>
@@ -220,9 +224,11 @@ export async function indexPending() {
       } catch (error) {
         status(
           "error",
-          error instanceof InvalidRow ? error.message : c.embedding_model === localModel
-            ? "Local semantic indexing failed. Loop will retry automatically; keyword search is available."
-            : "The embedding provider could not index your content. Check the API account in Search preferences; keyword search is available.",
+          error instanceof InvalidRow
+            ? error.message
+            : c.embedding_model === localModel
+              ? "Local semantic indexing failed. Loop will retry automatically; keyword search is available."
+              : "The embedding provider could not index your content. Check the API account in Search preferences; keyword search is available.",
         );
       }
     }
@@ -361,8 +367,9 @@ export async function search(
           : "Keyword + semantic results. Embeddings and this query go to your selected OpenAI API account.";
     } catch (error) {
       if (error instanceof InvalidRow)
-        db.prepare("INSERT OR REPLACE INTO search_index_status VALUES(?,?,?,?,?)")
-          .run(owner, configuration(c), "error", error.message, now());
+        db.prepare(
+          "INSERT OR REPLACE INTO search_index_status VALUES(?,?,?,?,?)",
+        ).run(owner, configuration(c), "error", error.message, now());
       detail = "Semantic service unavailable; showing keyword results.";
     }
   }

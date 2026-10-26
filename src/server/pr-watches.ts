@@ -1,7 +1,11 @@
 import { registrar } from "./registrar.js";
 import { createdPullRequest } from "../shared/pr-command.js";
 import { linkCreatedPullRequest } from "./conversation-pulls.js";
-import { pullStateFromWatch, type PullState, type WatchRow } from "../shared/pull-state.js";
+import {
+  pullStateFromWatch,
+  type PullState,
+  type WatchRow,
+} from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
 
 import { z } from "zod";
@@ -124,7 +128,10 @@ export function watchesFor(owner: string, conversation?: string) {
  * recently ended one within a week, so a merged or closed PR still shows
  * how it ended. Null when the thread has no watched pull request.
  */
-export function pullStatus(owner: string, conversation: string): PullState | null {
+export function pullStatus(
+  owner: string,
+  conversation: string,
+): PullState | null {
   const watch = db
     .prepare(
       `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion
@@ -132,39 +139,89 @@ export function pullStatus(owner: string, conversation: string): PullState | nul
          AND (state IN ('watching','paused') OR updated_at>?)
        ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 1`,
     )
-    .get(owner, conversation, now() - 7 * 24 * 3600_000) as WatchRow | undefined;
+    .get(owner, conversation, now() - 7 * 24 * 3600_000) as
+    WatchRow | undefined;
   return watch ? pullStateFromWatch(watch) : null;
 }
 
 /** Register only a PR created by this run, using the trusted tool result. */
-export function watchCreatedPullRequest(run: Run, pr: PullRequestRef & { headSha?: string; createdAt?: number }) {
+export function watchCreatedPullRequest(
+  run: Run,
+  pr: PullRequestRef & { headSha?: string; createdAt?: number },
+) {
   linkCreatedPullRequest(run, pr);
-  if (!run.conversation_id || !run.agent_id || !githubToken(run.owner_id)) return;
-  return db.transaction(() => {
-    const existing = db.prepare(
-      "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? ORDER BY created_at DESC LIMIT 1",
-    ).get(run.owner_id, run.conversation_id, pr.owner, pr.repo, pr.number) as PrWatch | undefined;
-    // Automatic creation detection must also retain an explicit Stop watching.
-    // A person can start a new watch from the card when they want to resume.
-    if (existing) return existing;
-    const time = now();
-    const watchId = id();
-    db.prepare(
-      "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
-    ).run(watchId, run.owner_id, run.conversation_id, run.agent_id,
-      pr.owner, pr.repo, pr.number, pr.headSha ?? null, pr.createdAt ?? time, time, time);
-    return db.prepare("SELECT * FROM pr_watches WHERE id=?").get(watchId) as PrWatch;
-  }).immediate();
+  if (!run.conversation_id || !run.agent_id || !githubToken(run.owner_id))
+    return;
+  return db
+    .transaction(() => {
+      const existing = db
+        .prepare(
+          "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(
+          run.owner_id,
+          run.conversation_id,
+          pr.owner,
+          pr.repo,
+          pr.number,
+        ) as PrWatch | undefined;
+      // Automatic creation detection must also retain an explicit Stop watching.
+      // A person can start a new watch from the card when they want to resume.
+      if (existing) return existing;
+      const time = now();
+      const watchId = id();
+      db.prepare(
+        "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
+      ).run(
+        watchId,
+        run.owner_id,
+        run.conversation_id,
+        run.agent_id,
+        pr.owner,
+        pr.repo,
+        pr.number,
+        pr.headSha ?? null,
+        pr.createdAt ?? time,
+        time,
+        time,
+      );
+      return db
+        .prepare("SELECT * FROM pr_watches WHERE id=?")
+        .get(watchId) as PrWatch;
+    })
+    .immediate();
 }
 
 /** Native harnesses report a completed command, not an MCP create result. */
-export async function watchCompletedOutput(run: Run, data: OutputData, current = () => true) {
-  if (data.status !== "exited" || data.exitCode !== undefined && data.exitCode !== 0 ||
-      !data.command || data.unavailable || data.truncated.upstream || data.truncated.droppedBytes || data.truncated.droppedChunks) return;
-  await watchNativeCreatedPullRequest(run, data.command, data.chunks.map(chunk => chunk.text).join(""), current);
+export async function watchCompletedOutput(
+  run: Run,
+  data: OutputData,
+  current = () => true,
+) {
+  if (
+    data.status !== "exited" ||
+    (data.exitCode !== undefined && data.exitCode !== 0) ||
+    !data.command ||
+    data.unavailable ||
+    data.truncated.upstream ||
+    data.truncated.droppedBytes ||
+    data.truncated.droppedChunks
+  )
+    return;
+  await watchNativeCreatedPullRequest(
+    run,
+    data.command,
+    data.chunks.map((chunk) => chunk.text).join(""),
+    current,
+  );
 }
 
-export async function watchNativeCreatedPullRequest(run: Run, command: string, output: string, current = () => true) {
+export async function watchNativeCreatedPullRequest(
+  run: Run,
+  command: string,
+  output: string,
+  current = () => true,
+) {
   const ref = createdPullRequest(command, output);
   if (ref && current()) {
     linkCreatedPullRequest(run, ref);
@@ -173,15 +230,33 @@ export async function watchNativeCreatedPullRequest(run: Run, command: string, o
 }
 
 /** Read-only verification of a pull request the agent reported creating. */
-export async function verifyCreatedPullRequest(run: Run, ref: PullRequestRef, current = () => true) {
+export async function verifyCreatedPullRequest(
+  run: Run,
+  ref: PullRequestRef,
+  current = () => true,
+) {
   const token = githubToken(run.owner_id);
   if (!token) return;
   const path = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`;
-  const pr = await github<{ state: string; created_at: string; head?: { sha?: string } }>(token, path);
+  const pr = await github<{
+    state: string;
+    created_at: string;
+    head?: { sha?: string };
+  }>(token, path);
   const created = Date.parse(pr.created_at);
-  if (pr.state !== "open" || !Number.isFinite(created) || created < run.created_at - 60_000) return;
+  if (
+    pr.state !== "open" ||
+    !Number.isFinite(created) ||
+    created < run.created_at - 60_000
+  )
+    return;
   db.transaction(() => {
-    if (current()) watchCreatedPullRequest(run, { ...ref, headSha: pr.head?.sha, createdAt: created });
+    if (current())
+      watchCreatedPullRequest(run, {
+        ...ref,
+        headSha: pr.head?.sha,
+        createdAt: created,
+      });
   }).immediate();
 }
 
@@ -222,7 +297,10 @@ export function startWatch(owner: string, body: unknown) {
           : undefined;
       if (!pr) throw new Problem(404, "Pull request not found on this card");
       if (!artifact.conversation_id || !artifact.agent_id)
-        throw new Problem(409, "Only a pull request read in a thread can be watched");
+        throw new Problem(
+          409,
+          "Only a pull request read in a thread can be watched",
+        );
       if (pr.state === "merged" || pr.state === "closed")
         throw new Problem(409, `This pull request is ${pr.state}.`);
       if (!githubToken(owner))
@@ -231,7 +309,8 @@ export function startWatch(owner: string, body: unknown) {
         .prepare(
           "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
         )
-        .get(owner, artifact.conversation_id, pr.owner, pr.repo, pr.number) as PrWatch | undefined;
+        .get(owner, artifact.conversation_id, pr.owner, pr.repo, pr.number) as
+        PrWatch | undefined;
       if (existing) return existing;
       const watchId = id(),
         time = now();
@@ -412,7 +491,10 @@ async function read(watch: PrWatch, token: string) {
   // Large matrix builds have more than one page of check runs.
   const runs: CheckRun[] = [];
   for (let page = 1; page <= 10; page++) {
-    const checks = await github<{ total_count: number; check_runs: CheckRun[] }>(
+    const checks = await github<{
+      total_count: number;
+      check_runs: CheckRun[];
+    }>(
       token,
       `${base}/commits/${encodeURIComponent(head)}/check-runs?per_page=100&page=${page}`,
     );
@@ -530,7 +612,10 @@ async function read(watch: PrWatch, token: string) {
     ).length,
     seen: [
       ...comments.map((c) => ({ kind: "comment" as const, id: c.id })),
-      ...reviewComments.map((c) => ({ kind: "review_comment" as const, id: c.id })),
+      ...reviewComments.map((c) => ({
+        kind: "review_comment" as const,
+        id: c.id,
+      })),
       ...reviews.map((c) => ({ kind: "review" as const, id: c.id })),
     ],
   };
@@ -552,7 +637,9 @@ const quote = (text: string | null | undefined) => {
 // its checks), so they stay on one short line, quoted.
 const label = (text: string | null | undefined) =>
   JSON.stringify(
-    (text || "").replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").slice(0, 200),
+    (text || "")
+      .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ")
+      .slice(0, 200),
   );
 const who = (c: Comment) =>
   "@" + (c.user?.login || "someone") + (c.user?.type === "Bot" ? " (bot)" : "");
@@ -598,7 +685,10 @@ export function updateText(watch: PrWatch, update: Update) {
 
 // A turn is spent only on CI news or feedback from the repository's people.
 const hasNews = (u: Update) =>
-  !!u.ci || !!u.reviews.length || !!u.comments.length || !!u.reviewComments.length;
+  !!u.ci ||
+  !!u.reviews.length ||
+  !!u.comments.length ||
+  !!u.reviewComments.length;
 
 /**
  * Polls one watch and queues a follow-up when something changed. Network
@@ -655,7 +745,9 @@ export async function pollWatch(watchId: string, time = now()) {
   if ("ended" in result) {
     const reason = result.ended as string;
     db.transaction(() => {
-      const current = db.prepare("SELECT 1 FROM pr_watches WHERE id=? AND state<>'stopped'").get(watch.id);
+      const current = db
+        .prepare("SELECT 1 FROM pr_watches WHERE id=? AND state<>'stopped'")
+        .get(watch.id);
       if (!current) return;
       end(watch, reason);
     }).immediate();
@@ -742,7 +834,11 @@ export async function pollWatch(watchId: string, time = now()) {
           .update(
             // What it reports: the CI result and the items it covers.
             JSON.stringify([
-              update.ci && [update.ci.sha, update.ci.conclusion, update.ci.runs],
+              update.ci && [
+                update.ci.sha,
+                update.ci.conclusion,
+                update.ci.runs,
+              ],
               update.seen.map((item) => item.kind + ":" + item.id).sort(),
             ]),
           )

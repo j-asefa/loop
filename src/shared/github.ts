@@ -184,19 +184,31 @@ export function pullRequestCard(
 }
 
 /** A successful create response must identify the exact requested repository. */
-export function createdPullRequest(result: any, args: any): PullRequestSummary | undefined {
+export function createdPullRequest(
+  result: any,
+  args: any,
+): PullRequestSummary | undefined {
   if (result?.isError === true || !args || typeof args !== "object") return;
   let data = result.structuredContent;
   if (!data) {
-    const content = result.content?.filter((x: any) => x.type === "text" && typeof x.text === "string");
+    const content = result.content?.filter(
+      (x: any) => x.type === "text" && typeof x.text === "string",
+    );
     if (content?.length !== 1) return;
-    try { data = JSON.parse(content[0].text); } catch { return; }
+    try {
+      data = JSON.parse(content[0].text);
+    } catch {
+      return;
+    }
   }
   const pr = summarizePullRequest(data);
   if (!pr || (pr.state !== "open" && pr.state !== "draft")) return;
   if (typeof args.owner !== "string" || typeof args.repo !== "string") return;
-  if (pr.owner.toLowerCase() !== args.owner.toLowerCase() ||
-      pr.repo.toLowerCase() !== args.repo.toLowerCase()) return;
+  if (
+    pr.owner.toLowerCase() !== args.owner.toLowerCase() ||
+    pr.repo.toLowerCase() !== args.repo.toLowerCase()
+  )
+    return;
   return pr;
 }
 

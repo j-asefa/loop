@@ -255,21 +255,19 @@ export async function deliverNotifications(send = webpush.sendNotification) {
           conversation_id: string | null;
           message_id: string | null;
         }[]
-      ).map(
-        (job): Delivery => ({
-          subscription_id: job.subscription_id,
-          subscription: job.subscription,
-          owner_id: job.owner_id,
-          attempts: job.attempts,
-          artifact_id: job.artifact_id,
-          message_key: null,
-          payload: {
-            ...resultNotification(job),
-            tag: `loop-result-${job.artifact_id}`,
-            url: `/?artifact=${encodeURIComponent(job.artifact_id)}`,
-          },
-        }),
-      );
+      ).map((job): Delivery => ({
+        subscription_id: job.subscription_id,
+        subscription: job.subscription,
+        owner_id: job.owner_id,
+        attempts: job.attempts,
+        artifact_id: job.artifact_id,
+        message_key: null,
+        payload: {
+          ...resultNotification(job),
+          tag: `loop-result-${job.artifact_id}`,
+          url: `/?artifact=${encodeURIComponent(job.artifact_id)}`,
+        },
+      }));
       const messages = (
         db
           .prepare(
@@ -287,23 +285,21 @@ export async function deliverNotifications(send = webpush.sendNotification) {
           subscription: string;
           owner_id: string;
         }[]
-      ).map(
-        (job): Delivery => ({
-          subscription_id: job.subscription_id,
-          subscription: job.subscription,
-          owner_id: job.owner_id,
-          attempts: job.attempts,
-          artifact_id: null,
-          message_key: job.message_key,
-          // No action buttons: approvals are decided inside the locked app.
-          payload: {
-            title: job.title,
-            body: job.body,
-            tag: job.message_key,
-            url: job.url,
-          },
-        }),
-      );
+      ).map((job): Delivery => ({
+        subscription_id: job.subscription_id,
+        subscription: job.subscription,
+        owner_id: job.owner_id,
+        attempts: job.attempts,
+        artifact_id: null,
+        message_key: job.message_key,
+        // No action buttons: approvals are decided inside the locked app.
+        payload: {
+          title: job.title,
+          body: job.body,
+          tag: job.message_key,
+          url: job.url,
+        },
+      }));
       for (const job of results)
         db.prepare(
           "UPDATE push_deliveries SET attempts=attempts+1,available_at=? WHERE subscription_id=? AND artifact_id=?",

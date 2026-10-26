@@ -295,12 +295,21 @@ export async function invokeNative(
       if (!parsed.success) throw parsed.error;
       text = JSON.stringify(publishReply(run, callId, args));
     } catch (error) {
-      if (!(error instanceof z.ZodError || (error instanceof Problem && error.status === 404)) ||
-          ownedRun(run.id, run.owner_id).state !== "running") throw error;
+      if (
+        !(
+          error instanceof z.ZodError ||
+          (error instanceof Problem && error.status === 404)
+        ) ||
+        ownedRun(run.id, run.owner_id).state !== "running"
+      )
+        throw error;
       isError = true;
-      text = "Reply was not published: " + (error instanceof z.ZodError
-        ? "Supply the steered message ID as replyTo and a nonempty body (at most 30,000 characters)."
-        : error.message) + " Correct the arguments and call loop_reply again.";
+      text =
+        "Reply was not published: " +
+        (error instanceof z.ZodError
+          ? "Supply the steered message ID as replyTo and a nonempty body (at most 30,000 characters)."
+          : error.message) +
+        " Correct the arguments and call loop_reply again.";
     }
   } else if (binding.tool === "loop_publish_file") {
     try {
@@ -312,8 +321,7 @@ export async function invokeNative(
       artifactId = published.artifactId;
       text = JSON.stringify(published);
     } catch (error) {
-      if (ownedRun(run.id, run.owner_id).state !== "running")
-        throw error;
+      if (ownedRun(run.id, run.owner_id).state !== "running") throw error;
       isError = true;
       text = "File was not published: " + (error as Error).message;
     }
@@ -388,10 +396,18 @@ export async function invokeNative(
       ? ownedApproval(previous.approval_id, run.owner_id)
       : null;
     if (!approval) {
-      const preview = { mcpServers: Object.fromEntries(parseMcpConfig(d.config)) };
+      const preview = {
+        mcpServers: Object.fromEntries(parseMcpConfig(d.config)),
+      };
       for (const server of Object.values(preview.mcpServers)) {
-        if ("env" in server) server.env = Object.fromEntries(Object.keys(server.env).map(key => [key, "[provided]"]));
-        if ("headers" in server && server.headers) server.headers = Object.fromEntries(Object.keys(server.headers).map(key => [key, "[provided]"]));
+        if ("env" in server)
+          server.env = Object.fromEntries(
+            Object.keys(server.env).map((key) => [key, "[provided]"]),
+          );
+        if ("headers" in server && server.headers)
+          server.headers = Object.fromEntries(
+            Object.keys(server.headers).map((key) => [key, "[provided]"]),
+          );
       }
       approval = requestApproval(run, {
         type: "mcp_install",
@@ -411,7 +427,10 @@ export async function invokeNative(
     }
     if (approval.state !== "approved" || approval.expires_at < now())
       throw new Problem(403, "Installation approval is no longer valid");
-    const connection = ownedConnection(agentPayload(run).connectionId, run.owner_id);
+    const connection = ownedConnection(
+      agentPayload(run).connectionId,
+      run.owner_id,
+    );
     const installed = await installConfig(
       run.owner_id,
       d.config,
@@ -553,7 +572,12 @@ export async function invokeNative(
           .prepare(
             "SELECT d.*,r.state,r.result,r.error,r.agent_id,r.id FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? AND substr(d.call_id,1,?)=?",
           )
-          .all(run.id, callId.length + 1, callId + ":") as (QueryRow<"delegations"> & Pick<Run, "state" | "result" | "error" | "agent_id" | "id">)[];
+          .all(
+            run.id,
+            callId.length + 1,
+            callId + ":",
+          ) as (QueryRow<"delegations"> &
+          Pick<Run, "state" | "result" | "error" | "agent_id" | "id">)[];
         if (prior.length) return prior;
         if (existing.n + tasks.length > 16)
           throw new Problem(

@@ -30,8 +30,7 @@ export function activeRun(owner: string, conversation: string, agent?: string) {
       `SELECT r.*,${RUN_LIVE_INPUT_SQL("r")} live_input FROM runs r WHERE r.owner_id=? AND r.conversation_id=? AND (? IS NULL OR r.agent_id=?) AND r.kind='agent' AND r.state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY r.created_at DESC LIMIT 1`,
     )
     .get(owner, conversation, agent ?? null, agent ?? null) as
-    | (Run & { live_input: number })
-    | undefined;
+    (Run & { live_input: number }) | undefined;
   if (!run) return;
   const { live_input, ...active } = run;
   return { run: parseRun(active), liveInput: live_input === 1 };
@@ -84,7 +83,9 @@ function message(input: Input, replyToolAvailable: boolean): ChatMessage {
   return {
     role: "user",
     content: attachmentPrompt(
-      !metadata.automation && replyToolAvailable ? steeredReplyPrompt(content, input.message_id) : content,
+      !metadata.automation && replyToolAvailable
+        ? steeredReplyPrompt(content, input.message_id)
+        : content,
       metadata.attachments || [],
     ),
     attachments: metadata.attachments || [],

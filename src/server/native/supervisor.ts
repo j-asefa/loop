@@ -21,12 +21,23 @@ import { attachedFiles, localAttachmentPrompt } from "../uploads.js";
 import { transition, type Run } from "../queue.js";
 
 import { nativeStartupFailure } from "./startup-failure.js";
-import { NotDelivered, type Adapter, type Options } from "../../adapters/types.js";
+import {
+  NotDelivered,
+  type Adapter,
+  type Options,
+} from "../../adapters/types.js";
 import { type AdapterEvent, type Harness } from "../../protocol.js";
 import { replyPrompt } from "../../shared/replies.js";
 import { reviewContext } from "../review-access.js";
-import { DEFAULT_PERMISSION_MODE, isPermissionMode, launchPermissionMode } from "../../shared/permission-modes.js";
-import { undiscoveredCapabilities, type SettingValue } from "../../agent-activities.js";
+import {
+  DEFAULT_PERMISSION_MODE,
+  isPermissionMode,
+  launchPermissionMode,
+} from "../../shared/permission-modes.js";
+import {
+  undiscoveredCapabilities,
+  type SettingValue,
+} from "../../agent-activities.js";
 import { type PiPackageEntry } from "../pi-customization-files.js";
 import { type Live, type Binding } from "./state.js";
 import { classes, labels } from "./adapters.js";
@@ -74,13 +85,15 @@ export class NativeSessions {
   private readonly decisions = new NativeDecisions({
     live: this.live,
     interrupt: (runId, reason) => this.interrupt(runId, reason),
-    answer: (decisionId, commandId, answer) => this.answer(decisionId, commandId, answer),
+    answer: (decisionId, commandId, answer) =>
+      this.answer(decisionId, commandId, answer),
   });
   private readonly projector = new NativeProjector({
     live: this.live,
     interrupt: (runId, reason) => this.interrupt(runId, reason),
     dispose: (live) => this.dispose(live),
-    request: (live, run, event, allow) => this.decisions.request(live, run, event, allow),
+    request: (live, run, event, allow) =>
+      this.decisions.request(live, run, event, allow),
     projectOutput: (live, partial) => this.projectOutput(live, partial),
   });
 
@@ -99,7 +112,13 @@ export class NativeSessions {
     filters: PiPackageEntry["filters"],
     expectedHash: string,
   ) {
-    return this.pi.piPackageFilters(agent, source, scope, filters, expectedHash);
+    return this.pi.piPackageFilters(
+      agent,
+      source,
+      scope,
+      filters,
+      expectedHash,
+    );
   }
   piPromptPreview(
     agent: any,
@@ -113,11 +132,7 @@ export class NativeSessions {
     return this.pi.piInspectPackage(agent, source);
   }
   // Pi configuration changes invalidate probed catalogs, success or not.
-  piRollbackPackage(
-    agent: any,
-    source: string,
-    scope: "user" | "project",
-  ) {
+  piRollbackPackage(agent: any, source: string, scope: "user" | "project") {
     return this.pi.piRollbackPackage(agent, source, scope);
   }
   piPackages(agent: any) {
@@ -237,7 +252,10 @@ export class NativeSessions {
       );
     };
     if (!isCurrent())
-      throw new ExecutionRefused(409, "Native session changed; refresh and retry.");
+      throw new ExecutionRefused(
+        409,
+        "Native session changed; refresh and retry.",
+      );
     if (live.cancelling || (live.run && !(setting === "mode" && live.waiting)))
       throw new ExecutionRefused(
         409,
@@ -322,7 +340,10 @@ export class NativeSessions {
             "This native conversation is already running.",
           );
         if (binding.generation !== current.generation)
-          throw new Problem(409, "The native session changed during the harness switch. Retry with its current session.");
+          throw new Problem(
+            409,
+            "The native session changed during the harness switch. Retry with its current session.",
+          );
         // A cancelled startup may publish its native id while ready is pending.
         // Refresh only metadata from this same generation; the transaction still
         // refuses a different generation or a later change during disposal.
@@ -334,12 +355,21 @@ export class NativeSessions {
       binding = undefined;
     }
     if (!binding) {
-      const source = previousProject ?? this.projects.project(snapshot, registration);
-      if (!run.agent_id) throw new Problem(409, "Native work requires an agent identity.");
-      const workspace = prepareWorkspace(source, source, {
-        ownerId: run.owner_id, agentId: run.agent_id,
-        environmentId: realpathSync(config.data), projectId: source,
-      }, previousWorkspace);
+      const source =
+        previousProject ?? this.projects.project(snapshot, registration);
+      if (!run.agent_id)
+        throw new Problem(409, "Native work requires an agent identity.");
+      const workspace = prepareWorkspace(
+        source,
+        source,
+        {
+          ownerId: run.owner_id,
+          agentId: run.agent_id,
+          environmentId: realpathSync(config.data),
+          projectId: source,
+        },
+        previousWorkspace,
+      );
       const transfer = selectedContext(conversation);
       const earlier = transfer
         ? []
@@ -360,13 +390,24 @@ export class NativeSessions {
       // context. A changed directory or failed insert leaves the old binding.
       db.transaction(() => {
         if (previousBinding) {
-          const removed = db.prepare(
-            "DELETE FROM companion_sessions WHERE conversation_id=? AND harness=? AND generation IS ? AND native_id IS ? AND project=? AND worktree_agent_id IS ? AND worktree_source IS ?",
-          ).run(conversation, previousBinding.harness, previousBinding.generation,
-            previousBinding.native_id, previousBinding.project,
-            previousBinding.worktree_agent_id ?? null, previousBinding.worktree_source ?? null);
+          const removed = db
+            .prepare(
+              "DELETE FROM companion_sessions WHERE conversation_id=? AND harness=? AND generation IS ? AND native_id IS ? AND project=? AND worktree_agent_id IS ? AND worktree_source IS ?",
+            )
+            .run(
+              conversation,
+              previousBinding.harness,
+              previousBinding.generation,
+              previousBinding.native_id,
+              previousBinding.project,
+              previousBinding.worktree_agent_id ?? null,
+              previousBinding.worktree_source ?? null,
+            );
           if (!removed.changes)
-            throw new Problem(409, "The native session changed during the harness switch. Retry with its current session.");
+            throw new Problem(
+              409,
+              "The native session changed during the harness switch. Retry with its current session.",
+            );
         }
         db.prepare(
           "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,updated_at,effort,worktree_source,worktree_agent_id) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -389,7 +430,12 @@ export class NativeSessions {
     // What the checkout looked like before this run touched it. Recorded by
     // Loop, never by the harness; a capture failure is recorded, not raised.
     if (binding.worktree_source)
-      await startCheckout(run, binding.project, binding.worktree_source, binding.generation);
+      await startCheckout(
+        run,
+        binding.project,
+        binding.worktree_source,
+        binding.generation,
+      );
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
     const permissionMode = isPermissionMode(snapshot.permissionMode)
@@ -510,7 +556,7 @@ export class NativeSessions {
     // A missing connection is reported by session() below.
     const connection = db
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
-      .get((agentPayload(run)).connectionId, run.owner_id) as
+      .get(agentPayload(run).connectionId, run.owner_id) as
       { metadata: string } | undefined;
     if (
       connection &&
@@ -527,8 +573,7 @@ export class NativeSessions {
     const live = await this.session(run);
     if (live.run)
       throw new Problem(409, "This native conversation is already running.");
-    if (ownedRun(run.id, run.owner_id).state !== "running")
-      return false;
+    if (ownedRun(run.id, run.owner_id).state !== "running") return false;
     live.items.clear();
     live.requests.clear();
     // A settings request may have re-armed the idle timer after session()
@@ -583,8 +628,14 @@ export class NativeSessions {
     const watched = watchRun(run);
     const stop = () => {
       const cause = watched.signal.reason;
-      if (!live.cancelling) void this.interrupt(run.id,
-        cause instanceof Problem && cause.diagnostic?.cause === "connection_disconnected" ? cause.message : undefined);
+      if (!live.cancelling)
+        void this.interrupt(
+          run.id,
+          cause instanceof Problem &&
+            cause.diagnostic?.cause === "connection_disconnected"
+            ? cause.message
+            : undefined,
+        );
     };
     watched.signal.addEventListener("abort", stop, { once: true });
     if (watched.signal.aborted) stop();
@@ -598,7 +649,11 @@ export class NativeSessions {
           snapshot.maxSeconds * 1000,
         )
       : undefined;
-    const steering = new SteeringInbox(run, undefined, !!this.tools && !snapshot.reviewId);
+    const steering = new SteeringInbox(
+      run,
+      undefined,
+      !!this.tools && !snapshot.reviewId,
+    );
     let stopSteering: (() => Promise<void>) | undefined;
     try {
       watched.signal.throwIfAborted();
@@ -714,8 +769,11 @@ export class NativeSessions {
     clearTimeout(live.flush);
     clearTimeout(live.idle);
     live.finish?.("interrupted");
-    finishDecisions("expired", "conversation_id=? AND generation=? AND state='pending'",
-      [live.binding.conversation_id, live.generation]);
+    finishDecisions(
+      "expired",
+      "conversation_id=? AND generation=? AND state='pending'",
+      [live.binding.conversation_id, live.generation],
+    );
     await this.revokeTools?.(live.binding.conversation_id, live.generation);
     await live.adapter.dispose();
     if (this.live.get(live.binding.conversation_id) === live)

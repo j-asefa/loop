@@ -1,4 +1,13 @@
-import { ImportRecord, TeamRecord, ObjectRecord, MessageRecord, MemorySourceRecord, FolderRecord, ConversationRecord, ArtifactRecord } from "./storage-schemas.js";
+import {
+  ImportRecord,
+  TeamRecord,
+  ObjectRecord,
+  MessageRecord,
+  MemorySourceRecord,
+  FolderRecord,
+  ConversationRecord,
+  ArtifactRecord,
+} from "./storage-schemas.js";
 import { z } from "zod";
 
 // Schema-derived types for scalar SQL selections; JSON stays serialized.
@@ -215,4 +224,6 @@ export const QueryRecords = {
     created_at: z.number(),
   }),
 } as const;
-export type QueryRow<T extends keyof typeof QueryRecords> = z.infer<(typeof QueryRecords)[T]>;
+export type QueryRow<T extends keyof typeof QueryRecords> = z.infer<
+  (typeof QueryRecords)[T]
+>;

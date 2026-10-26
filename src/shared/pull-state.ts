@@ -44,8 +44,13 @@ export type WatchRow = {
 export function pullStateFromWatch(watch: WatchRow): PullState {
   // The card shows what the watch last saw, delivered to the thread or not.
   const sha = watch.seen_ci_sha ?? watch.ci_sha;
-  const raw = watch.seen_ci_sha ? watch.seen_ci_conclusion : watch.ci_conclusion;
-  const conclusion = raw === "success" || raw === "failure" ? (raw as "success" | "failure") : null;
+  const raw = watch.seen_ci_sha
+    ? watch.seen_ci_conclusion
+    : watch.ci_conclusion;
+  const conclusion =
+    raw === "success" || raw === "failure"
+      ? (raw as "success" | "failure")
+      : null;
   const concluded = sha && conclusion ? { sha, conclusion } : null;
   return {
     repo_owner: watch.repo_owner,
@@ -85,7 +90,8 @@ export function pullStateLine(state: PullState | null, at_now = Date.now()) {
     parts.push(state.ended_reason ? state.ended_reason : "no longer watched");
     return parts.join(" · ");
   }
-  const verdict = (c: { conclusion: "success" | "failure" }) => (c.conclusion === "success" ? "passed" : "failed");
+  const verdict = (c: { conclusion: "success" | "failure" }) =>
+    c.conclusion === "success" ? "passed" : "failed";
   if (!state.head_sha) parts.push("not read yet");
   else if (state.checked_at === null)
     parts.push(
@@ -96,12 +102,17 @@ export function pullStateLine(state: PullState | null, at_now = Date.now()) {
   else if (state.ci && state.ci.sha === state.head_sha && !state.pending)
     parts.push(`checks ${verdict(state.ci)} for ${short(state.head_sha)}`);
   else if (state.ci && state.ci.sha === state.head_sha)
-    parts.push(`checks rerunning for ${short(state.head_sha)} (last ${verdict(state.ci)})`);
+    parts.push(
+      `checks rerunning for ${short(state.head_sha)} (last ${verdict(state.ci)})`,
+    );
   else if (state.ci)
-    parts.push(`checks pending for ${short(state.head_sha)} (last ${verdict(state.ci)} for ${short(state.ci.sha)})`);
+    parts.push(
+      `checks pending for ${short(state.head_sha)} (last ${verdict(state.ci)} for ${short(state.ci.sha)})`,
+    );
   else parts.push(`checks pending for ${short(state.head_sha)}`);
   if (state.watch === "paused") parts.push("watch paused");
   else if (state.error) parts.push("last read failed");
-  if (state.checked_at !== null) parts.push(`checked ${ago(state.checked_at, at_now)}`);
+  if (state.checked_at !== null)
+    parts.push(`checked ${ago(state.checked_at, at_now)}`);
   return parts.join(" · ");
 }

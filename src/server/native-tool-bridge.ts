@@ -136,13 +136,33 @@ export class NativeToolBridge {
         // Expiry changes no row. It is a deadline, not another polling loop.
         // A delegation or another call blocked by run state must not inherit
         // a sibling tool request's approval deadline.
-        const approval = pending ? db.prepare("SELECT expires_at FROM approvals WHERE id=? AND owner_id=? AND run_id=? AND state='pending'")
-          .get(pending, run.owner_id, run.id) as { expires_at: number } | undefined : undefined;
+        const approval = pending
+          ? (db
+              .prepare(
+                "SELECT expires_at FROM approvals WHERE id=? AND owner_id=? AND run_id=? AND state='pending'",
+              )
+              .get(pending, run.owner_id, run.id) as
+              { expires_at: number } | undefined)
+          : undefined;
         const expired = new AbortController();
-        const expire = () => expired.abort(new Problem(409, "This approval expired. Start a new run after review."));
-        const deadline = approval ? setTimeout(expire, Math.max(0, approval.expires_at - now())) : undefined;
-        try { await watched.wait(revision, signal ? AbortSignal.any([signal, expired.signal]) : expired.signal); }
-        finally { clearTimeout(deadline); }
+        const expire = () =>
+          expired.abort(
+            new Problem(
+              409,
+              "This approval expired. Start a new run after review.",
+            ),
+          );
+        const deadline = approval
+          ? setTimeout(expire, Math.max(0, approval.expires_at - now()))
+          : undefined;
+        try {
+          await watched.wait(
+            revision,
+            signal ? AbortSignal.any([signal, expired.signal]) : expired.signal,
+          );
+        } finally {
+          clearTimeout(deadline);
+        }
       };
       try {
         for (;;) {

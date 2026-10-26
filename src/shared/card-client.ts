@@ -2,11 +2,23 @@ import { z } from "zod";
 import { workspaceApi, type RouteInput } from "./workspace-api.js";
 import { routePath, type RoutePath } from "./route-path.js";
 
-export type CardListInput = Partial<z.output<typeof workspaceApi.cardList.query>>;
-export type CardChangesInput = Omit<z.output<typeof workspaceApi.cardChanges.query>, "view"> &
+export type CardListInput = Partial<
+  z.output<typeof workspaceApi.cardList.query>
+>;
+export type CardChangesInput = Omit<
+  z.output<typeof workspaceApi.cardChanges.query>,
+  "view"
+> &
   Partial<Pick<z.output<typeof workspaceApi.cardChanges.query>, "view">>;
-type CardReadContract = typeof workspaceApi.cardList | typeof workspaceApi.cardChanges | typeof workspaceApi.cardDetail;
-export type CardReadTransport = <C extends CardReadContract>(contract: C, input: RouteInput<C>, signal?: AbortSignal) => Promise<unknown>;
+type CardReadContract =
+  | typeof workspaceApi.cardList
+  | typeof workspaceApi.cardChanges
+  | typeof workspaceApi.cardDetail;
+export type CardReadTransport = <C extends CardReadContract>(
+  contract: C,
+  input: RouteInput<C>,
+  signal?: AbortSignal,
+) => Promise<unknown>;
 
 export class CardApiError extends Error {
   constructor(
@@ -21,22 +33,33 @@ export class CardApiError extends Error {
 export function contractCardReader(request: CardReadTransport) {
   return {
     async list(input: CardListInput = {}, signal?: AbortSignal) {
-      return workspaceApi.cardList.response.parse(await request(workspaceApi.cardList, { query: input }, signal));
+      return workspaceApi.cardList.response.parse(
+        await request(workspaceApi.cardList, { query: input }, signal),
+      );
     },
     async changes(input: CardChangesInput, signal?: AbortSignal) {
-      return workspaceApi.cardChanges.response.parse(await request(workspaceApi.cardChanges, { query: input }, signal));
+      return workspaceApi.cardChanges.response.parse(
+        await request(workspaceApi.cardChanges, { query: input }, signal),
+      );
     },
     async detail(id: string, signal?: AbortSignal) {
-      return workspaceApi.cardDetail.response.parse(await request(workspaceApi.cardDetail, { params: { id } }, signal));
+      return workspaceApi.cardDetail.response.parse(
+        await request(workspaceApi.cardDetail, { params: { id } }, signal),
+      );
     },
   };
 }
 /** Compatibility for the protected App.tsx callers until reactive PR 12b.
  * Paths still come from the same contracts; new browser callers use contracts. */
 export function cardReader(
-  request: (path: RoutePath<CardReadContract["path"]>, signal?: AbortSignal) => Promise<unknown>,
+  request: (
+    path: RoutePath<CardReadContract["path"]>,
+    signal?: AbortSignal,
+  ) => Promise<unknown>,
 ) {
-  return contractCardReader((contract, input, signal) => request(routePath(contract, input), signal));
+  return contractCardReader((contract, input, signal) =>
+    request(routePath(contract, input), signal),
+  );
 }
 export type CardReader = ReturnType<typeof contractCardReader>;
 

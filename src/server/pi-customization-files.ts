@@ -68,14 +68,16 @@ export function piPackageEntries(
             filters[kind] = item[kind].filter(
               (x: unknown) => typeof x === "string",
             );
-        return [{
-          source,
-          scope,
-          ...(typeof item?.autoload === "boolean"
-            ? { autoload: item.autoload }
-            : {}),
-          filters,
-        }];
+        return [
+          {
+            source,
+            scope,
+            ...(typeof item?.autoload === "boolean"
+              ? { autoload: item.autoload }
+              : {}),
+            filters,
+          },
+        ];
       },
     );
   });
@@ -128,7 +130,8 @@ function fingerprintTree(
       hash.update(`${rel}\0unreadable\n`);
       return;
     }
-    for (const name of names) visit(join(path, name), rel + "/" + name, depth + 1);
+    for (const name of names)
+      visit(join(path, name), rel + "/" + name, depth + 1);
   };
   visit(root, ".", 0);
 }
@@ -168,7 +171,8 @@ export function piProjectResources(project: string) {
   }
   // Past the bound, changes can't be seen, so the fingerprint never matches
   // a saved one and trust is asked for again.
-  if (budget.entries < 0) fingerprint.update(String(Date.now()) + Math.random());
+  if (budget.entries < 0)
+    fingerprint.update(String(Date.now()) + Math.random());
   return {
     paths,
     fingerprint: fingerprint.digest("hex"),

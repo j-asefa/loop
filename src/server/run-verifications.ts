@@ -46,7 +46,10 @@ export type VerificationRow = {
  * running the tests, and a failed first step says nothing about the later
  * ones. Only a zero exit establishes that every step ran and passed.
  */
-function outcome(data: OutputData, steps: number): { status: VerificationStatus; exit: number | null } {
+function outcome(
+  data: OutputData,
+  steps: number,
+): { status: VerificationStatus; exit: number | null } {
   // Output that was not retained does not change what the exit said.
   const exit = typeof data.exitCode === "number" ? data.exitCode : null;
   if (exit === null) return { status: "unknown", exit };
@@ -74,10 +77,16 @@ export function observeCompletedOutput(
   const text = data.chunks.map((c) => c.text).join("");
   const tail = text.length > TAIL_LIMIT ? text.slice(-TAIL_LIMIT) : text;
   const truncated =
-    !!data.truncated.upstream || data.truncated.droppedBytes > 0 || data.truncated.droppedChunks > 0;
+    !!data.truncated.upstream ||
+    data.truncated.droppedBytes > 0 ||
+    data.truncated.droppedChunks > 0;
   // One row per command: a chain's exit is the chain's, so its tools share it.
   const kinds = new Set(classified.map((c) => c.kind));
-  const kind = kinds.has("test") ? "test" : kinds.has("typecheck") ? "typecheck" : "lint";
+  const kind = kinds.has("test")
+    ? "test"
+    : kinds.has("typecheck")
+      ? "typecheck"
+      : "lint";
   // One row per invocation: a later update to the same output record (an
   // exit arriving after completion) replaces the observation under the same
   // id, so counts and citations never double.
@@ -120,15 +129,22 @@ function toItem(row: VerificationRow): VerificationItem {
 export function runVerifications(owner: string, runId: string) {
   return (
     db
-      .prepare("SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid")
+      .prepare(
+        "SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid",
+      )
       .all(owner, runId) as VerificationRow[]
   ).map((row) => ({ ...toItem(row), output_tail: row.output_tail }));
 }
 
 /** The card summary, or null when nothing was observed. */
-export function verificationSummary(owner: string, runId: string): VerificationSummary | null {
+export function verificationSummary(
+  owner: string,
+  runId: string,
+): VerificationSummary | null {
   const rows = db
-    .prepare("SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid")
+    .prepare(
+      "SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid",
+    )
     .all(owner, runId) as VerificationRow[];
   return rows.length ? summarize(rows.map(toItem)) : null;
 }

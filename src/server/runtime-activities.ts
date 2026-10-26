@@ -53,7 +53,11 @@ export function runtimeActivityMapper(
         origin: `${activity.harness}:runtime`,
       })) {
         const result = applyActivity(
-          { owner: run.owner_id, conversation: run.conversation_id, run: run.id },
+          {
+            owner: run.owner_id,
+            conversation: run.conversation_id,
+            run: run.id,
+          },
           update,
         );
         if (result.applied || result.reason === "no change") {
@@ -66,11 +70,21 @@ export function runtimeActivityMapper(
                 : "plans",
           );
         }
-        if (result.applied && result.record.kind === "output" && !update.replay) {
+        if (
+          result.applied &&
+          result.record.kind === "output" &&
+          !update.replay
+        ) {
           // Verification must not hold up provider stream consumption.
-          void import("./pr-watches.js").then(({ watchCompletedOutput }) =>
-            watchCompletedOutput(run, result.record.data as import("../agent-activities.js").OutputData),
-          ).catch(() => {});
+          void import("./pr-watches.js")
+            .then(({ watchCompletedOutput }) =>
+              watchCompletedOutput(
+                run,
+                result.record
+                  .data as import("../agent-activities.js").OutputData,
+              ),
+            )
+            .catch(() => {});
           try {
             observeCompletedOutput(
               run,

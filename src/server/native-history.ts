@@ -10,10 +10,7 @@ import { importSession, prepareImportSession } from "./migration.js";
 import type { Item } from "../protocol.js";
 import { codexActivities } from "../adapters/direct-activities.js";
 import { directActivityUpdate } from "../activity-bridge.js";
-import {
-  reduceActivities,
-  type ActivityUpdate,
-} from "../agent-activities.js";
+import { reduceActivities, type ActivityUpdate } from "../agent-activities.js";
 import { applyActivity } from "./activities.js";
 const routes = registrar("nativeHistory");
 export const nativeHistory = routes.mount;
@@ -68,14 +65,20 @@ export function historyProjection(thread: any) {
   const records = reduceActivities(
     historyActivities(thread).map((update) => ({ update, turn: "history" })),
   );
-  return [...records].map(([key, record]) => ({ key, kind: record.kind, record }));
+  return [...records].map(([key, record]) => ({
+    key,
+    kind: record.kind,
+    record,
+  }));
 }
 routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
   const managed = db
     .prepare(
       "SELECT n.conversation_id id,n.harness,n.project,n.state,c.title FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id ORDER BY n.updated_at DESC LIMIT 200",
     )
-    .all() as z.input<typeof workspaceApi.nativeHistoryList.response>["managed"];
+    .all() as z.input<
+    typeof workspaceApi.nativeHistoryList.response
+  >["managed"];
   if (req.query.discover !== "1")
     return res.json({ managed, external: [], next: null });
   const { cursor } = req.query;
@@ -164,7 +167,12 @@ routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
   const project = nativeSessions.directory(record.project);
   const conversation = await inspect(async (native) => {
     const options = { ...nativeSessions.registration("codex"), project };
-    const prepared = await prepareImportSession(options, "fork", commandId, JSON.stringify([record.id, record.native_id]));
+    const prepared = await prepareImportSession(
+      options,
+      "fork",
+      commandId,
+      JSON.stringify([record.id, record.native_id]),
+    );
     db.prepare(
       "INSERT INTO native_history_actions VALUES(?,?,'unknown',NULL,?)",
     ).run(commandId, record.id, now());

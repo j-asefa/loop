@@ -7,7 +7,13 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { db, id, now } from "./db.js";
-import { ownedFolder, ownedAgent, ownedArtifact, ownedObject, Problem } from "./domain.js";
+import {
+  ownedFolder,
+  ownedAgent,
+  ownedArtifact,
+  ownedObject,
+  Problem,
+} from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
 
 import type { ChatMessage } from "./providers.js";
@@ -109,7 +115,8 @@ export function uploadedFile(owner: string, fileId: string) {
   // retries still own their references. Ownership is checked for both records.
   if (!meta.upload && meta.uploaded) return publishedFile(artifact, owner);
   if (!meta.upload) throw new Problem(404, "Uploaded file not found");
-  if (!meta.objectId) throw new Problem(409, `Artifact ${artifact.id} has no upload identity`);
+  if (!meta.objectId)
+    throw new Problem(409, `Artifact ${artifact.id} has no upload identity`);
   const object = ownedObject(meta.objectId, owner);
   return { artifact, object, text: meta.text === true };
 }

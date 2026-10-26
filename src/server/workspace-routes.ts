@@ -1,8 +1,11 @@
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { MessageMetadata, artifactResponse, runResponse } from "./row-schemas.js";
+import {
+  MessageMetadata,
+  artifactResponse,
+  runResponse,
+} from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
-
 
 import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
@@ -10,9 +13,22 @@ import { nativeSessions } from "./native-sessions.js";
 import multer from "multer";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { owned, ownedFolder, ownedAgent, ownedArtifact, ownedConnection, ownedImport, ownedConversation, ownedMessage, Problem } from "./domain.js";
+import {
+  owned,
+  ownedFolder,
+  ownedAgent,
+  ownedArtifact,
+  ownedConnection,
+  ownedImport,
+  ownedConversation,
+  ownedMessage,
+  Problem,
+} from "./domain.js";
 import { projectFolders } from "./results.js";
-import { ensureWorkspaceProject, isWorkspaceProject } from "./workspace-project.js";
+import {
+  ensureWorkspaceProject,
+  isWorkspaceProject,
+} from "./workspace-project.js";
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
 import { uploadFile } from "./uploads.js";
@@ -31,22 +47,38 @@ const fileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 2, fieldSize: 200 },
 });
-routes.on(workspaceApi.uploadCreate, (req, res) => {
-  if (!req.file) throw new Problem(400, "Choose a file to upload");
-  res.status(201).json(uploadFile(res.locals.owner, req.file, req.body));
-}, { middleware: [(req, res, next) =>
-  fileUpload.single("file")(req, res, error => {
-    if (error) return next(error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE"
-      ? new Problem(413, "Files can be up to 25 MB each") : error);
-    next();
-  })],
-});
+routes.on(
+  workspaceApi.uploadCreate,
+  (req, res) => {
+    if (!req.file) throw new Problem(400, "Choose a file to upload");
+    res.status(201).json(uploadFile(res.locals.owner, req.file, req.body));
+  },
+  {
+    middleware: [
+      (req, res, next) =>
+        fileUpload.single("file")(req, res, (error) => {
+          if (error)
+            return next(
+              error instanceof multer.MulterError &&
+                error.code === "LIMIT_FILE_SIZE"
+                ? new Problem(413, "Files can be up to 25 MB each")
+                : error,
+            );
+          next();
+        }),
+    ],
+  },
+);
 routes.on(workspaceApi.folderList, (_req, res) => {
   ensureWorkspaceProject(res.locals.owner);
   res.json(
     db
-      .prepare("SELECT f.*,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f WHERE f.owner_id=? ORDER BY f.name")
-      .all(res.locals.owner) as z.input<typeof workspaceApi.folderList.response>,
+      .prepare(
+        "SELECT f.*,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f WHERE f.owner_id=? ORDER BY f.name",
+      )
+      .all(res.locals.owner) as z.input<
+      typeof workspaceApi.folderList.response
+    >,
   );
 });
 routes.on(workspaceApi.folderCreate, (req, res) => {
@@ -80,18 +112,27 @@ routes.on(workspaceApi.folderCreate, (req, res) => {
     if (path)
       db.prepare("INSERT INTO project_paths VALUES(?,?)").run(folderId, path);
   }).immediate();
-  res.status(201).json(ownedFolder(folderId, res.locals.owner) as z.input<typeof workspaceApi.folderCreate.response>);
+  res
+    .status(201)
+    .json(
+      ownedFolder(folderId, res.locals.owner) as z.input<
+        typeof workspaceApi.folderCreate.response
+      >,
+    );
 });
 routes.on(workspaceApi.folderUpdate, (req, res) => {
   const f = ownedFolder(req.params.id, res.locals.owner);
   if (isWorkspaceProject(res.locals.owner, f.id))
-    throw new Problem(400, "The default Workspace project cannot be renamed, moved, or assigned a directory.");
+    throw new Problem(
+      400,
+      "The default Workspace project cannot be renamed, moved, or assigned a directory.",
+    );
   const d = req.body;
   if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
     d.parentId = null;
   // A rename or directory edit does not change ancestry. Validate the chain
   // only when changing the parent, including forms that resend the same ID.
-  let p = d.parentId === f.parent_id ? null : d.parentId ?? null;
+  let p = d.parentId === f.parent_id ? null : (d.parentId ?? null);
   const visited = new Set([f.id]);
   while (p) {
     if (visited.has(p))
@@ -156,7 +197,9 @@ routes.on(workspaceApi.artifactList, (req, res) => {
     .prepare(
       `SELECT a.*,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,a.rowid AS cursor,g.name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY a.rowid DESC LIMIT 60`,
     )
-    .all(...args) as z.input<typeof workspaceApi.artifactList.response>["items"];
+    .all(...args) as z.input<
+    typeof workspaceApi.artifactList.response
+  >["items"];
   res.json({ items, next: items.length === 60 ? items.at(-1)!.cursor : null });
 });
 // The checkout Loop observed for a run: branch, commits, files and the patch
@@ -180,7 +223,9 @@ routes.on(workspaceApi.runFiles, (req, res) => {
       .prepare(
         "SELECT a.id,a.title,a.metadata FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0 ORDER BY a.created_at,a.rowid",
       )
-      .all(res.locals.owner, req.params.id) as z.input<typeof workspaceApi.runFiles.response>,
+      .all(res.locals.owner, req.params.id) as z.input<
+      typeof workspaceApi.runFiles.response
+    >,
   );
 });
 routes.on(workspaceApi.artifactDetail, (req, res) => {
@@ -254,7 +299,7 @@ routes.on(workspaceApi.objectFile, (req, res) => {
 routes.on(workspaceApi.search, async (req, res) => {
   const q = req.query.q;
   res.json(
-    await search(res.locals.owner, q, {
+    (await search(res.locals.owner, q, {
       agent: typeof req.query.agent === "string" ? req.query.agent : undefined,
       folder:
         typeof req.query.folder === "string" ? req.query.folder : undefined,
@@ -268,7 +313,7 @@ routes.on(workspaceApi.search, async (req, res) => {
       from: Number(req.query.from) || undefined,
       to: Number(req.query.to) || undefined,
       before: Number(req.query.before) || 0,
-    }) as z.input<typeof workspaceApi.search.response>,
+    })) as z.input<typeof workspaceApi.search.response>,
   );
 });
 routes.on(workspaceApi.searchStatus, (_req, res) =>
@@ -276,9 +321,12 @@ routes.on(workspaceApi.searchStatus, (_req, res) =>
 );
 routes.on(workspaceApi.preferences, (_req, res) =>
   res.json(
-    db
+    (db
       .prepare("SELECT * FROM preferences WHERE owner_id=?")
-      .get(res.locals.owner) as z.input<typeof workspaceApi.preferences.response> | undefined || { embedding_enabled: 0 },
+      .get(res.locals.owner) as
+      z.input<typeof workspaceApi.preferences.response> | undefined) || {
+      embedding_enabled: 0,
+    },
   ),
 );
 routes.on(workspaceApi.preferencesUpdate, (req, res) => {
@@ -309,20 +357,29 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 30 * 1024 * 1024, files: 1, fields: 2 },
 });
-routes.on(workspaceApi.importPreview, async (req, res) => {
-  if (!req.file) throw new Problem(400, "Choose an export file");
-  res.json(
-    await stageImport(res.locals.owner, req.file.buffer, req.file.originalname) as z.input<typeof workspaceApi.importPreview.response>,
-  );
-}, { middleware: [upload.single("file")],
-});
+routes.on(
+  workspaceApi.importPreview,
+  async (req, res) => {
+    if (!req.file) throw new Problem(400, "Choose an export file");
+    res.json(
+      (await stageImport(
+        res.locals.owner,
+        req.file.buffer,
+        req.file.originalname,
+      )) as z.input<typeof workspaceApi.importPreview.response>,
+    );
+  },
+  { middleware: [upload.single("file")] },
+);
 routes.on(workspaceApi.importList, (_req, res) =>
   res.json(
     db
       .prepare(
         "SELECT * FROM imports WHERE owner_id=? ORDER BY created_at DESC LIMIT 100",
       )
-      .all(res.locals.owner) as z.input<typeof workspaceApi.importList.response>,
+      .all(res.locals.owner) as z.input<
+      typeof workspaceApi.importList.response
+    >,
   ),
 );
 routes.on(workspaceApi.importStart, (req, res) => {
@@ -350,11 +407,15 @@ routes.on(workspaceApi.importStart, (req, res) => {
 routes.on(workspaceApi.importCancel, (req, res) => {
   owned("imports", req.params.id, res.locals.owner);
   const jobId = req.params.id;
-  const runs = z.array(RunIdentity).parse(db
-    .prepare(
-      "SELECT id,owner_id FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=?",
-    )
-    .all(res.locals.owner, jobId));
+  const runs = z
+    .array(RunIdentity)
+    .parse(
+      db
+        .prepare(
+          "SELECT id,owner_id FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=?",
+        )
+        .all(res.locals.owner, jobId),
+    );
   runs.forEach((r) => transition(r, "cancelled"));
   db.prepare(
     "UPDATE imports SET status='cancelled' WHERE id=? AND status<>'completed'",
@@ -387,20 +448,24 @@ routes.on(workspaceApi.conversationContinue, (req, res) => {
       now(),
     );
     for (const m of messages)
-      db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
+      db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(
         id(),
         res.locals.owner,
         newId,
         null,
         m.role,
         m.content,
-        JSON.stringify(MessageMetadata.parse({
-          sourceConversation: c.id,
-          sourceMessage: m.id,
-          selectedByUser: true,
-          attachments: m.metadata.attachments || [],
-          original: m.metadata,
-        })),
+        JSON.stringify(
+          MessageMetadata.parse({
+            sourceConversation: c.id,
+            sourceMessage: m.id,
+            selectedByUser: true,
+            attachments: m.metadata.attachments || [],
+            original: m.metadata,
+          }),
+        ),
         m.created_at,
       );
   }).immediate();

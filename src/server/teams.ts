@@ -1,10 +1,17 @@
 import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
 
-
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { ownedFolder, ownedTeam, ownedConversation, ownedAgent, ownedConnection, createAgent, Problem } from "./domain.js";
+import {
+  ownedFolder,
+  ownedTeam,
+  ownedConversation,
+  ownedAgent,
+  ownedConnection,
+  createAgent,
+  Problem,
+} from "./domain.js";
 import { createHash } from "node:crypto";
 import { suggestAgentName } from "./agent-names.js";
 import { TEAM_PRESETS } from "../shared/team-presets.js";
@@ -80,8 +87,15 @@ export function createTeam(owner: string, input: unknown) {
       const manager = ownedAgent(d.managerId, owner);
       db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,team_id,execution_connection_id,created_at) VALUES(?,?,?,?,?,?,?)",
-      ).run(conversation, owner, d.managerId, d.name, teamId,
-        manager.connection_id, now());
+      ).run(
+        conversation,
+        owner,
+        d.managerId,
+        d.name,
+        teamId,
+        manager.connection_id,
+        now(),
+      );
       db.prepare("UPDATE teams SET conversation_id=? WHERE id=?").run(
         conversation,
         teamId,
@@ -89,7 +103,10 @@ export function createTeam(owner: string, input: unknown) {
       members.forEach((a) =>
         db.prepare("INSERT INTO team_members VALUES(?,?)").run(teamId, a),
       );
-      return { ...listTeams(owner).find((t) => t.id === teamId)!, conversation_id: conversation };
+      return {
+        ...listTeams(owner).find((t) => t.id === teamId)!,
+        conversation_id: conversation,
+      };
     })
     .immediate();
 }
@@ -208,8 +225,7 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
         throw new Problem(409, "Restore this agent before adding it to a team");
       if (
         !agent.connection_id ||
-        ownedConnection(agent.connection_id, owner).status !==
-          "connected"
+        ownedConnection(agent.connection_id, owner).status !== "connected"
       )
         throw new Problem(409, "This agent needs a connected provider");
       const existing = db
@@ -259,19 +275,25 @@ export function assertTeamRestoreCapacity(owner: string, agentId: string) {
 
 const routes = registrar("teams");
 export const teams = routes.mount;
-export function setTeamFeedVisibility(owner: string, teamId: string, input: unknown) {
+export function setTeamFeedVisibility(
+  owner: string,
+  teamId: string,
+  input: unknown,
+) {
   const { hideResultsFromFeed } = z
     .object({ hideResultsFromFeed: z.boolean() })
     .parse(input);
-  return db.transaction(() => {
-    const team = ownedTeam(teamId, owner);
-    if (team.deleted_at != null)
-      throw new Problem(404, "Team no longer exists");
-    db.prepare(
-      "UPDATE teams SET hide_results_from_feed=? WHERE id=? AND owner_id=?",
-    ).run(Number(hideResultsFromFeed), teamId, owner);
-    return listTeams(owner).find((item) => item.id === teamId)!;
-  }).immediate();
+  return db
+    .transaction(() => {
+      const team = ownedTeam(teamId, owner);
+      if (team.deleted_at != null)
+        throw new Problem(404, "Team no longer exists");
+      db.prepare(
+        "UPDATE teams SET hide_results_from_feed=? WHERE id=? AND owner_id=?",
+      ).run(Number(hideResultsFromFeed), teamId, owner);
+      return listTeams(owner).find((item) => item.id === teamId)!;
+    })
+    .immediate();
 }
 
 export function deleteTeam(owner: string, teamId: string) {
@@ -285,7 +307,9 @@ export function deleteTeam(owner: string, teamId: string) {
     ).run(teamId, owner);
   }).immediate();
 }
-routes.legacy("GET /teams", (_req, res) => res.json(listTeams(res.locals.owner)));
+routes.legacy("GET /teams", (_req, res) =>
+  res.json(listTeams(res.locals.owner)),
+);
 routes.legacy("GET /team-presets", (_req, res) => res.json(TEAM_PRESETS));
 routes.legacy("POST /teams/from-preset", (req, res) =>
   res.status(201).json(createPresetTeam(res.locals.owner, req.body)),
@@ -301,7 +325,8 @@ routes.legacy("GET /reviews/conversation/:id", (req, res) => {
     .prepare(
       "SELECT json_extract(payload,'$.reviewId') reviewId FROM runs WHERE conversation_id=? AND owner_id=? ORDER BY rowid DESC LIMIT 1",
     )
-    .get(req.params.id, res.locals.owner) as { reviewId: string | null } | undefined;
+    .get(req.params.id, res.locals.owner) as
+    { reviewId: string | null } | undefined;
   res.json(
     run?.reviewId
       ? reviewStatus(

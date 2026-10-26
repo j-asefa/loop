@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
-import { copyFile, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db, id, now } from "./db.js";
@@ -38,7 +46,12 @@ export { checkoutLine };
 export const PATCH_LIMIT = 300 * 1024;
 const GIT_TIMEOUT_MS = 30000;
 const OUTPUT_LIMIT = 4 * 1024 * 1024;
-export const TERMINAL_STATES = ["completed", "failed", "interrupted", "cancelled"];
+export const TERMINAL_STATES = [
+  "completed",
+  "failed",
+  "interrupted",
+  "cancelled",
+];
 const ACTIVE_STATES = ["running", "pausing", "paused", "awaiting_approval"];
 
 export class CheckoutError extends Error {}
@@ -110,7 +123,12 @@ export type CheckoutDetail = Omit<
   summary: CheckoutSummary | null;
 };
 
-type GitResult = { ok: boolean; code: number | null; out: string; truncated: boolean };
+type GitResult = {
+  ok: boolean;
+  code: number | null;
+  out: string;
+  truncated: boolean;
+};
 /**
  * Where a capture command reads its repository state from. Commands that
  * inspect the working tree run against an isolated Git directory that Loop
@@ -128,14 +146,22 @@ type Iso = { directory: string; env: NodeJS.ProcessEnv; cleanup: () => void };
 // raw content and marked as such. The repository's attributes file setting
 // is overridden; its info/attributes is not copied.
 const SAFE = [
-  "-c", "core.quotePath=false",
-  "-c", "core.fsmonitor=false",
-  "-c", "core.attributesFile=/dev/null",
-  "-c", "core.sshCommand=/bin/false",
-  "-c", "credential.helper=",
-  "-c", "protocol.allow=never",
-  "-c", "submodule.recurse=false",
-  "-c", "diff.external=",
+  "-c",
+  "core.quotePath=false",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.attributesFile=/dev/null",
+  "-c",
+  "core.sshCommand=/bin/false",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "protocol.allow=never",
+  "-c",
+  "submodule.recurse=false",
+  "-c",
+  "diff.external=",
 ];
 // Capture commands see no Git configuration but the isolated directory's:
 // the user's global and the system configuration are disabled, so a filter
@@ -159,7 +185,11 @@ function sanitizedEnv(): NodeJS.ProcessEnv {
   return env;
 }
 const IGNORE_SUBMODULES = "--ignore-submodules=all";
-function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult> {
+function git(
+  where: Iso,
+  args: string[],
+  cap = OUTPUT_LIMIT,
+): Promise<GitResult> {
   return new Promise((resolve) => {
     const child = spawn("git", ["-C", where.directory, ...SAFE, ...args], {
       stdio: ["ignore", "pipe", "ignore"],
@@ -173,7 +203,12 @@ function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult>
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ok, code, out: Buffer.concat(chunks).toString("utf8"), truncated });
+      resolve({
+        ok,
+        code,
+        out: Buffer.concat(chunks).toString("utf8"),
+        truncated,
+      });
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -192,7 +227,9 @@ function git(where: Iso, args: string[], cap = OUTPUT_LIMIT): Promise<GitResult>
       size += chunk.length;
     });
     child.on("error", () => finish(false, null));
-    child.on("close", (code) => finish(!truncated && code === 0, truncated ? null : code));
+    child.on("close", (code) =>
+      finish(!truncated && code === 0, truncated ? null : code),
+    );
   });
 }
 async function must(where: Iso, args: string[]) {
@@ -206,7 +243,11 @@ async function maybe(where: Iso, args: string[]) {
   return result.ok ? result.out.trim() : null;
 }
 /** Commands that only read refs (rev-parse, symbolic-ref) run no drivers. */
-const plain = (directory: string): Iso => ({ directory, env: {}, cleanup: () => {} });
+const plain = (directory: string): Iso => ({
+  directory,
+  env: {},
+  cleanup: () => {},
+});
 
 function globalSettings(): Promise<string> {
   return new Promise((resolve) => {
@@ -216,7 +257,10 @@ function globalSettings(): Promise<string> {
     });
     const chunks: Buffer[] = [];
     const timer = setTimeout(() => child.kill("SIGKILL"), GIT_TIMEOUT_MS);
-    child.stdout.on("data", (chunk: Buffer) => chunks.length < 4096 && chunks.push(chunk));
+    child.stdout.on(
+      "data",
+      (chunk: Buffer) => chunks.length < 4096 && chunks.push(chunk),
+    );
     child.on("error", () => resolve(""));
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -233,10 +277,23 @@ function globalSettings(): Promise<string> {
  */
 async function isolate(directory: string): Promise<Iso> {
   const here = plain(directory);
-  const common = await must(here, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const own = await must(here, ["rev-parse", "--path-format=absolute", "--git-dir"]);
+  const common = await must(here, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+  const own = await must(here, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-dir",
+  ]);
   const top = await must(here, ["rev-parse", "--show-toplevel"]);
-  const branch = await maybe(here, ["symbolic-ref", "--short", "--quiet", "HEAD"]);
+  const branch = await maybe(here, [
+    "symbolic-ref",
+    "--short",
+    "--quiet",
+    "HEAD",
+  ]);
   // The user's global settings first, then the repository's, then the
   // worktree's, so a later scope replaces an earlier one. Only allowlisted
   // keys are carried; the global listing is read with the user's own
@@ -245,8 +302,22 @@ async function isolate(directory: string): Promise<Iso> {
     await globalSettings(),
     // --includes follows include.path and includeIf, so a setting supplied
     // through an included file is seen; only allowlisted keys are carried.
-    (await maybe(here, ["config", "--file", join(common, "config"), "--includes", "--list", "-z"])) ?? "",
-    (await maybe(here, ["config", "--file", join(own, "config.worktree"), "--includes", "--list", "-z"])) ?? "",
+    (await maybe(here, [
+      "config",
+      "--file",
+      join(common, "config"),
+      "--includes",
+      "--list",
+      "-z",
+    ])) ?? "",
+    (await maybe(here, [
+      "config",
+      "--file",
+      join(own, "config.worktree"),
+      "--includes",
+      "--list",
+      "-z",
+    ])) ?? "",
   ].join("\0");
   const config = ["[core]", "\trepositoryformatversion = 0", "\tbare = false"];
   // Carried over: the object format, and the tracking configuration that
@@ -255,23 +326,32 @@ async function isolate(directory: string): Promise<Iso> {
   const carried = new Map<string, string>();
 
   const tracking = branch
-    ? new RegExp(`^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`)
+    ? new RegExp(
+        `^(?:branch\\.${branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:remote|merge|pushremote)|remote\\.[^=]+\\.fetch)$`,
+      )
     : null;
   // Settings that decide how worktree content compares with the index. They
   // are plain values, never commands; without them a CRLF file could read
   // as changed when the repository normalises line endings.
-  const comparison = /^core\.(?:autocrlf|eol|ignorecase|filemode|symlinks|precomposeunicode|whitespace|safecrlf|excludesfile)$/;
+  const comparison =
+    /^core\.(?:autocrlf|eol|ignorecase|filemode|symlinks|precomposeunicode|whitespace|safecrlf|excludesfile)$/;
   for (const entry of settings.split("\0")) {
     const split = entry.indexOf("\n");
     if (split < 0) continue;
     const key = entry.slice(0, split),
       value = entry.slice(split + 1);
     if (key === "extensions.refstorage")
-      throw new CheckoutError("Checkout capture does not support reftable repositories");
-    if (key === "extensions.objectformat" || key === "extensions.compatobjectformat") {
+      throw new CheckoutError(
+        "Checkout capture does not support reftable repositories",
+      );
+    if (
+      key === "extensions.objectformat" ||
+      key === "extensions.compatobjectformat"
+    ) {
       config[1] = "\trepositoryformatversion = 1";
       carried.set(key, value);
-    } else if (tracking?.test(key) || comparison.test(key)) carried.set(key, value);
+    } else if (tracking?.test(key) || comparison.test(key))
+      carried.set(key, value);
   }
   const gitDir = await mkdtemp(join(tmpdir(), "loop-checkout-"));
   const cleanup = () => {
@@ -279,28 +359,50 @@ async function isolate(directory: string): Promise<Iso> {
   };
   try {
     await mkdir(join(gitDir, "objects", "info"), { recursive: true });
-    await writeFile(join(gitDir, "objects", "info", "alternates"), join(common, "objects") + "\n");
+    await writeFile(
+      join(gitDir, "objects", "info", "alternates"),
+      join(common, "objects") + "\n",
+    );
     await writeFile(join(gitDir, "config"), config.join("\n") + "\n");
     const settingsFile = plain(gitDir);
     for (const [key, value] of carried)
-      await must(settingsFile, ["config", "--file", join(gitDir, "config"), "--replace-all", key, value]);
+      await must(settingsFile, [
+        "config",
+        "--file",
+        join(gitDir, "config"),
+        "--replace-all",
+        key,
+        value,
+      ]);
     await copyFile(join(own, "HEAD"), join(gitDir, "HEAD"));
     // The index and, for a split index, the shared part it refers to.
     for (const name of await readdir(own).catch(() => [] as string[]))
       if (name === "index" || name.startsWith("sharedindex."))
         await copyFile(join(own, name), join(gitDir, name));
-    await cp(join(common, "refs"), join(gitDir, "refs"), { recursive: true }).catch(() => mkdir(join(gitDir, "refs")));
-    await copyFile(join(common, "packed-refs"), join(gitDir, "packed-refs")).catch(() => {});
+    await cp(join(common, "refs"), join(gitDir, "refs"), {
+      recursive: true,
+    }).catch(() => mkdir(join(gitDir, "refs")));
+    await copyFile(
+      join(common, "packed-refs"),
+      join(gitDir, "packed-refs"),
+    ).catch(() => {});
     // A shallow clone's history boundary, so walks stop where Git's do.
-    await copyFile(join(common, "shallow"), join(gitDir, "shallow")).catch(() => {});
+    await copyFile(join(common, "shallow"), join(gitDir, "shallow")).catch(
+      () => {},
+    );
     // Repository-local exclusions, so ignored build output stays ignored.
     await mkdir(join(gitDir, "info"));
-    await copyFile(join(common, "info", "exclude"), join(gitDir, "info", "exclude")).catch(() => {});
+    await copyFile(
+      join(common, "info", "exclude"),
+      join(gitDir, "info", "exclude"),
+    ).catch(() => {});
   } catch (error) {
     cleanup();
     throw error instanceof CheckoutError
       ? error
-      : new CheckoutError("Checkout capture could not prepare an isolated Git directory");
+      : new CheckoutError(
+          "Checkout capture could not prepare an isolated Git directory",
+        );
   }
   return {
     directory,
@@ -311,7 +413,13 @@ async function isolate(directory: string): Promise<Iso> {
 
 async function status(where: Iso) {
   // Porcelain v1, NUL-terminated: "XY path\0" with a second "orig\0" for renames.
-  const out = await must(where, ["status", "--porcelain=v1", "-z", "--untracked-files=all", IGNORE_SUBMODULES]);
+  const out = await must(where, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+    IGNORE_SUBMODULES,
+  ]);
   const entries = out.split("\0");
   const tracked: string[] = [],
     untracked: string[] = [];
@@ -323,15 +431,26 @@ async function status(where: Iso) {
     if (code === "??") untracked.push(path);
     else {
       tracked.push(path);
-      if (code[0] === "R" || code[0] === "C" || code[1] === "R" || code[1] === "C") i++;
+      if (
+        code[0] === "R" ||
+        code[0] === "C" ||
+        code[1] === "R" ||
+        code[1] === "C"
+      )
+        i++;
     }
   }
   return { tracked, untracked };
 }
 
 const DIFF = [
-  "diff", "--no-ext-diff", "--no-textconv", "--no-color",
-  "--src-prefix=a/", "--dst-prefix=b/", IGNORE_SUBMODULES,
+  "diff",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-color",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+  IGNORE_SUBMODULES,
 ];
 async function numstat(where: Iso, range: string[]): Promise<CheckoutStat> {
   const out = await must(where, [...DIFF, "--numstat", "-z", ...range]);
@@ -369,12 +488,19 @@ async function numstat(where: Iso, range: string[]): Promise<CheckoutStat> {
 /** Paths whose attributes select a filter: compared as raw content here. */
 async function filtered(where: Iso, paths: string[]) {
   if (!paths.length) return new Set<string>();
-  const out = await maybe(where, ["check-attr", "-z", "filter", "--", ...paths]);
+  const out = await maybe(where, [
+    "check-attr",
+    "-z",
+    "filter",
+    "--",
+    ...paths,
+  ]);
   const parts = (out ?? "").split("\0");
   const result = new Set<string>();
   // "path\0attribute\0value\0" triples.
   for (let i = 0; i + 2 < parts.length; i += 3)
-    if (parts[i + 2] !== "unspecified" && parts[i + 2] !== "unset") result.add(parts[i]);
+    if (parts[i + 2] !== "unspecified" && parts[i + 2] !== "unset")
+      result.add(parts[i]);
   return result;
 }
 
@@ -384,10 +510,16 @@ async function patch(where: Iso, base: string) {
     throw new CheckoutError("git diff failed in the agent worktree");
   const full = Buffer.byteLength(result.out, "utf8");
   if (result.truncated || full > PATCH_LIMIT) {
-    let text = Buffer.from(result.out, "utf8").subarray(0, PATCH_LIMIT).toString("utf8");
+    let text = Buffer.from(result.out, "utf8")
+      .subarray(0, PATCH_LIMIT)
+      .toString("utf8");
     const cut = text.lastIndexOf("\n");
     if (cut > 0) text = text.slice(0, cut + 1);
-    return { patch: text, bytes: result.truncated ? null : full, truncated: true };
+    return {
+      patch: text,
+      bytes: result.truncated ? null : full,
+      truncated: true,
+    };
   }
   return { patch: result.out, bytes: full, truncated: false };
 }
@@ -403,36 +535,58 @@ async function runBase(where: Iso, row: CheckoutRow) {
   const patchFile = join(gitDir, "run-start.patch");
   await writeFile(patchFile, row.start_patch, { mode: 0o600 });
   await must(snapshot, ["read-tree", row.start_head]);
-  await must(snapshot, ["apply", "--cached", "--binary", "--whitespace=nowarn", "--", patchFile]);
+  await must(snapshot, [
+    "apply",
+    "--cached",
+    "--binary",
+    "--whitespace=nowarn",
+    "--",
+    patchFile,
+  ]);
   return must(snapshot, ["write-tree"]);
 }
 
-async function remote(where: Iso, branch: string, head: string): Promise<CheckoutRemote | null> {
+async function remote(
+  where: Iso,
+  branch: string,
+  head: string,
+): Promise<CheckoutRemote | null> {
   // The upstream when one is set, otherwise the conventional origin ref, and
   // only a remote-tracking ref: an upstream on "." is a local branch and
   // says nothing about any remote. Only local remote-tracking refs are
   // read; nothing contacts the network, so the observation is as fresh as
   // the last fetch, and says so by its timestamp.
-  const upstream = await maybe(where, ["rev-parse", "--symbolic-full-name", "@{upstream}"]);
-  const ref =
-    upstream?.startsWith("refs/remotes/")
-      ? upstream
-      : (await maybe(where, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]))
-        ? `refs/remotes/origin/${branch}`
-        : null;
+  const upstream = await maybe(where, [
+    "rev-parse",
+    "--symbolic-full-name",
+    "@{upstream}",
+  ]);
+  const ref = upstream?.startsWith("refs/remotes/")
+    ? upstream
+    : (await maybe(where, [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `refs/remotes/origin/${branch}`,
+        ]))
+      ? `refs/remotes/origin/${branch}`
+      : null;
   if (!ref) return null;
   const sha = await maybe(where, ["rev-parse", "--verify", "--quiet", ref]);
   if (!sha) return null;
   // Exit 0 means the remote ref contains HEAD, 1 that it does not; anything
   // else (a missing object, a timeout) is not an answer.
   const ancestry = await git(where, ["merge-base", "--is-ancestor", head, sha]);
-  const contains = ancestry.code === 0 ? true : ancestry.code === 1 ? false : null;
+  const contains =
+    ancestry.code === 0 ? true : ancestry.code === 1 ? false : null;
   return { ref, sha, contains_head: contains, observed_at: now() };
 }
 
 function summarize(row: CheckoutRow): CheckoutSummary {
   const files = row.files ? (JSON.parse(row.files) as CheckoutFile[]) : [];
-  const untracked = row.untracked ? (JSON.parse(row.untracked) as string[]) : [];
+  const untracked = row.untracked
+    ? (JSON.parse(row.untracked) as string[])
+    : [];
   const seen = row.remote ? (JSON.parse(row.remote) as CheckoutRemote) : null;
   return {
     id: row.id,
@@ -446,7 +600,13 @@ function summarize(row: CheckoutRow): CheckoutSummary {
     additions: files.reduce((n, f) => n + f.additions, 0),
     deletions: files.reduce((n, f) => n + f.deletions, 0),
     untracked: untracked.length,
-    remote: !seen ? "none" : seen.contains_head === null ? "unknown" : seen.contains_head ? "contains" : "missing",
+    remote: !seen
+      ? "none"
+      : seen.contains_head === null
+        ? "unknown"
+        : seen.contains_head
+          ? "contains"
+          : "missing",
     started_dirty: !!row.start_dirty || !!row.start_untracked,
     overlap: row.overlap ? (JSON.parse(row.overlap) as string[]).length : 0,
     late: !!row.captured_late,
@@ -480,12 +640,18 @@ export function toDetail(row: CheckoutRow): CheckoutDetail {
 }
 
 /** The checkout record of one run, for its owner. */
-export function checkoutDetail(owner: string, runId: string): CheckoutDetail | null {
+export function checkoutDetail(
+  owner: string,
+  runId: string,
+): CheckoutDetail | null {
   const row = select(runId, owner);
   return row ? toDetail(row) : null;
 }
 /** The card summary, as stored JSON, for feed and thread projections. */
-export function checkoutSummary(owner: string, runId: string): CheckoutSummary | null {
+export function checkoutSummary(
+  owner: string,
+  runId: string,
+): CheckoutSummary | null {
   const row = db
     .prepare("SELECT summary FROM run_checkouts WHERE run_id=? AND owner_id=?")
     .get(runId, owner) as { summary: string | null } | undefined;
@@ -493,10 +659,11 @@ export function checkoutSummary(owner: string, runId: string): CheckoutSummary |
 }
 // Prepared on first use: this module is loaded by the queue, which some
 // fixtures import against databases that have not run every migration.
-const INSERT = () => db.prepare(
-  `INSERT OR IGNORE INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,generation,directory,source,branch,base_ref,base_sha,start_head,start_patch,start_untracked_paths,start_dirty,start_untracked,started_at,state,error,summary)
+const INSERT = () =>
+  db.prepare(
+    `INSERT OR IGNORE INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,generation,directory,source,branch,base_ref,base_sha,start_head,start_patch,start_untracked_paths,start_dirty,start_untracked,started_at,state,error,summary)
    VALUES(@id,@owner_id,@run_id,@agent_id,@conversation_id,@generation,@directory,@source,@branch,@base_ref,@base_sha,@start_head,@start_patch,@start_untracked_paths,@start_dirty,@start_untracked,@started_at,@state,@error,@summary)`,
-);
+  );
 
 /** The start capture's overall budget: it runs before the agent is dispatched. */
 const START_BUDGET_MS = 20000;
@@ -536,14 +703,25 @@ export async function startCheckout(
   const task = (async () => {
     try {
       iso = await isolate(directory);
-      const branch = (await maybe(iso, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? "HEAD";
+      const branch =
+        (await maybe(iso, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ??
+        "HEAD";
       const head = await must(iso, ["rev-parse", "--verify", "HEAD"]);
       const { tracked, untracked } = await status(iso);
       // Unlike the display patch this must be complete: never pretend a
       // shortened baseline can establish which edits happened in this run.
-      const baseline = await git(iso, [...DIFF, "--binary", "--full-index", "--no-renames", head, "--"]);
+      const baseline = await git(iso, [
+        ...DIFF,
+        "--binary",
+        "--full-index",
+        "--no-renames",
+        head,
+        "--",
+      ]);
       if (!baseline.ok)
-        throw new CheckoutError("Could not capture the complete run baseline (maximum 4 MB)");
+        throw new CheckoutError(
+          "Could not capture the complete run baseline (maximum 4 MB)",
+        );
       return { branch, head, startPatch: baseline.out, tracked, untracked };
     } finally {
       if (budgetPassed) iso?.cleanup();
@@ -557,7 +735,11 @@ export async function startCheckout(
       new Promise<never>((_, reject) => {
         budget = setTimeout(() => {
           budgetPassed = true;
-          reject(new CheckoutError(`Checkout capture exceeded its ${START_BUDGET_MS / 1000} second budget`));
+          reject(
+            new CheckoutError(
+              `Checkout capture exceeded its ${START_BUDGET_MS / 1000} second budget`,
+            ),
+          );
         }, START_BUDGET_MS);
       }),
     ]);
@@ -587,7 +769,10 @@ export async function startCheckout(
       start_dirty: 0,
       start_untracked: 0,
       state: "failed",
-      error: error instanceof Error ? error.message.slice(0, 500) : "Checkout capture failed",
+      error:
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : "Checkout capture failed",
     } as CheckoutRow;
   } finally {
     clearTimeout(budget);
@@ -598,12 +783,23 @@ export async function startCheckout(
 }
 
 const CAPTURE_FIELDS = [
-  "end_head", "ahead", "behind", "files", "committed", "working", "untracked",
-  "patch", "patch_bytes", "patch_truncated", "remote", "overlap",
+  "end_head",
+  "ahead",
+  "behind",
+  "files",
+  "committed",
+  "working",
+  "untracked",
+  "patch",
+  "patch_bytes",
+  "patch_truncated",
+  "remote",
+  "overlap",
 ] as const;
-const UPDATE = () => db.prepare(
-  `UPDATE run_checkouts SET id=@id,state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id AND capture_token=@token`,
-);
+const UPDATE = () =>
+  db.prepare(
+    `UPDATE run_checkouts SET id=@id,state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id AND capture_token=@token`,
+  );
 
 /**
  * Capture the end state when a run reaches a terminal state. A run that ends
@@ -623,7 +819,9 @@ export async function completeCheckout(
   if (row.state === "failed" && !row.start_head) {
     // Nothing to observe for a run whose start was never captured; drop the
     // request so reconciliation does not keep selecting it.
-    db.prepare("UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?").run(runId);
+    db.prepare("UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?").run(
+      runId,
+    );
     return;
   }
   const time = now();
@@ -639,10 +837,13 @@ export async function completeCheckout(
     .prepare(
       "UPDATE run_checkouts SET capture_token=?,capture_started_at=?,capture_pending=0 WHERE run_id=? AND (capture_token IS NULL OR capture_started_at<?) RETURNING *",
     )
-    .get(token, time, runId, time - CAPTURE_LEASE_MS) as CheckoutRow | undefined;
+    .get(token, time, runId, time - CAPTURE_LEASE_MS) as
+    CheckoutRow | undefined;
   if (!claimed) {
     if (!options.ifIdle)
-      db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(runId);
+      db.prepare(
+        "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
+      ).run(runId);
     return;
   }
   return captureClaimed(claimed, token, time, options);
@@ -656,8 +857,12 @@ async function captureClaimed(
 ): Promise<void> {
   const runId = row.run_id;
   const fields: Partial<CheckoutRow> = {
-    ended_at: time, error: null, captured_late: options.late ? 1 : 0,
-    end_head: null, ahead: null, behind: null,
+    ended_at: time,
+    error: null,
+    captured_late: options.late ? 1 : 0,
+    end_head: null,
+    ahead: null,
+    behind: null,
   };
   let iso: Iso | undefined;
   try {
@@ -667,18 +872,34 @@ async function captureClaimed(
     // commit between commands, so every commit-relative query names this
     // SHA rather than resolving the symbolic HEAD again.
     const head = await must(directory, ["rev-parse", "--verify", "HEAD"]);
-    const branch = (await maybe(directory, ["symbolic-ref", "--short", "--quiet", "HEAD"])) ?? row.branch;
+    const branch =
+      (await maybe(directory, [
+        "symbolic-ref",
+        "--short",
+        "--quiet",
+        "HEAD",
+      ])) ?? row.branch;
     const runScoped = row.start_patch != null;
-    const sourceHead = runScoped ? row.start_head : await maybe(plain(row.source), ["rev-parse", "--verify", "HEAD"]);
-    const base = runScoped ? row.start_head : sourceHead
-      ? ((await maybe(directory, ["merge-base", head, sourceHead])) ?? row.base_sha)
-      : row.base_sha;
-    const diffBase = runScoped ? await runBase(directory, row) : base ?? head;
+    const sourceHead = runScoped
+      ? row.start_head
+      : await maybe(plain(row.source), ["rev-parse", "--verify", "HEAD"]);
+    const base = runScoped
+      ? row.start_head
+      : sourceHead
+        ? ((await maybe(directory, ["merge-base", head, sourceHead])) ??
+          row.base_sha)
+        : row.base_sha;
+    const diffBase = runScoped ? await runBase(directory, row) : (base ?? head);
     fields.end_head = head;
     fields.branch = branch;
     fields.base_sha = base;
     if (sourceHead) {
-      const counts = await maybe(directory, ["rev-list", "--left-right", "--count", `${sourceHead}...${head}`]);
+      const counts = await maybe(directory, [
+        "rev-list",
+        "--left-right",
+        "--count",
+        `${sourceHead}...${head}`,
+      ]);
       const [behind, ahead] = (counts ?? "").split(/\s+/).map(Number);
       if (Number.isFinite(ahead) && Number.isFinite(behind)) {
         fields.ahead = ahead;
@@ -686,18 +907,30 @@ async function captureClaimed(
       }
     }
     const { untracked, tracked } = await status(directory);
-    const initialUntracked = new Set<string>(JSON.parse(row.start_untracked_paths ?? "[]"));
-    fields.untracked = JSON.stringify(untracked.filter((path) => !initialUntracked.has(path)));
+    const initialUntracked = new Set<string>(
+      JSON.parse(row.start_untracked_paths ?? "[]"),
+    );
+    fields.untracked = JSON.stringify(
+      untracked.filter((path) => !initialUntracked.has(path)),
+    );
     const working = await numstat(directory, [head, "--"]);
-    const committed = base ? await numstat(directory, [base, head, "--"]) : null;
+    const committed = base
+      ? await numstat(directory, [base, head, "--"])
+      : null;
     const files = (await numstat(directory, [diffBase, "--"])).files;
     const raw = await filtered(directory, [
-      ...new Set([...working.files, ...(committed?.files ?? []), ...files].map((f) => f.path)),
+      ...new Set(
+        [...working.files, ...(committed?.files ?? []), ...files].map(
+          (f) => f.path,
+        ),
+      ),
     ]);
-    for (const file of working.files) if (raw.has(file.path)) file.filtered = true;
+    for (const file of working.files)
+      if (raw.has(file.path)) file.filtered = true;
     fields.working = JSON.stringify(working);
     if (base) {
-      for (const file of committed!.files) if (raw.has(file.path)) file.filtered = true;
+      for (const file of committed!.files)
+        if (raw.has(file.path)) file.filtered = true;
       fields.committed = JSON.stringify(committed);
       for (const file of files) if (raw.has(file.path)) file.filtered = true;
       fields.files = JSON.stringify(files);
@@ -725,7 +958,14 @@ async function captureClaimed(
                AND (r.updated_at>=? OR r.state IN (${ACTIVE_STATES.map(() => "?").join(",")}))
              ORDER BY r.created_at`,
           )
-          .all(row.owner_id, row.directory, row.run_id, now(), row.started_at, ...ACTIVE_STATES) as { id: string }[]
+          .all(
+            row.owner_id,
+            row.directory,
+            row.run_id,
+            now(),
+            row.started_at,
+            ...ACTIVE_STATES,
+          ) as { id: string }[]
       ).map((r) => r.id),
     );
     fields.state = "captured";
@@ -733,7 +973,10 @@ async function captureClaimed(
     for (const field of CAPTURE_FIELDS) fields[field] = null as never;
     fields.base_sha = row.base_sha;
     fields.state = "failed";
-    fields.error = error instanceof Error ? error.message.slice(0, 500) : "Checkout capture failed";
+    fields.error =
+      error instanceof Error
+        ? error.message.slice(0, 500)
+        : "Checkout capture failed";
   } finally {
     iso?.cleanup();
   }
@@ -796,9 +1039,15 @@ export function reconcileCheckouts(): Promise<void> {
            AND (k.capture_token IS NULL OR k.capture_started_at<?)
            AND r.state IN (${TERMINAL_STATES.map(() => "?").join(",")}) LIMIT 20`,
       )
-      .all(time - CAPTURE_LEASE_MS, ...TERMINAL_STATES) as { run_id: string; updated_at: number }[];
+      .all(time - CAPTURE_LEASE_MS, ...TERMINAL_STATES) as {
+      run_id: string;
+      updated_at: number;
+    }[];
     for (const { run_id, updated_at } of pending)
-      await completeCheckout(run_id, { late: time - updated_at > LATE_AFTER_MS, ifIdle: true });
+      await completeCheckout(run_id, {
+        late: time - updated_at > LATE_AFTER_MS,
+        ifIdle: true,
+      });
   })().finally(() => {
     reconciling = null;
   });
