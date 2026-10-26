@@ -318,6 +318,25 @@ export const RichText = memo(function RichText({
     </div>
   );
 });
+// Headings keep inline formatting without nesting paragraphs, headings or
+// interactive links inside the card's own heading and click target.
+export const InlineMarkdown = memo(function InlineMarkdown({
+  content,
+}: {
+  content: string;
+}) {
+  return (
+    <span className="inline-markdown">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        allowedElements={["strong", "em", "del", "code"]}
+        unwrapDisallowed
+      >
+        {content}
+      </Markdown>
+    </span>
+  );
+});
 const previewValue = (v: unknown) =>
   typeof v === "object" && v !== null ? JSON.stringify(v) : String(v ?? "—");
 function DataPreview({ value }: { value: any }) {

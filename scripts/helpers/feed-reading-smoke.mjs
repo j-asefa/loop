@@ -6,6 +6,17 @@ import { seedCheckout } from "./checkout-fixture.mjs";
 export async function feedReadingSmoke(page, fixture, capture) {
   const done = fixture.conversations.find((item) => item.state === "completed");
   const working = fixture.conversations.find((item) => item.state === "running");
+  const mailThread = randomUUID();
+  const markdownTitle = `**Message from @nova** (*direct message*) · thread \`${mailThread}\` This comes`;
+  done.title = `Message from @nova (direct message) · thread ${mailThread} This comes`;
+  fixture.db.prepare("UPDATE runs SET input=? WHERE id=?").run(markdownTitle, done.run);
+  const expectMailHeading = async (heading) => {
+    await expect(heading).toHaveText(done.title);
+    await expect(heading.locator("strong")).toHaveText("Message from @nova");
+    await expect(heading.locator("em")).toHaveText("direct message");
+    await expect(heading.locator("code")).toHaveText(mailThread);
+    await expect(heading.locator("p, div, h1, h2, h3, pre")).toHaveCount(0);
+  };
   const observations = new Map();
   for (const item of [done, working]) {
     const path = `src/${item.state}.ts`;
@@ -45,15 +56,21 @@ export async function feedReadingSmoke(page, fixture, capture) {
     const item = fixture.conversations.find((value) => value.state === state);
     await page.goto(`${fixture.base}/?filter=${filter}`, { waitUntil: "networkidle" });
     const card = page.locator(".inbox-results .inbox-card").filter({ hasText: item.title });
-    if (filter === "done") await expect(card.locator(".preview")).not.toContainText("End of the full result.");
+    if (filter === "done") {
+      await expectMailHeading(card.getByRole("heading", { level: 2 }));
+      await expect(card.locator(".preview")).not.toContainText("End of the full result.");
+    }
     await card.locator(".inbox-row").click();
     await expect(reader).toBeVisible();
     await expect(thread).toHaveCount(0);
     await expect(reader.locator(".result-identity")).toBeVisible();
     await expect(reader.locator(".result-title")).toHaveText(item.title);
+    if (filter === "done") await expectMailHeading(reader.getByRole("heading", { level: 3 }));
     await expect.poll(() => reader.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    if (filter === "done")
+    if (filter === "done") {
       await expect(reader.locator(".artifact-body")).toContainText("End of the full result.");
+      await capture("feed-reading-heading");
+    }
     await reader.locator(".result-content").evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await expect(reader.getByRole("button", { name: "Reply", exact: true })).toBeInViewport();
     const badges = reader.getByRole("group", { name: "Changes and checks" });

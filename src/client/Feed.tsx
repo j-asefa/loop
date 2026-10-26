@@ -63,7 +63,7 @@ import type {
   AgentSource,
 } from "./agentSources";
 import { cacheView, cachedView, viewOwner, viewGeneration } from "./viewCache";
-import { Avatar, RichText, Sheet } from "./components";
+import { Avatar, InlineMarkdown, RichText, Sheet } from "./components";
 import {
   agentModelName,
   connectionLocation,
@@ -472,7 +472,9 @@ function FeedCard({
               · {item.project_name || "Unfiled"}
             </span>
           </span>
-          <h2>{item.title}</h2>
+          <h2>
+            <InlineMarkdown content={item.title} />
+          </h2>
           {detail && <p className="field-hint inbox-detail">{detail}</p>}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
@@ -603,7 +605,9 @@ function FeedCard({
               }
             >
               <div className="result-content">
-                <h3 className="result-title">{item.title}</h3>
+                <h3 className="result-title">
+                  <InlineMarkdown content={item.title} />
+                </h3>
                 {item.reply && (
                   <div className="reply-question">
                     <p className="field-hint">In reply to your message</p>

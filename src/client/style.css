@@ -4012,7 +4012,8 @@ fieldset {
 .conversation-sheet .markdown table {
   font-size: var(--control-size);
 }
-.markdown code {
+.markdown code,
+.inline-markdown code {
   font-family: ui-monospace, monospace;
   font-size: 0.94em;
 }
