@@ -18,8 +18,10 @@ function validateInput<C extends RouteContract>(
   input: RouteInput<C>,
 ) {
   try {
+    // Numeric contracts (for example GitHub PR numbers) still serialize as
+    // URL segments after their own range/coercion checks have succeeded.
     const params = z
-      .record(z.string(), z.string())
+      .record(z.string(), z.union([z.string(), z.number()]))
       .parse(contract.params.parse(input.params ?? {}));
     contract.query.parse(input.query ?? {});
     // A file-only form has an empty fields object when Multer receives it.

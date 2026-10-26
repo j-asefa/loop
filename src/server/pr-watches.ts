@@ -1,4 +1,6 @@
-import { registrar } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { PrWatchInput } from "../shared/github-contract-schemas.js";
+import { registrar, projectResponse } from "./registrar.js";
 import { createdPullRequest } from "../shared/pr-command.js";
 import { linkCreatedPullRequest } from "./conversation-pulls.js";
 import {
@@ -8,7 +10,6 @@ import {
 } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
 
-import { z } from "zod";
 import { db, id, now } from "./db.js";
 import { ownedArtifact, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
@@ -265,14 +266,7 @@ export async function verifyCreatedPullRequest(
  * the thread and agent, and must itself list this pull request.
  */
 export function startWatch(owner: string, body: unknown) {
-  const data = z
-    .object({
-      artifactId: z.string().min(1).max(150),
-      owner: z.string().min(1).max(39),
-      repo: z.string().min(1).max(100),
-      number: z.number().int().positive().max(999_999_999),
-    })
-    .parse(body);
+  const data = PrWatchInput.parse(body);
   return db
     .transaction(() => {
       const artifact = ownedArtifact(data.artifactId, owner);
@@ -904,20 +898,19 @@ export async function pollWatches(time = now()) {
 
 const routes = registrar("prWatches");
 export const prWatches = routes.mount;
-routes.legacy("GET /pr-watches", (req, res) => {
-  const conversation = z
-    .string()
-    .max(150)
-    .optional()
-    .parse(req.query.conversation);
-  res.json({ watches: watchesFor(res.locals.owner, conversation) });
+routes.on(workspaceApi.prWatchList, (req, res) => {
+  res.json(
+    projectResponse(workspaceApi.prWatchList, {
+      watches: watchesFor(res.locals.owner, req.query.conversation),
+    }),
+  );
 });
-routes.legacy("POST /pr-watches", (req, res) =>
+routes.on(workspaceApi.prWatchCreate, (req, res) =>
   res.status(201).json(startWatch(res.locals.owner, req.body)),
 );
-routes.legacy("POST /pr-watches/:id/resume", (req, res) =>
+routes.on(workspaceApi.prWatchResume, (req, res) =>
   res.json(resumeWatch(res.locals.owner, req.params.id)),
 );
-routes.legacy("DELETE /pr-watches/:id", (req, res) =>
+routes.on(workspaceApi.prWatchDelete, (req, res) =>
   res.json(stopWatch(res.locals.owner, req.params.id)),
 );

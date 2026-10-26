@@ -72,7 +72,8 @@ export type PullDetail = PullListItem & {
   mergeState?: string;
   conflicts: boolean;
   commits?: number;
-  commitHistory: {
+  // Older linked sources before 936778ea omit these display additions.
+  commitHistory?: {
     sha: string;
     message: string;
     author?: string;
@@ -82,9 +83,9 @@ export type PullDetail = PullListItem & {
   requested: string[];
   reviews: (PullComment & { state: string })[];
   /** Reviews displayed on this page, excluding blank inline-comment reviews. */
-  reviewsTotal: number;
+  reviewsTotal?: number;
   /** GitHub has older reviews beyond the latest 50, with an unknown displayable count. */
-  reviewsOmitted: boolean;
+  reviewsOmitted?: boolean;
   checkRuns: PullCheck[];
   threads: {
     id: string;

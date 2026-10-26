@@ -1,4 +1,4 @@
-import { useProjectionRead } from "./SourceContext";
+import { useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
@@ -14,7 +14,8 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { api } from "./api";
+import { callRoute, readRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { executionSourceId } from "./sourceRouting";
 import { PullChangeCounts } from "./PullChangeCounts";
@@ -63,9 +64,6 @@ export const TOOLS_CLOSED = "loop-tools-closed";
 export function openPull(ref: PullRequestRef) {
   window.dispatchEvent(new CustomEvent(OPEN_PULL, { detail: pullKey(ref) }));
 }
-
-const pullPath = (ref: PullRequestRef) =>
-  `/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}` as const;
 
 const STATE_LABEL: Record<PullRequestState, string> = {
   draft: "Draft",
@@ -158,7 +156,7 @@ function PullRequestInbox({
   onSelect: (key: string) => void;
   onConnect: () => void;
 }) {
-  const read = useProjectionRead();
+  const read = useProjectionRoute();
   const [filter, setFilterState] = useState<PullFilter>(
     () =>
       (PULL_FILTERS.find(
@@ -182,10 +180,9 @@ function PullRequestInbox({
     setBusy(true);
     setError("");
     try {
-      const params = new URLSearchParams({ filter });
-      if (repo) params.set("repo", repo);
-      if (terms) params.set("q", terms);
-      const result = await read<PullInbox>(`/github/pulls?${params}`);
+      const result = await read(workspaceApi.githubPullList, {
+        query: { filter, repo: repo || undefined, q: terms || undefined },
+      });
       if (mine !== request.current) return;
       // Only a connected read is kept: connecting GitHub must show at once.
       lastInbox = result.connected ? { key, inbox: result } : undefined;
@@ -534,13 +531,18 @@ function FileList({
   const [error, setError] = useState("");
   useEffect(() => {
     let live = true;
-    api<PullFiles>(
-      `${pullPath(pullRef)}/files?head=${encodeURIComponent(headSha)}`,
+    const controller = new AbortController();
+    readRoute(
+      workspaceApi.githubPullFiles,
+      { params: pullRef, query: { head: headSha } },
+      executionSourceId(),
+      controller.signal,
     )
       .then((result) => live && setData(result))
       .catch((e) => live && setError(e.message));
     return () => {
       live = false;
+      controller.abort();
     };
   }, []);
   if (error)
@@ -655,7 +657,7 @@ function CommitChanges({
   commit,
 }: {
   pullRef: PullRequestRef;
-  commit: PullDetail["commitHistory"][number];
+  commit: NonNullable<PullDetail["commitHistory"]>[number];
 }) {
   const [data, setData] = useState<PullCommitFiles | null>(null);
   const [error, setError] = useState("");
@@ -663,7 +665,13 @@ function CommitChanges({
   useEffect(() => {
     let live = true;
     setError("");
-    api<PullCommitFiles>(`${pullPath(pullRef)}/commits/${commit.sha}/files`)
+    const controller = new AbortController();
+    readRoute(
+      workspaceApi.githubPullCommitFiles,
+      { params: { ...pullRef, sha: commit.sha } },
+      executionSourceId(),
+      controller.signal,
+    )
       .then((result) => {
         if (result.sha.toLowerCase() !== commit.sha.toLowerCase())
           throw new Error(
@@ -674,6 +682,7 @@ function CommitChanges({
       .catch((e) => live && setError(e.message));
     return () => {
       live = false;
+      controller.abort();
     };
   }, [attempt, pullRef.owner, pullRef.repo, pullRef.number, commit.sha]);
   if (error)
@@ -707,7 +716,7 @@ function CommitEntry({
   commit,
 }: {
   pullRef: PullRequestRef;
-  commit: PullDetail["commitHistory"][number];
+  commit: NonNullable<PullDetail["commitHistory"]>[number];
 }) {
   const [opened, setOpened] = useState(false);
   return (
@@ -758,7 +767,7 @@ function PullRequestDetail({
   onConnect: () => void;
   onAsk?: (text: string) => void;
 }) {
-  const read = useProjectionRead();
+  const read = useProjectionRoute();
   const [pr, setPr] = useState<PullDetail | null>(null);
   const [error, setError] = useState<{ message: string; status?: number }>();
   const [busy, setBusy] = useState(false);
@@ -771,7 +780,7 @@ function PullRequestDetail({
     setBusy(true);
     setError(undefined);
     try {
-      setPr(await read<PullDetail>(pullPath(pullRef)));
+      setPr(await read(workspaceApi.githubPullDetail, { params: pullRef }));
     } catch (e) {
       setError({
         message: (e as Error).message,
@@ -963,7 +972,7 @@ function PullRequestDetail({
             ],
             [
               "conversation",
-              `Conversation (${pr.conversationTotal + pr.threadsTotal + pr.reviewsTotal})`,
+              `Conversation (${pr.conversationTotal + pr.threadsTotal + (pr.reviewsTotal ?? pr.reviews.length)})`,
             ],
           ] as const
         ).map(([value, label]) => (
@@ -1051,9 +1060,9 @@ function PullRequestDetail({
       {page === "commits" && (
         <section className="pull-section">
           <h3>Commits</h3>
-          {(pr.commits ?? 0) > pr.commitHistory.length && (
+          {(pr.commits ?? 0) > (pr.commitHistory?.length ?? 0) && (
             <p className="pr-card-note">
-              Showing the latest {pr.commitHistory.length} of {pr.commits}{" "}
+              Showing the latest {pr.commitHistory?.length ?? 0} of {pr.commits}{" "}
               commits.{" "}
               <a
                 href={pr.url + "/commits"}
@@ -1065,8 +1074,8 @@ function PullRequestDetail({
               .
             </p>
           )}
-          {pr.commitHistory.length ? (
-            pr.commitHistory.map((commit) => (
+          {(pr.commitHistory?.length ?? 0) ? (
+            (pr.commitHistory ?? []).map((commit) => (
               <CommitEntry
                 key={`${commit.sha}:${pr.fetchedAt}`}
                 pullRef={pullRef}
@@ -1238,11 +1247,11 @@ function ReviewSheet({
         onSubmit={(e) => {
           e.preventDefault();
           void run(async () => {
-            await api(`${pullPath(pr)}/reviews`, {
-              event,
-              body,
-              headSha: pr.headSha,
-            });
+            await callRoute(
+              workspaceApi.githubPullReview,
+              { params: pr, body: { event, body, headSha: pr.headSha } },
+              executionSourceId(),
+            );
             return event === "approve"
               ? "You approved this pull request on GitHub."
               : event === "request_changes"
@@ -1328,7 +1337,11 @@ function CommentSheet({
         onSubmit={(e) => {
           e.preventDefault();
           void run(async () => {
-            await api(`${pullPath(pr)}/comments`, { body });
+            await callRoute(
+              workspaceApi.githubPullComment,
+              { params: pr, body: { body, headSha: pr.headSha } },
+              executionSourceId(),
+            );
             return "Your comment is on GitHub.";
           });
         }}
@@ -1468,10 +1481,11 @@ function MergeSheet({
           disabled={busy || blocked}
           onClick={() =>
             void run(async () => {
-              await api(`${pullPath(pr)}/merge`, {
-                method,
-                headSha: pr.headSha,
-              });
+              await callRoute(
+                workspaceApi.githubPullMerge,
+                { params: pr, body: { method: method!, headSha: pr.headSha } },
+                executionSourceId(),
+              );
               return `Merged into ${pr.baseRef}.`;
             })
           }

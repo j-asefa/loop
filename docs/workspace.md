@@ -173,7 +173,7 @@ With the official GitHub integration connected (`api.githubcopilot.com/mcp`), th
 From a pull request you can act as your GitHub account. Each action is one request you submit, and Loop never retries it:
 
 - **Review**: approve, request changes or comment. Loop rereads the head first and refuses if commits arrived since you opened the pull request.
-- **Comment**: posts to the conversation.
+- **Comment**: posts to the conversation after checking that its head still matches the commit you opened. New commits require a refresh first.
 - **Merge…**: shown with repository write access. It lists the target, head commit, checks, review state and anything GitHub reports as blocking, then merges with the method you choose, pinned to that head commit. If anything was pushed since, GitHub refuses and you refresh first.
 
 GitHub's own branch rules still apply to every merge. With more than one GitHub connection, these actions are refused rather than picking an account. **Ask an agent** starts a message with the pull request's link, after any draft you have, and sends nothing until you do. **Open in Pull requests** on a PR card in a thread opens that pull request here.

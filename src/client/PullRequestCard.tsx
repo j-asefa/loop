@@ -1,4 +1,9 @@
-import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import {
+  useSourceRoute,
+  useSourceId,
+  useProjectionRoute,
+} from "./SourceContext";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useState } from "react";
@@ -8,30 +13,16 @@ import { parse } from "./api";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { openPull } from "./PullRequests";
 
-export type Watch = {
-  id: string;
-  repo_owner: string;
-  repo_name: string;
-  number: number;
-  state: "watching" | "paused" | "stopped";
-  ended_reason: string | null;
-  error: string | null;
-  head_sha: string | null;
-  ci_sha: string | null;
-  ci_conclusion: string | null;
-  ci_pending: number;
-  read_at: number | null;
-  seen_ci_sha: string | null;
-  seen_ci_conclusion: string | null;
-  updated_at: number;
-};
+export type Watch = RouteResponse<
+  typeof workspaceApi.prWatchList
+>["watches"][number];
 const WATCH_CHANGE = "loop-pr-watch-change";
 
 // The thread's watches, kept current while a card shows them, with whether
 // the list is confirmed: an empty list while loading or after a failed
 // request is not "no watch".
 export function useWatchState(conversation: string | null | undefined) {
-  const read = useProjectionRead();
+  const read = useProjectionRoute();
   const sourceId = useSourceId();
   const [watches, setWatches] = useState<Watch[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "failed">(
@@ -43,9 +34,7 @@ export function useWatchState(conversation: string | null | undefined) {
       latest = 0;
     const load = () => {
       const request = ++latest;
-      return read<{ watches: Watch[] }>(
-        `/pr-watches?conversation=${encodeURIComponent(conversation)}`,
-      )
+      return read(workspaceApi.prWatchList, { query: { conversation } })
         .then((r) => {
           if (!live || request !== latest) return;
           setWatches(r.watches);
@@ -80,7 +69,7 @@ export function useWatches(conversation: string | null | undefined) {
  * the thread as follow-ups. It ends on merge or close.
  */
 function WatchControl({ watch }: { watch?: Watch }) {
-  const api = useSourceApi();
+  const call = useSourceRoute();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const act = async (work: () => Promise<unknown>) => {
@@ -96,7 +85,7 @@ function WatchControl({ watch }: { watch?: Watch }) {
     }
   };
   const stop = () =>
-    act(() => api(`/pr-watches/${watch!.id}`, undefined, "DELETE"));
+    act(() => call(workspaceApi.prWatchDelete, { params: { id: watch!.id } }));
   const active = watch && watch.state !== "stopped";
   if (!active && !watch) return null;
   return (
@@ -117,7 +106,14 @@ function WatchControl({ watch }: { watch?: Watch }) {
           <button
             className="text-button"
             disabled={busy}
-            onClick={() => act(() => api(`/pr-watches/${watch.id}/resume`, {}))}
+            onClick={() =>
+              act(() =>
+                call(workspaceApi.prWatchResume, {
+                  params: { id: watch.id },
+                  body: {},
+                }),
+              )
+            }
           >
             Resume
           </button>

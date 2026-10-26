@@ -932,10 +932,13 @@ it("posts a review only on the head commit you were shown", async () => {
 });
 
 it("posts a comment", async () => {
-  expect((await api(PR + "/comments", "POST", { body: "  " })).status).toBe(
-    400,
-  );
-  const posted = await api(PR + "/comments", "POST", { body: "Thanks!" });
+  expect(
+    (await api(PR + "/comments", "POST", { body: "  ", headSha: HEAD })).status,
+  ).toBe(400);
+  const posted = await api(PR + "/comments", "POST", {
+    body: "Thanks!",
+    headSha: HEAD,
+  });
   expect(posted.status).toBe(201);
   expect(github.writes).toEqual([
     {
@@ -978,9 +981,9 @@ it("never answers with a 401 when GitHub rejects the connection, and waits out r
   const rejected = await api(PR);
   expect(rejected.status).toBe(409);
   expect(rejected.data.error).toMatch(/Reconnect GitHub/);
-  expect((await api(PR + "/comments", "POST", { body: "hi" })).status).toBe(
-    409,
-  );
+  expect(
+    (await api(PR + "/comments", "POST", { body: "hi", headSha: HEAD })).status,
+  ).toBe(409);
   github.status = 403;
   github.headers = {
     "x-ratelimit-remaining": "0",
@@ -994,7 +997,10 @@ it("never answers with a 401 when GitHub rejects the connection, and waits out r
 it("acts as one GitHub account only: two connections block writes, not reads", async () => {
   connectGithub("alice", "gh-second");
   expect((await api(PR)).status).toBe(200);
-  const refused = await api(PR + "/comments", "POST", { body: "hi" });
+  const refused = await api(PR + "/comments", "POST", {
+    body: "hi",
+    headSha: HEAD,
+  });
   expect(refused.status).toBe(409);
   expect(refused.data.error).toMatch(/More than one GitHub account/);
   expect(github.writes).toEqual([]);

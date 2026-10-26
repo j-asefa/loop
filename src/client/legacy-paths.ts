@@ -17,14 +17,6 @@ type Path =
   | `/capabilities`
   | `/conversations/${string}/memory`
   | `/events`
-  | `/github/pulls`
-  | `/github/pulls/${string}/${string}/${string}`
-  | `/github/pulls/${string}/${string}/${string}/comments`
-  | `/github/pulls/${string}/${string}/${string}/commits/${string}/files`
-  | `/github/pulls/${string}/${string}/${string}/file`
-  | `/github/pulls/${string}/${string}/${string}/files`
-  | `/github/pulls/${string}/${string}/${string}/merge`
-  | `/github/pulls/${string}/${string}/${string}/reviews`
   | `/mcp`
   | `/mcp-sharing`
   | `/mcp/${string}`
@@ -41,9 +33,6 @@ type Path =
   | `/memory/notes/${string}`
   | `/memory/policy`
   | `/memory/sources/${string}`
-  | `/pr-watches`
-  | `/pr-watches/${string}`
-  | `/pr-watches/${string}/resume`
   | `/results/${string}`
   | `/routing/preview`
   | `/runs/${string}/activities`

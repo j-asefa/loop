@@ -336,6 +336,7 @@ export async function fakeGithub() {
           patch:
             "@@ -1,2 +1,4 @@\n # Public API\n+\n+Rate limits live in [the limiter](src/limiter.ts).",
         },
+        ...(state.extraFiles || []),
       ]);
     const file = path.match(/^\/repos\/acme\/api\/contents\/(.+)$/);
     if (file && req.method === "GET") {
@@ -395,6 +396,7 @@ export async function fakeGithub() {
         commitMessage: undefined,
         summaryError: false,
         summaryDecision: undefined,
+        extraFiles: [],
       });
     },
     close: () => new Promise((resolve) => server.close(resolve)),

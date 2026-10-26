@@ -275,6 +275,71 @@ try {
         .toBe(1);
       await sheet().getByRole("button", { name: "Close", exact: true }).click();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
+      // Git allows names the file-serving boundary cannot accept. They still
+      // pass through the production file-list projection; opening one must
+      // leave the view usable instead of throwing during client validation.
+      const unsupportedPaths = [
+        "assets/a\\b.png",
+        "src/a\\b.ts",
+        "docs/a\\b.mp4",
+      ];
+      github.state.extraFiles = unsupportedPaths.map((filename) => ({
+        filename,
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+      }));
+      const unsupportedRequests = [];
+      const observeFile = (request) => {
+        const url = new URL(request.url());
+        if (
+          url.pathname === "/api/github/pulls/acme/api/64/file" &&
+          unsupportedPaths.includes(url.searchParams.get("path"))
+        )
+          unsupportedRequests.push(url.href);
+      };
+      page.on("request", observeFile);
+      try {
+        await page
+          .getByRole("button", { name: "Refresh", exact: true })
+          .click();
+        await expect(page.locator(".pull-file")).toHaveCount(7);
+        for (const path of unsupportedPaths) {
+          await page
+            .locator(".pull-file")
+            .filter({ hasText: path })
+            .getByRole("button", { name: "View file" })
+            .click();
+          await expect(sheet()).toContainText("This file can’t be shown here.");
+          await expect(
+            sheet().getByRole("link", { name: "Open it on GitHub" }),
+          ).toHaveAttribute(
+            "href",
+            `https://github.com/acme/api/blob/${FIRST_HEAD}/${path.split("/").map(encodeURIComponent).join("/")}`,
+          );
+          await expect(sheet().locator("img, video")).toHaveCount(0);
+          await capture("unsupported-" + path.split(".").at(-1));
+          await sheet()
+            .getByRole("button", { name: "Close", exact: true })
+            .click();
+          await expect(page.locator(".pull-detail-head h2")).toBeVisible();
+        }
+        assert.deepEqual(
+          unsupportedRequests,
+          [],
+          "Unsupported files are not fetched",
+        );
+        assert.deepEqual(
+          errors,
+          [],
+          "Unsupported names do not crash the preview",
+        );
+      } finally {
+        page.off("request", observeFile);
+        github.state.extraFiles = [];
+      }
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(page.locator(".pull-file")).toHaveCount(4);
       // A push while Files is open: Refresh shows the new head's diff, never
       // the old one under the new head, and a review is on the new head.
       github.state.head = MOVED;
@@ -333,6 +398,13 @@ try {
       ).toBeVisible();
       await expect(commit.getByRole("alert")).toContainText(
         "Commit changes unavailable",
+        // Typed reads recover after two and four seconds before surfacing 5xx.
+        { timeout: 10000 },
+      );
+      assert.equal(
+        github.state.commitReads,
+        3,
+        "GET recovery is bounded to two retries",
       );
       github.state.commitError = false;
       await commit.getByRole("button", { name: "Try again" }).click();
@@ -356,7 +428,7 @@ try {
       ).toBeVisible();
       assert.equal(
         github.state.commitReads,
-        2,
+        4,
         "Reopening reuses the loaded diff",
       );
       await expect(
@@ -384,7 +456,7 @@ try {
       ).toBeVisible();
       assert.equal(
         github.state.commitReads,
-        3,
+        5,
         "Refresh discards the previous loaded diff",
       );
       await page.getByRole("button", { name: /^Conversation/ }).click();
@@ -408,6 +480,144 @@ try {
           .getByText("Outside the repository"),
       ).toBeVisible();
       await capture("conversation");
+
+      // Older linked sources omit fields added after their version. Remove
+      // them from the actual HTTP projection and remount the detail reader so
+      // cached current data cannot disguise a rejected response.
+      const detailRoute = (url) =>
+        url.pathname === "/api/github/pulls/acme/api/64";
+      let olderPull;
+      const olderDetail = async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        assert(Array.isArray(body.commitHistory));
+        assert.equal(typeof body.reviewsTotal, "number");
+        assert.equal(typeof body.reviewsOmitted, "boolean");
+        delete body.commitHistory;
+        delete body.reviewsTotal;
+        delete body.reviewsOmitted;
+        olderPull = body;
+        await route.fulfill({ response, json: body });
+      };
+      await page.route(detailRoute, olderDetail);
+      try {
+        await page.goto(fixture.base + "/?page=pulls&pull=acme/api/64");
+        await expect(page.locator(".pull-detail-head h2")).toHaveText(
+          "Add rate limiting to public API endpoints",
+        );
+        assert(
+          olderPull,
+          "The older projection passed through the production reader",
+        );
+        const count =
+          olderPull.conversationTotal +
+          olderPull.threadsTotal +
+          olderPull.reviews.length;
+        await page
+          .getByRole("button", { name: `Conversation (${count})`, exact: true })
+          .click();
+        await expect(
+          page.getByText("Review comment from the PR author."),
+        ).toBeVisible();
+        await expect(
+          page.getByText("Needs a test for the 429 path."),
+        ).toBeVisible();
+        await page
+          .getByRole("button", { name: "Commits (4)", exact: true })
+          .click();
+        await expect(
+          page.getByText("No commits shown.", { exact: true }),
+        ).toBeVisible();
+        await expect(page.locator(".pull-commit-title")).toHaveCount(0);
+        await expect(
+          page.getByRole("link", {
+            name: "Read them all on GitHub",
+            exact: true,
+          }),
+        ).toBeVisible();
+        await capture("older-source");
+      } finally {
+        await page.unroute(detailRoute, olderDetail);
+      }
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(page.locator(".pull-commit-title")).toHaveText(
+        "Commit with no body",
+      );
+      await page.getByRole("button", { name: /^Conversation/ }).click();
+
+      // Comments carry the displayed head too. A stale attempt sends no
+      // GitHub write; refreshing allows exactly one deliberate new attempt.
+      const commentRequests = [];
+      const observeComment = (request) => {
+        if (
+          new URL(request.url()).pathname ===
+            "/api/github/pulls/acme/api/64/comments" &&
+          request.method() === "POST"
+        )
+          commentRequests.push(request.postDataJSON());
+      };
+      page.on("request", observeComment);
+      const beforeComment = github.state.writes.length;
+      try {
+        await page
+          .getByRole("group", { name: "Act on this pull request" })
+          .getByRole("button", { name: "Comment", exact: true })
+          .click();
+        await sheet()
+          .getByLabel("Comment", { exact: true })
+          .fill("Comment from the displayed head.");
+        github.state.head = MOVED;
+        await sheet()
+          .getByRole("button", { name: "Post comment", exact: true })
+          .click();
+        await expect(sheet().getByRole("alert")).toContainText(
+          "New commits were pushed",
+        );
+        assert.equal(github.state.writes.length, beforeComment);
+        assert.deepEqual(commentRequests, [
+          { body: "Comment from the displayed head.", headSha: FIRST_HEAD },
+        ]);
+        await sheet()
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Refresh", exact: true })
+          .click();
+        await expect(
+          page.locator(`.pull-detail-head code[title="${MOVED}"]`),
+        ).toBeVisible();
+        await page
+          .getByRole("group", { name: "Act on this pull request" })
+          .getByRole("button", { name: "Comment", exact: true })
+          .click();
+        await sheet()
+          .getByLabel("Comment", { exact: true })
+          .fill("Checked the new head.");
+        await sheet()
+          .getByRole("button", { name: "Post comment", exact: true })
+          .click();
+        await expect(
+          page.getByText("Your comment is on GitHub.", { exact: true }),
+        ).toBeVisible();
+        assert.equal(github.state.writes.length, beforeComment + 1);
+        assert.deepEqual(github.state.writes.at(-1), {
+          method: "POST",
+          path: "/repos/acme/api/issues/64/comments",
+          body: { body: "Checked the new head." },
+        });
+        assert.deepEqual(commentRequests, [
+          { body: "Comment from the displayed head.", headSha: FIRST_HEAD },
+          { body: "Checked the new head.", headSha: MOVED },
+        ]);
+        await capture("pinned-comment");
+      } finally {
+        page.off("request", observeComment);
+        github.state.head = FIRST_HEAD;
+      }
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(
+        page.locator(`.pull-detail-head code[title="${FIRST_HEAD}"]`),
+      ).toBeVisible();
 
       await page.getByRole("button", { name: "Review", exact: true }).click();
       await sheet()

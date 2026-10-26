@@ -6,6 +6,7 @@ import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
 import * as teams from "./team-contract-schemas.js";
 import * as social from "./social-contract-schemas.js";
+import * as github from "./github-contract-schemas.js";
 import { PublicMailThreads, PublicMailResume } from "./agent-mail.js";
 import * as companion from "./companion-contract-schemas.js";
 import { ProviderSchema as Provider } from "./provider-schema.js";
@@ -154,6 +155,18 @@ export type RouteContract = {
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  prWatchList: endpoint({ ...base, method: "GET", path: "/pr-watches", query: z.object({ conversation: Text.max(150).optional() }), response: z.object({ watches: z.array(github.PublicPrWatch) }) }),
+  prWatchCreate: endpoint({ ...base, method: "POST", path: "/pr-watches", body: github.PrWatchInput, response: github.PublicCreatedPrWatch, status: 201 }),
+  prWatchResume: endpoint({ ...base, method: "POST", path: "/pr-watches/:id/resume", params: Id, body: z.unknown(), response: Ok }),
+  prWatchDelete: endpoint({ ...base, method: "DELETE", path: "/pr-watches/:id", params: Id, body: z.unknown(), response: Ok }),
+  githubPullList: endpoint({ ...base, method: "GET", path: "/github/pulls", query: github.PullQuery, response: github.PublicPullInbox }),
+  githubPullDetail: endpoint({ ...base, method: "GET", path: "/github/pulls/:owner/:repo/:number", params: github.PullParams, response: github.PublicPullDetail }),
+  githubPullFiles: endpoint({ ...base, method: "GET", path: "/github/pulls/:owner/:repo/:number/files", params: github.PullParams, query: z.object({ head: github.CommitSha }), response: github.PublicPullFiles }),
+  githubPullCommitFiles: endpoint({ ...base, method: "GET", path: "/github/pulls/:owner/:repo/:number/commits/:sha/files", params: github.PullParams.extend({ sha: github.CommitSha }), response: github.PublicCommitFiles }),
+  githubPullFile: endpoint({ ...base, method: "GET", path: "/github/pulls/:owner/:repo/:number/file", params: github.PullParams, query: github.PullFileQuery, kind: "stream", response: z.custom<Blob>() }),
+  githubPullReview: endpoint({ ...base, method: "POST", path: "/github/pulls/:owner/:repo/:number/reviews", params: github.PullParams, body: github.PullReviewInput, response: Ok.extend({ url: Text.optional() }), status: 201 }),
+  githubPullComment: endpoint({ ...base, method: "POST", path: "/github/pulls/:owner/:repo/:number/comments", params: github.PullParams, body: github.PullCommentInput, response: Ok.extend({ url: Text.optional() }), status: 201 }),
+  githubPullMerge: endpoint({ ...base, method: "POST", path: "/github/pulls/:owner/:repo/:number/merge", params: github.PullParams, body: github.PullMergeInput, response: z.object({ merged: z.boolean(), sha: Text.optional() }) }),
   socialUnread: endpoint({ ...base, method: "GET", path: "/social/unread", response: z.object({ unread: z.number() }) }),
   socialList: endpoint({ ...base, method: "GET", path: "/social", query: social.SocialQuery, response: social.PublicSocial }),
   socialSearch: endpoint({ ...base, method: "GET", path: "/social/search", query: social.SocialSearchQuery, response: z.object({ stories: z.array(social.PublicSocialStory) }) }),

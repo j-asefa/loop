@@ -1,6 +1,16 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { workspaceApi, CardErrorSchema } from "../src/shared/workspace-api.ts";
+import {
+  workspaceApi,
+  CardErrorSchema,
+  PublicAgent,
+  PublicConnection,
+  PublicFolder,
+  PublicTeam,
+  PublicMessage,
+  PublicArtifact,
+  PublicRun,
+} from "../src/shared/workspace-api.ts";
 import {
   PublicRuntimeAuth,
   PublicUpgradeView,
@@ -13,6 +23,13 @@ import {
   CardEntrySchema,
 } from "../src/shared/cards.ts";
 import { CardTokenSchema } from "../src/shared/card-access.ts";
+import {
+  PublicSocialStory,
+  PublicFeedEntry,
+  PublicPreferences,
+  PublicWatch,
+  PublicDigest,
+} from "../src/shared/social-contract-schemas.ts";
 // Request schemas describe accepted input (including transforms); responses
 // describe projected output. Both are populated only from workspaceApi.
 const registry = z.registry(),
@@ -36,7 +53,30 @@ const jsonOptions = {
   unrepresentable: ({ zodSchema }) =>
     zodSchema instanceof z.ZodUndefined ? { not: {} } : "throw",
 };
+// Reuse the actual public projections instead of copying them into every
+// endpoint. Stable per-route response names remain references to these schemas.
+const publicProjections = {
+  PublicAgent,
+  PublicConnection,
+  PublicFolder,
+  PublicTeam,
+  PublicMessage,
+  PublicArtifact,
+  PublicRun,
+  PublicSocialStory,
+  PublicFeedEntry,
+  PublicPreferences,
+  PublicWatch,
+  PublicDigest,
+};
+const publicResponses = new Set([
+  ...Object.values(publicProjections),
+  PublicRuntimeAuth,
+  PublicUpgradeView,
+  ActivityRecordSchema,
+]);
 for (const [id, schema] of Object.entries({
+  ...publicProjections,
   ResultCard: ResultCardSchema,
   MessageCard: MessageCardSchema,
   Card: CardSchema,
@@ -58,7 +98,9 @@ for (const [name, route] of Object.entries(workspaceApi)) {
       ? z.string().meta({ format: "binary" })
       : cardNames[name]
         ? route.response
-        : route.response.clone(),
+        : publicResponses.has(route.response)
+          ? z.lazy(() => route.response)
+          : route.response.clone(),
     { id: prefix + "Response" },
   );
   inputs.add(route.params.clone(), { id: prefix + "Params" });

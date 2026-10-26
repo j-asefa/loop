@@ -1,6 +1,11 @@
+import { workspaceApi } from "../shared/workspace-api.js";
+import {
+  PullReviewInput,
+  PullCommentInput,
+  PullMergeInput,
+} from "../shared/github-contract-schemas.js";
 import { registrar } from "./registrar.js";
 import { type Response } from "express";
-import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdirSync,
@@ -31,7 +36,6 @@ import {
   type PullRequestState,
 } from "../shared/github.js";
 import {
-  MAX_REVIEW_BODY,
   isRepoPath,
   repoMediaType,
   type ChecksState,
@@ -54,7 +58,6 @@ import type { ConversationPull } from "../shared/conversation-pulls.js";
 // submitted, pinned to the head commit you were shown. Nothing read here is
 // passed to an agent.
 
-const NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/;
 const SHA = /^[0-9a-f]{40}$/i;
 const BODY_CHARS = 60_000;
 const COMMENT_CHARS = 20_000;
@@ -62,15 +65,6 @@ const COMMIT_MESSAGE_CHARS = 4_000;
 const PATCH_CHARS = 100_000;
 const MAX_FILES = 300;
 const MAX_THREADS = 500;
-
-const repoName = z
-  .string()
-  .regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/, "Use owner/repository");
-const refParams = z.object({
-  owner: z.string().regex(NAME, "Unknown repository owner").max(39),
-  repo: z.string().regex(NAME, "Unknown repository").max(100),
-  number: z.coerce.number().int().positive().max(999_999_999),
-});
 
 const reading = (owner: string) => githubTokens(owner)[0];
 // Writes act as one GitHub identity: with several GitHub connections Loop
@@ -919,13 +913,7 @@ export async function review(
   ref: PullRequestRef,
   body: unknown,
 ) {
-  const input = z
-    .object({
-      event: z.enum(["approve", "request_changes", "comment"]),
-      body: z.string().max(MAX_REVIEW_BODY).default(""),
-      headSha: z.string().regex(SHA, "Refresh the pull request first"),
-    })
-    .parse(body);
+  const input = PullReviewInput.parse(body);
   if (input.event !== "approve" && !input.body.trim())
     throw new Problem(
       400,
@@ -955,17 +943,14 @@ export async function addComment(
   ref: PullRequestRef,
   body: unknown,
 ) {
-  const input = z
-    .object({
-      body: z
-        .string()
-        .trim()
-        .min(1, "Write a comment first.")
-        .max(MAX_REVIEW_BODY),
-    })
-    .parse(body);
+  const input = PullCommentInput.parse(body);
   const token = writing(owner);
   try {
+    if ((await headOf(token, ref)) !== input.headSha.toLowerCase())
+      throw new Problem(
+        409,
+        "New commits were pushed after you opened this pull request. Refresh and look at them first.",
+      );
     const { data } = await githubRest<any>(
       token,
       `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/issues/${ref.number}/comments`,
@@ -982,12 +967,7 @@ export async function addComment(
  * the branch moved, so new commits always need a fresh look.
  */
 export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
-  const input = z
-    .object({
-      method: z.enum(["merge", "squash", "rebase"]),
-      headSha: z.string().regex(SHA, "Refresh the pull request first"),
-    })
-    .parse(body);
+  const input = PullMergeInput.parse(body);
   const token = writing(owner);
   try {
     const { data } = await githubRest<any>(token, pullPath(ref) + "/merge", {
@@ -1015,78 +995,39 @@ export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
 
 const routes = registrar("githubPulls");
 export const githubPulls = routes.mount;
-const refOf = (params: unknown): PullRequestRef => refParams.parse(params);
-
-routes.legacy("GET /github/pulls", async (req, res) => {
-  const query = z
-    .object({
-      filter: z.enum(["review", "authored", "involved"]).optional(),
-      repo: repoName.optional().or(z.literal("").transform(() => undefined)),
-      q: z.string().max(200).optional(),
-    })
-    .parse(req.query);
+routes.on(workspaceApi.githubPullList, async (req, res) => {
   res.json(
     await inbox(res.locals.owner, {
-      filter: query.filter,
-      repo: query.repo,
-      text: query.q,
+      filter: req.query.filter,
+      repo: req.query.repo,
+      text: req.query.q,
     }),
   );
 });
-routes.legacy("GET /github/pulls/:owner/:repo/:number", async (req, res) =>
-  res.json(await detail(res.locals.owner, refOf(req.params))),
+routes.on(workspaceApi.githubPullDetail, async (req, res) =>
+  res.json(await detail(res.locals.owner, req.params)),
 );
-routes.legacy(
-  "GET /github/pulls/:owner/:repo/:number/files",
-  async (req, res) => {
-    const { head } = z
-      .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
-      .parse(req.query);
-    res.json(await files(res.locals.owner, refOf(req.params), head));
-  },
+routes.on(workspaceApi.githubPullFiles, async (req, res) =>
+  res.json(await files(res.locals.owner, req.params, req.query.head)),
 );
-routes.legacy(
-  "GET /github/pulls/:owner/:repo/:number/commits/:sha/files",
-  async (req, res) => {
-    const sha = z
-      .string()
-      .regex(SHA, "Choose a full commit SHA")
-      .parse(req.params.sha);
-    res.json(await commitFiles(res.locals.owner, refOf(req.params), sha));
-  },
+routes.on(workspaceApi.githubPullCommitFiles, async (req, res) =>
+  res.json(await commitFiles(res.locals.owner, req.params, req.params.sha)),
 );
-routes.legacy(
-  "GET /github/pulls/:owner/:repo/:number/file",
-  async (req, res) => {
-    const { head, path } = z
-      .object({
-        head: z.string().regex(SHA, "Refresh the pull request first"),
-        path: z.string().refine(isRepoPath, "Choose a file in the repository"),
-      })
-      .parse(req.query);
-    sendViewed(
-      res,
-      await fileAt(res.locals.owner, refOf(req.params), head, path),
-      path,
-    );
-  },
+routes.on(workspaceApi.githubPullFile, async (req, res) => {
+  sendViewed(
+    res,
+    await fileAt(res.locals.owner, req.params, req.query.head, req.query.path),
+    req.query.path,
+  );
+});
+routes.on(workspaceApi.githubPullReview, async (req, res) =>
+  res.status(201).json(await review(res.locals.owner, req.params, req.body)),
 );
-routes.legacy(
-  "POST /github/pulls/:owner/:repo/:number/reviews",
-  async (req, res) =>
-    res
-      .status(201)
-      .json(await review(res.locals.owner, refOf(req.params), req.body)),
+routes.on(workspaceApi.githubPullComment, async (req, res) =>
+  res
+    .status(201)
+    .json(await addComment(res.locals.owner, req.params, req.body)),
 );
-routes.legacy(
-  "POST /github/pulls/:owner/:repo/:number/comments",
-  async (req, res) =>
-    res
-      .status(201)
-      .json(await addComment(res.locals.owner, refOf(req.params), req.body)),
-);
-routes.legacy(
-  "POST /github/pulls/:owner/:repo/:number/merge",
-  async (req, res) =>
-    res.json(await merge(res.locals.owner, refOf(req.params), req.body)),
+routes.on(workspaceApi.githubPullMerge, async (req, res) =>
+  res.json(await merge(res.locals.owner, req.params, req.body)),
 );

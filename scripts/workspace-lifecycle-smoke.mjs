@@ -460,6 +460,30 @@ for (const engine of selectedEngines()) {
           Date.now(),
           Date.now(),
         );
+      const watchRoute = (url) => url.pathname === "/api/pr-watches";
+      let olderWatchReads = 0;
+      const olderWatch = async (route) => {
+        if (route.request().method() !== "GET") return route.continue();
+        const response = await route.fetch();
+        const body = await response.json();
+        for (const watch of body.watches) {
+          for (const field of [
+            "ci_pending",
+            "read_at",
+            "seen_ci_sha",
+            "seen_ci_conclusion",
+          ]) {
+            assert(
+              Object.hasOwn(watch, field),
+              "Current production response includes " + field,
+            );
+            delete watch[field];
+          }
+          olderWatchReads++;
+        }
+        await route.fulfill({ response, json: body });
+      };
+      await page.route(watchRoute, olderWatch);
       await page.goto(fixture.base + "/?artifact=" + prCard);
       const watch = page.getByRole("group", { name: "Watch pull request" });
       await expect(watch).toContainText("Watching. CI results, reviews");
@@ -482,6 +506,11 @@ for (const engine of selectedEngines()) {
         "Stopped watching: You stopped watching.",
       );
       await expect(watch.getByRole("button")).toHaveCount(0);
+      assert(
+        olderWatchReads > 0,
+        "Older watch projections remain readable through the production client",
+      );
+      await page.unroute(watchRoute, olderWatch);
     }
     await page.goto(fixture.base);
     await accountMenu("Notifications");
