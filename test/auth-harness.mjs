@@ -173,21 +173,40 @@ if (process.argv.includes("--version")) {
     process.env.GEMINI_CLI_TRUST_WORKSPACE !== "true"
   )
     process.exit(1);
-  if (process.env.LOOP_TEST_GEMINI_CACHED) {
+  const failure =
+    process.env.LOOP_TEST_GEMINI_AUTH_FAILURE ||
+    (existsSync(path + "/gemini-auth-failure")
+      ? readFileSync(path + "/gemini-auth-failure", "utf8")
+      : undefined);
+  const failureMessage = failure?.startsWith("retired")
+    ? "This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google fixture-private-provider-detail"
+    : "Unknown provider rejection: fixture-private-token";
+  const reply = (message) => {
+    if (message.method === "authenticate") {
+      if (message.params.methodId !== "oauth-personal") process.exit(1);
+      audit("authenticate");
+    }
+    process.stdout.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: message.id,
+        ...(failure && message.method === "authenticate"
+          ? { error: { code: -32000, message: failureMessage } }
+          : { result: {} }),
+      }) + "\n",
+    );
+  };
+  if (process.env.LOOP_TEST_GEMINI_CACHED || existsSync(credential)) {
     // Cached credentials: no sign-in screen, straight to ACP.
     createInterface({ input: process.stdin }).on("line", (line) => {
-      const message = JSON.parse(line);
-      if (message.method === "authenticate") audit("authenticate");
-      process.stdout.write(
-        JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} }) + "\n",
-      );
+      reply(JSON.parse(line));
     });
   } else {
     const ask = () =>
       process.stdout.write(
         "\x1b[?1049hPlease visit the following URL to authorize the application:\n\n" +
           (process.env.LOOP_TEST_GEMINI_URL ||
-            "https://accounts.google.com/o/oauth2/v2/auth?state=fixture") +
+            `https://accounts.google.com/o/oauth2/v2/auth?state=fixture-${process.pid}`) +
           "\n\n\x1b[1G\x1b[0JEnter the authorization code: ",
       );
     // A slow start opens the sign-in screen late.
@@ -203,16 +222,22 @@ if (process.argv.includes("--version")) {
         }
         authorized = true;
         save("oauth");
+        if (failure === "retired-stderr") {
+          process.stderr.write(
+            "Failed to authenticate: This client is no longer supported for Gemini ",
+          );
+          setTimeout(
+            () =>
+              process.stderr.write(
+                "Code Assist for individuals. fixture-private-provider-detail\n",
+              ),
+            20,
+          );
+          return;
+        }
         return process.stdout.write("\x1b[?1049l");
       }
-      const message = JSON.parse(line);
-      if (message.method === "authenticate") {
-        if (message.params.methodId !== "oauth-personal") process.exit(1);
-        audit("authenticate");
-      }
-      process.stdout.write(
-        JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} }) + "\n",
-      );
+      reply(JSON.parse(line));
     });
   }
 } else if (kind === "opencode" && process.argv[2] === "serve") {

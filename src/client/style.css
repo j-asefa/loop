@@ -9292,6 +9292,11 @@ input.settings-switch:disabled {
   padding: 4px 8px;
   border-radius: 20px;
 }
+.settings-status.connected {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
+}
 .provider-mark {
   width: 36px;
   height: 36px;

@@ -14,7 +14,14 @@ import type {
   AuthInteraction,
   AuthOptions,
 } from "../server/native-auth.js";
-import type { AuthProvider } from "../shared/native-auth.js";
+import type { AuthProvider, SignInFailureCode } from "../shared/native-auth.js";
+
+// Only classified failures cross the browser boundary, never provider output.
+export class AuthFailure extends Error {
+  constructor(readonly code: SignInFailureCode) {
+    super(code);
+  }
+}
 
 async function stop(child?: ChildProcess) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null)
@@ -518,6 +525,7 @@ function geminiDriver(options: AuthOptions): AuthDriver {
         await new Promise<void>((resolve, reject) => {
           let output = "",
             late = "",
+            diagnostics = "",
             assumed = false,
             phase: "link" | "code" | "exchange" | "acp" = "link";
           // Cached Google credentials skip the code exchange: Gemini never
@@ -536,10 +544,18 @@ function geminiDriver(options: AuthOptions): AuthDriver {
             reject(new Error("Sign-in cancelled"));
           };
           io.signal.addEventListener("abort", abort, { once: true });
+          const retiredGoogleSignIn = (message: string) =>
+            /This client is no longer supported for Gemini Code Assist for individuals/i.test(
+              message,
+            );
           const fail = (message: string) => {
             clearTimeout(cached);
             void stop(process);
-            reject(new Error(message));
+            reject(
+              retiredGoogleSignIn(message)
+                ? new AuthFailure("gemini_google_sign_in_retired")
+                : new Error("Sign-in failed"),
+            );
           };
           const send = (id: number, method: string, params: unknown) =>
             process.stdin!.write(
@@ -629,7 +645,12 @@ function geminiDriver(options: AuthOptions): AuthDriver {
                 } catch {
                   return fail("Unsupported sign-in response");
                 }
-                if (message.error) return fail("Sign-in failed");
+                if (message.error)
+                  return fail(
+                    typeof message.error.message === "string"
+                      ? message.error.message
+                      : "Sign-in failed",
+                  );
                 if (message.id === 1)
                   send(2, "authenticate", { methodId: "oauth-personal" });
                 if (message.id === 2) {
@@ -643,11 +664,14 @@ function geminiDriver(options: AuthOptions): AuthDriver {
           // the attempt rather than relaying a second authorization URL. (A
           // late sign-in screen's rejection of Loop's frame is expected.)
           process.stderr!.on("data", (chunk: Buffer) => {
+            if (io.signal.aborted) return;
+            diagnostics = (diagnostics + chunk.toString()).slice(-20000);
             if (
-              phase === "exchange" &&
-              /Failed to authenticate/.test(chunk.toString())
+              retiredGoogleSignIn(diagnostics) ||
+              (phase === "exchange" &&
+                /Failed to authenticate[^\r\n]*[\r\n]/.test(diagnostics))
             )
-              fail("Sign-in failed");
+              fail(diagnostics);
           });
           process.stdin!.on("error", () => {});
           process.once("error", () => {

@@ -373,7 +373,11 @@ export function RuntimeSetup({
                         : "Choose billing during setup"}
                   </small>
                 </div>
-                <span className="settings-status">{state}</span>
+                <span
+                  className={`settings-status${state === "Enabled in Loop" ? " connected" : ""}`}
+                >
+                  {state}
+                </span>
               </div>
               <button
                 type="button"

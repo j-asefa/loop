@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { signInFailureCodes } from "./native-auth.js";
 import { Harness } from "../protocol.js";
 import { SessionControls as Controls, SessionCapabilities as Capabilities } from "./session-controls.js";
 
@@ -118,6 +119,7 @@ const SignIn = z.strictObject({
         "expired",
       ]),
       expiresAt: z.number(),
+      failureCode: z.enum(signInFailureCodes).optional(),
       url: z.string().optional(),
       code: z.string().optional(),
       instructions: z.string().optional(),

@@ -6,7 +6,7 @@ import type {
   NativeAuthView,
   SignIn,
 } from "../shared/native-auth.js";
-import { createAuthDriver } from "../native-auth/drivers.js";
+import { AuthFailure, createAuthDriver } from "../native-auth/drivers.js";
 import { Problem } from "../shared/problem.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 
@@ -334,8 +334,10 @@ export class NativeSignIns {
           if (providerInfo) providerInfo.configured = true;
           this.end(session, "complete");
         },
-        () => {
-          if (live()) this.end(session, "failed");
+        (error) => {
+          if (!live()) return;
+          if (error instanceof AuthFailure) attempt.failureCode = error.code;
+          this.end(session, "failed");
         },
       );
     return this.view(session);

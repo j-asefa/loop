@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { CircleCheck } from "lucide-react";
+import { signInFailureMessages } from "../shared/native-auth";
 import { api } from "./api";
 import {
   workspaceApi,
@@ -548,8 +549,23 @@ function RuntimeSignInSession({
         ["failed", "cancelled", "expired"].includes(attempt.state) && (
           <p role="status">
             {attempt.state === "failed"
-              ? "Sign-in did not complete. Check the provider’s response and try again."
+              ? attempt.failureCode
+                ? signInFailureMessages[attempt.failureCode]
+                : "Sign-in did not complete. Check the provider’s response and try again."
               : `Sign-in ${attempt.state}. You can start again.`}
+            {attempt.state === "failed" &&
+              attempt.failureCode === "gemini_google_sign_in_retired" && (
+                <>
+                  {" "}
+                  <a
+                    href="https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Read Google’s migration guidance
+                  </a>
+                </>
+              )}
           </p>
         )}
       {!waiting && !complete && (

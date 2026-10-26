@@ -221,6 +221,21 @@ test("paired provider authentication protects credentials, checks project owners
       await readFile(join(dir, "auth-audit"), "utf8"),
       /gemini:authenticate/,
     );
+    await writeFile(join(dir, "gemini-auth-failure"), "retired");
+    try {
+      await api(gemini + "/start", {
+        projectId, provider: "google", method: "oauth", commandId: randomUUID(),
+      });
+      await until(async () => (await api(gemini + "/status")).attempt?.state === "failed", 25000);
+      const rejected = await api(gemini + "/status");
+      assert.equal(rejected.attempt.failureCode, "gemini_google_sign_in_retired");
+      assert.equal(rejected.attempt.url, undefined);
+      assert.equal(rejected.attempt.prompt, undefined);
+      assert.doesNotMatch(JSON.stringify(rejected), /fixture-private|fixture-token|fixture-code/);
+      assert.equal((await request(gemini + "/status", undefined, false)).status, 401);
+    } finally {
+      await rm(join(dir, "gemini-auth-failure"));
+    }
     const muse = "/workspace/runtimes/muse/auth";
     await api(muse + "/start", {
       projectId,
