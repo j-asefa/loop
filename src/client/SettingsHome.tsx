@@ -94,7 +94,13 @@ export function SettingsHome({
               "Shared tools for your agents",
               Plug,
             )}
-            {capabilities.cardTokens === true && row("card-tokens", "Card API tokens", "Read-only access for scripts", KeyRound)}
+            {capabilities.cardTokens === true &&
+              row(
+                "card-tokens",
+                "Card API tokens",
+                "Read-only access for scripts",
+                KeyRound,
+              )}
             {capabilities.runtimeHosts &&
               row(
                 "runtime-hosts",

@@ -1,7 +1,11 @@
 import { routeUrl } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceRouteRead, useSourcePath } from "./SourceContext";
+import {
+  useSourceId,
+  useSourceRouteRead,
+  useSourcePath,
+} from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
@@ -76,7 +80,8 @@ function PublishedFileView({
   download?: string;
   display: Pick<ResultCard["display"], "filename" | "mime" | "text" | "size">;
 }) {
-  const sourceApiPath = useSourcePath(), source = useSourceId();
+  const sourceApiPath = useSourcePath(),
+    source = useSourceId();
   const [open, setOpen] = useState(false);
   const meta = {
     ...display,
@@ -88,7 +93,9 @@ function PublishedFileView({
     meta.mime,
   );
   const name = meta.name || title;
-  const url = download ? sourceApiPath(download) : routeUrl(workspaceApi.artifactFile, { params: { id } }, source);
+  const url = download
+    ? sourceApiPath(download)
+    : routeUrl(workspaceApi.artifactFile, { params: { id } }, source);
   return (
     <div className="published-file">
       {previewImages && image && (
@@ -199,11 +206,16 @@ export function RunFiles({
         return;
       }
       pending = true;
-      void read(workspaceApi.runFiles, { params: { id: runId } }, controller.signal, (error) => {
-        // Keep the existing immediate error and manual retry while a bounded
-        // transient GET retry is pending. Rate limits remain quiet.
-        if (live && !isRateLimited(error)) setError((error as Error).message);
-      })
+      void read(
+        workspaceApi.runFiles,
+        { params: { id: runId } },
+        controller.signal,
+        (error) => {
+          // Keep the existing immediate error and manual retry while a bounded
+          // transient GET retry is pending. Rate limits remain quiet.
+          if (live && !isRateLimited(error)) setError((error as Error).message);
+        },
+      )
         .then((files) => {
           if (live) {
             setFiles(files);
@@ -223,7 +235,9 @@ export function RunFiles({
         });
     };
     refresh();
-    const stopFallback = active ? surfaceFallback([sourceId], "results", 5000, refresh) : () => {};
+    const stopFallback = active
+      ? surfaceFallback([sourceId], "results", 5000, refresh)
+      : () => {};
     const stopChanges = listenWorkspaceChanges("results", refresh, sourceId);
     return () => {
       live = false;

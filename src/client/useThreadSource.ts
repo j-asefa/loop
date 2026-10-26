@@ -22,7 +22,8 @@ export function useThreadSource(source: string | null, owner?: string) {
   const [state, setState] = useState<State>();
   const key = JSON.stringify([source, owner]);
   const cacheKey = "thread-source:" + key;
-  const cached = () => owner === viewOwner() ? cachedView<State>(cacheKey) : undefined;
+  const cached = () =>
+    owner === viewOwner() ? cachedView<State>(cacheKey) : undefined;
   useEffect(() => {
     if (source === null || source === executionSourceId() || !owner) return;
     let active = true;
@@ -37,7 +38,13 @@ export function useThreadSource(source: string | null, owner?: string) {
       try {
         const [data, capabilities] = await Promise.all([
           callRoute(workspaceApi.bootstrap, {}, source, signal),
-          apiInWorkspace<Capabilities>("/capabilities", source, undefined, undefined, signal),
+          apiInWorkspace<Capabilities>(
+            "/capabilities",
+            source,
+            undefined,
+            undefined,
+            signal,
+          ),
         ]);
         if (!active || owner !== viewOwner()) return;
         const fresh = { key, data, capabilities };
@@ -47,13 +54,23 @@ export function useThreadSource(source: string | null, owner?: string) {
         controller.abort(); // Cancel the sibling read when Promise.all rejects.
         if (!active || owner !== viewOwner()) return;
         const rateLimited = isRateLimited(error);
-        setState(previous => ({
-          ...(previous?.key === key ? previous : cached()), key, rateLimited,
-          error: rateLimited ? RATE_LIMITED : (error as Error).message || "This workspace is unavailable. Try again.",
+        setState((previous) => ({
+          ...(previous?.key === key ? previous : cached()),
+          key,
+          rateLimited,
+          error: rateLimited
+            ? RATE_LIMITED
+            : (error as Error).message ||
+              "This workspace is unavailable. Try again.",
         }));
         if (rateLimited)
-          retry = setTimeout(() => void load(), Math.min(2_147_483_647, retryAfter(error)));
-      } finally { clearTimeout(timeout); }
+          retry = setTimeout(
+            () => void load(),
+            Math.min(2_147_483_647, retryAfter(error)),
+          );
+      } finally {
+        clearTimeout(timeout);
+      }
     };
     void load();
     return () => {
@@ -64,7 +81,7 @@ export function useThreadSource(source: string | null, owner?: string) {
     };
   }, [key, revision]);
   return {
-    ...(state?.key === key ? state : cached() ?? {}),
+    ...(state?.key === key ? state : (cached() ?? {})),
     retry: () => setRevision((value) => value + 1),
   };
 }

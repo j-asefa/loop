@@ -83,10 +83,13 @@ export function PiCustomizations({
     setBusy(true);
     setError("");
     try {
-      const result = await route(workspaceApi.agentPiTrust, { params: { id: selected }, body: {
-        trusted,
-        fingerprint: configuration.trust.fingerprint,
-      } });
+      const result = await route(workspaceApi.agentPiTrust, {
+        params: { id: selected },
+        body: {
+          trusted,
+          fingerprint: configuration.trust.fingerprint,
+        },
+      });
       setConfiguration(result);
       setPackages(result.packages);
       setNotice(
@@ -105,9 +108,12 @@ export function PiCustomizations({
     setInspection(null);
     try {
       setInspection(
-        await route(workspaceApi.agentPiInspect, { params: { id: selected }, body: {
-          source: source.trim(),
-        } }),
+        await route(workspaceApi.agentPiInspect, {
+          params: { id: selected },
+          body: {
+            source: source.trim(),
+          },
+        }),
       );
     } catch (cause) {
       setError((cause as Error).message);
@@ -126,12 +132,15 @@ export function PiCustomizations({
           .map((x) => x.trim())
           .filter(Boolean);
     try {
-      const result = await route(workspaceApi.agentPiFilters, { params: { id: selected }, body: {
+      const result = await route(workspaceApi.agentPiFilters, {
+        params: { id: selected },
+        body: {
           source: editing.source,
           scope: editing.scope,
           settingsHash: editing.settingsHash,
           filters: next,
-        } });
+        },
+      });
       setConfiguration(result);
       setPackages(result.packages);
       setEditing(null);
@@ -156,7 +165,10 @@ export function PiCustomizations({
     setBusy(true);
     setError("");
     try {
-      const result = await route(workspaceApi.agentPiRollback, { params: { id: selected }, body: { source: pkg.source, scope: pkg.scope } });
+      const result = await route(workspaceApi.agentPiRollback, {
+        params: { id: selected },
+        body: { source: pkg.source, scope: pkg.scope },
+      });
       setConfiguration(result);
       setPackages(result.packages);
       setNotice(
@@ -173,13 +185,16 @@ export function PiCustomizations({
     setBusy(true);
     setError("");
     try {
-      const result = await route(workspaceApi.agentPiPreview, { params: { id: selected }, body: {
+      const result = await route(workspaceApi.agentPiPreview, {
+        params: { id: selected },
+        body: {
           name: resource.name,
           args: promptArgs,
           ...(conversationId && selected === agentId
             ? { conversation: conversationId }
             : {}),
-        } });
+        },
+      });
       setPreview(result);
     } catch (cause) {
       setError((cause as Error).message);
@@ -209,7 +224,10 @@ export function PiCustomizations({
     setError("");
     setNotice("");
     try {
-      const result = await route(workspaceApi.agentPiAction, { params: { id: selected }, body: { action, source: packageSource, scope: packageScope } });
+      const result = await route(workspaceApi.agentPiAction, {
+        params: { id: selected },
+        body: { action, source: packageSource, scope: packageScope },
+      });
       setPackages(result.packages);
       setConfiguration(result);
       setNotice(
@@ -231,9 +249,13 @@ export function PiCustomizations({
     let active = true;
     setCatalog(null);
     setError("");
-    void route(workspaceApi.agentHarness, { params: { id: selected }, query: {
-      conversation: conversationId && selected === agentId ? conversationId : undefined,
-    } })
+    void route(workspaceApi.agentHarness, {
+      params: { id: selected },
+      query: {
+        conversation:
+          conversationId && selected === agentId ? conversationId : undefined,
+      },
+    })
       .then((result) => active && setCatalog(result))
       .catch((cause) => active && setError((cause as Error).message));
     return () => {
@@ -355,11 +377,11 @@ export function PiCustomizations({
               </small>
               {configuration?.trust.required &&
                 inventory.projectTrusted !== undefined && (
-                <small>
-                  Pi session: project resources{" "}
-                  {inventory.projectTrusted ? "loaded" : "not trusted"}
-                </small>
-              )}
+                  <small>
+                    Pi session: project resources{" "}
+                    {inventory.projectTrusted ? "loaded" : "not trusted"}
+                  </small>
+                )}
             </div>
           )}
           {inventory?.diagnostics?.length ? (
@@ -540,9 +562,17 @@ export function PiCustomizations({
                       setEditing(pkg);
                       setFilters(
                         Object.fromEntries(
-                          (["extensions", "skills", "prompts", "themes"] as const).map(
-                            (kind) => [kind, pkg.filters?.[kind]?.join("\n")],
-                          ),
+                          (
+                            [
+                              "extensions",
+                              "skills",
+                              "prompts",
+                              "themes",
+                            ] as const
+                          ).map((kind) => [
+                            kind,
+                            pkg.filters?.[kind]?.join("\n"),
+                          ]),
                         ),
                       );
                     }}

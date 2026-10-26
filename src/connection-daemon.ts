@@ -36,7 +36,8 @@ declare const __LOOP_RELEASE__: string | undefined;
 const RELEASE =
   typeof __LOOP_RELEASE__ === "string" ? __LOOP_RELEASE__ : "development";
 // A launch that stops heartbeating (hung or killed) stops receiving traffic.
-const LEASE_TIMEOUT_MS = Number(process.env.LOOP_TEST_LEASE_TIMEOUT_MS) || 15000;
+const LEASE_TIMEOUT_MS =
+  Number(process.env.LOOP_TEST_LEASE_TIMEOUT_MS) || 15000;
 const equal = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
@@ -82,7 +83,9 @@ async function body(req: IncomingMessage) {
 
 export async function runConnectionService(
   argv: string[],
-  report: (message: { ready: true; origin: string } | { error: string }) => void = () => {},
+  report: (
+    message: { ready: true; origin: string } | { error: string },
+  ) => void = () => {},
 ) {
   const { values } = parseArgs({
     args: argv,
@@ -103,7 +106,9 @@ export async function runConnectionService(
   if (values.log) installDaemonLog(join(dir, "daemon.log"));
   const root = resolve(values.root ?? dir);
   if (values["tunnel-name"] && !values["public-url"])
-    throw new Error("A named tunnel requires --public-url https://your-hostname.");
+    throw new Error(
+      "A named tunnel requires --public-url https://your-hostname.",
+    );
   const mode: TunnelMode = values["tunnel-name"]
     ? {
         kind: "named",
@@ -141,7 +146,9 @@ export async function runConnectionService(
     console.log(`${new Date().toISOString()} ${message}`);
   const detach = (reason: string, recoverable = false) => {
     if (!backend) return;
-    log(`Application generation ${backend.generation} ${reason}; requests receive 503 until a launch registers.`);
+    log(
+      `Application generation ${backend.generation} ${reason}; requests receive 503 until a launch registers.`,
+    );
     lapsed = recoverable
       ? { generation: backend.generation, lease: backend.lease }
       : undefined;
@@ -186,66 +193,77 @@ export async function runConnectionService(
     typeof input.lease === "string" &&
     equal(input.lease, entry.lease);
 
-  const operations: Record<string, (input: any) => Promise<[number, unknown]>> = {
-    hello: async () => [200, hello()],
-    // Issued to the launch holding the workspace lock. A new lease ends the
-    // previous generation's forwarding, so two launches never both serve.
-    lease: async () => {
-      if (tunnelState !== "ready" || !origin)
-        return [503, { error: "The tunnel has no confirmed address yet." }];
-      detach("was replaced by a new launch");
-      lapsed = undefined;
-      pending = { generation: ++generation, lease: secret() };
-      return [200, { ...pending, origin, instance }];
-    },
-    register: async (input) => {
-      // A pending launch, or the latest one returning after a stall.
-      const entry = owns(input, pending)
-        ? pending
-        : owns(input, lapsed)
-          ? lapsed
-          : undefined;
-      if (!entry)
-        return [409, { error: "Stale or unknown application generation." }];
-      const path = backendSocket(run, input.socket);
-      if (!path) return [400, { error: "Invalid application socket." }];
-      const nonce = randomBytes(24).toString("base64url");
-      const proof = await probe(path, nonce).catch(() => "");
-      // Re-check: the lease may have been superseded while probing.
-      if (
-        (entry === pending ? !owns(input, pending) : !owns(input, lapsed)) ||
-        !equal(proof, probeProof(entry.lease, instance, entry.generation, nonce))
-      )
-        return [409, { error: "Application socket failed verification." }];
-      backend = { generation: entry.generation, lease: entry.lease, path, seen: Date.now() };
-      backendSince = Date.now();
-      if (entry === pending) pending = undefined;
-      lapsed = undefined;
-      relay.setBackend({ generation: backend.generation, path });
-      log(`Application generation ${backend.generation} registered; forwarding resumed.`);
-      return [200, { origin }];
-    },
-    heartbeat: async (input) => {
-      if (owns(input, backend)) backend!.seen = Date.now();
-      else if (!owns(input, pending) && !owns(input, lapsed))
-        return [409, { error: "Stale application generation." }];
-      return [
-        200,
-        { origin, tunnel: tunnelState, registered: owns(input, backend) },
-      ];
-    },
-    withdraw: async (input) => {
-      if (owns(input, pending)) pending = undefined;
-      else if (owns(input, lapsed)) lapsed = undefined;
-      else if (owns(input, backend)) detach("is stopping");
-      else return [409, { error: "Stale application generation." }];
-      return [200, { withdrawn: true }];
-    },
-    shutdown: async () => {
-      setImmediate(() => void shutdown(0));
-      return [200, { stopping: true }];
-    },
-  };
+  const operations: Record<string, (input: any) => Promise<[number, unknown]>> =
+    {
+      hello: async () => [200, hello()],
+      // Issued to the launch holding the workspace lock. A new lease ends the
+      // previous generation's forwarding, so two launches never both serve.
+      lease: async () => {
+        if (tunnelState !== "ready" || !origin)
+          return [503, { error: "The tunnel has no confirmed address yet." }];
+        detach("was replaced by a new launch");
+        lapsed = undefined;
+        pending = { generation: ++generation, lease: secret() };
+        return [200, { ...pending, origin, instance }];
+      },
+      register: async (input) => {
+        // A pending launch, or the latest one returning after a stall.
+        const entry = owns(input, pending)
+          ? pending
+          : owns(input, lapsed)
+            ? lapsed
+            : undefined;
+        if (!entry)
+          return [409, { error: "Stale or unknown application generation." }];
+        const path = backendSocket(run, input.socket);
+        if (!path) return [400, { error: "Invalid application socket." }];
+        const nonce = randomBytes(24).toString("base64url");
+        const proof = await probe(path, nonce).catch(() => "");
+        // Re-check: the lease may have been superseded while probing.
+        if (
+          (entry === pending ? !owns(input, pending) : !owns(input, lapsed)) ||
+          !equal(
+            proof,
+            probeProof(entry.lease, instance, entry.generation, nonce),
+          )
+        )
+          return [409, { error: "Application socket failed verification." }];
+        backend = {
+          generation: entry.generation,
+          lease: entry.lease,
+          path,
+          seen: Date.now(),
+        };
+        backendSince = Date.now();
+        if (entry === pending) pending = undefined;
+        lapsed = undefined;
+        relay.setBackend({ generation: backend.generation, path });
+        log(
+          `Application generation ${backend.generation} registered; forwarding resumed.`,
+        );
+        return [200, { origin }];
+      },
+      heartbeat: async (input) => {
+        if (owns(input, backend)) backend!.seen = Date.now();
+        else if (!owns(input, pending) && !owns(input, lapsed))
+          return [409, { error: "Stale application generation." }];
+        return [
+          200,
+          { origin, tunnel: tunnelState, registered: owns(input, backend) },
+        ];
+      },
+      withdraw: async (input) => {
+        if (owns(input, pending)) pending = undefined;
+        else if (owns(input, lapsed)) lapsed = undefined;
+        else if (owns(input, backend)) detach("is stopping");
+        else return [409, { error: "Stale application generation." }];
+        return [200, { withdrawn: true }];
+      },
+      shutdown: async () => {
+        setImmediate(() => void shutdown(0));
+        return [200, { stopping: true }];
+      },
+    };
 
   const controlServer = createServer(async (req, res) => {
     const reply = (status: number, value: unknown) => {
@@ -262,8 +280,11 @@ export async function runConnectionService(
         req.headers.origin ||
         !equal(req.headers.authorization ?? "", "Bearer " + token)
       )
-        return reply(403, { error: "Connection control authentication required" });
-      const operation = match && Object.hasOwn(operations, match[1]) && operations[match[1]];
+        return reply(403, {
+          error: "Connection control authentication required",
+        });
+      const operation =
+        match && Object.hasOwn(operations, match[1]) && operations[match[1]];
       if (!operation) return reply(404, { error: "Unknown operation" });
       const [status, value] = await operation(await body(req));
       reply(status, value);
@@ -401,7 +422,10 @@ if (import.meta.url === self) {
 
 /** Container health: the service answers and its tunnel has an address. */
 async function health(argv: string[]) {
-  const { values } = parseArgs({ args: argv, options: { dir: { type: "string" } } });
+  const { values } = parseArgs({
+    args: argv,
+    options: { dir: { type: "string" } },
+  });
   const record = readConnectionRecord(resolve(values.dir ?? "."));
   if (!record) throw new Error("No connection service record");
   const status = await connectionControl<Hello>(record, "hello", {}, 3000);

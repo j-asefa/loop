@@ -31,7 +31,11 @@ export function cachedView<T>(key: string): T | undefined {
  * the account changed carries the previous owner and is dropped, so it can
  * never become part of the next account's views.
  */
-export function cacheView<T>(key: string, value: T, forOwner: string | undefined) {
+export function cacheView<T>(
+  key: string,
+  value: T,
+  forOwner: string | undefined,
+) {
   if (!owner || forOwner !== owner) return;
   // Keep a bounded number of views; the oldest entry is replaced first.
   views.delete(key);

@@ -108,6 +108,7 @@ type Path =
   | `/workflows/${string}/run`
   | `/workflows/validate`
   | `/workspace/devices`
-  | `/workspace/revoke`
+  | `/workspace/revoke`;
 export type LegacyClientPath = Path | `${Path}?${string}`;
-export type LegacyFetchPath = `/api${LegacyClientPath}` | `/api/agent-sources/${string}${LegacyClientPath}`;
+export type LegacyFetchPath =
+  `/api${LegacyClientPath}` | `/api/agent-sources/${string}${LegacyClientPath}`;

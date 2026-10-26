@@ -29,18 +29,30 @@ export function VerificationChip({
       : summary.unknown
         ? ShieldQuestion
         : ShieldCheck;
-  const tone = !summary ? "none" : summary.failed ? "failed" : summary.unknown ? "unknown" : "passed";
+  const tone = !summary
+    ? "none"
+    : summary.failed
+      ? "failed"
+      : summary.unknown
+        ? "unknown"
+        : "passed";
   const line = verificationLine(summary);
-  const label = compact && summary?.items.length
-    ? [
-        summary.failed ? `✕${summary.failed}` : "",
-        summary.passed ? `✓${summary.passed}` : "",
-        summary.unknown ? `?${summary.unknown}` : "",
-      ].filter(Boolean).join(" ")
-    : line;
+  const label =
+    compact && summary?.items.length
+      ? [
+          summary.failed ? `✕${summary.failed}` : "",
+          summary.passed ? `✓${summary.passed}` : "",
+          summary.unknown ? `?${summary.unknown}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : line;
   if (!summary || !onOpen)
     return (
-      <span className={`changes-chip verification-chip verification-${tone}`} aria-label={line}>
+      <span
+        className={`changes-chip verification-chip verification-${tone}`}
+        aria-label={line}
+      >
         <Icon size={16} aria-hidden="true" />
         <span>{label}</span>
       </span>
@@ -61,8 +73,15 @@ export function VerificationChip({
 
 type Detail = VerificationItem & { output_tail: string | null };
 const when = (at: number) =>
-  new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-const statusLabel = { passed: "Passed", failed: "Failed", unknown: "Exit not reported" } as const;
+  new Date(at).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+const statusLabel = {
+  passed: "Passed",
+  failed: "Failed",
+  unknown: "Exit not reported",
+} as const;
 
 export function VerificationSheet({
   runId,
@@ -85,31 +104,50 @@ export function VerificationSheet({
     };
   }, [runId]);
   return (
-    <Sheet title="Verification" wide onClose={onClose} className="changes-sheet">
+    <Sheet
+      title="Verification"
+      wide
+      onClose={onClose}
+      className="changes-sheet"
+    >
       {error && <p className="field-error">{error}</p>}
       {!items && !error && <p role="status">Loading…</p>}
       {items && (
         <>
           <p className="changes-meta">
-            Commands the agent ran and the exit Loop saw. The agent chose them: a passing
-            check shows that command passed, not that the right tests exist.
+            Commands the agent ran and the exit Loop saw. The agent chose them:
+            a passing check shows that command passed, not that the right tests
+            exist.
           </p>
-          {!items.length && <p className="field-hint">No test, type-check or lint command was observed.</p>}
+          {!items.length && (
+            <p className="field-hint">
+              No test, type-check or lint command was observed.
+            </p>
+          )}
           {items.map((item) => (
-            <details key={item.id} className="pull-file verification-item" open={items.length <= 3}>
+            <details
+              key={item.id}
+              className="pull-file verification-item"
+              open={items.length <= 3}
+            >
               <summary>
-                <span className={`pull-file-status verification-${item.status}`}>
+                <span
+                  className={`pull-file-status verification-${item.status}`}
+                >
                   {item.status === "unknown" && item.exit_code !== null
                     ? `Chain exited ${item.exit_code}; which step failed is not known`
                     : statusLabel[item.status]}
-                  {item.status === "failed" && item.exit_code !== null ? ` (exit ${item.exit_code})` : ""}
+                  {item.status === "failed" && item.exit_code !== null
+                    ? ` (exit ${item.exit_code})`
+                    : ""}
                 </span>
                 <span className="pull-file-path">
                   <code>{item.command}</code>
                 </span>
               </summary>
               <p className="field-hint">
-                {item.kind} · {item.tools.join(" + ")} · {when(item.observed_at)}
+                {item.kind} · {item.tools.join(" + ")} ·{" "}
+                {when(item.observed_at)}
                 {item.truncated ? " · output cut short" : ""}
               </p>
               {item.output_tail ? (

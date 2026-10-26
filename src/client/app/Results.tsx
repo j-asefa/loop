@@ -37,9 +37,21 @@ type ResultsProps = {
 
 export function createResultsLoader(props: ResultsProps) {
   const {
-    ownerRef, profile, view, teamKey, projectFilter,
-    resultsContext, resultsSelection, resultsPager, cardsPager, setItems,
-    setNext, setResultsLoading, setResultsError, readSnapshot, readContract,
+    ownerRef,
+    profile,
+    view,
+    teamKey,
+    projectFilter,
+    resultsContext,
+    resultsSelection,
+    resultsPager,
+    cardsPager,
+    setItems,
+    setNext,
+    setResultsLoading,
+    setResultsError,
+    readSnapshot,
+    readContract,
     setRevision,
   } = props;
   async function loadResults(append = false, notify = true) {
@@ -95,9 +107,7 @@ export function createResultsLoader(props: ResultsProps) {
         if (projectFilter && !profile) q.set("folder", projectFilter);
         return q;
       };
-      const reader = cardReader((path, signal) =>
-        readSnapshot(path, source),
-      );
+      const reader = cardReader((path, signal) => readSnapshot(path, source));
       const selection = {
         view: "results" as const,
         agent: profile?.id,
@@ -132,13 +142,28 @@ export function createResultsLoader(props: ResultsProps) {
               async (before) => {
                 const q = query();
                 if (before !== null) q.set("before", String(before));
-                return readContract(workspaceApi.results, { query: Object.fromEntries(q) }, source);
+                return readContract(
+                  workspaceApi.results,
+                  { query: Object.fromEntries(q) },
+                  source,
+                );
               },
               async (after, through) => {
                 const q = query();
                 q.set("after", String(after));
                 q.set("through", String(through));
-                return readContract(workspaceApi.resultUpdates, { query: { ...Object.fromEntries(q), after: String(after), through: String(through), view: "files" } }, source);
+                return readContract(
+                  workspaceApi.resultUpdates,
+                  {
+                    query: {
+                      ...Object.fromEntries(q),
+                      after: String(after),
+                      through: String(through),
+                      view: "files",
+                    },
+                  },
+                  source,
+                );
               },
             );
       if (
@@ -180,19 +205,58 @@ export function createResultsLoader(props: ResultsProps) {
   return loadResults;
 }
 
-export function renderResults(props: Pick<AppModel,
-  "beginReply" | "setConversation" | "open" | "replyToArtifact" | "archiveCard" |
-  "setLaterCard" | "setFiling" | "data" | "setProfile" | "ownerRef" |
-  "changed" | "setError" | "openCard" | "resultsError" | "items" |
-  "loadResults" | "resultsLoading" | "profile" | "view" | "projectFilter" |
-  "teamSelection" | "profileWork" | "next"
->) {
+export function renderResults(
+  props: Pick<
+    AppModel,
+    | "beginReply"
+    | "setConversation"
+    | "open"
+    | "replyToArtifact"
+    | "archiveCard"
+    | "setLaterCard"
+    | "setFiling"
+    | "data"
+    | "setProfile"
+    | "ownerRef"
+    | "changed"
+    | "setError"
+    | "openCard"
+    | "resultsError"
+    | "items"
+    | "loadResults"
+    | "resultsLoading"
+    | "profile"
+    | "view"
+    | "projectFilter"
+    | "teamSelection"
+    | "profileWork"
+    | "next"
+  >,
+) {
   const {
-    beginReply, setConversation, open, replyToArtifact, archiveCard,
-    setLaterCard, setFiling, data, setProfile, ownerRef,
-    changed, setError, openCard, resultsError, items,
-    loadResults, resultsLoading, profile, view, projectFilter,
-    teamSelection, profileWork, next,
+    beginReply,
+    setConversation,
+    open,
+    replyToArtifact,
+    archiveCard,
+    setLaterCard,
+    setFiling,
+    data,
+    setProfile,
+    ownerRef,
+    changed,
+    setError,
+    openCard,
+    resultsError,
+    items,
+    loadResults,
+    resultsLoading,
+    profile,
+    view,
+    projectFilter,
+    teamSelection,
+    profileWork,
+    next,
   } = props;
   const replySaved = (message: SavedMessage) =>
     message.agent_id

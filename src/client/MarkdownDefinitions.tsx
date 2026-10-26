@@ -62,7 +62,9 @@ export function MarkdownDefinitions({
         if (!controller.signal.aborted && owner === viewOwner()) {
           // A missing linked workspace also returns 404. Preserve its recovery
           // guidance; only an absent endpoint means the feature is unavailable.
-          setUnavailable(e.status === 404 && e.message === "Endpoint not found");
+          setUnavailable(
+            e.status === 404 && e.message === "Endpoint not found",
+          );
           setError(e.message);
         }
       });
@@ -104,8 +106,8 @@ export function MarkdownDefinitions({
     return (
       <Sheet title="Markdown definitions" onClose={onClose}>
         <p role="status">
-          Markdown definitions are unavailable in this workspace. Update Loop
-          on that computer to use them.
+          Markdown definitions are unavailable in this workspace. Update Loop on
+          that computer to use them.
         </p>
         <button
           type="button"
@@ -321,11 +323,16 @@ export function MarkdownDefinitions({
                           const failure = error as Error & { status?: number };
                           // A retry after a lost success response already has
                           // the requested outcome. Keep source errors visible.
-                          if (failure.status !== 404 || failure.message !== "Definition not found")
+                          if (
+                            failure.status !== 404 ||
+                            failure.message !== "Definition not found"
+                          )
                             throw error;
                         }
                         return () => {
-                          setItems((rows) => rows?.filter((row) => row.id !== item.id));
+                          setItems((rows) =>
+                            rows?.filter((row) => row.id !== item.id),
+                          );
                           setRevision((value) => value + 1);
                         };
                       })
@@ -432,8 +439,7 @@ export function CreateFromDefinition({
       .sort(),
   );
   const catalogKey = JSON.stringify([sourceId, catalogRevision]);
-  const catalogs =
-    catalogState.key === catalogKey ? catalogState.entries : {};
+  const catalogs = catalogState.key === catalogKey ? catalogState.entries : {};
   const models = (connectionId: string) =>
     native(connectionId)
       ? catalogs[connectionId]?.models || []
@@ -444,12 +450,17 @@ export function CreateFromDefinition({
     // A role changing connection must not invalidate the other roles' loaded
     // catalogs. An explicit refresh or workspace change still reloads them.
     const cached = catalogState.key === catalogKey ? catalogState.entries : {};
-    setCatalogState((current) => current.key === catalogKey
-      ? current
-      : { key: catalogKey, entries: {} });
+    setCatalogState((current) =>
+      current.key === catalogKey ? current : { key: catalogKey, entries: {} },
+    );
     for (const connectionId of JSON.parse(nativeIds) as string[]) {
       if (cached[connectionId]) continue;
-      void callRoute(workspaceApi.connectionModels, { params: { id: connectionId } }, sourceId, controller.signal).then(
+      void callRoute(
+        workspaceApi.connectionModels,
+        { params: { id: connectionId } },
+        sourceId,
+        controller.signal,
+      ).then(
         ({ models: discovered }) => {
           if (controller.signal.aborted || owner !== viewOwner()) return;
           setCatalogState((current) => ({
@@ -720,7 +731,9 @@ export function CreateFromDefinition({
               Choose an available model and effort for every agent.
             </p>
           )}
-          {Object.values(choices).some((choice) => catalogs[choice.connectionId]?.error) && (
+          {Object.values(choices).some(
+            (choice) => catalogs[choice.connectionId]?.error,
+          ) && (
             <button
               type="button"
               onClick={() => setCatalogRevision((value) => value + 1)}

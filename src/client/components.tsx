@@ -54,18 +54,18 @@ export const providerName = (p?: Provider) =>
       : p === "grok"
         ? "xAI"
         : p === "acp"
-      ? "ACP agent"
-      : p === "pi"
-        ? "Pi"
-        : p === "opencode"
-          ? "OpenCode"
-          : p === "anthropic"
-            ? "Claude"
-            : p === "codex"
-              ? "ChatGPT"
-              : p === "openai"
-                ? "OpenAI API"
-                : "Loop";
+          ? "ACP agent"
+          : p === "pi"
+            ? "Pi"
+            : p === "opencode"
+              ? "OpenCode"
+              : p === "anthropic"
+                ? "Claude"
+                : p === "codex"
+                  ? "ChatGPT"
+                  : p === "openai"
+                    ? "OpenAI API"
+                    : "Loop";
 export function Badge({ provider }: { provider?: Provider }) {
   return (
     <span className={"provider " + (provider || "loop")}>
@@ -488,10 +488,15 @@ function ArtifactPreview({
   tool?: string;
   web?: ReturnType<typeof webPreview>;
 }) {
-  const sourceApiPath = useSourcePath(), source = useSourceId();
+  const sourceApiPath = useSourcePath(),
+    source = useSourceId();
   const imageFile =
     display.download === undefined
-      ? routeUrl(workspaceApi.artifactFile, { params: { id: item.id }, query: { preview: "1" } }, source)
+      ? routeUrl(
+          workspaceApi.artifactFile,
+          { params: { id: item.id }, query: { preview: "1" } },
+          source,
+        )
       : display.download;
   if (
     display.uploaded &&
@@ -504,7 +509,8 @@ function ArtifactPreview({
       <img
         className="preview-image"
         src={sourceApiPath(
-          display.download !== undefined && imageFile.startsWith("/api/artifacts/")
+          display.download !== undefined &&
+            imageFile.startsWith("/api/artifacts/")
             ? imageFile + "?preview=1"
             : imageFile,
         )}

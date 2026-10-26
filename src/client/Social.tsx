@@ -1,6 +1,14 @@
 import type { LegacyClientPath } from "./legacy-paths";
 import { useProjectionRead } from "./SourceContext";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlarmClock,
   ArrowUpRight,
@@ -1013,7 +1021,10 @@ export function Social({
     const before = toggleTop.current;
     toggleTop.current = null;
     if (before === null || !headerToggle.current) return;
-    window.scrollBy(0, headerToggle.current.getBoundingClientRect().top - before);
+    window.scrollBy(
+      0,
+      headerToggle.current.getBoundingClientRect().top - before,
+    );
   }, [headerHidden]);
   // The story being saved for later, if its sheet is open.
   const [saving, setSaving] = useState("");
@@ -1030,7 +1041,10 @@ export function Social({
   const [watching, setWatching] = useState(false);
   // A notification about a story opens Social on it.
   const [focused, setFocused] = useState(openedStory);
-  const scrollToFocused = useCallback((node: HTMLElement | null) => node?.scrollIntoView({ block: "center" }), []);
+  const scrollToFocused = useCallback(
+    (node: HTMLElement | null) => node?.scrollIntoView({ block: "center" }),
+    [],
+  );
   // Read by load(), which is not re-created when the filter changes.
   const unread = useRef(false);
   // Picking first feeds from the empty Social keeps the catalog open until Done.
@@ -1046,19 +1060,28 @@ export function Social({
     try {
       const [{ added, own }, social, preferences] = await Promise.all([
         readSnapshot<{ added: string[]; own: FeedEntry[] }>("/social/feeds"),
-        readSnapshot<SocialResponse>(`/social?refresh=${options.force ? 1 : 0}${only}`),
-        readSnapshot<{ images: boolean; mutes: string[] }>("/social/preferences"),
+        readSnapshot<SocialResponse>(
+          `/social?refresh=${options.force ? 1 : 0}${only}`,
+        ),
+        readSnapshot<{ images: boolean; mutes: string[] }>(
+          "/social/preferences",
+        ),
       ]);
       if (ticket !== request.current || owner !== viewOwner()) return;
       const next = { ...social, added, own, ...preferences };
       setView(next);
       cacheView<Shown>(KEY, next, owner);
-      if (!reactiveSource("", "workspace")) window.dispatchEvent(new Event("loop-social-read"));
+      if (!reactiveSource("", "workspace"))
+        window.dispatchEvent(new Event("loop-social-read"));
       setError("");
       // Feeds still loading arrive behind the first paint: ask again for them
       // a few times, then leave it to the five-minute refresh.
       const polls = options.polls ?? 0;
-      if (!reactiveSource("", "workspace") && social.pending.length && polls < FILL_IN_POLLS)
+      if (
+        !reactiveSource("", "workspace") &&
+        social.pending.length &&
+        polls < FILL_IN_POLLS
+      )
         fillIn.current = setTimeout(
           () => void load({ polls: polls + 1 }),
           FILL_IN_MS,
@@ -1070,7 +1093,12 @@ export function Social({
   /** Marks stories read (or unread) at once, before the server confirms. */
   async function setRead(ids: string[], read: boolean) {
     if (!ids.length) return;
-    setFound(old => old?.map(story => ids.includes(story.id) ? { ...story, read } : story) ?? null);
+    setFound(
+      (old) =>
+        old?.map((story) =>
+          ids.includes(story.id) ? { ...story, read } : story,
+        ) ?? null,
+    );
     setView(
       (old) =>
         old && {
@@ -1088,12 +1116,12 @@ export function Social({
       );
       setView((old) => old && { ...old, unread });
       // Refresh any other reader of the owner’s unread count.
-      setSearchRevision(revision => revision + 1);
+      setSearchRevision((revision) => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {
       setError((e as Error).message);
       void load();
-      setSearchRevision(revision => revision + 1);
+      setSearchRevision((revision) => revision + 1);
     }
   }
   /** Takes stories out of Social at once, before the server confirms. */
@@ -1102,7 +1130,9 @@ export function Social({
     // ask again once the server has the change.
     request.current++;
     if (removed) {
-      setFound((old) => old?.filter((story) => !ids.includes(story.id)) ?? null);
+      setFound(
+        (old) => old?.filter((story) => !ids.includes(story.id)) ?? null,
+      );
       setView(
         (old) =>
           old && {
@@ -1139,7 +1169,9 @@ export function Social({
         {},
         "POST",
       );
-      setFound(old => old?.map(story => ({ ...story, read: true })) ?? null);
+      setFound(
+        (old) => old?.map((story) => ({ ...story, read: true })) ?? null,
+      );
       setView(
         (old) =>
           old && {
@@ -1148,28 +1180,41 @@ export function Social({
             stories: old.stories.map((story) => ({ ...story, read: true })),
           },
       );
-      setSearchRevision(revision => revision + 1);
+      setSearchRevision((revision) => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {
       setError((e as Error).message);
     }
   }
   useEffect(() => {
-    if (!query.trim()) { setFound(null); return; }
+    if (!query.trim()) {
+      setFound(null);
+      return;
+    }
     const controller = new AbortController();
     const owner = viewOwner();
     const timer = setTimeout(() => {
       void api<SocialResponse>(
         `/social/search?q=${encodeURIComponent(query)}${
           chosenFeed ? `&feed=${encodeURIComponent(chosenFeed)}` : ""
-        }${unreadOnly ? "&unread=1" : ""}`, undefined, undefined, controller.signal,
-      ).then(({ stories }) => {
-        if (!controller.signal.aborted && owner === viewOwner()) setFound(stories);
-      }).catch(error => {
-        if (!controller.signal.aborted && owner === viewOwner()) setError(error.message);
-      });
+        }${unreadOnly ? "&unread=1" : ""}`,
+        undefined,
+        undefined,
+        controller.signal,
+      )
+        .then(({ stories }) => {
+          if (!controller.signal.aborted && owner === viewOwner())
+            setFound(stories);
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted && owner === viewOwner())
+            setError(error.message);
+        });
     }, 200);
-    return () => { clearTimeout(timer); controller.abort(); };
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query, chosenFeed, unreadOnly, searchRevision]);
   async function removeOwn(feed: FeedEntry) {
     setBusy(feed.id);
@@ -1209,7 +1254,12 @@ export function Social({
   useEffect(() => {
     void load();
     const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
-    const stopFallback = surfaceFallback([""], "workspace", 5 * 60_000, () => void load());
+    const stopFallback = surfaceFallback(
+      [""],
+      "workspace",
+      5 * 60_000,
+      () => void load(),
+    );
     // Pulling down the page asks the feeds themselves for anything new. A
     // notification arriving while Social is open also lands here, with the
     // story it was about now in the address.
@@ -1344,7 +1394,11 @@ export function Social({
                   }`}
             </span>
           </span>
-          <ChevronDown size={18} aria-hidden="true" className="social-options-chevron" />
+          <ChevronDown
+            size={18}
+            aria-hidden="true"
+            className="social-options-chevron"
+          />
         </button>
         <div id={headerId} className="social-controls" hidden={headerHidden}>
           <div className="search-box social-search">
@@ -1393,7 +1447,8 @@ export function Social({
               {followedFeeds
                 .filter(
                   (feed) =>
-                    chosenCategory === "All" || feed.category === chosenCategory,
+                    chosenCategory === "All" ||
+                    feed.category === chosenCategory,
                 )
                 .map((feed) => (
                   <button
@@ -1495,7 +1550,8 @@ export function Social({
           kind="story"
           targetId={saving}
           title={
-            (found ?? view.stories).find((story) => story.id === saving)?.title || "Story"
+            (found ?? view.stories).find((story) => story.id === saving)
+              ?.title || "Story"
           }
           // Feeds belong to the paired app, never to a linked source.
           sourceId=""
@@ -1553,164 +1609,160 @@ export function Social({
                   onRemove={() => void dismiss([story.id], true)}
                   onRemind={() => setSaving(story.id)}
                 >
-                <article
-                  className="feed-card news-card"
-                  data-unread={story.read ? undefined : "true"}
-                  data-focused={story.id === focused ? "true" : undefined}
-                  data-story={story.id}
-                  ref={
-                    story.id === focused
-                      ? scrollToFocused
-                      : undefined
-                  }
-                >
-                  <div className="card-byline">
-                    <span className="identity">
-                      <FeedMark feed={feed} />
-                      <span>
-                        <strong>{story.community || feed.name}</strong>
-                        <span className="subline">
-                          {story.author && <span>by {story.author}</span>}
-                          {story.published_at && (
-                            <time
-                              dateTime={new Date(
-                                story.published_at,
-                              ).toISOString()}
-                            >
-                              {relativeTime(story.published_at)}
-                            </time>
-                          )}
+                  <article
+                    className="feed-card news-card"
+                    data-unread={story.read ? undefined : "true"}
+                    data-focused={story.id === focused ? "true" : undefined}
+                    data-story={story.id}
+                    ref={story.id === focused ? scrollToFocused : undefined}
+                  >
+                    <div className="card-byline">
+                      <span className="identity">
+                        <FeedMark feed={feed} />
+                        <span>
+                          <strong>{story.community || feed.name}</strong>
+                          <span className="subline">
+                            {story.author && <span>by {story.author}</span>}
+                            {story.published_at && (
+                              <time
+                                dateTime={new Date(
+                                  story.published_at,
+                                ).toISOString()}
+                              >
+                                {relativeTime(story.published_at)}
+                              </time>
+                            )}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                  </div>
-                  <div className="card-content">
-                    {view.images && story.image && (
-                      <img
-                        className="news-image"
-                        // Through Loop, not from the publisher: the page's own
-                        // policy allows no third-party images, and a feed's
-                        // picture should not tell its site who is reading.
-                        src={`/api/social/image?story=${encodeURIComponent(
-                          story.id,
-                        )}`}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
-                      />
-                    )}
-                    <span className="eyebrow inbox-eyebrow">
-                      {feed.kind.charAt(0).toUpperCase() + feed.kind.slice(1)}
-                      <span className="card-project">
-                        {" "}
-                        · {story.site || feed.home}
+                    </div>
+                    <div className="card-content">
+                      {view.images && story.image && (
+                        <img
+                          className="news-image"
+                          // Through Loop, not from the publisher: the page's own
+                          // policy allows no third-party images, and a feed's
+                          // picture should not tell its site who is reading.
+                          src={`/api/social/image?story=${encodeURIComponent(
+                            story.id,
+                          )}`}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
+                      <span className="eyebrow inbox-eyebrow">
+                        {feed.kind.charAt(0).toUpperCase() + feed.kind.slice(1)}
+                        <span className="card-project">
+                          {" "}
+                          · {story.site || feed.home}
+                        </span>
                       </span>
-                    </span>
-                    <h2>
+                      <h2>
+                        <a
+                          href={story.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => void setRead([story.id], true)}
+                        >
+                          {story.title}
+                        </a>
+                      </h2>
+                      {story.summary && (
+                        <p className="news-summary">{story.summary}</p>
+                      )}
+                      {story.media && (
+                        <p className="field-hint news-media">
+                          {story.media.type.startsWith("audio/")
+                            ? "Audio"
+                            : "Video"}
+                          {story.media.seconds
+                            ? ` · ${Math.round(story.media.seconds / 60)} min`
+                            : ""}
+                        </p>
+                      )}
+                      {(story.points !== null || story.comments !== null) && (
+                        <p className="field-hint news-stats">
+                          {[
+                            story.points !== null &&
+                              plural(story.points, "point"),
+                            story.comments !== null &&
+                              plural(story.comments, "comment"),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="card-actions">
                       <a
                         href={story.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => void setRead([story.id], true)}
                       >
-                        {story.title}
+                        <ArrowUpRight size={16} />
+                        Open
                       </a>
-                    </h2>
-                    {story.summary && (
-                      <p className="news-summary">{story.summary}</p>
-                    )}
-                    {story.media && (
-                      <p className="field-hint news-media">
-                        {story.media.type.startsWith("audio/")
-                          ? "Audio"
-                          : "Video"}
-                        {story.media.seconds
-                          ? ` · ${Math.round(story.media.seconds / 60)} min`
-                          : ""}
-                      </p>
-                    )}
-                    {(story.points !== null || story.comments !== null) && (
-                      <p className="field-hint news-stats">
-                        {[
-                          story.points !== null &&
-                            plural(story.points, "point"),
-                          story.comments !== null &&
-                            plural(story.comments, "comment"),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    )}
-                  </div>
-                  <div className="card-actions">
-                    <a
-                      href={story.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => void setRead([story.id], true)}
-                    >
-                      <ArrowUpRight size={16} />
-                      Open
-                    </a>
-                    {story.comments_url && (
-                      <a
-                        href={story.comments_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => void setRead([story.id], true)}
-                      >
-                        <MessageSquare size={16} />
-                        Discussion
-                      </a>
-                    )}
-                    <button
-                      onClick={() => void setRead([story.id], !story.read)}
-                      aria-label={
-                        story.read
-                          ? `Mark ${story.title} unread`
-                          : `Mark ${story.title} read`
-                      }
-                    >
-                      <Check size={16} />
-                      {story.read ? "Unread" : "Read"}
-                    </button>
-                    <button
-                      onClick={() => setSaving(story.id)}
-                      aria-label={`Save ${story.title} for later`}
-                    >
-                      <Bookmark size={16} />
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setMuting(feed.id)}
-                      aria-label={`Hide words or ${feed.name}`}
-                    >
-                      <EyeOff size={16} />
-                      Hide
-                    </button>
-                    {onAsk && (
+                      {story.comments_url && (
+                        <a
+                          href={story.comments_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => void setRead([story.id], true)}
+                        >
+                          <MessageSquare size={16} />
+                          Discussion
+                        </a>
+                      )}
                       <button
-                        onClick={() => {
-                          void setRead([story.id], true);
-                          onAsk(
-                            `About this ${feed.name} ${feed.kind}: ${story.title}\n${story.url}` +
-                              (story.comments_url &&
-                              story.comments_url !== story.url
-                                ? `\nDiscussion: ${story.comments_url}`
-                                : "") +
-                              "\n\n",
-                          );
-                        }}
+                        onClick={() => void setRead([story.id], !story.read)}
+                        aria-label={
+                          story.read
+                            ? `Mark ${story.title} unread`
+                            : `Mark ${story.title} read`
+                        }
                       >
-                        <MessageSquarePlus size={16} />
-                        Ask an agent
+                        <Check size={16} />
+                        {story.read ? "Unread" : "Read"}
                       </button>
-                    )}
-                  </div>
-                </article>
+                      <button
+                        onClick={() => setSaving(story.id)}
+                        aria-label={`Save ${story.title} for later`}
+                      >
+                        <Bookmark size={16} />
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setMuting(feed.id)}
+                        aria-label={`Hide words or ${feed.name}`}
+                      >
+                        <EyeOff size={16} />
+                        Hide
+                      </button>
+                      {onAsk && (
+                        <button
+                          onClick={() => {
+                            void setRead([story.id], true);
+                            onAsk(
+                              `About this ${feed.name} ${feed.kind}: ${story.title}\n${story.url}` +
+                                (story.comments_url &&
+                                story.comments_url !== story.url
+                                  ? `\nDiscussion: ${story.comments_url}`
+                                  : "") +
+                                "\n\n",
+                            );
+                          }}
+                        >
+                          <MessageSquarePlus size={16} />
+                          Ask an agent
+                        </button>
+                      )}
+                    </div>
+                  </article>
                 </SwipeAway>
               </li>
             );

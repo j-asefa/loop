@@ -74,10 +74,7 @@ export function backendSocket(run: string, name: unknown) {
   const path = join(run, name);
   try {
     const info = lstatSync(path);
-    if (
-      !info.isSocket() ||
-      (process.getuid && info.uid !== process.getuid())
-    )
+    if (!info.isSocket() || (process.getuid && info.uid !== process.getuid()))
       return;
   } catch {
     return;
@@ -368,8 +365,7 @@ export class BackendLease {
     this.timer.unref();
   }
   private applyOrigin(origin: unknown) {
-    if (typeof origin !== "string" || !origin || origin === this.origin)
-      return;
+    if (typeof origin !== "string" || !origin || origin === this.origin) return;
     this.origin = origin;
     this.onOrigin(origin);
   }

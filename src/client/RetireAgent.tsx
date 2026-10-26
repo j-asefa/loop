@@ -46,7 +46,9 @@ export function RetireAgent({
             setError("");
             try {
               onChanged(
-                await route(workspaceApi.agentUpdate, { params: { id: agent.id }, body: { retired: !retired } },
+                await route(
+                  workspaceApi.agentUpdate,
+                  { params: { id: agent.id }, body: { retired: !retired } },
                   AbortSignal.timeout(15000),
                 ),
               );

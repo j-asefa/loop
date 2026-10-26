@@ -204,7 +204,11 @@ function PullRequestInbox({
     const refresh = () => void load();
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener(TOOLS_CLOSED, refresh);
-    const stopChanges = listenWorkspaceChanges("pulls", refresh, executionSourceId());
+    const stopChanges = listenWorkspaceChanges(
+      "pulls",
+      refresh,
+      executionSourceId(),
+    );
     return () => {
       stopChanges();
       window.removeEventListener("loop-refresh", refresh);
@@ -410,17 +414,23 @@ function Reviews({ pr }: { pr: PullDetail }) {
       <h3>Reviews</h3>
       {pr.reviewsOmitted && pr.reviews.length > 0 && (
         <p className="pr-card-note">
-          Showing {pr.reviews.length} reviews from the latest 50. Older reviews may be available.{" "}
+          Showing {pr.reviews.length} reviews from the latest 50. Older reviews
+          may be available.{" "}
           <a href={pr.url} target="_blank" rel="noopener noreferrer">
             Read them all on GitHub
-          </a>.
+          </a>
+          .
         </p>
       )}
       {pr.reviews.length ? (
-        pr.reviews.map((r, i) => <Comment key={i} comment={r} state={r.state} />)
+        pr.reviews.map((r, i) => (
+          <Comment key={i} comment={r} state={r.state} />
+        ))
       ) : (
         <p className="muted">
-          {pr.reviewsOmitted ? "No reviews shown from the latest 50. Older reviews may be available on GitHub." : "No reviews yet."}
+          {pr.reviewsOmitted
+            ? "No reviews shown from the latest 50. Older reviews may be available on GitHub."
+            : "No reviews yet."}
         </p>
       )}
     </section>
@@ -541,10 +551,24 @@ function FileList({
     );
   if (!data || data.headSha !== headSha)
     return <p className="muted">Reading the changed files…</p>;
-  return <ChangedFiles pullRef={pullRef} sha={headSha} files={data.files} url={url + "/files"} hasMore={data.files.length >= 300} />;
+  return (
+    <ChangedFiles
+      pullRef={pullRef}
+      sha={headSha}
+      files={data.files}
+      url={url + "/files"}
+      hasMore={data.files.length >= 300}
+    />
+  );
 }
 
-function ChangedFiles({ pullRef, sha, files, url, hasMore }: {
+function ChangedFiles({
+  pullRef,
+  sha,
+  files,
+  url,
+  hasMore,
+}: {
   pullRef: PullRequestRef;
   sha: string;
   files: PullFile[];
@@ -554,10 +578,7 @@ function ChangedFiles({ pullRef, sha, files, url, hasMore }: {
   const [viewing, setViewing] = useState<string | null>(null);
   if (!files.length) return <p className="muted">No changed files.</p>;
   // Small pull requests open every diff; larger ones start collapsed.
-  const lines = files.reduce(
-    (sum, f) => sum + f.additions + f.deletions,
-    0,
-  );
+  const lines = files.reduce((sum, f) => sum + f.additions + f.deletions, 0);
   const expand = files.length <= 8 && lines <= 600;
   return (
     <div className="pull-files">
@@ -587,11 +608,7 @@ function ChangedFiles({ pullRef, sha, files, url, hasMore }: {
               {f.truncated && (
                 <p className="field-hint">
                   This diff was shortened.{" "}
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a href={url} target="_blank" rel="noopener noreferrer">
                     See all of it on GitHub
                   </a>
                   .
@@ -601,12 +618,10 @@ function ChangedFiles({ pullRef, sha, files, url, hasMore }: {
           ) : (
             <p className="field-hint">
               GitHub doesn’t show this diff here (binary or too large)
-              {f.status !== "removed" ? ", but you can view the file" : ""}.{" "}
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              {f.status !== "removed"
+                ? ", but you can view the file"
+                : ""}.{" "}
+              <a href={url} target="_blank" rel="noopener noreferrer">
                 Open the files on GitHub
               </a>
               .
@@ -635,7 +650,10 @@ function ChangedFiles({ pullRef, sha, files, url, hasMore }: {
   );
 }
 
-function CommitChanges({ pullRef, commit }: {
+function CommitChanges({
+  pullRef,
+  commit,
+}: {
   pullRef: PullRequestRef;
   commit: PullDetail["commitHistory"][number];
 }) {
@@ -648,37 +666,71 @@ function CommitChanges({ pullRef, commit }: {
     api<PullCommitFiles>(`${pullPath(pullRef)}/commits/${commit.sha}/files`)
       .then((result) => {
         if (result.sha.toLowerCase() !== commit.sha.toLowerCase())
-          throw new Error("GitHub did not return this commit's changes. Try again.");
+          throw new Error(
+            "GitHub did not return this commit's changes. Try again.",
+          );
         if (live) setData(result);
       })
       .catch((e) => live && setError(e.message));
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, [attempt, pullRef.owner, pullRef.repo, pullRef.number, commit.sha]);
-  if (error) return (
-    <div role="alert">
-      <p className="error">{error}</p>
-      <button className="text-button" onClick={() => setAttempt(attempt + 1)}>Try again</button>
-    </div>
+  if (error)
+    return (
+      <div role="alert">
+        <p className="error">{error}</p>
+        <button className="text-button" onClick={() => setAttempt(attempt + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  if (!data)
+    return (
+      <p className="muted" role="status">
+        Reading this commit’s changes…
+      </p>
+    );
+  return (
+    <ChangedFiles
+      pullRef={pullRef}
+      sha={commit.sha}
+      files={data.files}
+      url={commit.url}
+      hasMore={data.hasMore}
+    />
   );
-  if (!data) return <p className="muted" role="status">Reading this commit’s changes…</p>;
-  return <ChangedFiles pullRef={pullRef} sha={commit.sha} files={data.files} url={commit.url} hasMore={data.hasMore} />;
 }
 
-function CommitEntry({ pullRef, commit }: {
+function CommitEntry({
+  pullRef,
+  commit,
+}: {
   pullRef: PullRequestRef;
   commit: PullDetail["commitHistory"][number];
 }) {
   const [opened, setOpened] = useState(false);
   return (
-    <details className="pull-file" onToggle={(event) => {
-      // Nested file disclosures also emit toggle events in some browsers.
-      if (event.target === event.currentTarget && event.currentTarget.open) setOpened(true);
-    }}>
+    <details
+      className="pull-file"
+      onToggle={(event) => {
+        // Nested file disclosures also emit toggle events in some browsers.
+        if (event.target === event.currentTarget && event.currentTarget.open)
+          setOpened(true);
+      }}
+    >
       <summary>
-        <span className="pull-commit-title">{commit.message.split("\n")[0]}</span>
+        <span className="pull-commit-title">
+          {commit.message.split("\n")[0]}
+        </span>
         <span className="pull-commit-meta muted">
           {commit.author || "Unknown author"} · {at(commit.committedAt)} ·{" "}
-          <a href={commit.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()}>
+          <a
+            href={commit.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => event.stopPropagation()}
+          >
             <code>{commit.sha.slice(0, 7)}</code> View commit on GitHub
           </a>
         </span>
@@ -710,9 +762,9 @@ function PullRequestDetail({
   const [pr, setPr] = useState<PullDetail | null>(null);
   const [error, setError] = useState<{ message: string; status?: number }>();
   const [busy, setBusy] = useState(false);
-  const [page, setPage] = useState<"overview" | "files" | "commits" | "conversation">(
-    "overview",
-  );
+  const [page, setPage] = useState<
+    "overview" | "files" | "commits" | "conversation"
+  >("overview");
   const [action, setAction] = useState<Action | null>(null);
   const [notice, setNotice] = useState("");
   const load = async () => {
@@ -735,8 +787,15 @@ function PullRequestDetail({
   useEffect(() => {
     const refresh = () => void load();
     window.addEventListener("loop-refresh", refresh);
-    const stopChanges = listenWorkspaceChanges("pulls", refresh, executionSourceId());
-    return () => { stopChanges(); window.removeEventListener("loop-refresh", refresh); };
+    const stopChanges = listenWorkspaceChanges(
+      "pulls",
+      refresh,
+      executionSourceId(),
+    );
+    return () => {
+      stopChanges();
+      window.removeEventListener("loop-refresh", refresh);
+    };
   });
   const name = `${pullRef.owner}/${pullRef.repo}#${pullRef.number}`;
   const back = (
@@ -785,7 +844,9 @@ function PullRequestDetail({
           <span className="pull-row-repo">
             {pr.owner}/{pr.repo} #{pr.number}
           </span>
-          <span className={"pr-state " + pr.state}>{STATE_LABEL[pr.state]}</span>
+          <span className={"pr-state " + pr.state}>
+            {STATE_LABEL[pr.state]}
+          </span>
         </p>
         <h2>{pr.title}</h2>
         <p className="muted">
@@ -859,7 +920,11 @@ function PullRequestDetail({
           {notice}
         </p>
       )}
-      <div className="pull-actions actions" role="group" aria-label="Act on this pull request">
+      <div
+        className="pull-actions actions"
+        role="group"
+        aria-label="Act on this pull request"
+      >
         {open && (
           <button className="primary" onClick={() => setAction("review")}>
             <Check size={16} /> Review
@@ -888,8 +953,14 @@ function PullRequestDetail({
         {(
           [
             ["overview", "Overview"],
-            ["files", `Files${pr.changedFiles !== undefined ? ` (${pr.changedFiles})` : ""}`],
-            ["commits", `Commits${pr.commits !== undefined ? ` (${pr.commits})` : ""}`],
+            [
+              "files",
+              `Files${pr.changedFiles !== undefined ? ` (${pr.changedFiles})` : ""}`,
+            ],
+            [
+              "commits",
+              `Commits${pr.commits !== undefined ? ` (${pr.commits})` : ""}`,
+            ],
             [
               "conversation",
               `Conversation (${pr.conversationTotal + pr.threadsTotal + pr.reviewsTotal})`,
@@ -922,44 +993,45 @@ function PullRequestDetail({
             <h3>Checks</h3>
             {pr.checkRuns.length ? (
               <ul className="pull-checks">
-                {[...failing, ...pr.checkRuns.filter((c) => c.state !== "failure")].map(
-                  (c, i) => (
-                    <li key={c.name + i}>
-                      <span
-                        className={
-                          "status-chip " +
-                          (c.state === "failure"
-                            ? "failed"
-                            : c.state === "pending"
-                              ? "queued"
-                              : c.state === "success"
-                                ? "passed"
-                                : "done")
-                        }
-                      >
-                        {c.state === "failure"
-                          ? "Failed"
+                {[
+                  ...failing,
+                  ...pr.checkRuns.filter((c) => c.state !== "failure"),
+                ].map((c, i) => (
+                  <li key={c.name + i}>
+                    <span
+                      className={
+                        "status-chip " +
+                        (c.state === "failure"
+                          ? "failed"
                           : c.state === "pending"
-                            ? "Running"
-                            : c.state === "skipped"
-                              ? "Skipped"
-                              : c.state === "neutral"
-                                ? "Neutral"
-                                : "Passed"}
-                      </span>
-                      {c.url ? (
-                        <a href={c.url} target="_blank" rel="noopener noreferrer">
-                          {c.name}
-                        </a>
-                      ) : (
-                        <span>{c.name}</span>
-                      )}
-                      {c.description && (
-                        <small className="muted">{c.description}</small>
-                      )}
-                    </li>
-                  ),
-                )}
+                            ? "queued"
+                            : c.state === "success"
+                              ? "passed"
+                              : "done")
+                      }
+                    >
+                      {c.state === "failure"
+                        ? "Failed"
+                        : c.state === "pending"
+                          ? "Running"
+                          : c.state === "skipped"
+                            ? "Skipped"
+                            : c.state === "neutral"
+                              ? "Neutral"
+                              : "Passed"}
+                    </span>
+                    {c.url ? (
+                      <a href={c.url} target="_blank" rel="noopener noreferrer">
+                        {c.name}
+                      </a>
+                    ) : (
+                      <span>{c.name}</span>
+                    )}
+                    {c.description && (
+                      <small className="muted">{c.description}</small>
+                    )}
+                  </li>
+                ))}
               </ul>
             ) : (
               <p className="muted">No checks reported on the head commit.</p>
@@ -981,15 +1053,29 @@ function PullRequestDetail({
           <h3>Commits</h3>
           {(pr.commits ?? 0) > pr.commitHistory.length && (
             <p className="pr-card-note">
-              Showing the latest {pr.commitHistory.length} of {pr.commits} commits.{" "}
-              <a href={pr.url + "/commits"} target="_blank" rel="noopener noreferrer">
+              Showing the latest {pr.commitHistory.length} of {pr.commits}{" "}
+              commits.{" "}
+              <a
+                href={pr.url + "/commits"}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Read them all on GitHub
-              </a>.
+              </a>
+              .
             </p>
           )}
-          {pr.commitHistory.length ? pr.commitHistory.map((commit) => (
-            <CommitEntry key={`${commit.sha}:${pr.fetchedAt}`} pullRef={pullRef} commit={commit} />
-          )) : <p className="muted">No commits shown.</p>}
+          {pr.commitHistory.length ? (
+            pr.commitHistory.map((commit) => (
+              <CommitEntry
+                key={`${commit.sha}:${pr.fetchedAt}`}
+                pullRef={pullRef}
+                commit={commit}
+              />
+            ))
+          ) : (
+            <p className="muted">No commits shown.</p>
+          )}
         </section>
       )}
       {page === "conversation" && (
@@ -1073,10 +1159,7 @@ function PullRequestDetail({
             ) : (
               <p className="muted">No comments yet.</p>
             )}
-            <button
-              className="secondary"
-              onClick={() => setAction("comment")}
-            >
+            <button className="secondary" onClick={() => setAction("comment")}>
               <MessageSquare size={16} /> Add a comment
             </button>
           </section>
@@ -1130,12 +1213,27 @@ function ReviewSheet({
   const [body, setBody] = useState("");
   const { busy, error, run } = useSubmit(onDone);
   const choices = [
-    ["approve", "Approve", pr.viewer.author ? "You can’t approve your own pull request." : "Approve merging these changes."],
-    ["request_changes", "Request changes", pr.viewer.author ? "You can’t request changes on your own pull request." : "Feedback that must be addressed before merging."],
+    [
+      "approve",
+      "Approve",
+      pr.viewer.author
+        ? "You can’t approve your own pull request."
+        : "Approve merging these changes.",
+    ],
+    [
+      "request_changes",
+      "Request changes",
+      pr.viewer.author
+        ? "You can’t request changes on your own pull request."
+        : "Feedback that must be addressed before merging.",
+    ],
     ["comment", "Comment", "General feedback without approving."],
   ] as const;
   return (
-    <Sheet title={`Review ${pr.owner}/${pr.repo}#${pr.number}`} onClose={onClose}>
+    <Sheet
+      title={`Review ${pr.owner}/${pr.repo}#${pr.number}`}
+      onClose={onClose}
+    >
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1186,8 +1284,8 @@ function ReviewSheet({
         </label>
         <p className="field-hint">
           Posted to GitHub as @{pr.viewer.login} on commit{" "}
-          <code>{pr.headSha.slice(0, 7)}</code>. If anything was pushed since you
-          opened this, Loop asks you to look at it first.
+          <code>{pr.headSha.slice(0, 7)}</code>. If anything was pushed since
+          you opened this, Loop asks you to look at it first.
         </p>
         {error && (
           <p className="error" role="alert">
@@ -1222,7 +1320,10 @@ function CommentSheet({
   const [body, setBody] = useState("");
   const { busy, error, run } = useSubmit(onDone);
   return (
-    <Sheet title={`Comment on ${pr.owner}/${pr.repo}#${pr.number}`} onClose={onClose}>
+    <Sheet
+      title={`Comment on ${pr.owner}/${pr.repo}#${pr.number}`}
+      onClose={onClose}
+    >
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1289,7 +1390,10 @@ function MergeSheet({
   ].filter((w): w is string => !!w);
   const blocked = pr.state === "draft" || pr.conflicts || !method;
   return (
-    <Sheet title={`Merge ${pr.owner}/${pr.repo}#${pr.number}?`} onClose={onClose}>
+    <Sheet
+      title={`Merge ${pr.owner}/${pr.repo}#${pr.number}?`}
+      onClose={onClose}
+    >
       <p>
         <strong>{pr.title}</strong>
       </p>
@@ -1341,7 +1445,9 @@ function MergeSheet({
           </select>
         </label>
       ) : (
-        <p className="error">This repository allows no merge method Loop can use.</p>
+        <p className="error">
+          This repository allows no merge method Loop can use.
+        </p>
       )}
       <p className="field-hint">
         Merges commit <code>{pr.headSha.slice(0, 7)}</code> only, as @

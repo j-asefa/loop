@@ -19,12 +19,21 @@ export function NativeHistory({
   onClose: () => void;
   onOpen: (id: string) => void;
 }) {
-  const read = useProjectionRoute(), call = useSourceRoute();
-  const [data, setData] = useState<RouteResponse<typeof workspaceApi.nativeHistoryList>>({ managed: [], external: [], next: null }),
+  const read = useProjectionRoute(),
+    call = useSourceRoute();
+  const [data, setData] = useState<
+      RouteResponse<typeof workspaceApi.nativeHistoryList>
+    >({ managed: [], external: [], next: null }),
     [source, setSource] = useState<"managed" | "external">("managed"),
-    [selected, setSelected] = useState<(RouteResponse<typeof workspaceApi.nativeHistoryList>["external"][number] & { note: string })>(),
+    [selected, setSelected] = useState<
+      RouteResponse<
+        typeof workspaceApi.nativeHistoryList
+      >["external"][number] & { note: string }
+    >(),
     [activities, setActivities] = useState<ActivityRecord[]>([]),
-    [items, setItems] = useState<RouteResponse<typeof workspaceApi.nativeHistoryDetail>["items"]>([]),
+    [items, setItems] = useState<
+      RouteResponse<typeof workspaceApi.nativeHistoryDetail>["items"]
+    >([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const selection = useRef(0);
@@ -38,7 +47,9 @@ export function NativeHistory({
     setBusy(true);
     setError("");
     try {
-      const r = await read(workspaceApi.nativeHistoryList, { query: discover ? { discover: "1", cursor } : {} });
+      const r = await read(workspaceApi.nativeHistoryList, {
+        query: discover ? { discover: "1", cursor } : {},
+      });
       setData((old) => ({
         ...r,
         external: cursor ? [...old.external, ...r.external] : r.external,
@@ -54,9 +65,7 @@ export function NativeHistory({
   }, []);
   return (
     <Sheet title="Native conversations" onClose={onClose}>
-      <p className="settings-intro">
-        Threads that keep their harness context.
-      </p>
+      <p className="settings-intro">Threads that keep their harness context.</p>
       <SettingsSegmented
         label="History source"
         value={source}
@@ -118,13 +127,13 @@ export function NativeHistory({
                   setBusy(true);
                   setError("");
                   try {
-                    const r = await read(workspaceApi.nativeHistoryDetail, { params: { id: c.id } });
+                    const r = await read(workspaceApi.nativeHistoryDetail, {
+                      params: { id: c.id },
+                    });
                     if (ticket !== selection.current) return;
                     setSelected({ ...c, note: r.note });
                     setItems(r.items);
-                    setActivities(
-                      (r.activities || []).map(a => a.record),
-                    );
+                    setActivities((r.activities || []).map((a) => a.record));
                   } catch (e) {
                     if (ticket === selection.current)
                       setError((e as Error).message);
@@ -170,7 +179,10 @@ export function NativeHistory({
                 sessionStorage.setItem(key, commandId);
               }
               try {
-                const r = await call(workspaceApi.nativeHistoryFork, { params: { id: selected.id }, body: { commandId } });
+                const r = await call(workspaceApi.nativeHistoryFork, {
+                  params: { id: selected.id },
+                  body: { commandId },
+                });
                 sessionStorage.removeItem(key);
                 onOpen(r.id);
               } catch (e) {

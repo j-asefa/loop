@@ -9,23 +9,37 @@ const descendingId = (a: string, b: string) => (a === b ? 0 : a < b ? 1 : -1);
 export const feedItemOrder = (a: DonePosition, b: DonePosition) =>
   b.last_activity_at - a.last_activity_at ||
   descendingId(a.conversation_id, b.conversation_id) ||
-  descendingId(a.reply_card_key || a.done_card_key || "", b.reply_card_key || b.done_card_key || "");
+  descendingId(
+    a.reply_card_key || a.done_card_key || "",
+    b.reply_card_key || b.done_card_key || "",
+  );
 const key = (item: DonePosition) =>
-  JSON.stringify([item.conversation_id, item.reply_card_key ?? item.done_card_key ?? null]);
+  JSON.stringify([
+    item.conversation_id,
+    item.reply_card_key ?? item.done_card_key ?? null,
+  ]);
 type Page<T> = { items: T[]; next: string | null };
 
 /** Refresh the newest page and one page of loaded history per source. Each
  * page replaces only its covered interval; untouched history stays visible.
  * History reconciliation continues on subsequent refreshes, without an
  * unbounded request chain on every poll. */
-export async function refreshDonePage<T extends DonePosition, P extends Page<T>>(
+export async function refreshDonePage<
+  T extends DonePosition,
+  P extends Page<T>,
+>(
   read: (before?: string) => Promise<P>,
   previous: Page<T>,
   progress: DoneRefresh | undefined,
   current: () => boolean,
 ): Promise<{ page: P; progress?: DoneRefresh }> {
   const first = await read();
-  if (!current() || !previous.items.length || !first.next || !first.items.length)
+  if (
+    !current() ||
+    !previous.items.length ||
+    !first.next ||
+    !first.items.length
+  )
     return { page: first };
   const retained = [...previous.items].sort(feedItemOrder);
   const oldest = retained.at(-1)!;
@@ -33,8 +47,10 @@ export async function refreshDonePage<T extends DonePosition, P extends Page<T>>
   const apply = (page: P, after?: DonePosition, floor?: DonePosition) => {
     const last = page.items.at(-1);
     for (const [id, item] of items) {
-      if ((!after || feedItemOrder(item, after) > 0) &&
-          (!page.next || (last && feedItemOrder(item, last) <= 0)))
+      if (
+        (!after || feedItemOrder(item, after) > 0) &&
+        (!page.next || (last && feedItemOrder(item, last) <= 0))
+      )
         items.delete(id);
     }
     for (const item of page.items)
@@ -44,8 +60,11 @@ export async function refreshDonePage<T extends DonePosition, P extends Page<T>>
   const firstLast = first.items.at(-1)!;
   // Restart after a new front-page gap or removals that let the first page
   // reach the old floor. A stale history read must not erase that new page.
-  if (!progress || feedItemOrder(firstLast, retained[0]) < 0 ||
-      feedItemOrder(firstLast, oldest) >= 0)
+  if (
+    !progress ||
+    feedItemOrder(firstLast, retained[0]) < 0 ||
+    feedItemOrder(firstLast, oldest) >= 0
+  )
     progress = { before: first.next, after: firstLast };
   // The newest page can itself reach or extend a formerly exhausted window.
   // Its continuation must become visible even when no history read is needed.
@@ -62,9 +81,10 @@ export async function refreshDonePage<T extends DonePosition, P extends Page<T>>
     } else if (!history.next || (last && feedItemOrder(last, oldest) === 0)) {
       next = history.next;
     }
-    progress = history.next && last && feedItemOrder(last, oldest) < 0
-      ? { before: history.next, after: last }
-      : undefined;
+    progress =
+      history.next && last && feedItemOrder(last, oldest) < 0
+        ? { before: history.next, after: last }
+        : undefined;
   } else {
     progress = undefined;
   }

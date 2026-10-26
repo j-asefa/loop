@@ -39,7 +39,9 @@ const historyRoutes: [Exclude<ProjectHistory, "search">, string, ReactNode][] =
     ["unfinished", "Unfinished work", <CircleDashed size={16} key="u" />],
   ];
 
-type Summary = RouteResponse<typeof workspaceApi.projectSummaries>["items"][number];
+type Summary = RouteResponse<
+  typeof workspaceApi.projectSummaries
+>["items"][number];
 
 export function Projects({
   folders,
@@ -154,7 +156,11 @@ export function Projects({
   // Opening a project brings back anything snoozed "until I open this project".
   useEffect(() => {
     if (!selected) return;
-    void callRoute(workspaceApi.projectOpened, { params: { id: selected }, body: {} }, executionSourceId())
+    void callRoute(
+      workspaceApi.projectOpened,
+      { params: { id: selected }, body: {} },
+      executionSourceId(),
+    )
       .then((result) => {
         if (result?.surfaced)
           window.dispatchEvent(new Event("loop-later-change"));
@@ -502,14 +508,20 @@ export function ProjectSearchResults({
   onArtifact: (id: string) => void;
 }) {
   type SearchItem = RouteResponse<typeof workspaceApi.search>["items"][number];
-  const [result, setResult] = useState<RouteResponse<typeof workspaceApi.search> | null>(null);
+  const [result, setResult] = useState<RouteResponse<
+    typeof workspaceApi.search
+  > | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!query.trim()) return;
     let active = true;
     setResult(null);
     setError("");
-    callRoute(workspaceApi.search, { query: { q: query, scope: "all", project } }, executionSourceId())
+    callRoute(
+      workspaceApi.search,
+      { query: { q: query, scope: "all", project } },
+      executionSourceId(),
+    )
       .then((r) => active && setResult(r))
       .catch((e) => active && setError((e as Error).message));
     return () => {

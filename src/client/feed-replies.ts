@@ -1,4 +1,8 @@
-type ReplyPage = { items: unknown[]; next: string | null; summary: { replies_unread?: number } };
+type ReplyPage = {
+  items: unknown[];
+  next: string | null;
+  summary: { replies_unread?: number };
+};
 
 /** Confirm an older source through a successful ordinary Feed read. Auth,
  * outages and invalid pagination remain errors, never "no replies". Re-probe
@@ -20,5 +24,8 @@ export async function readReplyFeedPage<P extends ReplyPage>(
   const supported = typeof page.summary.replies_unread === "number";
   // Some old sources may accept an unknown filter and return ordinary output.
   // Only a source advertising Replies may supply cards for this tab.
-  return { page: supported ? page : { ...page, items: [], next: null }, supported };
+  return {
+    page: supported ? page : { ...page, items: [], next: null },
+    supported,
+  };
 }

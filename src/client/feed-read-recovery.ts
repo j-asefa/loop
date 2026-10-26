@@ -27,14 +27,18 @@ export class FeedReadRecovery<T> {
   read(
     source: string,
     page: string,
-    fetch: (signal: AbortSignal, onRetry: (error: unknown) => void) => Promise<T>,
+    fetch: (
+      signal: AbortSignal,
+      onRetry: (error: unknown) => void,
+    ) => Promise<T>,
     recovered: () => void,
   ): Promise<T> {
     if (this.generation !== viewGeneration()) {
       this.reset();
       this.generation = viewGeneration();
     }
-    const generation = this.generation, key = JSON.stringify([source, page]);
+    const generation = this.generation,
+      key = JSON.stringify([source, page]);
     const prior = this.pending.get(key);
     // Further notifications retain the source's error while the same recovery
     // is running. They cannot multiply retry loops or wait behind that loop.
@@ -45,13 +49,22 @@ export class FeedReadRecovery<T> {
       prior.reject(new DOMException("Superseded Feed read", "AbortError"));
     }
     let resolve!: (value: T) => void, reject!: (error: unknown) => void;
-    const delivery = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
-    const entry: Pending<T> = { source, controller: new AbortController(), reject, retrying: false };
+    const delivery = new Promise<T>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    const entry: Pending<T> = {
+      source,
+      controller: new AbortController(),
+      reject,
+      retrying: false,
+    };
     this.pending.set(key, entry);
-    const current = () => this.pending.get(key) === entry && generation === viewGeneration();
+    const current = () =>
+      this.pending.get(key) === entry && generation === viewGeneration();
     void (async () => {
       try {
-        const value = await fetch(entry.controller.signal, error => {
+        const value = await fetch(entry.controller.signal, (error) => {
           if (!current()) {
             entry.controller.abort();
             throw new DOMException("Obsolete Feed read", "AbortError");
@@ -60,7 +73,8 @@ export class FeedReadRecovery<T> {
           entry.error = error;
           reject(error);
         });
-        if (!current()) throw new DOMException("Obsolete Feed read", "AbortError");
+        if (!current())
+          throw new DOMException("Obsolete Feed read", "AbortError");
         this.pending.delete(key);
         if (entry.retrying) recovered();
         else resolve(value);

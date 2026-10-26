@@ -5,7 +5,9 @@ import { useSourceRoute, useSourceId } from "./SourceContext";
 import { PublishedFile } from "./PublishedFiles";
 import type { PersonalFilesPage } from "../shared/personal-files";
 
-type FileType = NonNullable<NonNullable<RouteInput<typeof workspaceApi.personalFiles>["query"]>["type"]>;
+type FileType = NonNullable<
+  NonNullable<RouteInput<typeof workspaceApi.personalFiles>["query"]>["type"]
+>;
 
 const empty: PersonalFilesPage = {
   items: [],
@@ -21,7 +23,12 @@ export function PersonalFiles({
   const call = useSourceRoute();
   const source = useSourceId();
   const [search, setSearch] = useState("");
-  const [query, setQuery] = useState<{ q: string; agent: string; project: string; type: FileType }>({
+  const [query, setQuery] = useState<{
+    q: string;
+    agent: string;
+    project: string;
+    type: FileType;
+  }>({
     q: "",
     agent: "",
     project: "",
@@ -76,10 +83,19 @@ export function PersonalFiles({
       let reads = 0;
       try {
         do {
-          result = await call(workspaceApi.personalFiles, {
-            query: { ...query, q: query.q || undefined, agent: query.agent || undefined,
-              project: query.project || undefined, before: cursor ? String(cursor) : undefined },
-          }, controller.signal);
+          result = await call(
+            workspaceApi.personalFiles,
+            {
+              query: {
+                ...query,
+                q: query.q || undefined,
+                agent: query.agent || undefined,
+                project: query.project || undefined,
+                before: cursor ? String(cursor) : undefined,
+              },
+            },
+            controller.signal,
+          );
           if (controller.signal.aborted) return;
           reads++;
           if (cursor && result.next && result.next >= cursor)
@@ -144,9 +160,10 @@ export function PersonalFiles({
   }, [call, query, source]);
   function filter(key: "agent" | "project" | "type", value: string) {
     if (key === "type") {
-      const parsed = workspaceApi.personalFiles.query.shape.type.safeParse(value);
-      if (parsed.success) setQuery(old => ({ ...old, type: parsed.data }));
-    } else setQuery(old => ({ ...old, [key]: value }));
+      const parsed =
+        workspaceApi.personalFiles.query.shape.type.safeParse(value);
+      if (parsed.success) setQuery((old) => ({ ...old, type: parsed.data }));
+    } else setQuery((old) => ({ ...old, [key]: value }));
   }
   return (
     <section className="personal-files" aria-label="Your files">

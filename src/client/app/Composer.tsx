@@ -1,12 +1,26 @@
 import {
-  useEffect, useLayoutEffect, useRef,
-  type Dispatch, type RefObject, type SetStateAction,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
 } from "react";
 import {
-  ArrowUp, ArrowUpRight, X, Plus, ChevronDown,
-  Reply as ReplyIcon, Clock3, AlarmClock, SlidersHorizontal,
+  ArrowUp,
+  ArrowUpRight,
+  X,
+  Plus,
+  ChevronDown,
+  Reply as ReplyIcon,
+  Clock3,
+  AlarmClock,
+  SlidersHorizontal,
 } from "lucide-react";
-import { workspaceApi, type Bootstrap as BootstrapResponse } from "../../shared/workspace-api";
+import {
+  workspaceApi,
+  type Bootstrap as BootstrapResponse,
+} from "../../shared/workspace-api";
 import type { Agent, Artifact, RunView as Run } from "../../shared/types";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
 import { api, parse } from "../api";
@@ -23,15 +37,24 @@ import { ActionSheet, type useLongPress } from "../ThreadTools";
 import { agentModelName, effortName } from "../modelChoices";
 import { notify } from "../toast";
 import {
-  GLOBAL_DRAFT, saveThreadDraft as writeThreadDraft, clearAcceptedDraft,
+  GLOBAL_DRAFT,
+  saveThreadDraft as writeThreadDraft,
+  clearAcceptedDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
 import {
-  omitsReplyTarget, planSend, settleFailure, settleStoredSend,
+  omitsReplyTarget,
+  planSend,
+  settleFailure,
+  settleStoredSend,
   type SendReceipt,
 } from "../sendIntent";
 import {
-  dayLabel, laterChoices, localInputValue, preview, timeLabel,
+  dayLabel,
+  laterChoices,
+  localInputValue,
+  preview,
+  timeLabel,
 } from "../threadView";
 
 type SendNotice = {
@@ -121,8 +144,17 @@ type ComposerProps = {
   changed(): Promise<void>;
   refresh(): Promise<void>;
   withdrawToComposer(runId: string): Promise<unknown>;
-  saveThreadDraft(id: string, text: string, files: UploadedFile[], owner?: string): void;
-  openSourceLater(section: "scheduled" | "reminders", focusId: string | undefined, source: string): void;
+  saveThreadDraft(
+    id: string,
+    text: string,
+    files: UploadedFile[],
+    owner?: string,
+  ): void;
+  openSourceLater(
+    section: "scheduled" | "reminders",
+    focusId: string | undefined,
+    source: string,
+  ): void;
   collapseComposer(): void;
   focusComposer(): void;
   send(options?: { queue?: boolean; sendAt?: number }): Promise<void>;
@@ -160,10 +192,18 @@ export function useComposerDraft({
   attachments,
 }: Pick<
   ComposerProps,
-  | "draftId" | "conversation" | "session"
-  | "draftRef" | "attachmentsRef" | "setDraft"
-  | "setAttachments" | "setComposerExpanded" | "setComposerError"
-  | "setBusy" | "setUploading" | "draft"
+  | "draftId"
+  | "conversation"
+  | "session"
+  | "draftRef"
+  | "attachmentsRef"
+  | "setDraft"
+  | "setAttachments"
+  | "setComposerExpanded"
+  | "setComposerError"
+  | "setBusy"
+  | "setUploading"
+  | "draft"
   | "attachments"
 >) {
   // Each thread keeps its own unsent draft (and the global composer keeps its
@@ -218,7 +258,8 @@ export function useComposerDraft({
       text: draft,
       files: attachments,
       timer: setTimeout(() => {
-        if (pendingDraftSave.current === pending) pendingDraftSave.current = null;
+        if (pendingDraftSave.current === pending)
+          pendingDraftSave.current = null;
         writeThreadDraft(draftKey, draft, attachments, owner);
       }, 400),
     };
@@ -308,25 +349,63 @@ export function useComposerSend({
   setDismissNotice,
 }: Pick<
   ComposerProps,
-  | "busy" | "uploading" | "draft"
-  | "conversation" | "conversationTarget" | "viewIdentity"
-  | "threadIdentityRef" | "threadIdentity" | "composerIdentityRef"
-  | "draftRef" | "attachmentsRef" | "attachments"
-  | "setNewAgentPrompt" | "setFolder" | "projectFilter"
-  | "project" | "setSheet" | "replyContext" | "replyQuoted"
-  | "contextArtifact" | "setError" | "threadApi"
-  | "setFilingResult" | "setFiling" | "setDraft"
-  | "changed" | "selected" | "routePreview"
-  | "folder" | "setBusy" | "setRoutePreview"
-  | "activeAgent" | "setComposerError" | "ownerRef"
-  | "composerData" | "profile" | "teamSelection"
-  | "folderChoice" | "draftId" | "request"
-  | "receiptStorageKey" | "pendingDraftSave" | "draftKey"
-  | "openSourceLater" | "actionSource" | "setAttachments"
-  | "setReplyContext" | "collapseComposer" | "runsGeneration"
-  | "setRuns" | "setSendNotice" | "saveThreadDraft"
-  | "setContextArtifact" | "withdrawToComposer" | "refresh"
-  | "setThreadNotice" | "setDismissNotice"
+  | "busy"
+  | "uploading"
+  | "draft"
+  | "conversation"
+  | "conversationTarget"
+  | "viewIdentity"
+  | "threadIdentityRef"
+  | "threadIdentity"
+  | "composerIdentityRef"
+  | "draftRef"
+  | "attachmentsRef"
+  | "attachments"
+  | "setNewAgentPrompt"
+  | "setFolder"
+  | "projectFilter"
+  | "project"
+  | "setSheet"
+  | "replyContext"
+  | "replyQuoted"
+  | "contextArtifact"
+  | "setError"
+  | "threadApi"
+  | "setFilingResult"
+  | "setFiling"
+  | "setDraft"
+  | "changed"
+  | "selected"
+  | "routePreview"
+  | "folder"
+  | "setBusy"
+  | "setRoutePreview"
+  | "activeAgent"
+  | "setComposerError"
+  | "ownerRef"
+  | "composerData"
+  | "profile"
+  | "teamSelection"
+  | "folderChoice"
+  | "draftId"
+  | "request"
+  | "receiptStorageKey"
+  | "pendingDraftSave"
+  | "draftKey"
+  | "openSourceLater"
+  | "actionSource"
+  | "setAttachments"
+  | "setReplyContext"
+  | "collapseComposer"
+  | "runsGeneration"
+  | "setRuns"
+  | "setSendNotice"
+  | "saveThreadDraft"
+  | "setContextArtifact"
+  | "withdrawToComposer"
+  | "refresh"
+  | "setThreadNotice"
+  | "setDismissNotice"
 >) {
   async function send(options: { queue?: boolean; sendAt?: number } = {}) {
     if (
@@ -586,10 +665,16 @@ export function useComposerSend({
         if (!conversation) collapseComposer();
         return;
       }
-      const accepted = await callRoute(workspaceApi.submit, { body: {
-        ...body,
-        ...(options.queue ? { queue: true } : {}),
-      } }, actionSource);
+      const accepted = await callRoute(
+        workspaceApi.submit,
+        {
+          body: {
+            ...body,
+            ...(options.queue ? { queue: true } : {}),
+          },
+        },
+        actionSource,
+      );
       settleAccepted();
       if (owner !== ownerRef.current) return;
       try {
@@ -745,25 +830,61 @@ export function renderComposer({
   setThreadNotice,
 }: Pick<
   ComposerProps,
-  | "replyContext" | "replyQuoted" | "contextArtifact" | "conversation"
-  | "threadMode" | "selected" | "routePreview"
-  | "busy" | "uploading" | "draft"
-  | "activeAgent" | "conversationTarget" | "send"
-  | "sendPress" | "composerData" | "availableAgents"
-  | "composerRef" | "composerExpanded" | "sendNotice"
+  | "replyContext"
+  | "replyQuoted"
+  | "contextArtifact"
+  | "conversation"
+  | "threadMode"
+  | "selected"
+  | "routePreview"
+  | "busy"
+  | "uploading"
+  | "draft"
+  | "activeAgent"
+  | "conversationTarget"
+  | "send"
+  | "sendPress"
+  | "composerData"
+  | "availableAgents"
+  | "composerRef"
+  | "composerExpanded"
+  | "sendNotice"
   | "workspaceReady"
-  | "composerOptions" | "setComposerOptions" | "startChat"
-  | "sentRun" | "setSelected" | "setConversation"
-  | "setSendNotice" | "attachments" | "session"
-  | "setContextArtifact" | "setFolderChoice" | "setFolder"
-  | "focusComposer" | "destination" | "data"
-  | "setReplyContext" | "collapseComposer" | "steersActive"
-  | "setDraft" | "setComposerExpanded" | "setAttachments"
-  | "composerError" | "setComposerError" | "folderChoice"
-  | "threadIdentity" | "setUploading" | "viewIdentity"
-  | "threadIdentityRef" | "attachmentsRef" | "setSheet"
-  | "setModelAgent" | "setSendMenu" | "threadWork"
-  | "threadNotice" | "setThreadNotice"
+  | "composerOptions"
+  | "setComposerOptions"
+  | "startChat"
+  | "sentRun"
+  | "setSelected"
+  | "setConversation"
+  | "setSendNotice"
+  | "attachments"
+  | "session"
+  | "setContextArtifact"
+  | "setFolderChoice"
+  | "setFolder"
+  | "focusComposer"
+  | "destination"
+  | "data"
+  | "setReplyContext"
+  | "collapseComposer"
+  | "steersActive"
+  | "setDraft"
+  | "setComposerExpanded"
+  | "setAttachments"
+  | "composerError"
+  | "setComposerError"
+  | "folderChoice"
+  | "threadIdentity"
+  | "setUploading"
+  | "viewIdentity"
+  | "threadIdentityRef"
+  | "attachmentsRef"
+  | "setSheet"
+  | "setModelAgent"
+  | "setSendMenu"
+  | "threadWork"
+  | "threadNotice"
+  | "setThreadNotice"
 >) {
   // Undecided shows the quote: a send before the thread's fresh snapshot
   // keeps the reference, so the composer shows what will be sent.
@@ -857,7 +978,9 @@ export function renderComposer({
                   const last = localStorage.getItem(
                     `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
                   );
-                  const agent = availableAgents.find((agent) => agent.id === last);
+                  const agent = availableAgents.find(
+                    (agent) => agent.id === last,
+                  );
                   if (agent) {
                     setSelected(agent.id);
                     setContextArtifact(null);
@@ -1226,10 +1349,18 @@ export function renderComposerSendSheets({
   setComposerError,
 }: Pick<
   ComposerProps,
-  | "sendMenu" | "setSendMenu" | "threadMode"
-  | "threadWork" | "destination" | "send"
-  | "steersActive" | "setScheduleAt" | "scheduleAt"
-  | "draft" | "busy" | "setComposerError"
+  | "sendMenu"
+  | "setSendMenu"
+  | "threadMode"
+  | "threadWork"
+  | "destination"
+  | "send"
+  | "steersActive"
+  | "setScheduleAt"
+  | "scheduleAt"
+  | "draft"
+  | "busy"
+  | "setComposerError"
 >) {
   return (
     <>

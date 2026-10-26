@@ -69,8 +69,7 @@ export function reactiveSource(source: string, surface: ReactiveSurface) {
     capabilities.invalidations === "complete" &&
     capabilities.deadlines &&
     (surface === "workspace"
-      ? capabilities.transcript === "delta" &&
-        capabilities.results === "delta"
+      ? capabilities.transcript === "delta" && capabilities.results === "delta"
       : capabilities[surface] === "delta")
   );
 }

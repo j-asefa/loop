@@ -346,7 +346,9 @@ export function MemoryUsed({ runId }: { runId: string }) {
   );
 }
 export function NativeConversation({ id }: { id: string }) {
-  const api = useSourceApi(), read = useProjectionRead(), sourceId = useSourceId();
+  const api = useSourceApi(),
+    read = useProjectionRead(),
+    sourceId = useSourceId();
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [include, setInclude] = useState(true);
@@ -361,7 +363,10 @@ export function NativeConversation({ id }: { id: string }) {
     const stopChanges = listenWorkspaceChanges("metadata", load, sourceId);
     const stopFallback = surfaceFallback([sourceId], "workspace", 4000, load);
     void load();
-    return () => { stopChanges(); stopFallback(); };
+    return () => {
+      stopChanges();
+      stopFallback();
+    };
   }, [id, sourceId, read]);
   if (!data) return null;
   return (

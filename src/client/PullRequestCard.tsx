@@ -34,10 +34,13 @@ export function useWatchState(conversation: string | null | undefined) {
   const read = useProjectionRead();
   const sourceId = useSourceId();
   const [watches, setWatches] = useState<Watch[]>([]);
-  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">(
+    "loading",
+  );
   useEffect(() => {
     if (!conversation) return;
-    let live = true, latest = 0;
+    let live = true,
+      latest = 0;
     const load = () => {
       const request = ++latest;
       return read<{ watches: Watch[] }>(
@@ -52,7 +55,12 @@ export function useWatchState(conversation: string | null | undefined) {
     };
     void load();
     window.addEventListener(WATCH_CHANGE, load);
-    const stopChanges = listenWorkspaceChanges("pulls", load, sourceId, conversation ?? undefined);
+    const stopChanges = listenWorkspaceChanges(
+      "pulls",
+      load,
+      sourceId,
+      conversation ?? undefined,
+    );
     const stopFallback = surfaceFallback([sourceId], "workspace", 60_000, load);
     return () => {
       live = false;
@@ -264,11 +272,7 @@ export function PullRequestCards({
     <div className="pr-cards">
       <ul>
         {shown.map((pr) => (
-          <PullRequestRow
-            key={pr.url}
-            pr={pr}
-            watch={watchFor(pr)}
-          />
+          <PullRequestRow key={pr.url} pr={pr} watch={watchFor(pr)} />
         ))}
       </ul>
       <p className="pr-card-note">

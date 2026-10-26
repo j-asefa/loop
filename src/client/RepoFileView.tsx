@@ -6,10 +6,7 @@ import { authorizedFetch } from "./api";
 import { sourceApiPath } from "./sourceRouting";
 import { Sheet } from "./components";
 import type { PullRequestRef } from "../shared/github";
-import {
-  repoFileKind,
-  resolveRepoPath,
-} from "../shared/pull-requests";
+import { repoFileKind, resolveRepoPath } from "../shared/pull-requests";
 
 // A file from a pull request as it is at the head commit, shown the way
 // GitHub shows it: Markdown rendered, images and video displayed, other text
@@ -17,11 +14,14 @@ import {
 // its inline HTML are sanitized, and only files from the same commit load.
 
 const TEXT_CHARS = 400_000;
-const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+const encodePath = (path: string) =>
+  path.split("/").map(encodeURIComponent).join("/");
 
 /** The Loop address of a file at a commit, for fetch, <img> and <video>. */
 export const repoFileUrl = (ref: PullRequestRef, head: string, path: string) =>
-  sourceApiPath(`/api/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}/file?head=${head}&path=${encodeURIComponent(path)}`);
+  sourceApiPath(
+    `/api/github/pulls/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/${ref.number}/file?head=${head}&path=${encodeURIComponent(path)}`,
+  );
 
 const githubBlob = (ref: PullRequestRef, head: string, path: string) =>
   `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/blob/${head}/${encodePath(path)}`;
@@ -29,16 +29,76 @@ const githubBlob = (ref: PullRequestRef, head: string, path: string) =>
 // Roughly the HTML GitHub keeps in rendered Markdown: no scripts, styles,
 // forms, frames or event handlers.
 const ALLOWED_TAGS = [
-  "a", "abbr", "b", "blockquote", "br", "caption", "code", "dd", "del",
-  "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6",
-  "hr", "i", "img", "input", "ins", "kbd", "li", "ol", "p", "picture", "pre",
-  "q", "s", "samp", "small", "source", "span", "strike", "strong", "sub",
-  "summary", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr",
-  "tt", "ul", "var", "video",
+  "a",
+  "abbr",
+  "b",
+  "blockquote",
+  "br",
+  "caption",
+  "code",
+  "dd",
+  "del",
+  "details",
+  "div",
+  "dl",
+  "dt",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "hr",
+  "i",
+  "img",
+  "input",
+  "ins",
+  "kbd",
+  "li",
+  "ol",
+  "p",
+  "picture",
+  "pre",
+  "q",
+  "s",
+  "samp",
+  "small",
+  "source",
+  "span",
+  "strike",
+  "strong",
+  "sub",
+  "summary",
+  "sup",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "tt",
+  "ul",
+  "var",
+  "video",
 ];
 const ALLOWED_ATTR = [
-  "align", "alt", "checked", "colspan", "controls", "disabled", "height",
-  "href", "open", "rowspan", "src", "start", "title", "type", "width",
+  "align",
+  "alt",
+  "checked",
+  "colspan",
+  "controls",
+  "disabled",
+  "height",
+  "href",
+  "open",
+  "rowspan",
+  "src",
+  "start",
+  "title",
+  "type",
+  "width",
 ];
 // A separate instance, so these rules never reach the app's other sanitizing.
 // Made on first use: server-side renders have no window.
@@ -166,7 +226,12 @@ function scrollToAnchor(root: HTMLElement | null, hash: string) {
 function Code({ text }: { text: string }) {
   const lines = text.replace(/\n$/, "").split("\n");
   return (
-    <div className="repo-file-code" role="region" aria-label="File contents" tabIndex={0}>
+    <div
+      className="repo-file-code"
+      role="region"
+      aria-label="File contents"
+      tabIndex={0}
+    >
       <pre>
         {lines.map((line, i) => (
           <span key={i} className="repo-file-line">
@@ -219,7 +284,9 @@ export function RepoFileSheet({
       .then(async (response) => {
         if (!response.ok) {
           const error = await response.json().catch(() => null);
-          throw new Error(error?.error || "Couldn’t read this file from GitHub.");
+          throw new Error(
+            error?.error || "Couldn’t read this file from GitHub.",
+          );
         }
         if (!response.headers.get("content-type")?.startsWith("text/"))
           return { state: "binary" } as const;
@@ -254,12 +321,7 @@ export function RepoFileSheet({
   const name = path.slice(path.lastIndexOf("/") + 1);
   const folder = path.slice(0, path.length - name.length);
   return (
-    <Sheet
-      title={name}
-      wide
-      onClose={onClose}
-      className="repo-file-sheet"
-    >
+    <Sheet title={name} wide onClose={onClose} className="repo-file-sheet">
       <div className="repo-file-head">
         {trail.length > 1 && (
           <button

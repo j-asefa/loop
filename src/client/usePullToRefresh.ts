@@ -6,7 +6,9 @@ const TRIGGER = 64;
 
 function ownsVerticalGesture(target: Element) {
   // Sheets, fields and inner scrollers keep their own vertical scrolling.
-  if (target.closest("dialog[open],input,textarea,select,[contenteditable=true]"))
+  if (
+    target.closest("dialog[open],input,textarea,select,[contenteditable=true]")
+  )
     return true;
   for (
     let element: Element | null = target;

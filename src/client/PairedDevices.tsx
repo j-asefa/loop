@@ -6,7 +6,8 @@ import { Sheet } from "./components";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 export function PairedDevices({ onClose }: { onClose: () => void }) {
   const read = useProjectionRoute();
-  const [workspace, setWorkspace] = useState<RouteResponse<typeof workspaceApi.workspace>>(),
+  const [workspace, setWorkspace] =
+      useState<RouteResponse<typeof workspaceApi.workspace>>(),
     [devices, setDevices] = useState<any[]>([]),
     [error, setError] = useState("");
   async function load() {

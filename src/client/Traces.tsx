@@ -105,7 +105,14 @@ function TraceList({
     if (moreBusy) return;
     let current = true;
     const request = new AbortController();
-    void route(workspaceApi.agentTraces, { params: { id: agentId }, query: { run: runId || undefined, q: query || undefined } }, request.signal)
+    void route(
+      workspaceApi.agentTraces,
+      {
+        params: { id: agentId },
+        query: { run: runId || undefined, q: query || undefined },
+      },
+      request.signal,
+    )
       .then((page) => {
         if (!current) return;
         merge(page, true);
@@ -126,7 +133,14 @@ function TraceList({
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
-      const page = await route(workspaceApi.agentTraces, { params: { id: agentId }, query: { before: String(next), run: runId || undefined, q: query || undefined } });
+      const page = await route(workspaceApi.agentTraces, {
+        params: { id: agentId },
+        query: {
+          before: String(next),
+          run: runId || undefined,
+          q: query || undefined,
+        },
+      });
       merge(page);
       setError("");
     } catch (e) {
@@ -139,7 +153,10 @@ function TraceList({
     saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
   const downloadRun = async (id: string) => {
     try {
-      const file = await route(workspaceApi.agentTracesExport, { params: { id: agentId }, query: { run: id } });
+      const file = await route(workspaceApi.agentTracesExport, {
+        params: { id: agentId },
+        query: { run: id },
+      });
       saveJson(`loop-run-${id}-traces.json`, JSON.parse(await file.text()));
     } catch (e) {
       setError((e as Error).message);
@@ -274,7 +291,11 @@ function TraceList({
                       {item.kind === "message" ? (
                         <RichText content={item.content} />
                       ) : (
-                        <pre className="trace-log">{item.trace_key === "run:failure" ? runErrorText(item.content) : item.content}</pre>
+                        <pre className="trace-log">
+                          {item.trace_key === "run:failure"
+                            ? runErrorText(item.content)
+                            : item.content}
+                        </pre>
                       )}
                     </details>
                   )}
@@ -296,7 +317,11 @@ function TraceList({
                           if (!artifactId) return;
                           try {
                             onArtifact(
-                              await callRoute(workspaceApi.artifactDetail, { params: { id: artifactId } }, executionSourceId()),
+                              await callRoute(
+                                workspaceApi.artifactDetail,
+                                { params: { id: artifactId } },
+                                executionSourceId(),
+                              ),
                             );
                           } catch (e) {
                             setError((e as Error).message);

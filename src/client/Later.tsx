@@ -14,7 +14,11 @@ import {
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
-import { useSourceId, useProjectionRoute, useSourceRoute } from "./SourceContext";
+import {
+  useSourceId,
+  useProjectionRoute,
+  useSourceRoute,
+} from "./SourceContext";
 import { useCards } from "./useCards";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact, cardMessage } from "./card-actions";
@@ -191,7 +195,9 @@ function LabelSheet({
           setBusy(true);
           setError("");
           try {
-            const saved = await call(workspaceApi.savedLabel, { body: { key: item.key, label } });
+            const saved = await call(workspaceApi.savedLabel, {
+              body: { key: item.key, label },
+            });
             if (!current()) return;
             onSaved(saved.label);
             onClose();
@@ -332,13 +338,21 @@ function SavedCollection({
           if (item.card.type === "message") {
             const messageId = item.card.source.message_id;
             if (!messageId) throw new Error("Saved message is unavailable.");
-            await call(workspaceApi.messageUnsave, { params: { id: messageId }, body: undefined });
+            await call(workspaceApi.messageUnsave, {
+              params: { id: messageId },
+              body: undefined,
+            });
           } else {
             const artifactId = item.card.source.artifact_id;
             if (!artifactId) throw new Error("Saved result is unavailable.");
-            const current = await call(workspaceApi.artifactDetail, { params: { id: artifactId } });
+            const current = await call(workspaceApi.artifactDetail, {
+              params: { id: artifactId },
+            });
             if (viewOwner() !== owner) return;
-            await call(workspaceApi.artifactUpdate, { params: { id: current.id }, body: { pinned: false, version: current.version } });
+            await call(workspaceApi.artifactUpdate, {
+              params: { id: current.id },
+              body: { pinned: false, version: current.version },
+            });
           }
           pending.current.delete(item.card.id);
           if (alive.current) await currentLoad.current();
@@ -558,13 +572,20 @@ export function Later({
     const update = () => void load();
     window.addEventListener("loop-later-change", update);
     window.addEventListener("loop-scheduled-change", update);
-    const stopFallback = surfaceFallback([sourceId], "workspace", 30_000, update);
+    const stopFallback = surfaceFallback(
+      [sourceId],
+      "workspace",
+      30_000,
+      update,
+    );
     const stopChanges = listenWorkspaceChanges("later", update, sourceId);
     const stopScheduled = listenWorkspaceChanges("scheduled", update, sourceId);
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-scheduled-change", update);
-      stopFallback(); stopChanges(); stopScheduled();
+      stopFallback();
+      stopChanges();
+      stopScheduled();
     };
   }, [revision, sourceId, read]);
   useEffect(() => {
@@ -583,13 +604,21 @@ export function Later({
   }
   async function done(item: LaterView, due: boolean) {
     try {
-      await callRoute(workspaceApi.laterFinish, { params: { id: item.id }, body: undefined }, executionSourceId());
+      await callRoute(
+        workspaceApi.laterFinish,
+        { params: { id: item.id }, body: undefined },
+        executionSourceId(),
+      );
       window.dispatchEvent(new Event("loop-later-change"));
       // Undo reopens this same reminder: Done is a state, not a deletion.
       notify({
         text: due ? "Marked done." : "Reminder cancelled.",
         undo: async () => {
-          await callRoute(workspaceApi.laterReopen, { params: { id: item.id }, body: {} }, executionSourceId());
+          await callRoute(
+            workspaceApi.laterReopen,
+            { params: { id: item.id }, body: {} },
+            executionSourceId(),
+          );
           window.dispatchEvent(new Event("loop-later-change"));
         },
       });

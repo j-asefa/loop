@@ -44,7 +44,8 @@ export function latestAgentMessageId(
       latest = { id: message.id, cursor: message.cursor };
   return latest?.id ?? null;
 }
-const compare = (a: Cursor, b: Cursor) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+const compare = (a: Cursor, b: Cursor) =>
+  a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 
 /**
  * Whether a reply quotes the message it answers. A reply to the agent's

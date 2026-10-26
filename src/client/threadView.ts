@@ -76,7 +76,8 @@ export function runTiming(
   return `${started} · last update ${relativeTime(run.updated_at, now).toLowerCase()}`;
 }
 
-export type RunTone = "needs" | "working" | "queued" | "done" | "failed" | "idle";
+export type RunTone =
+  "needs" | "working" | "queued" | "done" | "failed" | "idle";
 
 /** One status vocabulary for Feed rows, thread headers and run cards. */
 export function runStatus(
@@ -186,12 +187,34 @@ export function laterChoices(
     { id: "hour", label: "In an hour", condition: "time", dueAt: now + HOUR },
   ];
   if (tonight - now > HOUR)
-    choices.push({ id: "tonight", label: "This evening", hint: timeLabel(tonight), condition: "time", dueAt: tonight });
-  choices.push({ id: "tomorrow", label: "Tomorrow morning", hint: timeLabel(tomorrow), condition: "time", dueAt: tomorrow });
+    choices.push({
+      id: "tonight",
+      label: "This evening",
+      hint: timeLabel(tonight),
+      condition: "time",
+      dueAt: tonight,
+    });
+  choices.push({
+    id: "tomorrow",
+    label: "Tomorrow morning",
+    hint: timeLabel(tomorrow),
+    condition: "time",
+    dueAt: tomorrow,
+  });
   if (monday - tomorrow > DAY)
-    choices.push({ id: "monday", label: "Next week", hint: dayLabel(monday, now), condition: "time", dueAt: monday });
+    choices.push({
+      id: "monday",
+      label: "Next week",
+      hint: dayLabel(monday, now),
+      condition: "time",
+      dueAt: monday,
+    });
   if (options.running)
-    choices.push({ id: "finished", label: "When the agent finishes", condition: "run_finished" });
+    choices.push({
+      id: "finished",
+      label: "When the agent finishes",
+      condition: "run_finished",
+    });
   if (options.project)
     choices.push({
       id: "project",
@@ -242,7 +265,10 @@ export type FeedNextAction = {
  * The approval label never claims a decision was made.
  */
 export function feedNextAction(
-  server: { kind: "approve" | "answer" | "result"; message_id: string | null } | null | undefined,
+  server:
+    | { kind: "approve" | "answer" | "result"; message_id: string | null }
+    | null
+    | undefined,
   draft: string,
 ): FeedNextAction | null {
   const label = {
@@ -252,9 +278,19 @@ export function feedNextAction(
     draft: "Continue draft",
   };
   if (server && server.kind !== "result")
-    return { kind: server.kind, label: label[server.kind], message_id: server.message_id };
-  if (draft.trim()) return { kind: "draft", label: label.draft, message_id: null };
-  if (server) return { kind: "result", label: label.result, message_id: server.message_id };
+    return {
+      kind: server.kind,
+      label: label[server.kind],
+      message_id: server.message_id,
+    };
+  if (draft.trim())
+    return { kind: "draft", label: label.draft, message_id: null };
+  if (server)
+    return {
+      kind: "result",
+      label: label.result,
+      message_id: server.message_id,
+    };
   return null;
 }
 
@@ -274,10 +310,20 @@ export function feedReplyQuote(item: {
   reply_card_key?: string;
   agent_id: string | null;
   origin: string;
-  last_message: { id: string; role: string; content?: string; preview: string } | null;
+  last_message: {
+    id: string;
+    role: string;
+    content?: string;
+    preview: string;
+  } | null;
 }): FeedReplyQuote | null {
   const message = item.last_message;
-  if ((!item.done_card_key && !item.reply_card_key) || !item.agent_id || item.origin.endsWith("-import") || !message)
+  if (
+    (!item.done_card_key && !item.reply_card_key) ||
+    !item.agent_id ||
+    item.origin.endsWith("-import") ||
+    !message
+  )
     return null;
   if (!["assistant", "user"].includes(message.role)) return null;
   const content = message.content ?? message.preview;

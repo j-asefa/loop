@@ -156,7 +156,11 @@ async function readJson(path: string): Promise<unknown> {
 export function processState(r: Recorded): "running" | "exited" | "unknown" {
   if (!alive(r.pid)) return "exited";
   const state = processIdentityState(r.pid, r.identity);
-  return state === "same" ? "running" : state === "different" ? "exited" : "unknown";
+  return state === "same"
+    ? "running"
+    : state === "different"
+      ? "exited"
+      : "unknown";
 }
 
 /**
@@ -182,18 +186,20 @@ export async function recordedWorkspace(dir: string) {
 export function groupMembers(pgid: number): number[] {
   if (process.platform !== "linux") {
     try {
-      return execFileSync("ps", ["-A", "-o", "pid=,pgid="], {
-        encoding: "utf8",
-        timeout: 3000,
-      })
-        .trim()
-        .split("\n")
-        .map((line) => line.trim().split(/\s+/).map(Number))
-        .filter(([, group]) => group === pgid)
-        .map(([pid]) => pid)
-        // When inspecting our own group, ps itself appears in its output
-        // but has exited by the time execFileSync returns.
-        .filter(alive);
+      return (
+        execFileSync("ps", ["-A", "-o", "pid=,pgid="], {
+          encoding: "utf8",
+          timeout: 3000,
+        })
+          .trim()
+          .split("\n")
+          .map((line) => line.trim().split(/\s+/).map(Number))
+          .filter(([, group]) => group === pgid)
+          .map(([pid]) => pid)
+          // When inspecting our own group, ps itself appears in its output
+          // but has exited by the time execFileSync returns.
+          .filter(alive)
+      );
     } catch {
       return [];
     }
@@ -224,8 +230,12 @@ export function groupAlive(pgid: number) {
  * A different readable identity proves that this record's old group is gone;
  * the replacement group must neither block recovery nor receive its signals. */
 export function recordedGroupAlive(record: Recorded) {
-  if ((process.platform === "linux" || process.platform === "darwin") && record.identity) {
-    if (processIdentityState(record.pid, record.identity) === "different") return false;
+  if (
+    (process.platform === "linux" || process.platform === "darwin") &&
+    record.identity
+  ) {
+    if (processIdentityState(record.pid, record.identity) === "different")
+      return false;
   }
   return groupAlive(record.pid);
 }
@@ -272,7 +282,9 @@ export async function terminateWorkspace(
           // Read the identity, then check the PID is still in the group, so a
           // PID recycled in between isn't recorded as ours.
           const id = identity(pid);
-          return id && !children.some((c) => c.pid === pid && c.identity === id) && groupMembers(t.pid).includes(pid)
+          return id &&
+            !children.some((c) => c.pid === pid && c.identity === id) &&
+            groupMembers(t.pid).includes(pid)
             ? [{ pid, identity: id }]
             : [];
         }),
@@ -322,11 +334,15 @@ const STOP_RECORDS = "stop-records.json";
 async function readRecords(path: string) {
   try {
     const recorded: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!Array.isArray(recorded) || !recorded.every(valid)) throw new Error("Invalid process record");
+    if (!Array.isArray(recorded) || !recorded.every(valid))
+      throw new Error("Invalid process record");
     return recorded as Recorded[];
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw new Error(`Process records are unreadable at ${path}. Preserve the file and inspect it before stopping or restarting.`, { cause: error });
+    throw new Error(
+      `Process records are unreadable at ${path}. Preserve the file and inspect it before stopping or restarting.`,
+      { cause: error },
+    );
   }
 }
 /** The workspace's recorded native processes plus any a stop still owes. */
@@ -340,7 +356,7 @@ export async function recordedChildren(dir: string) {
     ...(await readRecords(join(dir, "execution", STOP_RECORDS))),
   ];
   const seen = new Set<string>();
-  return all.filter(record => {
+  return all.filter((record) => {
     // Different lifetimes can share a PID. Retaining the stale identity must
     // never hide a current process recorded by the execution owner.
     const key = JSON.stringify([record.pid, record.identity]);
@@ -364,11 +380,22 @@ export async function forgetWorkspace(dir: string) {
   // Revalidate after shutdown: a writer may have updated its registry while
   // the first stop attempt was waiting. Never erase new or malformed evidence.
   const records = await recordedChildren(dir);
-  if (records.some(record => processState(record) !== "exited" || recordedGroupAlive(record)))
-    throw new Error("Recorded processes remain unconfirmed. Their records were kept; run loop stop again.");
+  if (
+    records.some(
+      (record) =>
+        processState(record) !== "exited" || recordedGroupAlive(record),
+    )
+  )
+    throw new Error(
+      "Recorded processes remain unconfirmed. Their records were kept; run loop stop again.",
+    );
   await Promise.all(
-    ["control.json", "children.json", STOP_RECORDS, "execution/children.json", "execution/" + STOP_RECORDS].map((f) =>
-      rm(join(dir, f), { force: true }),
-    ),
+    [
+      "control.json",
+      "children.json",
+      STOP_RECORDS,
+      "execution/children.json",
+      "execution/" + STOP_RECORDS,
+    ].map((f) => rm(join(dir, f), { force: true })),
   );
 }
