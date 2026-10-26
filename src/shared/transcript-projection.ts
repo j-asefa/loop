@@ -62,12 +62,17 @@ export class TranscriptProjection {
     exposeRange = true,
   ) {
     if (range && exposeRange) {
-      const sorted = [...this.ranges, range].sort((a, b) => comparePosition(a.from, b.from));
+      const sorted = [...this.ranges, range].sort((a, b) =>
+        comparePosition(a.from, b.from),
+      );
       this.ranges = [];
       for (const next of sorted) {
         const previous = this.ranges.at(-1);
         if (previous && comparePosition(previous.before, next.from) >= 0)
-          previous.before = comparePosition(previous.before, next.before) >= 0 ? previous.before : next.before;
+          previous.before =
+            comparePosition(previous.before, next.before) >= 0
+              ? previous.before
+              : next.before;
         else this.ranges.push({ ...next });
       }
     }
@@ -156,17 +161,30 @@ export class TranscriptProjection {
    * asks the caller for that page; older unseen rows remain hidden. */
   needsLatest() {
     const end = this.ranges.at(-1)?.before;
-    return !!end && [...this.messages.values()].some(message => comparePosition(message.cursor, end) >= 0);
+    return (
+      !!end &&
+      [...this.messages.values()].some(
+        (message) => comparePosition(message.cursor, end) >= 0,
+      )
+    );
   }
   rows() {
-    return [...this.messages.values()].filter(message => !this.ranges.length || this.ranges.some(range =>
-      comparePosition(message.cursor, range.from) >= 0 && comparePosition(message.cursor, range.before) < 0,
-    )).sort(
-      (a, b) =>
-        a.cursor[0] - b.cursor[0] ||
-        a.cursor[1] - b.cursor[1] ||
-        a.cursor[2] - b.cursor[2],
-    );
+    return [...this.messages.values()]
+      .filter(
+        (message) =>
+          !this.ranges.length ||
+          this.ranges.some(
+            (range) =>
+              comparePosition(message.cursor, range.from) >= 0 &&
+              comparePosition(message.cursor, range.before) < 0,
+          ),
+      )
+      .sort(
+        (a, b) =>
+          a.cursor[0] - b.cursor[0] ||
+          a.cursor[1] - b.cursor[1] ||
+          a.cursor[2] - b.cursor[2],
+      );
   }
 }
 

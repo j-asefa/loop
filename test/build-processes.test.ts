@@ -8,7 +8,8 @@ import { runningBuild } from "../src/shared/build";
 const dir = mkdtempSync(join(tmpdir(), "loop-build-processes-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db, now } = await import("../src/server/db");
-const { observeProcess, currentBuilds } = await import("../src/server/deployments");
+const { observeProcess, currentBuilds } =
+  await import("../src/server/deployments");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -29,7 +30,15 @@ it("skips a locked heartbeat without blocking or crashing, expires it, and resum
     expect(currentBuilds()).toEqual([]);
     expect(warning).toHaveBeenCalledOnce();
     expect(db.pragma("busy_timeout", { simple: true })).toBe(timeout);
-    expect((db.prepare("SELECT seen_at FROM deployment_instances WHERE stopped_at IS NULL").get() as any).seen_at).toBe(before);
+    expect(
+      (
+        db
+          .prepare(
+            "SELECT seen_at FROM deployment_instances WHERE stopped_at IS NULL",
+          )
+          .get() as any
+      ).seen_at,
+    ).toBe(before);
     contender.exec("ROLLBACK");
     vi.advanceTimersByTime(5000);
     expect(currentBuilds()).toHaveLength(1);
@@ -52,14 +61,17 @@ it("omits expired and stopped processes from reads without reconciliation", () =
   const stopApi = observeProcess("api", runningBuild);
   const stopWorker = observeProcess("worker", runningBuild);
   try {
-    expect(currentBuilds().map((instance) => instance.role).sort()).toEqual([
-      "api",
+    expect(
+      currentBuilds()
+        .map((instance) => instance.role)
+        .sort(),
+    ).toEqual(["api", "worker"]);
+    db.prepare(
+      "UPDATE deployment_instances SET seen_at=? WHERE role='api'",
+    ).run(now() - 60_000);
+    expect(currentBuilds().map((instance) => instance.role)).toEqual([
       "worker",
     ]);
-    db.prepare("UPDATE deployment_instances SET seen_at=? WHERE role='api'").run(
-      now() - 60_000,
-    );
-    expect(currentBuilds().map((instance) => instance.role)).toEqual(["worker"]);
     stopWorker();
     expect(currentBuilds()).toEqual([]);
   } finally {

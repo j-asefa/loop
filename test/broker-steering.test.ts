@@ -96,21 +96,50 @@ for await (const line of input) {
     vi.stubEnv("LOOP_DATA_DIR", join(dir, "database"));
     const { db, changes } = await import("../src/server/db");
     const { enqueue, claim, transition } = await import("../src/server/queue");
-    const { SteeringInbox, saveSteering } = await import("../src/server/steering");
-    db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread','owner','Steering',1)").run();
-    const queued = enqueue("owner", "Wait", "broker-input", { conversation: "thread" });
+    const { SteeringInbox, saveSteering } =
+      await import("../src/server/steering");
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread','owner','Steering',1)",
+    ).run();
+    const queued = enqueue("owner", "Wait", "broker-input", {
+      conversation: "thread",
+    });
     const run = claim("broker-input")!;
     expect(run.id).toBe(queued.id);
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const stopInbox = new SteeringInbox(run).listen(async (message, inputId) => {
-      const response = await post({ ...followup, id: inputId, text: message.content });
-      expect(await response.json()).toEqual({ accepted: true });
-    });
+    const stopInbox = new SteeringInbox(run).listen(
+      async (message, inputId) => {
+        const response = await post({
+          ...followup,
+          id: inputId,
+          text: message.content,
+        });
+        expect(await response.json()).toEqual({ accepted: true });
+      },
+    );
     cleanupInbox = async () => {
-      await stopInbox(); changes.close(); db.close(); vi.useRealTimers(); vi.unstubAllEnvs();
+      await stopInbox();
+      changes.close();
+      db.close();
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
     };
-    const sent = saveSteering(run, "signal-input", "signal-input", "signal input", {});
-    await expect.poll(() => db.prepare("SELECT state FROM run_steering WHERE id=?").get(sent.steeringId), { timeout: 700 }).toEqual({ state: "delivered" });
+    const sent = saveSteering(
+      run,
+      "signal-input",
+      "signal-input",
+      "signal input",
+      {},
+    );
+    await expect
+      .poll(
+        () =>
+          db
+            .prepare("SELECT state FROM run_steering WHERE id=?")
+            .get(sent.steeringId),
+        { timeout: 700 },
+      )
+      .toEqual({ state: "delivered" });
     expect(output.match(/signal input/g)).toHaveLength(1);
     await stopInbox();
     transition(run, "completed");

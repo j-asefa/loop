@@ -110,7 +110,9 @@ input.on('line', line => {
       };
       const cleanup = { workspaceKeys: ["b".repeat(64)] };
       writeFileSync(join(dir, "calls.missing"), "");
-      expect(await (await call("cleanup", cleanup)).json()).toEqual({ skipped: true });
+      expect(await (await call("cleanup", cleanup)).json()).toEqual({
+        skipped: true,
+      });
       expect(readFileSync(join(dir, "calls"), "utf8")).toBe("");
       rmSync(join(dir, "calls.missing"));
       const running = await call("turn", turn);

@@ -152,28 +152,57 @@ test("Codex async questions surface once and accept answers during or after nati
   try {
     for (const finished of [false, true]) {
       const events: AdapterEvent[] = [];
-      const adapter = new Codex({
-        harness: "codex", project: process.cwd(), executable,
-        billing: "existing", version: "fixture",
-      }, (event) => events.push(event));
+      const adapter = new Codex(
+        {
+          harness: "codex",
+          project: process.cwd(),
+          executable,
+          billing: "existing",
+          version: "fixture",
+        },
+        (event) => events.push(event),
+      );
       try {
         await adapter.start();
-        await adapter.prompt(finished ? "async-question-finish" : "async-question");
-        await until(() => events.some((e) => e.type === "request") &&
-          (!finished || events.some((e) => e.type === "status" && e.status === "awaiting-input")));
+        await adapter.prompt(
+          finished ? "async-question-finish" : "async-question",
+        );
+        await until(
+          () =>
+            events.some((e) => e.type === "request") &&
+            (!finished ||
+              events.some(
+                (e) => e.type === "status" && e.status === "awaiting-input",
+              )),
+        );
         const requests = events.filter((e) => e.type === "request");
         assert.equal(requests.length, 1);
         const request = requests[0].request;
         assert.equal(request.kind, "question");
         assert.equal(request.allow, undefined);
-        assert.deepEqual(request.questions, [{
-          id: "0", title: "Restart now or wait?", options: ["Wait for active agents", "Restart now"],
-        }]);
-        assert(!events.some((e) => e.type === "status" && e.status === "completed"));
+        assert.deepEqual(request.questions, [
+          {
+            id: "0",
+            title: "Restart now or wait?",
+            options: ["Wait for active agents", "Restart now"],
+          },
+        ]);
+        assert(
+          !events.some((e) => e.type === "status" && e.status === "completed"),
+        );
         await adapter.answer(request.id, { "0": ["Wait for active agents"] });
-        await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
-        assert.equal(events.filter((e) => e.type === "resolved" && e.id === request.id).length, 1);
-        await assert.rejects(adapter.answer(request.id, { "0": ["Restart now"] }), /expired/);
+        await until(() =>
+          events.some((e) => e.type === "status" && e.status === "completed"),
+        );
+        assert.equal(
+          events.filter((e) => e.type === "resolved" && e.id === request.id)
+            .length,
+          1,
+        );
+        await assert.rejects(
+          adapter.answer(request.id, { "0": ["Restart now"] }),
+          /expired/,
+        );
       } finally {
         await adapter.dispose();
       }
@@ -187,18 +216,30 @@ test("Codex async questions surface once and accept answers during or after nati
 test("Codex can cancel while waiting for an async answer after native completion", async () => {
   process.env.LOOP_TEST_HARNESS = "codex";
   const events: AdapterEvent[] = [];
-  const adapter = new Codex({
-    harness: "codex", project: process.cwd(), executable,
-    billing: "existing", version: "fixture",
-  }, (event) => events.push(event));
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
   try {
     await adapter.start();
     await adapter.prompt("async-question-finish");
-    await until(() => events.some((e) => e.type === "status" && e.status === "awaiting-input"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "awaiting-input"),
+    );
     await adapter.cancel();
     assert(events.some((e) => e.type === "resolved"));
-    assert(events.some((e) => e.type === "status" && e.status === "interrupted"));
-    assert(!events.some((e) => e.type === "status" && e.status === "completed"));
+    assert(
+      events.some((e) => e.type === "status" && e.status === "interrupted"),
+    );
+    assert(
+      !events.some((e) => e.type === "status" && e.status === "completed"),
+    );
   } finally {
     await adapter.dispose();
     delete process.env.LOOP_TEST_HARNESS;
@@ -209,13 +250,22 @@ test("Codex does not reopen async questions from resumed history", async () => {
   process.env.LOOP_TEST_HARNESS = "codex";
   process.env.LOOP_TEST_ASYNC_HISTORY = "1";
   const events: AdapterEvent[] = [];
-  const adapter = new Codex({
-    harness: "codex", project: process.cwd(), executable, resume: "saved-thread",
-    billing: "existing", version: "fixture",
-  }, (event) => events.push(event));
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      project: process.cwd(),
+      executable,
+      resume: "saved-thread",
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
   try {
     await adapter.start();
-    assert(events.some((e) => e.type === "item" && e.item.id === "old-question"));
+    assert(
+      events.some((e) => e.type === "item" && e.item.id === "old-question"),
+    );
     assert(!events.some((e) => e.type === "request"));
   } finally {
     await adapter.dispose();
@@ -228,16 +278,31 @@ test("Codex resumes file-heavy history without transferring saved turns", async 
   process.env.LOOP_TEST_HARNESS = "codex";
   process.env.LOOP_TEST_LARGE_CODEX_HISTORY = "1";
   const events: AdapterEvent[] = [];
-  const adapter = new Codex({
-    harness: "codex", project: process.cwd(), executable, resume: "large-thread",
-    billing: "existing", version: "fixture",
-  }, (event) => events.push(event));
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      project: process.cwd(),
+      executable,
+      resume: "large-thread",
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
   try {
     await adapter.start();
-    assert(events.some((e) => e.type === "metadata" && e.nativeSession === "large-thread"));
-    assert(!events.some((e) => e.type === "item" && e.item.id === "large-history"));
+    assert(
+      events.some(
+        (e) => e.type === "metadata" && e.nativeSession === "large-thread",
+      ),
+    );
+    assert(
+      !events.some((e) => e.type === "item" && e.item.id === "large-history"),
+    );
     await adapter.prompt("Continue after the saved history");
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
   } finally {
     await adapter.dispose();
     delete process.env.LOOP_TEST_HARNESS;
@@ -412,8 +477,9 @@ for (const [name, Klass] of Object.entries({
         events.some((e) => e.type === "status" && e.status === "completed"),
       );
       if (name === "codex" || name === "claude") {
-        assert.deepEqual(events.filter(e => e.type === "usage").at(-1), {
-          type: "usage", usage: { input_tokens: 120, output_tokens: 30 },
+        assert.deepEqual(events.filter((e) => e.type === "usage").at(-1), {
+          type: "usage",
+          usage: { input_tokens: 120, output_tokens: 30 },
         });
       }
       assert(

@@ -9,9 +9,8 @@ const dir = mkdtempSync(join(tmpdir(), "loop-activity-native-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
-const { listActivities, ingestNativeActivity } = await import(
-  "../src/server/activities"
-);
+const { listActivities, ingestNativeActivity } =
+  await import("../src/server/activities");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -30,7 +29,13 @@ function live(conversation: string, run: any, generation: string): Live {
       state: "idle",
     },
     adapter: new Codex(
-      { harness: "codex", executable: "", version: "fixture", project: dir, billing: "existing" },
+      {
+        harness: "codex",
+        executable: "",
+        version: "fixture",
+        project: dir,
+        billing: "existing",
+      },
       () => {},
     ),
     generation,
@@ -44,7 +49,11 @@ function live(conversation: string, run: any, generation: string): Live {
     closed: false,
   } as Live;
 }
-const source = { transport: "native" as const, harness: "codex", origin: "codex:item" };
+const source = {
+  transport: "native" as const,
+  harness: "codex",
+  origin: "codex:item",
+};
 
 it("ingests adapter activities under the live turn and generation only", () => {
   for (const c of ["c1", "c2"])
@@ -55,9 +64,23 @@ it("ingests adapter activities under the live turn and generation only", () => {
   const run = claim("w")!;
   const current = live("c1", run, "gen-2");
   const emit = (update: any) => ingestNativeActivity(current, update);
-  emit({ v: 1, kind: "plan", id: "p", source, generation: "gen-2", patch: { steps: [{ id: "a", title: "Do", status: "in_progress" }] } });
+  emit({
+    v: 1,
+    kind: "plan",
+    id: "p",
+    source,
+    generation: "gen-2",
+    patch: { steps: [{ id: "a", title: "Do", status: "in_progress" }] },
+  });
   // A late event from the previous process generation is quarantined.
-  emit({ v: 1, kind: "plan", id: "p", source, generation: "gen-1", patch: { steps: [] } });
+  emit({
+    v: 1,
+    kind: "plan",
+    id: "p",
+    source,
+    generation: "gen-1",
+    patch: { steps: [] },
+  });
   // Malformed and oversized display data is dropped without interrupting the run.
   emit({ v: 1, kind: "plan", id: "p", source, patch: { steps: "nope" } });
   emit({
@@ -65,9 +88,15 @@ it("ingests adapter activities under the live turn and generation only", () => {
     kind: "file_change",
     id: "big",
     source,
-    patch: { files: [{ path: "x", operation: "modify", patch: "x".repeat(2 * 1024 * 1024) }] },
+    patch: {
+      files: [
+        { path: "x", operation: "modify", patch: "x".repeat(2 * 1024 * 1024) },
+      ],
+    },
   });
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "running" });
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+    state: "running",
+  });
   const items = listActivities("owner", "c1").items;
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({ kind: "plan", run: run.id });
@@ -80,15 +109,30 @@ it("keys replayed history outside a turn so reloads de-duplicate", () => {
   const idle = live("c2", undefined, "gen-a");
   const replay = (generation: string) =>
     ingestNativeActivity({ ...idle, generation } as Live, {
-      v: 1, kind: "tool", id: "native-7", source, generation, replay: true, patch: { title: "Edit", status: "completed" },
+      v: 1,
+      kind: "tool",
+      id: "native-7",
+      source,
+      generation,
+      replay: true,
+      patch: { title: "Edit", status: "completed" },
     });
   replay("gen-a");
   replay("gen-b");
-  const items = listActivities("owner", "c2").items.filter((i: any) => !i.legacy);
+  const items = listActivities("owner", "c2").items.filter(
+    (i: any) => !i.legacy,
+  );
   expect(items).toHaveLength(1);
   expect(items[0].key).toBe("tool:native:codex:item:history:native-7");
-  expect(items[0].record).toMatchObject({ replayed: true, data: { status: "completed" } });
-  expect(db.prepare("SELECT run_id,subject_kind,subject_id FROM events WHERE type='activity.updated' AND subject_id='c2'").all()).toEqual([
-    { run_id: null, subject_kind: "conversation", subject_id: "c2" },
-  ]);
+  expect(items[0].record).toMatchObject({
+    replayed: true,
+    data: { status: "completed" },
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT run_id,subject_kind,subject_id FROM events WHERE type='activity.updated' AND subject_id='c2'",
+      )
+      .all(),
+  ).toEqual([{ run_id: null, subject_kind: "conversation", subject_id: "c2" }]);
 });

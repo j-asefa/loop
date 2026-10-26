@@ -10,5 +10,7 @@ export function plainPreview(text: string, length = 140) {
     .replace(/\|/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return flat.length > length ? flat.slice(0, length - 1).trimEnd() + "…" : flat;
+  return flat.length > length
+    ? flat.slice(0, length - 1).trimEnd() + "…"
+    : flat;
 }
