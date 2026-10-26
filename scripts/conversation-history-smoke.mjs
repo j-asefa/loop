@@ -256,19 +256,12 @@ for (const engine of selectedEngines()) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await composer.locator("textarea").fill("");
-    // The Git review is available without paging through old tool edits.
+    // Checkout noise is absent from results; historical details stay in the menu.
     const checkout = page.locator(".conversation-sheet .checkout-chip");
-    await expect(checkout).toHaveCount(1);
-    await expect(checkout).toContainText("1 file +1 −1");
-    await expect(checkout.locator(".diff-add-count")).toHaveText("+1");
-    await expect(checkout.locator(".diff-remove-count")).toHaveText("−1");
-    assert.equal(await checkout.evaluate((element) => {
-      const color = (selector) => getComputedStyle(element.querySelector(selector)).color;
-      return color(".diff-add-count") !== color(".diff-remove-count") &&
-        color(".diff-add-count") !== getComputedStyle(element).color &&
-        color(".diff-remove-count") !== getComputedStyle(element).color;
-    }), true, "Conversation additions and deletions must use distinct diff colours");
-    await checkout.click();
+    await expect(checkout).toHaveCount(0);
+    await expect(page.locator(".conversation-sheet .verification-chip")).toHaveCount(0);
+    await page.getByRole("button", { name: "Conversation options", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Review changes/ }).click();
     const review = page.getByRole("dialog", { name: "Checkout", exact: true });
     await expect(review.locator(".pull-file-path")).toHaveText(["git-review.ts"]);
     await expect(review).not.toContainText("old-review.ts");
@@ -346,9 +339,7 @@ for (const engine of selectedEngines()) {
       db.prepare("UPDATE run_checkouts SET state=?,files=NULL,patch=NULL,summary=? WHERE run_id=?")
         .run(state, JSON.stringify({ ...gitSummary, state, files: 0, additions: 0, deletions: 0, ahead: null }), lastRun);
       await page.reload();
-      await expect(checkout).toHaveCount(1);
-      await expect(checkout).toContainText(label);
-      await expect(checkout).not.toContainText("+1");
+      await expect(checkout).toHaveCount(0);
       await expect(page.locator(".conversation-sheet button.changes-chip:not(.checkout-chip)")).toHaveCount(0);
     }
     // With no Git record, tool edits stay in activity and provide no diff badge.

@@ -205,6 +205,15 @@ export async function fakeGithub() {
       });
     if (path === "/graphql" && body.query.includes("query Pull"))
       return send({ data: detail() });
+    if (path === "/graphql" && body.query.includes("query ConversationPull")) {
+      if (state.summaryError) return send({ message: "Summary unavailable" }, 503);
+      const data = detail();
+      data.repository.pullRequest.reviewDecision = state.summaryDecision || "CHANGES_REQUESTED";
+      data.repository.pullRequest.latestReviews = { nodes: [
+        { author: { login: "lee-park" }, state: "CHANGES_REQUESTED", commit: { oid: FIRST_HEAD } },
+      ] };
+      return send({ data });
+    }
     if (path === `/repos/acme/api/commits/${FIRST_HEAD}`) {
       state.commitReads = (state.commitReads || 0) + 1;
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -258,7 +267,7 @@ export async function fakeGithub() {
     base: `http://127.0.0.1:${server.address().port}`,
     state,
     reset() {
-      Object.assign(state, { head: FIRST_HEAD, merged: false, writes: [], commitReads: 0, commitError: false, commitMessage: undefined });
+      Object.assign(state, { head: FIRST_HEAD, merged: false, writes: [], commitReads: 0, commitError: false, commitMessage: undefined, summaryError: false, summaryDecision: undefined });
     },
     close: () => new Promise((resolve) => server.close(resolve)),
   };

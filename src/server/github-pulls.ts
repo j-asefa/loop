@@ -46,6 +46,7 @@ import {
   type PullListItem,
   type ReviewDecision,
 } from "../shared/pull-requests.js";
+import type { ConversationPull } from "../shared/conversation-pulls.js";
 
 // The Pull requests screen reads GitHub directly with your official GitHub
 // connection, so you can find, read and act on pull requests without asking
@@ -134,6 +135,7 @@ const commitMessage = (value: unknown) => {
 const count = (value: unknown) =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const login = (value: any) => text(value?.login, 39);
+const nodes = (value: any) => Array.isArray(value?.nodes) ? value.nodes : [];
 
 function checksState(value: unknown): ChecksState | undefined {
   switch (value) {
@@ -204,6 +206,79 @@ const FILTER_QUALIFIER: Record<PullFilter, string> = {
   authored: "author:@me",
   involved: "involves:@me",
 };
+
+const summaries = new Map<string, ConversationPull>();
+const summaryReads = new Map<string, Promise<ConversationPull>>();
+const summaryFailures = new Map<string, { error: unknown; retryAt: number }>();
+
+/** A small, current PR/review read for conversations; no checkout or CI data. */
+export async function pullSummary(owner: string, ref: PullRequestRef, refresh = false): Promise<ConversationPull> {
+  const token = reading(owner);
+  if (!token) throw new Problem(409, "Connect GitHub to refresh pull requests.");
+  // Never reuse another owner's or a replaced connection's private data.
+  const connection = JSON.stringify([owner, createHash("sha256").update(token).digest("hex")]);
+  const key = JSON.stringify([connection, ref.owner.toLowerCase(), ref.repo.toLowerCase(), ref.number]);
+  // Rate limits apply to every summary using this connection, including
+  // manual refresh. Other failures back off automatic reads for one minute.
+  for (const failureKey of refresh ? [connection] : [connection, key]) {
+    const failure = summaryFailures.get(failureKey);
+    if (failure && failure.retryAt > now()) problem(failure.error);
+    summaryFailures.delete(failureKey);
+  }
+  const cached = summaries.get(key);
+  if (!refresh && cached?.fetchedAt && now() - cached.fetchedAt < 60_000) return cached;
+  const pending = summaryReads.get(key);
+  if (pending) return pending;
+  const read = (async () => {
+    const data = await githubGraphql<any>(token, `query ConversationPull($owner: String!, $name: String!, $number: Int!) {
+        repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+          number title url state isDraft headRefOid changedFiles additions deletions reviewDecision
+          reviewRequests(first: 20) { pageInfo { hasNextPage } nodes { requestedReviewer {
+            __typename ... on User { login } ... on Team { slug } ... on Bot { login }
+          } } }
+          latestReviews(first: 20) { pageInfo { hasNextPage } nodes { author { login } state commit { oid } } }
+        } }
+      }`, { owner: ref.owner, name: ref.repo, number: ref.number });
+    const node = data?.repository?.pullRequest;
+    const item = listItem(node, ref);
+    const headSha = text(node?.headRefOid, 40);
+    if (!item || !headSha || !SHA.test(headSha))
+      throw new Problem(404, "GitHub could not find this pull request with your connection.");
+    const result: ConversationPull = {
+      ...ref, title: item.title, state: item.state, headSha,
+      changedFiles: item.changedFiles, additions: item.additions, deletions: item.deletions,
+      review: item.review,
+      requested: nodes(node.reviewRequests).flatMap((r: any) => {
+        const reviewer = r?.requestedReviewer;
+        const name = reviewer?.__typename === "Team" ? text(reviewer.slug, 100) : login(reviewer);
+        return name ? [reviewer.__typename === "Team" ? `team ${name}` : `@${name}`] : [];
+      }),
+      reviews: nodes(node.latestReviews).flatMap((r: any) => {
+        const author = login(r?.author);
+        const state = text(r?.state)?.toLowerCase();
+        if (!author || !["approved", "changes_requested", "commented", "dismissed"].includes(state ?? "")) return [];
+        return [{ author, state: state as NonNullable<ConversationPull["reviews"]>[number]["state"], headSha: text(r?.commit?.oid, 40) }];
+      }),
+      reviewsOmitted: !!(node.latestReviews?.pageInfo?.hasNextPage || node.reviewRequests?.pageInfo?.hasNextPage),
+      fetchedAt: now(),
+    };
+    summaries.delete(key);
+    summaries.set(key, result);
+    summaryFailures.delete(key);
+    if (summaries.size > 500) summaries.delete(summaries.keys().next().value!);
+    return result;
+  })().catch(error => {
+    summaries.delete(key);
+    const limited = error instanceof GithubError && error.retryAt;
+    const failureKey = limited ? connection : key;
+    summaryFailures.delete(failureKey);
+    summaryFailures.set(failureKey, { error, retryAt: limited || now() + 60_000 });
+    if (summaryFailures.size > 500) summaryFailures.delete(summaryFailures.keys().next().value!);
+    problem(error);
+  }).finally(() => { summaryReads.delete(key); });
+  summaryReads.set(key, read);
+  return read;
+}
 
 /** Open pull requests for you, one filter at a time, with every filter's count. */
 export async function inbox(
@@ -386,7 +461,6 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
   const headSha = text(node?.headRefOid, 40);
   if (!item || !headSha || !SHA.test(headSha))
     throw new Problem(404, "GitHub could not find this pull request with your connection.");
-  const nodes = (value: any) => (Array.isArray(value?.nodes) ? value.nodes : []);
   // Later pages of review threads, so an unresolved thread past the first
   // page still shows; past MAX_THREADS the page says how many it left out.
   const threadNodes = [...nodes(node.reviewThreads)];

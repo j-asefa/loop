@@ -7872,6 +7872,44 @@ html:has(.sheet.side-panel[open]) {
   border-radius: 12px;
   overflow-wrap: anywhere;
 }
+.conversation-pulls {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.conversation-pulls > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+.conversation-pulls > summary > span:first-of-type {
+  flex: 1 1 140px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.conversation-pulls-body {
+  max-height: 35vh;
+  overflow: auto;
+  padding: 0 16px 12px;
+}
+.conversation-pulls-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.conversation-pull {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.conversation-pull p { margin: 6px 0; }
+.conversation-pull-reviewers { padding-left: 20px; margin: 6px 0; }
+.conversation-pull-actions { display: flex; gap: 16px; align-items: center; }
+.conversation-pull-actions a { display: inline-flex; align-items: center; gap: 4px; }
 .pr-card-heading {
   display: flex;
   align-items: center;

@@ -49,14 +49,11 @@ import {
   ChevronRight,
   ChevronUp,
 } from "lucide-react";
-import { CheckoutChip, CheckoutSheet } from "./Checkout";
-import { VerificationChip, VerificationSheet } from "./Verification";
-import { PullStateChip } from "./PullState";
-import { openPull } from "./PullRequests";
+import { ConversationPulls } from "./ConversationPulls";
 import type { PullState } from "../shared/pull-state";
 import type { CheckoutSummary } from "../shared/checkout";
 import type { VerificationSummary } from "../shared/verification";
-import { executionSourceId, sourceUrl } from "./sourceRouting";
+import { sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
   EnvironmentConnection,
@@ -240,9 +237,6 @@ function FeedCard({
   onDismiss,
   dismissLabel = "Remove from Done",
   onLater,
-  onCheckout,
-  onVerification,
-  onPull,
   readAsCard,
 }: {
   item: FeedItem;
@@ -260,9 +254,6 @@ function FeedCard({
   onDismiss?: () => void;
   dismissLabel?: string;
   onLater: () => void;
-  onCheckout?: () => void;
-  onVerification?: () => void;
-  onPull?: () => void;
   readAsCard: boolean;
 }) {
   const scopedSource = useSourceId();
@@ -296,13 +287,6 @@ function FeedCard({
           ? item.run.error
           : "";
   const name = item.agent_name || agent?.name;
-  const checkoutSummary = item.run?.checkout;
-  const showCheckout =
-    checkoutSummary &&
-    (checkoutSummary.state !== "captured" ||
-      checkoutSummary.files > 0 ||
-      checkoutSummary.untracked > 0);
-  const showVerification = !!item.run?.verification?.items.length;
   const awaitingUpdate =
     item.run &&
     awaitingStates.includes(item.run.state) &&
@@ -349,24 +333,6 @@ function FeedCard({
     setReading(false);
     action();
   };
-  const changesAndChecks = (compact = false) => (
-    <>
-      {showCheckout && onCheckout && (
-        <CheckoutChip
-          summary={checkoutSummary}
-          onOpen={onCheckout}
-          compact={compact}
-        />
-      )}
-      {showVerification && (
-        <VerificationChip
-          summary={item.run!.verification ?? null}
-          onOpen={onVerification}
-          compact={compact}
-        />
-      )}
-    </>
-  );
   return (
     <li
       className={
@@ -557,17 +523,6 @@ function FeedCard({
             Remind me
           </button>
         </div>
-        {(showCheckout || showVerification || item.pull) && (
-          <footer
-            className="inbox-card-details"
-            aria-label="Changes and checks"
-          >
-            {changesAndChecks(true)}
-            {item.pull && (
-              <PullStateChip state={item.pull} onOpen={onPull} compact />
-            )}
-          </footer>
-        )}
       </article>
       {/* Keep sheet gestures outside the feed card's swipe-to-dismiss region. */}
       {reading &&
@@ -654,11 +609,7 @@ function FeedCard({
                     Continue reading in conversation <ArrowUpRight size={14} />
                   </button>
                 )}
-                {(showCheckout || showVerification) && (
-                  <div className="result-run-details" role="group" aria-label="Changes and checks">
-                    {changesAndChecks()}
-                  </div>
-                )}
+                <ConversationPulls conversationId={item.conversation_id} />
               </div>
               <div className="result-edit-actions">
                 <button
@@ -1182,14 +1133,6 @@ export function Feed({
   const [unsupportedReplySources, setUnsupportedReplySources] = useState(shown?.unsupportedReplySources || []);
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const [later, setLater] = useState<FeedItem | null>(null);
-  const [checkout, setCheckout] = useState<{
-    runId: string;
-    sourceId: string;
-  } | null>(null);
-  const [verification, setVerification] = useState<{
-    runId: string;
-    sourceId: string;
-  } | null>(null);
   const [editing, setEditing] = useState<QueuedMessage | null>(null);
   const [moving, setMoving] = useState<QueuedMessage | null>(null);
   // Threads waiting on you, whichever filter is shown, for the stack above
@@ -2204,25 +2147,6 @@ export function Feed({
         }
         dismissLabel={dismissFailure ? "Dismiss from Needs you" : item.reply ? "Archive reply" : undefined}
         onLater={() => setLater(item)}
-        onCheckout={
-          item.run?.checkout
-            ? () => setCheckout({ runId: item.run!.id, sourceId: source })
-            : undefined
-        }
-        onVerification={() =>
-          setVerification({ runId: item.run!.id, sourceId: source })
-        }
-        onPull={
-          // Pull requests use this workspace's GitHub connection.
-          item.pull && source === (executionSourceId() || "")
-            ? () =>
-                openPull({
-                  owner: item.pull!.repo_owner,
-                  repo: item.pull!.repo_name,
-                  number: item.pull!.number,
-                })
-            : undefined
-        }
       />
     );
   }
@@ -2391,24 +2315,6 @@ export function Feed({
           )}
         </>
       </div>
-      {verification && (
-        <VerificationSheet
-          runId={verification.runId}
-          load={(runId) =>
-            callRoute(workspaceApi.runVerifications, { params: { id: runId } }, verification.sourceId)
-          }
-          onClose={() => setVerification(null)}
-        />
-      )}
-      {checkout && (
-        <CheckoutSheet
-          runId={checkout.runId}
-          load={(runId) =>
-            callRoute(workspaceApi.runCheckout, { params: { id: runId } }, checkout.sourceId)
-          }
-          onClose={() => setCheckout(null)}
-        />
-      )}
       {menu && (
         <ActionSheet
           title={menu.title}

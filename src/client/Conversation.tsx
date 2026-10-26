@@ -58,15 +58,9 @@ import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./works
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
-import { CheckoutChip, CheckoutSheet } from "./Checkout";
-import { VerificationChip, VerificationSheet } from "./Verification";
-import { PullStateChip } from "./PullState";
-import { useWatchState } from "./PullRequestCard";
-import { executionSourceId } from "./sourceRouting";
-import { openPull } from "./PullRequests";
-import { pullStateFromWatch } from "../shared/pull-state";
-import type { CheckoutSummary } from "../shared/checkout";
-import { summarize as summarizeVerification, type VerificationItem } from "../shared/verification";
+import { CheckoutSheet } from "./Checkout";
+import { VerificationSheet } from "./Verification";
+import { ConversationPulls } from "./ConversationPulls";
 import { ConversationFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
 import {
@@ -221,20 +215,6 @@ function ConversationView({
 }) {
   const call = useSourceRoute();
   const readUsage = useProjectionRoute();
-  // The thread's pull request, for the chip on its final message. "No PR
-  // linked" is said only once the list is confirmed, and the chip opens the
-  // pull request only on the shell's own source, which the Pull requests
-  // tab reads.
-  const watchState = useWatchState(id);
-  const pull = (() => {
-    const w =
-      watchState.watches.find((x) => x.state === "watching") ??
-      watchState.watches.find((x) => x.state === "paused") ??
-      watchState.watches[0];
-    return w ? pullStateFromWatch(w) : null;
-  })();
-  const pullKnown = watchState.status === "ready";
-  const canOpenPull = (useSourceId() || "") === (executionSourceId() || "");
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const owner = viewOwner();
@@ -263,14 +243,8 @@ function ConversationView({
     } | null>(null),
     [forkFrom, setForkFrom] = useState<ConversationMessage | null>(null),
     [quoteFrom, setQuoteFrom] = useState<ConversationMessage | null>(null),
-    [checkout, setCheckout] = useState<string | null>(() => {
-      const query = new URLSearchParams(location.search);
-      return query.get("conversation") === id ? query.get("checkout") : null;
-    }),
-    [verification, setVerification] = useState<string | null>(() => {
-      const query = new URLSearchParams(location.search);
-      return query.get("conversation") === id ? query.get("verification") : null;
-    }),
+    [checkout, setCheckout] = useState<string | null>(null),
+    [verification, setVerification] = useState<string | null>(null),
     [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(cachedView<Transcript>(cacheKey)?.saved)),
     [usageData, setUsage] = useState<{
       conversationId: string;
@@ -289,6 +263,10 @@ function ConversationView({
     const url = new URL(location.href);
     if (url.searchParams.get("conversation") !== id) return;
     if (!url.searchParams.has("checkout") && !url.searchParams.has("verification")) return;
+    // Open nested details after the conversation has mounted its modal;
+    // otherwise the parent opens last and covers the saved detail link.
+    setCheckout(url.searchParams.get("checkout"));
+    setVerification(url.searchParams.get("verification"));
     url.searchParams.delete("checkout");
     url.searchParams.delete("verification");
     history.replaceState(history.state, "", url.pathname + url.search + url.hash);
@@ -1002,6 +980,7 @@ function ConversationView({
           </button>
         </div>
       )}
+      <ConversationPulls conversationId={id} refreshKey={`${data?.messages.at(-1)?.id}:${data?.messages.at(-1)?.run_state}`} />
       <CodeReviewStatus key={`${sourceId}:${id}`} conversationId={id} revision={revision} />
       {titleOpen && agent && (
         <p className="thread-details">
@@ -1617,39 +1596,6 @@ function ConversationView({
                   )}
                   {finalForRun && (
                     <>
-                      {m.run_checkout && (
-                        <CheckoutChip
-                          summary={parse<CheckoutSummary>(
-                            m.run_checkout,
-                            null as unknown as CheckoutSummary,
-                          )}
-                          onOpen={() => setCheckout(m.run_id!)}
-                        />
-                      )}
-                      {(() => {
-                        const items = parse<VerificationItem[]>(m.run_verification || "[]", []);
-                        const ended = ["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || "");
-                        if (!items.length && !(m.run_checkout && ended)) return null;
-                        return (
-                          <VerificationChip
-                            summary={items.length ? summarizeVerification(items) : null}
-                            onOpen={items.length ? () => setVerification(m.run_id!) : undefined}
-                          />
-                        );
-                      })()}
-                      {(pull ||
-                        (pullKnown &&
-                          m.run_checkout &&
-                          ["completed", "failed", "interrupted", "cancelled"].includes(m.run_state || ""))) && (
-                        <PullStateChip
-                          state={pull}
-                          onOpen={
-                            pull && canOpenPull
-                              ? () => openPull({ owner: pull.repo_owner, repo: pull.repo_name, number: pull.number })
-                              : undefined
-                          }
-                        />
-                      )}
                       <RunStatus
                         state={m.run_state}
                         error={m.run_error}

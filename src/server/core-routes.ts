@@ -30,6 +30,7 @@ import { personalDecisions } from "./personal-decisions.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages, latestAgentMessage } from "./conversation-messages.js";
+import { conversationPulls } from "./conversation-pulls.js";
 import { cancelRun, dismissRun } from "./run-attention.js";
 import { conversationReturnState } from "./mobile-return.js";
 import {
@@ -630,6 +631,9 @@ routes.on(workspaceApi.conversation, (req, res) => {
     latest_agent_message: latestAgentMessage(res.locals.owner, req.params.id),
   });
 }, { wrap: projectionSnapshot });
+routes.on(workspaceApi.conversationPulls, async (req, res) => {
+  res.json(await conversationPulls(res.locals.owner, req.params.id, req.query.refresh === "1"));
+});
 routes.on(workspaceApi.messageDetail, (req, res) =>
   res.json(messageResponse(ownedMessage(req.params.id, res.locals.owner))),
 );

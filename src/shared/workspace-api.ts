@@ -1,4 +1,5 @@
 import { FeedEntities } from "./feed-projection.js";
+import { ConversationPulls } from "./conversation-pulls.js";
 import { ReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
@@ -246,6 +247,7 @@ export const workspaceApi = {
   bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
   feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams, known: Text.optional() }), response: FeedPage }),
   conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
+  conversationPulls: endpoint({ ...base, method: "GET", path: "/conversations/:id/pulls", params: Id, query: z.object({ refresh: z.enum(["1"]).optional() }), response: ConversationPulls }),
   runs: endpoint({ ...base, method: "GET", path: "/runs", query: z.object({ teams: Teams, active: Text.optional() }), response: z.array(PublicRun) }),
   submit: endpoint({ ...base, method: "POST", path: "/runs", body: z.object({
     agentId: Text, conversationId: Text.optional(), replyToMessageId: Text.min(1).max(150).optional(), replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),

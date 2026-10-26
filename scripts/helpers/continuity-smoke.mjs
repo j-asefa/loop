@@ -818,7 +818,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.goto(`${fixture.base}/?conversation=${changeConversation}`, {
       waitUntil: "networkidle",
     });
-    await expect(thread().locator(".checkout-chip")).toHaveCount(2);
+    await expect(thread().locator(".checkout-chip, .verification-chip")).toHaveCount(0);
     await expect(thread().locator(".changes-chip:not(.checkout-chip):not(.verification-chip):not(.pull-state-chip)")).toHaveCount(0);
     await thread().getByRole("button", { name: "Conversation options", exact: true }).click();
     await dialog().getByRole("menuitem", { name: /^Review changes/ }).click();
@@ -827,9 +827,8 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(dialog().locator(".pull-file")).toHaveCount(0);
     await expect(dialog().getByRole("button", { name: "Ask to commit" })).toHaveCount(0);
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
-    const chip = messageIn(changeAnswer).locator(".checkout-chip");
-    await expect(chip).toContainText("2 files +4 −1");
-    await chip.click();
+    const openHistoricalCheckout = () => page.goto(`${fixture.base}/?conversation=${changeConversation}&checkout=${changeRun}`, { waitUntil: "networkidle" });
+    await openHistoricalCheckout();
     await expect(dialog()).toHaveAttribute("aria-label", "Checkout");
     await expect(dialog().locator(".changes-total")).toContainText("2 files +4 −1");
     await expect(dialog().locator(".pull-file-path")).toHaveText(["src/settings.tsx", "src/shell-only.ts"]);
@@ -843,7 +842,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await capture("continuity-change-review");
     await expect(dialog().getByRole("button", { name: "Ask to commit" })).toHaveCount(0);
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
-    await chip.click();
+    await openHistoricalCheckout();
     await expect(dialog()).toContainText("Changes during this run");
     await dialog().getByRole("button", { name: "Ask to commit" }).click();
     const prompt = await page.locator("#composer").inputValue();

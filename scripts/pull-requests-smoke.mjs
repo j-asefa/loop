@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
@@ -64,7 +65,8 @@ try {
         page.getByText("Connect GitHub to see your pull requests."),
       ).toBeVisible();
       await capture("connect");
-      fixture.connectGithub();
+      // Each browser starts with an independent connection/cache generation.
+      fixture.connectGithub(`fixture-github-token-${engine.name()}`);
       await page.getByRole("button", { name: "Check again" }).click();
       await expect(page.getByText("Open pull requests for @fixture-user")).toBeVisible();
       await expect(page.locator(".pull-row")).toHaveCount(4);
@@ -78,6 +80,48 @@ try {
         page.getByRole("button", { name: "Review requested 4" }),
       ).toHaveAttribute("aria-pressed", "false");
       await capture("inbox");
+
+      // A transcript link is enough: no watch, checkout or creation detector.
+      const conversation = fixture.conversations.find(c => c.state === "completed");
+      const summaryRequests = [];
+      page.on("request", request => {
+        const url = new URL(request.url());
+        if (url.pathname === `/api/conversations/${conversation.id}/pulls`) summaryRequests.push(url);
+      });
+      fixture.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant',?,?)")
+        .run(randomUUID(), fixture.owner, conversation.id, conversation.run,
+          "Opened https://github.com/acme/api/pull/64", Date.now());
+      await page.goto(`${fixture.base}/?conversation=${conversation.id}`);
+      const linked = page.locator(".conversation-sheet .conversation-pulls");
+      await expect(linked.locator("summary")).toContainText("acme/api#64");
+      await expect(linked.locator("summary")).toContainText("Changes requested");
+      await expect(page.locator(".conversation-sheet .checkout-chip, .conversation-sheet .verification-chip, .conversation-sheet .pull-state-chip")).toHaveCount(0);
+      await linked.locator("summary").click();
+      await expect(linked).toContainText("@lee-park: Changes requested");
+      await expect(linked.locator(".diff-add-count")).toHaveText("+104");
+      github.state.head = MOVED;
+      github.state.summaryDecision = "REVIEW_REQUIRED";
+      await linked.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(linked.locator("summary")).toContainText("Review required");
+      await expect(linked).toContainText("(earlier commit)");
+      await capture("thread-pull");
+      const beforeUpdate = summaryRequests.length;
+      fixture.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant',?,?)")
+        .run(randomUUID(), fixture.owner, conversation.id, conversation.run, "The follow-up changes are ready.", Date.now());
+      await expect(page.locator(".conversation-sheet")).toContainText("The follow-up changes are ready.");
+      await expect.poll(() => summaryRequests.length).toBeGreaterThan(beforeUpdate);
+      assert(summaryRequests.slice(beforeUpdate).every(url => !url.searchParams.has("refresh")),
+        "Message updates use the cache even after a manual Refresh");
+      github.state.summaryError = true;
+      await linked.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(linked).toContainText("Refresh failed");
+      await expect(linked.locator(".diff-add-count")).toHaveCount(0);
+      await expect(linked.getByRole("link", { name: "GitHub" })).toHaveAttribute("href", "https://github.com/acme/api/pull/64");
+      github.state.summaryError = false;
+      github.state.head = FIRST_HEAD;
+      github.state.summaryDecision = undefined;
+      await page.goto(`${fixture.base}/?page=pulls`);
+      await expect(page.locator(".pull-row")).toHaveCount(4);
 
       await page
         .getByRole("button", { name: /Add rate limiting to public API endpoints/ })

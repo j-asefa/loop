@@ -1,5 +1,6 @@
 import { registrar } from "./registrar.js";
 import { createdPullRequest } from "../shared/pr-command.js";
+import { linkCreatedPullRequest } from "./conversation-pulls.js";
 import { pullStateFromWatch, type PullState, type WatchRow } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
 
@@ -137,6 +138,7 @@ export function pullStatus(owner: string, conversation: string): PullState | nul
 
 /** Register only a PR created by this run, using the trusted tool result. */
 export function watchCreatedPullRequest(run: Run, pr: PullRequestRef & { headSha?: string; createdAt?: number }) {
+  linkCreatedPullRequest(run, pr);
   if (!run.conversation_id || !run.agent_id || !githubToken(run.owner_id)) return;
   return db.transaction(() => {
     const existing = db.prepare(
@@ -164,7 +166,10 @@ export async function watchCompletedOutput(run: Run, data: OutputData, current =
 
 export async function watchNativeCreatedPullRequest(run: Run, command: string, output: string, current = () => true) {
   const ref = createdPullRequest(command, output);
-  if (ref) await verifyCreatedPullRequest(run, ref, current);
+  if (ref && current()) {
+    linkCreatedPullRequest(run, ref);
+    await verifyCreatedPullRequest(run, ref, current);
+  }
 }
 
 /** Read-only verification of a pull request the agent reported creating. */
