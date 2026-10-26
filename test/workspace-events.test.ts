@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createConnection } from "node:net";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -16,17 +16,16 @@ beforeAll(async () => {
   compiled = await compiledServerFixture();
 }, 30_000);
 
-const fixtures: Awaited<ReturnType<typeof cardsFixture>>[] = [];
 const sockets: WebSocket[] = [];
+// Servers started inside a test close with that test (see cardsFixture).
+afterEach(() => {
+  for (const socket of sockets.splice(0)) socket.terminate();
+});
 afterAll(async () => {
-  for (const socket of sockets) socket.terminate();
-  await Promise.all(fixtures.map((fixture) => fixture.close()));
   await compiled?.close();
 });
-async function fixture(mode: Parameters<typeof cardsFixture>[0]) {
-  const result = await cardsFixture(mode, compiled.source);
-  fixtures.push(result);
-  return result;
+function fixture(mode: Parameters<typeof cardsFixture>[0]) {
+  return cardsFixture(mode, compiled.source);
 }
 function connect(
   f: Awaited<ReturnType<typeof fixture>>,

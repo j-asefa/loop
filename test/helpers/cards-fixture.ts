@@ -174,6 +174,27 @@ export async function cardsFixture(
       .join("; ");
   }
   const browser = { origin, cookie, "x-loop-csrf": csrf };
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    database.close();
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill();
+      await exited;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  };
+  // Each server process holds about 250 MiB, so a fixture started inside a
+  // Vitest test closes when that test finishes even if the test does not call
+  // close(). A fixture started in beforeAll belongs to its file and must be
+  // closed in afterAll. Scripts outside Vitest (browser smokes) never load the
+  // runner.
+  if (process.env.VITEST) {
+    const { expect, onTestFinished } = await import("vitest");
+    if (expect.getState().currentTestName) onTestFinished(close);
+  }
   return {
     mode,
     dir,
@@ -193,14 +214,6 @@ export async function cardsFixture(
       child.send({ type: "change-subscriber-count" });
       return (await reply)[0].count;
     },
-    async close() {
-      database.close();
-      if (child.exitCode === null && child.signalCode === null) {
-        const exited = once(child, "exit");
-        child.kill();
-        await exited;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    },
+    close,
   };
 }

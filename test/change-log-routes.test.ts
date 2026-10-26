@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { compiledServerFixture } from "./helpers/compiled-server";
@@ -7,16 +7,17 @@ import { cardTokenRequest } from "../src/shared/card-access";
 import { z } from "zod";
 
 let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;
-const fixtures: Awaited<ReturnType<typeof cardsFixture>>[] = [];
 const sockets: WebSocket[] = [];
 beforeAll(async () => { compiled = await compiledServerFixture(); }, 30_000);
+// Servers started inside a test close with that test (see cardsFixture).
+afterEach(() => {
+  sockets.splice(0).forEach((socket) => socket.terminate());
+});
 afterAll(async () => {
-  sockets.forEach((socket) => socket.terminate());
-  await Promise.all(fixtures.map((fixture) => fixture.close()));
   await compiled.close();
 });
-async function fixture(mode: "server" | "companion" = "server") {
-  const f = await cardsFixture(mode, compiled.source); fixtures.push(f); return f;
+function fixture(mode: "server" | "companion" = "server") {
+  return cardsFixture(mode, compiled.source);
 }
 function watch(f: Awaited<ReturnType<typeof fixture>>, query = "") {
   const socket = new WebSocket(f.origin.replace("http:", "ws:") + "/api/events/ws?v=3&clock=1" + query, { headers: f.browser });
