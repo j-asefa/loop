@@ -79,15 +79,26 @@ it("range-reads only a transcript page without scanning source history, before o
   // This case measures reads of populated history. Reuse its fixture writes:
   // preparing thousands of trigger-heavy statements retains gigabytes of
   // native SQLite allocations before JavaScript's GC notices any pressure.
-  const insertRun = db.prepare("INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,'agent','prompt','completed',?,1,1)");
-  const insertMessage = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,?,10)");
+  const insertRun = db.prepare(
+    "INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,'agent','prompt','completed',?,1,1)",
+  );
+  const insertMessage = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,?,10)",
+  );
   db.transaction(() => {
     for (const c of [conversation, other])
       for (let i = 0; i < 1000; i++) {
         const r = id();
         insertRun.run(r, c, r);
         insertMessage.run(id(), c, r, "user", "prompt", "{}");
-        insertMessage.run(id(), c, r, "assistant", "progress", '{"progress":true}');
+        insertMessage.run(
+          id(),
+          c,
+          r,
+          "assistant",
+          "progress",
+          '{"progress":true}',
+        );
         insertMessage.run(id(), c, r, "assistant", "answer", "{}");
       }
   })();
@@ -371,23 +382,38 @@ it("persists idempotent public messages independently of traces and scopes their
   }
 });
 
-
 it("serves a saved-position page in one resume request while ordinary refreshes, anchors and cursors retain their meaning", async () => {
   const conversation = thread();
   const ids = Array.from({ length: 125 }, () => message(conversation, null));
   savePosition("alice", conversation, { positionMessageId: ids[30] });
   let requests = 0;
   const app = express();
-  app.use((req, res, next) => { requests++; res.locals.owner = req.get("x-owner") || "alice"; next(); });
-  app.use(core);
-  app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(error instanceof Problem ? error.status : 400).json({ error: error.message });
+  app.use((req, res, next) => {
+    requests++;
+    res.locals.owner = req.get("x-owner") || "alice";
+    next();
   });
+  app.use(core);
+  app.use(
+    (
+      error: Error,
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      res
+        .status(error instanceof Problem ? error.status : 400)
+        .json({ error: error.message });
+    },
+  );
   const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>(resolve => server.once("listening", resolve));
+  await new Promise<void>((resolve) => server.once("listening", resolve));
   const get = async (query = "", owner = "alice") => {
-    const response = await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/conversations/${conversation}${query}`, { headers: { "x-owner": owner } });
-    return { status: response.status, body: await response.json() as any };
+    const response = await fetch(
+      `http://127.0.0.1:${(server.address() as { port: number }).port}/conversations/${conversation}${query}`,
+      { headers: { "x-owner": owner } },
+    );
+    return { status: response.status, body: (await response.json()) as any };
   };
   try {
     const resumed = await get("?resume=1");
@@ -403,7 +429,9 @@ it("serves a saved-position page in one resume request while ordinary refreshes,
     expect(anchored.body.messages.at(-1).id).toBe(ids[60]);
     const before = await get("?resume=1&before=" + latest.body.next);
     expect(before.body.resumed).toBe(false);
-    expect(before.body.messages.map((m: any) => m.id)).toEqual(ids.slice(25, 75));
+    expect(before.body.messages.map((m: any) => m.id)).toEqual(
+      ids.slice(25, 75),
+    );
     expect((await get("?resume=1", "bob")).status).toBe(404);
     savePosition("alice", conversation, { positionMessageId: ids[124] });
     expect((await get("?resume=1")).body.resumed).toBe(false);
@@ -413,6 +441,6 @@ it("serves a saved-position page in one resume request while ordinary refreshes,
     expect((await get("?message=" + ids[30])).status).toBe(404);
     expect((await get("?before=invalid")).status).toBe(400);
   } finally {
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

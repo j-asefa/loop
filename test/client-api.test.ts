@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { api, apiInWorkspace, authorizedFetch, readInWorkspace } from "../src/client/api";
+import {
+  api,
+  apiInWorkspace,
+  authorizedFetch,
+  readInWorkspace,
+} from "../src/client/api";
 import { callRoute, fetchStream } from "../src/client/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 beforeEach(() => vi.stubGlobal("location", { search: "" }));
@@ -7,8 +12,14 @@ afterEach(() => vi.unstubAllGlobals());
 it("fetches object downloads through their source-bound contract", async () => {
   const fetcher = vi.fn().mockResolvedValue(new Response("file"));
   vi.stubGlobal("fetch", fetcher);
-  await fetchStream(workspaceApi.objectFile, { params: { id: "object" } }, "docker:one");
-  expect(fetcher.mock.calls[0][0]).toBe("/api/agent-sources/docker%3Aone/objects/object");
+  await fetchStream(
+    workspaceApi.objectFile,
+    { params: { id: "object" } },
+    "docker:one",
+  );
+  expect(fetcher.mock.calls[0][0]).toBe(
+    "/api/agent-sources/docker%3Aone/objects/object",
+  );
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
@@ -17,15 +28,30 @@ it.each([
   "https://elsewhere.test/api/artifacts/file/file",
   "https://loop.test/api/agent-sources/docker%3Atwo/artifacts/file/file",
   "https://loop.test/api/artifacts/file/file",
-])("does not accept a streamed redirect outside its source: %s", async (url) => {
-  vi.stubGlobal("location", { href: "https://loop.test/", search: "" });
-  const dispatchEvent = vi.fn(); vi.stubGlobal("window", { dispatchEvent });
-  const response = new Response("<html>Sign in</html>", { headers: { "content-type": "text/html" } });
-  Object.defineProperties(response, { redirected: { value: true }, url: { value: url } });
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
-  await expect(callRoute(workspaceApi.artifactDownload, { params: { id: "file" } }, "docker:one")).rejects.toThrow("Sign in to Loop");
-  expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
-});
+])(
+  "does not accept a streamed redirect outside its source: %s",
+  async (url) => {
+    vi.stubGlobal("location", { href: "https://loop.test/", search: "" });
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    const response = new Response("<html>Sign in</html>", {
+      headers: { "content-type": "text/html" },
+    });
+    Object.defineProperties(response, {
+      redirected: { value: true },
+      url: { value: url },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    await expect(
+      callRoute(
+        workspaceApi.artifactDownload,
+        { params: { id: "file" } },
+        "docker:one",
+      ),
+    ).rejects.toThrow("Sign in to Loop");
+    expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
+  },
+);
 
 // The compiler enforces the transport boundary; these calls are never run.
 function pathTypes(path: string, signal: AbortSignal) {

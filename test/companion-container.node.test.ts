@@ -59,6 +59,11 @@ test("the shipped Docker command selects all four runtimes with empty preference
     },
   });
   assert.equal(positionals[0], "start");
-  assert.deepEqual(selectedHarnesses(values.providers), ["codex", "claude", "opencode", "pi"]);
+  assert.deepEqual(selectedHarnesses(values.providers), [
+    "codex",
+    "claude",
+    "opencode",
+    "pi",
+  ]);
   assert.equal(values.execution, "native");
 });

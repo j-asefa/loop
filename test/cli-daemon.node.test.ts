@@ -340,7 +340,11 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
       new URL(first.stdout.match(PAIR_URL)![0]),
     );
     natives.push(orphan);
-    process.kill(JSON.parse(await readFile(join(w.dir, "execution/owner.json"), "utf8")).pid, "SIGSTOP");
+    process.kill(
+      JSON.parse(await readFile(join(w.dir, "execution/owner.json"), "utf8"))
+        .pid,
+      "SIGSTOP",
+    );
     process.kill(first.pid, "SIGKILL");
     await until(() => !alive(first.pid));
     assert(alive(orphan));
@@ -372,10 +376,11 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
     await w.status().then((s) => assert.equal(s.state, "unresponsive"));
     // Records that no longer (or can't be shown to) belong to the workspace.
     // These must live until cleanup even when stop/relaunch is slow under load.
-    const reused = spawn(process.execPath, [
-      "-e",
-      "setInterval(() => {}, 1000)",
-    ], { detached: process.platform === "linux" });
+    const reused = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      { detached: process.platform === "linux" },
+    );
     const unverifiable = spawn(process.execPath, [
       "-e",
       "setInterval(() => {}, 1000)",
@@ -482,14 +487,29 @@ test("loop stop and status never act on a PID they can't confirm is the workspac
 
 test("stop reaches a current execution process even when a root registry retains its reused PID", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-stop-reused-"));
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], { detached: true, stdio: "ignore" });
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], {
+    detached: true,
+    stdio: "ignore",
+  });
   try {
     await until(() => !!identity(child.pid!));
     await mkdir(join(dir, "execution"));
-    await writeFile(join(dir, "stop-records.json"), JSON.stringify([{ pid: child.pid, identity: "prior-process" }]));
-    await writeFile(join(dir, "execution/children.json"), JSON.stringify([{ pid: child.pid, identity: identity(child.pid!) }]));
-    assert.deepEqual(await terminateWorkspace(dir, undefined, 200), { unresolved: [], survivors: [] });
-    assert(!alive(child.pid!), "the stale root record must not hide the current execution process");
+    await writeFile(
+      join(dir, "stop-records.json"),
+      JSON.stringify([{ pid: child.pid, identity: "prior-process" }]),
+    );
+    await writeFile(
+      join(dir, "execution/children.json"),
+      JSON.stringify([{ pid: child.pid, identity: identity(child.pid!) }]),
+    );
+    assert.deepEqual(await terminateWorkspace(dir, undefined, 200), {
+      unresolved: [],
+      survivors: [],
+    });
+    assert(
+      !alive(child.pid!),
+      "the stale root record must not hide the current execution process",
+    );
   } finally {
     if (alive(child.pid!)) child.kill("SIGKILL");
     await until(() => !alive(child.pid!));
@@ -563,7 +583,10 @@ test("a later stop still kills group members an interrupted one left behind", as
     );
     // A stale identity for this PID must not suppress recording the current
     // group member before its leader exits.
-    await writeFile(join(dir, "stop-records.json"), JSON.stringify([{ pid: member, identity: "prior-member" }]));
+    await writeFile(
+      join(dir, "stop-records.json"),
+      JSON.stringify([{ pid: member, identity: "prior-member" }]),
+    );
     // The first attempt ends after SIGTERM: the leader exits, the member doesn't.
     const first = await terminateWorkspace(dir, undefined, 1000, (pid, sig) => {
       if (sig === "SIGTERM") process.kill(pid, sig);
@@ -618,7 +641,9 @@ test("a retained native group and separate stop records survive registry replace
   let leader = 0,
     member = 0;
   let output = "";
-  host.stdout!.on("data", b => { output += String(b); });
+  host.stdout!.on("data", (b) => {
+    output += String(b);
+  });
   try {
     [leader, member] = await new Promise<number[]>((r) =>
       host.stdout!.once("data", (b) =>
@@ -631,7 +656,11 @@ test("a retained native group and separate stop records survive registry replace
     });
     assert.deepEqual(first.survivors, [leader]);
     await until(() => output.includes("registry-updated"));
-    assert(JSON.parse(readFileSync(registry, "utf8")).some((r: { pid: number }) => r.pid === leader));
+    assert(
+      JSON.parse(readFileSync(registry, "utf8")).some(
+        (r: { pid: number }) => r.pid === leader,
+      ),
+    );
     assert(alive(member));
     // An older workspace or another registry writer can still replace this
     // file. The stop's independently recorded member must remain sufficient.
@@ -722,22 +751,41 @@ test("loop stop preserves malformed execution registries and refuses to infer th
   const native = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
   try {
     await mkdir(join(w.dir, "execution"), { recursive: true });
-    const root = JSON.stringify([{ pid: recorded.pid, identity: identity(recorded.pid!) }]);
+    const root = JSON.stringify([
+      { pid: recorded.pid, identity: identity(recorded.pid!) },
+    ]);
     await writeFile(join(w.dir, "children.json"), root);
     for (const file of ["children.json", "stop-records.json"]) {
       const path = join(w.dir, "execution", file);
       for (const corrupt of ["[", "{}", '[{"pid":1,"identity":"invalid"}]']) {
         await writeFile(path, corrupt);
-        await assert.rejects(w.loop(["stop", "--json"]), /Process records are unreadable/);
-        assert.equal(await readFile(path, "utf8"), corrupt, "uncertain evidence stays byte-for-byte intact");
-        assert.equal(await readFile(join(w.dir, "children.json"), "utf8"), root);
-        assert(alive(recorded.pid!), "validate every registry before signalling any recorded process");
-        assert(alive(native.pid!), "an unrecorded survivor is not evidence of a completed stop");
+        await assert.rejects(
+          w.loop(["stop", "--json"]),
+          /Process records are unreadable/,
+        );
+        assert.equal(
+          await readFile(path, "utf8"),
+          corrupt,
+          "uncertain evidence stays byte-for-byte intact",
+        );
+        assert.equal(
+          await readFile(join(w.dir, "children.json"), "utf8"),
+          root,
+        );
+        assert(
+          alive(recorded.pid!),
+          "validate every registry before signalling any recorded process",
+        );
+        assert(
+          alive(native.pid!),
+          "an unrecorded survivor is not evidence of a completed stop",
+        );
       }
       await rm(path);
     }
   } finally {
-    recorded.kill("SIGKILL"); native.kill("SIGKILL");
+    recorded.kill("SIGKILL");
+    native.kill("SIGKILL");
     await w.cleanup();
   }
 });
@@ -847,8 +895,9 @@ async function nativeChild(dir: string, url: URL) {
   let pid = 0;
   await until(() => {
     try {
-      pid = JSON.parse(readFileSync(join(dir, "execution/children.json"), "utf8"))[0]
-        ?.pid;
+      pid = JSON.parse(
+        readFileSync(join(dir, "execution/children.json"), "utf8"),
+      )[0]?.pid;
     } catch {
       /* Not written yet. */
     }
@@ -897,7 +946,9 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
     const unavailable = join(w.dir, "unavailable-runtimes");
     await mkdir(unavailable, { recursive: true });
     for (const name of ["codex", "claude", "pi", "opencode"])
-      await writeFile(join(unavailable, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
+      await writeFile(join(unavailable, name), "#!/bin/sh\nexit 127\n", {
+        mode: 0o755,
+      });
     Object.assign(w.env, { PATH: `${unavailable}:${process.env.PATH}` });
     const first = await w.loop([
       "start",

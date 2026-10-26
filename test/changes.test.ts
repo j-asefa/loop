@@ -136,7 +136,11 @@ it("publishes nothing when SQLite rejects the outer commit", async () => {
       .transaction(() => {
         local.db.pragma("defer_foreign_keys = ON");
         local.emit("one", "one", "queued", {});
-        local.db.prepare("INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES('one','missing-run','running','{}',1)").run();
+        local.db
+          .prepare(
+            "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES('one','missing-run','running','{}',1)",
+          )
+          .run();
       })
       .immediate(),
   ).toThrow(/FOREIGN KEY/);
